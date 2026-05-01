@@ -438,6 +438,7 @@ export class ClaudeAgentRunner {
   private extensionManager?: AgentRuntimeExtensionManager;
   private activeControllers: Map<string, AbortController> = new Map();
   private piSessions: Map<string, CachedPiSession> = new Map();
+  private toolDisplayNameCache: Map<string, string> = new Map();
   private static readonly MAX_CACHED_SESSIONS = 50;
 
   // Per-instance caches — invalidated when the underlying config changes.
@@ -777,17 +778,27 @@ ${hints.join('\n')}
   }
 
   private getToolDisplayName(toolName: string): string {
+    const cached = this.toolDisplayNameCache.get(toolName);
+    if (cached) {
+      return cached;
+    }
+
+    let displayName = toolName;
     if (!toolName.startsWith('mcp__')) {
-      return toolName;
+      this.toolDisplayNameCache.set(toolName, displayName);
+      return displayName;
     }
 
     const mcpTool = this.mcpManager?.getTool(toolName);
     if (mcpTool?.originalName) {
-      return mcpTool.originalName;
+      displayName = mcpTool.originalName;
+    } else {
+      const match = toolName.match(/^mcp__(.+?)__(.+)$/);
+      displayName = match?.[2] || toolName;
     }
 
-    const match = toolName.match(/^mcp__(.+?)__(.+)$/);
-    return match?.[2] || toolName;
+    this.toolDisplayNameCache.set(toolName, displayName);
+    return displayName;
   }
 
   /**
