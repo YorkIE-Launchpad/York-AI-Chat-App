@@ -87,6 +87,16 @@ import {
 } from './utils/logger';
 import { listRecentWorkspaceFiles } from './utils/recent-workspace-files';
 import { buildDiagnosticsSummary } from './utils/diagnostics-summary';
+import {
+  parseHeadlessArgs,
+  redirectConsoleToStderr,
+  createHeadlessSendToRenderer,
+  emitSessionStarted,
+  emitSessionEnded,
+  emitHeadlessReady,
+  readStdinPrompt,
+  startRpcLoop,
+} from './cli/headless-io';
 
 // Current working directory (persisted between sessions)
 let currentWorkingDir: string | null = null;
@@ -804,6 +814,282 @@ app
       process.exit(0);
     }
 
+    // ── Headless mode ──────────────────────────────────────────────────
+    const headlessArgs = parseHeadlessArgs();
+
+    if (headlessArgs.headless) {
+      // Redirect console.log/warn to stderr so stdout stays clean JSONL
+      redirectConsoleToStderr();
+
+      log('[Headless] Starting in headless mode');
+      log('[Headless] Args:', JSON.stringify(headlessArgs));
+
+      // Apply dev logs setting
+      setDevLogsEnabled(configStore.get('enableDevLogs'));
+
+      // Initialize core systems (same as GUI path, minus window/tray/menu/updater)
+      const db = initDatabase();
+
+      pluginRuntimeService = new PluginRuntimeService(new PluginCatalogService());
+      memoryService = new MemoryService(db);
+      const headlessExtensionManager = new AgentRuntimeExtensionManager([
+        new MemoryExtension(memoryService),
+      ]);
+
+      // Use the headless JSONL writer instead of webContents.send
+      const headlessSendToRenderer = createHeadlessSendToRenderer();
+      sessionManager = new SessionManager(
+        db,
+        headlessSendToRenderer,
+        pluginRuntimeService,
+        headlessExtensionManager
+      );
+
+      // Auto-approve or auto-deny permissions in headless mode.
+      // The SessionManager fires permission.request events through sendToRenderer;
+      // in GUI mode the renderer shows a dialog and sends permission.response back.
+      // In headless mode we intercept these events and respond automatically.
+      const origHeadlessSend = headlessSendToRenderer;
+      const headlessSendWithPermission = (event: ServerEvent) => {
+        if (event.type === 'permission.request') {
+          const { toolUseId } = event.payload;
+          const result = headlessArgs.autoApprove ? 'allow' : 'deny';
+          log(
+            `[Headless] Permission ${result} for ${event.payload.toolName} (auto-approve=${headlessArgs.autoApprove})`
+          );
+          // Respond asynchronously to avoid blocking the event emission
+          setTimeout(() => {
+            sessionManager?.handlePermissionResponse(toolUseId, result);
+          }, 0);
+          // Still emit the event to stdout so the caller sees it
+        }
+        if (event.type === 'sudo.password.request') {
+          const { toolUseId } = event.payload;
+          log('[Headless] Sudo password request denied (headless mode)');
+          setTimeout(() => {
+            sessionManager?.handleSudoPasswordResponse(toolUseId, null);
+          }, 0);
+        }
+        origHeadlessSend(event);
+      };
+
+      // Recreate SessionManager with the permission-intercepting sender
+      sessionManager = new SessionManager(
+        db,
+        headlessSendWithPermission,
+        pluginRuntimeService,
+        headlessExtensionManager
+      );
+
+      skillsManager = new SkillsManager(db, {
+        getConfiguredGlobalSkillsPath: () => configStore.get('globalSkillsPath') || '',
+        setConfiguredGlobalSkillsPath: (nextPath: string) => {
+          configStore.update({ globalSkillsPath: nextPath });
+        },
+        watchStorage: false, // No renderer to notify in headless mode
+      });
+
+      // Set working directory from --cwd flag
+      currentWorkingDir = headlessArgs.cwd;
+      log('[Headless] Working directory:', currentWorkingDir);
+
+      // Initialize scheduled task manager (runs in background)
+      const headlessScheduledTaskStore = createScheduledTaskStore(db);
+      scheduledTaskManager = new ScheduledTaskManager({
+        store: headlessScheduledTaskStore,
+        executeTask: async (task) => {
+          if (!sessionManager) {
+            throw new Error('Session manager not initialized');
+          }
+          const unsupportedReason = getWorkspacePathUnsupportedReason(task.cwd);
+          if (unsupportedReason) {
+            throw new Error(unsupportedReason);
+          }
+          const fallbackTitle = buildScheduledTaskFallbackTitle(task.prompt);
+          const needsRegeneratedTitle = !task.title?.trim() || task.title === fallbackTitle;
+          const title = needsRegeneratedTitle
+            ? await resolveScheduledTaskTitle(task.prompt, task.cwd, task.title)
+            : buildScheduledTaskTitle(task.title);
+          if (title !== task.title) {
+            headlessScheduledTaskStore.update(task.id, { title });
+          }
+          await sessionManager.startSession(title, task.prompt, task.cwd);
+          return { sessionId: '' };
+        },
+        onTaskError: (taskId, error) => {
+          headlessSendWithPermission({
+            type: 'scheduled-task.error',
+            payload: { taskId, error },
+          });
+        },
+        now: () => Date.now(),
+      });
+      scheduledTaskManager.start();
+
+      // Headless cleanup on exit signals
+      const headlessCleanup = async () => {
+        log('[Headless] Cleaning up...');
+        scheduledTaskManager?.stop();
+        try {
+          const mcpManager = sessionManager?.getMCPManager();
+          if (mcpManager) {
+            await mcpManager.shutdown();
+          }
+        } catch (e) {
+          logError('[Headless] MCP shutdown error:', e);
+        }
+        try {
+          closeDatabase();
+        } catch (e) {
+          logError('[Headless] DB close error:', e);
+        }
+        closeLogFile();
+      };
+
+      // Handle SIGTERM/SIGINT for headless mode
+      for (const sig of ['SIGTERM', 'SIGINT'] as const) {
+        process.on(sig, async () => {
+          log(`[Headless] Received ${sig}`);
+          // Stop all active sessions
+          if (sessionManager) {
+            const sessions = sessionManager.listSessions();
+            for (const s of sessions) {
+              if (s.status === 'running') {
+                try {
+                  await sessionManager.stopSession(s.id);
+                } catch {
+                  // Best effort
+                }
+              }
+            }
+          }
+          await headlessCleanup();
+          process.exit(0);
+        });
+      }
+
+      if (headlessArgs.prompt) {
+        // ── Single-shot mode: run prompt, stream output, exit ──
+        log('[Headless] Single-shot mode with prompt');
+
+        if (!configStore.hasUsableCredentialsForActiveSet()) {
+          headlessSendWithPermission({
+            type: 'error',
+            payload: {
+              message: 'No usable API credentials configured. Run the GUI to set up API keys.',
+              code: 'CONFIG_REQUIRED_ACTIVE_SET',
+            },
+          });
+          await headlessCleanup();
+          process.exit(1);
+          return;
+        }
+
+        try {
+          const session = await sessionManager.startSession(
+            'Headless Session',
+            headlessArgs.prompt,
+            headlessArgs.cwd
+          );
+          emitSessionStarted(session.id);
+
+          // Wait for the session to complete by polling status.
+          // The SessionManager emits session.status events through sendToRenderer,
+          // but we also need to know when to exit.
+          await new Promise<void>((resolve) => {
+            const checkInterval = setInterval(() => {
+              const sessions = sessionManager!.listSessions();
+              const current = sessions.find((s) => s.id === session.id);
+              if (!current || current.status === 'idle' || current.status === 'error') {
+                clearInterval(checkInterval);
+                resolve();
+              }
+            }, 500);
+          });
+
+          emitSessionEnded(session.id);
+          await headlessCleanup();
+          process.exit(0);
+        } catch (err) {
+          logError('[Headless] Session error:', err);
+          headlessSendWithPermission({
+            type: 'error',
+            payload: {
+              message: err instanceof Error ? err.message : String(err),
+            },
+          });
+          await headlessCleanup();
+          process.exit(1);
+        }
+      } else if (headlessArgs.mode === 'rpc') {
+        // ── RPC mode: read ClientEvent JSONL from stdin, keep running ──
+        log('[Headless] RPC mode — reading JSONL from stdin');
+        emitHeadlessReady();
+
+        startRpcLoop(async (event) => {
+          return handleClientEvent(event);
+        });
+
+        // Process stays alive until stdin closes or signal received
+      } else {
+        // No prompt and not RPC mode — try reading from stdin pipe
+        log('[Headless] Attempting to read prompt from stdin');
+        const stdinPrompt = await readStdinPrompt();
+        if (stdinPrompt) {
+          if (!configStore.hasUsableCredentialsForActiveSet()) {
+            headlessSendWithPermission({
+              type: 'error',
+              payload: {
+                message: 'No usable API credentials configured.',
+                code: 'CONFIG_REQUIRED_ACTIVE_SET',
+              },
+            });
+            await headlessCleanup();
+            process.exit(1);
+            return;
+          }
+
+          try {
+            const session = await sessionManager.startSession(
+              'Headless Session',
+              stdinPrompt,
+              headlessArgs.cwd
+            );
+            emitSessionStarted(session.id);
+
+            await new Promise<void>((resolve) => {
+              const checkInterval = setInterval(() => {
+                const sessions = sessionManager!.listSessions();
+                const current = sessions.find((s) => s.id === session.id);
+                if (!current || current.status === 'idle' || current.status === 'error') {
+                  clearInterval(checkInterval);
+                  resolve();
+                }
+              }, 500);
+            });
+
+            emitSessionEnded(session.id);
+            await headlessCleanup();
+            process.exit(0);
+          } catch (err) {
+            logError('[Headless] Session error:', err);
+            await headlessCleanup();
+            process.exit(1);
+          }
+        } else {
+          process.stderr.write(
+            'Error: --headless requires either -p "prompt", --mode rpc, or piped stdin\n'
+          );
+          await headlessCleanup();
+          process.exit(1);
+        }
+      }
+
+      return; // Skip all GUI initialization below
+    }
+
+    // ── GUI mode (default) ─────────────────────────────────────────────
+
     // Apply dev logs setting from config
     const enableDevLogs = configStore.get('enableDevLogs');
     setDevLogsEnabled(enableDevLogs);
@@ -1105,6 +1391,10 @@ async function cleanupSandboxResources(): Promise<void> {
 
 // Handle app quit - window-all-closed (primary for Windows/Linux)
 app.on('window-all-closed', async () => {
+  // In headless mode there are no windows, so this event fires immediately.
+  // The headless path manages its own lifecycle — skip cleanup here.
+  if (process.argv.includes('--headless')) return;
+
   if (process.platform !== 'darwin' || process.env.VITE_DEV_SERVER_URL) {
     // On Windows/Linux, closing all windows means quit.
     // On macOS dev mode, also quit — so vite-plugin-electron can restart cleanly
