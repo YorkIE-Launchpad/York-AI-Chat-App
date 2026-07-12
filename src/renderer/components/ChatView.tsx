@@ -64,6 +64,8 @@ export function ChatView() {
   const prevPartialLengthRef = useRef(0);
   const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollRequestRef = useRef<number | null>(null);
+  const scrollStateRequestRef = useRef<number | null>(null);
+  const pendingScrollStateRef = useRef<{ sessionId: string; scrollTop: number } | null>(null);
   const isScrollingRef = useRef(false);
 
   const hasActiveTurn = Boolean(activeTurn);
@@ -200,19 +202,41 @@ export function ChatView() {
   useEffect(() => {
     const container = scrollContainerRef.current;
     if (!container) return;
+
+    const flushScrollPosition = () => {
+      scrollStateRequestRef.current = null;
+      const pending = pendingScrollStateRef.current;
+      pendingScrollStateRef.current = null;
+      if (pending) {
+        useAppStore.getState().setSessionScrollPosition(pending.sessionId, pending.scrollTop);
+      }
+    };
+
     const updateScrollState = () => {
       const distanceToBottom =
         container.scrollHeight - container.scrollTop - container.clientHeight;
       isUserAtBottomRef.current = distanceToBottom <= 80;
       if (activeSessionId) {
-        useAppStore.getState().setSessionScrollPosition(activeSessionId, container.scrollTop);
+        pendingScrollStateRef.current = {
+          sessionId: activeSessionId,
+          scrollTop: container.scrollTop,
+        };
+        if (scrollStateRequestRef.current === null) {
+          scrollStateRequestRef.current = requestAnimationFrame(flushScrollPosition);
+        }
       }
     };
     updateScrollState();
-    // 用户阅读旧消息时，阻止新消息自动滚动打断视线
+    // Keep new messages from interrupting the user while they read older content.
     const onScroll = () => updateScrollState();
     container.addEventListener('scroll', onScroll, { passive: true });
-    return () => container.removeEventListener('scroll', onScroll);
+    return () => {
+      container.removeEventListener('scroll', onScroll);
+      if (scrollStateRequestRef.current !== null) {
+        cancelAnimationFrame(scrollStateRequestRef.current);
+      }
+      flushScrollPosition();
+    };
   }, [activeSessionId]);
 
   useEffect(() => {
