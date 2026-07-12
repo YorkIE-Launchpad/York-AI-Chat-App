@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   useActiveSessionId,
@@ -17,6 +17,7 @@ import { SubagentTracker } from './SubagentTracker';
 import { ContextUsageBar } from './ContextUsageBar';
 import type { Message, ContentBlock } from '../types';
 import { Send, Square, Plus, Loader2, Plug, X, Clock } from 'lucide-react';
+import { isScrollNearBottom, resolveSessionScrollTop } from '../utils/chat-scroll-position';
 
 type AttachedFile = {
   name: string;
@@ -63,6 +64,8 @@ export function ChatView() {
   const prevPartialLengthRef = useRef(0);
   const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollRequestRef = useRef<number | null>(null);
+  const scrollStateRequestRef = useRef<number | null>(null);
+  const pendingScrollStateRef = useRef<{ sessionId: string; scrollTop: number } | null>(null);
   const isScrollingRef = useRef(false);
 
   const hasActiveTurn = Boolean(activeTurn);
@@ -133,6 +136,30 @@ export function ChatView() {
       : Math.max(0, (executionClock.endAt ?? clockNow) - executionClock.startAt);
   const timerActive = Boolean(executionClock?.startAt && executionClock.endAt === null);
 
+  useLayoutEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container || !activeSessionId) return;
+
+    const savedScrollTop = useAppStore.getState().sessionScrollPositions[activeSessionId];
+    const restoredScrollTop = resolveSessionScrollTop(
+      savedScrollTop,
+      container.scrollHeight,
+      container.clientHeight
+    );
+    container.scrollTop = restoredScrollTop;
+    isUserAtBottomRef.current = isScrollNearBottom(
+      restoredScrollTop,
+      container.scrollHeight,
+      container.clientHeight
+    );
+
+    // Prevent the generic new-message effect from overriding the session restore.
+    const sessionState = useAppStore.getState().sessionStates[activeSessionId];
+    prevMessageCountRef.current = sessionState?.messages.length ?? 0;
+    prevPartialLengthRef.current =
+      (sessionState?.partialMessage.length ?? 0) + (sessionState?.partialThinking.length ?? 0);
+  }, [activeSessionId]);
+
   // Debounced scroll function to prevent scroll conflicts
   const scrollToBottom = useRef((behavior: ScrollBehavior = 'auto', immediate: boolean = false) => {
     // Cancel any pending scroll requests
@@ -175,17 +202,42 @@ export function ChatView() {
   useEffect(() => {
     const container = scrollContainerRef.current;
     if (!container) return;
+
+    const flushScrollPosition = () => {
+      scrollStateRequestRef.current = null;
+      const pending = pendingScrollStateRef.current;
+      pendingScrollStateRef.current = null;
+      if (pending) {
+        useAppStore.getState().setSessionScrollPosition(pending.sessionId, pending.scrollTop);
+      }
+    };
+
     const updateScrollState = () => {
       const distanceToBottom =
         container.scrollHeight - container.scrollTop - container.clientHeight;
       isUserAtBottomRef.current = distanceToBottom <= 80;
+      if (activeSessionId) {
+        pendingScrollStateRef.current = {
+          sessionId: activeSessionId,
+          scrollTop: container.scrollTop,
+        };
+        if (scrollStateRequestRef.current === null) {
+          scrollStateRequestRef.current = requestAnimationFrame(flushScrollPosition);
+        }
+      }
     };
     updateScrollState();
-    // 用户阅读旧消息时，阻止新消息自动滚动打断视线
+    // Keep new messages from interrupting the user while they read older content.
     const onScroll = () => updateScrollState();
     container.addEventListener('scroll', onScroll, { passive: true });
-    return () => container.removeEventListener('scroll', onScroll);
-  }, []);
+    return () => {
+      container.removeEventListener('scroll', onScroll);
+      if (scrollStateRequestRef.current !== null) {
+        cancelAnimationFrame(scrollStateRequestRef.current);
+      }
+      flushScrollPosition();
+    };
+  }, [activeSessionId]);
 
   useEffect(() => {
     const messageCount = messages.length;

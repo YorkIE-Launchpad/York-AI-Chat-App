@@ -93,6 +93,9 @@ interface AppState {
   // Per-session state (messages, partials, turns, traces, etc.)
   sessionStates: Record<string, SessionState>;
 
+  // Ephemeral viewport state, kept separate so scrolling does not rerender message consumers.
+  sessionScrollPositions: Record<string, number>;
+
   // UI state
   isLoading: boolean;
   sidebarCollapsed: boolean;
@@ -138,6 +141,7 @@ interface AppState {
   removeSession: (sessionId: string) => void;
   removeSessions: (sessionIds: string[]) => void;
   setActiveSession: (sessionId: string | null) => void;
+  setSessionScrollPosition: (sessionId: string, scrollTop: number) => void;
 
   addMessage: (sessionId: string, message: Message) => void;
   updateMessage: (sessionId: string, messageId: string, updates: Partial<Message>) => void;
@@ -238,6 +242,7 @@ export const useAppStore = create<AppState>((set) => ({
   sessions: [],
   activeSessionId: null,
   sessionStates: {},
+  sessionScrollPositions: {},
   isLoading: false,
   sidebarCollapsed: false,
   contextPanelCollapsed: false,
@@ -279,9 +284,13 @@ export const useAppStore = create<AppState>((set) => ({
   removeSession: (sessionId) =>
     set((state) => {
       const { [sessionId]: _, ...restSessionStates } = state.sessionStates;
+      const restScrollPositions = Object.fromEntries(
+        Object.entries(state.sessionScrollPositions).filter(([id]) => id !== sessionId)
+      );
       return {
         sessions: state.sessions.filter((s) => s.id !== sessionId),
         sessionStates: restSessionStates,
+        sessionScrollPositions: restScrollPositions,
         activeSessionId: state.activeSessionId === sessionId ? null : state.activeSessionId,
       };
     }),
@@ -290,19 +299,32 @@ export const useAppStore = create<AppState>((set) => ({
     set((state) => {
       const idSet = new Set(sessionIds);
       const newSessionStates: Record<string, SessionState> = {};
+      const newScrollPositions: Record<string, number> = {};
       for (const key of Object.keys(state.sessionStates)) {
         if (!idSet.has(key)) newSessionStates[key] = state.sessionStates[key];
+      }
+      for (const key of Object.keys(state.sessionScrollPositions)) {
+        if (!idSet.has(key)) newScrollPositions[key] = state.sessionScrollPositions[key];
       }
 
       return {
         sessions: state.sessions.filter((s) => !idSet.has(s.id)),
         sessionStates: newSessionStates,
+        sessionScrollPositions: newScrollPositions,
         activeSessionId:
           state.activeSessionId && idSet.has(state.activeSessionId) ? null : state.activeSessionId,
       };
     }),
 
   setActiveSession: (sessionId) => set({ activeSessionId: sessionId }),
+
+  setSessionScrollPosition: (sessionId, scrollTop) =>
+    set((state) => ({
+      sessionScrollPositions: {
+        ...state.sessionScrollPositions,
+        [sessionId]: scrollTop,
+      },
+    })),
 
   // Message actions
   addMessage: (sessionId, message) =>
