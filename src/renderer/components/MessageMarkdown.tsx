@@ -4,6 +4,7 @@ import remarkMath from 'remark-math';
 import remarkGfm from 'remark-gfm';
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
 import rehypeKatex from 'rehype-katex';
+import { AUTO_TEXT_DIRECTION_PROPS } from '../utils/text-direction';
 
 // Hoisted to module scope to avoid re-creating arrays on every render
 const REMARK_PLUGINS = [remarkMath, [remarkGfm, { singleTilde: false }]] as const;
@@ -42,7 +43,10 @@ export const MessageMarkdown = memo(function MessageMarkdown({
   components,
 }: MessageMarkdownProps) {
   return (
-    <div className="prose-chat max-w-none text-text-primary">
+    <div
+      {...AUTO_TEXT_DIRECTION_PROPS}
+      className="prose-chat max-w-none text-text-primary text-start"
+    >
       <ReactMarkdown
         remarkPlugins={
           REMARK_PLUGINS as unknown as Parameters<typeof ReactMarkdown>[0]['remarkPlugins']
