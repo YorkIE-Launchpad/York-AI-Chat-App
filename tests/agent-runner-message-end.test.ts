@@ -63,6 +63,64 @@ describe('resolveMessageEndPayload', () => {
       '模型返回了一个空的成功结果，当前模型或网关兼容性可能有问题，请重试或切换协议后再试。'
     );
   });
+
+  it('preserves literal <think> in text as-is (never parsed)', () => {
+    const result = resolveMessageEndPayload({
+      message: {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'Use <think>reasoning</think> to think' }],
+        stopReason: 'stop',
+      },
+      streamedText: '',
+    });
+
+    expect(result.effectiveContent).toEqual([
+      { type: 'text', text: 'Use <think>reasoning</think> to think' },
+    ]);
+  });
+
+  it('preserves literal <think> in thinking block content (reasoning field mentions <think>)', () => {
+    const result = resolveMessageEndPayload({
+      message: {
+        role: 'assistant',
+        content: [
+          {
+            type: 'thinking',
+            thinking: 'The user asks about <think> and </think> tags and what they mean.',
+          },
+          { type: 'text', text: 'The <think> tag wraps reasoning.' },
+        ],
+        stopReason: 'stop',
+      },
+      streamedText: '',
+    });
+
+    expect(result.effectiveContent).toEqual([
+      {
+        type: 'thinking',
+        thinking: 'The user asks about <think> and </think> tags and what they mean.',
+      },
+      { type: 'text', text: 'The <think> tag wraps reasoning.' },
+    ]);
+  });
+
+  it('preserves literal <think> in streamedText when message content is empty (Ollama streaming fallback)', () => {
+    const result = resolveMessageEndPayload({
+      message: {
+        role: 'assistant',
+        content: [],
+        stopReason: 'stop',
+      },
+      streamedText: 'The <think> tag is used for reasoning, not <think>actual reasoning</think>.',
+    });
+
+    expect(result.effectiveContent).toEqual([
+      {
+        type: 'text',
+        text: 'The <think> tag is used for reasoning, not <think>actual reasoning</think>.',
+      },
+    ]);
+  });
 });
 
 describe('toUserFacingErrorText', () => {
@@ -238,18 +296,14 @@ describe('buildTerminalErrorMessage', () => {
 });
 
 describe('buildTerminalErrorEmissionDetails', () => {
-  it('preserves flushed thinking/text deltas and appends them to partial text', () => {
+  it('preserves streamed partial text before the error footer', () => {
     const result = buildTerminalErrorEmissionDetails({
       errorText: 'HTTP 400: invalid request',
       streamedText: 'Partial body',
-      flushedThinking: 'inner reasoning',
-      flushedText: ' plus tail',
     });
 
-    expect(result.thinkingDelta).toBe('inner reasoning');
-    expect(result.textDelta).toBe(' plus tail');
-    expect(result.partialText).toBe('Partial body plus tail');
-    expect(result.messageText).toContain('Partial body plus tail');
+    expect(result.partialText).toBe('Partial body');
+    expect(result.messageText).toContain('Partial body');
     expect(result.messageText).toContain('**Error**: HTTP 400: invalid request');
   });
 
@@ -259,8 +313,6 @@ describe('buildTerminalErrorEmissionDetails', () => {
       streamedText: '',
     });
 
-    expect(result.thinkingDelta).toBeUndefined();
-    expect(result.textDelta).toBeUndefined();
     expect(result.partialText).toBe('');
     expect(result.messageText).toContain('Agent 正在自动重试');
   });

@@ -33,6 +33,10 @@ function renderThinkingPreview(raw: string): React.ReactNode[] {
   return parts;
 }
 
+export function escapeThinkTags(text: string): string {
+  return text.replace(/<(\/?think)>/g, '&lt;$1&gt;');
+}
+
 interface ThinkingBlockProps {
   block: { type: 'thinking'; thinking: string };
 }
@@ -82,7 +86,7 @@ export const ThinkingBlock = memo(function ThinkingBlock({ block }: ThinkingBloc
               fallback={<div className="whitespace-pre-wrap">{text}</div>}
             >
               <Suspense fallback={<div className="whitespace-pre-wrap">{text}</div>}>
-                <MessageMarkdown normalizedText={text} />
+                <MessageMarkdown normalizedText={escapeThinkTags(text)} />
               </Suspense>
             </PanelErrorBoundary>
           </div>

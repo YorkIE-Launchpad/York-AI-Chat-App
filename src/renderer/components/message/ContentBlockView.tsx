@@ -17,7 +17,7 @@ import { normalizeLatexDelimiters } from '../../utils/latex-delimiters';
 import type { ToolUseContent, ToolResultContent, FileAttachmentContent } from '../../types';
 import { FileText } from 'lucide-react';
 import { CodeBlock } from './CodeBlock';
-import { ThinkingBlock } from './ThinkingBlock';
+import { ThinkingBlock, escapeThinkTags } from './ThinkingBlock';
 import { ToolUseBlock } from './ToolUseBlock';
 import { ToolResultBlock } from './ToolResultBlock';
 import type { ContentBlockViewProps } from './types';
@@ -290,7 +290,7 @@ export const ContentBlockView = memo(function ContentBlockView({
             }
           >
             <MessageMarkdown
-              normalizedText={normalizedText}
+              normalizedText={escapeThinkTags(normalizedText)}
               isStreaming={isStreaming}
               components={markdownComponents}
             />

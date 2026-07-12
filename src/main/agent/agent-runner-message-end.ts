@@ -5,7 +5,6 @@ import type {
   ThinkingContent,
   ToolCall,
 } from '@mariozechner/pi-ai';
-import { splitThinkTagBlocks } from './think-tag-parser';
 
 type MessageEndContentBlock = TextContent | ThinkingContent | ToolCall;
 
@@ -26,8 +25,6 @@ interface ResolvedMessageEndPayload {
 const FOUR_XX_ERROR_RE = /\b4\d{2}\b/;
 
 export interface TerminalErrorEmissionDetails {
-  thinkingDelta?: string;
-  textDelta?: string;
   partialText: string;
   messageText: string;
 }
@@ -114,16 +111,10 @@ export function buildTerminalErrorMessage(errorText: string, partialText = ''): 
 export function buildTerminalErrorEmissionDetails(options: {
   errorText: string;
   streamedText: string;
-  flushedThinking?: string;
-  flushedText?: string;
 }): TerminalErrorEmissionDetails {
-  const thinkingDelta = options.flushedThinking || undefined;
-  const textDelta = options.flushedText || undefined;
-  const partialText = `${options.streamedText}${options.flushedText || ''}`;
+  const partialText = options.streamedText;
 
   return {
-    thinkingDelta,
-    textDelta,
     partialText,
     messageText: buildTerminalErrorMessage(options.errorText, partialText),
   };
@@ -177,30 +168,9 @@ export function resolveMessageEndPayload(
     };
   }
 
-  // Post-process: split any <think>...</think> tags in text blocks into
-  // separate thinking + text content blocks for proper UI rendering.
-  const effectiveContent: MessageEndContentBlock[] = [];
-  for (const block of rawContent) {
-    if (block.type === 'text') {
-      const splitBlocks = splitThinkTagBlocks(block.text);
-      for (const splitBlock of splitBlocks) {
-        if (splitBlock.type === 'thinking') {
-          effectiveContent.push({
-            type: 'thinking',
-            thinking: splitBlock.thinking,
-          } as ThinkingContent);
-        } else {
-          effectiveContent.push({ type: 'text', text: splitBlock.text } as TextContent);
-        }
-      }
-    } else {
-      effectiveContent.push(block);
-    }
-  }
-
   return {
-    effectiveContent,
+    effectiveContent: rawContent,
     nextStreamedText,
-    shouldEmitMessage: effectiveContent.length > 0 && (message?.role === 'assistant' || !message),
+    shouldEmitMessage: rawContent.length > 0 && (message?.role === 'assistant' || !message),
   };
 }
