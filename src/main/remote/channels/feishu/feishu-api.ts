@@ -1,6 +1,6 @@
 /**
  * Feishu API Client
- * 飞书开放平台 API 封装
+ * Feishu Open Platform API wrapper
  */
 
 import { log, logError } from '../../../utils/logger';

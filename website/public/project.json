@@ -1,11 +1,10 @@
 {
   "schemaVersion": "1.0",
-  "name": "York IE",
+  "name": "York IE VECOS",
   "organization": "York IE",
   "canonicalUrl": "https://york.ie/",
   "localizedUrls": {
-    "en": "https://york.ie/",
-    "zh-CN": "https://york.ie/zh/"
+    "en": "https://york.ie/"
   },
   "repository": "https://york.ie",
   "releases": "https://york.ie",
@@ -80,7 +79,7 @@
     "localFirst": true,
     "workspaceBoundary": "File operations are restricted to the selected workspace folder.",
     "vmIsolation": ["WSL2 on Windows", "Lima on macOS"],
-    "dataPolicy": "York IE runs locally; the external network path is the AI model API configured by the user. The project website states that York IE does not send data to York IE servers."
+    "dataPolicy": "York IE VECOS runs locally; the external network path is the AI model API configured by the user. The project website states that York IE VECOS does not send data to York IE servers."
   },
   "machineReadableResources": {
     "llmsTxt": "https://york.ie/llms.txt",
@@ -91,7 +90,6 @@
   },
   "sourcePages": [
     "https://york.ie/blob/main/README.md",
-    "https://york.ie/blob/main/README_zh.md",
     "https://york.ie/blob/main/CHANGELOG.md",
     "https://york.ie/blob/main/ROADMAP.md",
     "https://york.ie/blob/main/SECURITY.md",

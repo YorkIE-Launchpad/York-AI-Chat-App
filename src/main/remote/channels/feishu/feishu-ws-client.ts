@@ -1,6 +1,6 @@
 /**
  * Feishu WebSocket Long Connection Client
- * 飞书长连接客户端 - 无需公网 IP 或 ngrok
+ * Feishu long-connection client — no public IP or ngrok required
  */
 
 import * as Lark from '@larksuiteoapi/node-sdk';

@@ -7,7 +7,7 @@
 
 set -euo pipefail
 
-APP_NAME="York IE"
+APP_NAME="York IE VECOS"
 APP_PATH="/Applications/${APP_NAME}.app"
 ARTIFACT_NAME="york-ie-macos"
 

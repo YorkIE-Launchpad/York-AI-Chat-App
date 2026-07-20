@@ -17,33 +17,33 @@ const FEATURE_LIST = [
   'MCP integration for browsers, Notion, and other desktop tools',
   'GUI automation through computer use',
   'Remote control through Feishu (Lark) and Slack',
-  'Local-first operation with no York IE telemetry',
+  'Local-first operation with no York IE VECOS telemetry',
 ];
 const FAQ_ITEMS = [
   {
-    question: 'What is York IE?',
+    question: 'What is York IE VECOS?',
     answer:
-      'York IE is a free, open-source AI agent desktop application for Windows and macOS. It wraps AI models into a user-friendly GUI with one-click installation.',
+      'York IE VECOS is a free, open-source AI agent desktop application for Windows and macOS. It wraps AI models into a user-friendly GUI with one-click installation.',
   },
   {
     question: 'What AI models are supported?',
     answer:
-      'York IE supports Claude through Anthropic or OpenRouter, OpenAI-compatible APIs, and models such as Gemini, DeepSeek, GLM, MiniMax, and Kimi.',
+      'York IE VECOS supports Claude through Anthropic or OpenRouter, OpenAI-compatible APIs, and models such as Gemini, DeepSeek, GLM, MiniMax, and Kimi.',
   },
   {
-    question: 'Is York IE free?',
+    question: 'Is York IE VECOS free?',
     answer:
-      'Yes. York IE is free and open-source under the MIT license. Users pay only for usage from their chosen AI model provider.',
+      'Yes. York IE VECOS is free and open-source under the MIT license. Users pay only for usage from their chosen AI model provider.',
   },
   {
     question: 'How does sandbox isolation work?',
     answer:
-      'York IE uses WSL2 on Windows and Lima on macOS to run AI-executed commands inside an isolated Linux VM when available, with path-based workspace restrictions as a baseline.',
+      'York IE VECOS uses WSL2 on Windows and Lima on macOS to run AI-executed commands inside an isolated Linux VM when available, with path-based workspace restrictions as a baseline.',
   },
   {
-    question: 'Does York IE send data to its own servers?',
+    question: 'Does York IE VECOS send data to its own servers?',
     answer:
-      'No. York IE runs locally. The only external communication is with the AI model API configured by the user.',
+      'No. York IE VECOS runs locally. The only external communication is with the AI model API configured by the user.',
   },
 ];
 const STRUCTURED_DATA = {
@@ -59,15 +59,15 @@ const STRUCTURED_DATA = {
     {
       '@type': 'WebSite',
       '@id': `${SITE_URL}#website`,
-      name: 'York IE',
+      name: 'York IE VECOS',
       url: SITE_URL,
-      inLanguage: ['en', 'zh-CN'],
+      inLanguage: ['en'],
       publisher: { '@id': `${SITE_URL}#organization` },
     },
     {
       '@type': 'SoftwareApplication',
       '@id': `${SITE_URL}#software`,
-      name: 'York IE',
+      name: 'York IE VECOS',
       description: PROJECT_DESCRIPTION,
       url: SITE_URL,
       image: OG_IMAGE,
@@ -100,7 +100,7 @@ const STRUCTURED_DATA = {
 };
 
 export default defineConfig({
-  title: 'York IE',
+  title: 'York IE VECOS',
   description:
     'Open-source AI agent desktop app for Windows & macOS — one-click install Claude Code, MCP tools, and Skills with sandbox isolation and multi-model support.',
 
@@ -123,11 +123,11 @@ export default defineConfig({
       {
         rel: 'alternate',
         type: 'application/json',
-        title: 'York IE project metadata',
+        title: 'York IE VECOS project metadata',
         href: '/project.json',
       },
     ],
-    ['meta', { name: 'application-name', content: 'York IE' }],
+    ['meta', { name: 'application-name', content: 'York IE VECOS' }],
     [
       'meta',
       {
@@ -137,7 +137,7 @@ export default defineConfig({
     ],
     // Open Graph
     ['meta', { property: 'og:type', content: 'website' }],
-    ['meta', { property: 'og:title', content: 'York IE — Open-Source AI Agent Desktop App' }],
+    ['meta', { property: 'og:title', content: 'York IE VECOS — Open-Source AI Agent Desktop App' }],
     [
       'meta',
       {
@@ -150,7 +150,10 @@ export default defineConfig({
     ['meta', { property: 'og:url', content: SITE_URL }],
     // Twitter Card
     ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
-    ['meta', { name: 'twitter:title', content: 'York IE — Open-Source AI Agent Desktop App' }],
+    [
+      'meta',
+      { name: 'twitter:title', content: 'York IE VECOS — Open-Source AI Agent Desktop App' },
+    ],
     [
       'meta',
       {
@@ -166,7 +169,7 @@ export default defineConfig({
       {
         name: 'keywords',
         content:
-          'York IE, AI agent, desktop app, Claude Code, MCP, Skills, sandbox, open source, Windows, macOS, multi-model, PPTX generator, Feishu, Slack',
+          'York IE VECOS, AI agent, desktop app, Claude Code, MCP, Skills, sandbox, open source, Windows, macOS, multi-model, PPTX generator, Feishu, Slack',
       },
     ],
     // Schema.org JSON-LD
@@ -201,22 +204,6 @@ export default defineConfig({
     root: {
       label: 'English',
       lang: 'en',
-    },
-    zh: {
-      label: '中文',
-      lang: 'zh-CN',
-      description: '免费开源的 AI 智能助手桌面应用，支持 Windows 和 macOS 一键安装。',
-      themeConfig: {
-        nav: [
-          { text: '首页', link: '/zh/' },
-          { text: '下载', link: 'https://york.ie' },
-          { text: 'GitHub', link: 'https://york.ie' },
-        ],
-        footer: {
-          message: '基于 MIT 协议开源。',
-          copyright: '© 2025-present York IE',
-        },
-      },
     },
   },
 });

@@ -1,8 +1,8 @@
-# York IE - Startup Script
+# York IE VECOS - Startup Script
 # This script starts the application.
 # Environment variables should be set in .env file or system environment.
 
-Write-Host "Starting York IE..." -ForegroundColor Cyan
+Write-Host "Starting York IE VECOS..." -ForegroundColor Cyan
 Write-Host ""
 
 # Check if .env file exists

@@ -26,7 +26,7 @@ All AI requests go through Claude Agent SDK directly - no proxy layer.
 - TypeScript strict mode, ESLint + Prettier (2-space indent)
 - React functional components with hooks
 - Tailwind CSS (no CSS modules), `lucide-react` for icons
-- i18n via i18next (Chinese + English)
+- i18n via i18next (English)
 - IPC via Electron ipcMain/ipcRenderer
 - MCP servers: stdio, SSE, Streamable HTTP transports
 
@@ -109,7 +109,7 @@ fi
 - **Evidence**: cite specific files and line numbers using `path:line`.
 - **No speculation**: if uncertain, say so; if not found, say "Not found in repo/docs".
 - **Missing info**: ask only when required; max 4 questions.
-- **Language**: match the PR's language (Chinese or English); if mixed, use the dominant language.
+- **Language**: Write the review in English.
 - **Signature**: end with `*York IE Bot*`.
 - **Diff focus**: only comment on added/modified lines; use unchanged code only for context.
 - **Authoritative scope**: the current `gh pr diff` and current Files Changed list are the only authoritative PR scope. Before reporting or repeating a finding, verify its path is currently changed and its anchor is an added or modified line; otherwise discard it.

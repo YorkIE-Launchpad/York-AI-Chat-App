@@ -1,13 +1,12 @@
-# York IE
+# York IE VECOS
 
-> Canonical AI-readable summary for York IE. This file describes public project facts for search, retrieval, citation, and assistant context.
+> Canonical AI-readable summary for York IE VECOS. This file describes public project facts for search, retrieval, citation, and assistant context.
 
-York IE is a free, open-source AI agent desktop application for Windows and macOS. It wraps Claude Code, OpenAI-compatible APIs, Gemini, DeepSeek, GLM, MiniMax, Kimi, and other AI models into a graphical desktop app with one-click installers. It includes VM sandbox isolation, built-in Skills, MCP integration, GUI automation, and remote control through Feishu (Lark) and Slack.
+York IE VECOS is a free, open-source AI agent desktop application for Windows and macOS. It wraps Claude Code, OpenAI-compatible APIs, Gemini, DeepSeek, GLM, MiniMax, Kimi, and other AI models into a graphical desktop app with one-click installers. It includes VM sandbox isolation, built-in Skills, MCP integration, GUI automation, and remote control through Feishu (Lark) and Slack.
 
 ## Canonical URLs
 
 - Website: https://york.ie/
-- Chinese website: https://york.ie/zh/
 - Source repository: https://york.ie
 - Releases: https://york.ie
 - Issues: https://york.ie
@@ -16,7 +15,7 @@ York IE is a free, open-source AI agent desktop application for Windows and macO
 
 ## Key Facts
 
-- Project name: York IE
+- Project name: York IE VECOS
 - Maintainer organization: York IE
 - License: MIT
 - Current website metadata version: 3.3.0
@@ -25,7 +24,7 @@ York IE is a free, open-source AI agent desktop application for Windows and macO
 - Desktop stack: Electron, React, TypeScript, Vite, Tailwind CSS
 - Website stack: VitePress
 - Supported workflows: local AI agent workspace, file operations, document generation, MCP tools, GUI automation, remote control
-- Privacy posture: York IE runs locally; the external network path is the AI model API configured by the user. The project website states that York IE does not send data to York IE servers.
+- Privacy posture: York IE VECOS runs locally; the external network path is the AI model API configured by the user. The project website states that York IE VECOS does not send data to York IE servers.
 
 ## Machine-readable Resources
 
@@ -36,4 +35,4 @@ York IE is a free, open-source AI agent desktop application for Windows and macO
 
 ## Citation Guidance
 
-Prefer citing the website for product overview, GitHub releases for downloads, the repository for source code, the changelog for release history, and the license file for license claims. Do not describe York IE as a hosted SaaS service; it is a local desktop application that communicates with the user's chosen AI model provider.
+Prefer citing the website for product overview, GitHub releases for downloads, the repository for source code, the changelog for release history, and the license file for license claims. Do not describe York IE VECOS as a hosted SaaS service; it is a local desktop application that communicates with the user's chosen AI model provider.

@@ -83,7 +83,7 @@ module.exports = async function afterPack(context) {
   // Determine the app resources path
   let resourcesDir;
   if (platform === 'darwin') {
-    // macOS: York IE.app/Contents/Resources/app.asar.unpacked/...
+    // macOS: York IE VECOS.app/Contents/Resources/app.asar.unpacked/...
     const appName = `${context.packager.appInfo.productFilename}.app`;
     resourcesDir = path.join(appOutDir, appName, 'Contents', 'Resources');
   } else {
@@ -180,7 +180,7 @@ module.exports = async function afterPack(context) {
     }
   }
 
-  // --- 5. Electron locales: keep only en, zh_CN, zh_TW ---
+  // --- 5. Electron locales: keep only en ---
   if (platform === 'darwin') {
     const appName = `${context.packager.appInfo.productFilename}.app`;
     const frameworkDir = path.join(
@@ -188,7 +188,7 @@ module.exports = async function afterPack(context) {
       'Electron Framework.framework', 'Versions', 'A', 'Resources'
     );
     if (fs.existsSync(frameworkDir)) {
-      const KEEP_LOCALES = new Set(['en.lproj', 'zh_CN.lproj', 'zh_TW.lproj', 'Base.lproj']);
+      const KEEP_LOCALES = new Set(['en.lproj', 'Base.lproj']);
       let removedLocales = 0;
       for (const entry of fs.readdirSync(frameworkDir)) {
         if (!entry.endsWith('.lproj')) continue;
@@ -196,7 +196,7 @@ module.exports = async function afterPack(context) {
         fs.rmSync(path.join(frameworkDir, entry), { recursive: true, force: true });
         removedLocales++;
       }
-      if (removedLocales > 0) console.log(`  ✓ Electron locales: removed ${removedLocales} .lproj dirs (kept en, zh_CN, zh_TW)`);
+      if (removedLocales > 0) console.log(`  ✓ Electron locales: removed ${removedLocales} .lproj dirs (kept en)`);
     }
   }
 

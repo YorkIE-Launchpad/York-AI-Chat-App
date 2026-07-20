@@ -23,7 +23,7 @@ class PluginRegistryStore {
       },
     };
 
-    // 在非 Electron 进程中提供兜底项目名，避免底层 conf 初始化失败。
+    // Provide a fallback project name outside Electron so conf init does not fail.
     this.store = new Store<PluginRegistrySchema>(storeOptions);
   }
 
@@ -33,7 +33,7 @@ class PluginRegistryStore {
         return app.getPath('userData');
       }
     } catch {
-      // 测试或非 Electron 场景走兜底目录。
+      // Tests and non-Electron environments use the fallback directory.
     }
     return path.join(os.tmpdir(), 'york-ie');
   }

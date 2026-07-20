@@ -927,7 +927,7 @@ async function callVisionAPI(
 
     if (isOpenRouter) {
       headers['HTTP-Referer'] = 'https://york.ie';
-      headers['X-Title'] = 'York IE';
+      headers['X-Title'] = 'York IE VECOS';
     }
 
     return new Promise<string>((resolve, reject) => {

@@ -63,60 +63,65 @@ export interface MemoryEvalReport {
 const DEFAULT_EVAL_CASES: MemoryEvalCase[] = [
   {
     id: 'cross-workspace-code',
-    title: '跨 workspace 代码经验召回',
+    title: 'Cross-workspace code experience recall',
     workspace: '/eval/workspace-a',
     sessionTitle: 'Gateway token rotation',
     messages: [
-      { role: 'user', text: '请以后默认用中文回答。', timestamp: 1 },
-      { role: 'assistant', text: '好的，我会默认使用中文。', timestamp: 2 },
+      { role: 'user', text: 'Please prefer concise English answers by default.', timestamp: 1 },
+      {
+        role: 'assistant',
+        text: 'Got it, I will prefer concise English answers by default.',
+        timestamp: 2,
+      },
       {
         role: 'user',
-        text: '在 workspace A 中实现 gateway token rotation，并记录 remote gateway 的同步约束。',
+        text: 'In workspace A, implement gateway token rotation and record the remote gateway sync constraints.',
         timestamp: 3,
       },
       {
         role: 'assistant',
-        text: '已完成 gateway token rotation，并说明 remote gateway 需要同步更新。',
+        text: 'Completed gateway token rotation, and noted that remote gateway needs to stay in sync.',
         timestamp: 4,
       },
     ],
     queries: [
       {
         id: 'query-a1',
-        prompt: '继续 gateway token rotation，提醒我上次的关键约束。',
+        prompt:
+          'Continue gateway token rotation and remind me of the key constraints from last time.',
         workspace: '/eval/workspace-a',
         expectedHits: ['gateway token rotation', 'remote gateway', 'source=/eval/workspace-a'],
       },
       {
         id: 'query-a2',
-        prompt: '我偏好什么回答风格？',
-        expectedHits: ['中文'],
+        prompt: 'What response style do I prefer?',
+        expectedHits: ['concise English'],
       },
     ],
   },
   {
     id: 'cross-workspace-design',
-    title: '另一个 workspace 的设计决策',
+    title: 'Design decision from another workspace',
     workspace: '/eval/workspace-b',
     sessionTitle: 'Order state machine',
     messages: [
       {
         role: 'user',
-        text: '在 workspace B 中，我们决定订单状态机不要把 refunded 和 cancelled 合并。',
+        text: 'In workspace B, we decided the order state machine should not merge refunded and cancelled.',
         timestamp: 10,
       },
       {
         role: 'assistant',
-        text: '已记录：refunded 和 cancelled 代表不同的财务语义，需要保留独立状态。',
+        text: 'Recorded: refunded and cancelled represent different financial semantics and must stay as separate states.',
         timestamp: 11,
       },
     ],
     queries: [
       {
         id: 'query-b1',
-        prompt: '为什么 refunded 和 cancelled 不能合并？',
+        prompt: 'Why should refunded and cancelled not be merged?',
         workspace: '/eval/workspace-b',
-        expectedHits: ['refunded', 'cancelled', '财务语义'],
+        expectedHits: ['refunded', 'cancelled', 'financial semantics'],
       },
     ],
   },

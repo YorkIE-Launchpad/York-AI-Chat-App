@@ -94,13 +94,13 @@ class EvalMockLLM implements MemoryLLMClientLike {
     if (request.systemPrompt.includes('Memory Profiler')) {
       return {
         text: JSON.stringify({
-          actions: request.userPrompt.includes('中文')
+          actions: request.userPrompt.includes('concise English')
             ? [
                 {
                   op: 'upsert',
                   category: 'preferences',
                   key: 'response_language',
-                  value: '中文',
+                  value: 'prefer concise English answers',
                 },
               ]
             : [],
@@ -116,12 +116,13 @@ class EvalMockLLM implements MemoryLLMClientLike {
       if (transcript.includes('gateway token rotation')) {
         return {
           text: JSON.stringify({
-            session_summary: '记录 gateway token rotation 与 remote gateway 约束',
+            session_summary: 'Recorded gateway token rotation and remote gateway constraints',
             session_keywords: ['gateway', 'rotation'],
             chunks: [
               {
-                summary: 'gateway token rotation 的实现与约束',
-                details: '需要同时同步 remote gateway，避免状态不一致。',
+                summary: 'Implementation and constraints for gateway token rotation',
+                details:
+                  'Need to sync remote gateway at the same time to avoid inconsistent state.',
                 keywords: ['gateway', 'remote gateway'],
                 source_turns: [1, 2, 3, 4],
               },
@@ -131,13 +132,13 @@ class EvalMockLLM implements MemoryLLMClientLike {
       }
       return {
         text: JSON.stringify({
-          session_summary: '记录订单状态机设计约束',
+          session_summary: 'Recorded order state machine design constraints',
           session_keywords: ['refund', 'cancel'],
           chunks: [
             {
-              summary: 'refunded 和 cancelled 不能合并',
-              details: '两者代表不同财务语义。',
-              keywords: ['refunded', 'cancelled', '财务语义'],
+              summary: 'refunded and cancelled must not be merged',
+              details: 'They represent different financial semantics.',
+              keywords: ['refunded', 'cancelled', 'financial semantics'],
               source_turns: [1, 2],
             },
           ],

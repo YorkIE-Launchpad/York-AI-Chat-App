@@ -86,7 +86,7 @@ export async function listRecentWorkspaceFiles(
           size: stat.size,
         });
       } catch {
-        // 忽略扫描过程中的瞬时文件错误
+        // Ignore transient file errors during scanning
       }
     }
   }

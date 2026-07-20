@@ -1194,10 +1194,10 @@ ${hints.join('\n')}
 
     const controller = new AbortController();
     try {
-      // SDK 会在同一 AbortSignal 上挂载较多监听器，放开上限避免无意义告警干扰排错。
+      // The SDK attaches many listeners on the same AbortSignal; raise the limit to avoid noisy warnings while debugging.
       setMaxListeners(0, controller.signal);
     } catch {
-      // 旧运行时不支持 EventTarget 调整监听上限时忽略即可。
+      // Older runtimes that cannot adjust EventTarget listener limits can be ignored.
     }
     this.activeControllers.set(session.id, controller);
 
@@ -1984,7 +1984,7 @@ ${hints.join('\n')}
               const serverKey = config.name;
 
               if (config.type === 'stdio') {
-                // 当命令是 npx 或 node 时优先使用内置路径
+                // Prefer bundled paths when the command is npx or node
                 const command =
                   config.command === 'npx' && bundledNpx
                     ? bundledNpx
@@ -1992,7 +1992,7 @@ ${hints.join('\n')}
                       ? bundledNodePaths.node
                       : config.command;
 
-                // 使用内置 npx/node 时，将内置 node bin 注入 PATH
+                // When using bundled npx/node, inject the bundled node bin into PATH
                 const serverEnv = { ...config.env };
                 if (bundledNodePaths && (config.command === 'npx' || config.command === 'node')) {
                   const nodeBinDir = path.dirname(bundledNodePaths.node);
@@ -2111,7 +2111,7 @@ This is an isolated sandbox environment. Use ${VIRTUAL_WORKSPACE_PATH} as the ro
 </your_configuration>`;
 
       const coworkAppendPrompt = [
-        'You are a York IE assistant. Be concise, accurate, and tool-capable.',
+        'You are a York IE VECOS assistant. Be concise, accurate, and tool-capable.',
         `CRITICAL BEHAVIORAL RULES:
 1. CHAT FIRST: By default, respond to the user in plain text within the conversation. Do NOT create, write, or edit files unless the user explicitly asks you to (e.g., "create a file", "write this to...", "edit the code", "save as...", mentions a specific file path, or describes code changes they want applied). For questions, summaries, explanations, analysis, and general conversation — always reply directly in chat text.
 2. When a request is actionable, proceed immediately with reasonable assumptions. If you need clarification, ask briefly in plain text.
@@ -2944,7 +2944,12 @@ Tool routing:
           id: uuidv4(),
           sessionId: session.id,
           role: 'assistant',
-          content: [{ type: 'text', text: '**请求超时**：长时间未收到响应，操作已中止。' }],
+          content: [
+            {
+              type: 'text',
+              text: '**Request timed out**: No response for a long time; the operation was aborted.',
+            },
+          ],
           timestamp: Date.now(),
         };
         this.sendMessage(session.id, errorMsg);
@@ -2987,7 +2992,12 @@ Tool routing:
             id: uuidv4(),
             sessionId: session.id,
             role: 'assistant',
-            content: [{ type: 'text', text: '**请求超时**：长时间未收到响应，操作已中止。' }],
+            content: [
+              {
+                type: 'text',
+                text: '**Request timed out**: No response for a long time; the operation was aborted.',
+              },
+            ],
             timestamp: Date.now(),
           };
           this.sendMessage(session.id, errorMsg);

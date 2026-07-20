@@ -141,9 +141,9 @@ export function SettingsPanel({ onClose, initialTab = 'api' }: SettingsPanelProp
     },
     {
       id: 'remote' as TabId,
-      label: t('settings.remote', '远程控制'),
+      label: t('settings.remote', 'Remote Control'),
       icon: Wifi,
-      description: t('settings.remoteDesc', '通过飞书等平台远程使用'),
+      description: t('settings.remoteDesc', 'Use remotely via Feishu and other platforms'),
     },
     {
       id: 'logs' as TabId,
@@ -172,7 +172,7 @@ export function SettingsPanel({ onClose, initialTab = 'api' }: SettingsPanelProp
               {t('settings.title')}
             </p>
             <h2 className="mt-1 text-[1.24rem] font-semibold tracking-[-0.03em] text-text-primary">
-              York IE
+              York IE VECOS
             </h2>
             <p className="mt-1 text-[11px] leading-4 text-text-muted">{t('settings.panelDesc')}</p>
           </div>

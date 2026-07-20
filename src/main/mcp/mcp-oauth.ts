@@ -41,7 +41,7 @@ interface ConnectWithOAuthOptions<TTransport extends OAuthTransport> {
 
 function buildClientMetadata(redirectUrl: string): OAuthClientMetadata {
   return {
-    client_name: 'York IE MCP Connector',
+    client_name: 'York IE VECOS MCP Connector',
     grant_types: ['authorization_code', 'refresh_token'],
     logo_uri: undefined,
     redirect_uris: [redirectUrl],
@@ -209,7 +209,7 @@ export async function createOAuthCallbackListener(
       settled = true;
       response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       response.end(
-        '<html><body><h1>Authorization complete</h1><p>You can return to York IE now.</p><script>setTimeout(() => window.close(), 1200);</script></body></html>'
+        '<html><body><h1>Authorization complete</h1><p>You can return to York IE VECOS now.</p><script>setTimeout(() => window.close(), 1200);</script></body></html>'
       );
       resolveCode(authorizationCode);
       void closeServer(server);

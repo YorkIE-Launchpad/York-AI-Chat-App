@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 
-const NODE_VERSION = 'v22.22.0'; // 使用稳定版本
+const NODE_VERSION = 'v22.22.0'; // Use a stable version
 const PLATFORMS = {
   darwin: {
     arm64: `node-${NODE_VERSION}-darwin-arm64`,

@@ -55,7 +55,7 @@ Key docs: `CLAUDE.md`, `README.md`
 
 - **Accuracy**: Only state verifiable facts from codebase. Say "not found" if uncertain.
 - **Evidence**: Reference files with `path:line` format when relevant.
-- **Language**: Match the issue's language (Chinese/English).
+- **Language**: Respond in English.
 - **Missing Info**: Ask for minimum required details (max 4 items) if needed.
 - **Tone**: Friendly and helpful. Thank the user for reporting.
 

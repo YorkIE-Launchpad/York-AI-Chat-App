@@ -135,7 +135,7 @@ function initLogFile(): void {
     // Write header
     const header = `
 ================================================================================
-York IE Application Log
+York IE VECOS Application Log
 Started: ${new Date().toISOString()}
 Platform: ${process.platform}
 Arch: ${process.arch}

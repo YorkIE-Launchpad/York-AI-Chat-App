@@ -10,20 +10,16 @@ head:
       href: https://york.ie/
   - - link
     - rel: alternate
-      hreflang: zh-CN
-      href: https://york.ie/zh/
-  - - link
-    - rel: alternate
       hreflang: x-default
       href: https://york.ie/
 
 hero:
-  name: York IE
+  name: York IE VECOS
   text: Open-Source AI Agent Desktop App
   tagline: One-click install for Windows & macOS. Multi-model support, VM sandbox isolation, built-in Skills, and MCP integration — no coding required.
   image:
     src: /logo.png
-    alt: York IE Logo
+    alt: York IE VECOS Logo
   actions:
     - theme: brand
       text: Download
@@ -56,7 +52,7 @@ features:
     details: Send commands and receive results via Feishu (Lark) and Slack integration. Automate workflows across collaboration platforms.
   - icon: 🛡️
     title: Free & Open Source
-    details: MIT licensed. Fully transparent codebase. Your data stays local — no telemetry, no data sent to York IE servers.
+    details: MIT licensed. Fully transparent codebase. Your data stays local — no telemetry, no data sent to York IE VECOS servers.
 ---
 
 <style>
@@ -121,10 +117,10 @@ features:
 
 ## How It Compares
 
-|               | MCP & Skills | Remote Control | GUI Automation |
-| ------------- | :----------: | :------------: | :------------: |
-| Claude Cowork |      ✓       |       ✗        |       ✗        |
-| **York IE**   |    **✓**     |     **✓**      |     **✓**      |
+|                   | MCP & Skills | Remote Control | GUI Automation |
+| ----------------- | :----------: | :------------: | :------------: |
+| Claude Cowork     |      ✓       |       ✗        |       ✗        |
+| **York IE VECOS** |    **✓**     |     **✓**      |     **✓**      |
 
 </div>
 
@@ -149,9 +145,9 @@ brew install --cask --no-quarantine york-ie
 
 <div class="faq-item">
 
-### What is York IE?
+### What is York IE VECOS?
 
-York IE is a free, open-source AI agent desktop application for Windows and macOS. It wraps AI models (Claude, GPT, Gemini, DeepSeek, etc.) into a user-friendly GUI with one-click installation — no terminal or coding knowledge required.
+York IE VECOS is a free, open-source AI agent desktop application for Windows and macOS. It wraps AI models (Claude, GPT, Gemini, DeepSeek, etc.) into a user-friendly GUI with one-click installation — no terminal or coding knowledge required.
 
 </div>
 
@@ -167,7 +163,7 @@ Claude (via Anthropic or OpenRouter), OpenAI-compatible APIs, and Chinese models
 
 ### Is it free?
 
-Yes. York IE is completely free and open-source under the MIT license. You only pay for AI model API usage from your chosen provider.
+Yes. York IE VECOS is completely free and open-source under the MIT license. You only pay for AI model API usage from your chosen provider.
 
 </div>
 
@@ -175,7 +171,7 @@ Yes. York IE is completely free and open-source under the MIT license. You only 
 
 ### How does sandbox isolation work?
 
-York IE uses WSL2 (Windows) or Lima (macOS) to run all AI-executed commands inside an isolated Linux VM. Even if the AI makes a mistake, your host system files remain protected.
+York IE VECOS uses WSL2 (Windows) or Lima (macOS) to run all AI-executed commands inside an isolated Linux VM. Even if the AI makes a mistake, your host system files remain protected.
 
 </div>
 
@@ -183,7 +179,7 @@ York IE uses WSL2 (Windows) or Lima (macOS) to run all AI-executed commands insi
 
 ### Is my data safe?
 
-York IE runs entirely on your local machine. The only external communication is with the AI model API you configure. No data is sent to York IE servers.
+York IE VECOS runs entirely on your local machine. The only external communication is with the AI model API you configure. No data is sent to York IE VECOS servers.
 
 </div>
 

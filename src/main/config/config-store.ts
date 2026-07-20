@@ -258,7 +258,7 @@ const defaultProfiles: Record<ProviderProfileKey, ProviderProfile> = {
 
 const defaultConfigSet: ApiConfigSet = {
   id: DEFAULT_CONFIG_SET_ID,
-  name: '默认方案',
+  name: 'Default profile',
   isSystem: true,
   provider: 'openrouter',
   customProtocol: 'anthropic',
@@ -898,7 +898,7 @@ export class ConfigStore {
 
       const normalizedSet = this.normalizeConfigSet(rawSet, {
         id: nextId,
-        name: toNonEmptyString(rawSet.name) || `方案 ${index + 1}`,
+        name: toNonEmptyString(rawSet.name) || `Profile ${index + 1}`,
         provider: legacy.provider,
         customProtocol: legacy.customProtocol,
         activeProfileKey: legacy.activeProfileKey,
@@ -1546,9 +1546,9 @@ export class ConfigStore {
    * Apply config to environment variables
    * This should be called before creating sessions
    *
-   * 环境变量映射：
-   * - OpenAI 直连: OPENAI_API_KEY = apiKey, OPENAI_BASE_URL 可选
-   * - Anthropic 直连: ANTHROPIC_API_KEY = apiKey
+   * Environment variable mapping:
+   * - OpenAI direct: OPENAI_API_KEY = apiKey, OPENAI_BASE_URL optional
+   * - Anthropic direct: ANTHROPIC_API_KEY = apiKey
    * - Custom Anthropic: ANTHROPIC_API_KEY = apiKey
    * - OpenRouter: ANTHROPIC_AUTH_TOKEN = apiKey, ANTHROPIC_API_KEY = '' (proxy mode)
    */

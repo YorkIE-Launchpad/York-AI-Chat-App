@@ -689,7 +689,7 @@ export function ChatView() {
         className="relative h-12 border-b border-border-muted grid grid-cols-[1fr_auto_1fr] items-center px-4 lg:px-8 bg-background/88 backdrop-blur-md"
       >
         <div className="text-[11px] font-medium tracking-[0.08em] uppercase text-text-muted">
-          York IE
+          York IE VECOS
         </div>
         <h2
           ref={titleRef}
@@ -734,7 +734,9 @@ export function ChatView() {
         >
           {displayedMessages.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-28 text-text-muted space-y-3 text-center">
-              <p className="text-[11px] uppercase tracking-[0.16em] text-text-muted/80">York IE</p>
+              <p className="text-[11px] uppercase tracking-[0.16em] text-text-muted/80">
+                York IE VECOS
+              </p>
               <p className="text-base text-text-secondary">{t('chat.startConversation')}</p>
             </div>
           ) : (

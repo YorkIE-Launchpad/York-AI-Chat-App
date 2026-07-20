@@ -12,7 +12,17 @@
  * Dependencies: session-manager, config-store, mcp-manager, sandbox-adapter,
  *               skills-manager, scheduled-task-manager, nav-server, remote-manager
  */
-import { app, BrowserWindow, ipcMain, dialog, shell, Menu, nativeTheme, Tray } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  dialog,
+  shell,
+  Menu,
+  nativeTheme,
+  Tray,
+  nativeImage,
+} from 'electron';
 import { join, resolve, dirname, isAbsolute, basename } from 'path';
 import * as fs from 'fs';
 import { execFileSync } from 'child_process';
@@ -250,6 +260,30 @@ async function waitForDevServer(url: string, maxAttempts = 30, intervalMs = 500)
 // without the old process blocking the new one during async cleanup.
 const isDev = !!process.env.VITE_DEV_SERVER_URL;
 const ELECTRON_DEVTOOLS_DEBUG_PORT = '9223';
+const PRODUCT_NAME = 'York IE VECOS';
+
+function resolveResourcePath(...parts: string[]): string {
+  return app.isPackaged
+    ? join(process.resourcesPath, ...parts)
+    : join(__dirname, '../../resources', ...parts);
+}
+
+/** Menu name + Dock icon (critical in `npm run dev`, where Electron.app is the host). */
+function applyAppBranding() {
+  app.setName(PRODUCT_NAME);
+
+  if (process.platform === 'darwin' && app.dock) {
+    const dockIconPath = resolveResourcePath('icon.png');
+    if (fs.existsSync(dockIconPath)) {
+      const image = nativeImage.createFromPath(dockIconPath);
+      if (!image.isEmpty()) {
+        app.dock.setIcon(image);
+      }
+    }
+  }
+}
+
+applyAppBranding();
 
 // Enable Chrome DevTools Protocol in dev mode so the renderer can be inspected
 // via chrome://inspect or connected to by Puppeteer/Playwright at localhost:9223.
@@ -363,16 +397,12 @@ function setupTray() {
         ? 'tray-icon.ico'
         : 'tray-icon.png';
   // TODO: create resources/tray-icon.ico from tray-icon.png for full Windows tray fidelity
-  const iconPath = app.isPackaged
-    ? join(process.resourcesPath, iconName)
-    : join(__dirname, '../../resources', iconName);
+  const iconPath = resolveResourcePath(iconName);
 
   // On Windows, fall back to .png if the .ico file has not been created yet
   const resolvedIconPath =
     process.platform === 'win32' && !fs.existsSync(iconPath)
-      ? app.isPackaged
-        ? join(process.resourcesPath, 'tray-icon.png')
-        : join(__dirname, '../../resources', 'tray-icon.png')
+      ? resolveResourcePath('tray-icon.png')
       : iconPath;
 
   // Gracefully skip tray if icon is missing (e.g. dev environment)
@@ -382,7 +412,7 @@ function setupTray() {
   }
 
   tray = new Tray(resolvedIconPath);
-  tray.setToolTip('York IE');
+  tray.setToolTip(PRODUCT_NAME);
 
   const contextMenu = Menu.buildFromTemplate([
     {
@@ -481,9 +511,7 @@ function createWindow() {
     backgroundColor: THEME.background,
     icon: (() => {
       const windowIconName = isMac ? 'icon.icns' : isWindows ? 'icon.ico' : 'icon.png';
-      return app.isPackaged
-        ? join(process.resourcesPath, windowIconName)
-        : join(__dirname, `../../resources/${windowIconName}`);
+      return resolveResourcePath(windowIconName);
     })(),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -507,13 +535,14 @@ function createWindow() {
   }
 
   mainWindow = new BrowserWindow(windowOptions);
+  mainWindow.setTitle(PRODUCT_NAME);
 
   const allowedOrigins = new Set<string>();
   if (process.env.VITE_DEV_SERVER_URL) {
     try {
       allowedOrigins.add(new URL(process.env.VITE_DEV_SERVER_URL).origin);
     } catch {
-      // 忽略无效的开发服务地址
+      // Ignore invalid dev server URLs
     }
   }
   const allowedProtocols = new Set<string>(['file:', 'devtools:']);
@@ -752,7 +781,7 @@ async function startSandboxBootstrap(): Promise<void> {
 // Pluggable event sender — defaults to mainWindow IPC, swapped for JSONL in headless mode
 let eventSender: ((event: ServerEvent) => void) | null = null;
 
-// 发送事件到渲染进程（含远程会话拦截）
+// Send events to the renderer (including remote session interception)
 function sendToRenderer(event: ServerEvent) {
   const payload =
     'payload' in event
@@ -760,25 +789,25 @@ function sendToRenderer(event: ServerEvent) {
       : undefined;
   const sessionId = payload?.sessionId;
 
-  // 判断是否远程会话
+  // Check whether this is a remote session
   if (sessionId && remoteManager.isRemoteSession(sessionId)) {
-    // 处理远程会话事件
+    // Handle remote session events
 
-    // 拦截 stream.message，用于回传到远程通道
+    // Intercept stream.message for relay back to the remote channel
     if (event.type === 'stream.message') {
       const message = payload.message as {
         role?: string;
         content?: Array<{ type: string; text?: string }>;
       };
       if (message?.role === 'assistant' && message?.content) {
-        // 提取助手文本内容
+        // Extract assistant text content
         const textContent = message.content
           .filter((c) => c.type === 'text' && c.text)
           .map((c) => c.text)
           .join('\n');
 
         if (textContent) {
-          // 发送到远程通道（带缓冲）
+          // Send to remote channel (with buffering)
           remoteManager.sendResponseToChannel(sessionId, textContent).catch((err: Error) => {
             logError('[Remote] Failed to send response to channel:', err);
           });
@@ -786,7 +815,7 @@ function sendToRenderer(event: ServerEvent) {
       }
     }
 
-    // 拦截 trace.step 作为工具进度
+    // Intercept trace.step as tool progress
     if (event.type === 'trace.step') {
       const step = payload.step as {
         type?: string;
@@ -811,20 +840,20 @@ function sendToRenderer(event: ServerEvent) {
       }
     }
 
-    // trace.update 预留；当前主要用 trace.step
+    // trace.update reserved; currently mainly use trace.step
 
-    // 拦截 session.status 用于清理
+    // Intercept session.status for cleanup
     if (event.type === 'session.status') {
       const status = payload.status as string;
       if (status === 'idle' || status === 'error') {
-        // 会话结束，清空缓冲
+        // Session ended; clear buffer
         remoteManager.clearSessionBuffer(sessionId).catch((err: Error) => {
           logError('[Remote] Failed to clear session buffer:', err);
         });
       }
     }
 
-    // 拦截 permission.request
+    // Intercept permission.request
     if (event.type === 'permission.request' && payload.toolUseId && payload.toolName) {
       log('[Remote] Intercepting permission for remote session:', sessionId);
       remoteManager
@@ -848,11 +877,11 @@ function sendToRenderer(event: ServerEvent) {
         .catch((err) => {
           logError('[Remote] Failed to handle permission request:', err);
         });
-      return; // 不发送到本地 UI
+      return; // Do not send to local UI
     }
   }
 
-  // 发送到本地 UI（or headless JSONL sender）
+  // Send to local UI (or headless JSONL sender)
   if (eventSender) {
     eventSender(event);
   } else if (mainWindow && !mainWindow.isDestroyed()) {
@@ -864,6 +893,9 @@ function sendToRenderer(event: ServerEvent) {
 app
   .whenReady()
   .then(async () => {
+    // Re-apply after ready so Dock picks up icon/name reliably on macOS.
+    applyAppBranding();
+
     // Smoke test mode: verify the app can start, then exit cleanly
     if (process.argv.includes('--smoke-test')) {
       log('[SmokeTest] App launched successfully in smoke test mode');
@@ -1291,7 +1323,7 @@ app
     startConfigFileWatcher();
 
     // Log environment variables for debugging
-    log('=== York IE Starting ===');
+    log('=== York IE VECOS Starting ===');
     log('Config file:', configStore.getPath());
     log('Is configured:', configStore.isConfigured());
     log('[Runtime] Using York IE agent SDK for all providers');
@@ -1310,7 +1342,7 @@ app
     // Initialize default working directory
     initializeDefaultWorkingDir();
     log('Working directory:', currentWorkingDir);
-    // 远程会话默认使用全局工作目录
+    // Remote sessions use the global working directory by default
     remoteManager.setDefaultWorkingDirectory(currentWorkingDir || undefined);
 
     // Initialize database
@@ -1426,7 +1458,7 @@ app
           scheduledTaskStore.update(task.id, { title });
         }
         const started = await sessionManager.startSession(title, task.prompt, task.cwd);
-        // 定时任务创建的新会话需要主动同步到前端会话列表
+        // New sessions created by scheduled tasks need to be synced to the frontend session list
         sendToRenderer({
           type: 'session.update',
           payload: { sessionId: started.id, updates: started },
@@ -1443,7 +1475,7 @@ app
     });
     scheduledTaskManager.start();
 
-    // 初始化远程管理器
+    // Initialize remote manager
     remoteManager.setRendererCallback(sendToRenderer);
     const agentExecutor: AgentExecutor = {
       startSession: async (title, prompt, cwd) => {
@@ -1481,7 +1513,7 @@ app
     };
     remoteManager.setAgentExecutor(agentExecutor);
 
-    // 远程控制启用时启动
+    // Start remote control when enabled
     if (remoteConfigStore.isEnabled()) {
       remoteManager.start().catch((error) => {
         logError('[App] Failed to start remote control:', error);
@@ -1498,7 +1530,10 @@ app
   .catch((error) => {
     logError('[App] Startup failed:', error);
     const message = error instanceof Error ? error.message : 'Unknown startup error';
-    dialog.showErrorBox('York IE 启动失败', `${message}\n\n请查看日志获取更多信息。`);
+    dialog.showErrorBox(
+      'York IE VECOS failed to start',
+      `${message}\n\nPlease check the logs for more information.`
+    );
     app.quit();
   });
 
@@ -1539,7 +1574,7 @@ async function cleanupSandboxResources(): Promise<void> {
   tray?.destroy();
   tray = null;
 
-  // 停止远程控制
+  // Stop remote control
   try {
     log('[App] Stopping remote control...');
     await withTimeout(remoteManager.stop(), 5000, 'Remote control shutdown');
@@ -2714,7 +2749,7 @@ ipcMain.handle('logs.export', async () => {
       });
       archive.append(
         [
-          'York IE diagnostic bundle',
+          'York IE VECOS diagnostic bundle',
           `Exported at: ${diagnosticsSummary.exportedAt}`,
           '',
           'Included files:',
@@ -2796,7 +2831,7 @@ ipcMain.handle('logs.isEnabled', () => {
 });
 
 // ============================================================================
-// 远程控制 IPC 处理
+// Remote control IPC handlers
 // ============================================================================
 
 ipcMain.handle('remote.getConfig', () => {
@@ -3199,7 +3234,8 @@ async function handleClientEvent(event: ClientEvent): Promise<unknown> {
     sendToRenderer({
       type: 'error',
       payload: {
-        message: '当前方案未配置可用凭证，请先在 API 设置中完成配置',
+        message:
+          'The current profile has no usable credentials. Please complete configuration in API settings first',
         code: 'CONFIG_REQUIRED_ACTIVE_SET',
         action: 'open_api_settings',
       },

@@ -1,6 +1,6 @@
 /**
- * Feishu (飞书) Channel
- * 实现飞书机器人的消息接收和发送
+ * Feishu Channel
+ * Implements message receive and send for the Feishu bot
  */
 
 import * as crypto from 'crypto';
@@ -198,7 +198,7 @@ export class FeishuChannel extends ChannelBase {
         };
       }
 
-      // Handle v2 schema (飞书新版事件格式)
+      // Handle v2 schema (Feishu new event format)
       if (data.schema === '2.0') {
         log('[Feishu] Processing v2 schema event');
         const eventType = data.header?.event_type;
@@ -211,7 +211,7 @@ export class FeishuChannel extends ChannelBase {
         return { status: 200, data: { code: 0 } };
       }
 
-      // Handle v1 schema (飞书旧版事件格式)
+      // Handle v1 schema (Feishu legacy event format)
       if (data.event) {
         log('[Feishu] Processing v1 schema event');
         const eventType = data.header?.event_type || data.event?.type;
@@ -240,7 +240,7 @@ export class FeishuChannel extends ChannelBase {
   }
 
   /**
-   * Start WebSocket mode (长连接)
+   * Start WebSocket mode (long connection)
    */
   private async startWebSocketMode(): Promise<void> {
     log('[Feishu] Starting WebSocket long connection mode...');
@@ -462,7 +462,7 @@ export class FeishuChannel extends ChannelBase {
           log('[Feishu] Unknown message type:', msgType);
           return {
             type: 'text',
-            text: `[不支持的消息类型: ${msgType}]`,
+            text: `[Unsupported message type: ${msgType}]`,
           };
       }
     } catch (error) {
@@ -653,7 +653,7 @@ export class FeishuChannel extends ChannelBase {
 
     // Limit length
     if (sanitized.length > 10000) {
-      sanitized = sanitized.substring(0, 10000) + '\n\n... (内容过长已截断)';
+      sanitized = sanitized.substring(0, 10000) + '\n\n... (content truncated due to length)';
     }
 
     return sanitized;

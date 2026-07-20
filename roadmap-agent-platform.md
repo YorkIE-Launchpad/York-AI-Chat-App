@@ -13,7 +13,7 @@ This issue is the master roadmap. Each section includes: current state (what exi
         │  (enables automated testing of everything below)    │
         ├──────────────────┐                                  │
         ▼                  ▼                                  │
-   1. Config 文件化    (all features become testable           │
+   1. Config as files    (all features become testable           │
         │              without manual GUI interaction)        │
         ├──────────────────┐                                  │
         ▼                  ▼                                  │
@@ -23,7 +23,7 @@ This issue is the master roadmap. Each section includes: current state (what exi
     model routing)      persistence)                          │
         │                                                     │
         ▼                                                     │
-   3. Compact 增强                                            │
+   3. Compact enhancements                                            │
    (subagent multiplies context pressure;                     │
     also standalone value)                                    │
 ```
@@ -122,7 +122,7 @@ echo '{"type":"session.start","prompt":"what model are you?"}' | york-ie --headl
 
 ---
 
-## 1. Config 文件化 — Agent-Accessible Configuration
+## 1. Config as Files — Agent-Accessible Configuration
 
 ### Current State
 
@@ -250,7 +250,7 @@ src/main/subagent/
 
 ---
 
-## 3. Compact 增强 — Beyond SDK Auto-Compaction
+## 3. Compact Enhancements — Beyond SDK Auto-Compaction
 
 ### Current State
 
@@ -433,9 +433,9 @@ New:      timer fires → checkCondition() → changed? → yes: startSession()
 | #   | Capability       | Phases | Total Estimate | Dependencies                             |
 | --- | ---------------- | ------ | -------------- | ---------------------------------------- |
 | 0   | Headless / CLI   | 3      | ~1-2 weeks     | None (foundational)                      |
-| 1   | Config 文件化    | 3      | ~4-6 days      | Headless enables testing                 |
+| 1   | Config as files  | 3      | ~4-6 days      | Headless enables testing                 |
 | 2   | Subagent         | 2      | ~1-2 weeks     | Config (#1 P1 for model routing)         |
-| 3   | Compact 增强     | 3      | ~1-1.5 weeks   | Independent, benefits from Subagent      |
+| 3   | Compact enhance  | 3      | ~1-1.5 weeks   | Independent, benefits from Subagent      |
 | 4   | Reactive Polling | 3      | ~1-1.5 weeks   | Config (#1), benefits from Subagent (#2) |
 
 ---

@@ -1,5 +1,5 @@
 appId: ie.york.app
-productName: York IE
+productName: York IE VECOS
 copyright: Copyright © 2026 York IE
 
 directories:
@@ -96,8 +96,8 @@ mac:
   entitlementsInherit: resources/entitlements.mac.plist
   extendInfo:
     LSApplicationCategoryType: public.app-category.developer-tools
-    NSScreenCaptureUsageDescription: 'York IE needs screen recording access for GUI automation.'
-    NSAccessibilityUsageDescription: 'York IE needs accessibility access for GUI automation.'
+    NSScreenCaptureUsageDescription: 'York IE VECOS needs screen recording access for GUI automation.'
+    NSAccessibilityUsageDescription: 'York IE VECOS needs accessibility access for GUI automation.'
   extraResources:
     - from: .bundle-resources/mcp
       to: mcp
@@ -155,7 +155,7 @@ dmg:
   contents:
     - x: 150
       y: 220
-      name: 'York IE.app'
+      name: 'York IE VECOS.app'
     - x: 450
       y: 220
       type: link

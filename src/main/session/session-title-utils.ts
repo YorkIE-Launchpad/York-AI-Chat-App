@@ -35,16 +35,11 @@ export function normalizeGeneratedTitle(value: string | null | undefined): strin
 
 export function buildTitlePrompt(prompt: string): string {
   return [
-    'Generate a short title for the following user request. Rules:',
-    '- Max 15 characters (Chinese) or 6 words (English)',
+    'Generate a short conversation title for the following user request.',
+    '- At most 15 characters for CJK, or about 6 words for English',
     '- Reply in the same language as the user request',
-    '- No quotes, numbering, or punctuation at the end',
+    '- Do not add quotes, numbering, or trailing punctuation',
     '',
-    '请根据用户请求生成一个简短的对话标题：',
-    '- 不超过15个字',
-    '- 同语言输出',
-    '- 不要加引号或编号',
-    '',
-    `User request / 用户请求：${prompt.trim()}`,
+    `User request: ${prompt.trim()}`,
   ].join('\n');
 }

@@ -28,7 +28,7 @@ import type {
 const isElectron = typeof window !== 'undefined' && window.electronAPI !== undefined;
 
 export function RemoteControlPanel({ isActive }: { isActive: boolean }) {
-  const { i18n, t } = useTranslation();
+  const { t } = useTranslation();
 
   // Remote state
   const [isLoading, setIsLoading] = useState(true);
@@ -236,7 +236,7 @@ export function RemoteControlPanel({ isActive }: { isActive: boolean }) {
   const isFeishuConfigured = !!(feishuAppId && feishuAppSecret);
   const isConnectionConfigured =
     useLongConnection || (tunnelEnabled && !!ngrokAuthToken) || !!tunnelStatus?.connected;
-  const permissionSeparator = i18n.language.startsWith('zh') ? '、' : ', ';
+  const permissionSeparator = ', ';
   const permissionScopes = [
     'im:resource',
     'im:message',

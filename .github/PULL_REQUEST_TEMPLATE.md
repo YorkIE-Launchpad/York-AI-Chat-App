@@ -21,7 +21,7 @@
 - [ ] `npm run test` passes locally
 - [ ] `npm run lint` passes locally
 - [ ] UI changes tested on both macOS and Windows (or noted as platform-specific)
-- [ ] New user-facing strings added to i18n files (`en` + `zh`)
+- [ ] New user-facing strings added to i18n files (`en`)
 
 ## Testing
 

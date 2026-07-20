@@ -185,7 +185,7 @@ export function useIPC() {
               if (pending.length > 0) {
                 store.activateNextTurn(event.payload.sessionId, event.payload.step.id);
               } else if (activeTurn) {
-                // 绑定真实 stepId，避免 mock stepId 导致无法清理
+                // Bind the real stepId so a mock stepId does not prevent cleanup
                 store.updateActiveTurnStep(event.payload.sessionId, event.payload.step.id);
               }
             }

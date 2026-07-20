@@ -1,14 +1,7 @@
-import i18n from '../i18n/config';
-
-function getAppLocale(language = i18n.resolvedLanguage || i18n.language): string {
-  if (language.startsWith('zh')) {
-    return 'zh-CN';
-  }
-  return 'en-US';
-}
+const APP_LOCALE = 'en-US';
 
 export function formatAppDateTime(value: number | string | Date): string {
-  return new Intl.DateTimeFormat(getAppLocale(), {
+  return new Intl.DateTimeFormat(APP_LOCALE, {
     dateStyle: 'medium',
     timeStyle: 'short',
   }).format(new Date(value));
@@ -19,7 +12,7 @@ export function formatAppDate(
   options?: Intl.DateTimeFormatOptions
 ): string {
   return new Intl.DateTimeFormat(
-    getAppLocale(),
+    APP_LOCALE,
     options || {
       month: 'short',
       day: 'numeric',
@@ -28,5 +21,5 @@ export function formatAppDate(
 }
 
 export function joinAppList(values: string[]): string {
-  return values.join(getAppLocale().startsWith('zh') ? '、' : ', ');
+  return values.join(', ');
 }

@@ -156,7 +156,7 @@ export class ToolExecutor {
   }
 
   /**
-   * 获取网页并返回文本内容
+   * Fetch a web page and return its text content
    */
   async webFetch(url: string): Promise<string> {
     const trimmed = url.trim();
@@ -186,7 +186,7 @@ export class ToolExecutor {
         error instanceof Error &&
         (error.name === 'AbortError' || error.name === 'TimeoutError')
       ) {
-        throw new Error('请求超时，请检查网络连接后重试');
+        throw new Error('Request timed out, please check your network connection and retry');
       }
       throw error;
     }
@@ -207,7 +207,7 @@ export class ToolExecutor {
   }
 
   /**
-   * 使用 DuckDuckGo Instant Answer 搜索网页
+   * Search the web using DuckDuckGo Instant Answer
    */
   async webSearch(query: string): Promise<string> {
     const trimmed = query.trim();
@@ -233,7 +233,7 @@ export class ToolExecutor {
         error instanceof Error &&
         (error.name === 'AbortError' || error.name === 'TimeoutError')
       ) {
-        throw new Error('请求超时，请检查网络连接后重试');
+        throw new Error('Request timed out, please check your network connection and retry');
       }
       throw error;
     }

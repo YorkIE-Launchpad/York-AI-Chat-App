@@ -1,6 +1,6 @@
 /**
  * Remote Control Types
- * 远程控制模块类型定义
+ * Type definitions for the remote control module
  */
 
 // Types are defined locally in this file
@@ -103,7 +103,7 @@ export interface ChannelConfig {
     | SlackChannelConfig;
 }
 
-// Feishu (飞书) Channel
+// Feishu Channel
 export interface FeishuChannelConfig {
   type: 'feishu';
 
@@ -198,7 +198,7 @@ export interface TelegramChannelConfig {
   };
 }
 
-// DingTalk (钉钉) Channel
+// DingTalk Channel
 export interface DingtalkChannelConfig {
   type: 'dingtalk';
 

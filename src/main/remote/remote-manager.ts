@@ -1,6 +1,6 @@
 /**
  * Remote Manager
- * 远程控制系统管理器，整合 Gateway、Channels 和 MessageRouter
+ * Manages the remote control system, integrating Gateway, Channels, and MessageRouter
  */
 
 import { EventEmitter } from 'events';
@@ -100,7 +100,7 @@ export class RemoteManager extends EventEmitter {
   // Promise-chain mutex for synchronizing pendingInteractions access
   private lockChain: Promise<void> = Promise.resolve();
 
-  // 远程默认工作目录（用于未指定 cwd 的会话）
+  // Default working directory for remote sessions (when cwd is not specified)
   private defaultWorkingDirectory?: string;
 
   constructor() {
@@ -149,7 +149,7 @@ export class RemoteManager extends EventEmitter {
   }
 
   /**
-   * 设置远程会话的默认工作目录
+   * Set the default working directory for remote sessions
    */
   setDefaultWorkingDirectory(dir?: string): void {
     this.defaultWorkingDirectory = dir;
@@ -181,7 +181,7 @@ export class RemoteManager extends EventEmitter {
       // Create gateway
       this.gateway = new RemoteGateway(config.gateway, this.messageRouter);
 
-      // 设置远程默认工作目录（优先使用配置，其次使用全局默认）
+      // Set remote default working directory (prefer config, then global default)
       const configuredDefaultWorkingDir =
         config.gateway.defaultWorkingDirectory || this.defaultWorkingDirectory;
       if (configuredDefaultWorkingDir) {
@@ -544,7 +544,7 @@ export class RemoteManager extends EventEmitter {
     log('[RemoteManager] Handling question request for remote session:', remoteSessionId);
 
     // Build question message for Feishu
-    let messageText = '🤔 **需要你的回答**\n\n';
+    let messageText = '🤔 **Your answer is needed**\n\n';
 
     questions.forEach((q, _qIdx) => {
       if (q.header) {
@@ -562,16 +562,16 @@ export class RemoteManager extends EventEmitter {
         });
         messageText += '\n';
         if (q.multiSelect) {
-          messageText += `*（可多选，用逗号分隔，如: 1,3）*\n\n`;
+          messageText += `*(Multiple selections allowed, comma-separated, e.g. 1,3)*\n\n`;
         } else {
-          messageText += `*（请回复选项数字，如: 1）*\n\n`;
+          messageText += `*(Reply with the option number, e.g. 1)*\n\n`;
         }
       } else {
-        messageText += `*（请直接回复你的答案）*\n\n`;
+        messageText += `*(Reply with your answer directly)*\n\n`;
       }
     });
 
-    messageText += `---\n*回复此消息来作答，或发送 "跳过" 跳过问题*`;
+    messageText += `---\n*Reply to this message to answer, or send "Skip" to skip the question*`;
 
     // Store pending interaction
     const interaction: RemoteInteraction = {
@@ -684,19 +684,19 @@ export class RemoteManager extends EventEmitter {
       if (safeTools.includes(toolName)) {
         log('[RemoteManager] Auto-approving safe tool:', toolName);
         // Send notification to user
-        await this.doSendToChannel(channelInfo, `🔧 自动执行: **${toolName}**`);
+        await this.doSendToChannel(channelInfo, `🔧 Auto-running: **${toolName}**`);
         return { allow: true };
       }
     }
 
     // Build permission request message
-    let messageText = '⚠️ **需要你的授权**\n\n';
-    messageText += `工具: **${toolName}**\n\n`;
-    messageText += `参数:\n\`\`\`json\n${JSON.stringify(input, null, 2)}\n\`\`\`\n\n`;
+    let messageText = '⚠️ **Needs your authorization**\n\n';
+    messageText += `Tool: **${toolName}**\n\n`;
+    messageText += `Parameters:\n\`\`\`json\n${JSON.stringify(input, null, 2)}\n\`\`\`\n\n`;
     messageText += `---\n`;
-    messageText += `回复 "允许" 或 "y" 授权\n`;
-    messageText += `回复 "拒绝" 或 "n" 拒绝\n`;
-    messageText += `回复 "始终允许" 记住此授权`;
+    messageText += `Reply "Allow" or "y" to approve\n`;
+    messageText += `Reply "Deny" or "n" to reject\n`;
+    messageText += `Reply "Always allow" to remember this approval`;
 
     // Store pending interaction
     const interaction: RemoteInteraction = {
@@ -736,14 +736,9 @@ export class RemoteManager extends EventEmitter {
     return new Promise((resolve) => {
       this.interactionResolvers.set(toolUseId, (response) => {
         const lowerResponse = response.toLowerCase().trim();
-        if (
-          lowerResponse === '允许' ||
-          lowerResponse === 'y' ||
-          lowerResponse === 'yes' ||
-          lowerResponse === '是'
-        ) {
+        if (lowerResponse === 'allow' || lowerResponse === 'y' || lowerResponse === 'yes') {
           resolve({ allow: true });
-        } else if (lowerResponse === '始终允许' || lowerResponse === 'always') {
+        } else if (lowerResponse === 'always allow' || lowerResponse === 'always') {
           resolve({ allow: true, remember: true });
         } else {
           resolve({ allow: false });
@@ -848,11 +843,8 @@ export class RemoteManager extends EventEmitter {
   ): string {
     const answers: Record<number, string[]> = {};
 
-    // Handle "跳过" response
-    if (
-      messageText.toLowerCase().trim() === '跳过' ||
-      messageText.toLowerCase().trim() === 'skip'
-    ) {
+    // Handle "Skip" response
+    if (messageText.toLowerCase().trim() === 'skip') {
       return '{}';
     }
 
@@ -1045,18 +1037,18 @@ export class RemoteManager extends EventEmitter {
     switch (status) {
       case 'running':
         emoji = '⏳';
-        statusText = `正在执行 **${toolName}**...`;
+        statusText = `Running **${toolName}**...`;
         break;
       case 'completed':
         emoji = '✅';
-        statusText = `**${toolName}** 执行完成`;
+        statusText = `**${toolName}** completed`;
         if (output && output.length < 200) {
           statusText += `\n\`\`\`\n${output}\n\`\`\``;
         }
         break;
       case 'error':
         emoji = '❌';
-        statusText = `**${toolName}** 执行失败`;
+        statusText = `**${toolName}** failed`;
         if (output) {
           statusText += `: ${output.substring(0, 100)}`;
         }
@@ -1316,7 +1308,7 @@ export class RemoteManager extends EventEmitter {
   }
 
   /**
-   * 发送远程用户消息到本地 UI（仅远程会话使用）
+   * Send a remote user message to the local UI (remote sessions only)
    */
   private emitRemoteUserMessage(
     actualSessionId: string,

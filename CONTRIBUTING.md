@@ -198,7 +198,7 @@ return <button>{t('settings.save')}</button>;
 return <button>Save</button>;
 ```
 
-Translation files live in `src/renderer/i18n/`. Add keys to both `en` and `zh` locales when introducing new UI text.
+Translation files live in `src/renderer/i18n/`. Add keys to the `en` locale when introducing new UI text.
 
 ---
 

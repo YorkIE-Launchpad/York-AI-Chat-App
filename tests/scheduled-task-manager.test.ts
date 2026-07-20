@@ -344,14 +344,14 @@ describe('ScheduledTaskManager', () => {
     const manager = new ScheduledTaskManager({ store, executeTask, now: () => Date.now() });
 
     const created = manager.create({
-      title: '  需要汇总论文  ',
-      prompt: '  帮我整理今天团队待办  ',
+      title: '  Need paper summary  ',
+      prompt: "  Help me organize today's team todos  ",
       cwd: '/tmp/project',
       runAt: now + 60 * 1000,
       enabled: true,
     });
 
-    expect(created.title).toBe(buildScheduledTaskTitle('需要汇总论文'));
+    expect(created.title).toBe(buildScheduledTaskTitle('Need paper summary'));
   });
 
   it('keeps existing title when prompt changes without explicit title update', () => {
@@ -359,8 +359,8 @@ describe('ScheduledTaskManager', () => {
     const store = createStore([
       createTask({
         id: 'title-update',
-        title: buildScheduledTaskTitle('旧标题'),
-        prompt: '旧任务',
+        title: buildScheduledTaskTitle('Old title'),
+        prompt: 'Old task',
         runAt: now + 60_000,
         nextRunAt: now + 60_000,
       }),
@@ -368,9 +368,11 @@ describe('ScheduledTaskManager', () => {
     const executeTask = vi.fn().mockResolvedValue({ sessionId: 'session-title-update' });
     const manager = new ScheduledTaskManager({ store, executeTask, now: () => Date.now() });
 
-    const updated = manager.update('title-update', { prompt: '每周汇总销售数据并发送到群里' });
+    const updated = manager.update('title-update', {
+      prompt: 'Weekly sales summary and send to the group',
+    });
 
-    expect(updated?.title).toBe(buildScheduledTaskTitle('旧标题'));
+    expect(updated?.title).toBe(buildScheduledTaskTitle('Old title'));
   });
 
   it('does not execute long-delay task before nextRunAt when delay exceeds max timer range', async () => {

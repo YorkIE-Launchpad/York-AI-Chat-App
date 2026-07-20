@@ -51,20 +51,20 @@ describe('SessionManager scheduled title generation', () => {
     };
     const fakeManager = {
       withTimeout: vi.fn(async (promise: Promise<string | null>) => await promise),
-      generateTitleWithConfig: vi.fn(async () => '论文检索总结'),
+      generateTitleWithConfig: vi.fn(async () => 'Paper search summary'),
       generateSessionTitleFromPrompt: proto.generateSessionTitleFromPrompt,
     };
 
     const title = await proto.generateScheduledTaskTitle.call(
       fakeManager,
-      '请帮我总结过去一周 Agent 论文',
+      'Please summarize Agent papers from the past week',
       '/tmp/project'
     );
 
     expect(fakeManager.generateTitleWithConfig).toHaveBeenCalledWith(
-      buildTitlePrompt('请帮我总结过去一周 Agent 论文')
+      buildTitlePrompt('Please summarize Agent papers from the past week')
     );
-    expect(title).toBe('[定时任务] 论文检索总结');
+    expect(title).toBe('[Scheduled Task] Paper search summary');
   });
 
   it('falls back to default prompt title when model title generation returns null', async () => {
@@ -72,7 +72,8 @@ describe('SessionManager scheduled title generation', () => {
       generateSessionTitleFromPrompt(prompt: string, cwd?: string): Promise<string>;
       generateScheduledTaskTitle(prompt: string, cwd?: string): Promise<string>;
     };
-    const prompt = '请帮我使用 Chrome 搜索并总结 2026 年最近一天内与 [Agent] 相关的论文';
+    const prompt =
+      'Please use Chrome to search and summarize Agent-related papers from the most recent day in 2026';
     const fakeManager = {
       withTimeout: vi.fn(async (promise: Promise<string | null>) => await promise),
       generateTitleWithConfig: vi.fn(async () => null),

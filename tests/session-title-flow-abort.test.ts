@@ -4,14 +4,14 @@ import { getDefaultTitleFromPrompt } from '../src/main/session/session-title-uti
 
 // Helper to build a minimal, fully-populated deps object
 function makeDeps(overrides: Partial<Parameters<typeof maybeGenerateSessionTitle>[0]> = {}) {
-  const prompt = '帮我写一份总结报告';
+  const prompt = 'Help me write a summary report';
   return {
     sessionId: 'session-x',
     prompt,
     userMessageCount: 1,
     currentTitle: getDefaultTitleFromPrompt(prompt),
     hasAttempted: false,
-    generateTitle: vi.fn(async () => '总结报告'),
+    generateTitle: vi.fn(async () => 'Summary report'),
     getLatestTitle: () => getDefaultTitleFromPrompt(prompt),
     markAttempt: vi.fn(),
     updateTitle: vi.fn(async () => true),
@@ -99,7 +99,7 @@ describe('maybeGenerateSessionTitle — skip conditions', () => {
   });
 
   it('skips when title has already been customized by the user', async () => {
-    const deps = makeDeps({ currentTitle: '用户自定义标题' });
+    const deps = makeDeps({ currentTitle: 'User custom title' });
     await maybeGenerateSessionTitle(deps);
     expect(deps.generateTitle).not.toHaveBeenCalled();
   });
@@ -107,7 +107,7 @@ describe('maybeGenerateSessionTitle — skip conditions', () => {
   it('skips title update when title was changed externally after generation started', async () => {
     // The latest title no longer matches the initial title, indicating external edit
     const deps = makeDeps({
-      getLatestTitle: () => '已被修改的标题',
+      getLatestTitle: () => 'Already modified title',
     });
     await maybeGenerateSessionTitle(deps);
     expect(deps.updateTitle).not.toHaveBeenCalled();
@@ -122,7 +122,7 @@ describe('maybeGenerateSessionTitle — happy path', () => {
   it('calls updateTitle and markAttempt on successful generation', async () => {
     const deps = makeDeps();
     await maybeGenerateSessionTitle(deps);
-    expect(deps.updateTitle).toHaveBeenCalledWith('总结报告');
+    expect(deps.updateTitle).toHaveBeenCalledWith('Summary report');
     expect(deps.markAttempt).toHaveBeenCalledTimes(1);
   });
 

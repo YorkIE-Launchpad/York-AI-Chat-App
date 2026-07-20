@@ -11,7 +11,7 @@
 - **MCP Connectors**: Custom connector support (stdio / SSE / Streamable HTTP)
 - **Rich Input**: File upload and image input in chat
 - **Multi-Model**: Claude, GPT, Gemini, DeepSeek, Qwen, GLM, Kimi, Grok, MiniMax, Ollama
-- **UI/UX**: Enhanced interface with English/Chinese localization
+- **UI/UX**: Enhanced English interface
 - **Remote Control**: Feishu (Lark) bot integration with pairing mode + approval panel
 - **CI/CD**: Automated builds, smoke tests, Codex-powered PR review bot
 - **Model Presets**: Up-to-date model catalogs for all major providers
