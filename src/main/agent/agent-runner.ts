@@ -4,7 +4,7 @@
  * AI query execution engine (1514 lines).
  *
  * Responsibilities:
- * - Runs AI conversations via the Open Cowork agent SDK (createAgentSession)
+ * - Runs AI conversations via the York IE agent SDK (createAgentSession)
  * - Routes providers via pi-ai SDK for model resolution
  * - Bridges MCP tools into SDK ToolDefinition format
  * - Streams responses back as ServerEvents (stream.message, stream.partial, trace.step)
@@ -898,7 +898,7 @@ ${hints.join('\n')}
     this._skillsAdapter = skillsAdapter;
     this.extensionManager = extensionManager;
 
-    log('[CoworkAgentRunner] Initialized with Open Cowork agent SDK');
+    log('[CoworkAgentRunner] Initialized with York IE agent SDK');
     log('[CoworkAgentRunner] Skills enabled: settingSources=[user, project], Skill tool enabled');
     if (mcpManager) {
       log('[CoworkAgentRunner] MCP support enabled');
@@ -2003,7 +2003,7 @@ ${hints.join('\n')}
                 }
 
                 if (!imageCapable) {
-                  serverEnv.OPEN_COWORK_DISABLE_IMAGE_TOOL_OUTPUT = '1';
+                  serverEnv.YORK_IE_DISABLE_IMAGE_TOOL_OUTPUT = '1';
                 }
 
                 // Resolve path placeholders for presets
@@ -2082,7 +2082,7 @@ ${hints.join('\n')}
           };
         });
         log('[CoworkAgentRunner] Final mcpServers summary:', safeStringify(mcpServersSummary, 2));
-        if (process.env.COWORK_LOG_SDK_MESSAGES_FULL === '1') {
+        if (process.env.YORK_IE_LOG_SDK_MESSAGES_FULL === '1') {
           log('[CoworkAgentRunner] Final mcpServers config:', safeStringify(mcpServers, 2));
         }
       }
@@ -2111,7 +2111,7 @@ This is an isolated sandbox environment. Use ${VIRTUAL_WORKSPACE_PATH} as the ro
 </your_configuration>`;
 
       const coworkAppendPrompt = [
-        'You are an Open Cowork assistant. Be concise, accurate, and tool-capable.',
+        'You are a York IE assistant. Be concise, accurate, and tool-capable.',
         `CRITICAL BEHAVIORAL RULES:
 1. CHAT FIRST: By default, respond to the user in plain text within the conversation. Do NOT create, write, or edit files unless the user explicitly asks you to (e.g., "create a file", "write this to...", "edit the code", "save as...", mentions a specific file path, or describes code changes they want applied). For questions, summaries, explanations, analysis, and general conversation — always reply directly in chat text.
 2. When a request is actionable, proceed immediately with reasonable assumptions. If you need clarification, ask briefly in plain text.
@@ -2636,7 +2636,7 @@ Tool routing:
               if (controller.signal.aborted) break;
 
               const msg = event.message;
-              if (process.env.COWORK_LOG_SDK_MESSAGES_FULL === '1') {
+              if (process.env.YORK_IE_LOG_SDK_MESSAGES_FULL === '1') {
                 log('[CoworkAgentRunner] message_end raw message:', safeStringify(msg, 2));
               }
               const resolvedPayload = resolveMessageEndPayload({

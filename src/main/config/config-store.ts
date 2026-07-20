@@ -555,7 +555,7 @@ export class ConfigStore {
   constructor() {
     const storeOptions: StoreOptions<AppConfig> & { projectName?: string } = {
       name: 'config',
-      projectName: 'open-cowork',
+      projectName: 'york-ie',
       defaults: defaultConfig,
     };
 
@@ -563,14 +563,14 @@ export class ConfigStore {
     // AppConfig is a structurally compatible object type at runtime.
     type AppConfigRecord = AppConfig & Record<string, unknown>;
     this.store = createEncryptedStoreWithKeyRotation<AppConfigRecord>({
-      stableKey: 'open-cowork-config-stable-v1',
+      stableKey: 'york-ie-config-stable-v1',
       legacyKeys: [
-        'open-cowork-config-v1',
+        'york-ie-config-v1',
         ...getLegacyDerivedKeyHexes({
           moduleDirname: __dirname,
-          stableSeed: 'open-cowork-config-stable-v1',
-          legacySeed: 'open-cowork-config-v1',
-          salt: 'open-cowork-config-salt',
+          stableSeed: 'york-ie-config-stable-v1',
+          legacySeed: 'york-ie-config-v1',
+          salt: 'york-ie-config-salt',
         }),
       ],
       storeOptions: storeOptions as StoreOptions<AppConfigRecord> & { projectName?: string },
@@ -1580,7 +1580,7 @@ export class ConfigStore {
     delete process.env.GEMINI_API_KEY;
     delete process.env.GEMINI_BASE_URL;
     delete process.env.AGENT_CLI_PATH;
-    delete process.env.COWORK_WORKDIR;
+    delete process.env.YORK_IE_WORKDIR;
 
     const useOpenAI =
       projectedConfig.provider === 'openai' ||
@@ -1670,7 +1670,7 @@ export class ConfigStore {
     // agentCliPath is no longer used (the agent SDK handles model routing natively)
 
     if (projectedConfig.defaultWorkdir) {
-      process.env.COWORK_WORKDIR = projectedConfig.defaultWorkdir;
+      process.env.YORK_IE_WORKDIR = projectedConfig.defaultWorkdir;
     }
 
     log('[Config] Applied env vars for provider:', projectedConfig.provider, {

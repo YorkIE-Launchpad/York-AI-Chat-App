@@ -138,7 +138,7 @@ describe('windows bash operations', () => {
   });
 
   it('does not spawn a process when the working directory is missing', async () => {
-    const missingCwd = path.join(os.tmpdir(), `open-cowork-missing-${Date.now()}`);
+    const missingCwd = path.join(os.tmpdir(), `york-ie-missing-${Date.now()}`);
     const spawnProcess = createSpawnMock([]);
     const ops = createWindowsBashOperations({ spawnProcess });
 

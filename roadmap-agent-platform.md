@@ -1,6 +1,6 @@
 ## Vision
 
-Open Cowork currently wraps the Claude Agent SDK as a single-session, single-turn desktop chat app. To evolve into a **true agent platform**, we need five foundational capabilities that the app currently lacks or only partially implements.
+York IE currently wraps the Claude Agent SDK as a single-session, single-turn desktop chat app. To evolve into a **true agent platform**, we need five foundational capabilities that the app currently lacks or only partially implements.
 
 This issue is the master roadmap. Each section includes: current state (what exists today), gap (what's missing), technical approach, and dependencies.
 
@@ -55,7 +55,7 @@ Additionally, `handleClientEvent()` in `index.ts:2662-2807` is already a pure, G
 
 ### Why This is Foundational
 
-- **Enables Claude Code (or any external agent) to drive Open Cowork programmatically** — for testing, validation, and agent-to-agent workflows
+- **Enables Claude Code (or any external agent) to drive York IE programmatically** — for testing, validation, and agent-to-agent workflows
 - **Unblocks CI-level integration testing** of agent behavior, not just unit tests
 - **Makes every other roadmap item testable** without manual GUI interaction
 
@@ -99,19 +99,19 @@ Extract core into a package that works without the Electron binary at all (for D
 
 ```bash
 # Single-shot: send prompt, get result, exit
-open-cowork --headless -p "list all files in src/" --cwd ~/project
+york-ie --headless -p "list all files in src/" --cwd ~/project
 
 # JSONL streaming: pipe events for processing
-open-cowork --headless --mode json -p "refactor this function" | jq '.type'
+york-ie --headless --mode json -p "refactor this function" | jq '.type'
 
 # RPC mode: bidirectional, for agent-to-agent
-open-cowork --headless --mode rpc
+york-ie --headless --mode rpc
 
 # Auto-approve all tool calls (for trusted automation)
-open-cowork --headless --auto-approve -p "fix the failing tests"
+york-ie --headless --auto-approve -p "fix the failing tests"
 
 # Claude Code integration test
-echo '{"type":"session.start","prompt":"what model are you?"}' | open-cowork --headless --mode rpc
+echo '{"type":"session.start","prompt":"what model are you?"}' | york-ie --headless --mode rpc
 ```
 
 ### Estimated Scope
@@ -179,7 +179,7 @@ echo '{"type":"session.start","prompt":"what model are you?"}' | open-cowork --h
 ### Current State
 
 - `createAgentSession()` is called from exactly **one place** (`agent-runner.ts:2244`). No multi-session orchestration.
-- The SDK has a complete subagent extension example (`examples/extensions/subagent/`) supporting single, parallel (max 8, 4 concurrent), and chain modes — but this is a CLI extension, not wired into Open Cowork.
+- The SDK has a complete subagent extension example (`examples/extensions/subagent/`) supporting single, parallel (max 8, 4 concurrent), and chain modes — but this is a CLI extension, not wired into York IE.
 - The project's `AgentRuntimeExtension` interface supports injecting custom tools via `beforeSessionRun() → { customTools }` — this is the clean integration point.
 - `AgentSession` API supports full programmatic control: `.prompt()`, `.subscribe()`, `.abort()`, `.dispose()`, `.getContextUsage()`.
 
@@ -193,7 +193,7 @@ echo '{"type":"session.start","prompt":"what model are you?"}' | open-cowork --h
 
 **Architecture: in-process sessions (not subprocess)**
 
-The SDK's example spawns a `pi` CLI process, but Open Cowork should use in-process `createAgentSession()` because:
+The SDK's example spawns a `pi` CLI process, but York IE should use in-process `createAgentSession()` because:
 
 - No dependency on `pi` binary being on PATH
 - Reuses existing `authStorage` / `modelRegistry` already constructed in `agent-runner.ts`
@@ -232,7 +232,7 @@ src/main/subagent/
    - Token usage aggregation (child usage reported back to parent's UI)
 
 4. **Agent definitions** (Phase 2):
-   - Discover from `~/.opencowork/agents/*.md` (user) and `.opencowork/agents/*.md` (project)
+   - Discover from `~/.york-ie/agents/*.md` (user) and `.york-ie/agents/*.md` (project)
    - Frontmatter: `name`, `description`, `model`, `tools`, body = system prompt
    - Security: project-local agents require confirmation (untrusted prompts)
 
@@ -446,7 +446,7 @@ New:      timer fires → checkCondition() → changed? → yes: startSession()
 - [ ] Subagent UI: inline expansion in chat vs. separate panel vs. both?
 - [ ] Should compact custom instructions be per-session, per-workspace, or global?
 - [ ] Polling check interval minimum (to prevent abuse / runaway costs)?
-- [ ] Headless mode: should `--headless` be the Electron binary or a separate `open-cowork-cli` package?
+- [ ] Headless mode: should `--headless` be the Electron binary or a separate `york-ie-cli` package?
 - [ ] Should these be separate issues or tracked as sub-tasks of this roadmap?
 
 ---

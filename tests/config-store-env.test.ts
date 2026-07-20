@@ -40,7 +40,7 @@ import { ConfigStore } from '../src/main/config/config-store';
 
 describe('ConfigStore applyToEnv', () => {
   const originalEnv = {
-    COWORK_WORKDIR: process.env.COWORK_WORKDIR,
+    YORK_IE_WORKDIR: process.env.YORK_IE_WORKDIR,
     ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
     ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL,
     GEMINI_API_KEY: process.env.GEMINI_API_KEY,
@@ -48,7 +48,7 @@ describe('ConfigStore applyToEnv', () => {
   };
 
   beforeEach(() => {
-    delete process.env.COWORK_WORKDIR;
+    delete process.env.YORK_IE_WORKDIR;
     delete process.env.ANTHROPIC_API_KEY;
     delete process.env.ANTHROPIC_BASE_URL;
     delete process.env.GEMINI_API_KEY;
@@ -56,10 +56,10 @@ describe('ConfigStore applyToEnv', () => {
   });
 
   afterEach(() => {
-    if (originalEnv.COWORK_WORKDIR === undefined) {
-      delete process.env.COWORK_WORKDIR;
+    if (originalEnv.YORK_IE_WORKDIR === undefined) {
+      delete process.env.YORK_IE_WORKDIR;
     } else {
-      process.env.COWORK_WORKDIR = originalEnv.COWORK_WORKDIR;
+      process.env.YORK_IE_WORKDIR = originalEnv.YORK_IE_WORKDIR;
     }
     if (originalEnv.ANTHROPIC_API_KEY === undefined) {
       delete process.env.ANTHROPIC_API_KEY;
@@ -83,7 +83,7 @@ describe('ConfigStore applyToEnv', () => {
     }
   });
 
-  it('clears stale COWORK_WORKDIR when config value is removed', () => {
+  it('clears stale YORK_IE_WORKDIR when config value is removed', () => {
     const store = new ConfigStore();
 
     store.update({
@@ -93,14 +93,14 @@ describe('ConfigStore applyToEnv', () => {
       model: 'claude-sonnet-4-5',
     });
     store.applyToEnv();
-    expect(process.env.COWORK_WORKDIR).toBe('/tmp/cowork-valid-workdir');
+    expect(process.env.YORK_IE_WORKDIR).toBe('/tmp/cowork-valid-workdir');
 
     store.update({
       defaultWorkdir: '',
     });
     store.applyToEnv();
 
-    expect(process.env.COWORK_WORKDIR).toBeUndefined();
+    expect(process.env.YORK_IE_WORKDIR).toBeUndefined();
   });
 
   it('exports loopback placeholder key for custom anthropic profile when api key is empty', () => {

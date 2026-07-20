@@ -378,10 +378,10 @@ export function ensureBotSignature(body) {
   if (!trimmed) {
     throw new Error('Model returned an empty body.');
   }
-  if (trimmed.includes('*Open Cowork Bot*')) {
+  if (trimmed.includes('*York IE Bot*')) {
     return trimmed;
   }
-  return `${trimmed}\n\n*Open Cowork Bot*`;
+  return `${trimmed}\n\n*York IE Bot*`;
 }
 
 export function writeTempJson(prefix, value) {

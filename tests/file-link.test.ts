@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { splitTextByFileMentions, getFileLinkButtonClassName, splitChildrenByFileMentions } from '../src/renderer/utils/file-link';
+import {
+  splitTextByFileMentions,
+  getFileLinkButtonClassName,
+  splitChildrenByFileMentions,
+} from '../src/renderer/utils/file-link';
 
 describe('splitTextByFileMentions', () => {
   it('detects bare filenames with extension', () => {
@@ -32,11 +36,16 @@ describe('splitTextByFileMentions', () => {
   });
 
   it('detects absolute paths with spaces', () => {
-    const input = '文档已保存为：/Users/haoqing/Library/Application Support/open-cowork/default_working_dir/word-document/示例文档.docx';
+    const input =
+      '文档已保存为：/Users/haoqing/Library/Application Support/york-ie/default_working_dir/word-document/示例文档.docx';
     const parts = splitTextByFileMentions(input);
     expect(parts).toEqual([
       { type: 'text', value: '文档已保存为：' },
-      { type: 'file', value: '/Users/haoqing/Library/Application Support/open-cowork/default_working_dir/word-document/示例文档.docx' },
+      {
+        type: 'file',
+        value:
+          '/Users/haoqing/Library/Application Support/york-ie/default_working_dir/word-document/示例文档.docx',
+      },
     ]);
   });
 
@@ -70,7 +79,8 @@ describe('splitTextByFileMentions', () => {
     expect(parts).toEqual([
       {
         type: 'text',
-        value: '已创建 Word 文档，内容为“北京未来一个月天气介绍”（含趋势、气温体感、降水风力、生活建议等）：\n\n',
+        value:
+          '已创建 Word 文档，内容为“北京未来一个月天气介绍”（含趋势、气温体感、降水风力、生活建议等）：\n\n',
       },
       { type: 'file', value: '北京未来一个月天气介绍.docx' },
     ]);

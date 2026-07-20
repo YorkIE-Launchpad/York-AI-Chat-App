@@ -9,7 +9,7 @@ describe('CoreMemoryStore', () => {
   let filePath: string;
 
   beforeEach(() => {
-    tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'open-cowork-core-memory-'));
+    tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'york-ie-core-memory-'));
     filePath = path.join(tempRoot, 'core_memory.json');
   });
 

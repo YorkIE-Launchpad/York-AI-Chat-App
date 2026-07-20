@@ -23,14 +23,14 @@ import { parseArgs } from 'node:util';
 function decryptConfig() {
   const configPath = path.join(
     os.homedir(),
-    'Library/Application Support/open-cowork/config.json',
+    'Library/Application Support/york-ie/config.json',
   );
   if (!fs.existsSync(configPath)) {
     throw new Error(`Config not found at ${configPath}. Is the app installed?`);
   }
   const data = fs.readFileSync(configPath);
   const iv = data.slice(0, 16);
-  const password = crypto.pbkdf2Sync('open-cowork-config-v1', iv, 10_000, 32, 'sha512');
+  const password = crypto.pbkdf2Sync('york-ie-config-v1', iv, 10_000, 32, 'sha512');
   const decipher = crypto.createDecipheriv('aes-256-cbc', password, iv);
   const dec = Buffer.concat([decipher.update(data.slice(17)), decipher.final()]);
   return JSON.parse(dec.toString('utf8'));

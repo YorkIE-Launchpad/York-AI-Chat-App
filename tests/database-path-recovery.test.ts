@@ -70,7 +70,7 @@ async function loadDatabaseModule(userDataPath: string) {
 
 describe('database path recovery', () => {
   beforeEach(() => {
-    testRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'open-cowork-db-path-test-'));
+    testRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'york-ie-db-path-test-'));
   });
 
   afterEach(() => {
@@ -97,7 +97,7 @@ describe('database path recovery', () => {
     const databaseModule = await loadDatabaseModule(userDataPath);
     databaseModule.initDatabase();
 
-    const recoveredDbPath = path.join(userDataPath, 'data', 'cowork.db');
+    const recoveredDbPath = path.join(userDataPath, 'data', 'york-ie.db');
     expect(fs.existsSync(recoveredDbPath)).toBe(true);
     expect(fs.readFileSync(recoveredDbPath)).toEqual(legacyBytes);
 
@@ -116,8 +116,12 @@ describe('database path recovery', () => {
     const databaseModule = await loadDatabaseModule(userDataPath);
     databaseModule.initDatabase();
 
-    expect(fs.readFileSync(path.join(userDataPath, 'data', 'cowork.db-wal'), 'utf8')).toBe('legacy-wal');
-    expect(fs.readFileSync(path.join(userDataPath, 'data', 'cowork.db-shm'), 'utf8')).toBe('legacy-shm');
+    expect(fs.readFileSync(path.join(userDataPath, 'data', 'york-ie.db-wal'), 'utf8')).toBe(
+      'legacy-wal'
+    );
+    expect(fs.readFileSync(path.join(userDataPath, 'data', 'york-ie.db-shm'), 'utf8')).toBe(
+      'legacy-shm'
+    );
     expect(fs.existsSync(path.join(userDataPath, 'data-wal'))).toBe(false);
     expect(fs.existsSync(path.join(userDataPath, 'data-shm'))).toBe(false);
 
@@ -134,12 +138,16 @@ describe('database path recovery', () => {
     const databaseModule = await loadDatabaseModule(userDataPath);
     databaseModule.initDatabase();
 
-    const dbPath = path.join(userDataPath, 'data', 'cowork.db');
+    const dbPath = path.join(userDataPath, 'data', 'york-ie.db');
     expect(fs.existsSync(dbPath)).toBe(true);
 
-    const backupEntries = fs.readdirSync(userDataPath).filter((entry) => entry.startsWith('data.conflict-'));
+    const backupEntries = fs
+      .readdirSync(userDataPath)
+      .filter((entry) => entry.startsWith('data.conflict-'));
     expect(backupEntries.length).toBe(1);
-    expect(fs.readFileSync(path.join(userDataPath, backupEntries[0]), 'utf8')).toBe('not-a-database');
+    expect(fs.readFileSync(path.join(userDataPath, backupEntries[0]), 'utf8')).toBe(
+      'not-a-database'
+    );
     expect(fs.statSync(path.join(userDataPath, 'data')).isDirectory()).toBe(true);
 
     databaseModule.closeDatabase();

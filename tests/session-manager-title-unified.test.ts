@@ -70,7 +70,7 @@ const mockedGenerateTitleWithClaudeSdk = vi.mocked(generateTitleWithSdk);
 
 describe('SessionManager unified title generation', () => {
   const previous = {
-    disableClaudeUnified: process.env.COWORK_DISABLE_CLAUDE_UNIFIED,
+    disableClaudeUnified: process.env.YORK_IE_DISABLE_CLAUDE_UNIFIED,
     provider: configStore.get('provider'),
     customProtocol: configStore.get('customProtocol'),
     apiKey: configStore.get('apiKey'),
@@ -79,7 +79,7 @@ describe('SessionManager unified title generation', () => {
   };
 
   beforeEach(() => {
-    delete process.env.COWORK_DISABLE_CLAUDE_UNIFIED;
+    delete process.env.YORK_IE_DISABLE_CLAUDE_UNIFIED;
     configStore.set('provider', 'openai');
     configStore.set('customProtocol', 'openai');
     configStore.set('apiKey', 'sk-test');
@@ -89,9 +89,9 @@ describe('SessionManager unified title generation', () => {
 
   afterEach(() => {
     if (previous.disableClaudeUnified === undefined) {
-      delete process.env.COWORK_DISABLE_CLAUDE_UNIFIED;
+      delete process.env.YORK_IE_DISABLE_CLAUDE_UNIFIED;
     } else {
-      process.env.COWORK_DISABLE_CLAUDE_UNIFIED = previous.disableClaudeUnified;
+      process.env.YORK_IE_DISABLE_CLAUDE_UNIFIED = previous.disableClaudeUnified;
     }
     configStore.set('provider', previous.provider);
     configStore.set('customProtocol', previous.customProtocol);
@@ -120,7 +120,7 @@ describe('SessionManager unified title generation', () => {
   });
 
   it('routes gemini title generation through Claude SDK even when unified mode flag is disabled', async () => {
-    process.env.COWORK_DISABLE_CLAUDE_UNIFIED = '1';
+    process.env.YORK_IE_DISABLE_CLAUDE_UNIFIED = '1';
     configStore.set('provider', 'gemini');
     configStore.set('customProtocol', 'gemini');
     configStore.set('apiKey', 'AIza-test');

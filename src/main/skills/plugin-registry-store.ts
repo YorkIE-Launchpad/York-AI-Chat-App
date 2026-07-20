@@ -16,7 +16,7 @@ class PluginRegistryStore {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- electron-store requires Record<string, any>
     const storeOptions: any = {
       name: 'plugin-registry',
-      projectName: 'open-cowork',
+      projectName: 'york-ie',
       cwd: storeCwd,
       defaults: {
         plugins: [],
@@ -35,7 +35,7 @@ class PluginRegistryStore {
     } catch {
       // 测试或非 Electron 场景走兜底目录。
     }
-    return path.join(os.tmpdir(), 'open-cowork');
+    return path.join(os.tmpdir(), 'york-ie');
   }
 
   list(): InstalledPlugin[] {

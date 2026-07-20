@@ -1,18 +1,18 @@
 {
   "schemaVersion": "1.0",
-  "name": "Open Cowork",
-  "organization": "OpenCoworkAI",
-  "canonicalUrl": "https://opencoworkai.github.io/open-cowork/",
+  "name": "York IE",
+  "organization": "York IE",
+  "canonicalUrl": "https://york.ie/",
   "localizedUrls": {
-    "en": "https://opencoworkai.github.io/open-cowork/",
-    "zh-CN": "https://opencoworkai.github.io/open-cowork/zh/"
+    "en": "https://york.ie/",
+    "zh-CN": "https://york.ie/zh/"
   },
-  "repository": "https://github.com/OpenCoworkAI/open-cowork",
-  "releases": "https://github.com/OpenCoworkAI/open-cowork/releases",
-  "issues": "https://github.com/OpenCoworkAI/open-cowork/issues",
+  "repository": "https://york.ie",
+  "releases": "https://york.ie",
+  "issues": "https://york.ie",
   "license": {
     "name": "MIT",
-    "url": "https://github.com/OpenCoworkAI/open-cowork/blob/main/LICENSE"
+    "url": "https://opensource.org/licenses/MIT"
   },
   "version": "3.3.0",
   "lastReviewed": "2026-05-01",
@@ -31,12 +31,12 @@
     {
       "platform": "macOS",
       "method": "Homebrew",
-      "commands": ["brew tap OpenCoworkAI/tap", "brew install --cask --no-quarantine open-cowork"]
+      "commands": ["brew tap YorkIE-Launchpad/tap", "brew install --cask --no-quarantine york-ie"]
     },
     {
       "platform": "Windows and macOS",
       "method": "GitHub Releases",
-      "url": "https://github.com/OpenCoworkAI/open-cowork/releases"
+      "url": "https://york.ie"
     }
   ],
   "capabilities": [
@@ -80,21 +80,21 @@
     "localFirst": true,
     "workspaceBoundary": "File operations are restricted to the selected workspace folder.",
     "vmIsolation": ["WSL2 on Windows", "Lima on macOS"],
-    "dataPolicy": "Open Cowork runs locally; the external network path is the AI model API configured by the user. The project website states that Open Cowork does not send data to Open Cowork servers."
+    "dataPolicy": "York IE runs locally; the external network path is the AI model API configured by the user. The project website states that York IE does not send data to York IE servers."
   },
   "machineReadableResources": {
-    "llmsTxt": "https://opencoworkai.github.io/open-cowork/llms.txt",
-    "llmsFullTxt": "https://opencoworkai.github.io/open-cowork/llms-full.txt",
-    "projectJson": "https://opencoworkai.github.io/open-cowork/project.json",
-    "sitemap": "https://opencoworkai.github.io/open-cowork/sitemap.xml",
-    "robots": "https://opencoworkai.github.io/open-cowork/robots.txt"
+    "llmsTxt": "https://york.ie/llms.txt",
+    "llmsFullTxt": "https://york.ie/llms-full.txt",
+    "projectJson": "https://york.ie/project.json",
+    "sitemap": "https://york.ie/sitemap.xml",
+    "robots": "https://york.ie/robots.txt"
   },
   "sourcePages": [
-    "https://github.com/OpenCoworkAI/open-cowork/blob/main/README.md",
-    "https://github.com/OpenCoworkAI/open-cowork/blob/main/README_zh.md",
-    "https://github.com/OpenCoworkAI/open-cowork/blob/main/CHANGELOG.md",
-    "https://github.com/OpenCoworkAI/open-cowork/blob/main/ROADMAP.md",
-    "https://github.com/OpenCoworkAI/open-cowork/blob/main/SECURITY.md",
-    "https://github.com/OpenCoworkAI/open-cowork/blob/main/CONTRIBUTING.md"
+    "https://york.ie/blob/main/README.md",
+    "https://york.ie/blob/main/README_zh.md",
+    "https://york.ie/blob/main/CHANGELOG.md",
+    "https://york.ie/blob/main/ROADMAP.md",
+    "https://york.ie/blob/main/SECURITY.md",
+    "https://york.ie/blob/main/CONTRIBUTING.md"
   ]
 }

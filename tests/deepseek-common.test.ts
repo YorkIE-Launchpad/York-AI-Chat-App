@@ -36,7 +36,7 @@ describe('deepseek-common runRg', () => {
           ':!node_modules/**',
           '.',
         ]);
-        return 'ROADMAP.md:1:# Open Cowork Roadmap\n';
+        return 'ROADMAP.md:1:# York IE Roadmap\n';
       }
       throw new Error(`unexpected command: ${command}`);
     });
@@ -45,7 +45,7 @@ describe('deepseek-common runRg', () => {
 
     expect(
       runRg(['-n', '-F', '--max-count', '2', '-e', 'Roadmap', '--glob', '!node_modules/**', '.'])
-    ).toBe('ROADMAP.md:1:# Open Cowork Roadmap');
+    ).toBe('ROADMAP.md:1:# York IE Roadmap');
   });
 
   it('returns no snippets when ripgrep and git grep are both unavailable', async () => {
@@ -164,13 +164,13 @@ describe('deepseek-common PR file pagination', () => {
         'api',
         '--paginate',
         '--slurp',
-        'repos/OpenCoworkAI/open-cowork/pulls/298/files?per_page=100',
+        'repos/York IE/york-ie/pulls/298/files?per_page=100',
       ]);
       return '[[{"filename":"first.ts"}],[{"filename":"second.ts"}]]';
     });
     const { listPullRequestFiles } = await importCommonWithExecFileSync(execFileSync);
 
-    expect(listPullRequestFiles('OpenCoworkAI/open-cowork', '298')).toEqual([
+    expect(listPullRequestFiles('York IE/york-ie', '298')).toEqual([
       { filename: 'first.ts' },
       { filename: 'second.ts' },
     ]);

@@ -3,34 +3,34 @@ layout: home
 head:
   - - link
     - rel: canonical
-      href: https://opencoworkai.github.io/open-cowork/
+      href: https://york.ie/
   - - link
     - rel: alternate
       hreflang: en
-      href: https://opencoworkai.github.io/open-cowork/
+      href: https://york.ie/
   - - link
     - rel: alternate
       hreflang: zh-CN
-      href: https://opencoworkai.github.io/open-cowork/zh/
+      href: https://york.ie/zh/
   - - link
     - rel: alternate
       hreflang: x-default
-      href: https://opencoworkai.github.io/open-cowork/
+      href: https://york.ie/
 
 hero:
-  name: Open Cowork
+  name: York IE
   text: Open-Source AI Agent Desktop App
   tagline: One-click install for Windows & macOS. Multi-model support, VM sandbox isolation, built-in Skills, and MCP integration — no coding required.
   image:
     src: /logo.png
-    alt: Open Cowork Logo
+    alt: York IE Logo
   actions:
     - theme: brand
       text: Download
-      link: https://github.com/OpenCoworkAI/open-cowork/releases
+      link: https://york.ie
     - theme: alt
       text: View on GitHub
-      link: https://github.com/OpenCoworkAI/open-cowork
+      link: https://york.ie
 
 features:
   - icon: 🚀
@@ -56,7 +56,7 @@ features:
     details: Send commands and receive results via Feishu (Lark) and Slack integration. Automate workflows across collaboration platforms.
   - icon: 🛡️
     title: Free & Open Source
-    details: MIT licensed. Fully transparent codebase. Your data stays local — no telemetry, no data sent to Open Cowork servers.
+    details: MIT licensed. Fully transparent codebase. Your data stays local — no telemetry, no data sent to York IE servers.
 ---
 
 <style>
@@ -121,10 +121,10 @@ features:
 
 ## How It Compares
 
-|                 | MCP & Skills | Remote Control | GUI Automation |
-| --------------- | :----------: | :------------: | :------------: |
-| Claude Cowork   |      ✓       |       ✗        |       ✗        |
-| **Open Cowork** |    **✓**     |     **✓**      |     **✓**      |
+|               | MCP & Skills | Remote Control | GUI Automation |
+| ------------- | :----------: | :------------: | :------------: |
+| Claude Cowork |      ✓       |       ✗        |       ✗        |
+| **York IE**   |    **✓**     |     **✓**      |     **✓**      |
 
 </div>
 
@@ -135,11 +135,11 @@ features:
 **macOS (Homebrew)**
 
 ```bash
-brew tap OpenCoworkAI/tap
-brew install --cask --no-quarantine open-cowork
+brew tap YorkIE-Launchpad/tap
+brew install --cask --no-quarantine york-ie
 ```
 
-**Windows / macOS** — [Download from Releases →](https://github.com/OpenCoworkAI/open-cowork/releases)
+**Windows / macOS** — [Download from Releases →](https://york.ie)
 
 </div>
 
@@ -149,9 +149,9 @@ brew install --cask --no-quarantine open-cowork
 
 <div class="faq-item">
 
-### What is Open Cowork?
+### What is York IE?
 
-Open Cowork is a free, open-source AI agent desktop application for Windows and macOS. It wraps AI models (Claude, GPT, Gemini, DeepSeek, etc.) into a user-friendly GUI with one-click installation — no terminal or coding knowledge required.
+York IE is a free, open-source AI agent desktop application for Windows and macOS. It wraps AI models (Claude, GPT, Gemini, DeepSeek, etc.) into a user-friendly GUI with one-click installation — no terminal or coding knowledge required.
 
 </div>
 
@@ -167,7 +167,7 @@ Claude (via Anthropic or OpenRouter), OpenAI-compatible APIs, and Chinese models
 
 ### Is it free?
 
-Yes. Open Cowork is completely free and open-source under the MIT license. You only pay for AI model API usage from your chosen provider.
+Yes. York IE is completely free and open-source under the MIT license. You only pay for AI model API usage from your chosen provider.
 
 </div>
 
@@ -175,7 +175,7 @@ Yes. Open Cowork is completely free and open-source under the MIT license. You o
 
 ### How does sandbox isolation work?
 
-Open Cowork uses WSL2 (Windows) or Lima (macOS) to run all AI-executed commands inside an isolated Linux VM. Even if the AI makes a mistake, your host system files remain protected.
+York IE uses WSL2 (Windows) or Lima (macOS) to run all AI-executed commands inside an isolated Linux VM. Even if the AI makes a mistake, your host system files remain protected.
 
 </div>
 
@@ -183,7 +183,7 @@ Open Cowork uses WSL2 (Windows) or Lima (macOS) to run all AI-executed commands 
 
 ### Is my data safe?
 
-Open Cowork runs entirely on your local machine. The only external communication is with the AI model API you configure. No data is sent to Open Cowork servers.
+York IE runs entirely on your local machine. The only external communication is with the AI model API you configure. No data is sent to York IE servers.
 
 </div>
 
@@ -191,7 +191,7 @@ Open Cowork runs entirely on your local machine. The only external communication
 
 ### Does it work on Linux?
 
-Pre-built installers are available for Windows and macOS. Linux users can build from source — see the [GitHub repository](https://github.com/OpenCoworkAI/open-cowork) for instructions.
+Pre-built installers are available for Windows and macOS. Linux users can build from source — see the [GitHub repository](https://york.ie) for instructions.
 
 </div>
 

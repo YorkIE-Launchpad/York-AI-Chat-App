@@ -7,7 +7,7 @@ const { writeLegacyCleanupArtifacts } = require('./build-windows-artifacts');
 
 const PROJECT_ROOT = path.join(__dirname, '..');
 const CACHE_ROOT = path.resolve(
-  process.env.OPEN_COWORK_BUILD_ROOT || path.join(PROJECT_ROOT, '.build-cache')
+  process.env.YORK_IE_BUILD_ROOT || path.join(PROJECT_ROOT, '.build-cache')
 );
 
 const DIRS = {

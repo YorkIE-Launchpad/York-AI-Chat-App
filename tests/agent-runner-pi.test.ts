@@ -5,7 +5,7 @@ import path from 'node:path';
 const agentRunnerPath = path.resolve(process.cwd(), 'src/main/agent/agent-runner.ts');
 const agentRunnerContent = readFileSync(agentRunnerPath, 'utf8');
 
-describe('CoworkAgentRunner Open Cowork SDK integration', () => {
+describe('CoworkAgentRunner York IE SDK integration', () => {
   it('avoids dynamic re-import shadowing for config store singletons', () => {
     expect(agentRunnerContent).toContain(
       "import { mcpConfigStore } from '../mcp/mcp-config-store'"
@@ -41,7 +41,9 @@ describe('CoworkAgentRunner Open Cowork SDK integration', () => {
 
   it('keeps MCP server logging compact unless full debug logging is enabled', () => {
     expect(agentRunnerContent).toContain("log('[CoworkAgentRunner] Final mcpServers summary:'");
-    expect(agentRunnerContent).toContain("if (process.env.COWORK_LOG_SDK_MESSAGES_FULL === '1') {");
+    expect(agentRunnerContent).toContain(
+      "if (process.env.YORK_IE_LOG_SDK_MESSAGES_FULL === '1') {"
+    );
     expect(agentRunnerContent).toContain("log('[CoworkAgentRunner] Final mcpServers config:'");
   });
 
@@ -52,7 +54,9 @@ describe('CoworkAgentRunner Open Cowork SDK integration', () => {
     );
     expect(agentRunnerContent).toContain("'[CoworkAgentRunner] Event: message_end'");
     expect(agentRunnerContent).toContain('messageUpdateCounts: getStreamEventSummary()');
-    expect(agentRunnerContent).toContain("if (process.env.COWORK_LOG_SDK_MESSAGES_FULL === '1') {");
+    expect(agentRunnerContent).toContain(
+      "if (process.env.YORK_IE_LOG_SDK_MESSAGES_FULL === '1') {"
+    );
     expect(agentRunnerContent).toContain("'[CoworkAgentRunner] message_end raw message:'");
   });
 

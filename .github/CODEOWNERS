@@ -1,19 +1,19 @@
 # Default owners for the entire repository
-* @OpenCoworkAI/core
+* @YorkIE-Launchpad
 
 # AI execution core
-src/main/claude/ @OpenCoworkAI/core
+src/main/claude/ @YorkIE-Launchpad
 
 # MCP server lifecycle
-src/main/mcp/ @OpenCoworkAI/core
+src/main/mcp/ @YorkIE-Launchpad
 
 # Sandbox isolation (WSL / Lima)
-src/main/sandbox/ @OpenCoworkAI/core
+src/main/sandbox/ @YorkIE-Launchpad
 
 # Frontend
-src/renderer/ @OpenCoworkAI/core
+src/renderer/ @YorkIE-Launchpad
 
 # CI/CD and build
-.github/ @OpenCoworkAI/core
-electron-builder.yml @OpenCoworkAI/core
-scripts/ @OpenCoworkAI/core
+.github/ @YorkIE-Launchpad
+electron-builder.yml @YorkIE-Launchpad
+scripts/ @YorkIE-Launchpad

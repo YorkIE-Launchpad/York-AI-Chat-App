@@ -180,7 +180,7 @@ function prepareDatabaseDirectory(userDataPath: string): string {
   mkdirSync(dbDir, { recursive: true });
 
   if (isSqliteFile(preservedPath)) {
-    const recoveredDbPath = join(dbDir, 'cowork.db');
+    const recoveredDbPath = join(dbDir, 'york-ie.db');
     renameSync(preservedPath, recoveredDbPath);
     moveIfExists(`${dbDir}-wal`, `${recoveredDbPath}-wal`);
     moveIfExists(`${dbDir}-shm`, `${recoveredDbPath}-shm`);
@@ -202,7 +202,7 @@ function getDatabasePath(): string {
   // Use electron's userData path for persistent storage
   const userDataPath = app.getPath('userData');
   const dbDir = prepareDatabaseDirectory(userDataPath);
-  const dbPath = join(dbDir, 'cowork.db');
+  const dbPath = join(dbDir, 'york-ie.db');
 
   if (existsSync(dbPath) && statSync(dbPath).isDirectory()) {
     const backupPath = buildBackupPath(dbPath, 'dir-backup');

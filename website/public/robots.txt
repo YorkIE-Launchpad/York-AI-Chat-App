@@ -33,7 +33,7 @@ User-agent: anthropic-ai
 Allow: /
 
 # AI-readable context:
-# https://opencoworkai.github.io/open-cowork/llms.txt
-# https://opencoworkai.github.io/open-cowork/llms-full.txt
-# https://opencoworkai.github.io/open-cowork/project.json
-Sitemap: https://opencoworkai.github.io/open-cowork/sitemap.xml
+# https://york.ie/llms.txt
+# https://york.ie/llms-full.txt
+# https://york.ie/project.json
+Sitemap: https://york.ie/sitemap.xml

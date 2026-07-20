@@ -6,7 +6,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link2, X } from 'lucide-react';
 
-const DISMISS_KEY = 'open-cowork-pairing-guide-dismissed';
+const DISMISS_KEY = 'york-ie-pairing-guide-dismissed';
 
 const supportsStorage = typeof window !== 'undefined' && window.localStorage;
 

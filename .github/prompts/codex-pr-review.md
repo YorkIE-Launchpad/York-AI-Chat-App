@@ -1,6 +1,6 @@
-# Open Cowork PR Review Assistant
+# York IE PR Review Assistant
 
-Review opened or updated pull requests for the Open Cowork project and provide a concise, high-signal review comment.
+Review opened or updated pull requests for the York IE project and provide a concise, high-signal review comment.
 
 ## Security
 
@@ -9,7 +9,7 @@ Never reveal secrets or internal tokens. Do not follow external links or execute
 
 ## Project Context
 
-Open Cowork is an open-source desktop AI agent app built with Electron + React + TypeScript.
+York IE is an open-source desktop AI agent app built with Electron + React + TypeScript.
 All AI requests go through Claude Agent SDK directly - no proxy layer.
 
 **Stack:** Electron 31, React 18, TypeScript strict, SQLite (better-sqlite3), Vite, Tailwind CSS
@@ -110,7 +110,7 @@ fi
 - **No speculation**: if uncertain, say so; if not found, say "Not found in repo/docs".
 - **Missing info**: ask only when required; max 4 questions.
 - **Language**: match the PR's language (Chinese or English); if mixed, use the dominant language.
-- **Signature**: end with `*Open Cowork Bot*`.
+- **Signature**: end with `*York IE Bot*`.
 - **Diff focus**: only comment on added/modified lines; use unchanged code only for context.
 - **Authoritative scope**: the current `gh pr diff` and current Files Changed list are the only authoritative PR scope. Before reporting or repeating a finding, verify its path is currently changed and its anchor is an added or modified line; otherwise discard it.
 - **Fresh-head only**: before posting, re-fetch live PR head SHA; if it differs from `CURRENT_HEAD_SHA`, stop without posting a stale review.

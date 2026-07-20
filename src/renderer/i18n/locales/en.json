@@ -18,7 +18,7 @@
     "disable": "Disable",
     "install": "Install",
     "optional": "optional",
-    "appLogoAlt": "Open Cowork logo",
+    "appLogoAlt": "York IE VECOS logo",
     "pastedImageAlt": "Pasted {{index}}"
   },
   "welcome": {
@@ -37,7 +37,7 @@
     "starting": "Starting...",
     "chromeRequired": "Chrome",
     "notionRequired": "Notion",
-    "logoAlt": "Open Cowork logo",
+    "logoAlt": "York IE VECOS logo",
     "pastedImageAlt": "Pasted {{index}}",
     "quickPromptCreate": "Create a new file for me",
     "quickPromptCrunch": "Help me analyze and process data",
@@ -63,7 +63,7 @@
     "schedule": "Schedules",
     "scheduleDesc": "Alarm-style prompt automation",
     "remote": "Remote Control",
-    "remoteDesc": "Use Open Cowork from Feishu and other channels",
+    "remoteDesc": "Use York IE from Feishu and other channels",
     "logs": "Logs",
     "logsDesc": "View and export application logs",
     "panelDesc": "Configure your workspace, tools, and account behavior.",
@@ -131,7 +131,7 @@
   },
   "api": {
     "firstRunTitle": "Set Up API",
-    "firstRunSubtitle": "Configure a provider to start using Open Cowork",
+    "firstRunSubtitle": "Configure a provider to start using York IE",
     "settingsTitle": "API Settings",
     "settingsSubtitle": "Manage provider, key, and model settings",
     "configSet": "Config Set",
@@ -620,7 +620,7 @@
     "loadingConversation": "Loading conversation...",
     "startConversation": "Start the conversation",
     "startFailed": "Failed to start session. Please try again.",
-    "disclaimer": "Open Cowork is AI-powered and may make mistakes. Please double-check responses.",
+    "disclaimer": "York IE is AI-powered and may make mistakes. Please double-check responses.",
     "noModel": "No model",
     "connectorCount_one": "{{count}} connector",
     "connectorCount_other": "{{count}} connectors"

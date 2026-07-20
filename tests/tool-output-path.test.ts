@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { extractFilePathFromToolInput, extractFilePathFromToolOutput } from '../src/renderer/utils/tool-output-path';
+import {
+  extractFilePathFromToolInput,
+  extractFilePathFromToolOutput,
+} from '../src/renderer/utils/tool-output-path';
 
 describe('extractFilePathFromToolOutput', () => {
   it('extracts path from File written output', () => {
@@ -35,8 +38,11 @@ describe('extractFilePathFromToolOutput', () => {
   });
 
   it('extracts absolute path from updated-file messages', () => {
-    const output = 'The file /Users/haoqing/Library/Application Support/open-cowork/default_working_dir/slide2.html has been updated successfully.';
-    expect(extractFilePathFromToolOutput(output)).toBe('/Users/haoqing/Library/Application Support/open-cowork/default_working_dir/slide2.html');
+    const output =
+      'The file /Users/haoqing/Library/Application Support/york-ie/default_working_dir/slide2.html has been updated successfully.';
+    expect(extractFilePathFromToolOutput(output)).toBe(
+      '/Users/haoqing/Library/Application Support/york-ie/default_working_dir/slide2.html'
+    );
   });
 
   it('extracts screenshot path from wrapped screenshot output', () => {
@@ -44,11 +50,13 @@ describe('extractFilePathFromToolOutput', () => {
       content: [
         {
           type: 'text',
-          text: 'Took a screenshot of the full current page.\nSaved screenshot to /Users/haoqing/Desktop/open-cowork/agent_papers_summary_screenshot.png.',
+          text: 'Took a screenshot of the full current page.\nSaved screenshot to /Users/haoqing/Desktop/york-ie/agent_papers_summary_screenshot.png.',
         },
       ],
     });
-    expect(extractFilePathFromToolOutput(output)).toBe('/Users/haoqing/Desktop/open-cowork/agent_papers_summary_screenshot.png');
+    expect(extractFilePathFromToolOutput(output)).toBe(
+      '/Users/haoqing/Desktop/york-ie/agent_papers_summary_screenshot.png'
+    );
   });
 
   it('returns null for unrelated output', () => {
@@ -64,7 +72,9 @@ describe('extractFilePathFromToolInput', () => {
   it('extracts path from alternate fields', () => {
     expect(extractFilePathFromToolInput({ filePath: '/tmp/a.txt' })).toBe('/tmp/a.txt');
     expect(extractFilePathFromToolInput({ file_path: '/tmp/b.txt' })).toBe('/tmp/b.txt');
-    expect(extractFilePathFromToolInput({ relativePath: 'reports/monthly.md' })).toBe('reports/monthly.md');
+    expect(extractFilePathFromToolInput({ relativePath: 'reports/monthly.md' })).toBe(
+      'reports/monthly.md'
+    );
   });
 
   it('returns null when input has no path-like keys', () => {

@@ -1,6 +1,6 @@
-# Contributing to Open Cowork
+# Contributing to York IE
 
-Thank you for your interest in contributing! Open Cowork is an open-source desktop AI agent app built with Electron, React, and TypeScript. This guide covers everything you need to get started.
+Thank you for your interest in contributing! York IE is an open-source desktop AI agent app built with Electron, React, and TypeScript. This guide covers everything you need to get started.
 
 ---
 
@@ -15,8 +15,8 @@ Thank you for your interest in contributing! Open Cowork is an open-source deskt
 **Install**
 
 ```bash
-git clone https://github.com/OpenCoworkAI/open-cowork.git
-cd open-cowork
+git clone https://york.ie
+cd york-ie
 npm install        # also runs postinstall: downloads Node binaries + rebuilds native modules
 ```
 
@@ -117,7 +117,7 @@ Scope is optional but encouraged.
 
 ## Dependency Management
 
-Open Cowork uses **Dependabot** (`.github/dependabot.yml`) to keep dependencies current. To avoid PR pile-up and reduce risk, we follow a tiered strategy:
+York IE uses **Dependabot** (`.github/dependabot.yml`) to keep dependencies current. To avoid PR pile-up and reduce risk, we follow a tiered strategy:
 
 ### Tiers
 
@@ -159,7 +159,7 @@ Before adding a dependency:
 
 ## Testing
 
-Open Cowork uses **Vitest**.
+York IE uses **Vitest**.
 
 **File placement**
 
@@ -206,7 +206,7 @@ Translation files live in `src/renderer/i18n/`. Add keys to both `en` and `zh` l
 
 **Bug reports** — use the GitHub issue template and include:
 
-- Open Cowork version
+- York IE version
 - Operating system (macOS / Windows + version)
 - Steps to reproduce
 - Expected vs. actual behavior

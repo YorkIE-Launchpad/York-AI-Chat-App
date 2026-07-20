@@ -41,17 +41,17 @@ const execFileAsync = promisify(execFile);
 const PLATFORM = os.platform(); // 'darwin' for macOS, 'win32' for Windows
 writeMCPLog(`Platform detected: ${PLATFORM}`, 'Bootstrap');
 
-// Get Open Cowork data directory for persistent storage
+// Get York IE data directory for persistent storage
 // Use platform-appropriate paths:
-// - macOS: ~/Library/Application Support/open-cowork
-// - Windows: %APPDATA%/open-cowork
-const OPEN_COWORK_DATA_DIR =
+// - macOS: ~/Library/Application Support/york-ie
+// - Windows: %APPDATA%/york-ie
+const YORK_IE_DATA_DIR =
   PLATFORM === 'win32'
-    ? path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'open-cowork')
-    : path.join(os.homedir(), 'Library', 'Application Support', 'open-cowork');
+    ? path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'york-ie')
+    : path.join(os.homedir(), 'Library', 'Application Support', 'york-ie');
 
 // Directory for storing GUI operate files (screenshots, etc.)
-const GUI_OPERATE_DIR = path.join(OPEN_COWORK_DATA_DIR, 'gui_operate');
+const GUI_OPERATE_DIR = path.join(YORK_IE_DATA_DIR, 'gui_operate');
 const SCREENSHOTS_DIR = path.join(GUI_OPERATE_DIR, 'screenshots');
 const SCREENSHOT_REUSE_WINDOW_MS = 5 * 60_000;
 const OPENAI_PLATFORM_BASE_URL = 'https://api.openai.com/v1';
@@ -130,7 +130,7 @@ const APP_NAME_ALIAS_GROUPS: string[][] = [
 ];
 
 // Base directory for storing app-level data
-const GUI_APPS_DIR = path.join(OPEN_COWORK_DATA_DIR, 'gui_apps');
+const GUI_APPS_DIR = path.join(YORK_IE_DATA_DIR, 'gui_apps');
 const GUI_LAST_APP_FILE = path.join(GUI_APPS_DIR, '_last_app.json');
 
 interface LastAppContext {
@@ -835,7 +835,7 @@ function getResourcesDirCandidates(): string[] {
   const candidates: string[] = [];
 
   // If Electron main process passes resourcesPath into env for spawned MCP servers
-  const envResources = process.env.OPEN_COWORK_RESOURCES_PATH;
+  const envResources = process.env.YORK_IE_RESOURCES_PATH;
   if (envResources) candidates.push(envResources);
 
   // Packaged: .../Contents/Resources/mcp -> .../Contents/Resources
@@ -869,7 +869,7 @@ async function resolveCliclickPath(): Promise<string | null> {
   }
 
   // 1) Explicit override (useful for debugging)
-  const envOverride = process.env.OPEN_COWORK_CLICLICK_PATH;
+  const envOverride = process.env.YORK_IE_CLICLICK_PATH;
   if (envOverride && (await pathExists(envOverride))) {
     cachedCliclickPath = envOverride;
     return envOverride;
@@ -1024,8 +1024,8 @@ async function resolvePythonExec(): Promise<PythonExec | null> {
   }
 
   // 1) Explicit override (useful for debugging)
-  const envPython = process.env.OPEN_COWORK_PYTHON_PATH;
-  const envPythonHome = process.env.OPEN_COWORK_PYTHON_HOME;
+  const envPython = process.env.YORK_IE_PYTHON_PATH;
+  const envPythonHome = process.env.YORK_IE_PYTHON_HOME;
   if (envPython && (await pathExists(envPython))) {
     writeMCPLog(`[resolvePythonExec] Found explicit override: ${envPython}`, 'Python Resolve');
     const pythonRoot = envPythonHome || path.resolve(envPython, '..', '..');
@@ -1782,9 +1782,9 @@ async function executeCliclick(command: string): Promise<{ stdout: string; stder
     if (/Accessibility privileges not enabled/i.test(result.stderr || '')) {
       const hint =
         '\n\nmacOS 权限提示 / Permissions:\n' +
-        '- System Settings → Privacy & Security → Accessibility：允许 Open Cowork\n' +
+        '- System Settings → Privacy & Security → Accessibility：允许 York IE\n' +
         '- 如果是终端运行：允许 Terminal/iTerm\n' +
-        '- 授权后请重启 Open Cowork 再重试\n';
+        '- 授权后请重启 York IE 再重试\n';
       throw new Error(
         `cliclick cannot control UI because Accessibility permission is not enabled.${hint}`
       );
@@ -1795,8 +1795,8 @@ async function executeCliclick(command: string): Promise<{ stdout: string; stder
     const baseMessage = error instanceof Error ? error.message : String(error);
     const hint =
       '\n\nmacOS 权限提示 / Permissions:\n' +
-      '- System Settings → Privacy & Security → Accessibility：允许 Open Cowork\n' +
-      '- System Settings → Privacy & Security → Automation：允许 Open Cowork 控制 “System Events”\n';
+      '- System Settings → Privacy & Security → Accessibility：允许 York IE\n' +
+      '- System Settings → Privacy & Security → Automation：允许 York IE 控制 “System Events”\n';
     throw new Error(`${baseMessage}${hint}`);
   }
 }
@@ -3819,7 +3819,7 @@ async function takeScreenshot(
     const baseMessage = error instanceof Error ? error.message : String(error);
     const hint =
       '\n\nmacOS 权限提示 / Permissions:\n' +
-      '- System Settings → Privacy & Security → Screen Recording：允许 Open Cowork\n' +
+      '- System Settings → Privacy & Security → Screen Recording：允许 York IE\n' +
       '- 重新启动应用后再试 / Restart the app and try again\n';
     throw new Error(`${baseMessage}${hint}`);
   }
@@ -3969,7 +3969,7 @@ async function takeScreenshotForDisplay(
     metadata.region = region;
   }
 
-  const disableImageOutput = process.env.OPEN_COWORK_DISABLE_IMAGE_TOOL_OUTPUT === '1';
+  const disableImageOutput = process.env.YORK_IE_DISABLE_IMAGE_TOOL_OUTPUT === '1';
   if (disableImageOutput) {
     metadata.imageOmitted = true;
     metadata.omitReason = 'provider_does_not_support_image';
@@ -4397,8 +4397,8 @@ async function callVisionAPIWithTimeout(
     };
 
     if (isOpenRouter) {
-      headers['HTTP-Referer'] = 'https://github.com/OpenCoworkAI/open-cowork';
-      headers['X-Title'] = 'Open Cowork';
+      headers['HTTP-Referer'] = 'https://york.ie';
+      headers['X-Title'] = 'York IE';
     }
 
     return new Promise<string>((resolve, reject) => {

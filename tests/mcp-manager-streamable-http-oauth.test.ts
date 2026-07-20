@@ -23,7 +23,7 @@ const MockUnauthorizedError = vi.hoisted(() => class MockUnauthorizedError exten
 vi.mock('electron', () => ({
   app: {
     isPackaged: false,
-    getPath: () => '/tmp/open-cowork-test',
+    getPath: () => '/tmp/york-ie-test',
   },
   BrowserWindow: {
     getAllWindows: () => [],

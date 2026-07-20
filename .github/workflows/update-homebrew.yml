@@ -24,9 +24,9 @@ jobs:
           TAG: ${{ github.event.release.tag_name }}
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          curl -sL -o open-cowork.dmg \
+          curl -sL -o york-ie.dmg \
             "https://github.com/${REPO}/releases/download/${TAG}/Open.Cowork-${VERSION}-mac-arm64.dmg"
-          echo "sha256=$(shasum -a 256 open-cowork.dmg | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+          echo "sha256=$(shasum -a 256 york-ie.dmg | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
 
       - name: Update Homebrew tap
         env:
@@ -34,16 +34,16 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
           SHA256: ${{ steps.sha.outputs.sha256 }}
         run: |
-          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/OpenCoworkAI/homebrew-tap.git" tap
+          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/York IE/homebrew-tap.git" tap
           cd tap
 
           # Only update version and sha256 lines, preserving caveats and other manual edits
-          sed -i '' "s/^  version \".*\"/  version \"${VERSION}\"/" Casks/open-cowork.rb
-          sed -i '' "s/^  sha256 \".*\"/  sha256 \"${SHA256}\"/" Casks/open-cowork.rb
+          sed -i '' "s/^  version \".*\"/  version \"${VERSION}\"/" Casks/york-ie.rb
+          sed -i '' "s/^  sha256 \".*\"/  sha256 \"${SHA256}\"/" Casks/york-ie.rb
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Casks/open-cowork.rb
+          git add Casks/york-ie.rb
           git diff --cached --quiet && echo "No changes" && exit 0
-          git commit -m "bump open-cowork to ${VERSION}"
+          git commit -m "bump york-ie to ${VERSION}"
           git push

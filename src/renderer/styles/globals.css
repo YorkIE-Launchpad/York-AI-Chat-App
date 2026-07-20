@@ -7,52 +7,52 @@
 @layer base {
   /* Define CSS variables for theming */
   :root {
-    /* Dark theme (default) — Claude warm palette */
-    --color-background: #171614;
-    --color-background-secondary: #1d1b18;
-    --color-surface: #22201d;
-    --color-surface-hover: #2a2723;
-    --color-surface-active: #33302b;
-    --color-surface-muted: #1b1916;
-    --color-border: #34302a;
-    --color-border-muted: #2a2722;
-    --color-border-subtle: rgba(255, 245, 232, 0.07);
-    --color-mcp: #9d8abc;
-    --shadow-soft: 0 1px 4px rgba(0, 0, 0, 0.24);
-    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.22), 0 0 0 1px rgba(255, 245, 232, 0.03);
-    --shadow-elevated: 0 8px 24px rgba(0, 0, 0, 0.34), 0 0 0 1px rgba(255, 245, 232, 0.04);
-    --color-accent: #d67a52;
-    --color-accent-hover: #c56c46;
-    --color-accent-muted: rgba(214, 122, 82, 0.14);
-    --color-text-primary: #f1ece4;
-    --color-text-secondary: #b6ada2;
-    --color-text-muted: #8c8378;
+    /* Dark theme (default) — York IE navy + teal */
+    --color-background: #192530;
+    --color-background-secondary: #1e2d3a;
+    --color-surface: #284256;
+    --color-surface-hover: #2f4d63;
+    --color-surface-active: #365970;
+    --color-surface-muted: #152029;
+    --color-border: #3a5568;
+    --color-border-muted: #2f4556;
+    --color-border-subtle: rgba(255, 255, 255, 0.08);
+    --color-mcp: #7eb8c9;
+    --shadow-soft: 0 1px 4px rgba(0, 0, 0, 0.28);
+    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.26), 0 0 0 1px rgba(255, 255, 255, 0.04);
+    --shadow-elevated: 0 8px 24px rgba(0, 0, 0, 0.38), 0 0 0 1px rgba(255, 255, 255, 0.05);
+    --color-accent: #00b48a;
+    --color-accent-hover: #008369;
+    --color-accent-muted: rgba(0, 180, 138, 0.14);
+    --color-text-primary: #ffffff;
+    --color-text-secondary: #b8c5ce;
+    --color-text-muted: #8a9aa6;
     --color-success: #22c55e;
     --color-warning: #eab308;
     --color-error: #ef4444;
   }
 
-  /* Light theme override — Claude warm cream */
+  /* Light theme override — York IE clean surfaces + teal */
   .light {
-    --color-background: #f5f3ed;
-    --color-background-secondary: #f0eee8;
-    --color-surface: #faf9f4;
-    --color-surface-hover: #f5f3ed;
-    --color-surface-active: #eceae4;
-    --color-surface-muted: #f2f0eb;
-    --color-border: #e2dfd9;
-    --color-border-muted: #e8e6e0;
-    --color-border-subtle: rgba(0, 0, 0, 0.05);
-    --color-mcp: #8570a6;
-    --shadow-soft: 0 1px 4px rgba(0, 0, 0, 0.04);
-    --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
-    --shadow-elevated: 0 4px 12px rgba(0, 0, 0, 0.1);
-    --color-accent: #d97757;
-    --color-accent-hover: #c46849;
-    --color-accent-muted: #fef3ee;
-    --color-text-primary: #1a1a1a;
-    --color-text-secondary: #5c5c5c;
-    --color-text-muted: #8c8c8c;
+    --color-background: #f4f7f9;
+    --color-background-secondary: #eef2f5;
+    --color-surface: #ffffff;
+    --color-surface-hover: #f4f7f9;
+    --color-surface-active: #e8eef2;
+    --color-surface-muted: #f0f4f7;
+    --color-border: #d5dee5;
+    --color-border-muted: #e2e8ed;
+    --color-border-subtle: rgba(25, 37, 48, 0.06);
+    --color-mcp: #4a8a9a;
+    --shadow-soft: 0 1px 4px rgba(25, 37, 48, 0.06);
+    --shadow-card: 0 1px 3px rgba(25, 37, 48, 0.08), 0 1px 2px rgba(25, 37, 48, 0.04);
+    --shadow-elevated: 0 4px 12px rgba(25, 37, 48, 0.12);
+    --color-accent: #00b48a;
+    --color-accent-hover: #008369;
+    --color-accent-muted: rgba(0, 180, 138, 0.12);
+    --color-text-primary: #192530;
+    --color-text-secondary: #4a5d6b;
+    --color-text-muted: #7a8b97;
     --color-success: #16a34a;
     --color-warning: #ca8a04;
     --color-error: #dc2626;
@@ -197,7 +197,8 @@
     font-style: italic;
   }
 
-  .prose-chat ul, .prose-chat ol {
+  .prose-chat ul,
+  .prose-chat ol {
     margin: 0.75rem 0;
     padding-left: 1.5rem;
   }
@@ -241,7 +242,10 @@
     margin-bottom: 0.35rem;
   }
 
-  .prose-chat h1, .prose-chat h2, .prose-chat h3, .prose-chat h4 {
+  .prose-chat h1,
+  .prose-chat h2,
+  .prose-chat h3,
+  .prose-chat h4 {
     font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
     font-weight: 600;
     margin-top: 1.25rem;
@@ -252,10 +256,18 @@
     margin-top: 0;
   }
 
-  .prose-chat h1 { font-size: 1.5rem; }
-  .prose-chat h2 { font-size: 1.25rem; }
-  .prose-chat h3 { font-size: 1.125rem; }
-  .prose-chat h4 { font-size: 1rem; }
+  .prose-chat h1 {
+    font-size: 1.5rem;
+  }
+  .prose-chat h2 {
+    font-size: 1.25rem;
+  }
+  .prose-chat h3 {
+    font-size: 1.125rem;
+  }
+  .prose-chat h4 {
+    font-size: 1rem;
+  }
 
   .prose-chat .katex-display {
     margin: 1rem 0;
@@ -329,7 +341,9 @@
 
 /* Respect reduced motion preferences */
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
+  *,
+  *::before,
+  *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;

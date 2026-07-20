@@ -1,5 +1,5 @@
 {
-  "name": "open-cowork",
+  "name": "york-ie",
   "version": "3.3.1",
   "description": "Open-source AI agent desktop app for Windows & macOS — one-click install Claude Code, MCP tools, and Skills with sandbox isolation and multi-model support",
   "keywords": [
@@ -24,13 +24,13 @@
     "slack",
     "multi-model"
   ],
-  "homepage": "https://github.com/OpenCoworkAI/open-cowork",
+  "homepage": "https://york.ie",
   "repository": {
     "type": "git",
-    "url": "https://github.com/OpenCoworkAI/open-cowork.git"
+    "url": "https://york.ie"
   },
   "bugs": {
-    "url": "https://github.com/OpenCoworkAI/open-cowork/issues"
+    "url": "https://york.ie"
   },
   "engines": {
     "node": ">=22"
@@ -133,7 +133,7 @@
     "fast-xml-parser": "^5.5.6",
     "tar": "^7.5.11"
   },
-  "author": "Open Cowork Team",
+  "author": "York IE",
   "license": "MIT",
   "lint-staged": {
     "*.{ts,tsx}": [

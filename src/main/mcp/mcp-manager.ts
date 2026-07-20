@@ -331,7 +331,7 @@ export class MCPManager {
       );
       if (!preferredNpxPath) {
         throw new Error(
-          'npx is not available. Install Node.js so Open Cowork can use your system npx.cmd, or reinstall the app to restore the bundled runtime.'
+          'npx is not available. Install Node.js so York IE can use your system npx.cmd, or reinstall the app to restore the bundled runtime.'
         );
       }
 
@@ -761,7 +761,7 @@ export class MCPManager {
     // and the authenticated reconnect.
     const client = new Client(
       {
-        name: 'open-cowork',
+        name: 'york-ie',
         version: '0.1.0',
       },
       {
@@ -892,7 +892,7 @@ export class MCPManager {
 
         // Pass resourcesPath to MCP servers so they can reliably locate bundled tools/resources
         // (Node processes spawned from bundled Node.js do not have process.resourcesPath)
-        env.OPEN_COWORK_RESOURCES_PATH = process.resourcesPath || '';
+        env.YORK_IE_RESOURCES_PATH = process.resourcesPath || '';
       }
 
       log(`[MCPManager] Creating STDIO transport: ${command} ${args.join(' ')}`);
@@ -1822,7 +1822,7 @@ function isProtectedConfigEnvKey(key: string): boolean {
     key.startsWith('OPENAI_') ||
     key.startsWith('ANTHROPIC_') ||
     key.startsWith('CLAUDE_') ||
-    key.startsWith('COWORK_')
+    key.startsWith('YORK_IE_')
   );
 }
 

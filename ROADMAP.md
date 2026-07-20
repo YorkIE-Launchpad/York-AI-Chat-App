@@ -1,6 +1,6 @@
-# 🗺️ Open Cowork Roadmap
+# 🗺️ York IE Roadmap
 
-> This document outlines the development direction for Open Cowork. For feature requests and discussion, see [GitHub Issues](https://github.com/OpenCoworkAI/open-cowork/issues).
+> This document outlines the development direction for York IE. For feature requests and discussion, see [GitHub Issues](https://york.ie).
 
 ## ✅ Completed
 
@@ -29,7 +29,7 @@
 - **Sandbox Hardening**: Deep research and improvement of VM sandbox reliability, startup performance, and cross-platform consistency (Lima on macOS, WSL2 on Windows)
 - **App Slimming**: Reduce installer from ~156 MB to ~80 MB — on-demand Python/Node.js download, lazy-load Feishu SDK, strip unused files ([details](docs/SLIM-PLAN.md))
 - **Code Cleanup**: Split god files (index.ts 2672 lines, gui-operate-server.ts 6884 lines), lazy imports, dead code removal
-- **Naming Standardization**: Clean up 75+ legacy references (claude-sdk, claude-sandbox, claude-plugin, pi-coding-agent) to consistent Open Cowork naming conventions
+- **Naming Standardization**: Clean up 75+ legacy references (claude-sdk, claude-sandbox, claude-plugin, pi-coding-agent) to consistent York IE naming conventions
 - **Tool Completeness**: Implement native TodoWrite, AskUserQuestion, Glob, Grep, WebFetch, WebSearch tool schemas + handlers for API key users
 - **Memory System Enhancements**: Improve prompt injection controls, cross-session retrieval UX, memory source inspection, and source-aware reranking quality
 - **Scheduled Tasks**: Cron-like task scheduling with UI management and persistent execution

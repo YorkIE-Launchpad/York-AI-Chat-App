@@ -140,7 +140,7 @@ export class SessionManager {
    */
   private createAgentRunner(): void {
     this.agentRunner = this.createCoworkAgentRunner();
-    log('[SessionManager] Using Open Cowork agent runner');
+    log('[SessionManager] Using York IE agent runner');
   }
 
   private createCoworkAgentRunner(): CoworkAgentRunner {
@@ -294,7 +294,7 @@ export class SessionManager {
   ): Session {
     const now = Date.now();
     // Prefer frontend-provided cwd; fallback to env vars if provided
-    const envCwd = process.env.COWORK_WORKDIR || process.env.WORKDIR || process.env.DEFAULT_CWD;
+    const envCwd = process.env.YORK_IE_WORKDIR || process.env.WORKDIR || process.env.DEFAULT_CWD;
     const effectiveCwd = cwd || envCwd;
     const resolvedMemoryEnabled =
       typeof memoryEnabled === 'boolean'

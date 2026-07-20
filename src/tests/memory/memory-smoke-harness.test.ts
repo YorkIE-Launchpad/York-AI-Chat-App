@@ -48,7 +48,7 @@ vi.mock('electron', () => ({
     isPackaged: false,
     getPath: () => '/tmp',
     getVersion: () => '0.0.0-test',
-    getAppPath: () => '/tmp/open-cowork-test-app',
+    getAppPath: () => '/tmp/york-ie-test-app',
   },
 }));
 
@@ -241,7 +241,7 @@ describe('memory smoke harness', () => {
   let storageRoot: string;
 
   beforeEach(() => {
-    storageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'open-cowork-memory-smoke-'));
+    storageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'york-ie-memory-smoke-'));
     rawDb = new Database(':memory:');
     createSchema(rawDb);
     service = new MemoryService(createDatabaseInstance(rawDb), {

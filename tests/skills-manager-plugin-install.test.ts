@@ -29,12 +29,12 @@ import type { DatabaseInstance } from '../src/main/db/database';
 function createDbMock(): DatabaseInstance {
   const statement = { run: vi.fn() };
   return {
-    raw: {} as any,
-    sessions: {} as any,
-    messages: {} as any,
-    traceSteps: {} as any,
-    scheduledTasks: {} as any,
-    prepare: vi.fn(() => statement as any),
+    raw: {} as unknown as DatabaseInstance['raw'],
+    sessions: {} as unknown as DatabaseInstance['sessions'],
+    messages: {} as unknown as DatabaseInstance['messages'],
+    traceSteps: {} as unknown as DatabaseInstance['traceSteps'],
+    scheduledTasks: {} as unknown as DatabaseInstance['scheduledTasks'],
+    prepare: vi.fn(() => statement as unknown as ReturnType<DatabaseInstance['prepare']>),
     exec: vi.fn(),
     pragma: vi.fn(),
     close: vi.fn(),
@@ -52,7 +52,11 @@ function createPluginDirectory(
     fs.mkdirSync(path.join(pluginRoot, '.claude-plugin'), { recursive: true });
     fs.writeFileSync(
       path.join(pluginRoot, '.claude-plugin', 'plugin.json'),
-      JSON.stringify({ name: pluginName, version: '1.0.0', description: `${pluginName} plugin` }, null, 2),
+      JSON.stringify(
+        { name: pluginName, version: '1.0.0', description: `${pluginName} plugin` },
+        null,
+        2
+      ),
       'utf8'
     );
   }
@@ -72,7 +76,7 @@ function createPluginDirectory(
 
 describe('SkillsManager installPluginFromDirectory', () => {
   beforeEach(() => {
-    testRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'open-cowork-plugin-test-'));
+    testRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'york-ie-plugin-test-'));
     fs.mkdirSync(path.join(testRoot, 'userData'), { recursive: true });
     fs.mkdirSync(path.join(testRoot, 'home'), { recursive: true });
   });
@@ -98,7 +102,9 @@ describe('SkillsManager installPluginFromDirectory', () => {
   });
 
   it('overwrites same skill when plugin is reinstalled', async () => {
-    const pluginRoot = createPluginDirectory(testRoot, 'demo-plugin', [{ name: 'alpha', description: 'Old description' }]);
+    const pluginRoot = createPluginDirectory(testRoot, 'demo-plugin', [
+      { name: 'alpha', description: 'Old description' },
+    ]);
     const manager = new SkillsManager(createDbMock());
     await manager.installPluginFromDirectory(pluginRoot);
 
@@ -111,7 +117,14 @@ describe('SkillsManager installPluginFromDirectory', () => {
     const result = await manager.installPluginFromDirectory(pluginRoot);
     expect(result.installedSkills).toEqual(['alpha']);
 
-    const installedSkillPath = path.join(testRoot, 'userData', 'claude', 'skills', 'alpha', 'SKILL.md');
+    const installedSkillPath = path.join(
+      testRoot,
+      'userData',
+      'claude',
+      'skills',
+      'alpha',
+      'SKILL.md'
+    );
     expect(fs.readFileSync(installedSkillPath, 'utf8')).toContain('New description');
   });
 
@@ -119,7 +132,9 @@ describe('SkillsManager installPluginFromDirectory', () => {
     const pluginRoot = createPluginDirectory(testRoot, 'empty-plugin', []);
     const manager = new SkillsManager(createDbMock());
 
-    await expect(manager.installPluginFromDirectory(pluginRoot)).rejects.toThrow('Plugin has no installable skills');
+    await expect(manager.installPluginFromDirectory(pluginRoot)).rejects.toThrow(
+      'Plugin has no installable skills'
+    );
   });
 
   it('installs skills even when plugin manifest is missing', async () => {

@@ -2,13 +2,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import type { PluginCatalogService } from '../src/main/skills/plugin-catalog-service';
+
+type CommandRunner = (
+  command: string,
+  args: string[]
+) => Promise<{ stdout: string; stderr: string }>;
 
 let testRoot = '';
 
 vi.mock('electron', () => {
   const electron = {
     app: {
-      getName: () => 'open-cowork-test',
+      getName: () => 'york-ie-test',
       getVersion: () => '0.0.0-test',
       getPath: (name: string) => {
         if (name === 'userData') return path.join(testRoot, 'userData');
@@ -72,18 +78,23 @@ function createPluginFixture(root: string, pluginName: string): string {
   return pluginRoot;
 }
 
-async function createRuntimeService(options?: { catalogService?: any; commandRunner?: any }) {
+async function createRuntimeService(options?: {
+  catalogService?: PluginCatalogService;
+  commandRunner?: CommandRunner;
+}) {
   const { PluginRuntimeService } = await import('../src/main/skills/plugin-runtime-service');
-  const fakeCatalogService = options?.catalogService ?? ({
-    listAnthropicPlugins: vi.fn(),
-    downloadPlugin: vi.fn(),
-  } as any);
+  const fakeCatalogService =
+    options?.catalogService ??
+    ({
+      listAnthropicPlugins: vi.fn(),
+      downloadPlugin: vi.fn(),
+    } as unknown as PluginCatalogService);
   return new PluginRuntimeService(fakeCatalogService, options?.commandRunner);
 }
 
 describe('PluginRuntimeService', () => {
   beforeEach(() => {
-    testRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'open-cowork-plugin-runtime-'));
+    testRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'york-ie-plugin-runtime-'));
     fs.mkdirSync(path.join(testRoot, 'userData'), { recursive: true });
     fs.mkdirSync(path.join(testRoot, 'temp'), { recursive: true });
     fs.mkdirSync(path.join(testRoot, 'home'), { recursive: true });
@@ -116,7 +127,7 @@ describe('PluginRuntimeService', () => {
         catalogSource: 'claude-marketplace',
       },
     ]);
-    const catalogService = { listAnthropicPlugins } as any;
+    const catalogService = { listAnthropicPlugins } as unknown as PluginCatalogService;
     const commandRunner = vi
       .fn()
       .mockResolvedValueOnce({ stdout: '', stderr: '' })
@@ -135,7 +146,11 @@ describe('PluginRuntimeService', () => {
     const service = await createRuntimeService({ catalogService, commandRunner });
     const result = await service.install('context7');
 
-    expect(commandRunner).toHaveBeenNthCalledWith(1, 'claude', ['plugin', 'install', 'context7@claude-plugins-official']);
+    expect(commandRunner).toHaveBeenNthCalledWith(1, 'claude', [
+      'plugin',
+      'install',
+      'context7@claude-plugins-official',
+    ]);
     expect(commandRunner).toHaveBeenNthCalledWith(2, 'claude', ['plugin', 'list', '--json']);
     expect(result.plugin.name).toBe('context7');
     expect(fs.existsSync(result.plugin.runtimePath)).toBe(true);
@@ -161,7 +176,7 @@ describe('PluginRuntimeService', () => {
         catalogSource: 'claude-marketplace',
       },
     ]);
-    const catalogService = { listAnthropicPlugins } as any;
+    const catalogService = { listAnthropicPlugins } as unknown as PluginCatalogService;
     const commandRunner = vi
       .fn()
       .mockResolvedValueOnce({ stdout: '', stderr: '' })
@@ -217,7 +232,7 @@ describe('PluginRuntimeService', () => {
         catalogSource: 'claude-marketplace',
       },
     ]);
-    const catalogService = { listAnthropicPlugins } as any;
+    const catalogService = { listAnthropicPlugins } as unknown as PluginCatalogService;
     const commandRunner = vi
       .fn()
       .mockResolvedValueOnce({ stdout: '', stderr: '' })
@@ -236,11 +251,11 @@ describe('PluginRuntimeService', () => {
     const service = await createRuntimeService({ catalogService, commandRunner });
     const result = await service.install('agent-sdk-dev@claude-plugins-official');
 
-    expect(commandRunner).toHaveBeenNthCalledWith(
-      1,
-      'claude',
-      ['plugin', 'install', 'agent-sdk-dev@claude-plugins-official']
-    );
+    expect(commandRunner).toHaveBeenNthCalledWith(1, 'claude', [
+      'plugin',
+      'install',
+      'agent-sdk-dev@claude-plugins-official',
+    ]);
     expect(result.plugin.name).toBe('agent-sdk-dev');
   });
 
@@ -277,11 +292,13 @@ describe('PluginRuntimeService', () => {
         catalogSource: 'claude-marketplace',
       },
     ]);
-    const catalogService = { listAnthropicPlugins } as any;
+    const catalogService = { listAnthropicPlugins } as unknown as PluginCatalogService;
     const commandRunner = vi.fn();
 
     const service = await createRuntimeService({ catalogService, commandRunner });
-    await expect(service.install('Agent SDK Dev')).rejects.toThrow('Multiple plugins share this name');
+    await expect(service.install('Agent SDK Dev')).rejects.toThrow(
+      'Multiple plugins share this name'
+    );
     expect(commandRunner).not.toHaveBeenCalled();
   });
 
@@ -303,7 +320,7 @@ describe('PluginRuntimeService', () => {
         catalogSource: 'claude-marketplace',
       },
     ]);
-    const catalogService = { listAnthropicPlugins } as any;
+    const catalogService = { listAnthropicPlugins } as unknown as PluginCatalogService;
     const commandRunner = vi
       .fn()
       .mockResolvedValueOnce({ stdout: '', stderr: '' })
@@ -332,7 +349,7 @@ describe('PluginRuntimeService', () => {
         catalogSource: 'claude-marketplace',
       },
     ]);
-    const catalogService = { listAnthropicPlugins } as any;
+    const catalogService = { listAnthropicPlugins } as unknown as PluginCatalogService;
     const commandRunner = vi.fn(async () => {
       const error = new Error('spawn claude ENOENT') as Error & { code?: string };
       error.code = 'ENOENT';
@@ -375,7 +392,9 @@ describe('PluginRuntimeService', () => {
     await service.setComponentEnabled(installResult.plugin.pluginId, 'hooks', true);
     await service.setComponentEnabled(installResult.plugin.pluginId, 'mcp', true);
 
-    const installed = service.listInstalled().find((plugin) => plugin.pluginId === installResult.plugin.pluginId);
+    const installed = service
+      .listInstalled()
+      .find((plugin) => plugin.pluginId === installResult.plugin.pluginId);
     expect(installed).toBeDefined();
     expect(installed?.componentsEnabled.hooks).toBe(true);
     expect(installed?.componentsEnabled.mcp).toBe(true);

@@ -7,7 +7,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 vi.mock('electron', () => ({
   app: {
     isPackaged: false,
-    getPath: () => '/tmp/open-cowork-test',
+    getPath: () => '/tmp/york-ie-test',
   },
   BrowserWindow: {
     getAllWindows: () => [],

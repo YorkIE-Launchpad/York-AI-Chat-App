@@ -7,9 +7,9 @@
 
 set -euo pipefail
 
-APP_NAME="Open Cowork"
+APP_NAME="York IE"
 APP_PATH="/Applications/${APP_NAME}.app"
-ARTIFACT_NAME="open-cowork-macos"
+ARTIFACT_NAME="york-ie-macos"
 
 NO_WAIT=false
 for arg in "$@"; do

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Prepare a bundled Python runtime for Open Cowork (macOS/Linux).
+ * Prepare a bundled Python runtime for York IE (macOS/Linux).
  *
  * Goal:
  * - Bundle a standalone python3 into `resources/python/darwin-{arch}/`
@@ -34,10 +34,10 @@ const OUTPUT_ROOT = path.join(PROJECT_ROOT, 'resources', 'python');
 const DOWNLOAD_DIR = path.join(OUTPUT_ROOT, '.downloads');
 
 // Keep the default minor aligned with the checked-in bundled runtime and fallback URLs.
-const PYTHON_MINOR = process.env.OPEN_COWORK_PYTHON_MINOR || '3.10';
+const PYTHON_MINOR = process.env.YORK_IE_PYTHON_MINOR || '3.10';
 const ABI = `cp${PYTHON_MINOR.replace('.', '')}`; // e.g. 3.12 -> cp312
 
-const GITHUB_REPO = process.env.OPEN_COWORK_PYTHON_STANDALONE_REPO || 'astral-sh/python-build-standalone';
+const GITHUB_REPO = process.env.YORK_IE_PYTHON_STANDALONE_REPO || 'astral-sh/python-build-standalone';
 const RUNTIME_VERSION_FILENAME = 'runtime-version.txt';
 const BUNDLED_GUI_PACKAGES = [
   'pillow',
@@ -61,19 +61,19 @@ const TARGETS = {
     arm64: {
       triple: 'aarch64-apple-darwin',
       platformTag: 'macosx_11_0_arm64',
-      envUrlKey: 'OPEN_COWORK_PYTHON_STANDALONE_URL_DARWIN_ARM64',
+      envUrlKey: 'YORK_IE_PYTHON_STANDALONE_URL_DARWIN_ARM64',
     },
     x64: {
       triple: 'x86_64-apple-darwin',
       platformTag: 'macosx_11_0_x86_64',
-      envUrlKey: 'OPEN_COWORK_PYTHON_STANDALONE_URL_DARWIN_X64',
+      envUrlKey: 'YORK_IE_PYTHON_STANDALONE_URL_DARWIN_X64',
     },
   },
   linux: {
     x64: {
       triple: 'x86_64-unknown-linux-gnu',
       platformTag: 'manylinux2014_x86_64',
-      envUrlKey: 'OPEN_COWORK_PYTHON_STANDALONE_URL_LINUX_X64',
+      envUrlKey: 'YORK_IE_PYTHON_STANDALONE_URL_LINUX_X64',
     },
   },
 };
@@ -104,7 +104,7 @@ function download(url, dest) {
       url,
       {
         headers: {
-          'User-Agent': 'open-cowork-build-script',
+          'User-Agent': 'york-ie-build-script',
           Accept: '*/*',
         },
       },
@@ -146,7 +146,7 @@ function fetchJson(url) {
       url,
       {
         headers: {
-          'User-Agent': 'open-cowork-build-script',
+          'User-Agent': 'york-ie-build-script',
           Accept: 'application/vnd.github+json',
         },
       },
@@ -326,7 +326,7 @@ function ensurePipAvailable(pythonBin) {
 function installPackages(siteDir, platformTag, pythonBin) {
   ensureDir(siteDir);
 
-  const pipPython = process.env.OPEN_COWORK_PIP_PYTHON || pythonBin;
+  const pipPython = process.env.YORK_IE_PIP_PYTHON || pythonBin;
   const packageSpecs = [...BUNDLED_GUI_PACKAGES];
   const pythonRoot = path.resolve(siteDir, '..');
   const runtimeMarkerFile = resolveRuntimeVersionFile(pythonRoot);

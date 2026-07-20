@@ -29,12 +29,12 @@ import type { DatabaseInstance } from '../src/main/db/database';
 function createDbMock(): DatabaseInstance {
   const statement = { run: vi.fn() };
   return {
-    raw: {} as any,
-    sessions: {} as any,
-    messages: {} as any,
-    traceSteps: {} as any,
-    scheduledTasks: {} as any,
-    prepare: vi.fn(() => statement as any),
+    raw: {} as unknown as DatabaseInstance['raw'],
+    sessions: {} as unknown as DatabaseInstance['sessions'],
+    messages: {} as unknown as DatabaseInstance['messages'],
+    traceSteps: {} as unknown as DatabaseInstance['traceSteps'],
+    scheduledTasks: {} as unknown as DatabaseInstance['scheduledTasks'],
+    prepare: vi.fn(() => statement as unknown as ReturnType<DatabaseInstance['prepare']>),
     exec: vi.fn(),
     pragma: vi.fn(),
     close: vi.fn(),
@@ -64,7 +64,7 @@ async function waitFor(predicate: () => boolean, timeoutMs = 5000): Promise<void
 
 describe('SkillsManager storage path management', () => {
   beforeEach(() => {
-    testRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'open-cowork-skills-storage-test-'));
+    testRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'york-ie-skills-storage-test-'));
     fs.mkdirSync(path.join(testRoot, 'userData'), { recursive: true });
     fs.mkdirSync(path.join(testRoot, 'home'), { recursive: true });
   });
@@ -132,7 +132,9 @@ describe('SkillsManager storage path management', () => {
     const invalidPath = path.join(testRoot, 'home', 'not-a-directory');
     fs.writeFileSync(invalidPath, 'content', 'utf8');
 
-    await expect(manager.setGlobalSkillsPath(invalidPath, true)).rejects.toThrow('Target path is not a directory');
+    await expect(manager.setGlobalSkillsPath(invalidPath, true)).rejects.toThrow(
+      'Target path is not a directory'
+    );
     expect(configuredPath).toBe('');
   });
 

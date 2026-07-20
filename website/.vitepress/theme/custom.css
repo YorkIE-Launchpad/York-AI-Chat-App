@@ -1,7 +1,7 @@
 /**
- * Open Cowork — custom VitePress theme
+ * York IE — custom VitePress theme
  *
- * Mirrors the app's warm palette (rust/terracotta accent, dark-first,
+ * Mirrors the app's navy + teal palette (york.ie brand colors,
  * Plus Jakarta Sans + Source Serif 4 typography).
  */
 
@@ -13,95 +13,95 @@
   --vp-font-family-base: 'Plus Jakarta Sans', system-ui, sans-serif;
   --vp-font-family-mono: 'JetBrains Mono', 'SF Mono', 'Menlo', monospace;
 
-  --vp-c-brand-1: #d67a52;
-  --vp-c-brand-2: #c56c46;
-  --vp-c-brand-3: #b45e3a;
-  --vp-c-brand-soft: rgba(214, 122, 82, 0.14);
+  --vp-c-brand-1: #00b48a;
+  --vp-c-brand-2: #008369;
+  --vp-c-brand-3: #006b56;
+  --vp-c-brand-soft: rgba(0, 180, 138, 0.14);
 }
 
 /* ── Light theme ─────────────────────────────────────── */
 :root:not(.dark) {
-  --vp-c-bg: #f5f3ed;
-  --vp-c-bg-alt: #f0eee8;
-  --vp-c-bg-elv: #faf9f4;
-  --vp-c-bg-soft: #faf9f4;
+  --vp-c-bg: #f4f7f9;
+  --vp-c-bg-alt: #eef2f5;
+  --vp-c-bg-elv: #ffffff;
+  --vp-c-bg-soft: #ffffff;
 
-  --vp-c-text-1: #1a1a1a;
-  --vp-c-text-2: #5c5c5c;
-  --vp-c-text-3: #8c8c8c;
+  --vp-c-text-1: #192530;
+  --vp-c-text-2: #4a5d6b;
+  --vp-c-text-3: #7a8b97;
 
-  --vp-c-divider: #e2dfd9;
-  --vp-c-border: #e2dfd9;
-  --vp-c-gutter: #f0eee8;
+  --vp-c-divider: #d5dee5;
+  --vp-c-border: #d5dee5;
+  --vp-c-gutter: #eef2f5;
 
-  --vp-c-tip-1: #8570a6;
-  --vp-c-tip-soft: rgba(133, 112, 166, 0.14);
+  --vp-c-tip-1: #4a8a9a;
+  --vp-c-tip-soft: rgba(74, 138, 154, 0.14);
 
-  --vp-code-bg: #f0eee8;
+  --vp-code-bg: #eef2f5;
 
-  --vp-button-brand-bg: #d97757;
-  --vp-button-brand-hover-bg: #c46849;
-  --vp-button-brand-active-bg: #b45e3a;
+  --vp-button-brand-bg: #00b48a;
+  --vp-button-brand-hover-bg: #008369;
+  --vp-button-brand-active-bg: #006b56;
   --vp-button-brand-text: #fff;
 
-  --vp-button-alt-bg: #faf9f4;
-  --vp-button-alt-hover-bg: #f0eee8;
-  --vp-button-alt-text: #1a1a1a;
-  --vp-button-alt-border: #e2dfd9;
+  --vp-button-alt-bg: #ffffff;
+  --vp-button-alt-hover-bg: #eef2f5;
+  --vp-button-alt-text: #192530;
+  --vp-button-alt-border: #d5dee5;
 
   --vp-home-hero-name-color: transparent;
-  --vp-home-hero-name-background: linear-gradient(135deg, #1a1a1a 0%, #d97757 100%);
+  --vp-home-hero-name-background: linear-gradient(135deg, #192530 0%, #00b48a 100%);
   --vp-home-hero-image-background-image: radial-gradient(
     circle,
-    rgba(217, 119, 87, 0.18) 0%,
+    rgba(0, 180, 138, 0.18) 0%,
     transparent 70%
   );
-  --vp-home-hero-image-filter: drop-shadow(0 4px 24px rgba(217, 119, 87, 0.18));
+  --vp-home-hero-image-filter: drop-shadow(0 4px 24px rgba(0, 180, 138, 0.18));
 }
 
 /* ── Dark theme ──────────────────────────────────────── */
 .dark {
-  --vp-c-bg: #171614;
-  --vp-c-bg-alt: #1d1b18;
-  --vp-c-bg-elv: #22201d;
-  --vp-c-bg-soft: #22201d;
+  --vp-c-bg: #192530;
+  --vp-c-bg-alt: #1e2d3a;
+  --vp-c-bg-elv: #284256;
+  --vp-c-bg-soft: #284256;
 
-  --vp-c-text-1: #f1ece4;
-  --vp-c-text-2: #b6ada2;
-  --vp-c-text-3: #8c8378;
+  --vp-c-text-1: #ffffff;
+  --vp-c-text-2: #b8c5ce;
+  --vp-c-text-3: #8a9aa6;
 
-  --vp-c-divider: #34302a;
-  --vp-c-border: #34302a;
-  --vp-c-gutter: #1d1b18;
+  --vp-c-divider: #3a5568;
+  --vp-c-border: #3a5568;
+  --vp-c-gutter: #1e2d3a;
 
-  --vp-c-brand-1: #d67a52;
-  --vp-c-brand-2: #c56c46;
-  --vp-c-brand-3: #b45e3a;
-  --vp-c-brand-soft: rgba(214, 122, 82, 0.14);
+  --vp-c-brand-1: #00b48a;
+  --vp-c-brand-2: #008369;
+  --vp-c-brand-3: #006b56;
+  --vp-c-brand-soft: rgba(0, 180, 138, 0.14);
 
-  --vp-c-tip-1: #9d8abc;
-  --vp-c-tip-soft: rgba(157, 138, 188, 0.14);
+  --vp-c-tip-1: #7eb8c9;
+  --vp-c-tip-soft: rgba(126, 184, 201, 0.14);
 
-  --vp-code-bg: #1d1b18;
+  --vp-code-bg: #1e2d3a;
 
-  --vp-button-brand-bg: #d67a52;
-  --vp-button-brand-hover-bg: #c56c46;
-  --vp-button-brand-active-bg: #b45e3a;
+  --vp-button-brand-bg: #00b48a;
+  --vp-button-brand-hover-bg: #008369;
+  --vp-button-brand-active-bg: #006b56;
   --vp-button-brand-text: #fff;
 
-  --vp-button-alt-bg: #22201d;
-  --vp-button-alt-hover-bg: #2a2723;
-  --vp-button-alt-text: #f1ece4;
-  --vp-button-alt-border: #34302a;
+  --vp-button-alt-bg: #284256;
+  --vp-button-alt-hover-bg: #2f4d63;
+  --vp-button-alt-text: #ffffff;
+  --vp-button-alt-border: #3a5568;
 
   --vp-home-hero-name-color: transparent;
-  --vp-home-hero-name-background: linear-gradient(135deg, #f1ece4 0%, #d67a52 100%);
+  --vp-home-hero-name-background: linear-gradient(135deg, #ffffff 0%, #00b48a 100%);
   --vp-home-hero-image-background-image: radial-gradient(
     circle,
-    rgba(214, 122, 82, 0.25) 0%,
+    rgba(0, 180, 138, 0.25) 0%,
     transparent 70%
   );
-  --vp-home-hero-image-filter: drop-shadow(0 4px 24px rgba(214, 122, 82, 0.25));
+  --vp-home-hero-image-filter: drop-shadow(0 4px 24px rgba(0, 180, 138, 0.25));
 }
 
 /* ── Component overrides ─────────────────────────────── */

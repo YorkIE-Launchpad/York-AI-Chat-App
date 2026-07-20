@@ -9,7 +9,7 @@ Set-StrictMode -Version Latest
 
 function Write-Step {
   param([string]$Message)
-  Write-Host "[Open Cowork Cleanup] $Message"
+  Write-Host "[Open Cowork Legacy Cleanup] $Message"
 }
 
 function Add-UniquePath {
@@ -189,7 +189,7 @@ if ($RemoveAppData) {
 
 Write-Host ""
 if ($failures.Count -eq 0) {
-  Write-Step "Cleanup finished. You can rerun the Open Cowork installer now."
+  Write-Step "Cleanup finished. You can run the York IE installer now."
   if (-not $RemoveAppData) {
     Write-Step "If you also want to reset local settings, rerun this tool with -RemoveAppData."
   }
