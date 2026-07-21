@@ -39,6 +39,7 @@ import type {
   PairingRequest,
   RemoteSessionMapping,
 } from '../shared/ipc-types';
+import type { AuthStatusResponse, AuthUser, AuthOAuthDebugInfo } from '../shared/auth-types';
 
 // Track registered callbacks to prevent duplicate listeners
 let registeredCallback: ((event: ServerEvent) => void) | null = null;
@@ -160,6 +161,36 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // App info
   getVersion: () => ipcRenderer.invoke('get-version'),
+
+  auth: {
+    getStatus: (): Promise<AuthStatusResponse> => ipcRenderer.invoke('auth.getStatus'),
+    getOAuthDebug: (rendererRedirectUrl?: string): Promise<AuthOAuthDebugInfo> =>
+      ipcRenderer.invoke('auth.getOAuthDebug', rendererRedirectUrl),
+    startGoogleLogin: (): Promise<AuthStatusResponse & { success: boolean; error?: string }> =>
+      ipcRenderer.invoke('auth.startGoogleLogin'),
+    me: (): Promise<{ success: boolean; user?: AuthUser; error?: string; code?: string }> =>
+      ipcRenderer.invoke('auth.me'),
+    getAvatarDataUrl: (
+      imageUrl?: string
+    ): Promise<{ success: boolean; dataUrl: string | null; code?: string }> =>
+      ipcRenderer.invoke('auth.getAvatarDataUrl', imageUrl),
+    logout: (): Promise<{ success: boolean }> => ipcRenderer.invoke('auth.logout'),
+    refresh: (): Promise<
+      AuthStatusResponse & { success: boolean; error?: string; code?: string }
+    > => ipcRenderer.invoke('auth.refresh'),
+    submitOAuthCode: (
+      code: string,
+      redirectUri: string
+    ): Promise<{ success: boolean; error?: string; pending?: boolean }> =>
+      ipcRenderer.invoke('auth.submitOAuthCode', code, redirectUri),
+    onChanged: (callback: (status: AuthStatusResponse) => void): (() => void) => {
+      const listener = (_: Electron.IpcRendererEvent, status: AuthStatusResponse) => {
+        callback(status);
+      };
+      ipcRenderer.on('auth:changed', listener);
+      return () => ipcRenderer.removeListener('auth:changed', listener);
+    },
+  },
 
   // Open links in default browser
   openExternal: (url: string) => {
@@ -504,6 +535,24 @@ declare global {
       platform: NodeJS.Platform;
       getSystemTheme: () => Promise<{ shouldUseDarkColors: boolean }>;
       getVersion: () => Promise<string>;
+      auth: {
+        getStatus: () => Promise<AuthStatusResponse>;
+        getOAuthDebug: (rendererRedirectUrl?: string) => Promise<AuthOAuthDebugInfo>;
+        startGoogleLogin: () => Promise<AuthStatusResponse & { success: boolean; error?: string }>;
+        me: () => Promise<{ success: boolean; user?: AuthUser; error?: string; code?: string }>;
+        getAvatarDataUrl: (
+          imageUrl?: string
+        ) => Promise<{ success: boolean; dataUrl: string | null; code?: string }>;
+        logout: () => Promise<{ success: boolean }>;
+        refresh: () => Promise<
+          AuthStatusResponse & { success: boolean; error?: string; code?: string }
+        >;
+        submitOAuthCode: (
+          code: string,
+          redirectUri: string
+        ) => Promise<{ success: boolean; error?: string; pending?: boolean }>;
+        onChanged: (callback: (status: AuthStatusResponse) => void) => () => void;
+      };
       openExternal: (url: string) => Promise<boolean>;
       showItemInFolder: (filePath: string, cwd?: string) => Promise<boolean>;
       selectFiles: () => Promise<string[]>;

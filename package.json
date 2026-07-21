@@ -75,6 +75,7 @@
     "@slack/bolt": "4.7.0",
     "@slack/web-api": "7.15.1",
     "archiver": "^7.0.1",
+    "aws-jwt-verify": "5.2.1",
     "better-sqlite3": "^12.8.0",
     "chokidar": "^4.0.1",
     "dotenv": "^17.2.3",

@@ -54,6 +54,7 @@ export default defineConfig({
                 'dotenv',
                 '@slack/bolt',
                 '@slack/web-api',
+                'aws-jwt-verify',
               ],
               output: {
                 // Ensure consistent interop for CJS/ESM
@@ -89,6 +90,13 @@ export default defineConfig({
   server: {
     watch: {
       ignored: ignoredWatchPaths,
+    },
+    proxy: {
+      '/vecos-oauth-relay': {
+        target: 'http://127.0.0.1:19890',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/vecos-oauth-relay/, ''),
+      },
     },
   },
   build: {

@@ -347,6 +347,18 @@ function initializeSchema(database: Database.Database): void {
     ON scheduled_tasks(enabled, next_run_at)
   `);
 
+    database.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      email TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'manager',
+      image TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
+
     log('[Database] Schema initialized');
   } catch (error) {
     logError('[Database] Schema initialization failed:', error);

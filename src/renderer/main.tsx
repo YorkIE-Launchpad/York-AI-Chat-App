@@ -1,6 +1,8 @@
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { AuthProvider } from './auth/AuthProvider';
+import { AuthCallbackPage } from './components/AuthCallbackPage';
 import './styles/globals.css';
 import 'katex/dist/katex.min.css';
 import 'highlight.js/styles/github-dark-dimmed.min.css';
@@ -75,9 +77,25 @@ function installRendererDiagnostics(): void {
 
 installRendererDiagnostics();
 
+function Root() {
+  const isAuthCallback =
+    typeof window !== 'undefined' &&
+    window.location.pathname.replace(/\/$/, '') === '/auth/callback';
+
+  if (isAuthCallback) {
+    return <AuthCallbackPage />;
+  }
+
+  return (
+    <AuthProvider>
+      <App />
+    </AuthProvider>
+  );
+}
+
 // Note: StrictMode removed to prevent double-rendering issues with IPC
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <ErrorBoundary>
-    <App />
+    <Root />
   </ErrorBoundary>
 );

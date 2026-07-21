@@ -78,6 +78,27 @@ import {
   type ScheduledTaskUpdateInput,
 } from './schedule/scheduled-task-manager';
 import { createScheduledTaskStore } from './schedule/scheduled-task-store';
+import { installIpcAuthGuard } from './auth/ipc-auth-guard';
+import { warmupJwksCache } from './auth/cognito';
+import { submitViteOAuthCode, getOAuthDebugInfo, initHubOAuthRelay } from './auth/hub-oauth';
+import { authConfig } from '../shared/auth-config';
+import {
+  getAuthStatus,
+  startGoogleLogin,
+  getMe,
+  logout as authLogout,
+  refreshAuth,
+  initAuth,
+  setAuthRendererNotifier,
+  stopAuthRefreshTimer,
+  startAuthRefreshTimer,
+  ensureAuthenticatedSession,
+  AuthRequiredError,
+  isAuthenticated,
+  completeOAuthFromHubCode,
+  getCurrentSession,
+} from './auth/session';
+import { resolveAvatarDataUrl } from './auth/avatar-proxy';
 import {
   buildScheduledTaskFallbackTitle,
   buildScheduledTaskTitle,
@@ -127,6 +148,10 @@ if (dotenvResult.error) {
 } else {
   log('[dotenv] Loaded successfully');
 }
+
+installIpcAuthGuard();
+initHubOAuthRelay();
+log('[Auth] Hub OAuth redirect URL (Launchpad-compatible):', authConfig.hubOAuthRedirectUrl);
 
 // Apply saved config (this overrides .env if config exists)
 if (configStore.isConfigured()) {
@@ -1348,6 +1373,17 @@ app
     // Initialize database
     const db = initDatabase();
 
+    void warmupJwksCache();
+    setAuthRendererNotifier((win) => {
+      if (win && !win.isDestroyed()) {
+        win.webContents.send('auth:changed', getAuthStatus());
+      }
+    });
+    await initAuth(() => mainWindow);
+    if (isAuthenticated()) {
+      startAuthRefreshTimer(() => mainWindow);
+    }
+
     pluginRuntimeService = new PluginRuntimeService(new PluginCatalogService());
     memoryService = new MemoryService(db);
     const extensionManager = new AgentRuntimeExtensionManager([
@@ -1680,6 +1716,102 @@ app.on('before-quit', async (event) => {
 });
 
 // IPC Handlers
+ipcMain.handle('auth.getStatus', () => getAuthStatus());
+
+ipcMain.handle('auth.getOAuthDebug', async (_event, rendererRedirectUrl?: string) => {
+  return getOAuthDebugInfo(rendererRedirectUrl);
+});
+
+ipcMain.handle('auth.startGoogleLogin', async () => {
+  try {
+    const status = await startGoogleLogin(mainWindow);
+    startAuthRefreshTimer(() => mainWindow);
+    return { success: true, ...status };
+  } catch (error) {
+    logError('[Auth] Google login failed:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Sign-in failed',
+      user: null,
+      tokens: null,
+    };
+  }
+});
+
+ipcMain.handle('auth.me', async () => {
+  try {
+    return { success: true, ...(await getMe()) };
+  } catch (error) {
+    if (error instanceof AuthRequiredError) {
+      return { success: false, error: error.message, code: error.code };
+    }
+    throw error;
+  }
+});
+
+ipcMain.handle('auth.getAvatarDataUrl', async (_event, imageUrl?: string) => {
+  try {
+    await ensureAuthenticatedSession();
+    const current = getCurrentSession();
+    if (!current) {
+      return { success: false, dataUrl: null as string | null };
+    }
+    const url =
+      typeof imageUrl === 'string' && imageUrl.trim()
+        ? imageUrl.trim()
+        : current.user.image?.trim();
+    if (!url) {
+      return { success: true, dataUrl: null as string | null };
+    }
+    const dataUrl = await resolveAvatarDataUrl(url, [current.accessToken, current.idToken]);
+    return { success: true, dataUrl };
+  } catch (error) {
+    if (error instanceof AuthRequiredError) {
+      return { success: false, dataUrl: null as string | null, code: error.code };
+    }
+    throw error;
+  }
+});
+
+ipcMain.handle('auth.logout', async () => {
+  stopAuthRefreshTimer();
+  await authLogout(mainWindow);
+  return { success: true };
+});
+
+ipcMain.handle('auth.refresh', async () => {
+  try {
+    const status = await refreshAuth(mainWindow);
+    return { success: true, ...status };
+  } catch (error) {
+    if (error instanceof AuthRequiredError) {
+      return { success: false, error: error.message, code: error.code };
+    }
+    throw error;
+  }
+});
+
+ipcMain.handle('auth.submitOAuthCode', async (_event, code: string, redirectUri: string) => {
+  if (!code?.trim()) {
+    return { success: false, error: 'Missing sign-in code.' };
+  }
+  const redirect = redirectUri?.trim() || authConfig.hubOAuthRedirectUrl;
+  if (submitViteOAuthCode(code.trim())) {
+    return { success: true, pending: true };
+  }
+  try {
+    const status = await completeOAuthFromHubCode(mainWindow, code.trim(), redirect);
+    startAuthRefreshTimer(() => mainWindow);
+    return { success: true, ...status };
+  } catch (error) {
+    logError('[Auth] OAuth callback failed:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Sign-in failed',
+    };
+  }
+});
+
 ipcMain.on('client-event', async (_event, data: ClientEvent) => {
   try {
     await handleClientEvent(data);
@@ -3229,6 +3361,8 @@ ipcMain.handle('sandbox.retrySetup', async () => {
 });
 
 async function handleClientEvent(event: ClientEvent): Promise<unknown> {
+  await ensureAuthenticatedSession();
+
   // Check if configured before starting sessions
   if (event.type === 'session.start' && !configStore.hasUsableCredentialsForActiveSet()) {
     sendToRenderer({

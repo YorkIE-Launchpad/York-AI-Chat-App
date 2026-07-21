@@ -2,6 +2,7 @@ import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../store';
 import { useIPC } from '../hooks/useIPC';
+import { useAuth } from '../auth/AuthContext';
 import {
   ChevronLeft,
   ChevronRight,
@@ -14,6 +15,7 @@ import {
   Plus,
   ListChecks,
   Check,
+  LogOut,
 } from 'lucide-react';
 import type { Session } from '../types';
 
@@ -25,8 +27,84 @@ type SessionGroup = {
   sessions: Session[];
 };
 
+function userInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '?';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+function SidebarUserAvatar({
+  name,
+  image,
+  className = 'w-8 h-8 text-[11px]',
+}: {
+  name: string;
+  image?: string | null;
+  className?: string;
+}) {
+  const [resolvedSrc, setResolvedSrc] = useState<string | null>(null);
+  const [imageFailed, setImageFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setImageFailed(false);
+    setResolvedSrc(null);
+
+    if (!image?.trim()) return;
+
+    const trimmed = image.trim();
+    if (trimmed.startsWith('data:') || trimmed.startsWith('blob:')) {
+      setResolvedSrc(trimmed);
+      return;
+    }
+
+    const loadViaProxy = async () => {
+      const authApi = window.electronAPI?.auth;
+      if (authApi?.getAvatarDataUrl) {
+        const result = await authApi.getAvatarDataUrl(trimmed);
+        if (!cancelled && result.success && result.dataUrl) {
+          setResolvedSrc(result.dataUrl);
+          return;
+        }
+      }
+      if (!cancelled) {
+        setResolvedSrc(trimmed);
+      }
+    };
+
+    void loadViaProxy();
+    return () => {
+      cancelled = true;
+    };
+  }, [image]);
+
+  const showImage = Boolean(resolvedSrc) && !imageFailed;
+
+  if (showImage && resolvedSrc) {
+    return (
+      <img
+        src={resolvedSrc}
+        alt=""
+        className={`rounded-full object-cover flex-shrink-0 ${className}`}
+        onError={() => setImageFailed(true)}
+        referrerPolicy="no-referrer"
+      />
+    );
+  }
+  return (
+    <div
+      className={`rounded-full flex items-center justify-center font-medium bg-accent/15 text-accent flex-shrink-0 ${className}`}
+      aria-hidden
+    >
+      {userInitials(name)}
+    </div>
+  );
+}
+
 export function Sidebar() {
   const { t } = useTranslation();
+  const { user, logout } = useAuth();
   const sessions = useAppStore((s) => s.sessions);
   const activeSessionId = useAppStore((s) => s.activeSessionId);
   const settings = useAppStore((s) => s.settings);
@@ -252,6 +330,25 @@ export function Sidebar() {
         </div>
 
         <div className="px-3 py-3 border-t border-border-muted flex flex-col items-center gap-2">
+          {user ? (
+            <>
+              <div className="w-9 h-9 flex items-center justify-center" title={user.name}>
+                <SidebarUserAvatar
+                  name={user.name}
+                  image={user.image}
+                  className="w-9 h-9 text-[12px]"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => void logout()}
+                className="w-9 h-9 rounded-2xl flex items-center justify-center hover:bg-surface-hover transition-colors text-text-secondary"
+                title={t('sidebar.signOut')}
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            </>
+          ) : null}
           <button
             onClick={toggleTheme}
             className="w-9 h-9 rounded-2xl flex items-center justify-center hover:bg-surface-hover transition-colors text-text-secondary"
@@ -470,7 +567,26 @@ export function Sidebar() {
           )}
         </div>
       ) : (
-        <div className="px-3 py-3 border-t border-border-muted">
+        <div className="px-3 py-3 border-t border-border-muted space-y-2">
+          {user ? (
+            <div className="flex items-center gap-2 rounded-2xl bg-background/50 px-3 py-2.5">
+              <SidebarUserAvatar name={user.name} image={user.image} />
+              <div className="min-w-0 flex-1">
+                <div className="text-[13px] font-medium text-text-primary truncate">
+                  {user.name}
+                </div>
+                <div className="text-[11px] text-text-muted truncate">{user.email}</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => void logout()}
+                className="w-8 h-8 rounded-xl flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-surface-hover transition-colors flex-shrink-0"
+                title={t('sidebar.signOut')}
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            </div>
+          ) : null}
           <div className="flex items-center gap-2 rounded-2xl bg-background/50 px-3 py-2.5">
             <button
               onClick={() => setShowSettings(true)}

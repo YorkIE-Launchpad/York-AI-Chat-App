@@ -25,6 +25,8 @@ import { GlobalNoticeToast } from './components/GlobalNoticeToast';
 import { PanelErrorBoundary } from './components/PanelErrorBoundary';
 import type { AppConfig } from './types';
 import type { GlobalNoticeAction } from './store';
+import { useAuth } from './auth/AuthContext';
+import { LoginPage } from './components/LoginPage';
 
 const ChatView = lazy(() =>
   import('./components/ChatView').then((module) => ({ default: module.ChatView }))
@@ -57,6 +59,24 @@ function ContextPanelFallback() {
 }
 
 function App() {
+  const { user, loading: authLoading } = useAuth();
+
+  if (authLoading) {
+    return (
+      <div className="h-full w-full flex items-center justify-center bg-background">
+        <div className="h-8 w-8 rounded-full border-2 border-border-subtle border-t-text-primary animate-spin" />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <LoginPage />;
+  }
+
+  return <AuthenticatedApp />;
+}
+
+function AuthenticatedApp() {
   // --- Store state via selectors (each subscription is minimally scoped) ---
   const activeSessionId = useActiveSessionId();
   const settings = useSettings();

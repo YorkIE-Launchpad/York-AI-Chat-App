@@ -1,9 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
+import { LogOut } from 'lucide-react';
 import { useAppStore } from '../../store';
+import { useAuth } from '../../auth/AuthContext';
 
 export function SettingsGeneral() {
   const { t } = useTranslation();
+  const { logout, user } = useAuth();
   const settings = useAppStore((s) => s.settings);
   const updateSettings = useAppStore((s) => s.updateSettings);
   const [appVer, setAppVer] = useState('');
@@ -44,6 +47,22 @@ export function SettingsGeneral() {
           ))}
         </div>
       </div>
+
+      {user ? (
+        <div className="space-y-3 pt-2 border-t border-border">
+          <h4 className="text-sm font-medium text-text-primary">Account</h4>
+          <p className="text-sm text-text-secondary">{user.name}</p>
+          <p className="text-xs text-text-muted">{user.email}</p>
+          <button
+            type="button"
+            onClick={() => void logout()}
+            className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm text-text-secondary hover:border-accent/50 hover:text-text-primary"
+          >
+            <LogOut className="h-4 w-4" />
+            {t('sidebar.signOut')}
+          </button>
+        </div>
+      ) : null}
 
       {/* About */}
       {appVer && (

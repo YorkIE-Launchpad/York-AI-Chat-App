@@ -14,6 +14,7 @@ import * as http from 'http';
 import { URL } from 'url';
 import { BrowserWindow } from 'electron';
 import { log, logError, logWarn } from './utils/logger';
+import { isAuthenticated } from './auth/session';
 
 const PORT = 19888;
 const HOST = '127.0.0.1';
@@ -66,6 +67,10 @@ export function startNavServer(getMainWindow: () => BrowserWindow | null): void 
 
   server = http.createServer(async (req, res) => {
     try {
+      if (!isAuthenticated()) {
+        return json(res, 401, { ok: false, error: 'Authentication required' });
+      }
+
       const url = new URL(req.url || '/', `http://${HOST}:${PORT}`);
       const pathname = url.pathname;
 
