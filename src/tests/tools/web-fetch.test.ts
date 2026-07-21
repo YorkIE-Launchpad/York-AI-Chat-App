@@ -47,7 +47,10 @@ describe('fetchWebPage', () => {
     expect(globalThis.fetch).toHaveBeenCalledWith(
       'https://example.com/page',
       expect.objectContaining({
-        headers: { 'User-Agent': 'york-ie' },
+        headers: expect.objectContaining({
+          'User-Agent': expect.stringContaining('Mozilla/5.0'),
+          Accept: expect.stringContaining('text/html'),
+        }),
       })
     );
   });

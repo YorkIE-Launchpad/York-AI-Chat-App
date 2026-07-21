@@ -495,7 +495,7 @@
     "notConnected": "Not connected",
     "connecting": "Connecting...",
     "failed": "Connection failed",
-    "chromeHint": "A new Chrome debug window will open automatically if port is unavailable",
+    "chromeHint": "Chrome opens only when the agent uses a browser tool, if the debug port is unavailable",
     "quickAddPresets": "Quick Add Presets",
     "show": "Show",
     "hide": "Hide",

@@ -75,6 +75,13 @@ function normalizeWindowsDirectoryForComparison(candidate: string): string {
   return normalizeWindowsPathForComparison(candidate).replace(/[\\/]+$/, '');
 }
 
+function isChromeMcpServerConfig(server: Pick<MCPServerConfig, 'name' | 'args'>): boolean {
+  if (server.name.toLowerCase() === 'chrome') {
+    return true;
+  }
+  return Boolean(server.args?.some((arg) => arg.includes('chrome-devtools-mcp')));
+}
+
 function sanitizeMcpToolSegment(segment: string, fallback: string): string {
   const sanitized = segment
     .trim()
@@ -239,6 +246,9 @@ export class MCPManager {
   private reconnectingServers: Set<string> = new Set();
   // Tracks per-server connection status for UI display
   private connectionStatus = new Map<string, 'connecting' | 'connected' | 'failed'>();
+  // Chrome debug browser is started lazily on first Chrome tool call (not on MCP connect)
+  private chromeReadyServerIds = new Set<string>();
+  private chromeReadyInFlight = new Map<string, Promise<void>>();
 
   /**
    * Get bundled Node.js path
@@ -1085,10 +1095,8 @@ export class MCPManager {
 
     log(`[MCPManager] Connected to ${config.name}`);
 
-    // Special handling for Chrome DevTools MCP Server
-    if (config.name.toLowerCase().includes('chrome')) {
-      await this.ensureChromeReady(config.id, config.name, client);
-    }
+    // Chrome DevTools MCP: do not launch Chrome here. Start it lazily on the
+    // first Chrome tool call so app/session load does not open a blank window.
   }
 
   private async connectClientWithTimeout(
@@ -1205,6 +1213,38 @@ export class MCPManager {
 
     logWarn(`[MCPManager] Chrome debug port not ready after ${maxRetries} attempts`);
     return false;
+  }
+
+  /**
+   * Ensure Chrome debug browser is ready, once per connected Chrome MCP server.
+   * Called from callTool (lazy), not from MCP connect, so a blank Chrome window
+   * only appears when the agent actually uses a Chrome tool.
+   */
+  private async ensureChromeReadyOnce(
+    serverId: string,
+    serverName: string,
+    client: Client
+  ): Promise<void> {
+    if (this.chromeReadyServerIds.has(serverId)) {
+      return;
+    }
+
+    const inFlight = this.chromeReadyInFlight.get(serverId);
+    if (inFlight) {
+      await inFlight;
+      return;
+    }
+
+    const readyPromise = this.ensureChromeReady(serverId, serverName, client)
+      .then(() => {
+        this.chromeReadyServerIds.add(serverId);
+      })
+      .finally(() => {
+        this.chromeReadyInFlight.delete(serverId);
+      });
+
+    this.chromeReadyInFlight.set(serverId, readyPromise);
+    await readyPromise;
   }
 
   /**
@@ -1456,6 +1496,8 @@ export class MCPManager {
     }
 
     this.connectionStatus.delete(serverId);
+    this.chromeReadyServerIds.delete(serverId);
+    this.chromeReadyInFlight.delete(serverId);
 
     log(`[MCPManager] Disconnected from server ${serverId}`);
   }
@@ -1629,6 +1671,11 @@ export class MCPManager {
         const client = this.clients.get(currentTool.serverId);
         if (!client) {
           throw new Error(`MCP server not connected: ${currentTool.serverId}`);
+        }
+
+        const serverConfig = this.serverConfigs.get(currentTool.serverId);
+        if (serverConfig && isChromeMcpServerConfig(serverConfig)) {
+          await this.ensureChromeReadyOnce(currentTool.serverId, currentTool.serverName, client);
         }
 
         const remainingMs = deadline - Date.now();

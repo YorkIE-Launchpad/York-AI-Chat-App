@@ -6,6 +6,14 @@
 const BODY_CHAR_LIMIT = 20000;
 const FETCH_TIMEOUT_MS = 15000;
 
+/** Browser-like UA so sites that block bot/custom agents (e.g. 403) still respond. */
+const DEFAULT_HEADERS: HeadersInit = {
+  'User-Agent':
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+  Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  'Accept-Language': 'en-US,en;q=0.9',
+};
+
 /**
  * Fetch a web page and return a text summary suitable for agent context.
  */
@@ -29,7 +37,7 @@ export async function fetchWebPage(url: string): Promise<string> {
   let response: Response;
   try {
     response = await fetch(parsed.toString(), {
-      headers: { 'User-Agent': 'york-ie' },
+      headers: DEFAULT_HEADERS,
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
   } catch (error) {
