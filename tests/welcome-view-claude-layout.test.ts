@@ -17,11 +17,9 @@ describe('WelcomeView Claude-style layout', () => {
     expect(source).toContain('shadow-soft');
   });
 
-  it('shows an inline API setup hint on the welcome screen when config is missing', () => {
+  it('includes an inline model selector on the welcome composer', () => {
     const source = fs.readFileSync(welcomeViewPath, 'utf8');
-    expect(source).toContain('!isConfigured && (');
-    expect(source).toContain("t('welcome.apiNotConfigured')");
-    expect(source).toContain("setSettingsTab('api');");
-    expect(source).toContain('setShowSettings(true);');
+    expect(source).toContain("import { ModelSelector } from './ModelSelector';");
+    expect(source).toContain('<ModelSelector />');
   });
 });

@@ -216,24 +216,6 @@ export function useIsConfigured(): boolean {
   return useAppStore((s) => s.isConfigured);
 }
 
-/**
- * Returns the config-related modal/notice state in one subscription.
- * Useful in App.tsx where these flags control overlay visibility.
- */
-export function useConfigModalState(): {
-  showConfigModal: boolean;
-  isConfigured: boolean;
-  appConfig: AppConfig | null;
-} {
-  return useAppStore(
-    useShallow((s) => ({
-      showConfigModal: s.showConfigModal,
-      isConfigured: s.isConfigured,
-      appConfig: s.appConfig,
-    }))
-  );
-}
-
 // ---------------------------------------------------------------------------
 // Settings domain
 // ---------------------------------------------------------------------------

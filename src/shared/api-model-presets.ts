@@ -35,14 +35,15 @@ export const API_PROVIDER_PRESETS: SharedProviderPresets = {
     name: 'OpenRouter',
     baseUrl: 'https://openrouter.ai/api/v1',
     models: [
-      { id: 'anthropic/claude-opus-4-6', name: 'anthropic/claude-opus-4-6' },
-      { id: 'anthropic/claude-sonnet-4-6', name: 'anthropic/claude-sonnet-4-6' },
-      { id: 'anthropic/claude-haiku-4-5', name: 'anthropic/claude-haiku-4-5' },
-      { id: 'openai/gpt-5.4', name: 'openai/gpt-5.4' },
-      { id: 'openai/gpt-5.3-codex', name: 'openai/gpt-5.3-codex' },
+      { id: 'anthropic/claude-fable-5', name: 'anthropic/claude-fable-5' },
+      { id: 'anthropic/claude-opus-4.8', name: 'anthropic/claude-opus-4.8' },
+      { id: 'anthropic/claude-sonnet-5', name: 'anthropic/claude-sonnet-5' },
+      { id: 'anthropic/claude-haiku-4.5', name: 'anthropic/claude-haiku-4.5' },
+      { id: 'openai/gpt-5.6-sol', name: 'openai/gpt-5.6-sol' },
+      { id: 'openai/gpt-5.6-terra', name: 'openai/gpt-5.6-terra' },
+      { id: 'openai/gpt-5.6-luna', name: 'openai/gpt-5.6-luna' },
+      { id: 'google/gemini-3.5-flash', name: 'google/gemini-3.5-flash' },
       { id: 'google/gemini-3.1-pro-preview', name: 'google/gemini-3.1-pro-preview' },
-      { id: 'google/gemini-3-flash-preview', name: 'google/gemini-3-flash-preview' },
-      { id: 'google/gemini-2.5-flash', name: 'google/gemini-2.5-flash' },
     ],
     keyPlaceholder: 'sk-or-v1-...',
     keyHint: 'Get from openrouter.ai/keys',
@@ -51,11 +52,13 @@ export const API_PROVIDER_PRESETS: SharedProviderPresets = {
     name: 'Anthropic',
     baseUrl: 'https://api.anthropic.com',
     models: [
+      { id: 'claude-fable-5', name: 'claude-fable-5' },
+      { id: 'claude-opus-4-8', name: 'claude-opus-4-8' },
+      { id: 'claude-sonnet-5', name: 'claude-sonnet-5' },
+      { id: 'claude-haiku-4-5', name: 'claude-haiku-4-5' },
+      { id: 'claude-opus-4-7', name: 'claude-opus-4-7' },
       { id: 'claude-opus-4-6', name: 'claude-opus-4-6' },
       { id: 'claude-sonnet-4-6', name: 'claude-sonnet-4-6' },
-      { id: 'claude-haiku-4-5', name: 'claude-haiku-4-5' },
-      { id: 'claude-sonnet-4-5', name: 'claude-sonnet-4-5' },
-      { id: 'claude-3-7-sonnet-latest', name: 'claude-3-7-sonnet-latest' },
     ],
     keyPlaceholder: 'sk-ant-...',
     keyHint: 'Get from console.anthropic.com',
@@ -64,10 +67,12 @@ export const API_PROVIDER_PRESETS: SharedProviderPresets = {
     name: 'OpenAI',
     baseUrl: 'https://api.openai.com/v1',
     models: [
+      { id: 'gpt-5.6-sol', name: 'gpt-5.6-sol' },
+      { id: 'gpt-5.6-terra', name: 'gpt-5.6-terra' },
+      { id: 'gpt-5.6-luna', name: 'gpt-5.6-luna' },
+      { id: 'gpt-5.6', name: 'gpt-5.6' },
       { id: 'gpt-5.4', name: 'gpt-5.4' },
-      { id: 'gpt-5.4-pro', name: 'gpt-5.4-pro' },
       { id: 'gpt-5.4-mini', name: 'gpt-5.4-mini' },
-      { id: 'gpt-5.4-nano', name: 'gpt-5.4-nano' },
       { id: 'gpt-5.3-codex', name: 'gpt-5.3-codex' },
       { id: 'o3', name: 'o3' },
       { id: 'o4-mini', name: 'o4-mini' },
@@ -79,12 +84,12 @@ export const API_PROVIDER_PRESETS: SharedProviderPresets = {
     name: 'Gemini',
     baseUrl: 'https://generativelanguage.googleapis.com',
     models: [
+      { id: 'gemini-3.5-flash', name: 'gemini-3.5-flash' },
       { id: 'gemini-3.1-pro-preview', name: 'gemini-3.1-pro-preview' },
-      { id: 'gemini-3-flash-preview', name: 'gemini-3-flash-preview' },
       { id: 'gemini-3.1-flash-lite-preview', name: 'gemini-3.1-flash-lite-preview' },
+      { id: 'gemini-3-flash-preview', name: 'gemini-3-flash-preview' },
       { id: 'gemini-2.5-pro', name: 'gemini-2.5-pro' },
       { id: 'gemini-2.5-flash', name: 'gemini-2.5-flash' },
-      { id: 'gemini-2.5-flash-lite', name: 'gemini-2.5-flash-lite' },
     ],
     keyPlaceholder: 'AIza...',
     keyHint: 'Get from aistudio.google.com',
@@ -124,33 +129,38 @@ export const PI_AI_CURATED_PRESETS: Record<string, { piProvider: string; pick: s
   openrouter: {
     piProvider: 'openrouter',
     pick: [
-      'anthropic/claude-opus-4-6',
-      'anthropic/claude-sonnet-4-6',
-      'anthropic/claude-haiku-4-5',
-      'openai/gpt-5.4',
-      'openai/gpt-5.3-codex',
+      'anthropic/claude-fable-5',
+      'anthropic/claude-opus-4.8',
+      'anthropic/claude-sonnet-5',
+      'anthropic/claude-haiku-4.5',
+      'openai/gpt-5.6-sol',
+      'openai/gpt-5.6-terra',
+      'openai/gpt-5.6-luna',
+      'google/gemini-3.5-flash',
       'google/gemini-3.1-pro-preview',
-      'google/gemini-3-flash-preview',
-      'google/gemini-2.5-flash',
     ],
   },
   anthropic: {
     piProvider: 'anthropic',
     pick: [
+      'claude-fable-5',
+      'claude-opus-4-8',
+      'claude-sonnet-5',
+      'claude-haiku-4-5',
+      'claude-opus-4-7',
       'claude-opus-4-6',
       'claude-sonnet-4-6',
-      'claude-haiku-4-5',
-      'claude-sonnet-4-5',
-      'claude-3-7-sonnet-latest',
     ],
   },
   openai: {
     piProvider: 'openai',
     pick: [
+      'gpt-5.6-sol',
+      'gpt-5.6-terra',
+      'gpt-5.6-luna',
+      'gpt-5.6',
       'gpt-5.4',
-      'gpt-5.4-pro',
       'gpt-5.4-mini',
-      'gpt-5.4-nano',
       'gpt-5.3-codex',
       'o3',
       'o4-mini',
@@ -159,12 +169,12 @@ export const PI_AI_CURATED_PRESETS: Record<string, { piProvider: string; pick: s
   gemini: {
     piProvider: 'google',
     pick: [
+      'gemini-3.5-flash',
       'gemini-3.1-pro-preview',
-      'gemini-3-flash-preview',
       'gemini-3.1-flash-lite-preview',
+      'gemini-3-flash-preview',
       'gemini-2.5-pro',
       'gemini-2.5-flash',
-      'gemini-2.5-flash-lite',
     ],
   },
 };
@@ -175,35 +185,35 @@ export function getModelInputGuidance(
 ): ModelInputGuidance {
   if (provider === 'openrouter') {
     return {
-      placeholder: 'openai/gpt-5.4, anthropic/claude-sonnet-4-6, google/gemini-3-flash-preview',
+      placeholder: 'openai/gpt-5.6-sol, anthropic/claude-sonnet-5, google/gemini-3.5-flash',
       hint: 'Use the exact model ID for the selected protocol or endpoint.',
     };
   }
 
   if (provider === 'custom' && customProtocol === 'openai') {
     return {
-      placeholder: 'deepseek-chat, deepseek-reasoner, qwen-max, gpt-5.4-mini',
+      placeholder: 'deepseek-chat, deepseek-reasoner, qwen-max, gpt-5.6-luna',
       hint: 'Use the exact model ID for the selected protocol or endpoint.',
     };
   }
 
   if (provider === 'custom' && customProtocol === 'gemini') {
     return {
-      placeholder: 'gemini-3.1-pro-preview, gemini-3-flash-preview, gemini-2.5-flash',
+      placeholder: 'gemini-3.5-flash, gemini-3.1-pro-preview, gemini-2.5-flash',
       hint: 'Use the exact model ID for the selected protocol or endpoint.',
     };
   }
 
   if (provider === 'custom') {
     return {
-      placeholder: 'glm-5, kimi-k2-thinking, claude-sonnet-4-6',
+      placeholder: 'glm-5, kimi-k2-thinking, claude-sonnet-5',
       hint: 'Use the exact model ID for the selected protocol or endpoint.',
     };
   }
 
   if (provider === 'openai') {
     return {
-      placeholder: 'gpt-5.4, gpt-5.4-mini, o3',
+      placeholder: 'gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna',
       hint: 'Use the exact model ID for the selected protocol or endpoint.',
     };
   }
@@ -217,13 +227,13 @@ export function getModelInputGuidance(
 
   if (provider === 'gemini') {
     return {
-      placeholder: 'gemini-3.1-pro-preview, gemini-3-flash-preview, gemini-2.5-flash',
+      placeholder: 'gemini-3.5-flash, gemini-3.1-pro-preview, gemini-2.5-flash',
       hint: 'Use the exact model ID for the selected protocol or endpoint.',
     };
   }
 
   return {
-    placeholder: 'claude-sonnet-4-6, claude-opus-4-6',
+    placeholder: 'claude-sonnet-5, claude-opus-4-8, claude-fable-5',
     hint: 'Use the exact model ID for the selected protocol or endpoint.',
   };
 }

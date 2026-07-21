@@ -16,6 +16,7 @@ import type {
 import { getSharedAuthStorage, ModelRegistry } from './shared-auth';
 import { MCPManager } from '../mcp/mcp-manager';
 import { configStore } from '../config/config-store';
+import { resolveBackendClientApiKey } from '../config/backend-auth';
 import { log, logError } from '../utils/logger';
 import { resolvePiRegistryModel, resolvePiRouteProtocol } from './pi-model-resolution';
 import type { ServerEvent } from '../../renderer/types';
@@ -203,6 +204,24 @@ function createSpawnSubagentTool(
             ],
             details: undefined as unknown,
           };
+        }
+
+        // Ensure Cognito JWT is set for backend-managed proxy providers
+        const runtimeApiKey = (
+          await resolveBackendClientApiKey({
+            provider: config.provider,
+            apiKey: config.apiKey,
+          })
+        ).trim();
+        if (runtimeApiKey) {
+          const piProvider =
+            config.provider === 'custom'
+              ? config.customProtocol || 'anthropic'
+              : config.provider || 'anthropic';
+          authStorage.setRuntimeApiKey(piProvider, runtimeApiKey);
+          if (piModel.provider !== piProvider) {
+            authStorage.setRuntimeApiKey(piModel.provider, runtimeApiKey);
+          }
         }
 
         // Build MCP tools (minus spawn_subagent)

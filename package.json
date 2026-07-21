@@ -37,7 +37,7 @@
   },
   "main": "dist-electron/main/index.js",
   "scripts": {
-    "dev": "npm run download:node && npm run brand:electron && npm run build:wsl-agent && npm run build:lima-agent && npm run build:mcp && vite",
+    "dev": "npx concurrently -k -n backend,app \"npm run dev:backend\" \"npm run download:node && npm run brand:electron && npm run build:wsl-agent && npm run build:lima-agent && npm run build:mcp && vite\"",
     "dev:with-python": "npm run download:node && npm run brand:electron && npm run prepare:python && npm run build:wsl-agent && npm run build:lima-agent && npm run build:mcp && vite",
     "build": "npm run download:node && npm run prepare:gui-tools && npm run prepare:python:all && npm run build:wsl-agent && npm run build:lima-agent && npm run build:mcp && tsc && vite build && node scripts/pre-build-check.js && electron-builder",
     "build:win": "node scripts/build-windows.js",
@@ -63,7 +63,8 @@
     "typecheck": "tsc --noEmit",
     "pre-build-check": "node scripts/pre-build-check.js",
     "clean": "rimraf dist dist-electron dist-mcp dist-wsl-agent dist-lima-agent .bundle-resources release",
-    "deploy:local": "bash scripts/deploy-local.sh"
+    "deploy:local": "bash scripts/deploy-local.sh",
+    "dev:backend": "npm run dev --prefix backend"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
@@ -99,7 +100,8 @@
     "remark-math": "^6.0.0",
     "uuid": "^13.0.0",
     "ws": "^8.19.0",
-    "zustand": "^5.0.12"
+    "zustand": "^5.0.12",
+    "concurrently": "^9.1.2"
   },
   "devDependencies": {
     "@commitlint/cli": "^20.5.3",

@@ -14,7 +14,6 @@ import type {
 import { applySessionUpdate } from '../utils/session-update';
 
 export type GlobalNoticeType = 'info' | 'warning' | 'error' | 'success';
-export type GlobalNoticeAction = 'open_api_settings';
 
 export interface GlobalNotice {
   id: string;
@@ -23,7 +22,7 @@ export interface GlobalNotice {
   messageValues?: Record<string, string | number>;
   type: GlobalNoticeType;
   actionLabel?: string;
-  action?: GlobalNoticeAction;
+  action?: string;
 }
 
 export interface SessionExecutionClock {
@@ -115,7 +114,6 @@ interface AppState {
   // App Config (API settings)
   appConfig: AppConfig | null;
   isConfigured: boolean;
-  showConfigModal: boolean;
   hasSeenInitialConfigStatus: boolean;
   globalNotice: GlobalNotice | null;
 
@@ -182,7 +180,6 @@ interface AppState {
   // Config actions
   setAppConfig: (config: AppConfig | null) => void;
   setIsConfigured: (configured: boolean) => void;
-  setShowConfigModal: (show: boolean) => void;
   markInitialConfigStatusSeen: () => void;
   setGlobalNotice: (notice: GlobalNotice | null) => void;
   clearGlobalNotice: () => void;
@@ -253,7 +250,6 @@ export const useAppStore = create<AppState>((set) => ({
   settings: defaultSettings,
   appConfig: null,
   isConfigured: false,
-  showConfigModal: false,
   hasSeenInitialConfigStatus: false,
   globalNotice: null,
   workingDir: null,
@@ -607,7 +603,6 @@ export const useAppStore = create<AppState>((set) => ({
   // Config actions
   setAppConfig: (config) => set({ appConfig: config }),
   setIsConfigured: (configured) => set({ isConfigured: configured }),
-  setShowConfigModal: (show) => set({ showConfigModal: show }),
   markInitialConfigStatusSeen: () => set({ hasSeenInitialConfigStatus: true }),
   setGlobalNotice: (notice) => set({ globalNotice: notice }),
   clearGlobalNotice: () => set({ globalNotice: null }),
@@ -668,7 +663,7 @@ if (typeof window !== 'undefined') {
       store.setShowSettings(false);
       store.setActiveSession(null);
     } else if (page === 'settings') {
-      store.setSettingsTab(tab || 'api');
+      store.setSettingsTab(tab || 'general');
       store.setShowSettings(true);
     } else if (page === 'session') {
       if (!sessionId || typeof sessionId !== 'string') return false;

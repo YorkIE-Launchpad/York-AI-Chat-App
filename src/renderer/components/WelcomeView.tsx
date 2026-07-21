@@ -25,6 +25,7 @@ type AttachedFile = {
 };
 
 import welcomeLogoSrc from '../assets/logo.png';
+import { ModelSelector } from './ModelSelector';
 
 export function WelcomeView() {
   const { t } = useTranslation();
@@ -41,9 +42,6 @@ export function WelcomeView() {
   const { startSession, changeWorkingDir, isElectron } = useIPC();
   const workingDir = useAppStore((state) => state.workingDir);
   const setGlobalNotice = useAppStore((state) => state.setGlobalNotice);
-  const isConfigured = useAppStore((state) => state.isConfigured);
-  const setShowSettings = useAppStore((state) => state.setShowSettings);
-  const setSettingsTab = useAppStore((state) => state.setSettingsTab);
   const canSubmit = prompt.trim().length > 0 || pastedImages.length > 0 || attachedFiles.length > 0;
 
   const handleSelectFolder = async () => {
@@ -459,24 +457,6 @@ export function WelcomeView() {
           </p>
         </div>
 
-        {/* API Not Configured Hint */}
-        {!isConfigured && (
-          <p className="text-sm text-text-muted text-center">
-            {t('welcome.apiNotConfigured')}{' '}
-            <button
-              type="button"
-              onClick={() => {
-                setSettingsTab('api');
-                setShowSettings(true);
-              }}
-              className="inline-flex items-center gap-1 text-accent hover:text-accent-hover transition-colors"
-            >
-              {t('welcome.goToSettings')}
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
-          </p>
-        )}
-
         {/* Quick Action Tags */}
         <div className="flex flex-wrap gap-2 justify-center px-3">
           {quickTags.map((tag) => (
@@ -629,14 +609,17 @@ export function WelcomeView() {
               )}
             </div>
 
-            <button
-              type="submit"
-              disabled={!canSubmit || isSubmitting}
-              className="btn btn-primary px-5 py-2.5 rounded-2xl disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <span>{isSubmitting ? t('welcome.starting') : t('welcome.letsGo')}</span>
-              <ArrowRight className="w-4 h-4" />
-            </button>
+            <div className="flex items-center gap-3">
+              <ModelSelector />
+              <button
+                type="submit"
+                disabled={!canSubmit || isSubmitting}
+                className="btn btn-primary px-5 py-2.5 rounded-2xl disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <span>{isSubmitting ? t('welcome.starting') : t('welcome.letsGo')}</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
           </div>
         </form>
       </div>

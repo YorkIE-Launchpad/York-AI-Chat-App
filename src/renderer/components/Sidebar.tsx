@@ -112,7 +112,6 @@ export function Sidebar() {
   const setMessages = useAppStore((s) => s.setMessages);
   const setTraceSteps = useAppStore((s) => s.setTraceSteps);
   const updateSettings = useAppStore((s) => s.updateSettings);
-  const isConfigured = useAppStore((s) => s.isConfigured);
   const sidebarCollapsed = useAppStore((s) => s.sidebarCollapsed);
   const toggleSidebar = useAppStore((s) => s.toggleSidebar);
   const setShowSettings = useAppStore((s) => s.setShowSettings);
@@ -358,13 +357,10 @@ export function Sidebar() {
           </button>
           <button
             onClick={() => setShowSettings(true)}
-            className="w-9 h-9 rounded-2xl flex items-center justify-center hover:bg-surface-hover transition-colors text-text-secondary relative"
+            className="w-9 h-9 rounded-2xl flex items-center justify-center hover:bg-surface-hover transition-colors text-text-secondary"
             title={t('sidebar.settings')}
           >
             <Settings className="w-4 h-4" />
-            {!isConfigured && (
-              <span className="absolute right-2 top-2 w-1.5 h-1.5 rounded-full bg-accent" />
-            )}
           </button>
         </div>
       </aside>
@@ -596,9 +592,6 @@ export function Sidebar() {
               <div className="min-w-0">
                 <div className="text-[13px] font-medium text-text-primary">
                   {t('sidebar.settings')}
-                </div>
-                <div className="text-[11px] text-text-muted truncate">
-                  {isConfigured ? t('sidebar.apiConfigured') : t('sidebar.apiNotConfigured')}
                 </div>
               </div>
             </button>

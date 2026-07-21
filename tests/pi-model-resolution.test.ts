@@ -518,4 +518,28 @@ describe('pi model resolution helpers', () => {
 
     expect(model.compat?.requiresThinkingInContent).toBeUndefined();
   });
+
+  it('honors configured proxy baseUrl for backend-managed anthropic models', () => {
+    const model = applyPiModelRuntimeOverrides(
+      {
+        id: 'claude-sonnet-4-6',
+        name: 'claude-sonnet-4-6',
+        api: 'anthropic-messages',
+        provider: 'anthropic',
+        baseUrl: 'https://api.anthropic.com',
+        reasoning: false,
+        input: ['text'],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 200000,
+        maxTokens: 64000,
+      },
+      {
+        configProvider: 'anthropic',
+        rawProvider: 'anthropic',
+        customBaseUrl: 'http://127.0.0.1:3001/anthropic',
+      }
+    );
+
+    expect(model.baseUrl).toBe('http://127.0.0.1:3001/anthropic');
+  });
 });

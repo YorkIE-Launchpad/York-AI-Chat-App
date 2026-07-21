@@ -6,7 +6,6 @@ import {
   useSystemDarkMode,
   useSettingsState,
   useLayoutState,
-  useConfigModalState,
   useGlobalNotice,
   useSandboxSetupState,
   useSandboxSyncStatus,
@@ -23,8 +22,6 @@ import { SandboxSetupDialog } from './components/SandboxSetupDialog';
 import { SandboxSyncToast } from './components/SandboxSyncToast';
 import { GlobalNoticeToast } from './components/GlobalNoticeToast';
 import { PanelErrorBoundary } from './components/PanelErrorBoundary';
-import type { AppConfig } from './types';
-import type { GlobalNoticeAction } from './store';
 import { useAuth } from './auth/AuthContext';
 import { LoginPage } from './components/LoginPage';
 
@@ -33,9 +30,6 @@ const ChatView = lazy(() =>
 );
 const ContextPanel = lazy(() =>
   import('./components/ContextPanel').then((module) => ({ default: module.ContextPanel }))
-);
-const ConfigModal = lazy(() =>
-  import('./components/ConfigModal').then((module) => ({ default: module.ConfigModal }))
 );
 const SettingsPanel = lazy(() =>
   import('./components/SettingsPanel').then((module) => ({ default: module.SettingsPanel }))
@@ -83,7 +77,6 @@ function AuthenticatedApp() {
   const systemDarkMode = useSystemDarkMode();
   const { showSettings } = useSettingsState();
   const { sidebarCollapsed } = useLayoutState();
-  const { showConfigModal, isConfigured, appConfig } = useConfigModalState();
   const globalNotice = useGlobalNotice();
   const { progress: sandboxSetupProgress, isComplete: isSandboxSetupComplete } =
     useSandboxSetupState();
@@ -91,9 +84,6 @@ function AuthenticatedApp() {
   const { pendingPermission, pendingSudoPassword } = usePendingDialogs();
 
   // Actions are still pulled directly from the store
-  const setShowConfigModal = useAppStore((s) => s.setShowConfigModal);
-  const setIsConfigured = useAppStore((s) => s.setIsConfigured);
-  const setAppConfig = useAppStore((s) => s.setAppConfig);
   const clearGlobalNotice = useAppStore((s) => s.clearGlobalNotice);
   const setSandboxSetupComplete = useAppStore((s) => s.setSandboxSetupComplete);
   const setShowSettings = useAppStore((s) => s.setShowSettings);
@@ -145,42 +135,14 @@ function AuthenticatedApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showSettings]);
 
-  // Handle config save
-  const handleConfigSave = useCallback(
-    async (newConfig: Partial<AppConfig>) => {
-      if (!isElectron) {
-        console.log('[App] Browser mode - config save simulated');
-        return;
-      }
-
-      const result = await window.electronAPI.config.save(newConfig);
-      if (result.success) {
-        setIsConfigured(Boolean(result.config?.isConfigured));
-        setAppConfig(result.config);
-      }
-    },
-    [setIsConfigured, setAppConfig]
-  );
-
-  // Handle config modal close
-  const handleConfigClose = useCallback(() => {
-    setShowConfigModal(false);
-  }, [setShowConfigModal]);
-
   // Handle sandbox setup complete
   const handleSandboxSetupComplete = useCallback(() => {
     setSandboxSetupComplete(true);
   }, [setSandboxSetupComplete]);
 
-  const handleGlobalNoticeAction = useCallback(
-    (action: GlobalNoticeAction) => {
-      if (action === 'open_api_settings') {
-        setShowConfigModal(true);
-      }
-      clearGlobalNotice();
-    },
-    [clearGlobalNotice, setShowConfigModal]
-  );
+  const handleGlobalNoticeAction = useCallback(() => {
+    clearGlobalNotice();
+  }, [clearGlobalNotice]);
 
   // Determine if we should show the sandbox setup dialog
   // Show if there's progress and setup is not complete
@@ -244,19 +206,6 @@ function AuthenticatedApp() {
 
       {/* Sudo Password Dialog */}
       {pendingSudoPassword && <SudoPasswordDialog request={pendingSudoPassword} />}
-
-      {/* Config Modal */}
-      <PanelErrorBoundary name="ConfigModal" fallback={null}>
-        <Suspense fallback={null}>
-          <ConfigModal
-            isOpen={showConfigModal}
-            onClose={handleConfigClose}
-            onSave={handleConfigSave}
-            initialConfig={appConfig}
-            isFirstRun={!isConfigured}
-          />
-        </Suspense>
-      </PanelErrorBoundary>
 
       {/* Sandbox Setup Dialog */}
       {showSandboxSetup && (

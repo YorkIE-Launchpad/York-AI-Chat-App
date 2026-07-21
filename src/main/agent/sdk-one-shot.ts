@@ -10,6 +10,7 @@ import {
   shouldAllowEmptyAnthropicApiKey,
   shouldAllowEmptyGeminiApiKey,
 } from '../config/auth-utils';
+import { resolveBackendClientApiKey } from '../config/backend-auth';
 import { log, logWarn } from '../utils/logger';
 import { normalizeGeneratedTitle } from '../session/session-title-utils';
 import { getSharedAuthStorage } from './shared-auth';
@@ -224,8 +225,13 @@ export async function runPiAiOneShot(
   // piModel is guaranteed non-undefined after synthetic fallback
   const resolvedModel = piModel!;
 
-  // Set API key via AuthStorage (for agent sessions) AND env vars (for pi-ai completeSimple)
-  const apiKey = config.apiKey?.trim();
+  // Cognito JWT for backend-managed proxy; otherwise configured key
+  const apiKey = (
+    await resolveBackendClientApiKey({
+      provider: config.provider,
+      apiKey: config.apiKey,
+    })
+  ).trim();
   if (apiKey) {
     const authStorage = getSharedAuthStorage();
     // Set for the config provider

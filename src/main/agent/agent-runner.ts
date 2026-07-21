@@ -53,6 +53,7 @@ import { PluginRuntimeService } from '../skills/plugin-runtime-service';
 import type { SkillsAdapter } from '../skills/skills-adapter';
 import { AgentRuntimeExtensionManager } from '../extensions/agent-runtime-extension-manager';
 import { configStore } from '../config/config-store';
+import { resolveBackendClientApiKey } from '../config/backend-auth';
 import { normalizeOpenAICompatibleBaseUrl } from '../config/auth-utils';
 import {
   buildTerminalErrorEmissionDetails,
@@ -1179,7 +1180,7 @@ ${hints.join('\n')}
   private getCurrentModelString(preferredModel?: string): string {
     const routeModel = preferredModel?.trim();
     const configuredModel = configStore.get('model')?.trim();
-    const model = routeModel || configuredModel || 'anthropic/claude-sonnet-4-6';
+    const model = routeModel || configuredModel || 'anthropic/claude-sonnet-5';
     logCtx('[CoworkAgentRunner] Current model:', model);
     logCtx(
       '[CoworkAgentRunner] Model source:',
@@ -1678,9 +1679,14 @@ ${hints.join('\n')}
         },
       });
 
-      // Set up API keys via AuthStorage
+      // Set up API keys via AuthStorage (Cognito JWT for backend-managed proxy providers)
       const authStorage = getSharedAuthStorage();
-      const apiKey = runtimeConfig.apiKey?.trim();
+      const apiKey = (
+        await resolveBackendClientApiKey({
+          provider,
+          apiKey: runtimeConfig.apiKey,
+        })
+      ).trim();
       if (apiKey) {
         // Map our config provider to pi-ai provider name
         const piProvider =

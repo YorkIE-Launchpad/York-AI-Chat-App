@@ -593,7 +593,6 @@ export type ServerEvent =
       payload: {
         message: string;
         code?: 'CONFIG_REQUIRED_ACTIVE_SET';
-        action?: 'open_api_settings';
       };
     };
 

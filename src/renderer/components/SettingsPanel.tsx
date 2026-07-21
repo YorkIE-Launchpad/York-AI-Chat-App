@@ -1,9 +1,7 @@
 import { useState, useEffect } from 'react';
 import {
   X,
-  Settings,
   Plug,
-  Shield,
   Package,
   Clock3,
   Wifi,
@@ -16,8 +14,6 @@ import { useTranslation } from 'react-i18next';
 import { useWindowSize } from '../hooks/useWindowSize';
 import { RemoteControlPanel } from './RemoteControlPanel';
 import { useAppStore } from '../store';
-import { SettingsAPI } from './settings/SettingsAPI';
-import { SettingsSandbox } from './settings/SettingsSandbox';
 import { SettingsConnectors } from './settings/SettingsConnectors';
 import { SettingsSkills } from './settings/SettingsSkills';
 import { SettingsSchedule } from './settings/SettingsSchedule';
@@ -27,32 +23,12 @@ import { SettingsMemory } from './settings/SettingsMemory';
 
 interface SettingsPanelProps {
   onClose: () => void;
-  initialTab?:
-    | 'api'
-    | 'sandbox'
-    | 'connectors'
-    | 'skills'
-    | 'memory'
-    | 'schedule'
-    | 'remote'
-    | 'logs'
-    | 'general';
+  initialTab?: 'connectors' | 'skills' | 'memory' | 'schedule' | 'remote' | 'logs' | 'general';
 }
 
-type TabId =
-  | 'api'
-  | 'sandbox'
-  | 'connectors'
-  | 'skills'
-  | 'memory'
-  | 'schedule'
-  | 'remote'
-  | 'logs'
-  | 'general';
+type TabId = 'connectors' | 'skills' | 'memory' | 'schedule' | 'remote' | 'logs' | 'general';
 
 const VALID_TABS = new Set<TabId>([
-  'api',
-  'sandbox',
   'connectors',
   'skills',
   'memory',
@@ -62,7 +38,7 @@ const VALID_TABS = new Set<TabId>([
   'general',
 ]);
 
-export function SettingsPanel({ onClose, initialTab = 'api' }: SettingsPanelProps) {
+export function SettingsPanel({ onClose, initialTab = 'general' }: SettingsPanelProps) {
   const { t } = useTranslation();
   const { width } = useWindowSize();
   const compactSidebar = width < 900;
@@ -103,18 +79,6 @@ export function SettingsPanel({ onClose, initialTab = 'api' }: SettingsPanelProp
   }, [activeTab]);
 
   const tabs = [
-    {
-      id: 'api' as TabId,
-      label: t('settings.apiSettings'),
-      icon: Settings,
-      description: t('settings.apiSettingsDesc'),
-    },
-    {
-      id: 'sandbox' as TabId,
-      label: t('settings.sandbox'),
-      icon: Shield,
-      description: t('settings.sandboxDesc'),
-    },
     {
       id: 'connectors' as TabId,
       label: t('settings.connectors'),
@@ -246,16 +210,6 @@ export function SettingsPanel({ onClose, initialTab = 'api' }: SettingsPanelProp
         <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-6 lg:px-8 lg:py-8">
           <div className="max-w-[860px] w-full min-w-0 mx-auto">
             <div className="">
-              <div className={activeTab === 'api' ? '' : 'hidden'}>
-                {viewedTabs.has('api') && (
-                  <>
-                    <SettingsAPI />
-                  </>
-                )}
-              </div>
-              <div className={activeTab === 'sandbox' ? '' : 'hidden'}>
-                {viewedTabs.has('sandbox') && <SettingsSandbox />}
-              </div>
               <div className={activeTab === 'connectors' ? '' : 'hidden'}>
                 {viewedTabs.has('connectors') && (
                   <SettingsConnectors isActive={activeTab === 'connectors'} />

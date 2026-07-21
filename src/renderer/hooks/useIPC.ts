@@ -295,8 +295,6 @@ export function useIPC() {
                 type: 'warning',
                 message: i18n.t('api.configRequiredActiveSet'),
                 messageKey: 'api.configRequiredActiveSet',
-                action:
-                  event.payload.action === 'open_api_settings' ? 'open_api_settings' : undefined,
               });
             } else {
               store.setGlobalNotice({

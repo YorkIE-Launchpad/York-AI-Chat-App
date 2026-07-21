@@ -1,12 +1,12 @@
 import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { X } from 'lucide-react';
-import type { GlobalNotice, GlobalNoticeAction } from '../store';
+import type { GlobalNotice } from '../store';
 
 interface Props {
   notice: GlobalNotice | null;
   onDismiss: () => void;
-  onAction: (action: GlobalNoticeAction) => void;
+  onAction: (action: string) => void;
 }
 
 const noticeToneClass: Record<GlobalNotice['type'], { border: string; text: string }> = {
@@ -35,9 +35,7 @@ export function GlobalNoticeToast({ notice, onDismiss, onAction }: Props) {
 
   const tone = noticeToneClass[notice.type];
   const message = notice.messageKey ? t(notice.messageKey, notice.messageValues) : notice.message;
-  const actionLabel =
-    notice.actionLabel ||
-    (notice.action === 'open_api_settings' ? t('api.openSettingsAction') : '');
+  const actionLabel = notice.actionLabel || '';
   const noticeAction = notice.action;
 
   return (

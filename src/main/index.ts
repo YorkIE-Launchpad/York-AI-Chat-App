@@ -51,6 +51,7 @@ import {
 } from './config/config-file-watcher';
 import { runConfigApiTest } from './config/config-test-routing';
 import { listOllamaModels } from './config/ollama-api';
+import { fetchBackendModels } from './config/backend-client';
 import { setPermissionRules, decidePermission } from './config/permission-rules-store';
 import { mcpConfigStore } from './mcp/mcp-config-store';
 import { getSandboxAdapter, shutdownSandbox } from './sandbox/sandbox-adapter';
@@ -2227,6 +2228,10 @@ ipcMain.handle(
   }
 );
 
+ipcMain.handle('config.listBackendModels', async () => {
+  return fetchBackendModels();
+});
+
 ipcMain.handle('config.diagnose', async (_event, payload: DiagnosticInput) => {
   try {
     const { runDiagnostics } = await import('./config/api-diagnostics');
@@ -3368,10 +3373,8 @@ async function handleClientEvent(event: ClientEvent): Promise<unknown> {
     sendToRenderer({
       type: 'error',
       payload: {
-        message:
-          'The current profile has no usable credentials. Please complete configuration in API settings first',
+        message: 'No model is configured. Please select a model before starting a session.',
         code: 'CONFIG_REQUIRED_ACTIVE_SET',
-        action: 'open_api_settings',
       },
     });
     return null;

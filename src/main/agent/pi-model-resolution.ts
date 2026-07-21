@@ -1,4 +1,5 @@
 import { getModel, type Api, type Model } from '@mariozechner/pi-ai';
+import { isBackendManagedProvider } from '../../shared/backend-config';
 import { isOfficialOpenAIBaseUrl } from '../config/auth-utils';
 
 const COMMON_FALLBACK_PROVIDERS = ['openai', 'anthropic', 'google'] as const;
@@ -273,7 +274,9 @@ export function applyPiModelRuntimeOverrides(
 ): Model<Api> {
   let nextModel = model;
   const isCustomProvider = options.rawProvider === 'custom' || options.configProvider === 'custom';
-  const shouldHonorConfiguredBaseUrl = options.rawProvider === 'openai' || isCustomProvider;
+  const isBackendManaged = isBackendManagedProvider(options.rawProvider);
+  const shouldHonorConfiguredBaseUrl =
+    options.rawProvider === 'openai' || isCustomProvider || isBackendManaged;
   const modelHasBaseUrl = Boolean(nextModel.baseUrl);
 
   if (options.customBaseUrl && (shouldHonorConfiguredBaseUrl || !modelHasBaseUrl)) {

@@ -19,16 +19,7 @@ import { isAuthenticated } from './auth/session';
 const PORT = 19888;
 const HOST = '127.0.0.1';
 const EXEC_TIMEOUT_MS = 3000;
-const VALID_TABS = new Set([
-  'api',
-  'sandbox',
-  'connectors',
-  'skills',
-  'schedule',
-  'remote',
-  'logs',
-  'general',
-]);
+const VALID_TABS = new Set(['connectors', 'skills', 'schedule', 'remote', 'logs', 'general']);
 
 let server: http.Server | null = null;
 
@@ -58,7 +49,7 @@ function execJS(win: BrowserWindow, code: string): Promise<unknown> {
  *
  * Routes:
  *   GET /navigate?page=welcome
- *   GET /navigate?page=settings&tab=api
+ *   GET /navigate?page=settings&tab=general
  *   GET /navigate?page=session&id=xxx
  *   GET /status
  */

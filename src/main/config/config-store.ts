@@ -32,6 +32,13 @@ import {
   shouldUseAnthropicAuthToken,
 } from './auth-utils';
 import { API_PROVIDER_PRESETS, PI_AI_CURATED_PRESETS } from '../../shared/api-model-presets';
+import {
+  applyBackendManagedCredentials,
+  backendProviderForProfileKey,
+  BACKEND_PROXY_PLACEHOLDER_KEY,
+  getBackendProxyBaseUrl,
+  isBackendManagedProvider,
+} from '../../shared/backend-config';
 
 /**
  * Application configuration schema
@@ -217,17 +224,17 @@ const defaultProfiles: Record<ProviderProfileKey, ProviderProfile> = {
   openrouter: {
     apiKey: '',
     baseUrl: 'https://openrouter.ai/api/v1',
-    model: 'anthropic/claude-sonnet-4-6',
+    model: 'anthropic/claude-sonnet-5',
   },
   anthropic: {
     apiKey: '',
     baseUrl: 'https://api.anthropic.com',
-    model: 'claude-sonnet-4-6',
+    model: 'claude-sonnet-5',
   },
   openai: {
     apiKey: '',
     baseUrl: 'https://api.openai.com/v1',
-    model: 'gpt-5.4',
+    model: 'gpt-5.6-sol',
   },
   ollama: {
     apiKey: '',
@@ -237,7 +244,7 @@ const defaultProfiles: Record<ProviderProfileKey, ProviderProfile> = {
   gemini: {
     apiKey: '',
     baseUrl: 'https://generativelanguage.googleapis.com',
-    model: 'gemini-2.5-flash',
+    model: 'gemini-3.5-flash',
   },
   'custom:anthropic': {
     apiKey: '',
@@ -247,7 +254,7 @@ const defaultProfiles: Record<ProviderProfileKey, ProviderProfile> = {
   'custom:openai': {
     apiKey: '',
     baseUrl: 'https://api.openai.com/v1',
-    model: 'gpt-5.4',
+    model: 'gpt-5.6-sol',
   },
   'custom:gemini': {
     apiKey: '',
@@ -657,6 +664,11 @@ export class ConfigStore {
     }
     if (typeof profile?.maxTokens === 'number' && profile.maxTokens > 0) {
       result.maxTokens = profile.maxTokens;
+    }
+    const backendProvider = backendProviderForProfileKey(profileKey);
+    if (backendProvider) {
+      result.apiKey = BACKEND_PROXY_PLACEHOLDER_KEY;
+      result.baseUrl = getBackendProxyBaseUrl(backendProvider);
     }
     return result;
   }
@@ -1455,6 +1467,9 @@ export class ConfigStore {
     baseUrl?: string;
     model?: string;
   }): boolean {
+    if (isBackendManagedProvider(projection.provider)) {
+      return Boolean(projection.model?.trim());
+    }
     if (projection.provider === 'ollama' && !projection.model?.trim()) {
       return false;
     }
@@ -1559,12 +1574,13 @@ export class ConfigStore {
       baseUrl: config.baseUrl,
       model: config.model,
     };
-    const projectedConfig: AppConfig = {
+    let projectedConfig: AppConfig = {
       ...config,
       apiKey: activeProfile.apiKey || '',
       baseUrl: activeProfile.baseUrl,
       model: activeProfile.model || '',
     };
+    projectedConfig = applyBackendManagedCredentials(projectedConfig);
 
     // Clear all API-related env vars first to ensure clean state when switching providers
     delete process.env.ANTHROPIC_API_KEY;

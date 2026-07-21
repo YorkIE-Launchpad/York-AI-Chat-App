@@ -210,7 +210,7 @@
     "getStarted": "Get Started",
     "saveSettings": "Save Settings",
     "openSettingsAction": "Open API Settings",
-    "configRequiredActiveSet": "The current config set does not have usable credentials. Finish setup in API Settings first.",
+    "configRequiredActiveSet": "No model is configured. Please select a model before starting a session.",
     "testConnection": "Test Connection",
     "testingConnection": "Testing...",
     "refreshModels": "Refresh Models",
