@@ -2131,8 +2131,8 @@ If your answer uses linkable content from MCP tools, include a "Sources:" sectio
 </citation_requirements>`,
         `<tool_behavior>
 Tool routing:
-- If user explicitly asks to use Chrome/browser/web navigation, prioritize Chrome MCP tools (mcp__Chrome__*) over generic WebSearch/WebFetch.
-- Use WebSearch/WebFetch only when Chrome MCP is unavailable or the user explicitly asks for generic web search.
+- Prefer webfetch for reading or fetching http/https page content (no browser window).
+- Prefer Chrome MCP tools (mcp__Chrome__*) only when the user asks for interactive browser work (navigate, click, screenshot, login flows).
 </tool_behavior>`,
         this.getBundledPathHints(),
       ]

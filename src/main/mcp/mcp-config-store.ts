@@ -7,6 +7,25 @@ import type { MCPServerConfig } from './mcp-manager';
 import { log, logError } from '../utils/logger';
 
 /**
+ * Built-in Chrome MCP connector — seeded enabled by default (not a Quick Add preset).
+ */
+export const DEFAULT_CHROME_MCP_SERVER: Omit<MCPServerConfig, 'id' | 'enabled'> = {
+  name: 'Chrome',
+  type: 'stdio',
+  command: 'npx',
+  args: ['-y', 'chrome-devtools-mcp@latest', '--browser-url', 'http://localhost:9222'],
+};
+
+const DEFAULT_CHROME_SERVER_ID = 'mcp-chrome-default';
+
+export function isChromeMcpServer(server: Pick<MCPServerConfig, 'name' | 'args'>): boolean {
+  if (server.name.toLowerCase() === 'chrome') {
+    return true;
+  }
+  return Boolean(server.args?.some((arg) => arg.includes('chrome-devtools-mcp')));
+}
+
+/**
  * Preset MCP Server Configurations
  * These are common MCP servers that users can quickly add
  */
@@ -17,12 +36,6 @@ export const MCP_SERVER_PRESETS: Record<
     envDescription?: Record<string, string>;
   }
 > = {
-  chrome: {
-    name: 'Chrome',
-    type: 'stdio',
-    command: 'npx',
-    args: ['-y', 'chrome-devtools-mcp@latest', '--browser-url', 'http://localhost:9222'],
-  },
   notion: {
     name: 'Notion',
     type: 'stdio',
@@ -114,12 +127,19 @@ class MCPConfigStore {
   }
 
   /**
-   * Delete a server configuration
+   * Delete a server configuration.
+   * Built-in Chrome MCP cannot be removed.
    */
-  deleteServer(serverId: string): void {
+  deleteServer(serverId: string): boolean {
     const servers = this.getServers();
+    const target = servers.find((s) => s.id === serverId);
+    if (target && isChromeMcpServer(target)) {
+      log('[MCPConfigStore] Refusing to delete built-in Chrome MCP connector');
+      return false;
+    }
     const filtered = servers.filter((s) => s.id !== serverId);
     this.store.set('servers', filtered);
+    return true;
   }
 
   /**
@@ -134,6 +154,27 @@ class MCPConfigStore {
    */
   getEnabledServers(): MCPServerConfig[] {
     return this.getServers().filter((s) => s.enabled);
+  }
+
+  /**
+   * Ensure the built-in Chrome MCP connector exists.
+   * Does not re-enable or recreate if the user already has a Chrome connector
+   * (including one they disabled or customized).
+   */
+  ensureDefaultChromeServer(): MCPServerConfig {
+    const existing = this.getServers().find(isChromeMcpServer);
+    if (existing) {
+      return existing;
+    }
+
+    const chromeServer: MCPServerConfig = {
+      ...DEFAULT_CHROME_MCP_SERVER,
+      id: DEFAULT_CHROME_SERVER_ID,
+      enabled: true,
+    };
+    this.saveServer(chromeServer);
+    log('[MCPConfigStore] Seeded default Chrome MCP connector');
+    return chromeServer;
   }
 
   /**

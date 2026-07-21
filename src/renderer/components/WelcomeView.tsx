@@ -418,14 +418,12 @@ export function WelcomeView() {
       label: t('welcome.checkEmails'),
       icon: Mail,
       prompt: t('welcome.quickPromptEmail'),
-      requiresChrome: true,
     },
     {
       id: 'papers',
       label: t('welcome.searchPapers'),
       icon: BookOpen,
       prompt: t('welcome.quickPromptPapers'),
-      requiresChrome: true,
     },
     {
       id: 'research-notion',
@@ -467,22 +465,12 @@ export function WelcomeView() {
                 selectedTag === tag.id
                   ? 'border-accent/30 bg-accent-muted text-accent'
                   : 'border-border-subtle bg-background/65 text-text-secondary hover:bg-surface-hover hover:text-text-primary'
-              } ${
-                ('requiresChrome' in tag && tag.requiresChrome) ||
-                ('requiresNotion' in tag && tag.requiresNotion)
-                  ? 'relative'
-                  : ''
-              }`}
+              } ${'requiresNotion' in tag && tag.requiresNotion ? 'relative' : ''}`}
             >
               <tag.icon
                 className={`w-4 h-4 ${selectedTag === tag.id ? 'text-accent' : 'text-text-muted'}`}
               />
               <span>{tag.label}</span>
-              {'requiresChrome' in tag && tag.requiresChrome && (
-                <span className="ml-1 px-1.5 py-px text-[9px] rounded bg-surface-active text-text-muted">
-                  {t('welcome.chromeRequired')}
-                </span>
-              )}
               {'requiresNotion' in tag && tag.requiresNotion && (
                 <span className="ml-1 px-1.5 py-px text-[9px] rounded bg-surface-active text-text-muted">
                   {t('welcome.notionRequired')}

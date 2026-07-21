@@ -79,7 +79,9 @@ export function getPermissionRules(): PermissionRule[] {
  *   2. First rule whose `tool` matches (case-insensitive) AND whose
  *      optional `pattern` (glob-ish: `*` = any substring) matches the
  *      stringified input
- *   3. Default: 'ask' for unknown tools (conservative)
+ *   3. Built-in: allow all Chrome DevTools MCP tools (`mcp__Chrome__*`)
+ *      and the first-party `webfetch` tool
+ *   4. Default: 'ask' for unknown tools (conservative)
  *
  * Defence-in-depth: even though `setPermissionRules` sanitizes input, we
  * re-validate the matched rule's action here so a malformed rule that
@@ -103,6 +105,12 @@ export function decidePermission(
     if (rule.pattern && !matchesPattern(rule.pattern, inputStr)) continue;
     return VALID_ACTIONS.has(rule.action) ? rule.action : 'ask';
   }
+
+  // Built-in default: Chrome MCP tools and webfetch run without a permission prompt.
+  // Explicit rules for a specific tool still win above.
+  if (lowered.startsWith('mcp__chrome__')) return 'allow';
+  if (lowered === 'webfetch') return 'allow';
+
   return 'ask';
 }
 

@@ -6,6 +6,8 @@
  *   - Glob-ish pattern matching ('*' = any substring) and case-insensitivity
  *   - Session-scoped "always allow" memory works within session and clears on
  *     forgetSessionPermissions()
+ *   - Built-in Chrome MCP (`mcp__Chrome__*`) and `webfetch` auto-allow,
+ *     overridable by rules
  *   - Garbage / malformed renderer input falls back to DEFAULT_RULES so the
  *     fail-safe is an extra prompt, never a silent auto-allow
  *   - Malformed individual rule entries are coerced to 'ask' rather than
@@ -57,6 +59,24 @@ describe('permission-rules-store', () => {
       expect(decidePermission(SESSION_A, 'READ', {})).toBe('allow');
       expect(decidePermission(SESSION_A, 'BaSh', { command: 'ls' })).toBe('ask');
     });
+
+    it('returns allow for Chrome MCP tools by default', () => {
+      expect(
+        decidePermission(SESSION_A, 'mcp__Chrome__new_page', {
+          url: 'https://www.google.com',
+        })
+      ).toBe('allow');
+      expect(decidePermission(SESSION_A, 'mcp__chrome__navigate_page', {})).toBe('allow');
+    });
+
+    it('returns allow for webfetch by default', () => {
+      expect(decidePermission(SESSION_A, 'webfetch', { url: 'https://example.com' })).toBe('allow');
+      expect(decidePermission(SESSION_A, 'WebFetch', { url: 'https://example.com' })).toBe('allow');
+    });
+
+    it('returns ask for non-Chrome MCP tools by default', () => {
+      expect(decidePermission(SESSION_A, 'mcp__Notion__search', {})).toBe('ask');
+    });
   });
 
   describe('setPermissionRules — explicit rules', () => {
@@ -78,6 +98,20 @@ describe('permission-rules-store', () => {
     it('falls through to default ask when no rule matches the tool', () => {
       setPermissionRules([{ tool: 'read', action: 'allow' }]);
       expect(decidePermission(SESSION_A, 'bash', { command: 'ls' })).toBe('ask');
+    });
+
+    it('explicit ask rule for a Chrome tool overrides the built-in allow', () => {
+      setPermissionRules([{ tool: 'mcp__Chrome__new_page', action: 'ask' }]);
+      expect(decidePermission(SESSION_A, 'mcp__Chrome__new_page', { url: 'https://x.com' })).toBe(
+        'ask'
+      );
+      // Other Chrome tools still use the built-in allow
+      expect(decidePermission(SESSION_A, 'mcp__Chrome__navigate_page', {})).toBe('allow');
+    });
+
+    it('explicit ask rule for webfetch overrides the built-in allow', () => {
+      setPermissionRules([{ tool: 'webfetch', action: 'ask' }]);
+      expect(decidePermission(SESSION_A, 'webfetch', { url: 'https://example.com' })).toBe('ask');
     });
   });
 

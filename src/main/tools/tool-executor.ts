@@ -7,6 +7,7 @@ import { PathResolver } from '../sandbox/path-resolver';
 import type { ToolResult, ExecutionContext, MountedPath } from '../../renderer/types';
 import { isUncPath } from '../../shared/local-file-path';
 import { isPathWithinRoot } from './path-containment';
+import { fetchWebPage } from './web-fetch';
 
 /**
  * ToolExecutor - Secure tool execution framework
@@ -159,51 +160,7 @@ export class ToolExecutor {
    * Fetch a web page and return its text content
    */
   async webFetch(url: string): Promise<string> {
-    const trimmed = url.trim();
-    if (!trimmed) {
-      throw new Error('URL is required');
-    }
-
-    let parsed: URL;
-    try {
-      parsed = new URL(trimmed);
-    } catch (error) {
-      throw new Error('Invalid URL');
-    }
-
-    if (!['http:', 'https:'].includes(parsed.protocol)) {
-      throw new Error('Only http/https URLs are supported');
-    }
-
-    let response: Response;
-    try {
-      response = await fetch(parsed.toString(), {
-        headers: { 'User-Agent': 'york-ie' },
-        signal: AbortSignal.timeout(15000),
-      });
-    } catch (error) {
-      if (
-        error instanceof Error &&
-        (error.name === 'AbortError' || error.name === 'TimeoutError')
-      ) {
-        throw new Error('Request timed out, please check your network connection and retry');
-      }
-      throw error;
-    }
-
-    if (!response.ok) {
-      throw new Error(`Request failed with status ${response.status}`);
-    }
-
-    const contentType = response.headers.get('content-type') || 'unknown';
-    const body = await response.text();
-    const limit = 20000;
-    const truncated =
-      body.length > limit
-        ? `${body.slice(0, limit)}\n\n[Truncated ${body.length - limit} chars]`
-        : body;
-
-    return `URL: ${parsed.toString()}\nStatus: ${response.status}\nContent-Type: ${contentType}\n\n${truncated}`;
+    return fetchWebPage(url);
   }
 
   /**

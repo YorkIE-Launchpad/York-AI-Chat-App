@@ -37,6 +37,7 @@ import { MemoryExtension } from './memory/memory-extension';
 import { ConfigExtension } from './config/config-extension';
 import { SubagentExtension } from './agent/subagent-extension';
 import { AgentRuntimeExtensionManager } from './extensions/agent-runtime-extension-manager';
+import { WebFetchExtension } from './tools/web-fetch-extension';
 import {
   configStore,
   getPiAiModelPresets,
@@ -988,6 +989,7 @@ app
       const headlessExtensionManager = new AgentRuntimeExtensionManager([
         new MemoryExtension(memoryService),
         new ConfigExtension(configStore),
+        new WebFetchExtension(),
         new SubagentExtension(
           () => sessionManager?.getMCPManager() ?? null,
           sendToRenderer,
@@ -1390,6 +1392,7 @@ app
     const extensionManager = new AgentRuntimeExtensionManager([
       new MemoryExtension(memoryService),
       new ConfigExtension(configStore),
+      new WebFetchExtension(),
       new SubagentExtension(
         () => sessionManager?.getMCPManager() ?? null,
         sendToRenderer,
@@ -2329,7 +2332,10 @@ ipcMain.handle('mcp.saveServer', async (_event, config: MCPServerConfig) => {
 });
 
 ipcMain.handle('mcp.deleteServer', async (_event, serverId: string) => {
-  mcpConfigStore.deleteServer(serverId);
+  const deleted = mcpConfigStore.deleteServer(serverId);
+  if (!deleted) {
+    return { success: false, error: 'The built-in Chrome connector cannot be deleted' };
+  }
   // Remove and disconnect only this specific server
   if (sessionManager) {
     const mcpManager = sessionManager.getMCPManager();

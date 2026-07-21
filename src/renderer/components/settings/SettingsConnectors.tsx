@@ -18,6 +18,13 @@ import type { MCPServerConfig, MCPServerStatus, MCPToolInfo, MCPPreset } from '.
 
 const isElectron = typeof window !== 'undefined' && window.electronAPI !== undefined;
 
+function isChromeMcpServer(server: MCPServerConfig): boolean {
+  if (server.name.toLowerCase() === 'chrome') {
+    return true;
+  }
+  return Boolean(server.args?.some((arg) => arg.includes('chrome-devtools-mcp')));
+}
+
 export function SettingsConnectors({ isActive }: { isActive: boolean }) {
   const { t } = useTranslation();
   const tRef = useRef(t);
@@ -166,10 +173,23 @@ export function SettingsConnectors({ isActive }: { isActive: boolean }) {
   }
 
   async function handleDeleteServer(serverId: string) {
+    const server = servers.find((s) => s.id === serverId);
+    if (server && isChromeMcpServer(server)) {
+      setError(
+        t('mcp.chromeCannotDelete', {
+          defaultValue: 'The built-in Chrome connector cannot be deleted',
+        })
+      );
+      return;
+    }
     if (!confirm(t('mcp.deleteConnectorConfirm'))) return;
     setIsLoading(true);
     try {
-      await window.electronAPI.mcp.deleteServer(serverId);
+      const result = await window.electronAPI.mcp.deleteServer(serverId);
+      if (result && typeof result === 'object' && 'success' in result && !result.success) {
+        setError((result as { error?: string }).error || t('mcp.deleteServerFailed'));
+        return;
+      }
       await loadAll();
     } catch (err) {
       setError(err instanceof Error ? err.message : t('mcp.deleteServerFailed'));
@@ -237,6 +257,7 @@ export function SettingsConnectors({ isActive }: { isActive: boolean }) {
                   onDelete={() => handleDeleteServer(server.id)}
                   onToggleEnabled={() => handleToggleEnabled(server)}
                   isLoading={isLoading}
+                  canDelete={!isChromeMcpServer(server)}
                 />
               );
             })
@@ -411,6 +432,7 @@ function ServerCard({
   onDelete,
   onToggleEnabled,
   isLoading,
+  canDelete = true,
 }: {
   server: MCPServerConfig;
   status?: MCPServerStatus;
@@ -420,6 +442,7 @@ function ServerCard({
   onDelete: () => void;
   onToggleEnabled: () => void;
   isLoading: boolean;
+  canDelete?: boolean;
 }) {
   const { t } = useTranslation();
   // Fall back to 'connecting' for enabled servers when status poll hasn't returned yet
@@ -564,14 +587,16 @@ function ServerCard({
             >
               <Edit3 className="w-4 h-4" />
             </button>
-            <button
-              onClick={onDelete}
-              disabled={isLoading}
-              className="p-2 rounded-lg bg-error/10 text-error hover:bg-error/20 transition-colors"
-              title={t('common.delete')}
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
+            {canDelete && (
+              <button
+                onClick={onDelete}
+                disabled={isLoading}
+                className="p-2 rounded-lg bg-error/10 text-error hover:bg-error/20 transition-colors"
+                title={t('common.delete')}
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            )}
           </div>
         </div>
       </div>
