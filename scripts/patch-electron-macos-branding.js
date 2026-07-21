@@ -70,7 +70,7 @@ plutilReplace(infoPlist, 'CFBundleName', PRODUCT_NAME);
 // Distinct id so Launch Services does not keep serving cached "Electron" metadata
 plutilReplace(infoPlist, 'CFBundleIdentifier', 'ie.york.vecos.dev');
 
-fs.writeFileSync(PATH_TXT, `${BUNDLE_NAME}/Contents/MacOS/Electron\n`, 'utf8');
+fs.writeFileSync(PATH_TXT, `${BUNDLE_NAME}/Contents/MacOS/Electron`, 'utf8');
 
 // Refresh Launch Services + Spotlight metadata for this bundle.
 // Without unregister/re-register, macOS often keeps serving cached "Electron".
