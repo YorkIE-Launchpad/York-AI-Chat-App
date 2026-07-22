@@ -21,6 +21,7 @@ import { app, BrowserWindow, shell } from 'electron';
 import path from 'path';
 import { connectWithOAuthRetry, OpenCoworkMcpOAuthProvider } from './mcp-oauth';
 import { getCognitoBearerAuthHeader } from '../config/backend-auth';
+import { clearHubMcpAuthCache, getHubMcpAuthHeaders } from './hub-mcp-auth';
 import { log, logError, logWarn, logCtx, logCtxError, logTiming } from '../utils/logger';
 import { getDefaultShell } from '../utils/shell-resolver';
 
@@ -98,11 +99,26 @@ function isLaunchpadMcpServerConfig(
   return hasMcpRemote && hasLaunchpadUrl;
 }
 
+function isHubMcpServerConfig(
+  server: Pick<MCPServerConfig, 'name' | 'args' | 'url' | 'type'>
+): boolean {
+  if (server.name.toLowerCase() === 'hub') {
+    return true;
+  }
+  if (server.url && /hub\.yorkdevs\.link/i.test(server.url)) {
+    return true;
+  }
+  const args = server.args ?? [];
+  const hasMcpRemote = args.some((arg) => arg.includes('mcp-remote'));
+  const hasHubUrl = args.some((arg) => /hub\.yorkdevs\.link/i.test(arg));
+  return hasMcpRemote && hasHubUrl;
+}
+
 /**
  * Inject or replace mcp-remote `--header Authorization: Bearer …` with a fresh Cognito JWT.
  * Never persists the token into stored MCP config.
  */
-async function injectLaunchpadCognitoAuthHeader(args: string[]): Promise<string[]> {
+async function injectCognitoAuthHeader(args: string[]): Promise<string[]> {
   const authHeader = await getCognitoBearerAuthHeader();
   const nextArgs = [...args];
 
@@ -874,7 +890,7 @@ export class MCPManager {
 
       // Launchpad: inject Cognito JWT into mcp-remote --header at connect time
       if (isLaunchpadMcpServerConfig(config)) {
-        args = await injectLaunchpadCognitoAuthHeader(args);
+        args = await injectCognitoAuthHeader(args);
         log('[MCPManager] Injected Cognito Authorization header for Launchpad MCP');
       }
 
@@ -1044,19 +1060,64 @@ export class MCPManager {
 
       // Create Streamable HTTP transport
       const requestInit: RequestInit = {};
-      if (config.headers && Object.keys(config.headers).length > 0) {
-        requestInit.headers = config.headers;
+      const headers: Record<string, string> = { ...(config.headers ?? {}) };
+
+      // Hub: silent hub-consent with Cognito session → Hub MCP bearer (not Cognito JWT directly)
+      if (isHubMcpServerConfig(config)) {
+        try {
+          const hubHeaders = await getHubMcpAuthHeaders();
+          Object.assign(headers, hubHeaders);
+          log('[MCPManager] Injected Hub MCP session Authorization header (silent hub-consent)');
+        } catch (error) {
+          clearHubMcpAuthCache();
+          throw error;
+        }
       }
 
-      const authProvider = this.getOrCreateStreamableHttpOAuthProvider(config);
-      transport = await connectWithOAuthRetry<StreamableHTTPClientTransport>({
-        connect: async (streamableTransport: StreamableHTTPClientTransport) => {
-          await this.connectClientWithTimeout(client, streamableTransport, connectTimeoutMs);
-        },
-        createTransport: (provider) =>
-          new StreamableHTTPClientTransport(httpUrl, { authProvider: provider, requestInit }),
-        provider: authProvider,
-      });
+      if (Object.keys(headers).length > 0) {
+        requestInit.headers = headers;
+      }
+
+      if (isHubMcpServerConfig(config)) {
+        const connectHub = async (authHeaders: Record<string, string>) => {
+          const hubRequestInit: RequestInit = {
+            ...requestInit,
+            headers: { ...headers, ...authHeaders },
+          };
+          const hubTransport = new StreamableHTTPClientTransport(httpUrl, {
+            requestInit: hubRequestInit,
+          });
+          await this.connectClientWithTimeout(client, hubTransport, connectTimeoutMs);
+          return hubTransport;
+        };
+
+        try {
+          transport = await connectHub(headers);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          if (/invalid_token|unauthorized|401/i.test(message)) {
+            logWarn(
+              '[MCPManager] Hub MCP token rejected; clearing cache and retrying silent consent'
+            );
+            clearHubMcpAuthCache();
+            const retryHeaders = await getHubMcpAuthHeaders();
+            Object.assign(headers, retryHeaders);
+            transport = await connectHub(headers);
+          } else {
+            throw error;
+          }
+        }
+      } else {
+        const authProvider = this.getOrCreateStreamableHttpOAuthProvider(config);
+        transport = await connectWithOAuthRetry<StreamableHTTPClientTransport>({
+          connect: async (streamableTransport: StreamableHTTPClientTransport) => {
+            await this.connectClientWithTimeout(client, streamableTransport, connectTimeoutMs);
+          },
+          createTransport: (provider) =>
+            new StreamableHTTPClientTransport(httpUrl, { authProvider: provider, requestInit }),
+          provider: authProvider,
+        });
+      }
     } else {
       throw new Error(`Unsupported transport type: ${config.type}`);
     }

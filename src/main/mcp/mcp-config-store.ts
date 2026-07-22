@@ -73,6 +73,47 @@ export function isLaunchpadMcpServer(
 }
 
 /**
+ * Built-in Hub MCP connector — seeded enabled by default (not a Quick Add preset).
+ * Uses streamable HTTP. Cognito bearer token is injected at connect time (no MCP OAuth).
+ */
+export function getDefaultHubMcpUrl(): string {
+  return authConfig.hubMcpUrl;
+}
+
+export function buildDefaultHubMcpServer(): Omit<MCPServerConfig, 'id' | 'enabled'> {
+  return {
+    name: 'Hub',
+    type: 'streamable-http',
+    url: getDefaultHubMcpUrl(),
+  };
+}
+
+export const DEFAULT_HUB_MCP_SERVER: Omit<MCPServerConfig, 'id' | 'enabled'> =
+  buildDefaultHubMcpServer();
+
+const DEFAULT_HUB_SERVER_ID = 'mcp-hub-default';
+
+function isHubHost(value: string | undefined): boolean {
+  if (!value) return false;
+  return /hub\.yorkdevs\.link/i.test(value);
+}
+
+export function isHubMcpServer(
+  server: Pick<MCPServerConfig, 'name' | 'args' | 'url' | 'type'>
+): boolean {
+  if (server.name.toLowerCase() === 'hub') {
+    return true;
+  }
+  if (isHubHost(server.url)) {
+    return true;
+  }
+  const args = server.args ?? [];
+  const hasMcpRemote = args.some((arg) => arg.includes('mcp-remote'));
+  const hasHubUrl = args.some((arg) => isHubHost(arg));
+  return hasMcpRemote && hasHubUrl;
+}
+
+/**
  * Preset MCP Server Configurations
  * These are common MCP servers that users can quickly add
  */
@@ -175,7 +216,7 @@ class MCPConfigStore {
 
   /**
    * Delete a server configuration.
-   * Built-in Chrome / Launchpad MCP cannot be removed.
+   * Built-in Chrome / Launchpad / Hub MCP cannot be removed.
    */
   deleteServer(serverId: string): boolean {
     const servers = this.getServers();
@@ -186,6 +227,10 @@ class MCPConfigStore {
     }
     if (target && isLaunchpadMcpServer(target)) {
       log('[MCPConfigStore] Refusing to delete built-in Launchpad MCP connector');
+      return false;
+    }
+    if (target && isHubMcpServer(target)) {
+      log('[MCPConfigStore] Refusing to delete built-in Hub MCP connector');
       return false;
     }
     const filtered = servers.filter((s) => s.id !== serverId);
@@ -266,6 +311,43 @@ class MCPConfigStore {
     this.saveServer(launchpadServer);
     log(`[MCPConfigStore] Seeded default Launchpad MCP connector at ${desiredUrl}`);
     return launchpadServer;
+  }
+
+  /**
+   * Ensure the built-in Hub MCP connector exists.
+   * Does not re-enable or recreate if the user already has a Hub connector
+   * (including one they disabled or customized).
+   * Migrates the built-in default to streamable-http + current Hub MCP URL.
+   */
+  ensureDefaultHubServer(): MCPServerConfig {
+    const desiredUrl = getDefaultHubMcpUrl();
+    const desired = buildDefaultHubMcpServer();
+    const existing = this.getServers().find(isHubMcpServer);
+    if (existing) {
+      const needsMigration =
+        existing.id === DEFAULT_HUB_SERVER_ID &&
+        (existing.type !== 'streamable-http' || existing.url !== desiredUrl);
+      if (needsMigration) {
+        const migrated: MCPServerConfig = {
+          id: existing.id,
+          enabled: existing.enabled,
+          ...desired,
+        };
+        this.saveServer(migrated);
+        log(`[MCPConfigStore] Migrated built-in Hub MCP to streamable-http ${desiredUrl}`);
+        return migrated;
+      }
+      return existing;
+    }
+
+    const hubServer: MCPServerConfig = {
+      ...desired,
+      id: DEFAULT_HUB_SERVER_ID,
+      enabled: true,
+    };
+    this.saveServer(hubServer);
+    log(`[MCPConfigStore] Seeded default Hub MCP connector at ${desiredUrl}`);
+    return hubServer;
   }
 
   /**

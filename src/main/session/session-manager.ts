@@ -230,6 +230,7 @@ export class SessionManager {
     try {
       mcpConfigStore.ensureDefaultChromeServer();
       mcpConfigStore.ensureDefaultLaunchpadServer();
+      mcpConfigStore.ensureDefaultHubServer();
       const servers = mcpConfigStore.getEnabledServers();
       await this.mcpManager.initializeServers(servers);
       log(`[SessionManager] Initialized ${servers.length} MCP servers`);

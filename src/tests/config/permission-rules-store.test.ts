@@ -7,7 +7,7 @@
  *   - Session-scoped "always allow" memory works within session and clears on
  *     forgetSessionPermissions()
  *   - Built-in Chrome MCP (`mcp__Chrome__*`), Launchpad MCP (`mcp__Launchpad__*`),
- *     and `webfetch` auto-allow, overridable by rules
+ *     Hub MCP (`mcp__Hub__*`), and `webfetch` auto-allow, overridable by rules
  *   - Garbage / malformed renderer input falls back to DEFAULT_RULES so the
  *     fail-safe is an extra prompt, never a silent auto-allow
  *   - Malformed individual rule entries are coerced to 'ask' rather than
@@ -74,6 +74,11 @@ describe('permission-rules-store', () => {
       expect(decidePermission(SESSION_A, 'mcp__launchpad__get_me', {})).toBe('allow');
     });
 
+    it('returns allow for Hub MCP tools by default', () => {
+      expect(decidePermission(SESSION_A, 'mcp__Hub__list_employees', {})).toBe('allow');
+      expect(decidePermission(SESSION_A, 'mcp__hub__get_me', {})).toBe('allow');
+    });
+
     it('returns allow for webfetch by default', () => {
       expect(decidePermission(SESSION_A, 'webfetch', { url: 'https://example.com' })).toBe('allow');
       expect(decidePermission(SESSION_A, 'WebFetch', { url: 'https://example.com' })).toBe('allow');
@@ -118,6 +123,12 @@ describe('permission-rules-store', () => {
       setPermissionRules([{ tool: 'mcp__Launchpad__list_projects', action: 'ask' }]);
       expect(decidePermission(SESSION_A, 'mcp__Launchpad__list_projects', {})).toBe('ask');
       expect(decidePermission(SESSION_A, 'mcp__Launchpad__get_me', {})).toBe('allow');
+    });
+
+    it('explicit ask rule for a Hub tool overrides the built-in allow', () => {
+      setPermissionRules([{ tool: 'mcp__Hub__list_employees', action: 'ask' }]);
+      expect(decidePermission(SESSION_A, 'mcp__Hub__list_employees', {})).toBe('ask');
+      expect(decidePermission(SESSION_A, 'mcp__Hub__get_me', {})).toBe('allow');
     });
 
     it('explicit ask rule for webfetch overrides the built-in allow', () => {

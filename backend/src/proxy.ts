@@ -1,4 +1,6 @@
-import type { IncomingMessage } from 'node:http';
+import http from 'node:http';
+import https from 'node:https';
+import type { ClientRequest, IncomingMessage, RequestOptions } from 'node:http';
 import type { Request, Response } from 'express';
 import { getProviderApiKey, type BackendProvider } from './models.js';
 
@@ -9,10 +11,11 @@ const STRIP_REQUEST_HEADERS = new Set([
   'authorization',
   'x-api-key',
   'x-goog-api-key',
-  'anthropic-beta',
+  // Forced to identity below — do not forward client gzip preferences.
+  'accept-encoding',
 ]);
 
-/** Node fetch auto-decompresses; these must not be forwarded with the plain body. */
+/** Hop-by-hop / length headers Express must not forward when we stream. */
 const STRIP_RESPONSE_HEADERS = new Set([
   'transfer-encoding',
   'connection',
@@ -51,6 +54,23 @@ function copyRequestHeaders(req: IncomingMessage, extra: Record<string, string>)
   return headers;
 }
 
+function headersToOutgoing(headers: Headers): http.OutgoingHttpHeaders {
+  const out: http.OutgoingHttpHeaders = {};
+  headers.forEach((value, key) => {
+    const existing = out[key];
+    if (existing === undefined) {
+      out[key] = value;
+      return;
+    }
+    if (Array.isArray(existing)) {
+      existing.push(value);
+      return;
+    }
+    out[key] = [String(existing), value];
+  });
+  return out;
+}
+
 function applyProviderAuth(provider: BackendProvider, headers: Headers): void {
   const apiKey = getProviderApiKey(provider);
   if (!apiKey) return;
@@ -84,6 +104,35 @@ function appendGeminiKeyToUrl(url: string, provider: BackendProvider): string {
   return parsed.toString();
 }
 
+function enableNoDelay(socket: { setNoDelay?: (v: boolean) => void } | null | undefined): void {
+  try {
+    socket?.setNoDelay?.(true);
+  } catch {
+    // ignore sockets that do not support setNoDelay
+  }
+}
+
+function requestBodyLooksLikeStream(body: Buffer | undefined): boolean {
+  if (!body || body.length === 0) return false;
+  try {
+    const parsed = JSON.parse(body.toString('utf8')) as { stream?: unknown };
+    return parsed.stream === true;
+  } catch {
+    return false;
+  }
+}
+
+function isStreamingResponse(
+  contentType: string | string[] | undefined,
+  body: Buffer | undefined
+): boolean {
+  const type = Array.isArray(contentType) ? contentType[0] : contentType;
+  if (typeof type === 'string' && type.includes('text/event-stream')) {
+    return true;
+  }
+  return requestBodyLooksLikeStream(body);
+}
+
 export async function proxyToProvider(
   req: Request,
   res: Response,
@@ -102,6 +151,8 @@ export async function proxyToProvider(
 
   const headers = copyRequestHeaders(req, {});
   applyProviderAuth(target.provider, headers);
+  // Avoid gzip so SSE frames are not re-buffered by decompression.
+  headers.set('accept-encoding', 'identity');
 
   const method = req.method || 'GET';
   const hasBody = method !== 'GET' && method !== 'HEAD';
@@ -114,74 +165,144 @@ export async function proxyToProvider(
     }
   }
 
-  const requestBody = hasBody && body ? new Uint8Array(body).slice().buffer : undefined;
+  const parsedUrl = new URL(upstreamUrl);
+  headers.set('host', parsedUrl.host);
 
-  const abort = new AbortController();
-  const onClientGone = (): void => {
-    if (!abort.signal.aborted) abort.abort();
-  };
-  req.on('close', onClientGone);
-  req.on('aborted', onClientGone);
+  enableNoDelay(req.socket);
 
-  let upstream: globalThis.Response;
-  try {
-    upstream = await fetch(upstreamUrl, {
+  const isHttps = parsedUrl.protocol === 'https:';
+  const transport = isHttps ? https : http;
+  const nodeHeaders = headersToOutgoing(headers);
+
+  await new Promise<void>((resolve, reject) => {
+    let settled = false;
+    let abortRequested = false;
+    const upstream: { req?: ClientRequest; res?: IncomingMessage } = {};
+
+    const cleanup = (): void => {
+      req.off('close', onClientGone);
+      req.off('aborted', onClientGone);
+    };
+
+    const finish = (err?: unknown): void => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (err && !abortRequested) {
+        reject(err instanceof Error ? err : new Error(String(err)));
+        return;
+      }
+      resolve();
+    };
+
+    const destroyUpstream = (): void => {
+      abortRequested = true;
+      upstream.res?.destroy();
+      upstream.req?.destroy();
+    };
+
+    const onClientGone = (): void => {
+      destroyUpstream();
+      if (!res.writableEnded) {
+        if (!res.headersSent) res.status(499).end();
+        else res.end();
+      }
+      finish();
+    };
+
+    req.on('close', onClientGone);
+    req.on('aborted', onClientGone);
+
+    const options: RequestOptions = {
+      protocol: parsedUrl.protocol,
+      hostname: parsedUrl.hostname,
+      port: parsedUrl.port || (isHttps ? 443 : 80),
+      path: `${parsedUrl.pathname}${parsedUrl.search}`,
       method,
-      headers,
-      body: requestBody,
-      signal: abort.signal,
-    });
-  } catch (err) {
-    req.off('close', onClientGone);
-    req.off('aborted', onClientGone);
-    if (abort.signal.aborted) {
-      if (!res.headersSent) res.status(499).end();
-      else res.end();
-      return;
-    }
-    throw err;
-  }
+      headers: nodeHeaders,
+    };
 
-  res.status(upstream.status);
-  upstream.headers.forEach((value, key) => {
-    if (STRIP_RESPONSE_HEADERS.has(key.toLowerCase())) return;
-    res.setHeader(key, value);
-  });
-  res.flushHeaders();
+    const upstreamReq = transport.request(options, (incoming) => {
+      upstream.res = incoming;
+      enableNoDelay(incoming.socket);
 
-  if (!upstream.body) {
-    req.off('close', onClientGone);
-    req.off('aborted', onClientGone);
-    res.end();
-    return;
-  }
-
-  const reader = upstream.body.getReader();
-  try {
-    for (;;) {
-      if (abort.signal.aborted) {
-        await reader.cancel().catch(() => undefined);
-        break;
+      if (abortRequested) {
+        incoming.destroy();
+        finish();
+        return;
       }
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (value) {
-        const ok = res.write(Buffer.from(value));
+
+      const streaming = isStreamingResponse(incoming.headers['content-type'], body);
+
+      res.status(incoming.statusCode || 502);
+      for (const [key, value] of Object.entries(incoming.headers)) {
+        if (value === undefined) continue;
+        if (STRIP_RESPONSE_HEADERS.has(key.toLowerCase())) continue;
+        res.setHeader(key, value);
+      }
+
+      if (streaming) {
+        res.setHeader('Cache-Control', 'no-cache, no-transform');
+        res.setHeader('X-Accel-Buffering', 'no');
+        res.removeHeader('content-length');
+      }
+
+      res.flushHeaders();
+
+      incoming.on('data', (chunk: Buffer) => {
+        if (abortRequested || res.writableEnded) return;
+        const ok = res.write(chunk);
         if (!ok) {
-          await new Promise<void>((resolve) => res.once('drain', resolve));
+          incoming.pause();
+          res.once('drain', () => {
+            if (!abortRequested) incoming.resume();
+          });
         }
+      });
+
+      incoming.on('end', () => {
+        if (!res.writableEnded) res.end();
+        finish();
+      });
+
+      incoming.on('error', (err) => {
+        if (!abortRequested) {
+          console.error(`[proxy] ${target.provider} stream error:`, err);
+        }
+        if (!res.writableEnded) res.end();
+        finish(abortRequested ? undefined : err);
+      });
+    });
+    upstream.req = upstreamReq;
+
+    upstreamReq.on('socket', (socket) => {
+      enableNoDelay(socket);
+    });
+
+    upstreamReq.on('error', (err) => {
+      if (abortRequested) {
+        if (!res.headersSent) res.status(499).end();
+        else if (!res.writableEnded) res.end();
+        finish();
+        return;
       }
+      if (!res.headersSent) {
+        res.status(502).json({
+          error: 'Upstream request failed',
+          message: err instanceof Error ? err.message : String(err),
+        });
+        finish();
+        return;
+      }
+      if (!res.writableEnded) res.end();
+      finish(err);
+    });
+
+    if (hasBody && body && body.length > 0) {
+      upstreamReq.write(body);
     }
-  } catch (err) {
-    if (!abort.signal.aborted) {
-      console.error(`[proxy] ${target.provider} stream error:`, err);
-    }
-    await reader.cancel().catch(() => undefined);
-  } finally {
-    req.off('close', onClientGone);
-    req.off('aborted', onClientGone);
-    if (!res.writableEnded) res.end();
-  }
+    upstreamReq.end();
+  });
 }
 
 function readRequestBody(req: Request): Promise<Buffer> {

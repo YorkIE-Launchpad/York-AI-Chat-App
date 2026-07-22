@@ -264,7 +264,7 @@ export function ChatView() {
 
     prevMessageCountRef.current = messageCount;
     prevPartialLengthRef.current = partialLength;
-  }, [messages.length, partialMessage.length, partialThinking.length]);
+  }, [messages.length, partialMessage.length, partialThinking.length, scrollToBottom]);
 
   // Additional scroll trigger for content height changes (e.g., TodoWrite expand/collapse)
   useEffect(() => {
@@ -285,7 +285,7 @@ export function ChatView() {
     return () => {
       resizeObserver.disconnect();
     };
-  }, []); // ResizeObserver is stable — no need to recreate on message count changes
+  }, [scrollToBottom]); // scrollToBottom is stable (useRef); ResizeObserver only needs that binding
 
   // Cleanup scroll timeouts on unmount
   useEffect(() => {
@@ -672,6 +672,26 @@ export function ChatView() {
     }
   };
 
+  // Auto-adjust textarea height based on content
+  const adjustTextareaHeight = () => {
+    const textarea = textareaRef.current;
+    if (textarea) {
+      // Reset height to auto to get the correct scrollHeight
+      textarea.style.height = 'auto';
+      // Set max height to 200px (about 8 lines), then scroll
+      const maxHeight = 200;
+      const newHeight = Math.min(textarea.scrollHeight, maxHeight);
+      textarea.style.height = `${newHeight}px`;
+      // Show scrollbar if content exceeds max height
+      textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
+    }
+  };
+
+  // Adjust height when prompt changes (including clear after send)
+  useEffect(() => {
+    adjustTextareaHeight();
+  }, [prompt]);
+
   if (!activeSession) {
     return (
       <div className="flex-1 flex items-center justify-center text-text-muted">
@@ -851,7 +871,10 @@ export function ChatView() {
               <textarea
                 ref={textareaRef}
                 value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
+                onChange={(e) => {
+                  setPrompt(e.target.value);
+                  adjustTextareaHeight();
+                }}
                 onCompositionStart={() => {
                   isComposingRef.current = true;
                 }}
@@ -872,7 +895,7 @@ export function ChatView() {
                 placeholder={t('chat.typeMessage')}
                 disabled={isSubmitting}
                 rows={1}
-                className="flex-1 resize-none bg-transparent border-none outline-none text-text-primary placeholder:text-text-muted text-[15px] py-2"
+                className="flex-1 resize-none bg-transparent border-none outline-none text-text-primary placeholder:text-text-muted text-[15px] py-2 overflow-hidden"
               />
 
               <div className="flex items-center gap-2">

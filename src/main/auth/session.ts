@@ -310,6 +310,12 @@ export async function logout(win: BrowserWindow | null): Promise<void> {
   }
   session = null;
   clearPersistedSession();
+  try {
+    const { clearHubMcpAuthCache } = await import('../mcp/hub-mcp-auth');
+    clearHubMcpAuthCache();
+  } catch {
+    // Hub MCP module may be unavailable during early teardown
+  }
   emitAuthChanged(win);
 }
 

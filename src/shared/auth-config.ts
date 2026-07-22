@@ -38,6 +38,17 @@ export const authConfig = {
     return 'https://launchpad.yorkdevs.link/mcp';
   },
   /**
+   * Hub MCP endpoint. Prefer HUB_MCP_URL; otherwise UAT
+   * `https://mcp.uat-hub.yorkdevs.link/mcp`.
+   */
+  get hubMcpUrl(): string {
+    const explicit = readEnv('HUB_MCP_URL') ?? readEnv('VITE_HUB_MCP_URL');
+    if (explicit) {
+      return trimTrailingSlash(explicit);
+    }
+    return 'https://mcp.uat-hub.yorkdevs.link/mcp';
+  },
+  /**
    * Hub OAuth return URL — same as Launchpad:
    * HUB_OAUTH_REDIRECT_URL / VITE_HUB_OAUTH_REDIRECT_URL, else {FRONTEND_URL}/auth/callback
    */

@@ -330,38 +330,40 @@ export function Sidebar() {
 
         <div className="px-3 py-3 border-t border-border-muted flex flex-col items-center gap-2">
           {user ? (
-            <>
-              <div className="w-9 h-9 flex items-center justify-center" title={user.name}>
-                <SidebarUserAvatar
-                  name={user.name}
-                  image={user.image}
-                  className="w-9 h-9 text-[12px]"
-                />
-              </div>
-              <button
-                type="button"
-                onClick={() => void logout()}
-                className="w-9 h-9 rounded-2xl flex items-center justify-center hover:bg-surface-hover transition-colors text-text-secondary"
-                title={t('sidebar.signOut')}
-              >
-                <LogOut className="w-4 h-4" />
-              </button>
-            </>
+            <div className="w-9 h-9 flex items-center justify-center" title={user.name}>
+              <SidebarUserAvatar
+                name={user.name}
+                image={user.image}
+                className="w-9 h-9 text-[12px]"
+              />
+            </div>
           ) : null}
           <button
-            onClick={toggleTheme}
-            className="w-9 h-9 rounded-2xl flex items-center justify-center hover:bg-surface-hover transition-colors text-text-secondary"
-            title={t('sidebar.themeToggle')}
-          >
-            {themeIcon}
-          </button>
-          <button
+            type="button"
             onClick={() => setShowSettings(true)}
             className="w-9 h-9 rounded-2xl flex items-center justify-center hover:bg-surface-hover transition-colors text-text-secondary"
             title={t('sidebar.settings')}
           >
             <Settings className="w-4 h-4" />
           </button>
+          <button
+            type="button"
+            onClick={toggleTheme}
+            className="w-9 h-9 rounded-2xl flex items-center justify-center hover:bg-surface-hover transition-colors text-text-secondary"
+            title={t('sidebar.themeToggle')}
+          >
+            {themeIcon}
+          </button>
+          {user ? (
+            <button
+              type="button"
+              onClick={() => void logout()}
+              className="w-9 h-9 rounded-2xl flex items-center justify-center hover:bg-surface-hover transition-colors text-text-secondary"
+              title={t('sidebar.signOut')}
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
+          ) : null}
         </div>
       </aside>
     );
@@ -563,16 +565,38 @@ export function Sidebar() {
           )}
         </div>
       ) : (
-        <div className="px-3 py-3 border-t border-border-muted space-y-2">
-          {user ? (
-            <div className="flex items-center gap-2 rounded-2xl bg-background/50 px-3 py-2.5">
-              <SidebarUserAvatar name={user.name} image={user.image} />
-              <div className="min-w-0 flex-1">
-                <div className="text-[13px] font-medium text-text-primary truncate">
-                  {user.name}
+        <div className="px-3 py-3 border-t border-border-muted">
+          <div className="flex items-center gap-2 rounded-2xl bg-background/50 px-3 py-2">
+            {user ? (
+              <>
+                <SidebarUserAvatar name={user.name} image={user.image} />
+                <div className="min-w-0 flex-1">
+                  <div className="text-[13px] font-medium text-text-primary truncate">
+                    {user.name}
+                  </div>
+                  <div className="text-[11px] text-text-muted truncate">{user.email}</div>
                 </div>
-                <div className="text-[11px] text-text-muted truncate">{user.email}</div>
-              </div>
+              </>
+            ) : (
+              <div className="min-w-0 flex-1" />
+            )}
+            <button
+              type="button"
+              onClick={() => setShowSettings(true)}
+              className="w-8 h-8 rounded-xl flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-surface-hover transition-colors flex-shrink-0"
+              title={t('sidebar.settings')}
+            >
+              <Settings className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={toggleTheme}
+              className="w-8 h-8 rounded-xl flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-surface-hover transition-colors flex-shrink-0"
+              title={t('sidebar.themeToggle')}
+            >
+              {themeIcon}
+            </button>
+            {user ? (
               <button
                 type="button"
                 onClick={() => void logout()}
@@ -581,28 +605,7 @@ export function Sidebar() {
               >
                 <LogOut className="w-4 h-4" />
               </button>
-            </div>
-          ) : null}
-          <div className="flex items-center gap-2 rounded-2xl bg-background/50 px-3 py-2.5">
-            <button
-              onClick={() => setShowSettings(true)}
-              className="flex-1 min-w-0 flex items-center gap-2 text-left text-text-secondary hover:text-text-primary transition-colors"
-            >
-              <Settings className="w-4 h-4 flex-shrink-0" />
-              <div className="min-w-0">
-                <div className="text-[13px] font-medium text-text-primary">
-                  {t('sidebar.settings')}
-                </div>
-              </div>
-            </button>
-
-            <button
-              onClick={toggleTheme}
-              className="w-8 h-8 rounded-xl flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-surface-hover transition-colors flex-shrink-0"
-              title={t('sidebar.themeToggle')}
-            >
-              {themeIcon}
-            </button>
+            ) : null}
           </div>
         </div>
       )}

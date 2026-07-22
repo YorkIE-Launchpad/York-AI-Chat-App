@@ -8,6 +8,7 @@ import {
   resolveMessageEndPayload,
   shouldPreserveExistingTrace,
   toUserFacingErrorText,
+  USAGE_LIMIT_USER_MESSAGE,
 } from '../src/main/agent/agent-runner-message-end';
 
 describe('resolveMessageEndPayload', () => {
@@ -135,6 +136,27 @@ describe('toUserFacingErrorText', () => {
     const result = toUserFacingErrorText('invalid request: unsupported parameter "store"');
     expect(result).toContain('Request rejected by upstream (400)');
     expect(result).toContain('Original error:');
+  });
+
+  it('maps Anthropic-style 400 usage-limit errors to meet-your-manager copy', () => {
+    const raw =
+      '400 {"type":"error","error":{"type":"invalid_request_error","message":"You have reached your specified API usage limits. You will regain access on 2026-08-01 at 00:00 UTC."},"request_id":"req_011CdGynYhzSgVkKGN7UcJf9"}';
+    const result = toUserFacingErrorText(raw);
+    expect(result).toBe(USAGE_LIMIT_USER_MESSAGE);
+    expect(result).not.toContain('model/protocol configuration');
+    expect(result).not.toContain('Original error:');
+  });
+
+  it('maps quota exceeded without status code to meet-your-manager copy', () => {
+    expect(toUserFacingErrorText('quota exceeded for this organization')).toBe(
+      USAGE_LIMIT_USER_MESSAGE
+    );
+  });
+
+  it('maps regain access without status code to meet-your-manager copy', () => {
+    expect(toUserFacingErrorText('You will regain access on 2026-08-01')).toBe(
+      USAGE_LIMIT_USER_MESSAGE
+    );
   });
 
   it('maps 401 to authentication hint', () => {
@@ -292,6 +314,13 @@ describe('buildTerminalErrorMessage', () => {
   it('uses the retry hint for non-4xx terminal errors', () => {
     const result = buildTerminalErrorMessage('connection reset');
     expect(result).toContain('_Agent is retrying automatically, please wait..._');
+  });
+
+  it('uses the manager hint for usage-limit terminal errors', () => {
+    const result = buildTerminalErrorMessage(USAGE_LIMIT_USER_MESSAGE);
+    expect(result).toContain(`**Error**: ${USAGE_LIMIT_USER_MESSAGE}`);
+    expect(result).toContain('_Contact your manager to restore access._');
+    expect(result).not.toContain('_Please check your configuration and retry._');
   });
 });
 

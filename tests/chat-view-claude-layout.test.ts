@@ -26,4 +26,10 @@ describe('ChatView Claude-style layout', () => {
     expect(source).toContain('rounded-[1.75rem]');
     expect(source).toContain('shadow-soft');
   });
+
+  it('auto-adjusts follow-up composer height with typed content', () => {
+    const source = readChatView();
+    expect(source).toContain('adjustTextareaHeight');
+    expect(source).toContain('maxHeight = 200');
+  });
 });

@@ -80,8 +80,8 @@ export function getPermissionRules(): PermissionRule[] {
  *      optional `pattern` (glob-ish: `*` = any substring) matches the
  *      stringified input
  *   3. Built-in: allow all Chrome DevTools MCP tools (`mcp__Chrome__*`),
- *      Launchpad MCP tools (`mcp__Launchpad__*`), and the first-party
- *      `webfetch` tool
+ *      Launchpad MCP tools (`mcp__Launchpad__*`), Hub MCP tools (`mcp__Hub__*`),
+ *      and the first-party `webfetch` tool
  *   4. Default: 'ask' for unknown tools (conservative)
  *
  * Defence-in-depth: even though `setPermissionRules` sanitizes input, we
@@ -107,10 +107,11 @@ export function decidePermission(
     return VALID_ACTIONS.has(rule.action) ? rule.action : 'ask';
   }
 
-  // Built-in default: Chrome / Launchpad MCP tools and webfetch run without a permission prompt.
+  // Built-in default: Chrome / Launchpad / Hub MCP tools and webfetch run without a permission prompt.
   // Explicit rules for a specific tool still win above.
   if (lowered.startsWith('mcp__chrome__')) return 'allow';
   if (lowered.startsWith('mcp__launchpad__')) return 'allow';
+  if (lowered.startsWith('mcp__hub__')) return 'allow';
   if (lowered === 'webfetch') return 'allow';
 
   return 'ask';

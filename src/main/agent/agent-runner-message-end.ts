@@ -24,6 +24,9 @@ interface ResolvedMessageEndPayload {
 
 const FOUR_XX_ERROR_RE = /\b4\d{2}\b/;
 
+export const USAGE_LIMIT_USER_MESSAGE =
+  "You've reached your API usage limit. Please meet your manager.";
+
 export interface TerminalErrorEmissionDetails {
   partialText: string;
   messageText: string;
@@ -37,6 +40,19 @@ export interface AbortDispositionFlags {
 
 export type AbortDisposition = 'timeout' | 'loop_guard' | 'stream_error' | 'user';
 
+export function isUsageLimitError(errorText: string): boolean {
+  const lower = errorText.toLowerCase();
+  return (
+    lower.includes('usage limit') ||
+    lower.includes('api usage') ||
+    lower.includes('quota exceeded') ||
+    lower.includes('out of quota') ||
+    lower.includes('regain access') ||
+    lower.includes('billing') ||
+    errorText === USAGE_LIMIT_USER_MESSAGE
+  );
+}
+
 export function toUserFacingErrorText(errorText: string): string {
   const lower = errorText.toLowerCase();
   if (lower.includes('first_response_timeout')) {
@@ -44,6 +60,10 @@ export function toUserFacingErrorText(errorText: string): string {
   }
   if (lower.includes('empty_success_result')) {
     return 'The model returned an empty success result. The current model or gateway may have compatibility issues. Please retry or switch protocols.';
+  }
+  // Usage/quota rejections often arrive as HTTP 400 invalid_request_error — detect before generic 400.
+  if (isUsageLimitError(errorText)) {
+    return USAGE_LIMIT_USER_MESSAGE;
   }
   if (
     /\b400\b/.test(errorText) ||
@@ -101,9 +121,12 @@ export function resolveAssistantStreamErrorText(
 
 export function buildTerminalErrorMessage(errorText: string, partialText = ''): string {
   const normalizedPartial = partialText.trimEnd();
-  const hint = FOUR_XX_ERROR_RE.test(errorText)
-    ? '_Please check your configuration and retry._'
-    : '_Agent is retrying automatically, please wait..._';
+  let hint = '_Agent is retrying automatically, please wait..._';
+  if (isUsageLimitError(errorText)) {
+    hint = '_Contact your manager to restore access._';
+  } else if (FOUR_XX_ERROR_RE.test(errorText)) {
+    hint = '_Please check your configuration and retry._';
+  }
   const errorBlock = `**Error**: ${errorText}\n\n${hint}`;
   return normalizedPartial ? `${normalizedPartial}\n\n${errorBlock}` : errorBlock;
 }

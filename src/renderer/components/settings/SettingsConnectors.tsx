@@ -38,8 +38,21 @@ function isLaunchpadMcpServer(server: MCPServerConfig): boolean {
   return hasMcpRemote && hasLaunchpadUrl;
 }
 
+function isHubMcpServer(server: MCPServerConfig): boolean {
+  if (server.name.toLowerCase() === 'hub') {
+    return true;
+  }
+  if (server.url && /hub\.yorkdevs\.link/i.test(server.url)) {
+    return true;
+  }
+  const args = server.args ?? [];
+  const hasMcpRemote = args.some((arg) => arg.includes('mcp-remote'));
+  const hasHubUrl = args.some((arg) => /hub\.yorkdevs\.link/i.test(arg));
+  return hasMcpRemote && hasHubUrl;
+}
+
 function isBuiltinProtectedMcpServer(server: MCPServerConfig): boolean {
-  return isChromeMcpServer(server) || isLaunchpadMcpServer(server);
+  return isChromeMcpServer(server) || isLaunchpadMcpServer(server) || isHubMcpServer(server);
 }
 
 export function SettingsConnectors({ isActive }: { isActive: boolean }) {
@@ -203,6 +216,14 @@ export function SettingsConnectors({ isActive }: { isActive: boolean }) {
       setError(
         t('mcp.launchpadCannotDelete', {
           defaultValue: 'The built-in Launchpad connector cannot be deleted',
+        })
+      );
+      return;
+    }
+    if (server && isHubMcpServer(server)) {
+      setError(
+        t('mcp.hubCannotDelete', {
+          defaultValue: 'The built-in Hub connector cannot be deleted',
         })
       );
       return;
