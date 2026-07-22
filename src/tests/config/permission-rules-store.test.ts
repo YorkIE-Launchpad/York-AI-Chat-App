@@ -7,7 +7,8 @@
  *   - Session-scoped "always allow" memory works within session and clears on
  *     forgetSessionPermissions()
  *   - Built-in Chrome MCP (`mcp__Chrome__*`), Launchpad MCP (`mcp__Launchpad__*`),
- *     Hub MCP (`mcp__Hub__*`), and `webfetch` auto-allow, overridable by rules
+ *     Hub MCP (`mcp__Hub__*`), OpenAI meta-tools (`mcp_search_tools`, `mcp_call_tool`),
+ *     and `webfetch` auto-allow, overridable by rules
  *   - Garbage / malformed renderer input falls back to DEFAULT_RULES so the
  *     fail-safe is an extra prompt, never a silent auto-allow
  *   - Malformed individual rule entries are coerced to 'ask' rather than
@@ -77,6 +78,22 @@ describe('permission-rules-store', () => {
     it('returns allow for Hub MCP tools by default', () => {
       expect(decidePermission(SESSION_A, 'mcp__Hub__list_employees', {})).toBe('allow');
       expect(decidePermission(SESSION_A, 'mcp__hub__get_me', {})).toBe('allow');
+    });
+
+    it('returns allow for OpenAI budget meta-tools by default', () => {
+      expect(decidePermission(SESSION_A, 'mcp_search_tools', { query: 'employee' })).toBe('allow');
+      expect(
+        decidePermission(SESSION_A, 'mcp_call_tool', {
+          tool_name: 'mcp__Hub__list_employees',
+          arguments: { limit: 10 },
+        })
+      ).toBe('allow');
+      expect(
+        decidePermission(SESSION_A, 'mcp_call_tool', {
+          tool_name: 'mcp__Notion__search',
+          arguments: { query: 'docs' },
+        })
+      ).toBe('allow');
     });
 
     it('returns allow for webfetch by default', () => {

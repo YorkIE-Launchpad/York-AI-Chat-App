@@ -170,6 +170,39 @@ describe('pi model resolution helpers', () => {
     expect(model.api).toBe('openai-responses');
   });
 
+  it('keeps Responses API for backend-managed OpenAI proxy on synthetic GPT-5.6', () => {
+    const synthetic = buildSyntheticPiModel(
+      'gpt-5.6',
+      'openai',
+      'openai',
+      'http://127.0.0.1:3001/openai/v1'
+    );
+    const model = applyPiModelRuntimeOverrides(synthetic, {
+      configProvider: 'openai',
+      rawProvider: 'openai',
+      customBaseUrl: 'http://127.0.0.1:3001/openai/v1',
+    });
+
+    expect(model.api).toBe('openai-responses');
+    expect(model.reasoning).toBe(true);
+  });
+
+  it('downgrades Responses API to completions for ollama', () => {
+    const synthetic = buildSyntheticPiModel(
+      'gpt-5.6',
+      'openai',
+      'openai',
+      'http://localhost:11434/v1'
+    );
+    const model = applyPiModelRuntimeOverrides(synthetic, {
+      configProvider: 'openai',
+      rawProvider: 'ollama',
+      customBaseUrl: 'http://localhost:11434/v1',
+    });
+
+    expect(model.api).toBe('openai-completions');
+  });
+
   it('disables developer role for third-party openai-compatible endpoints', () => {
     const model = applyPiModelRuntimeOverrides(
       {
@@ -279,12 +312,22 @@ describe('pi model resolution helpers', () => {
     const reasoner = buildSyntheticPiModel('o3-reasoner', 'openai', 'openai');
     expect(reasoner.reasoning).toBe(true);
 
-    // Non-reasoning models should default to false
+    // GPT-5 / o-series require Responses API + reasoning (not chat/completions)
     const gpt = buildSyntheticPiModel('gpt-5.4', 'openai', 'openai');
-    expect(gpt.reasoning).toBe(false);
+    expect(gpt.reasoning).toBe(true);
+    expect(gpt.api).toBe('openai-responses');
+
+    const gpt56 = buildSyntheticPiModel('gpt-5.6', 'openai', 'openai');
+    expect(gpt56.reasoning).toBe(true);
+    expect(gpt56.api).toBe('openai-responses');
+
+    const o3 = buildSyntheticPiModel('o3', 'openai', 'openai');
+    expect(o3.reasoning).toBe(true);
+    expect(o3.api).toBe('openai-responses');
 
     const llama = buildSyntheticPiModel('llama-4-scout', 'meta', 'openai');
     expect(llama.reasoning).toBe(false);
+    expect(llama.api).toBe('openai-completions');
   });
 
   it('allows explicit reasoning override in buildSyntheticPiModel', () => {

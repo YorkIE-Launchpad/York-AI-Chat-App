@@ -31,15 +31,27 @@ const AUTH_ERROR_RE =
 const RATE_LIMIT_RE = /rate[_\s-]?limit|too\s+many\s+requests|429/i;
 const SERVER_ERROR_RE = /server[_\s-]?error|internal\s+server\s+error|\b5\d\d\b/i;
 const TEMPERATURE_UNSUPPORTED_RE =
-  /temperature[`'"]?\s+is\s+deprecated|unsupported.*temperature|temperature.*not\s+supported/i;
+  /temperature[`'"]?\s+is\s+deprecated|unsupported.*temperature|temperature.*(?:not\s+supported|does\s+not\s+support)/i;
 const PROBE_ACK = 'sdk_probe_ok';
 const LOCAL_ANTHROPIC_PLACEHOLDER_KEY = 'sk-ant-local-proxy';
 const LOCAL_GEMINI_PLACEHOLDER_KEY = 'sk-gemini-local-proxy';
 
-/** Models that reject `temperature` (e.g. Claude Fable). */
-function shouldOmitTemperature(modelId: string): boolean {
-  const id = modelId.toLowerCase();
-  return id.includes('fable') || id.includes('claude-fable');
+/**
+ * Models that reject non-default `temperature`.
+ * - Claude Fable and similar Anthropic models
+ * - OpenAI GPT-5+ and o-series (only default temperature=1 is allowed)
+ */
+export function shouldOmitTemperature(modelId: string): boolean {
+  const id = modelId.toLowerCase().trim();
+  if (!id) return false;
+  if (id.includes('fable')) return true;
+
+  const bare = id.includes('/') ? id.slice(id.lastIndexOf('/') + 1) : id;
+  // GPT-5 family: gpt-5, gpt-5.6, gpt-5.6-sol, gpt-5.3-codex, …
+  if (/^gpt-5(?:[.-]|$)/.test(bare)) return true;
+  // OpenAI o-series reasoning models: o1, o3, o4-mini, …
+  if (/^o[1-9](?:[.-]|$)/.test(bare)) return true;
+  return false;
 }
 
 function omitTemperatureOption<T extends { temperature?: number }>(
@@ -48,7 +60,8 @@ function omitTemperatureOption<T extends { temperature?: number }>(
   if (!options || options.temperature === undefined) {
     return options;
   }
-  const { temperature: _temperature, ...rest } = options;
+  const rest = { ...options };
+  delete rest.temperature;
   return rest;
 }
 
@@ -297,7 +310,7 @@ export async function runPiAiOneShot(
     baseOptions
   );
 
-  // Some newer Anthropic models reject temperature even when we didn't anticipate it.
+  // Some newer models reject temperature even when we didn't anticipate it.
   // Retry once without temperature so memory / title / probe keep working.
   const temperatureRejected =
     (response.stopReason === 'error' || response.stopReason === 'aborted') &&
@@ -311,7 +324,8 @@ export async function runPiAiOneShot(
       resolvedModel.id,
       response.errorMessage
     );
-    const { temperature: _omit, ...withoutTemperature } = baseOptions;
+    const withoutTemperature = { ...baseOptions };
+    delete withoutTemperature.temperature;
     response = await completeSimple(
       resolvedModel,
       {

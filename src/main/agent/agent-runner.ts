@@ -84,6 +84,11 @@ import {
   normalizeMcpToolResultForModel,
   normalizeToolExecutionResultForUi,
 } from './tool-result-utils';
+import {
+  MCP_META_TOOL_BEHAVIOR,
+  selectCustomToolsForModel,
+  type McpToolExposureMode,
+} from './mcp-tool-budget';
 import { fetchOllamaModelInfo } from '../config/ollama-api';
 import { createWindowsBashOperations } from './windows-bash-operations';
 import { createCompactionExtensionFactory } from './compaction-extension';
@@ -541,6 +546,7 @@ interface CachedPiSession {
   thinkingLevel: string;
   runtimeSignature: string;
   skillsSignature?: string;
+  toolsSignature?: string;
   ollamaNumCtx?: { value: number };
 }
 
@@ -1868,6 +1874,52 @@ ${hints.join('\n')}
           })
         : { promptPrefix: undefined, customTools: [] };
 
+      // Bridge MCP tools and apply OpenAI 128-tool budget before session reuse /
+      // cold-start history injection so a toolsSignature miss recreates correctly.
+      const mcpCustomTools = this.mcpManager ? buildMcpCustomTools(this.mcpManager) : [];
+      const extensionCustomTools = extensionResult.customTools || [];
+      // Coding tools are read/bash/edit/write (4). Wrappers preserve length; we
+      // re-check with the real wrapped count before createAgentSession below.
+      const toolSelection = selectCustomToolsForModel({
+        api: piModel.api,
+        builtInToolCount: 4,
+        mcpManager: this.mcpManager,
+        mcpTools: mcpCustomTools,
+        extensionTools: extensionCustomTools,
+      });
+      let customTools = toolSelection.customTools;
+      let mcpToolMode: McpToolExposureMode = toolSelection.mode;
+      const toolsSignature = toolSelection.toolsSignature;
+
+      if (cachedSession && cachedSession.toolsSignature !== toolsSignature) {
+        logCtx('[CoworkAgentRunner] MCP tools changed, recreating cached pi session:', session.id);
+        try {
+          cachedSession.session.dispose();
+        } catch (disposeError) {
+          logWarn(
+            '[CoworkAgentRunner] dispose error while recreating pi session for tools:',
+            disposeError
+          );
+        }
+        this.piSessions.delete(session.id);
+        cachedSession = undefined;
+      }
+
+      if (mcpCustomTools.length > 0) {
+        log(
+          `[CoworkAgentRunner] MCP tools available (${mcpCustomTools.length}), exposure mode=${mcpToolMode}:`,
+          mcpToolMode === 'meta'
+            ? 'mcp_search_tools, mcp_call_tool'
+            : mcpCustomTools.map((t) => t.name).join(', ')
+        );
+      }
+      if (extensionCustomTools.length > 0) {
+        log(
+          `[CoworkAgentRunner] Registered ${extensionCustomTools.length} extension tools as customTools:`,
+          extensionCustomTools.map((t) => t.name).join(', ')
+        );
+      }
+
       let contextualPrompt = prompt;
       if (!cachedSession) {
         // Cold start: inject recent history into prompt if available
@@ -2129,7 +2181,9 @@ This is an isolated sandbox environment. Use ${VIRTUAL_WORKSPACE_PATH} as the ro
         `<citation_requirements>
 If your answer uses linkable content from MCP tools, include a "Sources:" section and otherwise use standard Markdown links: [Title](https://claude.ai/chat/URL).
 </citation_requirements>`,
-        `<tool_behavior>
+        mcpToolMode === 'meta'
+          ? MCP_META_TOOL_BEHAVIOR
+          : `<tool_behavior>
 Tool routing:
 - Prefer webfetch for reading or fetching http/https page content (no browser window).
 - Prefer Chrome MCP tools (mcp__Chrome__*) only when the user asks for interactive browser work (navigate, click, screenshot, login flows).
@@ -2140,25 +2194,6 @@ Tool routing:
         .join('\n\n');
 
       logTiming('before agent session creation', runStartTime);
-
-      // Create or reuse agent session
-      // Bridge MCP tools as customTools for the agent SDK.
-      // Re-read every query so newly added/removed MCP servers take effect immediately.
-      const mcpCustomTools = this.mcpManager ? buildMcpCustomTools(this.mcpManager) : [];
-      const extensionCustomTools = extensionResult.customTools || [];
-      const customTools = [...mcpCustomTools, ...extensionCustomTools];
-      if (mcpCustomTools.length > 0) {
-        log(
-          `[CoworkAgentRunner] Registered ${mcpCustomTools.length} MCP tools as customTools:`,
-          mcpCustomTools.map((t) => t.name).join(', ')
-        );
-      }
-      if (extensionCustomTools.length > 0) {
-        log(
-          `[CoworkAgentRunner] Registered ${extensionCustomTools.length} extension tools as customTools:`,
-          extensionCustomTools.map((t) => t.name).join(', ')
-        );
-      }
 
       // Enrich process.env.PATH for build mode — ensures Skill commands (python3, node)
       // executed via Pi SDK's Bash tool can find bundled and user-installed executables.
@@ -2182,6 +2217,21 @@ Tool routing:
       // parameter is simply not passed by the session runner — safe to cast.
       const wrappedTools = this.wrapBashToolForSudo(withTimeout, session.id, effectiveCwd);
 
+      // Re-select with the real built-in count in case wrappers ever diverge from 4.
+      let effectiveToolsSignature = toolsSignature;
+      if (wrappedTools.length !== 4) {
+        const adjusted = selectCustomToolsForModel({
+          api: piModel.api,
+          builtInToolCount: wrappedTools.length,
+          mcpManager: this.mcpManager,
+          mcpTools: mcpCustomTools,
+          extensionTools: extensionCustomTools,
+        });
+        customTools = adjusted.customTools;
+        mcpToolMode = adjusted.mode;
+        effectiveToolsSignature = adjusted.toolsSignature;
+      }
+
       // Diagnostic: log tools being passed to SDK (helps debug Ollama tool use)
       logCtx(`[CoworkAgentRunner] Session reuse check: cached=${!!cachedSession}`);
       logCtx(`[CoworkAgentRunner] Model=${piModel.id}, thinkingLevel=${thinkingLevel}`);
@@ -2189,7 +2239,7 @@ Tool routing:
         `[CoworkAgentRunner] Built-in tools (${wrappedTools.length}): ${wrappedTools.map((t: { name?: string; type?: string }) => t.name || t.type).join(', ')}`
       );
       log(
-        `[CoworkAgentRunner] Custom tools (${customTools.length}): ${customTools.map((t) => t.name).join(', ')}`
+        `[CoworkAgentRunner] Custom tools (${customTools.length}, mode=${mcpToolMode}): ${customTools.map((t) => t.name).join(', ')}`
       );
 
       let piSession: PiAgentSession;
@@ -2335,6 +2385,7 @@ Tool routing:
           thinkingLevel,
           runtimeSignature: sessionRuntimeSignature,
           skillsSignature,
+          toolsSignature: effectiveToolsSignature,
         });
 
         // Ollama: wrap _onPayload to inject num_ctx into every request

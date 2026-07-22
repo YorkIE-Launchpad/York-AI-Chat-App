@@ -105,6 +105,26 @@ describe('runPiAiOneShot', () => {
     expect(passed).not.toHaveProperty('temperature');
   });
 
+  it('omits temperature for GPT-5 and o-series models', async () => {
+    for (const model of ['gpt-5.6', 'gpt-5.6-sol', 'o3', 'o4-mini']) {
+      completeSimpleMock.mockClear();
+      await runPiAiOneShot(
+        'hello',
+        'system',
+        { ...makeConfig(), model },
+        {
+          temperature: 0,
+          maxTokens: 1000,
+        }
+      );
+
+      expect(completeSimpleMock).toHaveBeenCalledTimes(1);
+      const passed = completeSimpleMock.mock.calls[0][2] as Record<string, unknown>;
+      expect(passed).not.toHaveProperty('temperature');
+      expect(passed.maxTokens).toBe(1000);
+    }
+  });
+
   it('retries without temperature when the provider rejects it', async () => {
     completeSimpleMock
       .mockResolvedValueOnce({

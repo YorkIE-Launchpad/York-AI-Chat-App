@@ -19,6 +19,7 @@ import { configStore } from '../config/config-store';
 import { resolveBackendClientApiKey } from '../config/backend-auth';
 import { log, logError } from '../utils/logger';
 import { resolvePiRegistryModel, resolvePiRouteProtocol } from './pi-model-resolution';
+import { selectCustomToolsForModel } from './mcp-tool-budget';
 import type { ServerEvent } from '../../renderer/types';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -224,7 +225,7 @@ function createSpawnSubagentTool(
           }
         }
 
-        // Build MCP tools (minus spawn_subagent)
+        // Build MCP tools (minus spawn_subagent), honor allowed_tools, then apply OpenAI budget.
         let mcpCustomTools: ToolDefinition[] = [];
         if (mcpManager) {
           const mcpTools = mcpManager.getTools();
@@ -253,13 +254,28 @@ function createSpawnSubagentTool(
           });
         }
 
+        let allowedToolNames: Set<string> | null = null;
         if (allowed_tools && allowed_tools.length > 0) {
-          const allowSet = new Set(allowed_tools);
-          mcpCustomTools = mcpCustomTools.filter((t) => allowSet.has(t.name));
+          allowedToolNames = new Set(allowed_tools);
+          mcpCustomTools = mcpCustomTools.filter((t) => allowedToolNames!.has(t.name));
         }
 
         const cwd = config.defaultWorkdir || process.cwd();
         const codingTools = createCodingTools(cwd);
+        const toolSelection = selectCustomToolsForModel({
+          api: piModel.api,
+          builtInToolCount: codingTools.length,
+          mcpManager,
+          mcpTools: mcpCustomTools,
+          extensionTools: [],
+          allowedToolNames,
+        });
+        const customTools = toolSelection.customTools;
+        if (toolSelection.mode === 'meta') {
+          log(
+            `[SubagentExtension] Using MCP meta tools for OpenAI budget (${mcpCustomTools.length} flat tools exceeded limit)`
+          );
+        }
 
         const childSystemPrompt = buildChildSystemPrompt(task, result_format);
         const resourceLoader = new DefaultResourceLoader({
@@ -273,7 +289,7 @@ function createSpawnSubagentTool(
           authStorage,
           modelRegistry,
           tools: codingTools,
-          customTools: mcpCustomTools,
+          customTools,
           sessionManager: PiSessionManager.inMemory(),
           settingsManager: PiSettingsManager.inMemory({
             compaction: { enabled: false },

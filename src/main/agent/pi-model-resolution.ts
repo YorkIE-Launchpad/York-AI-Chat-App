@@ -7,7 +7,23 @@ const INVALID_REGISTRY_PROVIDERS = new Set(['', 'custom']);
 const REASONING_MODEL_PATTERN =
   /\bthinking\b|\breasoner\b|deepseek-r1|deepseek-v4|kimi-k2|qwen3(?:\.5)?(?=[:/-]|$)/i;
 const DEEPSEEK_V4_MODEL_PATTERN = /(?:^|[/_-])deepseek[-_.]?v4(?:$|[-:_.])/i;
+/** GPT-5 / o-series need the Responses API (tools + reasoning are incompatible on chat/completions). */
+const OPENAI_RESPONSES_MODEL_PATTERN = /^(?:gpt-5(?:[.-]|$)|o[1-9](?:[.-]|$))/i;
 type PiRegistryProvider = Parameters<typeof getModel>[0];
+
+function bareModelId(modelId: string): string {
+  const trimmed = modelId.trim();
+  const slash = trimmed.lastIndexOf('/');
+  return slash >= 0 ? trimmed.slice(slash + 1) : trimmed;
+}
+
+/**
+ * True for OpenAI GPT-5 family and o-series models that should use openai-responses
+ * when not present in the pi-ai registry (e.g. gpt-5.6).
+ */
+export function prefersOpenAIResponsesApi(modelId: string): boolean {
+  return OPENAI_RESPONSES_MODEL_PATTERN.test(bareModelId(modelId));
+}
 
 export interface PiModelStringInput {
   provider?: string;
@@ -144,8 +160,9 @@ export function buildSyntheticPiModel(
   contextWindow?: number,
   maxTokens?: number
 ): Model<Api> {
-  const api = apiOverride || inferPiApi(protocol);
-  const autoReasoning = reasoning ?? REASONING_MODEL_PATTERN.test(modelId);
+  const useResponsesApi = protocol === 'openai' && prefersOpenAIResponsesApi(modelId);
+  const api = apiOverride || (useResponsesApi ? 'openai-responses' : inferPiApi(protocol));
+  const autoReasoning = reasoning ?? (useResponsesApi || REASONING_MODEL_PATTERN.test(modelId));
   const knownSpecs = lookupModelSpecs(modelId);
   return {
     id: modelId,
@@ -284,6 +301,10 @@ export function applyPiModelRuntimeOverrides(
   }
 
   const effectiveProvider = options.rawProvider || options.configProvider;
+  if (effectiveProvider === 'ollama' && nextModel.api === 'openai-responses') {
+    // Ollama only speaks chat/completions.
+    nextModel = { ...nextModel, api: 'openai-completions' } as typeof nextModel;
+  }
   if (
     options.customBaseUrl &&
     isCustomProvider &&

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Check, ChevronDown } from 'lucide-react';
 import { useAppStore } from '../store';
 import type { AppConfig, ProviderProfileKey } from '../types';
@@ -31,6 +31,22 @@ function shortModelName(name: string, id: string): string {
   return parts[parts.length - 1] || id;
 }
 
+function pickFallbackModel(
+  models: BackendModelInfo[],
+  preferredProvider?: string
+): BackendModelInfo | null {
+  if (models.length === 0) return null;
+  if (preferredProvider) {
+    const sameProvider = models.find((model) => model.provider === preferredProvider);
+    if (sameProvider) return sameProvider;
+  }
+  for (const provider of PROVIDER_ORDER) {
+    const match = models.find((model) => model.provider === provider);
+    if (match) return match;
+  }
+  return models[0] ?? null;
+}
+
 interface ModelSelectorProps {
   className?: string;
 }
@@ -44,6 +60,7 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const reconcileKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!isElectron) return;
@@ -117,39 +134,72 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
     return null;
   }, [appConfig?.model, appConfig?.provider, models]);
 
+  const handleSelect = useCallback(
+    async (model: BackendModelInfo) => {
+      if (!isElectron || isSaving) return;
+      setIsSaving(true);
+      try {
+        let payload: Partial<AppConfig> = {
+          provider: model.provider,
+          activeProfileKey: profileKeyForProvider(model.provider),
+          customProtocol:
+            model.provider === 'gemini'
+              ? 'gemini'
+              : model.provider === 'openai'
+                ? 'openai'
+                : 'anthropic',
+          model: model.id,
+          apiKey: BACKEND_PROXY_PLACEHOLDER_KEY,
+        };
+        payload = applyBackendManagedCredentials(payload);
+        const result = await window.electronAPI.config.save(payload);
+        setAppConfig(result.config);
+        setIsConfigured(true);
+        setIsOpen(false);
+      } finally {
+        setIsSaving(false);
+      }
+    },
+    [isSaving, setAppConfig, setIsConfigured]
+  );
+
+  // When the configured cloud model isn't in the backend catalog (e.g. Anthropic
+  // key missing so Claude models are omitted), fall back to the first available model.
+  useEffect(() => {
+    if (!isElectron || isLoading || isSaving || models.length === 0 || !appConfig) return;
+    if (!isBackendManagedProvider(appConfig.provider)) return;
+
+    const currentAvailable = models.some(
+      (model) => model.provider === appConfig.provider && model.id === appConfig.model
+    );
+    if (currentAvailable) {
+      reconcileKeyRef.current = null;
+      return;
+    }
+
+    const fallback = pickFallbackModel(models, appConfig.provider);
+    if (!fallback) return;
+
+    const reconcileKey = `${fallback.provider}::${fallback.id}`;
+    if (reconcileKeyRef.current === reconcileKey) return;
+    reconcileKeyRef.current = reconcileKey;
+    void handleSelect(fallback);
+  }, [appConfig, handleSelect, isLoading, isSaving, models]);
+
+  const pendingFallback =
+    !selectedModel && isBackendManagedProvider(appConfig?.provider)
+      ? pickFallbackModel(models, appConfig?.provider)
+      : null;
+
   const displayName = selectedModel
     ? shortModelName(selectedModel.name, selectedModel.id)
-    : appConfig?.model
-      ? shortModelName(appConfig.model, appConfig.model)
+    : pendingFallback
+      ? shortModelName(pendingFallback.name, pendingFallback.id)
       : isLoading
         ? 'Loading…'
-        : 'Select model';
-
-  const handleSelect = async (model: BackendModelInfo) => {
-    if (!isElectron || isSaving) return;
-    setIsSaving(true);
-    try {
-      let payload: Partial<AppConfig> = {
-        provider: model.provider,
-        activeProfileKey: profileKeyForProvider(model.provider),
-        customProtocol:
-          model.provider === 'gemini'
-            ? 'gemini'
-            : model.provider === 'openai'
-              ? 'openai'
-              : 'anthropic',
-        model: model.id,
-        apiKey: BACKEND_PROXY_PLACEHOLDER_KEY,
-      };
-      payload = applyBackendManagedCredentials(payload);
-      const result = await window.electronAPI.config.save(payload);
-      setAppConfig(result.config);
-      setIsConfigured(true);
-      setIsOpen(false);
-    } finally {
-      setIsSaving(false);
-    }
-  };
+        : appConfig?.model && !isBackendManagedProvider(appConfig.provider)
+          ? shortModelName(appConfig.model, appConfig.model)
+          : 'Select model';
 
   const isDisabled = isLoading || models.length === 0 || isSaving;
 

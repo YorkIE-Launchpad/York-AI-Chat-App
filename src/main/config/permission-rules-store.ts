@@ -81,6 +81,7 @@ export function getPermissionRules(): PermissionRule[] {
  *      stringified input
  *   3. Built-in: allow all Chrome DevTools MCP tools (`mcp__Chrome__*`),
  *      Launchpad MCP tools (`mcp__Launchpad__*`), Hub MCP tools (`mcp__Hub__*`),
+ *      OpenAI budget meta-tools (`mcp_search_tools`, `mcp_call_tool`),
  *      and the first-party `webfetch` tool
  *   4. Default: 'ask' for unknown tools (conservative)
  *
@@ -113,6 +114,8 @@ export function decidePermission(
   if (lowered.startsWith('mcp__launchpad__')) return 'allow';
   if (lowered.startsWith('mcp__hub__')) return 'allow';
   if (lowered === 'webfetch') return 'allow';
+  if (lowered === 'mcp_search_tools') return 'allow';
+  if (lowered === 'mcp_call_tool') return 'allow';
 
   return 'ask';
 }
