@@ -79,9 +79,11 @@
     "aws-jwt-verify": "5.2.1",
     "better-sqlite3": "^12.8.0",
     "chokidar": "^4.0.1",
+    "concurrently": "^9.1.2",
     "dotenv": "^17.2.3",
     "electron-store": "^11.0.2",
     "electron-updater": "^6.3.0",
+    "extract-zip": "2.0.1",
     "glob": "^13.0.6",
     "highlight.js": "^11.11.1",
     "i18next": "^25.10.1",
@@ -100,8 +102,7 @@
     "remark-math": "^6.0.0",
     "uuid": "^13.0.0",
     "ws": "^8.19.0",
-    "zustand": "^5.0.12",
-    "concurrently": "^9.1.2"
+    "zustand": "^5.0.12"
   },
   "devDependencies": {
     "@commitlint/cli": "^20.5.3",
@@ -109,6 +110,7 @@
     "@electron/notarize": "^2.5.0",
     "@types/archiver": "^7.0.0",
     "@types/better-sqlite3": "^7.6.12",
+    "@types/extract-zip": "2.0.3",
     "@types/node": "^25.6.0",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",

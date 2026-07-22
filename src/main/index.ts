@@ -30,6 +30,7 @@ import { config } from 'dotenv';
 import { initDatabase, closeDatabase } from './db/database';
 import { SessionManager } from './session/session-manager';
 import { SkillsManager } from './skills/skills-manager';
+import { HubSkillsLibraryService } from './skills/hub-skills-library-service';
 import { PluginCatalogService } from './skills/plugin-catalog-service';
 import { PluginRuntimeService } from './skills/plugin-runtime-service';
 import { MemoryService } from './memory/memory-service';
@@ -2604,6 +2605,34 @@ ipcMain.handle('plugins.uninstall', async (_event, pluginId: string) => {
     return result;
   } catch (error) {
     logError('[Plugins] Error uninstalling plugin:', error);
+    throw error;
+  }
+});
+
+ipcMain.handle('hubSkills.list', async () => {
+  try {
+    if (!skillsManager) {
+      throw new Error('SkillsManager not initialized');
+    }
+    const hubSkills = new HubSkillsLibraryService(skillsManager);
+    return await hubSkills.listPublicSkills();
+  } catch (error) {
+    logError('[HubSkills] Error listing skills:', error);
+    throw error;
+  }
+});
+
+ipcMain.handle('hubSkills.install', async (_event, skillId: string) => {
+  try {
+    if (!skillsManager) {
+      throw new Error('SkillsManager not initialized');
+    }
+    const hubSkills = new HubSkillsLibraryService(skillsManager);
+    const skill = await hubSkills.installSkill(skillId);
+    sessionManager?.invalidateSkillsSetup();
+    return { success: true, skill };
+  } catch (error) {
+    logError('[HubSkills] Error installing skill:', error);
     throw error;
   }
 });

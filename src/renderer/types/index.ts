@@ -266,6 +266,13 @@ export interface SkillsStorageChangeEvent {
   message?: string;
 }
 
+export interface HubSkillCatalogEntry {
+  id: string;
+  title: string;
+  description?: string;
+  slug?: string;
+}
+
 // Memory types
 export interface MemoryEntry {
   id: string;

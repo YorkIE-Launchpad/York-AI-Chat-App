@@ -14,12 +14,26 @@ import {
   RefreshCw,
   X,
 } from 'lucide-react';
-import type { Skill, PluginCatalogItemV2, InstalledPlugin, PluginComponentKind } from '../../types';
+import type {
+  Skill,
+  PluginCatalogItemV2,
+  InstalledPlugin,
+  PluginComponentKind,
+  HubSkillCatalogEntry,
+} from '../../types';
 import { useAppStore } from '../../store';
 import { SettingsContentSection } from './shared';
 import type { LocalizedBanner } from './shared';
 
 const isElectron = typeof window !== 'undefined' && window.electronAPI !== undefined;
+
+function isHubSkillInstalled(hubSkill: HubSkillCatalogEntry, localSkills: Skill[]): boolean {
+  const candidates = [hubSkill.title, hubSkill.slug]
+    .filter((value): value is string => Boolean(value?.trim()))
+    .map((value) => value.trim().toLowerCase());
+  if (candidates.length === 0) return false;
+  return localSkills.some((skill) => candidates.includes(skill.name.toLowerCase()));
+}
 
 export function SettingsSkills({ isActive }: { isActive: boolean }) {
   const { t } = useTranslation();
@@ -35,10 +49,15 @@ export function SettingsSkills({ isActive }: { isActive: boolean }) {
   const [installedPluginsByKey, setInstalledPluginsByKey] = useState<
     Record<string, InstalledPlugin>
   >({});
+  const [hubSkills, setHubSkills] = useState<HubSkillCatalogEntry[]>([]);
+  const [hubSkillsQuery, setHubSkillsQuery] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isPluginLoading, setIsPluginLoading] = useState(false);
+  const [isHubSkillsLoading, setIsHubSkillsLoading] = useState(false);
   const [isPluginModalOpen, setIsPluginModalOpen] = useState(false);
+  const [isHubSkillsModalOpen, setIsHubSkillsModalOpen] = useState(false);
   const [pluginActionKey, setPluginActionKey] = useState<string | null>(null);
+  const [hubSkillActionId, setHubSkillActionId] = useState<string | null>(null);
   const [pluginToastMessage, setPluginToastMessage] = useState('');
   const [error, setError] = useState<LocalizedBanner | null>(null);
   const [success, setSuccess] = useState<LocalizedBanner | null>(null);
@@ -223,6 +242,58 @@ export function SettingsSkills({ isActive }: { isActive: boolean }) {
     await loadPlugins();
   }
 
+  async function loadHubSkills() {
+    try {
+      setIsHubSkillsLoading(true);
+      const catalog = await window.electronAPI.hubSkills.list();
+      setHubSkills(catalog || []);
+      setError(null);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : t('skills.hubSkillsLoadFailed');
+      const isAuthError =
+        /sign in|authentication required|auth_required|hub access token/i.test(message) ||
+        (err as { code?: string } | null)?.code === 'AUTH_REQUIRED';
+      setError({
+        text: isAuthError ? t('skills.hubSkillsSignInRequired') : message,
+      });
+      setHubSkills([]);
+    } finally {
+      setIsHubSkillsLoading(false);
+    }
+  }
+
+  async function handleBrowseHubSkills() {
+    setIsHubSkillsModalOpen(true);
+    setHubSkillsQuery('');
+    await loadHubSkills();
+  }
+
+  async function handleInstallHubSkill(hubSkill: HubSkillCatalogEntry) {
+    setHubSkillActionId(hubSkill.id);
+    setError(null);
+    setSuccess(null);
+    try {
+      const result = await window.electronAPI.hubSkills.install(hubSkill.id);
+      await loadSkills();
+      const message = t('skills.hubSkillInstallSuccess', {
+        name: result.skill?.name || hubSkill.title,
+      });
+      setSuccess({ text: message });
+      showPluginInstallToast(message);
+      setTimeout(() => setSuccess(null), 5000);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : t('skills.hubSkillInstallFailed');
+      const isAuthError =
+        /sign in|authentication required|auth_required|hub access token/i.test(message) ||
+        (err as { code?: string } | null)?.code === 'AUTH_REQUIRED';
+      setError({
+        text: isAuthError ? t('skills.hubSkillsSignInRequired') : message,
+      });
+    } finally {
+      setHubSkillActionId(null);
+    }
+  }
+
   async function handleInstall() {
     try {
       const folderPath = await window.electronAPI.invoke<string | null>({
@@ -405,6 +476,16 @@ export function SettingsSkills({ isActive }: { isActive: boolean }) {
 
   const builtinSkills = skills.filter((s) => s.type === 'builtin');
   const customSkills = skills.filter((s) => s.type !== 'builtin');
+  const normalizedHubQuery = hubSkillsQuery.trim().toLowerCase();
+  const filteredHubSkills = normalizedHubQuery
+    ? hubSkills.filter((skill) => {
+        const haystack = [skill.title, skill.description, skill.slug]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        return haystack.includes(normalizedHubQuery);
+      })
+    : hubSkills;
 
   return (
     <div className="space-y-4">
@@ -420,6 +501,24 @@ export function SettingsSkills({ isActive }: { isActive: boolean }) {
           {success.key ? t(success.key) : success.text}
         </div>
       )}
+
+      <SettingsContentSection
+        title={t('skills.hubSkillsTitle')}
+        description={t('skills.hubSkillsDesc')}
+      >
+        <button
+          onClick={handleBrowseHubSkills}
+          disabled={isLoading || isHubSkillsLoading}
+          className="w-full py-3 px-4 rounded-lg border border-border-subtle hover:border-accent hover:bg-accent/5 transition-all flex items-center justify-center gap-2 text-text-secondary hover:text-accent disabled:opacity-50"
+        >
+          {isHubSkillsLoading ? (
+            <Loader2 className="w-5 h-5 animate-spin" />
+          ) : (
+            <Globe className="w-5 h-5" />
+          )}
+          {t('skills.browseHubSkills')}
+        </button>
+      </SettingsContentSection>
 
       <SettingsContentSection
         title={t('skills.storagePathTitle')}
@@ -724,6 +823,85 @@ export function SettingsSkills({ isActive }: { isActive: boolean }) {
                     })()}
                   </div>
                 ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isHubSkillsModalOpen && (
+        <div className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4">
+          <div className="w-full max-w-3xl max-h-[80vh] overflow-hidden rounded-lg border border-border bg-surface shadow-elevated">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+              <h3 className="text-lg font-semibold text-text-primary">
+                {t('skills.hubSkillsListTitle')}
+              </h3>
+              <button
+                onClick={() => setIsHubSkillsModalOpen(false)}
+                className="p-2 rounded-lg hover:bg-surface-hover transition-colors"
+              >
+                <X className="w-5 h-5 text-text-secondary" />
+              </button>
+            </div>
+            <div className="px-5 pt-4">
+              <input
+                type="search"
+                value={hubSkillsQuery}
+                onChange={(event) => setHubSkillsQuery(event.target.value)}
+                placeholder={t('skills.hubSkillsSearchPlaceholder')}
+                className="w-full px-3 py-2 rounded-lg border border-border bg-surface text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
+              />
+            </div>
+            <div className="p-5 space-y-3 overflow-y-auto max-h-[60vh]">
+              {isHubSkillsLoading ? (
+                <div className="py-8 flex items-center justify-center gap-2 text-text-secondary">
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  <span>{t('common.loading')}</span>
+                </div>
+              ) : filteredHubSkills.length === 0 ? (
+                <div className="py-8 text-center text-text-muted">
+                  {hubSkills.length === 0
+                    ? t('skills.noHubSkillsFound')
+                    : t('skills.noHubSkillsMatch')}
+                </div>
+              ) : (
+                filteredHubSkills.map((hubSkill) => {
+                  const installed = isHubSkillInstalled(hubSkill, skills);
+                  const isInstalling = hubSkillActionId === hubSkill.id;
+                  return (
+                    <div
+                      key={hubSkill.id}
+                      className="rounded-lg border border-border bg-surface-hover p-4"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                          <h4 className="font-medium text-text-primary truncate">
+                            {hubSkill.title}
+                          </h4>
+                          {hubSkill.description ? (
+                            <p className="text-sm text-text-secondary mt-1">
+                              {hubSkill.description}
+                            </p>
+                          ) : null}
+                        </div>
+                        {installed ? (
+                          <span className="shrink-0 px-3 py-1.5 rounded-md text-xs bg-success/10 text-success">
+                            {t('skills.hubSkillInstalled')}
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => handleInstallHubSkill(hubSkill)}
+                            disabled={hubSkillActionId !== null}
+                            className="shrink-0 px-3 py-1.5 rounded-md text-xs bg-accent text-white hover:bg-accent/90 disabled:opacity-50 flex items-center gap-1.5"
+                          >
+                            {isInstalling ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+                            {t('skills.hubSkillInstall')}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
               )}
             </div>
           </div>

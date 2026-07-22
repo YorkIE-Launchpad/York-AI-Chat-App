@@ -584,7 +584,20 @@
     "failedToLoad": "Failed to load skills",
     "failedToInstall": "Failed to install skill",
     "failedToDelete": "Failed to delete skill",
-    "failedToToggle": "Failed to toggle skill"
+    "failedToToggle": "Failed to toggle skill",
+    "hubSkillsTitle": "York IE Hub Skills Library",
+    "hubSkillsDesc": "Browse and install public skills from York Hub.",
+    "browseHubSkills": "Browse Hub Skills",
+    "hubSkillsListTitle": "Browse York IE Hub Skills Library",
+    "hubSkillsSearchPlaceholder": "Search Hub skills…",
+    "noHubSkillsFound": "No public Hub skills available",
+    "noHubSkillsMatch": "No Hub skills match your search",
+    "hubSkillInstall": "Install",
+    "hubSkillInstalled": "Installed",
+    "hubSkillInstallSuccess": "Skill \"{{name}}\" installed from Hub",
+    "hubSkillInstallFailed": "Failed to install Hub skill",
+    "hubSkillsLoadFailed": "Failed to load Hub skills",
+    "hubSkillsSignInRequired": "Sign in again to browse Hub skills"
   },
   "logs": {
     "actionsTitle": "Log Actions",

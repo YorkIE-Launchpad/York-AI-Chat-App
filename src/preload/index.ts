@@ -13,6 +13,7 @@ import type {
   PluginInstallResultV2,
   PluginToggleResult,
   PluginComponentKind,
+  HubSkillCatalogEntry,
   ScheduleTask,
   ScheduleCreateInput,
   ScheduleUpdateInput,
@@ -320,6 +321,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('plugins.setComponentEnabled', pluginId, component, enabled),
     uninstall: (pluginId: string): Promise<{ success: boolean }> =>
       ipcRenderer.invoke('plugins.uninstall', pluginId),
+  },
+
+  hubSkills: {
+    list: (): Promise<HubSkillCatalogEntry[]> => ipcRenderer.invoke('hubSkills.list'),
+    install: (skillId: string): Promise<{ success: boolean; skill: Skill }> =>
+      ipcRenderer.invoke('hubSkills.install', skillId),
   },
 
   // Sandbox methods
@@ -631,6 +638,10 @@ declare global {
           enabled: boolean
         ) => Promise<PluginToggleResult>;
         uninstall: (pluginId: string) => Promise<{ success: boolean }>;
+      };
+      hubSkills: {
+        list: () => Promise<HubSkillCatalogEntry[]>;
+        install: (skillId: string) => Promise<{ success: boolean; skill: Skill }>;
       };
       sandbox: {
         getStatus: () => Promise<{
