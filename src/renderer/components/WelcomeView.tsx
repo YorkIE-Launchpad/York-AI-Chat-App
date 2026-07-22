@@ -1,8 +1,8 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../store';
 import { useIPC } from '../hooks/useIPC';
-import type { ContentBlock } from '../types';
+import type { ContentBlock, Skill } from '../types';
 import { getInitialSessionTitle } from '../../shared/session-title';
 import {
   FileText,
@@ -26,6 +26,8 @@ type AttachedFile = {
 
 import welcomeLogoSrc from '../assets/logo.png';
 import { ModelSelector } from './ModelSelector';
+import { SlashCommandMenu } from './SlashCommandMenu';
+import { useSlashCommands } from '../hooks/useSlashCommands';
 
 export function WelcomeView() {
   const { t } = useTranslation();
@@ -43,6 +45,27 @@ export function WelcomeView() {
   const workingDir = useAppStore((state) => state.workingDir);
   const setGlobalNotice = useAppStore((state) => state.setGlobalNotice);
   const canSubmit = prompt.trim().length > 0 || pastedImages.length > 0 || attachedFiles.length > 0;
+  const {
+    isOpen: isSlashMenuOpen,
+    filteredSkills: slashSkills,
+    selectedIndex: slashSelectedIndex,
+    selectedSkill: slashSelectedSkill,
+    setSelectedIndex: setSlashSelectedIndex,
+    moveSelection: moveSlashSelection,
+    close: closeSlashMenu,
+  } = useSlashCommands(prompt);
+
+  const handleSelectSlashSkill = useCallback((skill: Skill) => {
+    const next = `/${skill.name} `;
+    setPrompt(next);
+    requestAnimationFrame(() => {
+      if (textareaRef.current) {
+        textareaRef.current.focus();
+        const cursor = next.length;
+        textareaRef.current.setSelectionRange(cursor, cursor);
+      }
+    });
+  }, []);
 
   const handleSelectFolder = async () => {
     try {
@@ -486,10 +509,18 @@ export function WelcomeView() {
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
-          className={`rounded-[1.9rem] border border-border-muted bg-background/85 shadow-soft px-5 py-5 space-y-4 transition-colors ${
+          className={`relative rounded-[1.9rem] border border-border-muted bg-background/85 shadow-soft px-5 py-5 space-y-4 transition-colors ${
             isDragging ? 'ring-2 ring-accent bg-accent/5' : ''
           }`}
         >
+          <SlashCommandMenu
+            open={isSlashMenuOpen}
+            skills={slashSkills}
+            selectedIndex={slashSelectedIndex}
+            onSelect={handleSelectSlashSkill}
+            onHoverIndex={setSlashSelectedIndex}
+            onClose={closeSlashMenu}
+          />
           {/* Image previews */}
           {pastedImages.length > 0 && (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2 pb-2 border-b border-border w-full">
@@ -555,6 +586,31 @@ export function WelcomeView() {
             style={{ minHeight: '72px', maxHeight: '200px' }}
             className="w-full resize-none bg-transparent border-none outline-none text-text-primary placeholder:text-text-muted text-base leading-relaxed overflow-hidden"
             onKeyDown={(e) => {
+              if (isSlashMenuOpen) {
+                if (e.key === 'ArrowDown') {
+                  e.preventDefault();
+                  moveSlashSelection(1);
+                  return;
+                }
+                if (e.key === 'ArrowUp') {
+                  e.preventDefault();
+                  moveSlashSelection(-1);
+                  return;
+                }
+                if ((e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) && slashSelectedSkill) {
+                  if (e.nativeEvent.isComposing || isComposingRef.current || e.keyCode === 229) {
+                    return;
+                  }
+                  e.preventDefault();
+                  handleSelectSlashSkill(slashSelectedSkill);
+                  return;
+                }
+                if (e.key === 'Escape') {
+                  e.preventDefault();
+                  closeSlashMenu();
+                  return;
+                }
+              }
               // Enter to send, Shift+Enter for new line
               if (e.key === 'Enter' && !e.shiftKey) {
                 if (e.nativeEvent.isComposing || isComposingRef.current || e.keyCode === 229) {

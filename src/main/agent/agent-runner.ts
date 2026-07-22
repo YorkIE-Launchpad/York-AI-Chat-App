@@ -51,6 +51,7 @@ import { extractArtifactsFromText, buildArtifactTraceSteps } from '../utils/arti
 import { getDefaultShell } from '../utils/shell-resolver';
 import { PluginRuntimeService } from '../skills/plugin-runtime-service';
 import type { SkillsAdapter } from '../skills/skills-adapter';
+import { discoverSkillsFromPaths, expandSlashSkillPrompt } from '../skills/slash-skill-expand';
 import { AgentRuntimeExtensionManager } from '../extensions/agent-runtime-extension-manager';
 import { configStore } from '../config/config-store';
 import { resolveBackendClientApiKey } from '../config/backend-auth';
@@ -1920,7 +1921,22 @@ ${hints.join('\n')}
         );
       }
 
-      let contextualPrompt = prompt;
+      // Expand /skill-name or /skill:name on the raw user prompt BEFORE history /
+      // promptPrefix are prepended — pi only expands when the full string starts
+      // with `/skill:`.
+      let expandedUserPrompt = prompt;
+      try {
+        const expandableSkills = discoverSkillsFromPaths(skillPaths);
+        const expansion = expandSlashSkillPrompt(prompt, expandableSkills);
+        if (expansion.expanded) {
+          expandedUserPrompt = expansion.text;
+          log(`[CoworkAgentRunner] Expanded slash skill /${expansion.skillName} before preamble`);
+        }
+      } catch (error) {
+        logWarn('[CoworkAgentRunner] Failed to expand slash skill prompt:', error);
+      }
+
+      let contextualPrompt = expandedUserPrompt;
       if (!cachedSession) {
         // Cold start: inject recent history into prompt if available
         const conversationMessages = existingMessages.filter(
@@ -1974,7 +1990,7 @@ ${hints.join('\n')}
             const historyNote =
               trimmedCount > 0 ? `[${trimmedCount} older messages omitted]\n` : '';
             const preamble = `<conversation_history>\n${historyNote}${historyItems.join('\n')}\n</conversation_history>`;
-            contextualPrompt = `${preamble}\n\n${prompt}`;
+            contextualPrompt = `${preamble}\n\n${expandedUserPrompt}`;
             log(
               '[CoworkAgentRunner] Cold start: injecting',
               historyItems.length,

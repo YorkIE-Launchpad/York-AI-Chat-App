@@ -186,6 +186,12 @@ export interface Skill {
   enabled: boolean;
   config?: Record<string, unknown>;
   createdAt: number;
+  /** When false, skill is hidden from the `/` slash menu. Default true. */
+  userInvocable?: boolean;
+  /** When true, skill is excluded from model auto-invocation. Default false. */
+  disableModelInvocation?: boolean;
+  /** Optional hint shown in the slash menu for arguments. */
+  argumentHint?: string;
 }
 
 export type SkillType = 'builtin' | 'mcp' | 'custom';

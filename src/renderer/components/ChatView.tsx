@@ -13,11 +13,13 @@ import { useAppStore } from '../store';
 import { useIPC } from '../hooks/useIPC';
 import { MessageCard } from './MessageCard';
 import { ModelSelector } from './ModelSelector';
+import { SlashCommandMenu } from './SlashCommandMenu';
 import { SubagentTracker } from './SubagentTracker';
 import { ContextUsageBar } from './ContextUsageBar';
-import type { Message, ContentBlock } from '../types';
+import type { Message, ContentBlock, Skill } from '../types';
 import { Send, Square, Plus, Loader2, Plug, X, Clock } from 'lucide-react';
 import { isScrollNearBottom, resolveSessionScrollTop } from '../utils/chat-scroll-position';
+import { useSlashCommands } from '../hooks/useSlashCommands';
 
 type AttachedFile = {
   name: string;
@@ -41,6 +43,15 @@ export function ChatView() {
   const { continueSession, stopSession, isElectron } = useIPC();
   const [prompt, setPrompt] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const {
+    isOpen: isSlashMenuOpen,
+    filteredSkills: slashSkills,
+    selectedIndex: slashSelectedIndex,
+    selectedSkill: slashSelectedSkill,
+    setSelectedIndex: setSlashSelectedIndex,
+    moveSelection: moveSlashSelection,
+    close: closeSlashMenu,
+  } = useSlashCommands(prompt);
   const [activeConnectors, setActiveConnectors] = useState<
     { id: string; name: string; connected: boolean; toolCount: number }[]
   >([]);
@@ -600,6 +611,18 @@ export function ChatView() {
     return () => observer.disconnect();
   }, [activeSession?.title, activeConnectors.length]);
 
+  const handleSelectSlashSkill = useCallback((skill: Skill) => {
+    const next = `/${skill.name} `;
+    setPrompt(next);
+    requestAnimationFrame(() => {
+      if (textareaRef.current) {
+        textareaRef.current.focus();
+        const cursor = next.length;
+        textareaRef.current.setSelectionRange(cursor, cursor);
+      }
+    });
+  }, []);
+
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
 
@@ -855,10 +878,18 @@ export function ChatView() {
             )}
 
             <div
-              className={`flex items-end gap-2 p-3.5 rounded-[1.75rem] bg-background/88 border border-border-muted shadow-soft transition-colors ${
+              className={`relative flex items-end gap-2 p-3.5 rounded-[1.75rem] bg-background/88 border border-border-muted shadow-soft transition-colors ${
                 isDragging ? 'ring-2 ring-accent bg-accent/5' : ''
               }`}
             >
+              <SlashCommandMenu
+                open={isSlashMenuOpen}
+                skills={slashSkills}
+                selectedIndex={slashSelectedIndex}
+                onSelect={handleSelectSlashSkill}
+                onHoverIndex={setSlashSelectedIndex}
+                onClose={closeSlashMenu}
+              />
               <button
                 type="button"
                 onClick={handleFileSelect}
@@ -883,6 +914,38 @@ export function ChatView() {
                 }}
                 onPaste={handlePaste}
                 onKeyDown={(e) => {
+                  if (isSlashMenuOpen) {
+                    if (e.key === 'ArrowDown') {
+                      e.preventDefault();
+                      moveSlashSelection(1);
+                      return;
+                    }
+                    if (e.key === 'ArrowUp') {
+                      e.preventDefault();
+                      moveSlashSelection(-1);
+                      return;
+                    }
+                    if (
+                      (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) &&
+                      slashSelectedSkill
+                    ) {
+                      if (
+                        e.nativeEvent.isComposing ||
+                        isComposingRef.current ||
+                        e.keyCode === 229
+                      ) {
+                        return;
+                      }
+                      e.preventDefault();
+                      handleSelectSlashSkill(slashSelectedSkill);
+                      return;
+                    }
+                    if (e.key === 'Escape') {
+                      e.preventDefault();
+                      closeSlashMenu();
+                      return;
+                    }
+                  }
                   // Enter to send, Shift+Enter for new line
                   if (e.key === 'Enter' && !e.shiftKey) {
                     if (e.nativeEvent.isComposing || isComposingRef.current || e.keyCode === 229) {

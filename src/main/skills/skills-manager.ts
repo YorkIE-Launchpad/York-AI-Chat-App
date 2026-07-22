@@ -162,6 +162,9 @@ export class SkillsManager {
             type: 'builtin',
             enabled: true,
             createdAt: Date.now(),
+            userInvocable: metadata.userInvocable,
+            disableModelInvocation: metadata.disableModelInvocation,
+            argumentHint: metadata.argumentHint,
           };
 
           this.loadedSkills.set(skill.id, skill);
@@ -607,6 +610,9 @@ export class SkillsManager {
               type: 'custom',
               enabled: true,
               createdAt: Date.now(),
+              userInvocable: metadata.userInvocable,
+              disableModelInvocation: metadata.disableModelInvocation,
+              argumentHint: metadata.argumentHint,
             };
 
             skills.push(skill);
@@ -866,7 +872,13 @@ export class SkillsManager {
   /**
    * Get skill metadata from SKILL.md file
    */
-  getSkillMetadata(skillPath: string): { name: string; description: string } | null {
+  getSkillMetadata(skillPath: string): {
+    name: string;
+    description: string;
+    userInvocable: boolean;
+    disableModelInvocation: boolean;
+    argumentHint?: string;
+  } | null {
     const skillMdPath = path.join(skillPath, 'SKILL.md');
 
     if (!fs.existsSync(skillMdPath)) {
@@ -881,7 +893,11 @@ export class SkillsManager {
       const frontMatter = frontMatterMatch ? frontMatterMatch[1] : content;
 
       const nameMatch = frontMatter.match(/name:\s*["']?([^"'\r\n]+)["']?/);
-      const descMatch = frontMatter.match(/description:\s*["']?([^"'\r\n]+)["']?/);
+      // description may be a folded/literal block or a single quoted line
+      const descMatch =
+        frontMatter.match(
+          /description:\s*>-?\r?\n([\s\S]*?)(?=\r?\n[a-zA-Z][a-zA-Z0-9_-]*:|\r?\n---|$)/
+        ) || frontMatter.match(/description:\s*["']?([^"'\r\n]+)["']?/);
 
       if (!nameMatch || !descMatch) {
         return null;
@@ -890,9 +906,25 @@ export class SkillsManager {
       const name = nameMatch[1].trim();
       validateSkillName(name);
 
+      const userInvocableMatch = frontMatter.match(/user-invocable:\s*(true|false)/i);
+      const disableModelMatch = frontMatter.match(/disable-model-invocation:\s*(true|false)/i);
+      const argumentHintMatch = frontMatter.match(/argument-hint:\s*["']?([^"'\r\n]+)["']?/);
+
+      const description = descMatch[1]
+        .split(/\r?\n/)
+        .map((line) => line.replace(/^\s+/, '').trim())
+        .filter(Boolean)
+        .join(' ')
+        .trim();
+
       return {
         name,
-        description: descMatch[1].trim(),
+        description,
+        userInvocable: userInvocableMatch ? userInvocableMatch[1].toLowerCase() === 'true' : true,
+        disableModelInvocation: disableModelMatch
+          ? disableModelMatch[1].toLowerCase() === 'true'
+          : false,
+        argumentHint: argumentHintMatch?.[1]?.trim() || undefined,
       };
     } catch (error) {
       logError(`Failed to parse SKILL.md from ${skillPath}:`, error);
