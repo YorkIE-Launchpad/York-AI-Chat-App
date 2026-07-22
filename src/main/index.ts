@@ -438,7 +438,33 @@ function setupTray() {
     return;
   }
 
-  tray = new Tray(resolvedIconPath);
+  // macOS menu bar expects ~16pt. A bare 32×32 PNG is shown at 32pt (too large).
+  // Prefer the @2x asset (32px with scaleFactor 2 → 16pt) so retina stays sharp.
+  let trayImage: Electron.NativeImage;
+  if (process.platform === 'darwin') {
+    const retinaPath = resolveResourcePath('tray-iconTemplate@2x.png');
+    const imagePath = fs.existsSync(retinaPath) ? retinaPath : resolvedIconPath;
+    trayImage = nativeImage.createFromPath(imagePath);
+    if (trayImage.isEmpty()) {
+      log('[Tray] Failed to load icon at', imagePath, '— skipping tray setup');
+      return;
+    }
+    // Filename @2x sets scaleFactor to 2. If loading a plain oversized PNG, force 16pt.
+    const scaleFactors = trayImage.getScaleFactors();
+    const dipSize = trayImage.getSize();
+    if (!scaleFactors.includes(2) && (dipSize.width > 18 || dipSize.height > 18)) {
+      trayImage = nativeImage.createFromBuffer(trayImage.toPNG(), { scaleFactor: 2 });
+    }
+    trayImage.setTemplateImage(true);
+  } else {
+    trayImage = nativeImage.createFromPath(resolvedIconPath);
+    if (trayImage.isEmpty()) {
+      log('[Tray] Failed to load icon at', resolvedIconPath, '— skipping tray setup');
+      return;
+    }
+  }
+
+  tray = new Tray(trayImage);
   tray.setToolTip(PRODUCT_NAME);
 
   const contextMenu = Menu.buildFromTemplate([

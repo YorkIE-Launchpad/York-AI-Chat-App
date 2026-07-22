@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as crypto from 'crypto';
 import path from 'path';
 import type { MCPServerConfig } from './mcp-manager';
+import { authConfig } from '../../shared/auth-config';
 import { log, logError } from '../utils/logger';
 
 /**
@@ -23,6 +24,52 @@ export function isChromeMcpServer(server: Pick<MCPServerConfig, 'name' | 'args'>
     return true;
   }
   return Boolean(server.args?.some((arg) => arg.includes('chrome-devtools-mcp')));
+}
+
+/**
+ * Built-in Launchpad MCP connector — seeded enabled by default (not a Quick Add preset).
+ * Uses mcp-remote over stdio. Cognito access token is injected at connect time.
+ * Default URL is production LaunchPad MCP (UAT rejects Host header today).
+ */
+export function getDefaultLaunchpadMcpUrl(): string {
+  return authConfig.launchpadMcpUrl;
+}
+
+/** @deprecated Use getDefaultLaunchpadMcpUrl() — kept for call sites that need a snapshot. */
+export const DEFAULT_LAUNCHPAD_MCP_URL = getDefaultLaunchpadMcpUrl();
+
+export function buildDefaultLaunchpadMcpServer(): Omit<MCPServerConfig, 'id' | 'enabled'> {
+  return {
+    name: 'Launchpad',
+    type: 'stdio',
+    command: 'npx',
+    args: ['-y', 'mcp-remote', getDefaultLaunchpadMcpUrl()],
+  };
+}
+
+export const DEFAULT_LAUNCHPAD_MCP_SERVER: Omit<MCPServerConfig, 'id' | 'enabled'> =
+  buildDefaultLaunchpadMcpServer();
+
+const DEFAULT_LAUNCHPAD_SERVER_ID = 'mcp-launchpad-default';
+
+function isLaunchpadHost(value: string | undefined): boolean {
+  if (!value) return false;
+  return /launchpad\.yorkdevs\.link/i.test(value);
+}
+
+export function isLaunchpadMcpServer(
+  server: Pick<MCPServerConfig, 'name' | 'args' | 'url' | 'type'>
+): boolean {
+  if (server.name.toLowerCase() === 'launchpad') {
+    return true;
+  }
+  if (isLaunchpadHost(server.url)) {
+    return true;
+  }
+  const args = server.args ?? [];
+  const hasMcpRemote = args.some((arg) => arg.includes('mcp-remote'));
+  const hasLaunchpadUrl = args.some((arg) => isLaunchpadHost(arg));
+  return hasMcpRemote && hasLaunchpadUrl;
 }
 
 /**
@@ -128,13 +175,17 @@ class MCPConfigStore {
 
   /**
    * Delete a server configuration.
-   * Built-in Chrome MCP cannot be removed.
+   * Built-in Chrome / Launchpad MCP cannot be removed.
    */
   deleteServer(serverId: string): boolean {
     const servers = this.getServers();
     const target = servers.find((s) => s.id === serverId);
     if (target && isChromeMcpServer(target)) {
       log('[MCPConfigStore] Refusing to delete built-in Chrome MCP connector');
+      return false;
+    }
+    if (target && isLaunchpadMcpServer(target)) {
+      log('[MCPConfigStore] Refusing to delete built-in Launchpad MCP connector');
       return false;
     }
     const filtered = servers.filter((s) => s.id !== serverId);
@@ -175,6 +226,46 @@ class MCPConfigStore {
     this.saveServer(chromeServer);
     log('[MCPConfigStore] Seeded default Chrome MCP connector');
     return chromeServer;
+  }
+
+  /**
+   * Ensure the built-in Launchpad MCP connector exists.
+   * Does not re-enable or recreate if the user already has a Launchpad connector
+   * (including one they disabled or customized).
+   * Migrates the built-in default to current Hub-matched mcp-remote URL + stdio.
+   */
+  ensureDefaultLaunchpadServer(): MCPServerConfig {
+    const desiredUrl = getDefaultLaunchpadMcpUrl();
+    const desired = buildDefaultLaunchpadMcpServer();
+    const existing = this.getServers().find(isLaunchpadMcpServer);
+    if (existing) {
+      const needsMigration =
+        existing.id === DEFAULT_LAUNCHPAD_SERVER_ID &&
+        (existing.type !== 'stdio' ||
+          existing.command !== 'npx' ||
+          !existing.args?.includes('mcp-remote') ||
+          !existing.args?.includes(desiredUrl));
+      if (needsMigration) {
+        const migrated: MCPServerConfig = {
+          id: existing.id,
+          enabled: existing.enabled,
+          ...desired,
+        };
+        this.saveServer(migrated);
+        log(`[MCPConfigStore] Migrated built-in Launchpad MCP to ${desiredUrl}`);
+        return migrated;
+      }
+      return existing;
+    }
+
+    const launchpadServer: MCPServerConfig = {
+      ...desired,
+      id: DEFAULT_LAUNCHPAD_SERVER_ID,
+      enabled: true,
+    };
+    this.saveServer(launchpadServer);
+    log(`[MCPConfigStore] Seeded default Launchpad MCP connector at ${desiredUrl}`);
+    return launchpadServer;
   }
 
   /**

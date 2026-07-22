@@ -25,6 +25,23 @@ function isChromeMcpServer(server: MCPServerConfig): boolean {
   return Boolean(server.args?.some((arg) => arg.includes('chrome-devtools-mcp')));
 }
 
+function isLaunchpadMcpServer(server: MCPServerConfig): boolean {
+  if (server.name.toLowerCase() === 'launchpad') {
+    return true;
+  }
+  if (server.url && /launchpad\.yorkdevs\.link/i.test(server.url)) {
+    return true;
+  }
+  const args = server.args ?? [];
+  const hasMcpRemote = args.some((arg) => arg.includes('mcp-remote'));
+  const hasLaunchpadUrl = args.some((arg) => /launchpad\.yorkdevs\.link/i.test(arg));
+  return hasMcpRemote && hasLaunchpadUrl;
+}
+
+function isBuiltinProtectedMcpServer(server: MCPServerConfig): boolean {
+  return isChromeMcpServer(server) || isLaunchpadMcpServer(server);
+}
+
 export function SettingsConnectors({ isActive }: { isActive: boolean }) {
   const { t } = useTranslation();
   const tRef = useRef(t);
@@ -182,6 +199,14 @@ export function SettingsConnectors({ isActive }: { isActive: boolean }) {
       );
       return;
     }
+    if (server && isLaunchpadMcpServer(server)) {
+      setError(
+        t('mcp.launchpadCannotDelete', {
+          defaultValue: 'The built-in Launchpad connector cannot be deleted',
+        })
+      );
+      return;
+    }
     if (!confirm(t('mcp.deleteConnectorConfirm'))) return;
     setIsLoading(true);
     try {
@@ -257,7 +282,7 @@ export function SettingsConnectors({ isActive }: { isActive: boolean }) {
                   onDelete={() => handleDeleteServer(server.id)}
                   onToggleEnabled={() => handleToggleEnabled(server)}
                   isLoading={isLoading}
-                  canDelete={!isChromeMcpServer(server)}
+                  canDelete={!isBuiltinProtectedMcpServer(server)}
                 />
               );
             })

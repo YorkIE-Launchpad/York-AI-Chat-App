@@ -20,6 +20,7 @@ import { app, BrowserWindow, shell } from 'electron';
 
 import path from 'path';
 import { connectWithOAuthRetry, OpenCoworkMcpOAuthProvider } from './mcp-oauth';
+import { getCognitoBearerAuthHeader } from '../config/backend-auth';
 import { log, logError, logWarn, logCtx, logCtxError, logTiming } from '../utils/logger';
 import { getDefaultShell } from '../utils/shell-resolver';
 
@@ -80,6 +81,55 @@ function isChromeMcpServerConfig(server: Pick<MCPServerConfig, 'name' | 'args'>)
     return true;
   }
   return Boolean(server.args?.some((arg) => arg.includes('chrome-devtools-mcp')));
+}
+
+function isLaunchpadMcpServerConfig(
+  server: Pick<MCPServerConfig, 'name' | 'args' | 'url' | 'type'>
+): boolean {
+  if (server.name.toLowerCase() === 'launchpad') {
+    return true;
+  }
+  if (server.url && /launchpad\.yorkdevs\.link/i.test(server.url)) {
+    return true;
+  }
+  const args = server.args ?? [];
+  const hasMcpRemote = args.some((arg) => arg.includes('mcp-remote'));
+  const hasLaunchpadUrl = args.some((arg) => /launchpad\.yorkdevs\.link/i.test(arg));
+  return hasMcpRemote && hasLaunchpadUrl;
+}
+
+/**
+ * Inject or replace mcp-remote `--header Authorization: Bearer …` with a fresh Cognito JWT.
+ * Never persists the token into stored MCP config.
+ */
+async function injectLaunchpadCognitoAuthHeader(args: string[]): Promise<string[]> {
+  const authHeader = await getCognitoBearerAuthHeader();
+  const nextArgs = [...args];
+
+  for (let i = 0; i < nextArgs.length - 1; i++) {
+    if (nextArgs[i] !== '--header') continue;
+    const value = nextArgs[i + 1] ?? '';
+    if (/^authorization\s*:/i.test(value)) {
+      nextArgs.splice(i, 2);
+      i -= 1;
+    }
+  }
+
+  nextArgs.push('--header', authHeader);
+  return nextArgs;
+}
+
+/** Redact Authorization header values so Cognito JWTs are not written to logs. */
+function redactArgsForLogging(args: string[]): string[] {
+  const redacted = [...args];
+  for (let i = 0; i < redacted.length - 1; i++) {
+    if (redacted[i] !== '--header') continue;
+    const value = redacted[i + 1] ?? '';
+    if (/^authorization\s*:/i.test(value)) {
+      redacted[i + 1] = 'Authorization: Bearer [REDACTED]';
+    }
+  }
+  return redacted;
 }
 
 function sanitizeMcpToolSegment(segment: string, fallback: string): string {
@@ -822,6 +872,12 @@ export class MCPManager {
         return arg;
       });
 
+      // Launchpad: inject Cognito JWT into mcp-remote --header at connect time
+      if (isLaunchpadMcpServerConfig(config)) {
+        args = await injectLaunchpadCognitoAuthHeader(args);
+        log('[MCPManager] Injected Cognito Authorization header for Launchpad MCP');
+      }
+
       // Dev guard: running TypeScript directly with `node` will fail (no TS loader).
       // We expect built-in servers to be bundled into dist-mcp/*.js in development.
       if (!app.isPackaged && isBuiltinServer) {
@@ -871,7 +927,7 @@ export class MCPManager {
 
       // Store for error logging
       commandForLogging = command;
-      argsForLogging = args;
+      argsForLogging = redactArgsForLogging(args);
 
       log('[MCPManager] Server auth env summary', {
         server: config.name,
@@ -903,7 +959,7 @@ export class MCPManager {
         env.YORK_IE_RESOURCES_PATH = process.resourcesPath || '';
       }
 
-      log(`[MCPManager] Creating STDIO transport: ${command} ${args.join(' ')}`);
+      log(`[MCPManager] Creating STDIO transport: ${command} ${argsForLogging.join(' ')}`);
       log(`[MCPManager] Environment variables: ${Object.keys(env).length} vars`);
       log(`[MCPManager] PATH: ${env.PATH?.substring(0, 200)}...`);
       log(`[MCPManager] HOME: ${env.HOME}`);
@@ -1730,7 +1786,8 @@ export class MCPManager {
         const shouldReconnect =
           lowerErrorMsg.includes('mcp server not connected') ||
           lowerErrorMsg.includes('not connected') ||
-          lowerErrorMsg.includes('connection closed');
+          lowerErrorMsg.includes('connection closed') ||
+          isAuthFailureErrorText(errorMsg);
 
         if (shouldReconnect) {
           log(
@@ -1939,7 +1996,19 @@ function isReconnectableErrorText(text: string): boolean {
   return (
     normalized === 'not connected' ||
     normalized.includes('mcp server not connected') ||
-    normalized.includes('connection closed')
+    normalized.includes('connection closed') ||
+    isAuthFailureErrorText(normalized)
+  );
+}
+
+function isAuthFailureErrorText(text: string): boolean {
+  const normalized = text.trim().toLowerCase();
+  return (
+    normalized.includes('authentication failed') ||
+    normalized.includes('sign in again') ||
+    normalized.includes('please login again') ||
+    normalized.includes('invalid token') ||
+    normalized.includes('authorization bearer token is required')
   );
 }
 

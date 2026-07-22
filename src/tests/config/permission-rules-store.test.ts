@@ -6,8 +6,8 @@
  *   - Glob-ish pattern matching ('*' = any substring) and case-insensitivity
  *   - Session-scoped "always allow" memory works within session and clears on
  *     forgetSessionPermissions()
- *   - Built-in Chrome MCP (`mcp__Chrome__*`) and `webfetch` auto-allow,
- *     overridable by rules
+ *   - Built-in Chrome MCP (`mcp__Chrome__*`), Launchpad MCP (`mcp__Launchpad__*`),
+ *     and `webfetch` auto-allow, overridable by rules
  *   - Garbage / malformed renderer input falls back to DEFAULT_RULES so the
  *     fail-safe is an extra prompt, never a silent auto-allow
  *   - Malformed individual rule entries are coerced to 'ask' rather than
@@ -69,12 +69,17 @@ describe('permission-rules-store', () => {
       expect(decidePermission(SESSION_A, 'mcp__chrome__navigate_page', {})).toBe('allow');
     });
 
+    it('returns allow for Launchpad MCP tools by default', () => {
+      expect(decidePermission(SESSION_A, 'mcp__Launchpad__list_projects', {})).toBe('allow');
+      expect(decidePermission(SESSION_A, 'mcp__launchpad__get_me', {})).toBe('allow');
+    });
+
     it('returns allow for webfetch by default', () => {
       expect(decidePermission(SESSION_A, 'webfetch', { url: 'https://example.com' })).toBe('allow');
       expect(decidePermission(SESSION_A, 'WebFetch', { url: 'https://example.com' })).toBe('allow');
     });
 
-    it('returns ask for non-Chrome MCP tools by default', () => {
+    it('returns ask for non-builtin MCP tools by default', () => {
       expect(decidePermission(SESSION_A, 'mcp__Notion__search', {})).toBe('ask');
     });
   });
@@ -107,6 +112,12 @@ describe('permission-rules-store', () => {
       );
       // Other Chrome tools still use the built-in allow
       expect(decidePermission(SESSION_A, 'mcp__Chrome__navigate_page', {})).toBe('allow');
+    });
+
+    it('explicit ask rule for a Launchpad tool overrides the built-in allow', () => {
+      setPermissionRules([{ tool: 'mcp__Launchpad__list_projects', action: 'ask' }]);
+      expect(decidePermission(SESSION_A, 'mcp__Launchpad__list_projects', {})).toBe('ask');
+      expect(decidePermission(SESSION_A, 'mcp__Launchpad__get_me', {})).toBe('allow');
     });
 
     it('explicit ask rule for webfetch overrides the built-in allow', () => {

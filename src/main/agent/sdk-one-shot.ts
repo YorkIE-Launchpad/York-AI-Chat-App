@@ -30,9 +30,27 @@ const AUTH_ERROR_RE =
   /authentication[_\s-]?failed|\bunauthorized\b|invalid[_\s-]?api[_\s-]?key|api[_\s-]?key[_\s-]?invalid|api[_\s]+key[_\s]+not[_\s]+valid|\bforbidden\b|permission[_\s-]?denied|\b401\b|\b403\b/i;
 const RATE_LIMIT_RE = /rate[_\s-]?limit|too\s+many\s+requests|429/i;
 const SERVER_ERROR_RE = /server[_\s-]?error|internal\s+server\s+error|\b5\d\d\b/i;
+const TEMPERATURE_UNSUPPORTED_RE =
+  /temperature[`'"]?\s+is\s+deprecated|unsupported.*temperature|temperature.*not\s+supported/i;
 const PROBE_ACK = 'sdk_probe_ok';
 const LOCAL_ANTHROPIC_PLACEHOLDER_KEY = 'sk-ant-local-proxy';
 const LOCAL_GEMINI_PLACEHOLDER_KEY = 'sk-gemini-local-proxy';
+
+/** Models that reject `temperature` (e.g. Claude Fable). */
+function shouldOmitTemperature(modelId: string): boolean {
+  const id = modelId.toLowerCase();
+  return id.includes('fable') || id.includes('claude-fable');
+}
+
+function omitTemperatureOption<T extends { temperature?: number }>(
+  options: T | undefined
+): Omit<T, 'temperature'> | undefined {
+  if (!options || options.temperature === undefined) {
+    return options;
+  }
+  const { temperature: _temperature, ...rest } = options;
+  return rest;
+}
 
 function resolveProbeBaseUrl(input: ApiTestInput): string | undefined {
   const configured = input.baseUrl?.trim();
@@ -256,14 +274,53 @@ export async function runPiAiOneShot(
     'api:',
     resolvedModel.api
   );
-  const response = await completeSimple(
+
+  const generationOptions = shouldOmitTemperature(resolvedModel.id)
+    ? omitTemperatureOption(options)
+    : options;
+  const baseOptions: {
+    temperature?: number;
+    maxTokens?: number;
+    signal?: AbortSignal;
+    apiKey: string | undefined;
+  } = {
+    ...generationOptions,
+    apiKey: apiKey || undefined,
+  };
+
+  let response = await completeSimple(
     resolvedModel,
     {
       systemPrompt,
       messages: [userMsg],
     },
-    { ...options, apiKey: apiKey || undefined }
+    baseOptions
   );
+
+  // Some newer Anthropic models reject temperature even when we didn't anticipate it.
+  // Retry once without temperature so memory / title / probe keep working.
+  const temperatureRejected =
+    (response.stopReason === 'error' || response.stopReason === 'aborted') &&
+    typeof response.errorMessage === 'string' &&
+    TEMPERATURE_UNSUPPORTED_RE.test(response.errorMessage) &&
+    baseOptions.temperature !== undefined;
+
+  if (temperatureRejected) {
+    logWarn(
+      '[OneShot] Model rejected temperature; retrying without it:',
+      resolvedModel.id,
+      response.errorMessage
+    );
+    const { temperature: _omit, ...withoutTemperature } = baseOptions;
+    response = await completeSimple(
+      resolvedModel,
+      {
+        systemPrompt,
+        messages: [userMsg],
+      },
+      withoutTemperature
+    );
+  }
 
   // pi-ai resolves (not rejects) on provider errors — the error details
   // live in stopReason/errorMessage on the response object.  Surface them

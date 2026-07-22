@@ -27,6 +27,17 @@ export const authConfig = {
     );
   },
   /**
+   * LaunchPad MCP endpoint. Prefer LAUNCHPAD_MCP_URL; otherwise production
+   * `https://launchpad.yorkdevs.link/mcp` (UAT MCP currently rejects its Host header).
+   */
+  get launchpadMcpUrl(): string {
+    const explicit = readEnv('LAUNCHPAD_MCP_URL') ?? readEnv('VITE_LAUNCHPAD_MCP_URL');
+    if (explicit) {
+      return trimTrailingSlash(explicit);
+    }
+    return 'https://launchpad.yorkdevs.link/mcp';
+  },
+  /**
    * Hub OAuth return URL — same as Launchpad:
    * HUB_OAUTH_REDIRECT_URL / VITE_HUB_OAUTH_REDIRECT_URL, else {FRONTEND_URL}/auth/callback
    */

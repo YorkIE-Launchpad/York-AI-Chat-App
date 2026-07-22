@@ -87,4 +87,44 @@ describe('runPiAiOneShot', () => {
       maxTokens: 1234,
     });
   });
+
+  it('omits temperature for Claude Fable models', async () => {
+    await runPiAiOneShot(
+      'hello',
+      'system',
+      { ...makeConfig(), model: 'anthropic/claude-fable-5' },
+      {
+        temperature: 0,
+        maxTokens: 1000,
+      }
+    );
+
+    expect(completeSimpleMock).toHaveBeenCalledTimes(1);
+    const passed = completeSimpleMock.mock.calls[0][2] as Record<string, unknown>;
+    expect(passed.maxTokens).toBe(1000);
+    expect(passed).not.toHaveProperty('temperature');
+  });
+
+  it('retries without temperature when the provider rejects it', async () => {
+    completeSimpleMock
+      .mockResolvedValueOnce({
+        content: [],
+        stopReason: 'error',
+        errorMessage: '`temperature` is deprecated for this model.',
+      })
+      .mockResolvedValueOnce({
+        content: [{ type: 'text', text: 'ok' }],
+        stopReason: 'stop',
+      });
+
+    await runPiAiOneShot('hello', 'system', makeConfig(), {
+      temperature: 0.2,
+      maxTokens: 50,
+    });
+
+    expect(completeSimpleMock).toHaveBeenCalledTimes(2);
+    expect(completeSimpleMock.mock.calls[0][2]).toMatchObject({ temperature: 0.2 });
+    expect(completeSimpleMock.mock.calls[1][2]).not.toHaveProperty('temperature');
+    expect(completeSimpleMock.mock.calls[1][2]).toMatchObject({ maxTokens: 50 });
+  });
 });

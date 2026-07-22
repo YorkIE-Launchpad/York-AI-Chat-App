@@ -115,6 +115,10 @@ mac:
       to: lima-agent
     - from: .claude/skills
       to: skills
+    - from: resources/tray-iconTemplate.png
+      to: .
+    - from: resources/tray-iconTemplate@2x.png
+      to: .
 
 linux:
   icon: resources/icon.png
