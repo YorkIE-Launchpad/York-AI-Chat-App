@@ -67,8 +67,11 @@ function SidebarUserAvatar({
           setResolvedSrc(result.dataUrl);
           return;
         }
+        // Hub document keys need the main-process proxy; do not fall back to raw src.
+        return;
       }
-      if (!cancelled) {
+      // Browser / no IPC: only try direct https URLs (not S3 keys).
+      if (!cancelled && /^https?:\/\//i.test(trimmed)) {
         setResolvedSrc(trimmed);
       }
     };

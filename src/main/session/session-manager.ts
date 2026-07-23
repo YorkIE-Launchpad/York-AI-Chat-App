@@ -78,6 +78,8 @@ interface AgentRunner {
 }
 
 const WORKSPACE_MOUNT_VIRTUAL_PATH = '/mnt/workspace';
+/** Claude Cowork skills often target this root; alias it to the same workspace folder. */
+const COWORK_USER_DATA_VIRTUAL_PATH = '/mnt/user-data';
 const TITLE_GENERATION_TIMEOUT_MS = 20000;
 
 export class SessionManager {
@@ -286,7 +288,12 @@ export class SessionManager {
     if (!cwd) {
       return [];
     }
-    return [{ virtual: WORKSPACE_MOUNT_VIRTUAL_PATH, real: cwd }];
+    // Both virtual roots resolve to the same real workspace folder so skill
+    // output paths like /mnt/user-data/outputs stay inside the project.
+    return [
+      { virtual: WORKSPACE_MOUNT_VIRTUAL_PATH, real: cwd },
+      { virtual: COWORK_USER_DATA_VIRTUAL_PATH, real: cwd },
+    ];
   }
 
   private createSession(

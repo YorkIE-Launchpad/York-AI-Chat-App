@@ -93,6 +93,7 @@ import {
 import { fetchOllamaModelInfo } from '../config/ollama-api';
 import { createWindowsBashOperations } from './windows-bash-operations';
 import { createCompactionExtensionFactory } from './compaction-extension';
+import { remapCoworkVirtualPath, remapCoworkVirtualPathsInCommand } from './cowork-path-remap';
 
 // Virtual workspace path shown to the model (hides real sandbox path)
 const VIRTUAL_WORKSPACE_PATH = '/workspace';
@@ -1156,6 +1157,62 @@ ${hints.join('\n')}
    * The agent SDK's bash tool has no default timeout, which means
    * commands can run indefinitely if the model doesn't specify a timeout.
    */
+  /**
+   * Remap Claude Cowork virtual roots (`/mnt/user-data`, `/mnt/workspace`) onto
+   * the session workspace so skill-driven doc generation writes into the same folder.
+   */
+  private static wrapToolsForCoworkPathRemap(
+    tools: ToolDefinition[],
+    workspaceRoot: string
+  ): ToolDefinition[] {
+    if (!workspaceRoot) return tools;
+
+    return tools.map((tool) => {
+      const originalExecute = tool.execute;
+
+      if (tool.name === 'bash') {
+        return {
+          ...tool,
+          execute: async (
+            toolCallId: string,
+            params: { command: string; timeout?: number },
+            signal: AbortSignal | undefined,
+            onUpdate: ((update: unknown) => void) | undefined,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            ctx: any
+          ) => {
+            const command = remapCoworkVirtualPathsInCommand(params.command, workspaceRoot);
+            const nextParams = command === params.command ? params : { ...params, command };
+            return originalExecute(toolCallId, nextParams, signal, onUpdate, ctx);
+          },
+        } as ToolDefinition;
+      }
+
+      if (tool.name === 'write' || tool.name === 'edit' || tool.name === 'read') {
+        return {
+          ...tool,
+          execute: async (
+            toolCallId: string,
+            params: { path?: string; [key: string]: unknown },
+            signal: AbortSignal | undefined,
+            onUpdate: ((update: unknown) => void) | undefined,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            ctx: any
+          ) => {
+            if (typeof params.path !== 'string') {
+              return originalExecute(toolCallId, params, signal, onUpdate, ctx);
+            }
+            const remapped = remapCoworkVirtualPath(params.path, workspaceRoot);
+            const nextParams = remapped === params.path ? params : { ...params, path: remapped };
+            return originalExecute(toolCallId, nextParams, signal, onUpdate, ctx);
+          },
+        } as ToolDefinition;
+      }
+
+      return tool;
+    });
+  }
+
   private static wrapBashToolWithDefaultTimeout(tools: ToolDefinition[]): ToolDefinition[] {
     const DEFAULT_BASH_TIMEOUT_SECONDS = 120;
 
@@ -2167,9 +2224,14 @@ ${hints.join('\n')}
           ? `<workspace_info>
 Your current workspace is located at: ${VIRTUAL_WORKSPACE_PATH}
 This is an isolated sandbox environment. Use ${VIRTUAL_WORKSPACE_PATH} as the root path for file operations.
+Do not write to /mnt/user-data or other absolute mount paths — save generated documents under this workspace (e.g. outputs/).
 </workspace_info>`
           : workingDir
-            ? `<workspace_info>Your current workspace is: ${workingDir}</workspace_info>`
+            ? `<workspace_info>
+Your current workspace is: ${workingDir}
+Use this folder (or relative paths under it) for all file reads and writes. Prefer relative paths like outputs/my-file.md.
+Do not write to /mnt/user-data or other absolute mount paths — they are not the workspace.
+</workspace_info>`
             : '';
 
       // Build a concise summary of the agent's own runtime configuration.
@@ -2222,10 +2284,14 @@ Tool routing:
         bashOptions ? { bash: bashOptions } : undefined
       );
 
-      // Inject a default 120s timeout for bash commands when the model omits one
-      const withTimeout = CoworkAgentRunner.wrapBashToolWithDefaultTimeout(
-        codingTools as ToolDefinition[]
+      // Remap Cowork virtual roots onto the session workspace before other wrappers
+      const withCoworkPaths = CoworkAgentRunner.wrapToolsForCoworkPathRemap(
+        codingTools as ToolDefinition[],
+        effectiveCwd
       );
+
+      // Inject a default 120s timeout for bash commands when the model omits one
+      const withTimeout = CoworkAgentRunner.wrapBashToolWithDefaultTimeout(withCoworkPaths);
 
       // Wrap the bash tool to intercept sudo commands and request passwords
       // Note: wrapBashToolForSudo returns ToolDefinition[] (5-param execute) but

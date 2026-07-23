@@ -8,6 +8,7 @@ import type { ToolResult, ExecutionContext, MountedPath } from '../../renderer/t
 import { isUncPath } from '../../shared/local-file-path';
 import { isPathWithinRoot } from './path-containment';
 import { fetchWebPage } from './web-fetch';
+import { remapCoworkVirtualPath } from '../agent/cowork-path-remap';
 
 /**
  * ToolExecutor - Secure tool execution framework
@@ -35,6 +36,12 @@ export class ToolExecutor {
     const primaryMount = mounts[0];
     const normalizedPrimary = path.normalize(primaryMount.real);
     const trimmed = inputPath.trim();
+
+    // Claude Cowork skills often use /mnt/user-data; map onto the real workspace.
+    const coworkRemapped = remapCoworkVirtualPath(trimmed, normalizedPrimary);
+    if (coworkRemapped !== trimmed) {
+      return this.assertInsideMount(coworkRemapped, mounts);
+    }
 
     // If virtual (/mnt/...), resolve via PathResolver
     if (trimmed.startsWith('/')) {

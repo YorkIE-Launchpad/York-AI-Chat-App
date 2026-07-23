@@ -9,32 +9,54 @@ export interface ParsedHubAuth {
   employeeData: Record<string, unknown> | null;
 }
 
-function rewriteHubDocumentPath(url: string): string {
-  try {
-    const parsed = new URL(url);
-    const hubHost = new URL(authConfig.hubApiUrl).host;
-    if (parsed.host !== hubHost) return url;
-    if (parsed.pathname.startsWith('/documents/')) {
-      parsed.pathname = `/api${parsed.pathname}`;
-      return parsed.toString();
+/**
+ * Hub stores profile pics as S3 keys (`documents/<email>/<file>`), not HTTP paths.
+ * Older chat-app builds incorrectly absolutized those into `/documents/` or `/api/documents/`
+ * URLs on the Hub API host — convert those back to the key.
+ */
+export function extractHubDocumentS3Key(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  if (/^https?:\/\//i.test(trimmed)) {
+    try {
+      const parsed = new URL(trimmed);
+      const hubHost = new URL(authConfig.hubApiUrl).host;
+      if (parsed.host !== hubHost) return null;
+      const pathname = decodeURIComponent(parsed.pathname);
+      if (pathname.startsWith('/api/documents/')) {
+        return pathname.slice('/api/'.length);
+      }
+      if (pathname.startsWith('/documents/')) {
+        return pathname.slice(1);
+      }
+    } catch {
+      return null;
     }
-  } catch {
-    // ignore invalid URLs
+    return null;
   }
-  return url;
+
+  if (trimmed.startsWith('documents/')) return trimmed;
+  if (trimmed.startsWith('/documents/')) return trimmed.slice(1);
+  if (trimmed.startsWith('/api/documents/')) return trimmed.slice('/api/'.length);
+  if (trimmed.startsWith('api/documents/')) return trimmed.slice('api/'.length);
+  return null;
 }
 
 export function normalizeProfileImageUrl(url: string): string {
   const trimmed = url.trim();
-  let resolved: string;
+  if (!trimmed) return trimmed;
+
+  const s3Key = extractHubDocumentS3Key(trimmed);
+  if (s3Key) return s3Key;
+
   if (/^https?:\/\//i.test(trimmed) || trimmed.startsWith('data:') || trimmed.startsWith('blob:')) {
-    resolved = trimmed;
-  } else {
-    const base = authConfig.hubApiUrl.replace(/\/$/, '');
-    const path = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
-    resolved = `${base}${path.startsWith('/documents/') ? `/api${path}` : path}`;
+    return trimmed;
   }
-  return rewriteHubDocumentPath(resolved);
+
+  const base = authConfig.hubApiUrl.replace(/\/$/, '');
+  const path = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+  return `${base}${path}`;
 }
 
 export function coerceProfileImageUrl(value: unknown): string | null {
