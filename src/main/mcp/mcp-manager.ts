@@ -20,6 +20,7 @@ import { app, BrowserWindow, shell } from 'electron';
 
 import path from 'path';
 import { connectWithOAuthRetry, OpenCoworkMcpOAuthProvider } from './mcp-oauth';
+import { mcpOAuthStore } from './mcp-oauth-store';
 import { getCognitoBearerAuthHeader } from '../config/backend-auth';
 import { clearHubMcpAuthCache, getHubMcpAuthHeaders } from './hub-mcp-auth';
 import { log, logError, logWarn, logCtx, logCtxError, logTiming } from '../utils/logger';
@@ -722,6 +723,7 @@ export class MCPManager {
     await this.disconnectServer(serverId);
     this.serverConfigs.delete(serverId);
     this.oauthProviders.delete(serverId);
+    mcpOAuthStore.clear(serverId);
     await this.refreshTools();
   }
 
@@ -1256,10 +1258,17 @@ export class MCPManager {
       return existing.provider;
     }
 
+    const persisted = mcpOAuthStore.load(config.id, config.url);
+
     const provider = new OpenCoworkMcpOAuthProvider({
       openExternal: async (url) => {
         await this.openMcpAuthorizationUrl(config.name, url);
       },
+      onPersist: (record) => {
+        mcpOAuthStore.save(config.id, record);
+      },
+      persisted: persisted ?? undefined,
+      serverUrl: config.url,
     });
 
     this.oauthProviders.set(config.id, {

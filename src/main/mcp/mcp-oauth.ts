@@ -26,10 +26,20 @@ interface OAuthCallbackListener {
   waitForCode(): Promise<string>;
 }
 
+export interface PersistedMcpOAuthState {
+  serverUrl: string;
+  clientInformation?: OAuthClientInformationMixed;
+  tokens?: OAuthTokens;
+  redirectUrl?: string;
+}
+
 interface OAuthProviderOptions {
   clientMetadataUrl?: string;
   openExternal: OpenExternal;
+  onPersist?: (record: PersistedMcpOAuthState) => void;
+  persisted?: PersistedMcpOAuthState;
   redirectUrl?: string | URL;
+  serverUrl?: string;
 }
 
 interface ConnectWithOAuthOptions<TTransport extends OAuthTransport> {
@@ -84,13 +94,31 @@ export class OpenCoworkMcpOAuthProvider implements OAuthClientProvider {
   private _metadata: OAuthClientMetadata;
   private _redirectUrl?: string | URL;
   private readonly _openExternal: OpenExternal;
+  private readonly _onPersist?: (record: PersistedMcpOAuthState) => void;
+  private readonly _serverUrl?: string;
   private _tokens?: OAuthTokens;
 
-  constructor({ clientMetadataUrl, openExternal, redirectUrl }: OAuthProviderOptions) {
+  constructor({
+    clientMetadataUrl,
+    openExternal,
+    onPersist,
+    persisted,
+    redirectUrl,
+    serverUrl,
+  }: OAuthProviderOptions) {
     this.clientMetadataUrl = clientMetadataUrl;
     this._openExternal = openExternal;
-    this._redirectUrl = redirectUrl;
-    this._metadata = buildClientMetadata(String(redirectUrl ?? 'http://127.0.0.1/callback'));
+    this._onPersist = onPersist;
+    this._serverUrl = serverUrl ?? persisted?.serverUrl;
+    this._redirectUrl = redirectUrl ?? persisted?.redirectUrl ?? 'http://127.0.0.1/callback';
+    this._metadata = buildClientMetadata(String(this._redirectUrl));
+
+    if (persisted?.clientInformation) {
+      this._clientInformation = persisted.clientInformation;
+    }
+    if (persisted?.tokens) {
+      this._tokens = persisted.tokens;
+    }
   }
 
   get redirectUrl(): string | URL | undefined {
@@ -113,6 +141,7 @@ export class OpenCoworkMcpOAuthProvider implements OAuthClientProvider {
 
     this._redirectUrl = redirectUrl;
     this._metadata = buildClientMetadata(nextRedirectUrl);
+    this.persistState();
   }
 
   clientInformation(): OAuthClientInformationMixed | undefined {
@@ -121,6 +150,7 @@ export class OpenCoworkMcpOAuthProvider implements OAuthClientProvider {
 
   saveClientInformation(clientInformation: OAuthClientInformationMixed): void {
     this._clientInformation = clientInformation;
+    this.persistState();
   }
 
   tokens(): OAuthTokens | undefined {
@@ -129,6 +159,7 @@ export class OpenCoworkMcpOAuthProvider implements OAuthClientProvider {
 
   saveTokens(tokens: OAuthTokens): void {
     this._tokens = tokens;
+    this.persistState();
   }
 
   redirectToAuthorization(authorizationUrl: URL): void | Promise<void> {
@@ -168,6 +199,21 @@ export class OpenCoworkMcpOAuthProvider implements OAuthClientProvider {
     if (scope === 'all' || scope === 'discovery') {
       this._discoveryState = undefined;
     }
+
+    this.persistState();
+  }
+
+  private persistState(): void {
+    if (!this._onPersist || !this._serverUrl) {
+      return;
+    }
+
+    this._onPersist({
+      serverUrl: this._serverUrl,
+      clientInformation: this._clientInformation,
+      tokens: this._tokens,
+      redirectUrl: this._redirectUrl === undefined ? undefined : String(this._redirectUrl),
+    });
   }
 }
 
@@ -279,23 +325,42 @@ export async function createOAuthCallbackListener(
   };
 }
 
+function hasPersistedOAuthTokens(provider: OpenCoworkMcpOAuthProvider): boolean {
+  const tokens = provider.tokens();
+  return Boolean(tokens?.access_token || tokens?.refresh_token);
+}
+
 export async function connectWithOAuthRetry<TTransport extends OAuthTransport>({
   callbackTimeoutMs = MCP_OAUTH_CALLBACK_TIMEOUT_MS,
   connect,
   createTransport,
   provider,
 }: ConnectWithOAuthOptions<TTransport>): Promise<TTransport> {
+  if (hasPersistedOAuthTokens(provider)) {
+    const initialTransport = createTransport(provider);
+
+    try {
+      await connect(initialTransport);
+      return initialTransport;
+    } catch (error) {
+      await safeCloseTransport(initialTransport);
+      if (!(error instanceof UnauthorizedError)) {
+        throw error;
+      }
+    }
+  }
+
   const listener = await createOAuthCallbackListener(callbackTimeoutMs);
   provider.setRedirectUrl(listener.redirectUrl);
 
-  const initialTransport = createTransport(provider);
+  const oauthTransport = createTransport(provider);
   let connectedTransport: TTransport | null = null;
 
   try {
     try {
-      await connect(initialTransport);
-      connectedTransport = initialTransport;
-      return initialTransport;
+      await connect(oauthTransport);
+      connectedTransport = oauthTransport;
+      return oauthTransport;
     } catch (error) {
       if (!(error instanceof UnauthorizedError)) {
         throw error;
@@ -303,7 +368,7 @@ export async function connectWithOAuthRetry<TTransport extends OAuthTransport>({
     }
 
     const authorizationCode = await listener.waitForCode();
-    await initialTransport.finishAuth(authorizationCode);
+    await oauthTransport.finishAuth(authorizationCode);
 
     const authenticatedTransport = createTransport(provider);
     try {
@@ -316,8 +381,8 @@ export async function connectWithOAuthRetry<TTransport extends OAuthTransport>({
       }
     }
   } finally {
-    if (connectedTransport !== initialTransport) {
-      await safeCloseTransport(initialTransport);
+    if (connectedTransport !== oauthTransport) {
+      await safeCloseTransport(oauthTransport);
     }
     await listener.close();
   }

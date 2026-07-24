@@ -20,7 +20,16 @@ const mockState = vi.hoisted(() => ({
 
 const MockUnauthorizedError = vi.hoisted(() => class MockUnauthorizedError extends Error {});
 
+vi.mock('../src/main/mcp/mcp-oauth-store', () => ({
+  mcpOAuthStore: {
+    load: vi.fn(() => null),
+    save: vi.fn(),
+    clear: vi.fn(),
+  },
+}));
+
 vi.mock('electron', () => ({
+  default: {},
   app: {
     isPackaged: false,
     getPath: () => '/tmp/york-ie-test',
