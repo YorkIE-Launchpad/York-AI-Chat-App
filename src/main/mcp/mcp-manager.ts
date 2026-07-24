@@ -110,12 +110,12 @@ function isHubMcpServerConfig(
   if (nameKey === 'hub' || nameKey === 'yorkiehub') {
     return true;
   }
-  if (server.url && /hub\.yorkdevs\.link/i.test(server.url)) {
+  if (server.url && /hub\.yorkdevs\.link|hub\.york\.ie/i.test(server.url)) {
     return true;
   }
   const args = server.args ?? [];
   const hasMcpRemote = args.some((arg) => arg.includes('mcp-remote'));
-  const hasHubUrl = args.some((arg) => /hub\.yorkdevs\.link/i.test(arg));
+  const hasHubUrl = args.some((arg) => /hub\.yorkdevs\.link|hub\.york\.ie/i.test(arg));
   return hasMcpRemote && hasHubUrl;
 }
 

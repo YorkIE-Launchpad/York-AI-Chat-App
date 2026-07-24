@@ -2,6 +2,23 @@ function trimTrailingSlash(url: string): string {
   return url.replace(/\/$/, '');
 }
 
+/** Map Hub API origin to Hub MCP URL (`api.` → `mcp.` + `/mcp`). */
+function deriveHubMcpUrlFromApiUrl(apiUrl: string): string | undefined {
+  try {
+    const parsed = new URL(apiUrl);
+    if (!parsed.hostname.startsWith('api.')) {
+      return undefined;
+    }
+    parsed.hostname = `mcp.${parsed.hostname.slice('api.'.length)}`;
+    parsed.pathname = '/mcp';
+    parsed.search = '';
+    parsed.hash = '';
+    return trimTrailingSlash(parsed.toString());
+  } catch {
+    return undefined;
+  }
+}
+
 function readEnv(key: string): string | undefined {
   const fromProcess = typeof process !== 'undefined' ? process.env[key] : undefined;
   if (fromProcess?.trim()) {
@@ -38,13 +55,17 @@ export const authConfig = {
     return 'https://launchpad.yorkdevs.link/mcp';
   },
   /**
-   * Hub MCP endpoint. Prefer HUB_MCP_URL; otherwise UAT
-   * `https://mcp.uat-hub.yorkdevs.link/mcp`.
+   * Hub MCP endpoint. Prefer HUB_MCP_URL / VITE_HUB_MCP_URL; otherwise derive
+   * from Hub API host (`api.*` → `mcp.*` + `/mcp`); last resort UAT.
    */
   get hubMcpUrl(): string {
     const explicit = readEnv('HUB_MCP_URL') ?? readEnv('VITE_HUB_MCP_URL');
     if (explicit) {
       return trimTrailingSlash(explicit);
+    }
+    const derived = deriveHubMcpUrlFromApiUrl(this.hubApiUrl);
+    if (derived) {
+      return derived;
     }
     return 'https://mcp.uat-hub.yorkdevs.link/mcp';
   },

@@ -81,8 +81,9 @@ win:
       to: wsl-agent
     - from: .claude/skills
       to: skills
-    - from: .bundle-resources/env/.env.prod
-      to: .env.prod
+    # Stage as env.prod (no leading dot) — electron-builder skips .env* sources.
+    - from: .bundle-resources/env/env.prod
+      to: env.prod
 
 mac:
   icon: resources/icon.icns
@@ -121,8 +122,9 @@ mac:
       to: .
     - from: resources/tray-iconTemplate@2x.png
       to: .
-    - from: .bundle-resources/env/.env.prod
-      to: .env.prod
+    # Stage as env.prod (no leading dot) — electron-builder skips .env* sources.
+    - from: .bundle-resources/env/env.prod
+      to: env.prod
 
 linux:
   icon: resources/icon.png
@@ -142,8 +144,9 @@ linux:
       to: python
     - from: .claude/skills
       to: skills
-    - from: .bundle-resources/env/.env.prod
-      to: .env.prod
+    # Stage as env.prod (no leading dot) — electron-builder skips .env* sources.
+    - from: .bundle-resources/env/env.prod
+      to: env.prod
 
 nsis:
   oneClick: false

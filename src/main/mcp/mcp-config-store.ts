@@ -110,7 +110,8 @@ const DEFAULT_HUB_SERVER_ID = 'mcp-hub-default';
 
 function isHubHost(value: string | undefined): boolean {
   if (!value) return false;
-  return /hub\.yorkdevs\.link/i.test(value);
+  // UAT/dev hosts (*.hub.yorkdevs.link) and prod (*.hub.york.ie)
+  return /hub\.yorkdevs\.link/i.test(value) || /hub\.york\.ie/i.test(value);
 }
 
 function isHubServerName(name: string): boolean {

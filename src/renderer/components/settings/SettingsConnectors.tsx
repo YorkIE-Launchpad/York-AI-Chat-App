@@ -44,12 +44,12 @@ function isHubMcpServer(server: MCPServerConfig): boolean {
   if (nameKey === 'hub' || nameKey === 'yorkiehub') {
     return true;
   }
-  if (server.url && /hub\.yorkdevs\.link/i.test(server.url)) {
+  if (server.url && /hub\.yorkdevs\.link|hub\.york\.ie/i.test(server.url)) {
     return true;
   }
   const args = server.args ?? [];
   const hasMcpRemote = args.some((arg) => arg.includes('mcp-remote'));
-  const hasHubUrl = args.some((arg) => /hub\.yorkdevs\.link/i.test(arg));
+  const hasHubUrl = args.some((arg) => /hub\.yorkdevs\.link|hub\.york\.ie/i.test(arg));
   return hasMcpRemote && hasHubUrl;
 }
 
@@ -74,6 +74,11 @@ function isBuiltinProtectedMcpServer(server: MCPServerConfig): boolean {
     isHubMcpServer(server) ||
     isGtmPulseMcpServer(server)
   );
+}
+
+/** Built-in Hub / Launchpad / GTM Pulse URLs are env-driven — no UI edit. */
+function isNonEditableBuiltinMcpServer(server: MCPServerConfig): boolean {
+  return isLaunchpadMcpServer(server) || isHubMcpServer(server) || isGtmPulseMcpServer(server);
 }
 
 export function SettingsConnectors({ isActive }: { isActive: boolean }) {
@@ -325,6 +330,7 @@ export function SettingsConnectors({ isActive }: { isActive: boolean }) {
                   onToggleEnabled={() => handleToggleEnabled(server)}
                   isLoading={isLoading}
                   canDelete={!isBuiltinProtectedMcpServer(server)}
+                  canEdit={!isNonEditableBuiltinMcpServer(server)}
                 />
               );
             })
@@ -500,6 +506,7 @@ function ServerCard({
   onToggleEnabled,
   isLoading,
   canDelete = true,
+  canEdit = true,
 }: {
   server: MCPServerConfig;
   status?: MCPServerStatus;
@@ -510,6 +517,7 @@ function ServerCard({
   onToggleEnabled: () => void;
   isLoading: boolean;
   canDelete?: boolean;
+  canEdit?: boolean;
 }) {
   const { t } = useTranslation();
   // Fall back to 'connecting' for enabled servers when status poll hasn't returned yet
@@ -646,14 +654,16 @@ function ServerCard({
             >
               {server.enabled ? <Power className="w-4 h-4" /> : <PowerOff className="w-4 h-4" />}
             </button>
-            <button
-              onClick={onEdit}
-              disabled={isLoading}
-              className="p-2 rounded-lg bg-surface-muted text-text-secondary hover:bg-surface-active transition-colors"
-              title={t('common.edit')}
-            >
-              <Edit3 className="w-4 h-4" />
-            </button>
+            {canEdit && (
+              <button
+                onClick={onEdit}
+                disabled={isLoading}
+                className="p-2 rounded-lg bg-surface-muted text-text-secondary hover:bg-surface-active transition-colors"
+                title={t('common.edit')}
+              >
+                <Edit3 className="w-4 h-4" />
+              </button>
+            )}
             {canDelete && (
               <button
                 onClick={onDelete}

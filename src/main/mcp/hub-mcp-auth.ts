@@ -34,6 +34,7 @@ function resolveHubMcpBaseUrl(): string {
     const mcpUrl = new URL(authConfig.hubMcpUrl);
     return mcpUrl.origin;
   } catch {
+    // Last-resort fallback when HUB_MCP_URL / derived URL is malformed.
     return 'https://mcp.uat-hub.yorkdevs.link';
   }
 }

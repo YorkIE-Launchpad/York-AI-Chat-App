@@ -143,17 +143,21 @@ import {
 // Current working directory (persisted between sessions)
 let currentWorkingDir: string | null = null;
 
-// Dev → `.env`; production / packaged → `.env.prod` (fallback `.env`)
+// Dev → `.env`; production / packaged → staged `env.prod` / `.env.prod` (fallback `.env`)
+// Note: electron-builder ignores `.env*` *source* files, so packaged builds ship `env.prod`.
 function resolveDotenvPath(): string {
   const projectRoot = resolve(__dirname, '../..');
-  const packagedProd = app.isPackaged ? join(process.resourcesPath, '.env.prod') : null;
-  const projectProd = join(projectRoot, '.env.prod');
+  const packagedCandidates = app.isPackaged
+    ? [join(process.resourcesPath, 'env.prod'), join(process.resourcesPath, '.env.prod')]
+    : [];
+  const projectProdCandidates = [join(projectRoot, '.env.prod'), join(projectRoot, 'env.prod')];
   const projectDev = join(projectRoot, '.env');
   const preferProd = app.isPackaged || !process.env.VITE_DEV_SERVER_URL;
 
   if (preferProd) {
-    if (packagedProd && fs.existsSync(packagedProd)) return packagedProd;
-    if (fs.existsSync(projectProd)) return projectProd;
+    for (const candidate of [...packagedCandidates, ...projectProdCandidates]) {
+      if (fs.existsSync(candidate)) return candidate;
+    }
   }
   return projectDev;
 }
@@ -170,6 +174,8 @@ if (dotenvResult.error) {
 installIpcAuthGuard();
 initHubOAuthRelay();
 log('[Auth] Hub OAuth redirect URL (Launchpad-compatible):', authConfig.hubOAuthRedirectUrl);
+log('[Auth] Hub MCP URL:', authConfig.hubMcpUrl);
+log('[Auth] Launchpad MCP URL:', authConfig.launchpadMcpUrl);
 
 // Apply saved config (this overrides .env if config exists)
 if (configStore.isConfigured()) {
