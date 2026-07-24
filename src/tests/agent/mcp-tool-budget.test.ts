@@ -26,12 +26,14 @@ function makeMcpTool(overrides: Partial<MCPTool> & Pick<MCPTool, 'name'>): MCPTo
   };
 }
 
+const emptyExtensionCtx = {} as never;
+
 function makeToolDef(name: string): ToolDefinition {
   return {
     name,
     label: name,
     description: name,
-    parameters: { type: 'object', properties: {} } as ToolDefinition['parameters'],
+    parameters: { type: 'object', properties: {} } as unknown as ToolDefinition['parameters'],
     execute: async () => ({ content: [{ type: 'text' as const, text: 'ok' }], details: undefined }),
   } as ToolDefinition;
 }
@@ -193,7 +195,13 @@ describe('buildMcpMetaTools', () => {
   it('searches tools via mcp_search_tools', async () => {
     const [searchTool] = buildMcpMetaTools(manager);
     expect(searchTool?.name).toBe(MCP_SEARCH_TOOLS_NAME);
-    const result = await searchTool!.execute('1', { query: 'features' }, undefined, undefined, {});
+    const result = await searchTool!.execute(
+      '1',
+      { query: 'features' },
+      undefined,
+      undefined,
+      emptyExtensionCtx
+    );
     const text = (result.content[0] as { text: string }).text;
     const payload = JSON.parse(text) as { returned: number; tools: Array<{ name: string }> };
     expect(payload.returned).toBe(1);
@@ -208,7 +216,7 @@ describe('buildMcpMetaTools', () => {
       { tool_name: 'mcp__Hub__get_employee', arguments: { id: '42' } },
       undefined,
       undefined,
-      {}
+      emptyExtensionCtx
     );
     expect(callTool).toHaveBeenCalledWith('mcp__Hub__get_employee', { id: '42' });
     expect((result.content[0] as { text: string }).text).toContain('called:mcp__Hub__get_employee');
@@ -222,7 +230,7 @@ describe('buildMcpMetaTools', () => {
       { tool_name: 'mcp__Missing__nope', arguments: {} },
       undefined,
       undefined,
-      {}
+      emptyExtensionCtx
     );
     expect(callTool).not.toHaveBeenCalled();
     expect((result.content[0] as { text: string }).text).toContain('MCP tool not found');
@@ -234,7 +242,13 @@ describe('buildMcpMetaTools', () => {
     const searchTool = tools.find((t) => t.name === MCP_SEARCH_TOOLS_NAME)!;
     const callMeta = tools.find((t) => t.name === MCP_CALL_TOOL_NAME)!;
 
-    const searchResult = await searchTool.execute('1', { query: 'list' }, undefined, undefined, {});
+    const searchResult = await searchTool.execute(
+      '1',
+      { query: 'list' },
+      undefined,
+      undefined,
+      emptyExtensionCtx
+    );
     const searchPayload = JSON.parse((searchResult.content[0] as { text: string }).text) as {
       returned: number;
     };
@@ -245,7 +259,7 @@ describe('buildMcpMetaTools', () => {
       { tool_name: 'mcp__Launchpad__list_features', arguments: {} },
       undefined,
       undefined,
-      {}
+      emptyExtensionCtx
     );
     expect((denied.content[0] as { text: string }).text).toContain('MCP tool not found');
 
@@ -254,7 +268,7 @@ describe('buildMcpMetaTools', () => {
       { tool_name: 'mcp__Hub__get_employee', arguments: {} },
       undefined,
       undefined,
-      {}
+      emptyExtensionCtx
     );
     expect(callTool).toHaveBeenCalledWith('mcp__Hub__get_employee', {});
     expect((allowed.content[0] as { text: string }).text).toContain(

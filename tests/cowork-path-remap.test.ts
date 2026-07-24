@@ -7,21 +7,19 @@ import {
 describe('remapCoworkVirtualPath', () => {
   const cwd = '/Users/demo/project';
 
-  it('maps /mnt/user-data outputs into the workspace', () => {
+  it('maps /mnt/user-data outputs into workspace-relative paths', () => {
     expect(remapCoworkVirtualPath('/mnt/user-data/outputs/foo-prd.md', cwd)).toBe(
-      '/Users/demo/project/outputs/foo-prd.md'
+      'outputs/foo-prd.md'
     );
   });
 
-  it('maps /mnt/workspace paths into the workspace', () => {
-    expect(remapCoworkVirtualPath('/mnt/workspace/src/index.ts', cwd)).toBe(
-      '/Users/demo/project/src/index.ts'
-    );
+  it('maps /mnt/workspace paths into workspace-relative paths', () => {
+    expect(remapCoworkVirtualPath('/mnt/workspace/src/index.ts', cwd)).toBe('src/index.ts');
   });
 
-  it('maps the virtual root itself to the workspace root', () => {
-    expect(remapCoworkVirtualPath('/mnt/user-data', cwd)).toBe(cwd);
-    expect(remapCoworkVirtualPath('/mnt/workspace', cwd)).toBe(cwd);
+  it('maps the virtual root itself to the workspace directory', () => {
+    expect(remapCoworkVirtualPath('/mnt/user-data', cwd)).toBe('.');
+    expect(remapCoworkVirtualPath('/mnt/workspace', cwd)).toBe('.');
   });
 
   it('leaves relative and unrelated absolute paths unchanged', () => {

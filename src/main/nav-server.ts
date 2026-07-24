@@ -19,7 +19,7 @@ import { isAuthenticated } from './auth/session';
 const PORT = 19888;
 const HOST = '127.0.0.1';
 const EXEC_TIMEOUT_MS = 3000;
-const VALID_TABS = new Set(['connectors', 'skills', 'schedule', 'remote', 'logs', 'general']);
+const VALID_TABS = new Set(['connectors', 'skills', 'schedule', 'logs', 'general']);
 
 let server: http.Server | null = null;
 

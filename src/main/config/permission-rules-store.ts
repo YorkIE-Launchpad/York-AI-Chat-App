@@ -80,7 +80,9 @@ export function getPermissionRules(): PermissionRule[] {
  *      optional `pattern` (glob-ish: `*` = any substring) matches the
  *      stringified input
  *   3. Built-in: allow all Chrome DevTools MCP tools (`mcp__Chrome__*`),
- *      Launchpad MCP tools (`mcp__Launchpad__*`), Hub MCP tools (`mcp__Hub__*`),
+ *      R&D Launchpad MCP tools (`mcp__R_D_Launchpad__*` / legacy `mcp__Launchpad__*`),
+ *      York IE HUB MCP tools (`mcp__York_IE_HUB__*` / legacy `mcp__Hub__*`),
+ *      GTM Pulse MCP tools (`mcp__GTM_Pulse__*`),
  *      OpenAI budget meta-tools (`mcp_search_tools`, `mcp_call_tool`),
  *      and the first-party `webfetch` tool
  *   4. Default: 'ask' for unknown tools (conservative)
@@ -108,11 +110,15 @@ export function decidePermission(
     return VALID_ACTIONS.has(rule.action) ? rule.action : 'ask';
   }
 
-  // Built-in default: Chrome / Launchpad / Hub MCP tools and webfetch run without a permission prompt.
-  // Explicit rules for a specific tool still win above.
+  // Built-in default: Chrome / R&D Launchpad / York IE HUB / GTM Pulse MCP tools and webfetch
+  // run without a permission prompt. Explicit rules for a specific tool still win above.
+  // Legacy Launchpad/Hub prefixes are kept so older connector names keep working.
   if (lowered.startsWith('mcp__chrome__')) return 'allow';
+  if (lowered.startsWith('mcp__r_d_launchpad__')) return 'allow';
   if (lowered.startsWith('mcp__launchpad__')) return 'allow';
+  if (lowered.startsWith('mcp__york_ie_hub__')) return 'allow';
   if (lowered.startsWith('mcp__hub__')) return 'allow';
+  if (lowered.startsWith('mcp__gtm_pulse__')) return 'allow';
   if (lowered === 'webfetch') return 'allow';
   if (lowered === 'mcp_search_tools') return 'allow';
   if (lowered === 'mcp_call_tool') return 'allow';

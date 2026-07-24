@@ -4,7 +4,6 @@ import {
   Plug,
   Package,
   Clock3,
-  Wifi,
   AlertCircle,
   Globe,
   ChevronRight,
@@ -12,7 +11,6 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useWindowSize } from '../hooks/useWindowSize';
-import { RemoteControlPanel } from './RemoteControlPanel';
 import { useAppStore } from '../store';
 import { SettingsConnectors } from './settings/SettingsConnectors';
 import { SettingsSkills } from './settings/SettingsSkills';
@@ -23,17 +21,16 @@ import { SettingsMemory } from './settings/SettingsMemory';
 
 interface SettingsPanelProps {
   onClose: () => void;
-  initialTab?: 'connectors' | 'skills' | 'memory' | 'schedule' | 'remote' | 'logs' | 'general';
+  initialTab?: 'connectors' | 'skills' | 'memory' | 'schedule' | 'logs' | 'general';
 }
 
-type TabId = 'connectors' | 'skills' | 'memory' | 'schedule' | 'remote' | 'logs' | 'general';
+type TabId = 'connectors' | 'skills' | 'memory' | 'schedule' | 'logs' | 'general';
 
 const VALID_TABS = new Set<TabId>([
   'connectors',
   'skills',
   'memory',
   'schedule',
-  'remote',
   'logs',
   'general',
 ]);
@@ -102,12 +99,6 @@ export function SettingsPanel({ onClose, initialTab = 'general' }: SettingsPanel
       label: t('settings.schedule'),
       icon: Clock3,
       description: t('settings.scheduleDesc'),
-    },
-    {
-      id: 'remote' as TabId,
-      label: t('settings.remote', 'Remote Control'),
-      icon: Wifi,
-      description: t('settings.remoteDesc', 'Use remotely via Feishu and other platforms'),
     },
     {
       id: 'logs' as TabId,
@@ -224,11 +215,6 @@ export function SettingsPanel({ onClose, initialTab = 'general' }: SettingsPanel
               <div className={activeTab === 'schedule' ? '' : 'hidden'}>
                 {viewedTabs.has('schedule') && (
                   <SettingsSchedule isActive={activeTab === 'schedule'} />
-                )}
-              </div>
-              <div className={activeTab === 'remote' ? '' : 'hidden'}>
-                {viewedTabs.has('remote') && (
-                  <RemoteControlPanel isActive={activeTab === 'remote'} />
                 )}
               </div>
               <div className={activeTab === 'logs' ? '' : 'hidden'}>

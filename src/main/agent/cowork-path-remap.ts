@@ -1,12 +1,10 @@
-import * as path from 'path';
+import { COWORK_VIRTUAL_ROOTS } from '../../shared/workspace-path';
 
 /**
  * Claude Cowork / Desktop skills often hardcode virtual roots like
- * `/mnt/user-data/outputs`. York IE maps the session workspace to the real
- * project folder instead — remap those roots so writes land in the same cwd.
+ * `/mnt/user-data/outputs`. York IE maps those onto the session workspace.
+ * Returns a workspace-relative path so tool output and artifact UI stay aligned.
  */
-export const COWORK_VIRTUAL_ROOTS = ['/mnt/user-data', '/mnt/workspace'] as const;
-
 export function remapCoworkVirtualPath(inputPath: string, workspaceRoot: string): string {
   const trimmed = inputPath.trim();
   if (!trimmed || !workspaceRoot) {
@@ -14,9 +12,11 @@ export function remapCoworkVirtualPath(inputPath: string, workspaceRoot: string)
   }
 
   for (const root of COWORK_VIRTUAL_ROOTS) {
-    if (trimmed === root || trimmed.startsWith(`${root}/`)) {
-      const relative = trimmed.slice(root.length).replace(/^\//, '');
-      return relative ? path.join(workspaceRoot, relative) : workspaceRoot;
+    if (trimmed === root) {
+      return '.';
+    }
+    if (trimmed.startsWith(`${root}/`)) {
+      return trimmed.slice(root.length + 1);
     }
   }
 

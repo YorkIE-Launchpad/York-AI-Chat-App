@@ -1153,11 +1153,6 @@ ${hints.join('\n')}
   }
 
   /**
-   * Wrap the bash tool to inject a default timeout when the model omits one.
-   * The agent SDK's bash tool has no default timeout, which means
-   * commands can run indefinitely if the model doesn't specify a timeout.
-   */
-  /**
    * Remap Claude Cowork virtual roots (`/mnt/user-data`, `/mnt/workspace`) onto
    * the session workspace so skill-driven doc generation writes into the same folder.
    */
@@ -1941,7 +1936,7 @@ ${hints.join('\n')}
       const toolSelection = selectCustomToolsForModel({
         api: piModel.api,
         builtInToolCount: 4,
-        mcpManager: this.mcpManager,
+        mcpManager: this.mcpManager ?? null,
         mcpTools: mcpCustomTools,
         extensionTools: extensionCustomTools,
       });
@@ -2305,7 +2300,7 @@ Tool routing:
         const adjusted = selectCustomToolsForModel({
           api: piModel.api,
           builtInToolCount: wrappedTools.length,
-          mcpManager: this.mcpManager,
+          mcpManager: this.mcpManager ?? null,
           mcpTools: mcpCustomTools,
           extensionTools: extensionCustomTools,
         });

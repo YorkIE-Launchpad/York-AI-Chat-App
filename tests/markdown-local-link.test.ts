@@ -87,6 +87,13 @@ describe('resolveLocalFilePathFromHref', () => {
     );
   });
 
+  it('resolves /mnt/user-data links using cwd like artifact panel', () => {
+    const href = '/mnt/user-data/outputs/foo-prd.md';
+    expect(resolveLocalFilePathFromHref(href, '/Users/demo/project')).toBe(
+      '/Users/demo/project/outputs/foo-prd.md'
+    );
+  });
+
   it('normalizes line breaks before resolving local href', () => {
     const href =
       '/Users/haoqing/Library/Application\n Support/york-ie/default_working_dir/文档.docx';

@@ -49,6 +49,17 @@ export const authConfig = {
     return 'https://mcp.uat-hub.yorkdevs.link/mcp';
   },
   /**
+   * GTM Pulse MCP endpoint. Prefer GTM_PULSE_MCP_URL; otherwise
+   * `https://gtm-pulse.yorkdevs.link/mcp`.
+   */
+  get gtmPulseMcpUrl(): string {
+    const explicit = readEnv('GTM_PULSE_MCP_URL') ?? readEnv('VITE_GTM_PULSE_MCP_URL');
+    if (explicit) {
+      return trimTrailingSlash(explicit);
+    }
+    return 'https://gtm-pulse.yorkdevs.link/mcp';
+  },
+  /**
    * Hub OAuth return URL — same as Launchpad:
    * HUB_OAUTH_REDIRECT_URL / VITE_HUB_OAUTH_REDIRECT_URL, else {FRONTEND_URL}/auth/callback
    */

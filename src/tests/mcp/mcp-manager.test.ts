@@ -3,16 +3,7 @@
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-// Mock electron
-vi.mock('electron', () => ({
-  app: {
-    isPackaged: false,
-    getPath: () => '/tmp/york-ie-test',
-  },
-  BrowserWindow: {
-    getAllWindows: () => [],
-  },
-}));
+// electron is aliased to tests/mocks/electron.ts via vitest.config.mts (includes default export)
 
 // Mock logger to suppress output during tests
 vi.mock('../../main/utils/logger', () => ({
@@ -43,6 +34,7 @@ type TestManagerInternals = {
   clients: Map<string, TestMCPClient>;
   tools: Map<string, unknown>;
   serverConfigs: Map<string, MCPServerConfig>;
+  reconnectServer?: (serverId: string, options?: { skipRefresh?: boolean }) => Promise<boolean>;
 };
 
 function asTestManager(manager: MCPManager): TestManagerInternals {
@@ -314,6 +306,90 @@ describe('MCPManager', () => {
       await expect(callPromise).rejects.toThrow('Tool call timeout after 300000ms');
       expect(mockClient.callTool).toHaveBeenCalledTimes(1);
       vi.useRealTimers();
+    });
+  });
+
+  describe('refreshTools()', () => {
+    it('reconnects and retries listTools when server returns Not connected', async () => {
+      const testManager = asTestManager(manager);
+      const mockClientAfterReconnect: TestMCPClient = {
+        listTools: vi.fn().mockResolvedValue({
+          tools: [
+            {
+              name: 'get_pulse',
+              description: 'Get GTM pulse data',
+              inputSchema: { type: 'object', properties: {} },
+            },
+          ],
+        }),
+      };
+      const mockClient: TestMCPClient = {
+        listTools: vi.fn().mockRejectedValue(new Error('Not connected')),
+      };
+
+      testManager.clients = new Map([['mcp-gtm-pulse-default', mockClient]]);
+      testManager.serverConfigs = new Map([
+        [
+          'mcp-gtm-pulse-default',
+          {
+            id: 'mcp-gtm-pulse-default',
+            name: 'GTM Pulse',
+            type: 'streamable-http',
+            url: 'https://gtm-pulse.yorkdevs.link/mcp',
+            enabled: true,
+          },
+        ],
+      ]);
+      testManager.reconnectServer = vi.fn().mockImplementation(async (serverId: string) => {
+        testManager.clients.set(serverId, mockClientAfterReconnect);
+        return true;
+      });
+
+      await manager.refreshTools();
+
+      expect(testManager.reconnectServer).toHaveBeenCalledWith('mcp-gtm-pulse-default', {
+        skipRefresh: true,
+      });
+      expect(mockClient.listTools).toHaveBeenCalledTimes(1);
+      expect(mockClientAfterReconnect.listTools).toHaveBeenCalledTimes(1);
+      expect(manager.getTools()).toEqual([
+        {
+          name: 'mcp__GTM_Pulse__get_pulse',
+          originalName: 'get_pulse',
+          description: 'Get GTM pulse data',
+          inputSchema: { type: 'object', properties: {}, required: undefined },
+          serverId: 'mcp-gtm-pulse-default',
+          serverName: 'GTM Pulse',
+        },
+      ]);
+    });
+
+    it('does not reconnect on non-reconnectable listTools errors', async () => {
+      const testManager = asTestManager(manager);
+      const mockClient: TestMCPClient = {
+        listTools: vi.fn().mockRejectedValue(new Error('listTools timeout after 300000ms')),
+      };
+
+      testManager.clients = new Map([['slow-server', mockClient]]);
+      testManager.serverConfigs = new Map([
+        [
+          'slow-server',
+          {
+            id: 'slow-server',
+            name: 'Slow Server',
+            type: 'stdio',
+            command: 'slow-server',
+            enabled: true,
+          },
+        ],
+      ]);
+      testManager.reconnectServer = vi.fn().mockResolvedValue(true);
+
+      await manager.refreshTools();
+
+      expect(testManager.reconnectServer).not.toHaveBeenCalled();
+      expect(mockClient.listTools).toHaveBeenCalledTimes(1);
+      expect(manager.getTools()).toEqual([]);
     });
   });
 

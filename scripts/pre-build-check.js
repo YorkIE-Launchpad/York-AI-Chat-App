@@ -65,6 +65,12 @@ function buildCheckList(platform, arch) {
       type: 'dir',
       severity: 'fatal',
     },
+    {
+      label: 'Staged production env (.bundle-resources/env/.env.prod)',
+      relPath: '.bundle-resources/env/.env.prod',
+      type: 'file',
+      severity: 'fatal',
+    },
   ];
 
   if (platform === 'darwin') {

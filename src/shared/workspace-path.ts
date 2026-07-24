@@ -1,5 +1,25 @@
 import { isUncPath, isWindowsDrivePath } from './local-file-path';
 
+/** Claude Cowork / Desktop virtual roots mapped onto the session workspace. */
+export const COWORK_VIRTUAL_ROOTS = ['/mnt/user-data', '/mnt/workspace'] as const;
+
+function remapCoworkAbsolutePath(pathValue: string, workspacePath?: string | null): string | null {
+  if (!workspacePath) {
+    return null;
+  }
+
+  for (const root of COWORK_VIRTUAL_ROOTS) {
+    if (pathValue === root) {
+      return workspacePath;
+    }
+    if (pathValue.startsWith(`${root}/`)) {
+      return joinRelativePath(workspacePath, pathValue.slice(root.length + 1));
+    }
+  }
+
+  return null;
+}
+
 export function resolvePathAgainstWorkspace(
   pathValue: string,
   workspacePath?: string | null
@@ -13,6 +33,10 @@ export function resolvePathAgainstWorkspace(
       return workspacePath
         ? joinRelativePath(workspacePath, pathValue.slice('/workspace/'.length))
         : pathValue;
+    }
+    const coworkRemapped = remapCoworkAbsolutePath(pathValue, workspacePath);
+    if (coworkRemapped !== null) {
+      return coworkRemapped;
     }
     if (/^[A-Za-z]:[/\\]workspace[/\\]/i.test(pathValue)) {
       const relativePart = pathValue.replace(/^[A-Za-z]:[/\\]workspace[/\\]/i, '');

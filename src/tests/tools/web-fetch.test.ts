@@ -112,7 +112,13 @@ describe('WebFetchExtension', () => {
     const extension = new WebFetchExtension();
     const result = await extension.beforeSessionRun();
     const tool = result!.customTools![0]!;
-    const output = await tool.execute('call-1', { url: 'https://example.com' });
+    const output = await tool.execute(
+      'call-1',
+      { url: 'https://example.com' },
+      undefined,
+      undefined,
+      {} as never
+    );
     expect(output.content).toEqual([
       expect.objectContaining({
         type: 'text',
@@ -125,7 +131,13 @@ describe('WebFetchExtension', () => {
     const extension = new WebFetchExtension();
     const result = await extension.beforeSessionRun();
     const tool = result!.customTools![0]!;
-    const output = await tool.execute('call-2', { url: 'ftp://bad' });
+    const output = await tool.execute(
+      'call-2',
+      { url: 'ftp://bad' },
+      undefined,
+      undefined,
+      {} as never
+    );
     expect(output.content[0]).toEqual(
       expect.objectContaining({
         type: 'text',

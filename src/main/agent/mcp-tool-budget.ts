@@ -177,7 +177,7 @@ export function buildMcpMetaTools(
       'Invoke a connected MCP tool by its exact model-facing name (as returned by mcp_search_tools). Pass arguments matching that tool input schema.',
     parameters: Type.Object({
       tool_name: Type.String({
-        description: 'Exact MCP tool name, e.g. mcp__Launchpad__list_features.',
+        description: 'Exact MCP tool name, e.g. mcp__R_D_Launchpad__list_features.',
       }),
       arguments: Type.Optional(
         Type.Record(Type.String(), Type.Any(), {

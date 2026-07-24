@@ -28,8 +28,10 @@ desktop.ini
 
 # Environment
 .env
+.env.prod
 .env.local
 .env.*.local
+.bundle-resources/env/
 
 # Logs
 *.log

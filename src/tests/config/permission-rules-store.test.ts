@@ -6,8 +6,9 @@
  *   - Glob-ish pattern matching ('*' = any substring) and case-insensitivity
  *   - Session-scoped "always allow" memory works within session and clears on
  *     forgetSessionPermissions()
- *   - Built-in Chrome MCP (`mcp__Chrome__*`), Launchpad MCP (`mcp__Launchpad__*`),
- *     Hub MCP (`mcp__Hub__*`), OpenAI meta-tools (`mcp_search_tools`, `mcp_call_tool`),
+ *   - Built-in Chrome MCP (`mcp__Chrome__*`), R&D Launchpad MCP (`mcp__R_D_Launchpad__*` /
+ *     legacy `mcp__Launchpad__*`), York IE HUB MCP (`mcp__York_IE_HUB__*` / legacy `mcp__Hub__*`),
+ *     GTM Pulse MCP (`mcp__GTM_Pulse__*`), OpenAI meta-tools (`mcp_search_tools`, `mcp_call_tool`),
  *     and `webfetch` auto-allow, overridable by rules
  *   - Garbage / malformed renderer input falls back to DEFAULT_RULES so the
  *     fail-safe is an extra prompt, never a silent auto-allow
@@ -70,21 +71,32 @@ describe('permission-rules-store', () => {
       expect(decidePermission(SESSION_A, 'mcp__chrome__navigate_page', {})).toBe('allow');
     });
 
-    it('returns allow for Launchpad MCP tools by default', () => {
+    it('returns allow for R&D Launchpad MCP tools by default (new + legacy names)', () => {
+      expect(decidePermission(SESSION_A, 'mcp__R_D_Launchpad__list_projects', {})).toBe('allow');
+      expect(decidePermission(SESSION_A, 'mcp__r_d_launchpad__get_me', {})).toBe('allow');
       expect(decidePermission(SESSION_A, 'mcp__Launchpad__list_projects', {})).toBe('allow');
       expect(decidePermission(SESSION_A, 'mcp__launchpad__get_me', {})).toBe('allow');
     });
 
-    it('returns allow for Hub MCP tools by default', () => {
+    it('returns allow for York IE HUB MCP tools by default (new + legacy names)', () => {
+      expect(decidePermission(SESSION_A, 'mcp__York_IE_HUB__list_employees', {})).toBe('allow');
+      expect(decidePermission(SESSION_A, 'mcp__york_ie_hub__get_me', {})).toBe('allow');
       expect(decidePermission(SESSION_A, 'mcp__Hub__list_employees', {})).toBe('allow');
       expect(decidePermission(SESSION_A, 'mcp__hub__get_me', {})).toBe('allow');
+    });
+
+    it('returns allow for GTM Pulse MCP tools by default', () => {
+      expect(decidePermission(SESSION_A, 'mcp__GTM_Pulse__get_data_availability', {})).toBe(
+        'allow'
+      );
+      expect(decidePermission(SESSION_A, 'mcp__gtm_pulse__list_projects', {})).toBe('allow');
     });
 
     it('returns allow for OpenAI budget meta-tools by default', () => {
       expect(decidePermission(SESSION_A, 'mcp_search_tools', { query: 'employee' })).toBe('allow');
       expect(
         decidePermission(SESSION_A, 'mcp_call_tool', {
-          tool_name: 'mcp__Hub__list_employees',
+          tool_name: 'mcp__York_IE_HUB__list_employees',
           arguments: { limit: 10 },
         })
       ).toBe('allow');
@@ -136,16 +148,22 @@ describe('permission-rules-store', () => {
       expect(decidePermission(SESSION_A, 'mcp__Chrome__navigate_page', {})).toBe('allow');
     });
 
-    it('explicit ask rule for a Launchpad tool overrides the built-in allow', () => {
-      setPermissionRules([{ tool: 'mcp__Launchpad__list_projects', action: 'ask' }]);
-      expect(decidePermission(SESSION_A, 'mcp__Launchpad__list_projects', {})).toBe('ask');
-      expect(decidePermission(SESSION_A, 'mcp__Launchpad__get_me', {})).toBe('allow');
+    it('explicit ask rule for an R&D Launchpad tool overrides the built-in allow', () => {
+      setPermissionRules([{ tool: 'mcp__R_D_Launchpad__list_projects', action: 'ask' }]);
+      expect(decidePermission(SESSION_A, 'mcp__R_D_Launchpad__list_projects', {})).toBe('ask');
+      expect(decidePermission(SESSION_A, 'mcp__R_D_Launchpad__get_me', {})).toBe('allow');
     });
 
-    it('explicit ask rule for a Hub tool overrides the built-in allow', () => {
-      setPermissionRules([{ tool: 'mcp__Hub__list_employees', action: 'ask' }]);
-      expect(decidePermission(SESSION_A, 'mcp__Hub__list_employees', {})).toBe('ask');
-      expect(decidePermission(SESSION_A, 'mcp__Hub__get_me', {})).toBe('allow');
+    it('explicit ask rule for a York IE HUB tool overrides the built-in allow', () => {
+      setPermissionRules([{ tool: 'mcp__York_IE_HUB__list_employees', action: 'ask' }]);
+      expect(decidePermission(SESSION_A, 'mcp__York_IE_HUB__list_employees', {})).toBe('ask');
+      expect(decidePermission(SESSION_A, 'mcp__York_IE_HUB__get_me', {})).toBe('allow');
+    });
+
+    it('explicit ask rule for a GTM Pulse tool overrides the built-in allow', () => {
+      setPermissionRules([{ tool: 'mcp__GTM_Pulse__get_data_availability', action: 'ask' }]);
+      expect(decidePermission(SESSION_A, 'mcp__GTM_Pulse__get_data_availability', {})).toBe('ask');
+      expect(decidePermission(SESSION_A, 'mcp__GTM_Pulse__list_projects', {})).toBe('allow');
     });
 
     it('explicit ask rule for webfetch overrides the built-in allow', () => {

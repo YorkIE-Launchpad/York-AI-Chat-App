@@ -58,4 +58,34 @@ describe('resolvePathAgainstWorkspace', () => {
   it('returns /workspace/ path as-is when no workspace provided', () => {
     expect(resolvePathAgainstWorkspace('/workspace/src/main.ts')).toBe('/workspace/src/main.ts');
   });
+
+  it('remaps /mnt/user-data/ prefix to workspace path', () => {
+    expect(
+      resolvePathAgainstWorkspace('/mnt/user-data/outputs/foo-prd.md', '/Users/demo/project')
+    ).toBe('/Users/demo/project/outputs/foo-prd.md');
+  });
+
+  it('remaps /mnt/workspace/ prefix to workspace path', () => {
+    expect(resolvePathAgainstWorkspace('/mnt/workspace/src/index.ts', '/Users/demo/project')).toBe(
+      '/Users/demo/project/src/index.ts'
+    );
+  });
+
+  it('remaps exact /mnt/user-data root to workspace path', () => {
+    expect(resolvePathAgainstWorkspace('/mnt/user-data', '/Users/demo/project')).toBe(
+      '/Users/demo/project'
+    );
+  });
+
+  it('does not remap WSL drive mounts under /mnt/c', () => {
+    expect(resolvePathAgainstWorkspace('/mnt/c/work/demo.txt', '/Users/demo/project')).toBe(
+      '/mnt/c/work/demo.txt'
+    );
+  });
+
+  it('returns /mnt/user-data path as-is when no workspace provided', () => {
+    expect(resolvePathAgainstWorkspace('/mnt/user-data/outputs/foo.md')).toBe(
+      '/mnt/user-data/outputs/foo.md'
+    );
+  });
 });

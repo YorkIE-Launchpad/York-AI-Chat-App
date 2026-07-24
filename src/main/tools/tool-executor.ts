@@ -40,7 +40,8 @@ export class ToolExecutor {
     // Claude Cowork skills often use /mnt/user-data; map onto the real workspace.
     const coworkRemapped = remapCoworkVirtualPath(trimmed, normalizedPrimary);
     if (coworkRemapped !== trimmed) {
-      return this.assertInsideMount(coworkRemapped, mounts);
+      const candidate = path.normalize(path.join(normalizedPrimary, coworkRemapped || '.'));
+      return this.assertInsideMount(candidate, mounts);
     }
 
     // If virtual (/mnt/...), resolve via PathResolver

@@ -26,7 +26,8 @@ function isChromeMcpServer(server: MCPServerConfig): boolean {
 }
 
 function isLaunchpadMcpServer(server: MCPServerConfig): boolean {
-  if (server.name.toLowerCase() === 'launchpad') {
+  const nameKey = server.name.toLowerCase().replace(/[^a-z0-9]+/g, '');
+  if (nameKey === 'launchpad' || nameKey === 'rdlaunchpad') {
     return true;
   }
   if (server.url && /launchpad\.yorkdevs\.link/i.test(server.url)) {
@@ -39,7 +40,8 @@ function isLaunchpadMcpServer(server: MCPServerConfig): boolean {
 }
 
 function isHubMcpServer(server: MCPServerConfig): boolean {
-  if (server.name.toLowerCase() === 'hub') {
+  const nameKey = server.name.toLowerCase().replace(/[^a-z0-9]+/g, '');
+  if (nameKey === 'hub' || nameKey === 'yorkiehub') {
     return true;
   }
   if (server.url && /hub\.yorkdevs\.link/i.test(server.url)) {
@@ -51,8 +53,27 @@ function isHubMcpServer(server: MCPServerConfig): boolean {
   return hasMcpRemote && hasHubUrl;
 }
 
+function isGtmPulseMcpServer(server: MCPServerConfig): boolean {
+  const normalizedName = server.name.toLowerCase().replace(/\s+/g, '-');
+  if (normalizedName === 'gtm-pulse' || normalizedName === 'gtm pulse') {
+    return true;
+  }
+  if (server.url && /gtm-pulse\.yorkdevs\.link/i.test(server.url)) {
+    return true;
+  }
+  const args = server.args ?? [];
+  const hasMcpRemote = args.some((arg) => arg.includes('mcp-remote'));
+  const hasGtmPulseUrl = args.some((arg) => /gtm-pulse\.yorkdevs\.link/i.test(arg));
+  return hasMcpRemote && hasGtmPulseUrl;
+}
+
 function isBuiltinProtectedMcpServer(server: MCPServerConfig): boolean {
-  return isChromeMcpServer(server) || isLaunchpadMcpServer(server) || isHubMcpServer(server);
+  return (
+    isChromeMcpServer(server) ||
+    isLaunchpadMcpServer(server) ||
+    isHubMcpServer(server) ||
+    isGtmPulseMcpServer(server)
+  );
 }
 
 export function SettingsConnectors({ isActive }: { isActive: boolean }) {
@@ -215,7 +236,7 @@ export function SettingsConnectors({ isActive }: { isActive: boolean }) {
     if (server && isLaunchpadMcpServer(server)) {
       setError(
         t('mcp.launchpadCannotDelete', {
-          defaultValue: 'The built-in Launchpad connector cannot be deleted',
+          defaultValue: 'The built-in R&D Launchpad connector cannot be deleted',
         })
       );
       return;
@@ -223,7 +244,7 @@ export function SettingsConnectors({ isActive }: { isActive: boolean }) {
     if (server && isHubMcpServer(server)) {
       setError(
         t('mcp.hubCannotDelete', {
-          defaultValue: 'The built-in Hub connector cannot be deleted',
+          defaultValue: 'The built-in York IE HUB connector cannot be deleted',
         })
       );
       return;

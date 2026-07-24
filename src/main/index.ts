@@ -113,6 +113,7 @@ import {
   localPathFromFileUrl,
   decodePathSafely,
 } from '../shared/local-file-path';
+import { resolvePathAgainstWorkspace } from '../shared/workspace-path';
 import { eventRequiresSessionManager } from './client-event-utils';
 import { getUnsupportedWorkspacePathReason } from './workspace-path-constraints';
 import {
@@ -142,12 +143,26 @@ import {
 // Current working directory (persisted between sessions)
 let currentWorkingDir: string | null = null;
 
-// Load .env file from project root (for development)
-const envPath = resolve(__dirname, '../../.env');
+// Dev → `.env`; production / packaged → `.env.prod` (fallback `.env`)
+function resolveDotenvPath(): string {
+  const projectRoot = resolve(__dirname, '../..');
+  const packagedProd = app.isPackaged ? join(process.resourcesPath, '.env.prod') : null;
+  const projectProd = join(projectRoot, '.env.prod');
+  const projectDev = join(projectRoot, '.env');
+  const preferProd = app.isPackaged || !process.env.VITE_DEV_SERVER_URL;
+
+  if (preferProd) {
+    if (packagedProd && fs.existsSync(packagedProd)) return packagedProd;
+    if (fs.existsSync(projectProd)) return projectProd;
+  }
+  return projectDev;
+}
+
+const envPath = resolveDotenvPath();
 log('[dotenv] Loading from:', envPath);
 const dotenvResult = config({ path: envPath });
 if (dotenvResult.error) {
-  logWarn('[dotenv] Failed to load .env:', dotenvResult.error.message);
+  logWarn('[dotenv] Failed to load env file:', dotenvResult.error.message);
 } else {
   log('[dotenv] Loaded successfully');
 }
@@ -1918,22 +1933,13 @@ async function revealFileInFolder(filePath: string, cwd?: string): Promise<boole
   }
 
   const baseDir = cwd && isAbsolute(cwd) ? cwd : getWorkingDir() || app.getPath('home');
+  normalizedPath = resolvePathAgainstWorkspace(normalizedPath, baseDir);
   if (
     !isAbsolute(normalizedPath) &&
     !isWindowsDrivePath(normalizedPath) &&
     !isUncPath(normalizedPath)
   ) {
     normalizedPath = resolve(baseDir, normalizedPath);
-  }
-
-  if (
-    normalizedPath.startsWith('/workspace/') ||
-    /^[A-Za-z]:[/\\]workspace[/\\]/i.test(normalizedPath)
-  ) {
-    const relativePart = normalizedPath.startsWith('/workspace/')
-      ? normalizedPath.slice('/workspace/'.length)
-      : normalizedPath.replace(/^[A-Za-z]:[/\\]workspace[/\\]/i, '');
-    normalizedPath = resolve(baseDir, relativePart);
   }
 
   if (!isUncPath(normalizedPath)) {

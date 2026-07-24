@@ -87,7 +87,8 @@ function isChromeMcpServerConfig(server: Pick<MCPServerConfig, 'name' | 'args'>)
 function isLaunchpadMcpServerConfig(
   server: Pick<MCPServerConfig, 'name' | 'args' | 'url' | 'type'>
 ): boolean {
-  if (server.name.toLowerCase() === 'launchpad') {
+  const nameKey = server.name.toLowerCase().replace(/[^a-z0-9]+/g, '');
+  if (nameKey === 'launchpad' || nameKey === 'rdlaunchpad') {
     return true;
   }
   if (server.url && /launchpad\.yorkdevs\.link/i.test(server.url)) {
@@ -102,7 +103,8 @@ function isLaunchpadMcpServerConfig(
 function isHubMcpServerConfig(
   server: Pick<MCPServerConfig, 'name' | 'args' | 'url' | 'type'>
 ): boolean {
-  if (server.name.toLowerCase() === 'hub') {
+  const nameKey = server.name.toLowerCase().replace(/[^a-z0-9]+/g, '');
+  if (nameKey === 'hub' || nameKey === 'yorkiehub') {
     return true;
   }
   if (server.url && /hub\.yorkdevs\.link/i.test(server.url)) {
@@ -1630,77 +1632,156 @@ export class MCPManager {
   }
 
   /**
+   * Map a raw MCP listTools response into model-facing MCPTool entries.
+   */
+  private mapListToolsResponseToMcpTools(
+    serverId: string,
+    config: MCPServerConfig,
+    listToolsResult: {
+      tools: Array<{ name?: string; description?: string; inputSchema?: unknown }>;
+    }
+  ): MCPTool[] {
+    // Sort alphabetically so dedup suffix assignment is deterministic
+    // across reconnects (otherwise session history can reference a name
+    // that later changes if the server returns tools in a new order).
+    const sortedTools = [...listToolsResult.tools].sort((left, right) => {
+      const leftName = left.name || '';
+      const rightName = right.name || '';
+      if (leftName < rightName) return -1;
+      if (leftName > rightName) return 1;
+      return 0;
+    });
+
+    // OpenAI-compatible providers reject tool names that contain
+    // punctuation like dots or colons, so we expose a sanitized
+    // model-facing name while preserving the original MCP tool name
+    // for the actual call.
+    const serverKey = sanitizeMcpToolSegment(config.name, 'server');
+    const usedToolNames = new Set<string>();
+    return sortedTools.map((tool) => {
+      const originalToolName =
+        typeof tool.name === 'string' && tool.name.trim().length > 0 ? tool.name : 'tool';
+      const sanitizedToolName = sanitizeMcpToolSegment(originalToolName, 'tool');
+      const prefixedName = createUniqueMcpToolName(
+        `mcp__${serverKey}__${sanitizedToolName}`,
+        usedToolNames
+      );
+      return {
+        name: prefixedName,
+        originalName: originalToolName,
+        description: tool.description || '',
+        inputSchema: {
+          type: 'object',
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          properties: (tool.inputSchema as any)?.properties || {},
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          required: (tool.inputSchema as any)?.required,
+        },
+        serverId,
+        serverName: config.name,
+      } satisfies MCPTool;
+    });
+  }
+
+  /**
+   * Fetch tools from a single connected server (single listTools attempt).
+   */
+  private async fetchToolsFromServer(
+    serverId: string,
+    client: Client
+  ): Promise<RefreshToolsResult> {
+    const config = this.serverConfigs.get(serverId);
+    if (!config) {
+      return { kind: 'success', serverId, tools: [] };
+    }
+
+    const timeoutMs = MCP_LIST_TOOLS_TIMEOUT_MS;
+    log(`[MCPManager] Fetching tools from ${config.name} (timeout: ${timeoutMs}ms)...`);
+
+    try {
+      const listToolsResult = await raceWithTimeout(
+        client.listTools(),
+        timeoutMs,
+        `listTools timeout after ${timeoutMs}ms`
+      );
+
+      log(`[MCPManager] Raw tools from ${config.name}:`, listToolsResult);
+      const tools = this.mapListToolsResponseToMcpTools(serverId, config, listToolsResult);
+      log(`[MCPManager] ✓ Loaded ${tools.length} tools from ${config.name}`);
+      return { kind: 'success', serverId, tools };
+    } catch (error) {
+      return { kind: 'error', serverId, error };
+    }
+  }
+
+  /**
+   * Fetch tools from a server, reconnecting and retrying on reconnectable errors.
+   */
+  private async fetchToolsFromServerWithReconnectRetry(
+    serverId: string,
+    initialClient: Client
+  ): Promise<RefreshToolsResult> {
+    const maxRetries = 2;
+    let lastResult: RefreshToolsResult | undefined;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      const client = attempt === 0 ? initialClient : this.clients.get(serverId);
+      if (!client) {
+        return {
+          kind: 'error',
+          serverId,
+          error: new Error(`MCP server not connected: ${serverId}`),
+        };
+      }
+
+      const result = await this.fetchToolsFromServer(serverId, client);
+      if (result.kind === 'success') {
+        return result;
+      }
+
+      lastResult = result;
+      const errMsg = result.error instanceof Error ? result.error.message : String(result.error);
+
+      if (attempt >= maxRetries || !isReconnectableErrorText(errMsg)) {
+        return result;
+      }
+
+      const config = this.serverConfigs.get(serverId);
+      log(
+        `[MCPManager] Reconnectable listTools error for ${config?.name ?? serverId}; attempting reconnect (attempt ${attempt + 1}/${maxRetries + 1})...`
+      );
+
+      const reconnected = await this.reconnectServer(serverId, { skipRefresh: true });
+      if (reconnected) {
+        continue;
+      }
+
+      logWarn(
+        `[MCPManager] Reconnect attempt failed for ${config?.name ?? serverId}, will retry after backoff`
+      );
+      const delay = Math.min(2000 * Math.pow(1.5, attempt), 10000);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+
+    return (
+      lastResult ?? {
+        kind: 'error',
+        serverId,
+        error: new Error('Unknown listTools failure'),
+      }
+    );
+  }
+
+  /**
    * Refresh tools from all connected servers with timeout protection
    */
   async refreshTools(): Promise<void> {
     log('[MCPManager] Refreshing tools from all servers');
 
     const toolResults: RefreshToolsResult[] = await Promise.all(
-      Array.from(this.clients.entries()).map(async ([serverId, client]) => {
-        const config = this.serverConfigs.get(serverId);
-        if (!config) {
-          return { kind: 'success', serverId, tools: [] as MCPTool[] };
-        }
-
-        const timeoutMs = MCP_LIST_TOOLS_TIMEOUT_MS;
-        log(`[MCPManager] Fetching tools from ${config.name} (timeout: ${timeoutMs}ms)...`);
-
-        try {
-          const listToolsResult = await raceWithTimeout(
-            client.listTools(),
-            timeoutMs,
-            `listTools timeout after ${timeoutMs}ms`
-          );
-
-          log(`[MCPManager] Raw tools from ${config.name}:`, listToolsResult);
-
-          // Sort alphabetically so dedup suffix assignment is deterministic
-          // across reconnects (otherwise session history can reference a name
-          // that later changes if the server returns tools in a new order).
-          const sortedTools = [...listToolsResult.tools].sort((left, right) => {
-            const leftName = left.name || '';
-            const rightName = right.name || '';
-            if (leftName < rightName) return -1;
-            if (leftName > rightName) return 1;
-            return 0;
-          });
-
-          // OpenAI-compatible providers reject tool names that contain
-          // punctuation like dots or colons, so we expose a sanitized
-          // model-facing name while preserving the original MCP tool name
-          // for the actual call.
-          const serverKey = sanitizeMcpToolSegment(config.name, 'server');
-          const usedToolNames = new Set<string>();
-          const tools = sortedTools.map((tool) => {
-            const originalToolName =
-              typeof tool.name === 'string' && tool.name.trim().length > 0 ? tool.name : 'tool';
-            const sanitizedToolName = sanitizeMcpToolSegment(originalToolName, 'tool');
-            const prefixedName = createUniqueMcpToolName(
-              `mcp__${serverKey}__${sanitizedToolName}`,
-              usedToolNames
-            );
-            return {
-              name: prefixedName,
-              originalName: originalToolName,
-              description: tool.description || '',
-              inputSchema: {
-                type: 'object',
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                properties: (tool.inputSchema as any)?.properties || {},
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                required: (tool.inputSchema as any)?.required,
-              },
-              serverId,
-              serverName: config.name,
-            } satisfies MCPTool;
-          });
-
-          log(`[MCPManager] ✓ Loaded ${tools.length} tools from ${config.name}`);
-          return { kind: 'success' as const, serverId, tools };
-        } catch (error) {
-          return { kind: 'error' as const, serverId, error };
-        }
-      })
+      Array.from(this.clients.entries()).map(([serverId, client]) =>
+        this.fetchToolsFromServerWithReconnectRetry(serverId, client)
+      )
     );
 
     const newTools = new Map<string, MCPTool>();
@@ -1888,7 +1969,10 @@ export class MCPManager {
     throw lastError;
   }
 
-  private async reconnectServer(serverId: string): Promise<boolean> {
+  private async reconnectServer(
+    serverId: string,
+    options?: { skipRefresh?: boolean }
+  ): Promise<boolean> {
     // Prevent concurrent reconnect operations for the same server
     if (this.reconnectingServers.has(serverId)) {
       logWarn(
@@ -1908,7 +1992,9 @@ export class MCPManager {
     try {
       await this.disconnectServer(serverId);
       await this.connectServer(config);
-      await this.refreshTools();
+      if (!options?.skipRefresh) {
+        await this.refreshTools();
+      }
       log(`[MCPManager] Reconnected server ${config.name} (${serverId})`);
       return true;
     } catch (error) {

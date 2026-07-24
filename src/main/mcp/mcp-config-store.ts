@@ -38,9 +38,12 @@ export function getDefaultLaunchpadMcpUrl(): string {
 /** @deprecated Use getDefaultLaunchpadMcpUrl() — kept for call sites that need a snapshot. */
 export const DEFAULT_LAUNCHPAD_MCP_URL = getDefaultLaunchpadMcpUrl();
 
+/** Display name for the built-in Launchpad connector. */
+export const DEFAULT_LAUNCHPAD_MCP_NAME = 'R&D Launchpad';
+
 export function buildDefaultLaunchpadMcpServer(): Omit<MCPServerConfig, 'id' | 'enabled'> {
   return {
-    name: 'Launchpad',
+    name: DEFAULT_LAUNCHPAD_MCP_NAME,
     type: 'stdio',
     command: 'npx',
     args: ['-y', 'mcp-remote', getDefaultLaunchpadMcpUrl()],
@@ -52,15 +55,24 @@ export const DEFAULT_LAUNCHPAD_MCP_SERVER: Omit<MCPServerConfig, 'id' | 'enabled
 
 const DEFAULT_LAUNCHPAD_SERVER_ID = 'mcp-launchpad-default';
 
+function normalizeMcpServerNameKey(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
 function isLaunchpadHost(value: string | undefined): boolean {
   if (!value) return false;
   return /launchpad\.yorkdevs\.link/i.test(value);
 }
 
+function isLaunchpadServerName(name: string): boolean {
+  const key = normalizeMcpServerNameKey(name);
+  return key === 'launchpad' || key === 'rdlaunchpad';
+}
+
 export function isLaunchpadMcpServer(
   server: Pick<MCPServerConfig, 'name' | 'args' | 'url' | 'type'>
 ): boolean {
-  if (server.name.toLowerCase() === 'launchpad') {
+  if (isLaunchpadServerName(server.name)) {
     return true;
   }
   if (isLaunchpadHost(server.url)) {
@@ -80,9 +92,12 @@ export function getDefaultHubMcpUrl(): string {
   return authConfig.hubMcpUrl;
 }
 
+/** Display name for the built-in Hub connector. */
+export const DEFAULT_HUB_MCP_NAME = 'York IE HUB';
+
 export function buildDefaultHubMcpServer(): Omit<MCPServerConfig, 'id' | 'enabled'> {
   return {
-    name: 'Hub',
+    name: DEFAULT_HUB_MCP_NAME,
     type: 'streamable-http',
     url: getDefaultHubMcpUrl(),
   };
@@ -98,10 +113,15 @@ function isHubHost(value: string | undefined): boolean {
   return /hub\.yorkdevs\.link/i.test(value);
 }
 
+function isHubServerName(name: string): boolean {
+  const key = normalizeMcpServerNameKey(name);
+  return key === 'hub' || key === 'yorkiehub';
+}
+
 export function isHubMcpServer(
   server: Pick<MCPServerConfig, 'name' | 'args' | 'url' | 'type'>
 ): boolean {
-  if (server.name.toLowerCase() === 'hub') {
+  if (isHubServerName(server.name)) {
     return true;
   }
   if (isHubHost(server.url)) {
@@ -111,6 +131,48 @@ export function isHubMcpServer(
   const hasMcpRemote = args.some((arg) => arg.includes('mcp-remote'));
   const hasHubUrl = args.some((arg) => isHubHost(arg));
   return hasMcpRemote && hasHubUrl;
+}
+
+/**
+ * Built-in GTM Pulse MCP connector — seeded enabled by default (not a Quick Add preset).
+ * Uses streamable HTTP. Browser MCP OAuth is used at connect time.
+ */
+export function getDefaultGtmPulseMcpUrl(): string {
+  return authConfig.gtmPulseMcpUrl;
+}
+
+export function buildDefaultGtmPulseMcpServer(): Omit<MCPServerConfig, 'id' | 'enabled'> {
+  return {
+    name: 'GTM Pulse',
+    type: 'streamable-http',
+    url: getDefaultGtmPulseMcpUrl(),
+  };
+}
+
+export const DEFAULT_GTM_PULSE_MCP_SERVER: Omit<MCPServerConfig, 'id' | 'enabled'> =
+  buildDefaultGtmPulseMcpServer();
+
+const DEFAULT_GTM_PULSE_SERVER_ID = 'mcp-gtm-pulse-default';
+
+function isGtmPulseHost(value: string | undefined): boolean {
+  if (!value) return false;
+  return /gtm-pulse\.yorkdevs\.link/i.test(value);
+}
+
+export function isGtmPulseMcpServer(
+  server: Pick<MCPServerConfig, 'name' | 'args' | 'url' | 'type'>
+): boolean {
+  const normalizedName = server.name.toLowerCase().replace(/\s+/g, '-');
+  if (normalizedName === 'gtm-pulse' || normalizedName === 'gtm pulse') {
+    return true;
+  }
+  if (isGtmPulseHost(server.url)) {
+    return true;
+  }
+  const args = server.args ?? [];
+  const hasMcpRemote = args.some((arg) => arg.includes('mcp-remote'));
+  const hasGtmPulseUrl = args.some((arg) => isGtmPulseHost(arg));
+  return hasMcpRemote && hasGtmPulseUrl;
 }
 
 /**
@@ -216,7 +278,7 @@ class MCPConfigStore {
 
   /**
    * Delete a server configuration.
-   * Built-in Chrome / Launchpad / Hub MCP cannot be removed.
+   * Built-in Chrome / Launchpad / Hub / GTM Pulse MCP cannot be removed.
    */
   deleteServer(serverId: string): boolean {
     const servers = this.getServers();
@@ -231,6 +293,10 @@ class MCPConfigStore {
     }
     if (target && isHubMcpServer(target)) {
       log('[MCPConfigStore] Refusing to delete built-in Hub MCP connector');
+      return false;
+    }
+    if (target && isGtmPulseMcpServer(target)) {
+      log('[MCPConfigStore] Refusing to delete built-in GTM Pulse MCP connector');
       return false;
     }
     const filtered = servers.filter((s) => s.id !== serverId);
@@ -286,7 +352,8 @@ class MCPConfigStore {
     if (existing) {
       const needsMigration =
         existing.id === DEFAULT_LAUNCHPAD_SERVER_ID &&
-        (existing.type !== 'stdio' ||
+        (existing.name !== desired.name ||
+          existing.type !== 'stdio' ||
           existing.command !== 'npx' ||
           !existing.args?.includes('mcp-remote') ||
           !existing.args?.includes(desiredUrl));
@@ -297,7 +364,7 @@ class MCPConfigStore {
           ...desired,
         };
         this.saveServer(migrated);
-        log(`[MCPConfigStore] Migrated built-in Launchpad MCP to ${desiredUrl}`);
+        log(`[MCPConfigStore] Migrated built-in Launchpad MCP to ${desired.name} @ ${desiredUrl}`);
         return migrated;
       }
       return existing;
@@ -326,7 +393,9 @@ class MCPConfigStore {
     if (existing) {
       const needsMigration =
         existing.id === DEFAULT_HUB_SERVER_ID &&
-        (existing.type !== 'streamable-http' || existing.url !== desiredUrl);
+        (existing.name !== desired.name ||
+          existing.type !== 'streamable-http' ||
+          existing.url !== desiredUrl);
       if (needsMigration) {
         const migrated: MCPServerConfig = {
           id: existing.id,
@@ -334,7 +403,9 @@ class MCPConfigStore {
           ...desired,
         };
         this.saveServer(migrated);
-        log(`[MCPConfigStore] Migrated built-in Hub MCP to streamable-http ${desiredUrl}`);
+        log(
+          `[MCPConfigStore] Migrated built-in Hub MCP to ${desired.name} streamable-http ${desiredUrl}`
+        );
         return migrated;
       }
       return existing;
@@ -348,6 +419,43 @@ class MCPConfigStore {
     this.saveServer(hubServer);
     log(`[MCPConfigStore] Seeded default Hub MCP connector at ${desiredUrl}`);
     return hubServer;
+  }
+
+  /**
+   * Ensure the built-in GTM Pulse MCP connector exists.
+   * Does not re-enable or recreate if the user already has a GTM Pulse connector
+   * (including one they disabled or customized).
+   * Migrates the built-in default to streamable-http + current GTM Pulse MCP URL.
+   */
+  ensureDefaultGtmPulseServer(): MCPServerConfig {
+    const desiredUrl = getDefaultGtmPulseMcpUrl();
+    const desired = buildDefaultGtmPulseMcpServer();
+    const existing = this.getServers().find(isGtmPulseMcpServer);
+    if (existing) {
+      const needsMigration =
+        existing.id === DEFAULT_GTM_PULSE_SERVER_ID &&
+        (existing.type !== 'streamable-http' || existing.url !== desiredUrl);
+      if (needsMigration) {
+        const migrated: MCPServerConfig = {
+          id: existing.id,
+          enabled: existing.enabled,
+          ...desired,
+        };
+        this.saveServer(migrated);
+        log(`[MCPConfigStore] Migrated built-in GTM Pulse MCP to streamable-http ${desiredUrl}`);
+        return migrated;
+      }
+      return existing;
+    }
+
+    const gtmPulseServer: MCPServerConfig = {
+      ...desired,
+      id: DEFAULT_GTM_PULSE_SERVER_ID,
+      enabled: true,
+    };
+    this.saveServer(gtmPulseServer);
+    log(`[MCPConfigStore] Seeded default GTM Pulse MCP connector at ${desiredUrl}`);
+    return gtmPulseServer;
   }
 
   /**
