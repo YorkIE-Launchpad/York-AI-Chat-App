@@ -1621,6 +1621,8 @@ app
 
 // Flag to prevent double cleanup
 let isCleaningUp = false;
+// Tracks explicit quit intent (Cmd+Q, Quit menu, tray Quit) vs window close only
+let isQuitting = false;
 
 function withTimeout<T>(operation: Promise<T>, timeoutMs: number, label: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -1718,14 +1720,14 @@ app.on('window-all-closed', async () => {
   // The headless path manages its own lifecycle — skip cleanup here.
   if (process.argv.includes('--headless')) return;
 
-  if (process.platform !== 'darwin' || process.env.VITE_DEV_SERVER_URL) {
-    // On Windows/Linux, closing all windows means quit.
+  if (isQuitting || process.platform !== 'darwin' || process.env.VITE_DEV_SERVER_URL) {
+    // Quit when user initiated quit (Cmd+Q/Quit menu), or on Windows/Linux, or macOS dev.
     // On macOS dev mode, also quit — so vite-plugin-electron can restart cleanly
     // without the old process holding the single-instance lock.
     await cleanupSandboxResources();
     app.quit();
   }
-  // On macOS production, keep app alive — cleanup happens in before-quit
+  // On macOS production window close only (X/Cmd+W), keep app alive — cleanup in before-quit
 });
 
 // Handle SIGTERM/SIGINT (e.g. pkill) — route through app.quit() for clean shutdown
@@ -1735,30 +1737,32 @@ for (const sig of ['SIGTERM', 'SIGINT'] as const) {
 
 // Handle app quit - before-quit (for macOS Cmd+Q and other quit methods)
 app.on('before-quit', async (event) => {
-  if (!isCleaningUp) {
-    // In dev mode, exit quickly — no need for async sandbox cleanup
-    if (process.env.VITE_DEV_SERVER_URL) {
-      stopNavServer();
-      try {
-        closeDatabase();
-      } catch {
-        /* best-effort */
-      }
-      closeLogFile();
-      tray?.destroy();
-      tray = null;
-      return;
-    }
-    // Set the flag immediately before any await to prevent re-entrant cleanup
-    isCleaningUp = true;
-    event.preventDefault();
+  // In dev mode, exit quickly — no need for async sandbox cleanup
+  if (process.env.VITE_DEV_SERVER_URL) {
+    stopNavServer();
     try {
-      await cleanupSandboxResources();
-    } catch (error) {
-      logError('[App] before-quit cleanup failed, forcing quit:', error);
+      closeDatabase();
+    } catch {
+      /* best-effort */
     }
-    app.quit();
+    closeLogFile();
+    tray?.destroy();
+    tray = null;
+    return;
   }
+
+  if (isQuitting) {
+    return;
+  }
+
+  isQuitting = true;
+  event.preventDefault();
+  try {
+    await cleanupSandboxResources();
+  } catch (error) {
+    logError('[App] before-quit cleanup failed, forcing quit:', error);
+  }
+  app.exit(0);
 });
 
 // IPC Handlers
@@ -2352,11 +2356,6 @@ ipcMain.handle('mcp.saveServer', async (_event, config: MCPServerConfig) => {
       log(`[MCP] Server ${config.name} updated successfully`);
     } catch (err) {
       logError('[MCP] Failed to update server:', err);
-      // Roll back: save the config with enabled=false so a broken connector
-      // is not retried on next app startup
-      if (config.enabled) {
-        mcpConfigStore.saveServer({ ...config, enabled: false });
-      }
       const errorMessage = err instanceof Error ? err.message : String(err);
       return { success: false, error: errorMessage };
     }

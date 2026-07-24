@@ -1,7 +1,7 @@
 /**
  * Tests for MCPManager connection timeout and status tracking.
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 // electron is aliased to tests/mocks/electron.ts via vitest.config.mts (includes default export)
 
@@ -34,7 +34,10 @@ type TestManagerInternals = {
   clients: Map<string, TestMCPClient>;
   tools: Map<string, unknown>;
   serverConfigs: Map<string, MCPServerConfig>;
+  connectionStatus: Map<string, 'connecting' | 'connected' | 'failed'>;
+  connectRetryControllers: Map<string, AbortController>;
   reconnectServer?: (serverId: string, options?: { skipRefresh?: boolean }) => Promise<boolean>;
+  startConnectRetryLoop: (config: MCPServerConfig) => void;
 };
 
 function asTestManager(manager: MCPManager): TestManagerInternals {
@@ -74,7 +77,7 @@ describe('MCPManager', () => {
       });
     });
 
-    it('returns failed status when connection fails', async () => {
+    it('starts connect retry and shows connecting when connection fails', async () => {
       const configs: MCPServerConfig[] = [
         {
           id: 'test-fail',
@@ -91,8 +94,10 @@ describe('MCPManager', () => {
 
       expect(statuses).toHaveLength(1);
       expect(statuses[0].id).toBe('test-fail');
-      expect(statuses[0].status).toBe('failed');
+      expect(statuses[0].status).toBe('connecting');
       expect(statuses[0].connected).toBe(false);
+
+      await manager.disconnectServer('test-fail');
     });
 
     it('includes status field in all returned statuses', async () => {
@@ -130,10 +135,7 @@ describe('MCPManager', () => {
   });
 
   describe('connection timeout', () => {
-    it('fails with timeout error when transport never responds', async () => {
-      // Create a server config that will try to connect to a non-existent SSE endpoint
-      // The SSE transport will fail quickly (connection refused), but this validates
-      // the error is properly caught and status is set to 'failed'
+    it('shows connecting while connect retry is in progress', async () => {
       const config: MCPServerConfig = {
         id: 'timeout-test',
         name: 'Timeout Test',
@@ -147,8 +149,10 @@ describe('MCPManager', () => {
 
       const serverStatus = statuses.find((s) => s.id === 'timeout-test');
       expect(serverStatus).toBeDefined();
-      expect(serverStatus!.status).toBe('failed');
+      expect(serverStatus!.status).toBe('connecting');
       expect(serverStatus!.connected).toBe(false);
+
+      await manager.disconnectServer('timeout-test');
     });
 
     it('waits five minutes before timing out listTools for slow MCP servers', async () => {
@@ -393,6 +397,106 @@ describe('MCPManager', () => {
     });
   });
 
+  describe('connect retry on failure', () => {
+    const retryConfig: MCPServerConfig = {
+      id: 'retry-server',
+      name: 'Retry Server',
+      type: 'sse',
+      url: 'http://127.0.0.1:1/retry',
+      enabled: true,
+    };
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+      const testManager = asTestManager(manager);
+      testManager.serverConfigs.set(retryConfig.id, retryConfig);
+    });
+
+    afterEach(async () => {
+      await manager.disconnectServer(retryConfig.id);
+      vi.useRealTimers();
+    });
+
+    it('retries every 5s and succeeds before the 5 minute deadline', async () => {
+      const testManager = asTestManager(manager);
+      let attempts = 0;
+      testManager.reconnectServer = vi.fn().mockImplementation(async (serverId: string) => {
+        attempts++;
+        if (attempts >= 2) {
+          testManager.clients.set(serverId, {
+            listTools: vi.fn().mockResolvedValue({ tools: [] }),
+          });
+          testManager.connectionStatus.set(serverId, 'connected');
+          return true;
+        }
+        return false;
+      });
+
+      testManager.startConnectRetryLoop(retryConfig);
+
+      expect(manager.getServerStatus()[0].status).toBe('connecting');
+
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(testManager.reconnectServer).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(5000);
+      await Promise.resolve();
+
+      expect(testManager.reconnectServer).toHaveBeenCalledTimes(2);
+      expect(manager.getServerStatus()[0].status).toBe('connected');
+      expect(testManager.connectRetryControllers.has(retryConfig.id)).toBe(false);
+    });
+
+    it('gives up after 5 minutes and marks status failed', async () => {
+      const testManager = asTestManager(manager);
+      testManager.reconnectServer = vi.fn().mockResolvedValue(false);
+
+      testManager.startConnectRetryLoop(retryConfig);
+
+      await vi.advanceTimersByTimeAsync(5 * 60 * 1000 + 5000);
+      await Promise.resolve();
+
+      expect(testManager.reconnectServer).toHaveBeenCalledTimes(60);
+      expect(manager.getServerStatus()[0].status).toBe('failed');
+    });
+
+    it('stops retrying when the server is disconnected', async () => {
+      const testManager = asTestManager(manager);
+      testManager.reconnectServer = vi.fn().mockResolvedValue(false);
+
+      testManager.startConnectRetryLoop(retryConfig);
+
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(testManager.reconnectServer).toHaveBeenCalledTimes(1);
+
+      await manager.disconnectServer(retryConfig.id);
+
+      await vi.advanceTimersByTimeAsync(60000);
+      await Promise.resolve();
+
+      expect(testManager.reconnectServer).toHaveBeenCalledTimes(1);
+      expect(testManager.connectRetryControllers.has(retryConfig.id)).toBe(false);
+    });
+
+    it('stops retrying when the server is disabled', async () => {
+      const testManager = asTestManager(manager);
+      testManager.reconnectServer = vi.fn().mockResolvedValue(false);
+
+      testManager.startConnectRetryLoop(retryConfig);
+
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(testManager.reconnectServer).toHaveBeenCalledTimes(1);
+
+      await manager.updateServer({ ...retryConfig, enabled: false });
+
+      await vi.advanceTimersByTimeAsync(60000);
+      await Promise.resolve();
+
+      expect(testManager.reconnectServer).toHaveBeenCalledTimes(1);
+      expect(testManager.connectRetryControllers.has(retryConfig.id)).toBe(false);
+    });
+  });
+
   describe('disconnectServer()', () => {
     it('removes connection status when disconnecting', async () => {
       const configs: MCPServerConfig[] = [
@@ -407,9 +511,9 @@ describe('MCPManager', () => {
 
       await manager.initializeServers(configs);
 
-      // Server should be in failed state
+      // Server should be in connecting state while retry loop runs
       let statuses = manager.getServerStatus();
-      expect(statuses[0].status).toBe('failed');
+      expect(statuses[0].status).toBe('connecting');
 
       // After disconnect, status entry is removed; enabled server with no tracked status
       // falls back to 'connecting' (transient state)

@@ -18,7 +18,7 @@ function readEnv(key: string): string | undefined {
 }
 
 const DEFAULT_HUB_API_URL = 'https://api.uat-hub.yorkdevs.link';
-const DEFAULT_FRONTEND_URL = 'http://localhost:5173';
+const DEFAULT_FRONTEND_URL = 'http://localhost:6767';
 
 export const authConfig = {
   get hubApiUrl(): string {

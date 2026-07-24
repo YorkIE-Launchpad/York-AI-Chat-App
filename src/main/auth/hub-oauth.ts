@@ -279,7 +279,7 @@ export async function getOAuthDebugInfo(
     cognitoRedirectUri,
     oauthRelayBaseUrl: getOAuthRelayBaseUrl(),
     oauthRelayListening: isOAuthRelayListening(),
-    browserRelayPostUrl: 'http://localhost:5173/vecos-oauth-relay/relay (via Vite proxy)',
+    browserRelayPostUrl: 'http://localhost:6767/vecos-oauth-relay/relay (via Vite proxy)',
   };
 }
 

@@ -99,6 +99,8 @@ export default defineConfig(({ command }) => {
       },
     },
     server: {
+      port: 6767,
+      strictPort: true,
       watch: {
         ignored: ignoredWatchPaths,
       },

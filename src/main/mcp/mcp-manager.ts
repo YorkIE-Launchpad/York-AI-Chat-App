@@ -28,6 +28,8 @@ import { getDefaultShell } from '../utils/shell-resolver';
 
 const MCP_LIST_TOOLS_TIMEOUT_MS = 5 * 60 * 1000;
 const MCP_TOOL_CALL_TIMEOUT_MS = 5 * 60 * 1000;
+const CONNECT_RETRY_INTERVAL_MS = 5000;
+const CONNECT_RETRY_MAX_MS = 5 * 60 * 1000;
 
 type RefreshToolsResult =
   | { kind: 'success'; serverId: string; tools: MCPTool[] }
@@ -313,6 +315,8 @@ export class MCPManager {
   private pendingInitConfigs: MCPServerConfig[] | null = null;
   // Guards against concurrent reconnect/update operations on the same server
   private reconnectingServers: Set<string> = new Set();
+  // Background connect retry loops (5s interval, 5min deadline)
+  private connectRetryControllers = new Map<string, AbortController>();
   // Tracks per-server connection status for UI display
   private connectionStatus = new Map<string, 'connecting' | 'connected' | 'failed'>();
   // Chrome debug browser is started lazily on first Chrome tool call (not on MCP connect)
@@ -644,6 +648,7 @@ export class MCPManager {
             await this.connectServer(config);
           } catch (error) {
             logError(`[MCPManager] Failed to connect to server ${config.name}:`, error);
+            this.startConnectRetryLoop(config);
           }
         })
       );
@@ -694,10 +699,12 @@ export class MCPManager {
         await this.refreshTools();
       } catch (error) {
         logError(`[MCPManager] Failed to connect to server ${config.name}:`, error);
+        this.startConnectRetryLoop(config);
         throw error;
       }
     } else if (!config.enabled && isConnected) {
       // Need to disconnect
+      this.cancelConnectRetry(config.id);
       await this.disconnectServer(config.id);
       await this.refreshTools();
     } else if (config.enabled && isConnected) {
@@ -708,10 +715,12 @@ export class MCPManager {
         await this.refreshTools();
       } catch (error) {
         logError(`[MCPManager] Failed to reconnect server ${config.name}:`, error);
+        this.startConnectRetryLoop(config);
         throw error;
       }
+    } else if (!config.enabled) {
+      this.cancelConnectRetry(config.id);
     }
-    // If disabled and not connected, nothing to do
   }
 
   /**
@@ -807,6 +816,106 @@ export class MCPManager {
   }
 
   /**
+   * Cancel the background connect retry loop for a server.
+   */
+  private cancelConnectRetry(serverId: string): void {
+    const controller = this.connectRetryControllers.get(serverId);
+    if (controller) {
+      controller.abort();
+      this.connectRetryControllers.delete(serverId);
+    }
+  }
+
+  /**
+   * Cancel all background connect retry loops.
+   */
+  private cancelAllConnectRetries(): void {
+    for (const serverId of Array.from(this.connectRetryControllers.keys())) {
+      this.cancelConnectRetry(serverId);
+    }
+  }
+
+  /**
+   * Start a background loop that retries connecting every 5s for up to 5 minutes.
+   */
+  private startConnectRetryLoop(config: MCPServerConfig): void {
+    const serverId = config.id;
+    if (!config.enabled) {
+      return;
+    }
+    if (this.connectRetryControllers.has(serverId)) {
+      return;
+    }
+
+    const controller = new AbortController();
+    this.connectRetryControllers.set(serverId, controller);
+    this.connectionStatus.set(serverId, 'connecting');
+
+    log(
+      `[MCPManager] Starting connect retry loop for ${config.name} (every ${CONNECT_RETRY_INTERVAL_MS}ms, up to ${CONNECT_RETRY_MAX_MS}ms)`
+    );
+
+    void this.runConnectRetryLoop(serverId, controller);
+  }
+
+  private async runConnectRetryLoop(serverId: string, controller: AbortController): Promise<void> {
+    const deadline = Date.now() + CONNECT_RETRY_MAX_MS;
+
+    try {
+      while (Date.now() < deadline) {
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        try {
+          await abortableDelay(CONNECT_RETRY_INTERVAL_MS, controller.signal);
+        } catch {
+          return;
+        }
+
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        const currentConfig = this.serverConfigs.get(serverId);
+        if (!currentConfig?.enabled) {
+          log(
+            `[MCPManager] Stopping connect retry for ${currentConfig?.name ?? serverId}: server disabled or removed`
+          );
+          return;
+        }
+
+        if (this.clients.has(serverId)) {
+          this.connectionStatus.set(serverId, 'connected');
+          return;
+        }
+
+        this.connectionStatus.set(serverId, 'connecting');
+        const reconnected = await this.reconnectServer(serverId, { skipRefresh: true });
+        if (reconnected) {
+          await this.refreshTools();
+          log(`[MCPManager] Connect retry succeeded for ${currentConfig.name}`);
+          return;
+        }
+
+        this.connectionStatus.set(serverId, 'connecting');
+      }
+
+      if (!controller.signal.aborted && !this.clients.has(serverId)) {
+        this.connectionStatus.set(serverId, 'failed');
+        const config = this.serverConfigs.get(serverId);
+        logWarn(
+          `[MCPManager] Giving up connect retry for ${config?.name ?? serverId} after ${CONNECT_RETRY_MAX_MS}ms`
+        );
+      }
+    } finally {
+      if (this.connectRetryControllers.get(serverId) === controller) {
+        this.connectRetryControllers.delete(serverId);
+      }
+    }
+  }
+
+  /**
    * Connect to a single MCP server
    */
   private async connectServer(config: MCPServerConfig): Promise<void> {
@@ -818,6 +927,7 @@ export class MCPManager {
     try {
       await this.connectServerInternal(config);
       this.connectionStatus.set(config.id, 'connected');
+      this.cancelConnectRetry(config.id);
     } catch (error) {
       this.connectionStatus.set(config.id, 'failed');
       throw error;
@@ -1591,6 +1701,8 @@ export class MCPManager {
    * Disconnect from a specific server
    */
   async disconnectServer(serverId: string): Promise<void> {
+    this.cancelConnectRetry(serverId);
+
     const client = this.clients.get(serverId);
     const transport = this.transports.get(serverId);
 
@@ -1634,6 +1746,8 @@ export class MCPManager {
    * Disconnect from all servers
    */
   async disconnectAll(): Promise<void> {
+    this.cancelAllConnectRetries();
+
     const serverIds = Array.from(this.clients.keys());
     for (const serverId of serverIds) {
       await this.disconnectServer(serverId);
@@ -2075,6 +2189,27 @@ export class MCPManager {
 
 function hasNonEmptyEnvValue(value: string | undefined): boolean {
   return typeof value === 'string' && value.trim().length > 0;
+}
+
+function abortableDelay(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(new DOMException('Aborted', 'AbortError'));
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new DOMException('Aborted', 'AbortError'));
+    };
+
+    signal.addEventListener('abort', onAbort);
+  });
 }
 
 function isProtectedConfigEnvKey(key: string): boolean {
