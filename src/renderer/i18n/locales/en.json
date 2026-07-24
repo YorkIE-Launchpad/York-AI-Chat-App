@@ -727,6 +727,13 @@
     "taskProgress": "Task Progress",
     "noQuestions": "No questions",
     "question": "Question",
+    "pleaseAnswer": "Please answer to continue",
+    "questionsAnswered": "Questions answered",
+    "questionClosed": "Question closed",
+    "questionClosedHint": "This question is no longer awaiting a response.",
+    "recommended": "Recommended",
+    "submitAnswers": "Submit Answers",
+    "freeTextPlaceholder": "Type your answer…",
     "thinking": "Thinking",
     "executionTime": "Execution time: {{time}}"
   },

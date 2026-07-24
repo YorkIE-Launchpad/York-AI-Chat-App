@@ -39,7 +39,7 @@ export const ToolUseBlock = memo(function ToolUseBlock({
 
   // Special-case tool UIs
   if (block.name === 'AskUserQuestion') {
-    return <AskUserQuestionBlock block={block} />;
+    return <AskUserQuestionBlock block={block} message={message} />;
   }
   if (block.name === 'TodoWrite') {
     return <TodoWriteBlock block={block} />;

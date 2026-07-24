@@ -39,6 +39,7 @@ import { MCPManager } from '../mcp/mcp-manager';
 import { mcpConfigStore } from '../mcp/mcp-config-store';
 import { PluginRuntimeService } from '../skills/plugin-runtime-service';
 import { AgentRuntimeExtensionManager } from '../extensions/agent-runtime-extension-manager';
+import type { AskUserQuestionExtension } from '../tools/ask-user-question-extension';
 import { forgetSessionPermissions } from '../config/permission-rules-store';
 import {
   log,
@@ -91,6 +92,7 @@ export class SessionManager {
   private mcpManager: MCPManager;
   private pluginRuntimeService?: PluginRuntimeService;
   private extensionManager?: AgentRuntimeExtensionManager;
+  private askUserQuestionExtension?: AskUserQuestionExtension;
   private activeSessions: Map<string, AbortController> = new Map();
   private promptQueues: Map<string, Array<{ prompt: string; content?: ContentBlock[] }>> =
     new Map();
@@ -109,7 +111,8 @@ export class SessionManager {
     db: DatabaseInstance,
     sendToRenderer: (event: ServerEvent) => void,
     pluginRuntimeService?: PluginRuntimeService,
-    extensionManager?: AgentRuntimeExtensionManager
+    extensionManager?: AgentRuntimeExtensionManager,
+    askUserQuestionExtension?: AskUserQuestionExtension
   ) {
     this.db = db;
     this.sendToRenderer = (event) => {
@@ -125,6 +128,7 @@ export class SessionManager {
     this.sandboxAdapter = getSandboxAdapter();
     this.pluginRuntimeService = pluginRuntimeService;
     this.extensionManager = extensionManager;
+    this.askUserQuestionExtension = askUserQuestionExtension;
 
     // Initialize MCP Manager
     this.mcpManager = new MCPManager();
@@ -960,6 +964,8 @@ export class SessionManager {
         this.sendToRenderer({ type: 'sudo.password.dismiss', payload: { toolUseId } });
       }
     }
+    // Cancel pending AskUserQuestion waits so the agent Promise cannot hang
+    this.askUserQuestionExtension?.dismissSessionQuestions(sessionId, 'session stopped');
     // Also abort any pending controller we tracked
     const controller = this.activeSessions.get(sessionId);
     if (controller) {
@@ -968,6 +974,23 @@ export class SessionManager {
     this.promptQueues.delete(sessionId);
     this.messageCache.delete(sessionId);
     this.updateSessionStatus(sessionId, 'idle');
+  }
+
+  /** Resolve a pending AskUserQuestion from the renderer / remote channel. */
+  handleQuestionResponse(questionId: string, answer: string): boolean {
+    if (!this.askUserQuestionExtension) {
+      logWarn('[SessionManager] No AskUserQuestion extension registered');
+      return false;
+    }
+    return this.askUserQuestionExtension.handleQuestionResponse(questionId, answer);
+  }
+
+  /** Cancel a pending AskUserQuestion without treating it as a user answer. */
+  cancelQuestion(questionId: string, reason: string): boolean {
+    if (!this.askUserQuestionExtension) {
+      return false;
+    }
+    return this.askUserQuestionExtension.cancelQuestion(questionId, reason);
   }
 
   // Delete a session

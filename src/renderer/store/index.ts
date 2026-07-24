@@ -5,6 +5,7 @@ import type {
   TraceStep,
   PermissionRequest,
   SudoPasswordRequest,
+  UserQuestionRequest,
   Settings,
   AppConfig,
   SandboxSetupProgress,
@@ -105,6 +106,9 @@ interface AppState {
   // Permission
   pendingPermission: PermissionRequest | null;
 
+  // AskUserQuestion — keyed by sessionId so concurrent sessions cannot clobber each other
+  pendingQuestionsBySessionId: Record<string, UserQuestionRequest>;
+
   // Sudo password
   pendingSudoPassword: SudoPasswordRequest | null;
 
@@ -171,6 +175,9 @@ interface AppState {
   setSettingsTab: (tab: string | null) => void;
 
   setPendingPermission: (permission: PermissionRequest | null) => void;
+
+  setPendingQuestion: (question: UserQuestionRequest) => void;
+  clearPendingQuestion: (sessionId: string, questionId?: string) => void;
 
   setPendingSudoPassword: (request: SudoPasswordRequest | null) => void;
 
@@ -246,6 +253,7 @@ export const useAppStore = create<AppState>((set) => ({
   showSettings: false,
   settingsTab: null,
   pendingPermission: null,
+  pendingQuestionsBySessionId: {},
   pendingSudoPassword: null,
   settings: defaultSettings,
   appConfig: null,
@@ -279,7 +287,8 @@ export const useAppStore = create<AppState>((set) => ({
 
   removeSession: (sessionId) =>
     set((state) => {
-      const { [sessionId]: _, ...restSessionStates } = state.sessionStates;
+      const restSessionStates = { ...state.sessionStates };
+      delete restSessionStates[sessionId];
       const restScrollPositions = Object.fromEntries(
         Object.entries(state.sessionScrollPositions).filter(([id]) => id !== sessionId)
       );
@@ -579,6 +588,28 @@ export const useAppStore = create<AppState>((set) => ({
 
   // Permission actions
   setPendingPermission: (permission) => set({ pendingPermission: permission }),
+
+  // AskUserQuestion actions
+  setPendingQuestion: (question) =>
+    set((state) => ({
+      pendingQuestionsBySessionId: {
+        ...state.pendingQuestionsBySessionId,
+        [question.sessionId]: question,
+      },
+    })),
+  clearPendingQuestion: (sessionId, questionId) =>
+    set((state) => {
+      const current = state.pendingQuestionsBySessionId[sessionId];
+      if (!current) {
+        return state;
+      }
+      if (questionId && current.questionId !== questionId) {
+        return state;
+      }
+      const next = { ...state.pendingQuestionsBySessionId };
+      delete next[sessionId];
+      return { pendingQuestionsBySessionId: next };
+    }),
 
   // Sudo password actions
   setPendingSudoPassword: (request) => set({ pendingSudoPassword: request }),

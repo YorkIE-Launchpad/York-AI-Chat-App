@@ -39,6 +39,7 @@ import { ConfigExtension } from './config/config-extension';
 import { SubagentExtension } from './agent/subagent-extension';
 import { AgentRuntimeExtensionManager } from './extensions/agent-runtime-extension-manager';
 import { WebFetchExtension } from './tools/web-fetch-extension';
+import { AskUserQuestionExtension } from './tools/ask-user-question-extension';
 import {
   configStore,
   getPiAiModelPresets,
@@ -954,6 +955,44 @@ function sendToRenderer(event: ServerEvent) {
         });
       return; // Do not send to local UI
     }
+
+    // Intercept question.request — always resolve so the agent cannot hang
+    if (event.type === 'question.request' && payload.questionId && payload.questions) {
+      log('[Remote] Intercepting question for remote session:', sessionId);
+      remoteManager
+        .handleQuestionRequest(
+          sessionId,
+          payload.questionId as string,
+          payload.questions as Array<{
+            question: string;
+            header?: string;
+            options?: Array<{ label: string; description?: string; recommended?: boolean }>;
+            multiSelect?: boolean;
+          }>
+        )
+        .then((answer) => {
+          if (!sessionManager) {
+            return;
+          }
+          if (answer !== null) {
+            sessionManager.handleQuestionResponse(payload.questionId as string, answer);
+          } else {
+            // Gateway send failed / not a remote session path that returned null
+            sessionManager.cancelQuestion(
+              payload.questionId as string,
+              'remote question delivery failed'
+            );
+          }
+        })
+        .catch((err) => {
+          logError('[Remote] Failed to handle question request:', err);
+          sessionManager?.cancelQuestion(
+            payload.questionId as string,
+            'remote question handler error'
+          );
+        });
+      return; // Do not send to local UI
+    }
   }
 
   // Send to local UI (or headless JSONL sender)
@@ -1034,19 +1073,8 @@ app
 
       pluginRuntimeService = new PluginRuntimeService(new PluginCatalogService());
       memoryService = new MemoryService(db);
-      const headlessExtensionManager = new AgentRuntimeExtensionManager([
-        new MemoryExtension(memoryService),
-        new ConfigExtension(configStore),
-        new WebFetchExtension(),
-        new SubagentExtension(
-          () => sessionManager?.getMCPManager() ?? null,
-          sendToRenderer,
-          async (toolName, toolInput) =>
-            resolveSubagentToolPermission(toolName, toolInput as Record<string, unknown>)
-        ),
-      ]);
 
-      // Build the JSONL sender with permission interception BEFORE constructing SessionManager
+      // Build the JSONL sender with permission/question interception BEFORE constructing SessionManager
       const headlessSendToRenderer = createHeadlessSendToRenderer();
       // Mutable interceptor: set in stdio mode to route events to StdioChannel
       let stdioEventInterceptor: ((event: ServerEvent) => void) | null = null;
@@ -1059,6 +1087,14 @@ app
           );
           setTimeout(() => {
             sessionManager?.handlePermissionResponse(toolUseId, result);
+          }, 0);
+        }
+        if (event.type === 'question.request') {
+          const { questionId } = event.payload;
+          // Headless has no interactive UI — auto-cancel so the agent can proceed with assumptions
+          log(`[Headless] AskUserQuestion auto-cancelled for ${questionId}`);
+          setTimeout(() => {
+            sessionManager?.cancelQuestion(questionId, 'headless mode has no UI');
           }, 0);
         }
         if (event.type === 'sudo.password.request') {
@@ -1077,6 +1113,22 @@ app
         headlessSendToRenderer(event);
       };
 
+      const headlessAskUserQuestionExtension = new AskUserQuestionExtension(
+        headlessSendWithPermission
+      );
+      const headlessExtensionManager = new AgentRuntimeExtensionManager([
+        new MemoryExtension(memoryService),
+        new ConfigExtension(configStore),
+        new WebFetchExtension(),
+        headlessAskUserQuestionExtension,
+        new SubagentExtension(
+          () => sessionManager?.getMCPManager() ?? null,
+          sendToRenderer,
+          async (toolName, toolInput) =>
+            resolveSubagentToolPermission(toolName, toolInput as Record<string, unknown>)
+        ),
+      ]);
+
       // Set the global event sender so handleClientEvent's sendToRenderer calls
       // go through JSONL instead of the null mainWindow
       eventSender = headlessSendWithPermission;
@@ -1085,7 +1137,8 @@ app
         db,
         headlessSendWithPermission,
         pluginRuntimeService,
-        headlessExtensionManager
+        headlessExtensionManager,
+        headlessAskUserQuestionExtension
       );
 
       skillsManager = new SkillsManager(db, {
@@ -1437,10 +1490,12 @@ app
 
     pluginRuntimeService = new PluginRuntimeService(new PluginCatalogService());
     memoryService = new MemoryService(db);
+    const askUserQuestionExtension = new AskUserQuestionExtension(sendToRenderer);
     const extensionManager = new AgentRuntimeExtensionManager([
       new MemoryExtension(memoryService),
       new ConfigExtension(configStore),
       new WebFetchExtension(),
+      askUserQuestionExtension,
       new SubagentExtension(
         () => sessionManager?.getMCPManager() ?? null,
         sendToRenderer,
@@ -1451,7 +1506,13 @@ app
 
     // Initialize session manager before creating an interactive window.
     // This avoids session.start racing the startup path and hitting a null manager.
-    sessionManager = new SessionManager(db, sendToRenderer, pluginRuntimeService, extensionManager);
+    sessionManager = new SessionManager(
+      db,
+      sendToRenderer,
+      pluginRuntimeService,
+      extensionManager,
+      askUserQuestionExtension
+    );
     skillsManager = new SkillsManager(db, {
       getConfiguredGlobalSkillsPath: () => configStore.get('globalSkillsPath') || '',
       setConfiguredGlobalSkillsPath: (nextPath: string) => {
@@ -3515,6 +3576,9 @@ async function handleClientEvent(event: ClientEvent): Promise<unknown> {
 
     case 'permission.response':
       return sm.handlePermissionResponse(event.payload.toolUseId, event.payload.result);
+
+    case 'question.response':
+      return sm.handleQuestionResponse(event.payload.questionId, event.payload.answer);
 
     case 'sudo.password.response':
       return sm.handleSudoPasswordResponse(event.payload.toolUseId, event.payload.password);

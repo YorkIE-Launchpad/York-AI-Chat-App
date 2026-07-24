@@ -51,12 +51,171 @@ export interface RemoteInteraction {
   questions?: Array<{
     question: string;
     header?: string;
-    options?: Array<{ label: string; description?: string }>;
+    options?: Array<{ label: string; description?: string; recommended?: boolean }>;
     multiSelect?: boolean;
   }>;
   input?: Record<string, unknown>;
   createdAt: number;
   expiresAt: number;
+}
+
+type RemoteQuestionOption = {
+  label: string;
+  description?: string;
+  recommended?: boolean;
+};
+
+type RemoteQuestionItem = {
+  question: string;
+  header?: string;
+  options?: RemoteQuestionOption[];
+  multiSelect?: boolean;
+};
+
+/**
+ * Parse remote channel replies for AskUserQuestion.
+ * Multi-question forms expect `Q1: A` / `Q1: 1,3` lines.
+ * Single-question forms still accept bare `A` / `1` / free text.
+ */
+export function parseRemoteQuestionResponse(
+  messageText: string,
+  questions: RemoteQuestionItem[]
+): string {
+  const trimmed = messageText.trim();
+  if (trimmed.toLowerCase() === 'skip') {
+    return '{}';
+  }
+
+  const answers: Record<number, string[]> = {};
+  const qLinePattern = /Q(\d+)\s*[:-]\s*(.+)/gi;
+  const qLines = new Map<number, string>();
+  let match: RegExpExecArray | null;
+  while ((match = qLinePattern.exec(trimmed)) !== null) {
+    const qNum = Number.parseInt(match[1], 10);
+    if (Number.isFinite(qNum) && qNum >= 1) {
+      qLines.set(qNum - 1, match[2].trim());
+    }
+  }
+
+  const resolveOptionTokens = (
+    tokenText: string,
+    options: RemoteQuestionOption[],
+    multiSelect: boolean
+  ): string[] => {
+    const tokens = tokenText
+      .split(/[,\s]+/)
+      .map((t) => t.trim())
+      .filter(Boolean);
+    const selected: string[] = [];
+
+    for (const token of tokens) {
+      const upper = token.toUpperCase();
+      // Letter like A / B
+      if (/^[A-Z]$/.test(upper)) {
+        const idx = upper.charCodeAt(0) - 65;
+        if (idx >= 0 && idx < options.length) {
+          selected.push(options[idx].label);
+          if (!multiSelect) {
+            break;
+          }
+          continue;
+        }
+      }
+      // Number like 1 / 2
+      if (/^\d+$/.test(token)) {
+        const idx = Number.parseInt(token, 10) - 1;
+        if (idx >= 0 && idx < options.length) {
+          selected.push(options[idx].label);
+          if (!multiSelect) {
+            break;
+          }
+          continue;
+        }
+      }
+      // Exact label match (case-insensitive)
+      const byLabel = options.find((o) => o.label.toLowerCase() === token.toLowerCase());
+      if (byLabel) {
+        selected.push(byLabel.label);
+        if (!multiSelect) {
+          break;
+        }
+      }
+    }
+
+    return multiSelect ? selected : selected.slice(0, 1);
+  };
+
+  questions.forEach((q, qIdx) => {
+    const perQuestion = qLines.get(qIdx);
+    const source =
+      perQuestion ??
+      (questions.length === 1 || qLines.size === 0 ? (questions.length === 1 ? trimmed : '') : '');
+
+    if (!source) {
+      return;
+    }
+
+    if (q.options && q.options.length > 0) {
+      // For multi-question without Qn: lines, ignore bare digits (ambiguous)
+      if (!perQuestion && questions.length > 1) {
+        return;
+      }
+      const selected = resolveOptionTokens(source, q.options, Boolean(q.multiSelect));
+      if (selected.length > 0) {
+        answers[qIdx] = selected;
+      }
+    } else if (source) {
+      answers[qIdx] = [source];
+    }
+  });
+
+  return JSON.stringify(answers);
+}
+
+export function formatRemoteQuestionMessage(questions: RemoteQuestionItem[]): string {
+  let messageText = '**Your answer is needed**\n\n';
+
+  questions.forEach((q, qIdx) => {
+    const qLabel = `Q${qIdx + 1}`;
+    if (q.header) {
+      messageText += `**${qLabel} · ${q.header}**\n`;
+    } else {
+      messageText += `**${qLabel}**\n`;
+    }
+    messageText += `${q.question}\n\n`;
+
+    if (q.options && q.options.length > 0) {
+      q.options.forEach((opt, optIdx) => {
+        const letter = String.fromCharCode(65 + optIdx);
+        messageText += `  ${letter}. ${opt.label}`;
+        if (opt.recommended) {
+          messageText += ' *(Recommended)*';
+        }
+        if (opt.description) {
+          messageText += ` — ${opt.description}`;
+        }
+        messageText += '\n';
+      });
+      messageText += '\n';
+      if (questions.length > 1) {
+        messageText += q.multiSelect
+          ? `*(Reply as \`${qLabel}: A,C\` or \`${qLabel}: 1,3\`)*\n\n`
+          : `*(Reply as \`${qLabel}: A\` or \`${qLabel}: 1\`)*\n\n`;
+      } else {
+        messageText += q.multiSelect
+          ? `*(Multiple selections allowed, e.g. A,C or 1,3)*\n\n`
+          : `*(Reply with the letter or number, e.g. A or 1)*\n\n`;
+      }
+    } else {
+      messageText +=
+        questions.length > 1
+          ? `*(Reply as \`${qLabel}: your answer\`)*\n\n`
+          : `*(Reply with your answer directly)*\n\n`;
+    }
+  });
+
+  messageText += `---\n*Reply to this message to answer, or send "Skip" to skip the question*`;
+  return messageText;
 }
 
 export class RemoteManager extends EventEmitter {
@@ -85,7 +244,7 @@ export class RemoteManager extends EventEmitter {
   private pendingInteractions: Map<string, RemoteInteraction> = new Map();
 
   // Callbacks for resolving pending interactions
-  private interactionResolvers: Map<string, (response: string) => void> = new Map();
+  private interactionResolvers: Map<string, (response: string | null) => void> = new Map();
 
   // Response buffer for collecting messages before sending (to avoid spam)
   private responseBuffers: Map<string, { texts: string[]; lastSent: number; toolSteps: string[] }> =
@@ -527,7 +686,7 @@ export class RemoteManager extends EventEmitter {
     questions: Array<{
       question: string;
       header?: string;
-      options?: Array<{ label: string; description?: string }>;
+      options?: Array<{ label: string; description?: string; recommended?: boolean }>;
       multiSelect?: boolean;
     }>
   ): Promise<string | null> {
@@ -543,35 +702,7 @@ export class RemoteManager extends EventEmitter {
 
     log('[RemoteManager] Handling question request for remote session:', remoteSessionId);
 
-    // Build question message for Feishu
-    let messageText = '🤔 **Your answer is needed**\n\n';
-
-    questions.forEach((q, _qIdx) => {
-      if (q.header) {
-        messageText += `**${q.header}**\n`;
-      }
-      messageText += `${q.question}\n\n`;
-
-      if (q.options && q.options.length > 0) {
-        q.options.forEach((opt, optIdx) => {
-          messageText += `  ${optIdx + 1}. ${opt.label}`;
-          if (opt.description) {
-            messageText += ` - ${opt.description}`;
-          }
-          messageText += '\n';
-        });
-        messageText += '\n';
-        if (q.multiSelect) {
-          messageText += `*(Multiple selections allowed, comma-separated, e.g. 1,3)*\n\n`;
-        } else {
-          messageText += `*(Reply with the option number, e.g. 1)*\n\n`;
-        }
-      } else {
-        messageText += `*(Reply with your answer directly)*\n\n`;
-      }
-    });
-
-    messageText += `---\n*Reply to this message to answer, or send "Skip" to skip the question*`;
+    const messageText = formatRemoteQuestionMessage(questions);
 
     // Store pending interaction
     const interaction: RemoteInteraction = {
@@ -610,7 +741,7 @@ export class RemoteManager extends EventEmitter {
     return new Promise((resolve) => {
       this.interactionResolvers.set(questionId, resolve);
 
-      // Set timeout
+      // Set timeout — resolve null so the agent path cancels (not empty success)
       setTimeout(
         () => {
           this.withInteractionLock(async () => {
@@ -618,7 +749,7 @@ export class RemoteManager extends EventEmitter {
               log('[RemoteManager] Question timeout:', questionId);
               this.pendingInteractions.delete(questionId);
               this.interactionResolvers.delete(questionId);
-              resolve('{}'); // Return empty answer on timeout
+              resolve(null);
             }
           }).catch((err) => logError('[RemoteManager] Question timeout lock error:', err));
         },
@@ -735,6 +866,10 @@ export class RemoteManager extends EventEmitter {
     // Wait for user response
     return new Promise((resolve) => {
       this.interactionResolvers.set(toolUseId, (response) => {
+        if (response === null) {
+          resolve({ allow: false });
+          return;
+        }
         const lowerResponse = response.toLowerCase().trim();
         if (lowerResponse === 'allow' || lowerResponse === 'y' || lowerResponse === 'yes') {
           resolve({ allow: true });
@@ -837,39 +972,11 @@ export class RemoteManager extends EventEmitter {
     messageText: string,
     questions: Array<{
       question: string;
-      options?: Array<{ label: string; description?: string }>;
+      options?: Array<{ label: string; description?: string; recommended?: boolean }>;
       multiSelect?: boolean;
     }>
   ): string {
-    const answers: Record<number, string[]> = {};
-
-    // Handle "Skip" response
-    if (messageText.toLowerCase().trim() === 'skip') {
-      return '{}';
-    }
-
-    // Simple parsing: if there are options, try to parse numbers
-    questions.forEach((q, qIdx) => {
-      if (q.options && q.options.length > 0) {
-        // Parse comma-separated numbers like "1,3" or single number like "2"
-        const numbers = messageText.match(/\d+/g);
-        if (numbers) {
-          const selectedLabels = numbers
-            .map((n) => parseInt(n) - 1) // Convert to 0-indexed
-            .filter((idx) => idx >= 0 && idx < q.options!.length)
-            .map((idx) => q.options![idx].label);
-
-          if (selectedLabels.length > 0) {
-            answers[qIdx] = q.multiSelect ? selectedLabels : [selectedLabels[0]];
-          }
-        }
-      } else {
-        // Free text answer
-        answers[qIdx] = [messageText.trim()];
-      }
-    });
-
-    return JSON.stringify(answers);
+    return parseRemoteQuestionResponse(messageText, questions);
   }
 
   /**

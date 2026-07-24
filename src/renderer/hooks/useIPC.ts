@@ -147,6 +147,7 @@ export function useIPC() {
               store.clearActiveTurn(event.payload.sessionId);
               store.clearPendingTurns(event.payload.sessionId);
               store.clearQueuedMessages(event.payload.sessionId);
+              store.clearPendingQuestion(event.payload.sessionId);
             }
             break;
 
@@ -224,6 +225,14 @@ export function useIPC() {
             }
             break;
           }
+
+          case 'question.request':
+            store.setPendingQuestion(event.payload);
+            break;
+
+          case 'question.dismiss':
+            store.clearPendingQuestion(event.payload.sessionId, event.payload.questionId);
+            break;
 
           case 'stream.executionTime':
             store.updateMessage(event.payload.sessionId, event.payload.messageId, {
@@ -415,6 +424,7 @@ export function useIPC() {
   const addMessage = useAppStore((s) => s.addMessage);
   const setLoading = useAppStore((s) => s.setLoading);
   const setPendingPermission = useAppStore((s) => s.setPendingPermission);
+  const clearPendingQuestion = useAppStore((s) => s.clearPendingQuestion);
   const clearActiveTurn = useAppStore((s) => s.clearActiveTurn);
   const activateNextTurn = useAppStore((s) => s.activateNextTurn);
   const clearPendingTurns = useAppStore((s) => s.clearPendingTurns);
@@ -674,6 +684,7 @@ export function useIPC() {
       clearPendingTurns(sessionId);
       clearActiveTurn(sessionId);
       finishExecutionClock(sessionId);
+      clearPendingQuestion(sessionId);
       if (!isElectron) {
         updateSession(sessionId, { status: 'idle' });
         setLoading(false);
@@ -690,6 +701,7 @@ export function useIPC() {
       clearPendingTurns,
       clearActiveTurn,
       finishExecutionClock,
+      clearPendingQuestion,
     ]
   );
 
@@ -759,6 +771,17 @@ export function useIPC() {
     [send, setPendingPermission]
   );
 
+  const respondToQuestion = useCallback(
+    (sessionId: string, questionId: string, answer: string) => {
+      send({
+        type: 'question.response',
+        payload: { questionId, answer },
+      });
+      clearPendingQuestion(sessionId, questionId);
+    },
+    [send, clearPendingQuestion]
+  );
+
   const setPendingSudoPassword = useAppStore((s) => s.setPendingSudoPassword);
 
   const respondToSudoPassword = useCallback(
@@ -822,6 +845,7 @@ export function useIPC() {
     getSessionMessages,
     getSessionTraceSteps,
     respondToPermission,
+    respondToQuestion,
     respondToSudoPassword,
     selectFolder,
     getWorkingDir,

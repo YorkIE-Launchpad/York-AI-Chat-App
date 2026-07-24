@@ -85,11 +85,7 @@ import {
   normalizeMcpToolResultForModel,
   normalizeToolExecutionResultForUi,
 } from './tool-result-utils';
-import {
-  MCP_META_TOOL_BEHAVIOR,
-  selectCustomToolsForModel,
-  type McpToolExposureMode,
-} from './mcp-tool-budget';
+import { selectCustomToolsForModel, type McpToolExposureMode } from './mcp-tool-budget';
 import { fetchOllamaModelInfo } from '../config/ollama-api';
 import { createWindowsBashOperations } from './windows-bash-operations';
 import { createCompactionExtensionFactory } from './compaction-extension';
@@ -2245,7 +2241,7 @@ Do not write to /mnt/user-data or other absolute mount paths — they are not th
         'You are a York IE VECOS assistant. Be concise, accurate, and tool-capable.',
         `CRITICAL BEHAVIORAL RULES:
 1. CHAT FIRST: By default, respond to the user in plain text within the conversation. Do NOT create, write, or edit files unless the user explicitly asks you to (e.g., "create a file", "write this to...", "edit the code", "save as...", mentions a specific file path, or describes code changes they want applied). For questions, summaries, explanations, analysis, and general conversation — always reply directly in chat text.
-2. When a request is actionable, proceed immediately with reasonable assumptions. If you need clarification, ask briefly in plain text.
+2. NEVER ask clarification questions in plain text. When a request is actionable, proceed immediately with reasonable assumptions. If you truly cannot proceed without user input, you MUST use the AskUserQuestion tool — never write questions as regular assistant text.
 3. For relative time windows like "within two days" in browsing or research tasks, assume the most recent two relevant publication days unless the user explicitly defines another date range.
 4. For bracketed placeholders like [Agent], [Topic], etc., treat the word inside brackets as the literal search keyword unless the user says otherwise.
 5. When given a task, START DOING IT. Do not restate the task, do not list what you will do, do not ask for confirmation. Just execute.`,
@@ -2254,12 +2250,25 @@ Do not write to /mnt/user-data or other absolute mount paths — they are not th
         `<citation_requirements>
 If your answer uses linkable content from MCP tools, include a "Sources:" section and otherwise use standard Markdown links: [Title](https://claude.ai/chat/URL).
 </citation_requirements>`,
-        mcpToolMode === 'meta'
-          ? MCP_META_TOOL_BEHAVIOR
-          : `<tool_behavior>
-Tool routing:
+        `<tool_behavior>
+AskUserQuestion:
+- ONLY use AskUserQuestion when you absolutely cannot proceed without user input AND the missing detail would make the next action likely wrong.
+- Prefer assumptions when safe. Never ask for confirmation or write "before I start" preambles in plain text.
+- When asking: provide 2–4 options (A/B/C/D) and mark exactly one option with recommended: true.
+- Ask once when necessary. A second ask is allowed only if the first answer still leaves a critical fork.
+- Bundle related decisions into a single AskUserQuestion call (multi-question form), not a chain of asks.
+- After answers (or after the 2nd ask / ask budget exhausted), START DOING THE WORK — never re-ask the same decision.
+
+${
+  mcpToolMode === 'meta'
+    ? `MCP tool access (budget mode):
+- Connected MCP servers expose too many tools to list directly for this model API.
+- Discover tools with mcp_search_tools (optional query/server/limit), then invoke with mcp_call_tool using the exact tool name returned.
+- Prefer webfetch for reading http/https page content; use Chrome MCP only for interactive browser work.`
+    : `Tool routing:
 - Prefer webfetch for reading or fetching http/https page content (no browser window).
-- Prefer Chrome MCP tools (mcp__Chrome__*) only when the user asks for interactive browser work (navigate, click, screenshot, login flows).
+- Prefer Chrome MCP tools (mcp__Chrome__*) only when the user asks for interactive browser work (navigate, click, screenshot, login flows).`
+}
 </tool_behavior>`,
         this.getBundledPathHints(),
       ]

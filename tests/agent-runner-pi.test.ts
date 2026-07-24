@@ -121,10 +121,13 @@ describe('CoworkAgentRunner York IE SDK integration', () => {
     expect(agentRunnerContent).toContain('model: piModel.id');
   });
 
-  it('does not reference removed AskUserQuestion or TodoWrite tools', () => {
-    expect(agentRunnerContent).not.toContain('AskUserQuestion');
+  it('includes AskUserQuestion guidance with once/twice ask budget', () => {
+    expect(agentRunnerContent).toContain('AskUserQuestion');
+    expect(agentRunnerContent).toContain('NEVER ask clarification questions in plain text');
+    expect(agentRunnerContent).toContain('recommended: true');
+    expect(agentRunnerContent).toContain('Ask once when necessary');
+    expect(agentRunnerContent).toContain('second ask is allowed only');
     expect(agentRunnerContent).not.toContain('TodoWrite');
-    expect(agentRunnerContent).not.toContain('pendingQuestions');
   });
 
   it('chat-first behavioral rules are present', () => {
