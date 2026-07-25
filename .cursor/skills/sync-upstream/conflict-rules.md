@@ -18,7 +18,7 @@ Keep York when the conflict is about York productization or York-only integratio
 | Branding & packaging  | York IE / VECOS naming, logos, icons, `electron-builder.yml`, `scripts/patch-electron-macos-branding.js`, `resources/**`, website branding (`website/**` brand copy/assets) |
 | Auth & backend        | `backend/**`, `src/main/auth/**`, `src/shared/auth-*.ts`, `src/shared/backend-config.ts`, Cognito / Hub OAuth flows                                                         |
 | Hub / LaunchPad       | Hub MCP, LaunchPad MCP, Hub Skills Library wiring                                                                                                                           |
-| York-only skills/docs | `.claude/skills/launchpad-mcp-sdlc/**`, `.claude/skills/hub-mcp/**`                                                                                                         |
+| York-only skills/docs | `.claude/skills/rnd-launchpad-mcp-sdlc/**`, `.claude/skills/hub-mcp/**`                                                                                                     |
 
 Also prefer York for York-only config in root files when the hunk is branding or York service wiring (e.g. `dev:backend`, package `name`/`homepage` pointing at york.ie).
 
@@ -56,7 +56,7 @@ York-leaning:
   src/shared/backend-config.ts
   scripts/patch-electron-macos-branding.js
   resources/**
-  .claude/skills/launchpad-mcp-sdlc/**
+  .claude/skills/rnd-launchpad-mcp-sdlc/**
   .claude/skills/hub-mcp/**
 
 Upstream-leaning (unless hunk is York branding/auth):

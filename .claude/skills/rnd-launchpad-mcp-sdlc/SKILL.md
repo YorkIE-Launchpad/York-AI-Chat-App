@@ -1,5 +1,5 @@
 ---
-name: launchpad-mcp-sdlc
+name: rnd-launchpad-mcp-sdlc
 description: >-
   Runs LaunchPad via MCP using the release loop: one active release, seed from
   last tag when empty, work, lock, poll backend agent, seed next active, repeat.
