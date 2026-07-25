@@ -206,6 +206,7 @@ York IE ships with built-in skills under `.claude/skills/`, and supports user-ad
 - `docx` for Word document processing
 - `pdf` for PDF handling and forms
 - `xlsx` for Excel spreadsheet support
+- `hub-mcp` for Hub / R&D Hub MCP operations
 - `skill-creator` for creating custom skills
 
 ---
@@ -264,6 +265,7 @@ york-ie/
 │       ├── docx/                # Word document processing
 │       ├── pdf/                 # PDF handling & forms
 │       ├── xlsx/                # Excel spreadsheet support
+│       ├── hub-mcp/             # Hub / R&D Hub MCP operations
 │       └── skill-creator/       # Skill development toolkit
 ├── resources/                   # Static Assets (icons, images)
 ├── electron-builder.yml         # Build configuration
