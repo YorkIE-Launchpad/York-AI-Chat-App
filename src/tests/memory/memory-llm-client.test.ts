@@ -16,6 +16,7 @@ function makeConfig(timeoutMs: number): AppConfig {
     apiKey: 'test-key',
     baseUrl: 'https://example.test/v1',
     model: 'test-model',
+    autoModelPreference: 'balanced',
     activeProfileKey: 'custom:openai',
     profiles: {},
     activeConfigSetId: 'default',

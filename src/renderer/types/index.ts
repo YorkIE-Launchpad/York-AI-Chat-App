@@ -585,6 +585,17 @@ export type ServerEvent =
   | { type: 'workdir.changed'; payload: { path: string } }
   | { type: 'session.contextInfo'; payload: { sessionId: string; contextWindow: number } }
   | {
+      type: 'session.autoRoute';
+      payload: {
+        sessionId: string;
+        provider: string;
+        modelId: string;
+        tier: 'fast' | 'balanced' | 'frontier';
+        score: number;
+        reason: string;
+      };
+    }
+  | {
       type: 'compaction.result';
       payload: {
         sessionId: string;
@@ -734,6 +745,7 @@ export interface AppConfig {
   model: string;
   contextWindow?: number;
   maxTokens?: number;
+  autoModelPreference?: 'eco' | 'balanced' | 'max';
   activeProfileKey: ProviderProfileKey;
   profiles: Partial<Record<ProviderProfileKey, ProviderProfile>>;
   activeConfigSetId: ConfigSetId;

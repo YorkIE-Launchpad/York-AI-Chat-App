@@ -73,6 +73,8 @@ import {
   resolvePiRouteProtocol,
   resolveSyntheticPiModelFallback,
 } from './pi-model-resolution';
+import { formatAutoRouteLabel, resolveAutoModelIfNeeded } from './auto-model-resolve';
+import { AUTO_MODEL_ID } from '../../shared/auto-model';
 import { buildPiSessionRuntimeSignature } from './pi-session-runtime';
 import {
   LoopGuard,
@@ -1248,7 +1250,7 @@ ${hints.join('\n')}
   private getCurrentModelString(preferredModel?: string): string {
     const routeModel = preferredModel?.trim();
     const configuredModel = configStore.get('model')?.trim();
-    const model = routeModel || configuredModel || 'anthropic/claude-sonnet-5';
+    const model = routeModel || configuredModel || AUTO_MODEL_ID;
     logCtx('[CoworkAgentRunner] Current model:', model);
     logCtx(
       '[CoworkAgentRunner] Model source:',
@@ -1658,16 +1660,78 @@ ${hints.join('\n')}
 
       // Resolve model via pi-ai
       const runtimeConfig = configStore.getAll();
-      const modelString = this.getCurrentModelString(runtimeConfig.model);
-      const configProtocol = resolvePiRouteProtocol(
-        runtimeConfig.provider,
-        runtimeConfig.customProtocol
-      );
+      let modelString = this.getCurrentModelString(runtimeConfig.model);
+      let resolvedProvider = runtimeConfig.provider;
+      let resolvedCustomProtocol = runtimeConfig.customProtocol;
+      let resolvedApiKey = runtimeConfig.apiKey;
+
+      // Extract prompt text for Auto routing heuristics
+      const promptTextForAuto =
+        typeof prompt === 'string'
+          ? prompt
+          : lastUserMessage?.content
+              ?.map((block) => {
+                const b = block as { type?: string; text?: string };
+                return b.type === 'text' && typeof b.text === 'string' ? b.text : '';
+              })
+              .filter(Boolean)
+              .join('\n') || '';
+
+      const contextChars = existingMessages.reduce((sum, msg) => {
+        for (const block of msg.content || []) {
+          const b = block as { type?: string; text?: string };
+          if (b.type === 'text' && typeof b.text === 'string') sum += b.text.length;
+        }
+        return sum;
+      }, 0);
+
+      const autoRoute = await resolveAutoModelIfNeeded({
+        model: modelString,
+        preference: runtimeConfig.autoModelPreference,
+        promptText: promptTextForAuto,
+        hasImages,
+        messageCount: existingMessages.length,
+        contextChars,
+      });
+
+      if (autoRoute.usedAuto && autoRoute.pick) {
+        modelString = autoRoute.modelId;
+        resolvedProvider = autoRoute.provider;
+        resolvedCustomProtocol = autoRoute.customProtocol;
+        resolvedApiKey = autoRoute.apiKey || runtimeConfig.apiKey;
+        runtimeConfig.provider = autoRoute.provider;
+        runtimeConfig.customProtocol = autoRoute.customProtocol;
+        runtimeConfig.baseUrl = autoRoute.baseUrl;
+        runtimeConfig.apiKey = resolvedApiKey;
+        runtimeConfig.model = autoRoute.modelId;
+
+        const routedLabel = formatAutoRouteLabel(autoRoute.pick);
+        this.sendToRenderer({
+          type: 'session.autoRoute',
+          payload: {
+            sessionId: session.id,
+            provider: autoRoute.pick.provider,
+            modelId: autoRoute.pick.modelId,
+            tier: autoRoute.pick.tier,
+            score: autoRoute.pick.score,
+            reason: autoRoute.pick.reason,
+          },
+        });
+        this.sendToRenderer({
+          type: 'session.update',
+          payload: {
+            sessionId: session.id,
+            updates: { model: routedLabel },
+          },
+        });
+      }
+
+      const configProtocol = resolvePiRouteProtocol(resolvedProvider, resolvedCustomProtocol);
 
       // Normalize base URL for OpenAI-compatible providers (strips copy-pasted endpoint suffixes)
       const rawBaseUrl = runtimeConfig.baseUrl?.trim() || undefined;
       const effectiveBaseUrl =
-        configProtocol === 'openai' && runtimeConfig.provider !== 'ollama'
+        configProtocol === 'openai' && resolvedProvider !== 'ollama'
           ? normalizeOpenAICompatibleBaseUrl(rawBaseUrl) || rawBaseUrl
           : rawBaseUrl;
 
@@ -1675,17 +1739,17 @@ ${hints.join('\n')}
       let piModel = resolvePiRegistryModel(modelString, {
         configProvider: configProtocol,
         customBaseUrl: effectiveBaseUrl,
-        rawProvider: runtimeConfig.provider,
-        customProtocol: runtimeConfig.customProtocol,
+        rawProvider: resolvedProvider,
+        customProtocol: resolvedCustomProtocol,
       });
 
       if (!piModel) {
         usedSyntheticModel = true;
         // Synthetic fallback: construct a Model for unknown/custom models
         const synthetic = resolveSyntheticPiModelFallback({
-          rawModel: runtimeConfig.model,
+          rawModel: modelString,
           resolvedModelString: modelString,
-          rawProvider: runtimeConfig.provider,
+          rawProvider: resolvedProvider,
           routeProtocol: configProtocol,
           baseUrl: effectiveBaseUrl,
         });
@@ -1704,8 +1768,8 @@ ${hints.join('\n')}
         piModel = applyPiModelRuntimeOverrides(piModel, {
           configProvider: configProtocol,
           customBaseUrl: effectiveBaseUrl,
-          rawProvider: runtimeConfig.provider,
-          customProtocol: runtimeConfig.customProtocol,
+          rawProvider: resolvedProvider,
+          customProtocol: resolvedCustomProtocol,
         });
         logCtxWarn(
           '[CoworkAgentRunner] Model not in pi-ai registry, using synthetic model:',
@@ -1717,7 +1781,7 @@ ${hints.join('\n')}
       logCtx('[CoworkAgentRunner] Resolved pi-ai model:', piModel.provider, piModel.id);
 
       // For Ollama: query actual context window from /api/show if user hasn't configured one
-      const provider = runtimeConfig.provider || 'anthropic';
+      const provider = resolvedProvider || 'anthropic';
       if (provider === 'ollama' && !runtimeConfig.contextWindow) {
         const ollamaBaseUrl =
           piModel.baseUrl || runtimeConfig.baseUrl || 'http://localhost:11434/v1';

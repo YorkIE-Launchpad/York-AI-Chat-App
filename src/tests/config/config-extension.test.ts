@@ -31,6 +31,7 @@ function createMockConfigStore(overrides: Partial<AppConfig> = {}) {
     baseUrl: 'https://api.anthropic.com',
     customProtocol: 'anthropic',
     model: 'claude-sonnet-4-6',
+    autoModelPreference: 'balanced',
     contextWindow: 200000,
     maxTokens: 8192,
     activeProfileKey: 'anthropic',

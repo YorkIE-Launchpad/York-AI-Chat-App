@@ -295,6 +295,17 @@ export function useIPC() {
             store.setSessionContextWindow(event.payload.sessionId, event.payload.contextWindow);
             break;
 
+          case 'session.autoRoute':
+            console.log(
+              '[useIPC] Auto routed to',
+              `${event.payload.provider}/${event.payload.modelId}`,
+              `(tier=${event.payload.tier}, score=${event.payload.score})`
+            );
+            store.updateSession(event.payload.sessionId, {
+              model: `${event.payload.provider}/${event.payload.modelId}`,
+            });
+            break;
+
           case 'error':
             console.error('[useIPC] Server error:', event.payload.message);
             store.setLoading(false);

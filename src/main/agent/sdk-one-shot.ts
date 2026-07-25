@@ -23,6 +23,7 @@ import {
   resolvePiRouteProtocol,
   resolveSyntheticPiModelFallback,
 } from './pi-model-resolution';
+import { resolveAutoModelIfNeeded } from './auto-model-resolve';
 
 const NETWORK_ERROR_RE =
   /enotfound|econnrefused|etimedout|eai_again|enetunreach|timed?\s*out|timeout|abort|network\s*error/i;
@@ -203,37 +204,62 @@ export async function runPiAiOneShot(
     signal?: AbortSignal;
   }
 ): Promise<{ text: string; hasThinking: boolean; durationMs: number }> {
-  const modelString = resolvePiModelString(config);
-  const keyProvider = config.customProtocol || config.provider || 'anthropic';
+  let effectiveConfig = config;
+  const autoRoute = await resolveAutoModelIfNeeded({
+    model: config.model,
+    preference: config.autoModelPreference,
+    promptText: prompt,
+    messageCount: 1,
+    contextChars: prompt.length,
+  });
+  if (autoRoute.usedAuto) {
+    effectiveConfig = {
+      ...config,
+      model: autoRoute.modelId,
+      provider: autoRoute.provider,
+      customProtocol: autoRoute.customProtocol,
+      baseUrl: autoRoute.baseUrl,
+      apiKey: autoRoute.apiKey || config.apiKey,
+    };
+  }
+
+  const modelString = resolvePiModelString({
+    ...effectiveConfig,
+    defaultModel: 'anthropic/claude-sonnet-5',
+  });
+  const keyProvider = effectiveConfig.customProtocol || effectiveConfig.provider || 'anthropic';
   const parts = modelString.split('/');
   const provider = parts.length >= 2 ? parts[0] : keyProvider || 'anthropic';
 
   // Normalize base URL for OpenAI-compatible providers (strips copy-pasted endpoint suffixes)
-  const routeProtocol = resolvePiRouteProtocol(config.provider, config.customProtocol);
-  const rawBaseUrl = config.baseUrl?.trim() || undefined;
+  const routeProtocol = resolvePiRouteProtocol(
+    effectiveConfig.provider,
+    effectiveConfig.customProtocol
+  );
+  const rawBaseUrl = effectiveConfig.baseUrl?.trim() || undefined;
   const effectiveBaseUrl =
-    routeProtocol === 'openai' && config.provider !== 'ollama'
+    routeProtocol === 'openai' && effectiveConfig.provider !== 'ollama'
       ? normalizeOpenAICompatibleBaseUrl(rawBaseUrl) || rawBaseUrl
       : rawBaseUrl;
 
   let piModel = resolvePiRegistryModel(modelString, {
     configProvider: keyProvider,
     customBaseUrl: effectiveBaseUrl,
-    rawProvider: config.provider || 'anthropic',
-    customProtocol: config.customProtocol,
+    rawProvider: effectiveConfig.provider || 'anthropic',
+    customProtocol: effectiveConfig.customProtocol,
   });
 
   if (!piModel) {
     // Synthetic fallback for unknown/custom models
     const effectiveProtocol = resolvePiRouteProtocol(
-      config.provider,
-      config.customProtocol
+      effectiveConfig.provider,
+      effectiveConfig.customProtocol
     ) as CustomProtocolType;
     const api = effectiveBaseUrl ? inferPiApi(effectiveProtocol) : undefined;
     const synthetic = resolveSyntheticPiModelFallback({
-      rawModel: config.model,
+      rawModel: effectiveConfig.model,
       resolvedModelString: modelString,
-      rawProvider: config.provider,
+      rawProvider: effectiveConfig.provider,
       routeProtocol: effectiveProtocol,
       baseUrl: effectiveBaseUrl,
     });
@@ -247,8 +273,8 @@ export async function runPiAiOneShot(
     piModel = applyPiModelRuntimeOverrides(piModel, {
       configProvider: keyProvider,
       customBaseUrl: effectiveBaseUrl,
-      rawProvider: config.provider || 'anthropic',
-      customProtocol: config.customProtocol,
+      rawProvider: effectiveConfig.provider || 'anthropic',
+      customProtocol: effectiveConfig.customProtocol,
     });
     logWarn('[OneShot] Model not in pi-ai registry, using synthetic model:', modelString, '→', api);
   }
@@ -259,8 +285,8 @@ export async function runPiAiOneShot(
   // Cognito JWT for backend-managed proxy; otherwise configured key
   const apiKey = (
     await resolveBackendClientApiKey({
-      provider: config.provider,
-      apiKey: config.apiKey,
+      provider: effectiveConfig.provider,
+      apiKey: effectiveConfig.apiKey,
     })
   ).trim();
   if (apiKey) {

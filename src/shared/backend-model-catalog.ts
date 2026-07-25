@@ -1,12 +1,13 @@
-export type BackendProvider = 'anthropic' | 'openai' | 'gemini' | 'openrouter';
+import type { BackendCloudProvider, BackendModelInfo } from './backend-config';
 
-export interface BackendModelEntry {
-  id: string;
-  name: string;
-  provider: BackendProvider;
-}
-
-const CATALOG: Record<BackendProvider, Array<{ id: string; name: string }>> = {
+/**
+ * Full cloud model catalog for the picker UI.
+ * Keep in sync with `backend/src/models.ts` CATALOG.
+ */
+export const BACKEND_MODEL_CATALOG: Record<
+  BackendCloudProvider,
+  Array<{ id: string; name: string }>
+> = {
   anthropic: [
     { id: 'claude-fable-5', name: 'Claude Fable 5' },
     { id: 'claude-opus-5', name: 'Claude Opus 5' },
@@ -63,32 +64,12 @@ const CATALOG: Record<BackendProvider, Array<{ id: string; name: string }>> = {
   ],
 };
 
-const ENV_KEY_BY_PROVIDER: Record<BackendProvider, string> = {
-  anthropic: 'ANTHROPIC_API_KEY',
-  openai: 'OPENAI_API_KEY',
-  gemini: 'GEMINI_API_KEY',
-  openrouter: 'OPENROUTER_API_KEY',
-};
-
-export function providerHasKey(provider: BackendProvider): boolean {
-  const key = process.env[ENV_KEY_BY_PROVIDER[provider]]?.trim();
-  return Boolean(key);
-}
-
-export function listEnabledModels(): BackendModelEntry[] {
-  const models: BackendModelEntry[] = [];
-  for (const provider of Object.keys(CATALOG) as BackendProvider[]) {
-    if (!providerHasKey(provider)) {
-      continue;
-    }
-    for (const entry of CATALOG[provider]) {
+export function listAllBackendModels(): BackendModelInfo[] {
+  const models: BackendModelInfo[] = [];
+  for (const provider of Object.keys(BACKEND_MODEL_CATALOG) as BackendCloudProvider[]) {
+    for (const entry of BACKEND_MODEL_CATALOG[provider]) {
       models.push({ ...entry, provider });
     }
   }
   return models;
-}
-
-export function getProviderApiKey(provider: BackendProvider): string | undefined {
-  const key = process.env[ENV_KEY_BY_PROVIDER[provider]]?.trim();
-  return key || undefined;
 }

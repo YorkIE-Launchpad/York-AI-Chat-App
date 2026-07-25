@@ -35,7 +35,33 @@ export const API_PROVIDER_PRESETS: SharedProviderPresets = {
     name: 'OpenRouter',
     baseUrl: 'https://openrouter.ai/api/v1',
     models: [
+      { id: 'openrouter/auto-beta', name: 'openrouter/auto-beta' },
+      { id: 'openrouter/auto', name: 'openrouter/auto' },
+      { id: 'openrouter/free', name: 'openrouter/free' },
+      {
+        id: 'meta-llama/llama-3.2-3b-instruct:free',
+        name: 'meta-llama/llama-3.2-3b-instruct:free',
+      },
+      { id: 'openai/gpt-oss-20b:free', name: 'openai/gpt-oss-20b:free' },
+      { id: 'nvidia/nemotron-3-nano-30b-a3b:free', name: 'nvidia/nemotron-3-nano-30b-a3b:free' },
+      { id: 'poolside/laguna-xs-2.1:free', name: 'poolside/laguna-xs-2.1:free' },
+      {
+        id: 'meta-llama/llama-3.3-70b-instruct:free',
+        name: 'meta-llama/llama-3.3-70b-instruct:free',
+      },
+      { id: 'google/gemma-4-31b-it:free', name: 'google/gemma-4-31b-it:free' },
+      {
+        id: 'qwen/qwen3-next-80b-a3b-instruct:free',
+        name: 'qwen/qwen3-next-80b-a3b-instruct:free',
+      },
+      { id: 'qwen/qwen3-coder:free', name: 'qwen/qwen3-coder:free' },
+      {
+        id: 'nvidia/nemotron-3-super-120b-a12b:free',
+        name: 'nvidia/nemotron-3-super-120b-a12b:free',
+      },
+      { id: 'poolside/laguna-m.1:free', name: 'poolside/laguna-m.1:free' },
       { id: 'anthropic/claude-fable-5', name: 'anthropic/claude-fable-5' },
+      { id: 'anthropic/claude-opus-5', name: 'anthropic/claude-opus-5' },
       { id: 'anthropic/claude-opus-4.8', name: 'anthropic/claude-opus-4.8' },
       { id: 'anthropic/claude-sonnet-5', name: 'anthropic/claude-sonnet-5' },
       { id: 'anthropic/claude-haiku-4.5', name: 'anthropic/claude-haiku-4.5' },
@@ -53,6 +79,7 @@ export const API_PROVIDER_PRESETS: SharedProviderPresets = {
     baseUrl: 'https://api.anthropic.com',
     models: [
       { id: 'claude-fable-5', name: 'claude-fable-5' },
+      { id: 'claude-opus-5', name: 'claude-opus-5' },
       { id: 'claude-opus-4-8', name: 'claude-opus-4-8' },
       { id: 'claude-sonnet-5', name: 'claude-sonnet-5' },
       { id: 'claude-haiku-4-5', name: 'claude-haiku-4-5' },
@@ -129,7 +156,21 @@ export const PI_AI_CURATED_PRESETS: Record<string, { piProvider: string; pick: s
   openrouter: {
     piProvider: 'openrouter',
     pick: [
+      'openrouter/auto-beta',
+      'openrouter/auto',
+      'openrouter/free',
+      'meta-llama/llama-3.2-3b-instruct:free',
+      'openai/gpt-oss-20b:free',
+      'nvidia/nemotron-3-nano-30b-a3b:free',
+      'poolside/laguna-xs-2.1:free',
+      'meta-llama/llama-3.3-70b-instruct:free',
+      'google/gemma-4-31b-it:free',
+      'qwen/qwen3-next-80b-a3b-instruct:free',
+      'qwen/qwen3-coder:free',
+      'nvidia/nemotron-3-super-120b-a12b:free',
+      'poolside/laguna-m.1:free',
       'anthropic/claude-fable-5',
+      'anthropic/claude-opus-5',
       'anthropic/claude-opus-4.8',
       'anthropic/claude-sonnet-5',
       'anthropic/claude-haiku-4.5',
@@ -144,6 +185,7 @@ export const PI_AI_CURATED_PRESETS: Record<string, { piProvider: string; pick: s
     piProvider: 'anthropic',
     pick: [
       'claude-fable-5',
+      'claude-opus-5',
       'claude-opus-4-8',
       'claude-sonnet-5',
       'claude-haiku-4-5',
@@ -233,7 +275,7 @@ export function getModelInputGuidance(
   }
 
   return {
-    placeholder: 'claude-sonnet-5, claude-opus-4-8, claude-fable-5',
+    placeholder: 'claude-sonnet-5, claude-opus-5, claude-fable-5',
     hint: 'Use the exact model ID for the selected protocol or endpoint.',
   };
 }

@@ -33,6 +33,12 @@ import {
 } from './auth-utils';
 import { API_PROVIDER_PRESETS, PI_AI_CURATED_PRESETS } from '../../shared/api-model-presets';
 import {
+  AUTO_MODEL_ID,
+  isAutoModelPreference,
+  normalizeAutoModelPreference,
+  type AutoModelPreference,
+} from '../../shared/auto-model';
+import {
   applyBackendManagedCredentials,
   backendProviderForProfileKey,
   BACKEND_PROXY_PLACEHOLDER_KEY,
@@ -97,6 +103,9 @@ export interface AppConfig {
   model: string;
   contextWindow?: number;
   maxTokens?: number;
+
+  /** Cost vs quality bias when model === 'auto'. */
+  autoModelPreference: AutoModelPreference;
 
   // Active profile
   activeProfileKey: ProviderProfileKey;
@@ -179,6 +188,7 @@ const DIRECT_READ_KEYS = new Set<keyof AppConfig>([
   'sandboxEnabled',
   'memoryEnabled',
   'enableThinking',
+  'autoModelPreference',
   'isConfigured',
 ]);
 
@@ -195,6 +205,7 @@ export const EXPORTABLE_FIELDS: (keyof AppConfig)[] = [
   'enableThinking',
   'memoryEnabled',
   'model',
+  'autoModelPreference',
   'provider',
   'contextWindow',
   'maxTokens',
@@ -213,6 +224,7 @@ export const FIELD_VALIDATORS: Record<string, (v: unknown) => boolean> = {
   enableThinking: (v) => typeof v === 'boolean',
   memoryEnabled: (v) => typeof v === 'boolean',
   model: (v) => typeof v === 'string',
+  autoModelPreference: (v) => v === 'eco' || v === 'balanced' || v === 'max',
   provider: (v) =>
     typeof v === 'string' &&
     ['openrouter', 'anthropic', 'custom', 'openai', 'gemini', 'ollama'].includes(v),
@@ -263,6 +275,17 @@ const defaultProfiles: Record<ProviderProfileKey, ProviderProfile> = {
   },
 };
 
+/** Fresh default config set starts on Auto; provider profile presets stay concrete models. */
+const defaultConfigSetProfiles: Record<ProviderProfileKey, ProviderProfile> = {
+  ...Object.fromEntries(
+    Object.entries(defaultProfiles).map(([key, profile]) => [key, { ...profile }])
+  ),
+  openrouter: {
+    ...defaultProfiles.openrouter,
+    model: AUTO_MODEL_ID,
+  },
+} as Record<ProviderProfileKey, ProviderProfile>;
+
 const defaultConfigSet: ApiConfigSet = {
   id: DEFAULT_CONFIG_SET_ID,
   name: 'Default profile',
@@ -270,7 +293,7 @@ const defaultConfigSet: ApiConfigSet = {
   provider: 'openrouter',
   customProtocol: 'anthropic',
   activeProfileKey: 'openrouter',
-  profiles: defaultProfiles,
+  profiles: defaultConfigSetProfiles,
   enableThinking: false,
   updatedAt: '1970-01-01T00:00:00.000Z',
 };
@@ -280,9 +303,10 @@ const defaultConfig: AppConfig = {
   apiKey: defaultProfiles.openrouter.apiKey,
   baseUrl: defaultProfiles.openrouter.baseUrl,
   customProtocol: defaultConfigSet.customProtocol,
-  model: defaultProfiles.openrouter.model,
+  model: AUTO_MODEL_ID,
+  autoModelPreference: 'balanced',
   activeProfileKey: defaultConfigSet.activeProfileKey,
-  profiles: defaultProfiles,
+  profiles: defaultConfigSetProfiles,
   activeConfigSetId: DEFAULT_CONFIG_SET_ID,
   configSets: [defaultConfigSet],
   agentCliPath: '',
@@ -1030,6 +1054,7 @@ export class ConfigStore {
       memoryEnabled: toBoolean(raw.memoryEnabled, defaultConfig.memoryEnabled),
       memoryRuntime: normalizeMemoryRuntimeConfig(raw.memoryRuntime),
       enableThinking: projected.enableThinking,
+      autoModelPreference: normalizeAutoModelPreference(raw.autoModelPreference),
       isConfigured: toBoolean(raw.isConfigured, defaultConfig.isConfigured),
     };
     this.normalizeModelIds(result);
@@ -1163,6 +1188,9 @@ export class ConfigStore {
           return defaultConfig[key];
         }
         if (key === 'theme' && !isAppTheme(rawValue)) {
+          return defaultConfig[key];
+        }
+        if (key === 'autoModelPreference' && !isAutoModelPreference(rawValue)) {
           return defaultConfig[key];
         }
         if (
@@ -1448,6 +1476,10 @@ export class ConfigStore {
         updates.memoryRuntime !== undefined
           ? normalizeMemoryRuntimeConfig(updates.memoryRuntime)
           : current.memoryRuntime,
+      autoModelPreference:
+        updates.autoModelPreference !== undefined
+          ? normalizeAutoModelPreference(updates.autoModelPreference)
+          : current.autoModelPreference,
       isConfigured:
         updates.isConfigured !== undefined ? updates.isConfigured : current.isConfigured,
     });

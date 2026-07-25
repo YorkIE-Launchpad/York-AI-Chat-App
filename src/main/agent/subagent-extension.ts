@@ -19,6 +19,7 @@ import { configStore } from '../config/config-store';
 import { resolveBackendClientApiKey } from '../config/backend-auth';
 import { log, logError } from '../utils/logger';
 import { resolvePiRegistryModel, resolvePiRouteProtocol } from './pi-model-resolution';
+import { resolveAutoModelIfNeeded } from './auto-model-resolve';
 import { selectCustomToolsForModel } from './mcp-tool-budget';
 import type { ServerEvent } from '../../renderer/types';
 import { v4 as uuidv4 } from 'uuid';
@@ -187,13 +188,33 @@ function createSpawnSubagentTool(
         const authStorage = getSharedAuthStorage();
         const modelRegistry = new ModelRegistry(authStorage);
 
-        const modelString = config.model?.trim() || 'anthropic/claude-sonnet-4-6';
-        const configProtocol = resolvePiRouteProtocol(config.provider, config.customProtocol);
+        let modelString = config.model?.trim() || 'auto';
+        let provider = config.provider;
+        let customProtocol = config.customProtocol;
+        let baseUrl = config.baseUrl?.trim() || undefined;
+        let apiKey = config.apiKey;
+
+        const autoRoute = await resolveAutoModelIfNeeded({
+          model: modelString,
+          preference: config.autoModelPreference,
+          promptText: task,
+          messageCount: 1,
+          contextChars: task.length,
+        });
+        if (autoRoute.usedAuto) {
+          modelString = autoRoute.modelId;
+          provider = autoRoute.provider;
+          customProtocol = autoRoute.customProtocol;
+          baseUrl = autoRoute.baseUrl;
+          apiKey = autoRoute.apiKey || apiKey;
+        }
+
+        const configProtocol = resolvePiRouteProtocol(provider, customProtocol);
         const piModel = resolvePiRegistryModel(modelString, {
           configProvider: configProtocol,
-          customBaseUrl: config.baseUrl?.trim() || undefined,
-          rawProvider: config.provider,
-          customProtocol: config.customProtocol,
+          customBaseUrl: baseUrl,
+          rawProvider: provider,
+          customProtocol,
         });
         if (!piModel) {
           return {
@@ -210,15 +231,13 @@ function createSpawnSubagentTool(
         // Ensure Cognito JWT is set for backend-managed proxy providers
         const runtimeApiKey = (
           await resolveBackendClientApiKey({
-            provider: config.provider,
-            apiKey: config.apiKey,
+            provider,
+            apiKey,
           })
         ).trim();
         if (runtimeApiKey) {
           const piProvider =
-            config.provider === 'custom'
-              ? config.customProtocol || 'anthropic'
-              : config.provider || 'anthropic';
+            provider === 'custom' ? customProtocol || 'anthropic' : provider || 'anthropic';
           authStorage.setRuntimeApiKey(piProvider, runtimeApiKey);
           if (piModel.provider !== piProvider) {
             authStorage.setRuntimeApiKey(piModel.provider, runtimeApiKey);
