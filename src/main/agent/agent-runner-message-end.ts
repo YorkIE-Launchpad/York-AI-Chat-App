@@ -57,12 +57,36 @@ export function isUsageLimitError(errorText: string): boolean {
   );
 }
 
+/** Patterns the pi SDK's isContextOverflow recognizes (compact-and-retry eligible). */
+function matchesSdkOverflowPatterns(errorText: string): boolean {
+  if (getOverflowPatterns().some((pattern) => pattern.test(errorText))) return true;
+  // Cerebras-style: handled in pi-ai isContextOverflow but not in getOverflowPatterns()
+  if (/^4(00|13)\s*(status code)?\s*\(no body\)/i.test(errorText.trim())) return true;
+  return false;
+}
+
 export function isContextOverflowError(errorText: string): boolean {
   if (!errorText) return false;
   if (errorText === CONTEXT_OVERFLOW_USER_MESSAGE) return true;
   const lower = errorText.toLowerCase();
   if (lower.includes('context overflow recovery failed')) return true;
-  return getOverflowPatterns().some((pattern) => pattern.test(errorText));
+  if (matchesSdkOverflowPatterns(errorText)) return true;
+  // Proxies/gateways often return bare 413 when the request body is too large.
+  // Same user guidance as token overflow; SDK will not auto-recover these.
+  if (
+    /\b413\b/.test(errorText) ||
+    lower.includes('payload too large') ||
+    lower.includes('request entity too large')
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/** True when the SDK will compact-and-retry (do not emit/abort yet). */
+export function isSdkRecoverableContextOverflowError(errorText: string): boolean {
+  if (!errorText) return false;
+  return matchesSdkOverflowPatterns(errorText);
 }
 
 export function toUserFacingErrorText(errorText: string): string {
@@ -77,7 +101,7 @@ export function toUserFacingErrorText(errorText: string): string {
   if (isUsageLimitError(errorText)) {
     return USAGE_LIMIT_USER_MESSAGE;
   }
-  // Context overflow also arrives as HTTP 400 — detect before the generic config hint.
+  // Context / payload overflow (400 prompt-too-long, 413, etc.) — before generic 4xx hints.
   if (isContextOverflowError(errorText)) {
     return CONTEXT_OVERFLOW_USER_MESSAGE;
   }

@@ -157,6 +157,12 @@ describe('toUserFacingErrorText', () => {
     expect(result).not.toContain('Original error:');
   });
 
+  it('maps bare HTTP 413 to context overflow copy (not config hint)', () => {
+    expect(toUserFacingErrorText('413')).toBe(CONTEXT_OVERFLOW_USER_MESSAGE);
+    expect(toUserFacingErrorText('Error: 413')).toBe(CONTEXT_OVERFLOW_USER_MESSAGE);
+    expect(toUserFacingErrorText('413 Payload Too Large')).toBe(CONTEXT_OVERFLOW_USER_MESSAGE);
+  });
+
   it('maps context overflow recovery failure to context overflow copy', () => {
     expect(
       toUserFacingErrorText(
@@ -352,6 +358,12 @@ describe('buildTerminalErrorMessage', () => {
     const raw =
       '400 {"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 1047685 tokens > 1000000 maximum"},"request_id":"req_011CdNYPc9aou912k6HGqsER"}';
     const result = buildTerminalErrorMessage(raw);
+    expect(result).toContain('_Use Compact in the context bar, or start a new chat._');
+    expect(result).not.toContain('_Please check your configuration and retry._');
+  });
+
+  it('uses the compact hint for bare 413 errors (not configuration)', () => {
+    const result = buildTerminalErrorMessage('413');
     expect(result).toContain('_Use Compact in the context bar, or start a new chat._');
     expect(result).not.toContain('_Please check your configuration and retry._');
   });

@@ -59,7 +59,7 @@ import { normalizeOpenAICompatibleBaseUrl } from '../config/auth-utils';
 import {
   buildTerminalErrorEmissionDetails,
   buildTerminalErrorMessage,
-  isContextOverflowError,
+  isSdkRecoverableContextOverflowError,
   resolveAbortDisposition,
   resolveAssistantStreamErrorText,
   resolveMessageEndPayload,
@@ -2778,7 +2778,7 @@ ${
                 const rawStreamError =
                   ame.error?.errorMessage?.trim() || ame.reason || 'stream_error';
                 // Let the SDK compact-and-retry; aborting would cancel recovery.
-                if (compactionEnabled && isContextOverflowError(rawStreamError)) {
+                if (compactionEnabled && isSdkRecoverableContextOverflowError(rawStreamError)) {
                   log(
                     '[CoworkAgentRunner] Deferring context overflow stream error to SDK compaction'
                   );
@@ -2829,7 +2829,7 @@ ${
                     ? ((msg as { errorMessage: string }).errorMessage as string)
                     : resolvedPayload.errorText;
                 // SDK auto-compacts once and retries; don't poison the chat yet.
-                if (compactionEnabled && isContextOverflowError(rawError)) {
+                if (compactionEnabled && isSdkRecoverableContextOverflowError(rawError)) {
                   log(
                     '[CoworkAgentRunner] Deferring context overflow message_end error to SDK compaction'
                   );
