@@ -1,9 +1,10 @@
-import type {
-  AssistantMessage,
-  AssistantMessageEvent,
-  TextContent,
-  ThinkingContent,
-  ToolCall,
+import {
+  getOverflowPatterns,
+  type AssistantMessage,
+  type AssistantMessageEvent,
+  type TextContent,
+  type ThinkingContent,
+  type ToolCall,
 } from '@mariozechner/pi-ai';
 
 type MessageEndContentBlock = TextContent | ThinkingContent | ToolCall;
@@ -26,6 +27,9 @@ const FOUR_XX_ERROR_RE = /\b4\d{2}\b/;
 
 export const USAGE_LIMIT_USER_MESSAGE =
   "You've reached your API usage limit. Please meet your manager.";
+
+export const CONTEXT_OVERFLOW_USER_MESSAGE =
+  'Context window exceeded: the conversation (plus tools/files) is too large for this model. Compact the session or start a new chat, then retry.';
 
 export interface TerminalErrorEmissionDetails {
   partialText: string;
@@ -53,6 +57,14 @@ export function isUsageLimitError(errorText: string): boolean {
   );
 }
 
+export function isContextOverflowError(errorText: string): boolean {
+  if (!errorText) return false;
+  if (errorText === CONTEXT_OVERFLOW_USER_MESSAGE) return true;
+  const lower = errorText.toLowerCase();
+  if (lower.includes('context overflow recovery failed')) return true;
+  return getOverflowPatterns().some((pattern) => pattern.test(errorText));
+}
+
 export function toUserFacingErrorText(errorText: string): string {
   const lower = errorText.toLowerCase();
   if (lower.includes('first_response_timeout')) {
@@ -64,6 +76,10 @@ export function toUserFacingErrorText(errorText: string): string {
   // Usage/quota rejections often arrive as HTTP 400 invalid_request_error — detect before generic 400.
   if (isUsageLimitError(errorText)) {
     return USAGE_LIMIT_USER_MESSAGE;
+  }
+  // Context overflow also arrives as HTTP 400 — detect before the generic config hint.
+  if (isContextOverflowError(errorText)) {
+    return CONTEXT_OVERFLOW_USER_MESSAGE;
   }
   if (
     /\b400\b/.test(errorText) ||
@@ -124,6 +140,8 @@ export function buildTerminalErrorMessage(errorText: string, partialText = ''): 
   let hint = '_Agent is retrying automatically, please wait..._';
   if (isUsageLimitError(errorText)) {
     hint = '_Contact your manager to restore access._';
+  } else if (isContextOverflowError(errorText)) {
+    hint = '_Use Compact in the context bar, or start a new chat._';
   } else if (FOUR_XX_ERROR_RE.test(errorText)) {
     hint = '_Please check your configuration and retry._';
   }

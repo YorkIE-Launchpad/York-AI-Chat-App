@@ -8,6 +8,7 @@ import {
   resolveMessageEndPayload,
   shouldPreserveExistingTrace,
   toUserFacingErrorText,
+  CONTEXT_OVERFLOW_USER_MESSAGE,
   USAGE_LIMIT_USER_MESSAGE,
 } from '../src/main/agent/agent-runner-message-end';
 
@@ -145,6 +146,23 @@ describe('toUserFacingErrorText', () => {
     expect(result).toBe(USAGE_LIMIT_USER_MESSAGE);
     expect(result).not.toContain('model/protocol configuration');
     expect(result).not.toContain('Original error:');
+  });
+
+  it('maps Anthropic-style 400 prompt-too-long errors to context overflow copy', () => {
+    const raw =
+      '400 {"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 1047685 tokens > 1000000 maximum"},"request_id":"req_011CdNYPc9aou912k6HGqsER"}';
+    const result = toUserFacingErrorText(raw);
+    expect(result).toBe(CONTEXT_OVERFLOW_USER_MESSAGE);
+    expect(result).not.toContain('model/protocol configuration');
+    expect(result).not.toContain('Original error:');
+  });
+
+  it('maps context overflow recovery failure to context overflow copy', () => {
+    expect(
+      toUserFacingErrorText(
+        'Context overflow recovery failed after one compact-and-retry attempt. Try reducing context or switching to a larger-context model.'
+      )
+    ).toBe(CONTEXT_OVERFLOW_USER_MESSAGE);
   });
 
   it('maps quota exceeded without status code to meet-your-manager copy', () => {
@@ -320,6 +338,21 @@ describe('buildTerminalErrorMessage', () => {
     const result = buildTerminalErrorMessage(USAGE_LIMIT_USER_MESSAGE);
     expect(result).toContain(`**Error**: ${USAGE_LIMIT_USER_MESSAGE}`);
     expect(result).toContain('_Contact your manager to restore access._');
+    expect(result).not.toContain('_Please check your configuration and retry._');
+  });
+
+  it('uses the compact/new-chat hint for context overflow terminal errors', () => {
+    const result = buildTerminalErrorMessage(CONTEXT_OVERFLOW_USER_MESSAGE);
+    expect(result).toContain(`**Error**: ${CONTEXT_OVERFLOW_USER_MESSAGE}`);
+    expect(result).toContain('_Use Compact in the context bar, or start a new chat._');
+    expect(result).not.toContain('_Please check your configuration and retry._');
+  });
+
+  it('uses the compact hint for raw Anthropic prompt-too-long errors', () => {
+    const raw =
+      '400 {"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 1047685 tokens > 1000000 maximum"},"request_id":"req_011CdNYPc9aou912k6HGqsER"}';
+    const result = buildTerminalErrorMessage(raw);
+    expect(result).toContain('_Use Compact in the context bar, or start a new chat._');
     expect(result).not.toContain('_Please check your configuration and retry._');
   });
 });

@@ -59,6 +59,7 @@ import { normalizeOpenAICompatibleBaseUrl } from '../config/auth-utils';
 import {
   buildTerminalErrorEmissionDetails,
   buildTerminalErrorMessage,
+  isContextOverflowError,
   resolveAbortDisposition,
   resolveAssistantStreamErrorText,
   resolveMessageEndPayload,
@@ -546,6 +547,8 @@ interface CachedPiSession {
   skillsSignature?: string;
   toolsSignature?: string;
   ollamaNumCtx?: { value: number };
+  /** Whether SDK auto-compaction is enabled for overflow recovery. */
+  compactionEnabled: boolean;
 }
 
 /**
@@ -2472,6 +2475,7 @@ ${
           runtimeSignature: sessionRuntimeSignature,
           skillsSignature,
           toolsSignature: effectiveToolsSignature,
+          compactionEnabled: compactionSettings.enabled,
         });
 
         // Ollama: wrap _onPayload to inject num_ctx into every request
@@ -2510,6 +2514,9 @@ ${
 
         logTiming('agent session created', runStartTime);
       }
+
+      // Whether SDK will auto-compact+retry on context overflow for this session.
+      const compactionEnabled = this.piSessions.get(session.id)?.compactionEnabled ?? true;
 
       // Set up event handler to bridge agent SDK events → our ServerEvent protocol
 
@@ -2768,6 +2775,15 @@ ${
                 markFirstStreamEvent(ame.type);
                 const errorDetail = JSON.stringify(ame.error?.content || 'no content');
                 logCtxError('[CoworkAgentRunner] pi-ai stream error:', ame.reason, errorDetail);
+                const rawStreamError =
+                  ame.error?.errorMessage?.trim() || ame.reason || 'stream_error';
+                // Let the SDK compact-and-retry; aborting would cancel recovery.
+                if (compactionEnabled && isContextOverflowError(rawStreamError)) {
+                  log(
+                    '[CoworkAgentRunner] Deferring context overflow stream error to SDK compaction'
+                  );
+                  break;
+                }
                 emitTerminalError(resolveAssistantStreamErrorText(ame), { abort: true });
               }
               break;
@@ -2808,6 +2824,17 @@ ${
                 );
               }
               if (resolvedPayload.errorText) {
+                const rawError =
+                  typeof (msg as { errorMessage?: unknown })?.errorMessage === 'string'
+                    ? ((msg as { errorMessage: string }).errorMessage as string)
+                    : resolvedPayload.errorText;
+                // SDK auto-compacts once and retries; don't poison the chat yet.
+                if (compactionEnabled && isContextOverflowError(rawError)) {
+                  log(
+                    '[CoworkAgentRunner] Deferring context overflow message_end error to SDK compaction'
+                  );
+                  break;
+                }
                 emitTerminalError(resolvedPayload.errorText);
                 break;
               }
@@ -3019,6 +3046,11 @@ ${
                   title,
                   timestamp: Date.now(),
                 });
+              }
+
+              // Overflow was deferred from message_end; surface a clear error if recovery failed.
+              if (event.errorMessage && !event.willRetry && !event.aborted) {
+                emitTerminalError(toUserFacingErrorText(event.errorMessage));
               }
               break;
             }
