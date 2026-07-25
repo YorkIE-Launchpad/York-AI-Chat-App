@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { compressToolResultTextForModel } from './mcp-tool-payload';
 
 type ToolResultImage = {
   data: string;
@@ -157,13 +158,14 @@ export function normalizeMcpToolResultForModel(result: unknown): NormalizedToolT
   if (resultObj?.content) {
     const { textParts, images } = extractTextAndImagesFromContent(resultObj.content);
     return {
-      text: finalizeText(textParts, images.length),
+      text: compressToolResultTextForModel(finalizeText(textParts, images.length)),
       images,
     };
   }
 
+  const rawText = typeof result === 'string' ? result : safeStringifyToolResult(result);
   return {
-    text: typeof result === 'string' ? result : safeStringifyToolResult(result),
+    text: compressToolResultTextForModel(rawText),
     images: [],
   };
 }

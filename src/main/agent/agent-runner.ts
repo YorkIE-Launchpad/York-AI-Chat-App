@@ -86,6 +86,11 @@ import {
   normalizeMcpToolResultForModel,
   normalizeToolExecutionResultForUi,
 } from './tool-result-utils';
+import {
+  augmentMcpToolDescription,
+  compressToolResultTextForModel,
+  leanMcpToolArgs,
+} from './mcp-tool-payload';
 import { selectCustomToolsForModel, type McpToolExposureMode } from './mcp-tool-budget';
 import { fetchOllamaModelInfo } from '../config/ollama-api';
 import { createWindowsBashOperations } from './windows-bash-operations';
@@ -199,6 +204,9 @@ export function serializeMessageContentForHistory(content: ContentBlock[]): stri
         } else {
           text = '';
         }
+        // Compress JSON tool dumps (TOON / spillover) so cold-start history
+        // cannot re-inject multi-MB Hub analytics payloads into the prompt.
+        text = compressToolResultTextForModel(text);
         parts.push(
           `<tool_result tool_use_id="${escapeXmlAttr(id)}"${errAttr}>${escapeXmlText(text)}</tool_result>`
         );
@@ -410,14 +418,16 @@ function buildMcpCustomTools(mcpManager: MCPManager): ToolDefinition[] {
       mcpTool.inputSchema as Record<string, unknown>
     );
 
+    const baseDescription = mcpTool.description || `MCP tool from ${mcpTool.serverName}`;
     const toolDef: ToolDefinition<TSchema, unknown> = {
       name: mcpTool.name,
       label: `${mcpTool.serverName} → ${mcpTool.originalName || mcpTool.name}`,
-      description: mcpTool.description || `MCP tool from ${mcpTool.serverName}`,
+      description: augmentMcpToolDescription(mcpTool.name, baseDescription),
       parameters,
       async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
         try {
-          const result = await mcpManager.callTool(mcpTool.name, params as Record<string, unknown>);
+          const leanArgs = leanMcpToolArgs(params as Record<string, unknown>, mcpTool.inputSchema);
+          const result = await mcpManager.callTool(mcpTool.name, leanArgs);
           const normalizedResult = normalizeMcpToolResultForModel(result);
           return {
             content: [{ type: 'text' as const, text: normalizedResult.text }],

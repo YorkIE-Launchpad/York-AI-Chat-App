@@ -74,6 +74,25 @@ describe('serializeMessageContentForHistory', () => {
     );
   });
 
+  it('compresses JSON tool_result content to TOON for history rebuild', () => {
+    const blocks: ContentBlock[] = [
+      {
+        type: 'tool_result',
+        toolUseId: 'toolu_json',
+        content: JSON.stringify([
+          { id: 1, name: 'a', unused: null },
+          { id: 2, name: 'b' },
+        ]),
+      },
+    ];
+    const out = serializeMessageContentForHistory(blocks);
+    expect(out).toContain('tool_use_id="toolu_json"');
+    expect(out).toContain('format: toon');
+    expect(out).toContain('1,a');
+    expect(out).not.toContain('"unused"');
+    expect(out).not.toContain('null');
+  });
+
   it('marks tool_result errors with is_error="true"', () => {
     const blocks: ContentBlock[] = [
       { type: 'tool_result', toolUseId: 'toolu_02', content: 'boom', isError: true },

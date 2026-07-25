@@ -23,10 +23,26 @@ describe('tool result utils', () => {
 
     const normalized = normalizeMcpToolResultForModel(result);
 
-    expect(normalized.text).toContain('"success": true');
+    expect(normalized.text).toMatch(/^format: toon\n/);
+    expect(normalized.text).toContain('success: true');
     expect(normalized.text).toContain('/tmp/screenshot.png');
     expect(normalized.text).not.toContain(base64Image);
     expect(normalized.images).toEqual([{ data: base64Image, mimeType: 'image/png' }]);
+  });
+
+  it('leaves non-JSON model text unchanged', () => {
+    const normalized = normalizeMcpToolResultForModel({
+      content: [{ type: 'text', text: 'plain tool output' }],
+    });
+    expect(normalized.text).toBe('plain tool output');
+  });
+
+  it('does not TOON-encode UI path (keeps JSON text)', () => {
+    const json = JSON.stringify({ success: true, path: '/tmp/x.png' }, null, 2);
+    const normalized = normalizeToolExecutionResultForUi({
+      content: [{ type: 'text', text: json }],
+    });
+    expect(normalized.content).toBe(json);
   });
 
   it('extracts tool result images into the dedicated ui field', () => {

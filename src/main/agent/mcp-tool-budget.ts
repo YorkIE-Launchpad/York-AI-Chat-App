@@ -10,6 +10,7 @@ import type { ToolDefinition } from '@mariozechner/pi-coding-agent';
 import type { MCPManager, MCPTool } from '../mcp/mcp-manager';
 import { log } from '../utils/logger';
 import { normalizeMcpToolResultForModel } from './tool-result-utils';
+import { augmentMcpToolDescription, leanMcpToolArgs } from './mcp-tool-payload';
 
 export const OPENAI_MAX_TOOLS = 128;
 export const MCP_SEARCH_TOOLS_NAME = 'mcp_search_tools';
@@ -94,7 +95,10 @@ export function searchMcpTools(
   return filtered.slice(0, limit).map((tool) => ({
     name: tool.name,
     server: tool.serverName,
-    description: tool.description || `MCP tool from ${tool.serverName}`,
+    description: augmentMcpToolDescription(
+      tool.name,
+      tool.description || `MCP tool from ${tool.serverName}`
+    ),
     inputSchema: tool.inputSchema,
   }));
 }
@@ -210,10 +214,12 @@ export function buildMcpMetaTools(
         };
       }
       try {
-        const result = await mcpManager.callTool(
-          toolName,
-          toolArgs && typeof toolArgs === 'object' ? toolArgs : {}
+        const matched = allowed.find((tool) => tool.name === toolName);
+        const leanArgs = leanMcpToolArgs(
+          toolArgs && typeof toolArgs === 'object' ? toolArgs : {},
+          matched?.inputSchema
         );
+        const result = await mcpManager.callTool(toolName, leanArgs);
         const normalizedResult = normalizeMcpToolResultForModel(result);
         return {
           content: [{ type: 'text' as const, text: normalizedResult.text }],

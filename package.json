@@ -76,6 +76,7 @@
     "@modelcontextprotocol/sdk": "^1.26.0",
     "@slack/bolt": "4.7.0",
     "@slack/web-api": "7.15.1",
+    "@toon-format/toon": "4.0.0",
     "archiver": "^7.0.1",
     "aws-jwt-verify": "5.2.1",
     "better-sqlite3": "^12.8.0",
