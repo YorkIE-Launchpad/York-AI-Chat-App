@@ -82,16 +82,18 @@ export const MessageCard = memo(function MessageCard({ message, isStreaming }: M
             {contentBlocks.length === 0 ? (
               <span className="text-text-muted italic">{t('messageCard.emptyMessage')}</span>
             ) : (
-              contentBlocks.map((block, index) => (
-                <ContentBlockView
-                  key={
-                    'id' in block ? (block as { id: string }).id : `block-${block.type}-${index}`
-                  }
-                  block={block}
-                  isUser={isUser}
-                  isStreaming={isStreaming}
-                />
-              ))
+              <div className="space-y-2">
+                {contentBlocks.map((block, index) => (
+                  <ContentBlockView
+                    key={
+                      'id' in block ? (block as { id: string }).id : `block-${block.type}-${index}`
+                    }
+                    block={block}
+                    isUser={isUser}
+                    isStreaming={isStreaming}
+                  />
+                ))}
+              </div>
             )}
           </div>
           <button

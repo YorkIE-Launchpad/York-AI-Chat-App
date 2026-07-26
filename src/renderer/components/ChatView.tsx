@@ -17,7 +17,7 @@ import { SlashCommandMenu } from './SlashCommandMenu';
 import { SubagentTracker } from './SubagentTracker';
 import { ContextUsageBar } from './ContextUsageBar';
 import type { Message, ContentBlock, Skill } from '../types';
-import { Send, Square, Plus, Loader2, Plug, X, Clock, Mic } from 'lucide-react';
+import { Send, Square, Plus, Loader2, Plug, X, Clock, Mic, Paperclip } from 'lucide-react';
 import { isScrollNearBottom, resolveSessionScrollTop } from '../utils/chat-scroll-position';
 import { useSlashCommands, isMeetingSlashSkill } from '../hooks/useSlashCommands';
 import { MeetingPicker, type AttachedMeeting } from './MeetingPicker';
@@ -67,7 +67,9 @@ export function ChatView() {
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const [attachedMeetings, setAttachedMeetings] = useState<AttachedMeeting[]>([]);
   const [meetingPickerOpen, setMeetingPickerOpen] = useState(false);
+  const [attachMenuOpen, setAttachMenuOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const attachMenuRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -494,6 +496,26 @@ export function ChatView() {
     }
   };
 
+  useEffect(() => {
+    if (!attachMenuOpen) return;
+    const onPointerDown = (event: MouseEvent) => {
+      if (!attachMenuRef.current?.contains(event.target as Node)) {
+        setAttachMenuOpen(false);
+      }
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setAttachMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [attachMenuOpen]);
+
   // Handle drag and drop for images
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -620,6 +642,7 @@ export function ChatView() {
       if (isMeetingSlashSkill(skill)) {
         setPrompt('');
         closeSlashMenu();
+        setAttachMenuOpen(false);
         setMeetingPickerOpen(true);
         return;
       }
@@ -928,6 +951,7 @@ export function ChatView() {
                               )
                             )
                           }
+                          className="h-3.5 w-3.5 accent-accent"
                         />
                         {t('meetings.includeTranscript')}
                       </label>
@@ -961,24 +985,61 @@ export function ChatView() {
                 onHoverIndex={setSlashSelectedIndex}
                 onClose={closeSlashMenu}
               />
-              <button
-                type="button"
-                onClick={handleFileSelect}
-                className="w-9 h-9 rounded-2xl flex items-center justify-center text-text-muted hover:text-text-primary hover:bg-surface-hover transition-colors"
-                title={t('welcome.attachFiles')}
-              >
-                <Plus className="w-5 h-5" />
-              </button>
-              {meetingsReferenceAllowed && (
+              <div className="relative" ref={attachMenuRef}>
                 <button
                   type="button"
-                  onClick={() => setMeetingPickerOpen(true)}
+                  onClick={() => {
+                    if (meetingsReferenceAllowed) {
+                      setAttachMenuOpen((open) => !open);
+                      return;
+                    }
+                    void handleFileSelect();
+                  }}
                   className="w-9 h-9 rounded-2xl flex items-center justify-center text-text-muted hover:text-text-primary hover:bg-surface-hover transition-colors"
-                  title={t('meetings.attachMeeting')}
+                  title={
+                    meetingsReferenceAllowed ? t('meetings.attachMenu') : t('welcome.attachFiles')
+                  }
+                  aria-expanded={meetingsReferenceAllowed ? attachMenuOpen : undefined}
+                  aria-haspopup={meetingsReferenceAllowed ? 'menu' : undefined}
                 >
-                  <Mic className="w-5 h-5" />
+                  <Plus className="w-5 h-5" />
                 </button>
-              )}
+                {meetingsReferenceAllowed && attachMenuOpen && (
+                  <div
+                    role="menu"
+                    className="absolute bottom-[calc(100%+8px)] left-0 z-30 min-w-[12.5rem] overflow-hidden rounded-[1.25rem] border border-border-subtle bg-background shadow-elevated"
+                  >
+                    <div className="space-y-0.5 p-1.5">
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setAttachMenuOpen(false);
+                          void handleFileSelect();
+                        }}
+                        className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
+                      >
+                        <Paperclip className="h-4 w-4 text-text-muted" />
+                        <span className="text-[13px] font-medium">{t('welcome.attachFiles')}</span>
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setAttachMenuOpen(false);
+                          setMeetingPickerOpen(true);
+                        }}
+                        className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
+                      >
+                        <Mic className="h-4 w-4 text-accent" />
+                        <span className="text-[13px] font-medium">
+                          {t('meetings.attachMeeting')}
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
 
               <textarea
                 ref={textareaRef}

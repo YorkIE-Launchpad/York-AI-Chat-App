@@ -215,6 +215,7 @@
     "stopCapture": "Stop & generate notes",
     "pickerTitle": "Attach a meeting",
     "pickerDesc": "Adds title and summary to this message only. Raw transcript stays available in Settings.",
+    "attachMenu": "Attach",
     "attachMeeting": "Attach meeting",
     "attachedMeeting": "Meeting",
     "includeTranscript": "Include raw transcript",

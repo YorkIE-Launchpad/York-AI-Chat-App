@@ -46,6 +46,33 @@ function permissionLabel(status: string): string {
   return status.replace(/-/g, ' ');
 }
 
+function ToggleField({
+  label,
+  hint,
+  checked,
+  onChange,
+}: {
+  label: string;
+  hint?: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className="flex items-center justify-between gap-3 rounded-lg border border-border-muted bg-background/70 px-3 py-2.5">
+      <div className="min-w-0">
+        <span className="text-sm text-text-primary">{label}</span>
+        {hint ? <p className="mt-1 text-xs text-text-muted">{hint}</p> : null}
+      </div>
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+        className="h-4 w-4 shrink-0 accent-accent"
+      />
+    </label>
+  );
+}
+
 export function SettingsMeetings() {
   const { t } = useTranslation();
   const appConfig = useAppStore((state) => state.appConfig);
@@ -335,27 +362,23 @@ export function SettingsMeetings() {
         title={t('meetings.chatContext')}
         description={t('meetings.chatContextDesc')}
       >
-        <label className="flex items-center gap-2 text-sm text-text-primary">
-          <input
-            type="checkbox"
+        <div className="space-y-3">
+          <ToggleField
+            label={t('meetings.allowChatReference')}
             checked={runtimeDraft.allowChatReference}
-            onChange={(e) =>
-              setRuntimeDraft((prev) => ({ ...prev, allowChatReference: e.target.checked }))
+            onChange={(checked) =>
+              setRuntimeDraft((prev) => ({ ...prev, allowChatReference: checked }))
             }
           />
-          {t('meetings.allowChatReference')}
-        </label>
-        <label className="mt-3 flex items-center gap-2 text-sm text-text-primary">
-          <input
-            type="checkbox"
+          <ToggleField
+            label={t('meetings.ingestIntoGlobalMemory')}
+            hint={t('meetings.ingestIntoGlobalMemoryHint')}
             checked={runtimeDraft.ingestIntoGlobalMemory !== false}
-            onChange={(e) =>
-              setRuntimeDraft((prev) => ({ ...prev, ingestIntoGlobalMemory: e.target.checked }))
+            onChange={(checked) =>
+              setRuntimeDraft((prev) => ({ ...prev, ingestIntoGlobalMemory: checked }))
             }
           />
-          {t('meetings.ingestIntoGlobalMemory')}
-        </label>
-        <p className="mt-1 text-xs text-text-muted">{t('meetings.ingestIntoGlobalMemoryHint')}</p>
+        </div>
       </SettingsContentSection>
 
       <SettingsContentSection
@@ -432,16 +455,15 @@ export function SettingsMeetings() {
             <option value="whisper-1">whisper-1</option>
           </select>
         </label>
-        <label className="mt-3 flex items-center gap-2 text-sm text-text-primary">
-          <input
-            type="checkbox"
+        <div className="mt-3">
+          <ToggleField
+            label={t('meetings.processDetect')}
             checked={runtimeDraft.processDetectEnabled}
-            onChange={(e) =>
-              setRuntimeDraft((prev) => ({ ...prev, processDetectEnabled: e.target.checked }))
+            onChange={(checked) =>
+              setRuntimeDraft((prev) => ({ ...prev, processDetectEnabled: checked }))
             }
           />
-          {t('meetings.processDetect')}
-        </label>
+        </div>
         <button
           type="button"
           disabled={isBusy}

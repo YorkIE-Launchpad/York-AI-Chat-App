@@ -726,6 +726,7 @@ export function WelcomeView() {
                             )
                           )
                         }
+                        className="h-3.5 w-3.5 accent-accent"
                       />
                       {t('meetings.includeTranscript')}
                     </label>
