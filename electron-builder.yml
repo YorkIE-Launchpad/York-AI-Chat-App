@@ -93,7 +93,7 @@ mac:
       arch:
         - arm64
   artifactName: ${productName}-${version}-mac-${arch}.${ext}
-  identity: auto
+  identity: 'Developer ID Application: York IE, LLC (7G87G26WW6)'
   hardenedRuntime: true
   gatekeeperAssess: true
   entitlements: resources/entitlements.mac.plist
