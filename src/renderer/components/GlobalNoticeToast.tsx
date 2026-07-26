@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { X } from 'lucide-react';
 import type { GlobalNotice } from '../store';
@@ -18,16 +18,19 @@ const noticeToneClass: Record<GlobalNotice['type'], { border: string; text: stri
 
 export function GlobalNoticeToast({ notice, onDismiss, onAction }: Props) {
   const { t } = useTranslation();
+  const onDismissRef = useRef(onDismiss);
+  onDismissRef.current = onDismiss;
 
   useEffect(() => {
     if (!notice) {
       return;
     }
+    const durationMs = notice.durationMs ?? 5000;
     const timer = setTimeout(() => {
-      onDismiss();
-    }, 6000);
+      onDismissRef.current();
+    }, durationMs);
     return () => clearTimeout(timer);
-  }, [notice, onDismiss]);
+  }, [notice?.id, notice?.durationMs]);
 
   if (!notice) {
     return null;
@@ -35,13 +38,13 @@ export function GlobalNoticeToast({ notice, onDismiss, onAction }: Props) {
 
   const tone = noticeToneClass[notice.type];
   const message = notice.messageKey ? t(notice.messageKey, notice.messageValues) : notice.message;
-  const actionLabel = notice.actionLabel || '';
+  const actionLabel = notice.actionLabelKey ? t(notice.actionLabelKey) : notice.actionLabel || '';
   const noticeAction = notice.action;
 
   return (
-    <div className="fixed top-4 right-4 left-4 sm:left-auto z-50">
+    <div className="fixed top-12 right-4 left-4 sm:left-auto z-[200] pointer-events-auto">
       <div
-        className={`max-w-sm rounded-[1.4rem] border bg-background/92 backdrop-blur-md shadow-elevated ${tone.border}`}
+        className={`max-w-sm rounded-[1.4rem] border bg-background/95 backdrop-blur-md shadow-elevated ${tone.border}`}
       >
         <div className="flex items-start gap-3 px-4 py-3">
           <div className={`flex-1 text-sm leading-relaxed ${tone.text}`}>{message}</div>

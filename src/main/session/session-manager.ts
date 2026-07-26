@@ -23,8 +23,10 @@ import type {
   TextContent,
   TraceStep,
   FileAttachmentContent,
+  MeetingAttachmentContent,
 } from '../../renderer/types';
 import type { DatabaseInstance, TraceStepRow } from '../db/database';
+import type { MeetingService } from '../meetings/meeting-service';
 import { PathResolver } from '../sandbox/path-resolver';
 import {
   SandboxAdapter,
@@ -106,6 +108,7 @@ export class SessionManager {
   private titleGenerationTokens: Map<string, symbol> = new Map();
   private messageCache: Map<string, Message[]> = new Map();
   private static readonly MAX_CACHE_SIZE = 100;
+  private meetingService: MeetingService | null = null;
 
   constructor(
     db: DatabaseInstance,
@@ -138,6 +141,10 @@ export class SessionManager {
     this.createAgentRunner();
 
     log('[SessionManager] Initialized with persistent database and MCP support');
+  }
+
+  setMeetingService(service: MeetingService | null): void {
+    this.meetingService = service;
   }
 
   /**
@@ -705,8 +712,34 @@ export class SessionManager {
               (f) => `- ${f.filename} (${(f.size / 1024).toFixed(1)} KB) at path: ${f.relativePath}`
             )
             .join('\n');
-          enhancedPrompt = `${prompt}\n\n[Attached files - use Read tool to access them]:\n${fileInfo}`;
+          enhancedPrompt = `${enhancedPrompt}\n\n[Attached files - use Read tool to access them]:\n${fileInfo}`;
           logCtx('[SessionManager] Enhanced prompt with file info:', enhancedPrompt);
+        }
+
+        const meetingAttachments = messageContent.filter(
+          (c) => c.type === 'meeting_attachment'
+        ) as MeetingAttachmentContent[];
+        if (meetingAttachments.length > 0 && this.meetingService?.isChatReferenceAllowed()) {
+          const meetingBlocks: string[] = [];
+          for (const attachment of meetingAttachments) {
+            const meeting = this.meetingService.get(attachment.meetingId);
+            if (!meeting) {
+              meetingBlocks.push(
+                `- Meeting "${attachment.title}" (${attachment.meetingId}) — not found`
+              );
+              continue;
+            }
+            meetingBlocks.push(
+              this.meetingService.formatMeetingForPrompt(
+                meeting,
+                Boolean(attachment.includeTranscript)
+              )
+            );
+          }
+          if (meetingBlocks.length > 0) {
+            enhancedPrompt = `${enhancedPrompt}\n\n[Attached meetings — use only for this request]:\n${meetingBlocks.join('\n\n')}`;
+            logCtx('[SessionManager] Enhanced prompt with meeting attachments');
+          }
         }
 
         // Save user message to database for persistence

@@ -193,6 +193,107 @@ export class MemoryService {
     return { success: true, enabled };
   }
 
+  /**
+   * Ingest a finalized meeting into global experience + compact core memory.
+   * No-op when memory is disabled.
+   */
+  async ingestMeeting(meeting: {
+    id: string;
+    title: string;
+    startedAt: number;
+    transcriptText: string;
+    notes: {
+      title: string;
+      summary: string;
+      actionItems: string[];
+      keyTopics: string[];
+    };
+  }): Promise<void> {
+    if (!this.isEnabled()) {
+      return;
+    }
+
+    const sessionId = `meeting:${meeting.id}`;
+    const title = (meeting.notes.title || meeting.title || 'Meeting').trim();
+    const summary = (meeting.notes.summary || '').trim();
+    const actionItems = meeting.notes.actionItems || [];
+    const keyTopics = meeting.notes.keyTopics || [];
+    const sessionDate = formatTimestamp(meeting.startedAt);
+    const dateKey = new Date(meeting.startedAt).toISOString().slice(0, 10);
+    const slug =
+      title
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '_')
+        .replace(/^_|_$/g, '')
+        .slice(0, 40) || 'untitled';
+
+    const transcriptLines = (meeting.transcriptText || '')
+      .split(/\n+/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    const fullTurns: MemoryTranscriptTurn[] =
+      transcriptLines.length > 0
+        ? transcriptLines.map((content) => ({ role: 'transcript', content }))
+        : [{ role: 'transcript', content: summary || title }];
+
+    const keywords = extractKeywords([title, summary, ...keyTopics, ...actionItems].join(' '));
+    const mergedKeywords = [...new Set([...keyTopics, ...keywords])].slice(0, 24);
+
+    await this.storeExperienceSession({
+      sourceWorkspace: null,
+      sessionId,
+      sessionTitle: title,
+      sessionDate,
+      sessionCreatedAt: meeting.startedAt,
+      fullTurns,
+      extracted: {
+        sessionSummary: summary || title,
+        sessionKeywords: mergedKeywords,
+        chunks: [
+          {
+            summary: summary || title,
+            details: [
+              summary,
+              keyTopics.length ? `Key topics: ${keyTopics.join('; ')}` : '',
+              actionItems.length ? `Action items: ${actionItems.join('; ')}` : '',
+            ]
+              .filter(Boolean)
+              .join('\n'),
+            keywords: mergedKeywords,
+            sourceTurns: fullTurns.map((_, index) => index),
+          },
+          ...(actionItems.length
+            ? [
+                {
+                  summary: `Action items from ${title}`,
+                  details: actionItems.join('\n'),
+                  keywords: extractKeywords(actionItems.join(' ')),
+                  sourceTurns: fullTurns.map((_, index) => index),
+                },
+              ]
+            : []),
+        ],
+      },
+    });
+
+    const coreValue = [title, summary ? summary.slice(0, 280) : '', `(${dateKey})`]
+      .filter(Boolean)
+      .join('. ')
+      .slice(0, 500);
+
+    this.getCoreStore().applyActions([
+      {
+        op: 'upsert',
+        category: 'interests',
+        key: `meeting_${dateKey}_${slug}`,
+        value: coreValue,
+        reason: 'Auto-ingested from meeting capture',
+      },
+    ]);
+
+    log(`[Memory] Ingested meeting ${meeting.id} into global memory`);
+  }
+
   getTools(): MemoryToolDefinition[] {
     return this.tools;
   }

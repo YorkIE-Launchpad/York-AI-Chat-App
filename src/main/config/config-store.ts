@@ -138,6 +138,12 @@ export interface AppConfig {
   // Dedicated memory runtime config
   memoryRuntime: MemoryRuntimeConfig;
 
+  // Meeting capture toggle
+  meetingsEnabled: boolean;
+
+  // Meeting capture runtime config
+  meetingsRuntime: MeetingsRuntimeConfig;
+
   // Enable thinking mode (show thinking steps)
   enableThinking: boolean;
 
@@ -169,6 +175,15 @@ export interface MemoryRuntimeConfig {
   promptIterationRounds?: number;
 }
 
+export interface MeetingsRuntimeConfig {
+  transcriptionModel: 'gpt-4o-transcribe' | 'whisper-1';
+  allowChatReference: boolean;
+  ingestIntoGlobalMemory: boolean;
+  recentMeetingCount: number;
+  processDetectEnabled: boolean;
+  storageRoot?: string;
+}
+
 const DEFAULT_CONFIG_SET_ID = 'default';
 const MAX_CONFIG_SET_COUNT = 20;
 const LOCAL_ANTHROPIC_PLACEHOLDER_KEY = 'sk-ant-local-proxy';
@@ -186,6 +201,7 @@ const DIRECT_READ_KEYS = new Set<keyof AppConfig>([
   'theme',
   'sandboxEnabled',
   'memoryEnabled',
+  'meetingsEnabled',
   'enableThinking',
   'autoModelPreference',
   'isConfigured',
@@ -203,6 +219,7 @@ export const EXPORTABLE_FIELDS: (keyof AppConfig)[] = [
   'sandboxEnabled',
   'enableThinking',
   'memoryEnabled',
+  'meetingsEnabled',
   'model',
   'autoModelPreference',
   'provider',
@@ -222,6 +239,7 @@ export const FIELD_VALIDATORS: Record<string, (v: unknown) => boolean> = {
   sandboxEnabled: (v) => typeof v === 'boolean',
   enableThinking: (v) => typeof v === 'boolean',
   memoryEnabled: (v) => typeof v === 'boolean',
+  meetingsEnabled: (v) => typeof v === 'boolean',
   model: (v) => typeof v === 'string',
   autoModelPreference: (v) => v === 'eco' || v === 'balanced' || v === 'max',
   provider: (v) =>
@@ -337,6 +355,15 @@ const defaultConfig: AppConfig = {
     evalMaxRounds: 12,
     evalArtifactsRoot: '',
     promptIterationRounds: 2,
+  },
+  meetingsEnabled: true,
+  meetingsRuntime: {
+    transcriptionModel: 'gpt-4o-transcribe',
+    allowChatReference: true,
+    ingestIntoGlobalMemory: true,
+    recentMeetingCount: 5,
+    processDetectEnabled: true,
+    storageRoot: '',
   },
   enableThinking: false,
   isConfigured: false,
@@ -493,6 +520,44 @@ function normalizeMemoryRuntimeConfig(raw: unknown): MemoryRuntimeConfig {
       Number.isFinite(value.promptIterationRounds)
         ? Math.max(0, Math.min(10, Math.round(value.promptIterationRounds)))
         : defaultConfig.memoryRuntime.promptIterationRounds,
+  };
+}
+
+function normalizeMeetingsRuntimeConfig(raw: unknown): MeetingsRuntimeConfig {
+  const value =
+    typeof raw === 'object' && raw !== null
+      ? (raw as Partial<MeetingsRuntimeConfig> & { injectIntoChat?: boolean })
+      : {};
+  const model =
+    value.transcriptionModel === 'whisper-1' || value.transcriptionModel === 'gpt-4o-transcribe'
+      ? value.transcriptionModel
+      : defaultConfig.meetingsRuntime.transcriptionModel;
+  // Migrate legacy injectIntoChat → allowChatReference
+  const allowChatReference =
+    value.allowChatReference !== undefined
+      ? toBoolean(value.allowChatReference, defaultConfig.meetingsRuntime.allowChatReference)
+      : value.injectIntoChat !== undefined
+        ? toBoolean(value.injectIntoChat, defaultConfig.meetingsRuntime.allowChatReference)
+        : defaultConfig.meetingsRuntime.allowChatReference;
+  return {
+    transcriptionModel: model,
+    allowChatReference,
+    ingestIntoGlobalMemory: toBoolean(
+      value.ingestIntoGlobalMemory,
+      defaultConfig.meetingsRuntime.ingestIntoGlobalMemory
+    ),
+    recentMeetingCount:
+      typeof value.recentMeetingCount === 'number' && Number.isFinite(value.recentMeetingCount)
+        ? Math.max(0, Math.min(20, Math.round(value.recentMeetingCount)))
+        : defaultConfig.meetingsRuntime.recentMeetingCount,
+    processDetectEnabled: toBoolean(
+      value.processDetectEnabled,
+      defaultConfig.meetingsRuntime.processDetectEnabled
+    ),
+    storageRoot:
+      typeof value.storageRoot === 'string'
+        ? value.storageRoot
+        : defaultConfig.meetingsRuntime.storageRoot,
   };
 }
 
@@ -1046,6 +1111,8 @@ export class ConfigStore {
       sandboxEnabled: toBoolean(raw.sandboxEnabled, defaultConfig.sandboxEnabled),
       memoryEnabled: toBoolean(raw.memoryEnabled, defaultConfig.memoryEnabled),
       memoryRuntime: normalizeMemoryRuntimeConfig(raw.memoryRuntime),
+      meetingsEnabled: toBoolean(raw.meetingsEnabled, defaultConfig.meetingsEnabled),
+      meetingsRuntime: normalizeMeetingsRuntimeConfig(raw.meetingsRuntime),
       enableThinking: projected.enableThinking,
       autoModelPreference: normalizeAutoModelPreference(raw.autoModelPreference),
       isConfigured: toBoolean(raw.isConfigured, defaultConfig.isConfigured),
@@ -1190,6 +1257,7 @@ export class ConfigStore {
           (key === 'enableDevLogs' ||
             key === 'sandboxEnabled' ||
             key === 'memoryEnabled' ||
+            key === 'meetingsEnabled' ||
             key === 'enableThinking' ||
             key === 'isConfigured') &&
           typeof rawValue !== 'boolean'
@@ -1469,6 +1537,12 @@ export class ConfigStore {
         updates.memoryRuntime !== undefined
           ? normalizeMemoryRuntimeConfig(updates.memoryRuntime)
           : current.memoryRuntime,
+      meetingsEnabled:
+        updates.meetingsEnabled !== undefined ? updates.meetingsEnabled : current.meetingsEnabled,
+      meetingsRuntime:
+        updates.meetingsRuntime !== undefined
+          ? normalizeMeetingsRuntimeConfig(updates.meetingsRuntime)
+          : current.meetingsRuntime,
       autoModelPreference:
         updates.autoModelPreference !== undefined
           ? normalizeAutoModelPreference(updates.autoModelPreference)

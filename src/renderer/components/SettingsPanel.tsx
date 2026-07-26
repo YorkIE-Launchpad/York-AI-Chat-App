@@ -8,6 +8,7 @@ import {
   Globe,
   ChevronRight,
   BrainCircuit,
+  AudioLines,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useWindowSize } from '../hooks/useWindowSize';
@@ -18,18 +19,20 @@ import { SettingsSchedule } from './settings/SettingsSchedule';
 import { SettingsGeneral } from './settings/SettingsGeneral';
 import { SettingsLogs } from './settings/SettingsLogs';
 import { SettingsMemory } from './settings/SettingsMemory';
+import { SettingsMeetings } from './settings/SettingsMeetings';
 
 interface SettingsPanelProps {
   onClose: () => void;
-  initialTab?: 'connectors' | 'skills' | 'memory' | 'schedule' | 'logs' | 'general';
+  initialTab?: 'connectors' | 'skills' | 'memory' | 'meetings' | 'schedule' | 'logs' | 'general';
 }
 
-type TabId = 'connectors' | 'skills' | 'memory' | 'schedule' | 'logs' | 'general';
+type TabId = 'connectors' | 'skills' | 'memory' | 'meetings' | 'schedule' | 'logs' | 'general';
 
 const VALID_TABS = new Set<TabId>([
   'connectors',
   'skills',
   'memory',
+  'meetings',
   'schedule',
   'logs',
   'general',
@@ -93,6 +96,12 @@ export function SettingsPanel({ onClose, initialTab = 'general' }: SettingsPanel
       label: t('settings.memory'),
       icon: BrainCircuit,
       description: t('settings.memoryDesc'),
+    },
+    {
+      id: 'meetings' as TabId,
+      label: t('settings.meetings'),
+      icon: AudioLines,
+      description: t('settings.meetingsDesc'),
     },
     {
       id: 'schedule' as TabId,
@@ -211,6 +220,9 @@ export function SettingsPanel({ onClose, initialTab = 'general' }: SettingsPanel
               </div>
               <div className={activeTab === 'memory' ? '' : 'hidden'}>
                 {viewedTabs.has('memory') && <SettingsMemory />}
+              </div>
+              <div className={activeTab === 'meetings' ? '' : 'hidden'}>
+                {viewedTabs.has('meetings') && <SettingsMeetings />}
               </div>
               <div className={activeTab === 'schedule' ? '' : 'hidden'}>
                 {viewedTabs.has('schedule') && (

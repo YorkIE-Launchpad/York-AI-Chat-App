@@ -101,6 +101,7 @@ describe('Config File Sync', () => {
         'sandboxEnabled',
         'enableThinking',
         'memoryEnabled',
+        'meetingsEnabled',
         'model',
         'provider',
       ];
@@ -283,6 +284,7 @@ describe('Config File Sync', () => {
         'sandboxEnabled',
         'enableThinking',
         'memoryEnabled',
+        'meetingsEnabled',
       ] as const;
       const invalidValues: unknown[] = ['true', 1, 0, null, 'yes'];
       for (const field of booleanFields) {
@@ -300,6 +302,7 @@ describe('Config File Sync', () => {
         'sandboxEnabled',
         'enableThinking',
         'memoryEnabled',
+        'meetingsEnabled',
       ] as const;
       for (const field of booleanFields) {
         for (const value of [true, false]) {

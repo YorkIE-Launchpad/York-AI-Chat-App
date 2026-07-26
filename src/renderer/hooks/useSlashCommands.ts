@@ -4,6 +4,22 @@ import { useAppStore } from '../store';
 
 const isElectron = typeof window !== 'undefined' && window.electronAPI !== undefined;
 
+export const MEETING_SLASH_SKILL_ID = '__builtin_meeting';
+
+export const MEETING_SLASH_SKILL: Skill = {
+  id: MEETING_SLASH_SKILL_ID,
+  name: 'meeting',
+  description: 'Attach a saved meeting to this message',
+  type: 'builtin',
+  enabled: true,
+  userInvocable: true,
+  createdAt: 0,
+};
+
+export function isMeetingSlashSkill(skill: Skill | null | undefined): boolean {
+  return Boolean(skill && skill.id === MEETING_SLASH_SKILL_ID);
+}
+
 export function isSlashCommandInput(value: string): boolean {
   return /^\/[^\n]*$/.test(value);
 }
@@ -17,7 +33,9 @@ export function useSlashCommands(prompt: string) {
   const [skills, setSkills] = useState<Skill[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [dismissed, setDismissed] = useState(false);
+  const [meetingsReferenceAllowed, setMeetingsReferenceAllowed] = useState(false);
   const skillsStorageChangedAt = useAppStore((state) => state.skillsStorageChangedAt);
+  const appConfig = useAppStore((state) => state.appConfig);
 
   const matchesSlash = isSlashCommandInput(prompt);
   // Once the user has a completed `/name ` (trailing space), keep the menu closed
@@ -45,6 +63,29 @@ export function useSlashCommands(prompt: string) {
   }, [reloadSkills, skillsStorageChangedAt]);
 
   useEffect(() => {
+    let cancelled = false;
+    const meetingsEnabled = appConfig?.meetingsEnabled !== false;
+    const allowRef = appConfig?.meetingsRuntime?.allowChatReference !== false;
+    if (!isElectron || !meetingsEnabled || !allowRef) {
+      setMeetingsReferenceAllowed(false);
+      return;
+    }
+    void window.electronAPI.meetings
+      .getOverview()
+      .then((overview) => {
+        if (!cancelled) {
+          setMeetingsReferenceAllowed(overview.enabled && overview.allowChatReference);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setMeetingsReferenceAllowed(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [appConfig?.meetingsEnabled, appConfig?.meetingsRuntime?.allowChatReference]);
+
+  useEffect(() => {
     if (!matchesSlash) {
       setDismissed(false);
     }
@@ -53,13 +94,22 @@ export function useSlashCommands(prompt: string) {
   const filteredSkills = useMemo(() => {
     if (!matchesSlash) return [];
     const query = getSlashQuery(prompt);
-    if (!query) return skills;
-    return skills.filter((skill) => {
+    const builtin = meetingsReferenceAllowed
+      ? [
+          {
+            ...MEETING_SLASH_SKILL,
+            description: MEETING_SLASH_SKILL.description,
+          },
+        ]
+      : [];
+    const combined = [...builtin, ...skills];
+    if (!query) return combined;
+    return combined.filter((skill) => {
       const name = skill.name.toLowerCase();
       const description = (skill.description ?? '').toLowerCase();
       return name.includes(query) || description.includes(query);
     });
-  }, [matchesSlash, prompt, skills]);
+  }, [matchesSlash, prompt, skills, meetingsReferenceAllowed]);
 
   useEffect(() => {
     setSelectedIndex(0);
@@ -96,5 +146,6 @@ export function useSlashCommands(prompt: string) {
     setSelectedIndex,
     moveSelection,
     close,
+    meetingsReferenceAllowed,
   };
 }

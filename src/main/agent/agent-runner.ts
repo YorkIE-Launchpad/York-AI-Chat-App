@@ -225,8 +225,14 @@ export function serializeMessageContentForHistory(content: ContentBlock[]): stri
       }
       case 'image':
       case 'file_attachment':
-        // Skip \u2014 not representable as XML text in a history preamble.
+        // Skip — not representable as XML text in a history preamble.
         break;
+      case 'meeting_attachment': {
+        const title = (block as { title?: string }).title || 'Meeting';
+        const id = (block as { meetingId?: string }).meetingId || '';
+        parts.push(`[Attached meeting: ${title}${id ? ` (${id})` : ''}]`);
+        break;
+      }
     }
   }
   return parts.join('\n');

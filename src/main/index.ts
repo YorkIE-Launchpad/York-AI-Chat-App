@@ -22,6 +22,10 @@ import {
   nativeTheme,
   Tray,
   nativeImage,
+  desktopCapturer,
+  session,
+  Notification,
+  systemPreferences,
 } from 'electron';
 import { join, resolve, dirname, isAbsolute, basename } from 'path';
 import * as fs from 'fs';
@@ -35,6 +39,8 @@ import { PluginCatalogService } from './skills/plugin-catalog-service';
 import { PluginRuntimeService } from './skills/plugin-runtime-service';
 import { MemoryService } from './memory/memory-service';
 import { MemoryExtension } from './memory/memory-extension';
+import { MeetingService } from './meetings/meeting-service';
+import { MeetingExtension } from './meetings/meeting-extension';
 import { ConfigExtension } from './config/config-extension';
 import { SubagentExtension } from './agent/subagent-extension';
 import { AgentRuntimeExtensionManager } from './extensions/agent-runtime-extension-manager';
@@ -196,6 +202,7 @@ let sessionManager: SessionManager | null = null;
 let skillsManager: SkillsManager | null = null;
 let pluginRuntimeService: PluginRuntimeService | null = null;
 let memoryService: MemoryService | null = null;
+let meetingService: MeetingService | null = null;
 let scheduledTaskManager: ScheduledTaskManager | null = null;
 
 /**
@@ -559,6 +566,154 @@ function resolveEffectiveTheme(theme: AppTheme): 'dark' | 'light' {
 
 function applyNativeThemePreference(theme: AppTheme): void {
   nativeTheme.themeSource = theme;
+}
+
+function setupMeetingMediaCapture(): void {
+  try {
+    // Meeting capture needs mic (getUserMedia) + speaker/system loopback.
+    // getDisplayMedia always requests video; when Screen Recording is unavailable we
+    // satisfy that with this window's frame (not a screen share) and still grant loopback.
+    session.defaultSession.setDisplayMediaRequestHandler(async (_request, callback) => {
+      let streams: {
+        video?: Electron.DesktopCapturerSource | Electron.WebFrameMain;
+        audio?: 'loopback';
+      } = {};
+
+      const screenStatus =
+        process.platform === 'darwin' || process.platform === 'win32'
+          ? systemPreferences.getMediaAccessStatus('screen')
+          : 'unknown';
+
+      // Avoid calling getSources when denied — it rejects and can surface unhandled rejections.
+      if (screenStatus === 'granted') {
+        const sources = await desktopCapturer
+          .getSources({
+            types: ['screen'],
+            thumbnailSize: { width: 1, height: 1 },
+          })
+          .catch((error: unknown) => {
+            log('[Meetings] Screen sources unavailable for loopback setup', error);
+            return [] as Electron.DesktopCapturerSource[];
+          });
+        if (sources[0]) {
+          streams = { video: sources[0], audio: 'loopback' };
+        }
+      }
+
+      if (!streams.video) {
+        const frame =
+          mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents.mainFrame : null;
+        if (frame) {
+          streams = { video: frame, audio: 'loopback' };
+          log('[Meetings] Granting app-frame video + system loopback audio');
+        } else {
+          logWarn('[Meetings] No video source available for display-media grant');
+        }
+      }
+
+      try {
+        callback(streams);
+      } catch (error) {
+        logWarn('[Meetings] Display media grant rejected', error);
+      }
+    });
+  } catch (error) {
+    logWarn('[Meetings] Failed to register display media handler', error);
+  }
+}
+
+function wireMeetingServiceEvents(service: MeetingService): void {
+  service.onStatus((status) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('meetings:status', status);
+    }
+  });
+  service.onSegment((payload) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('meetings:segment', payload);
+    }
+  });
+  service.onNotesReady((meeting) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('meetings:notesReady', meeting);
+    }
+  });
+  service.onMeetingDetected((payload) => {
+    log(`[Meetings] Broadcasting detection to renderer: ${payload.newlyDetected.join(', ')}`);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('meetings:detected', payload);
+    }
+  });
+  service.onAutoStartRequested(() => {
+    log('[Meetings] Broadcasting auto-start request to renderer');
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (mainWindow.isMinimized()) {
+        mainWindow.restore();
+      }
+      mainWindow.show();
+      mainWindow.focus();
+      mainWindow.webContents.send('meetings:requestAutoStart');
+    }
+    showMeetingOsNotification({
+      title: 'Live capture in progress',
+      body: 'York is capturing this Zoom call. Notes will save to History when it ends.',
+    });
+  });
+  service.onAutoStopRequested(() => {
+    log('[Meetings] Broadcasting auto-stop request to renderer');
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('meetings:requestAutoStop');
+    }
+    showMeetingOsNotification({
+      title: 'Saving meeting notes',
+      body: 'Call ended — generating notes for History…',
+    });
+  });
+  service.syncDetectionPolling();
+}
+
+/** Keep refs so Chromium does not GC notifications before they appear. */
+const retainedMeetingNotifications = new Set<Notification>();
+
+function showMeetingOsNotification(options: { title: string; body: string }): void {
+  log(`[Meetings] Showing OS notification: ${options.title}`);
+  if (!Notification.isSupported()) {
+    logWarn('[Meetings] Electron Notification API is not supported on this platform');
+    return;
+  }
+  try {
+    const notification = new Notification({
+      title: options.title,
+      body: options.body,
+      silent: false,
+      timeoutType: 'default',
+      urgency: 'normal',
+    });
+    retainedMeetingNotifications.add(notification);
+    notification.on('click', () => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        if (mainWindow.isMinimized()) {
+          mainWindow.restore();
+        }
+        mainWindow.show();
+        mainWindow.focus();
+        mainWindow.webContents.send('meetings:openSettings');
+      }
+    });
+    notification.on('failed', (event, error) => {
+      logWarn('[Meetings] OS notification failed', error || event);
+      retainedMeetingNotifications.delete(notification);
+    });
+    notification.on('close', () => {
+      retainedMeetingNotifications.delete(notification);
+    });
+    notification.on('show', () => {
+      log('[Meetings] OS notification shown');
+    });
+    notification.show();
+  } catch (error) {
+    logWarn('[Meetings] Failed to show OS notification', error);
+  }
 }
 
 function createWindow() {
@@ -1077,6 +1232,8 @@ app
 
       pluginRuntimeService = new PluginRuntimeService(new PluginCatalogService());
       memoryService = new MemoryService(db);
+      meetingService = new MeetingService();
+      meetingService.setMemoryService(memoryService);
 
       // Build the JSONL sender with permission/question interception BEFORE constructing SessionManager
       const headlessSendToRenderer = createHeadlessSendToRenderer();
@@ -1122,6 +1279,7 @@ app
       );
       const headlessExtensionManager = new AgentRuntimeExtensionManager([
         new MemoryExtension(memoryService),
+        new MeetingExtension(meetingService),
         new ConfigExtension(configStore),
         new WebFetchExtension(),
         headlessAskUserQuestionExtension,
@@ -1144,6 +1302,7 @@ app
         headlessExtensionManager,
         headlessAskUserQuestionExtension
       );
+      sessionManager.setMeetingService(meetingService);
 
       skillsManager = new SkillsManager(db, {
         getConfiguredGlobalSkillsPath: () => configStore.get('globalSkillsPath') || '',
@@ -1506,9 +1665,13 @@ app
 
     pluginRuntimeService = new PluginRuntimeService(new PluginCatalogService());
     memoryService = new MemoryService(db);
+    meetingService = new MeetingService();
+    meetingService.setMemoryService(memoryService);
+    wireMeetingServiceEvents(meetingService);
     const askUserQuestionExtension = new AskUserQuestionExtension(sendToRenderer);
     const extensionManager = new AgentRuntimeExtensionManager([
       new MemoryExtension(memoryService),
+      new MeetingExtension(meetingService),
       new ConfigExtension(configStore),
       new WebFetchExtension(),
       askUserQuestionExtension,
@@ -1529,6 +1692,7 @@ app
       extensionManager,
       askUserQuestionExtension
     );
+    sessionManager.setMeetingService(meetingService);
     skillsManager = new SkillsManager(db, {
       getConfiguredGlobalSkillsPath: () => configStore.get('globalSkillsPath') || '',
       setConfiguredGlobalSkillsPath: (nextPath: string) => {
@@ -1549,6 +1713,7 @@ app
     setupTray();
 
     // Show window after core managers are ready so first-load actions can be handled.
+    setupMeetingMediaCapture();
     createWindow();
 
     // macOS: dock menu
@@ -2292,6 +2457,13 @@ ipcMain.handle('config.save', async (_event, newConfig: Partial<AppConfig>) => {
   // Update config
   configStore.update(newConfig);
   const updatedConfig = await syncConfigAfterMutation(previousConfig);
+
+  if (
+    meetingService &&
+    (newConfig.meetingsEnabled !== undefined || newConfig.meetingsRuntime !== undefined)
+  ) {
+    meetingService.syncDetectionPolling();
+  }
 
   return { success: true, config: updatedConfig };
 });
@@ -3548,6 +3720,134 @@ ipcMain.handle('memory.setEnabled', (_event, enabled: boolean) => {
     },
   });
   return result;
+});
+
+ipcMain.handle('meetings.getOverview', async () => {
+  if (!meetingService) {
+    throw new Error('Meeting service not initialized');
+  }
+  return meetingService.getOverview();
+});
+
+ipcMain.handle('meetings.setEnabled', (_event, enabled: boolean) => {
+  if (!meetingService) {
+    throw new Error('Meeting service not initialized');
+  }
+  const result = meetingService.setEnabled(enabled);
+  sendToRenderer({
+    type: 'config.status',
+    payload: {
+      isConfigured: configStore.isConfigured(),
+      config: configStore.getAll(),
+    },
+  });
+  return result;
+});
+
+ipcMain.handle('meetings.start', async (_event, title?: string) => {
+  if (!meetingService) {
+    throw new Error('Meeting service not initialized');
+  }
+  return meetingService.start(title);
+});
+
+ipcMain.handle('meetings.stop', async () => {
+  if (!meetingService) {
+    throw new Error('Meeting service not initialized');
+  }
+  return meetingService.stop();
+});
+
+ipcMain.handle('meetings.getStatus', () => {
+  if (!meetingService) {
+    throw new Error('Meeting service not initialized');
+  }
+  return meetingService.getCaptureStatus();
+});
+
+ipcMain.handle(
+  'meetings.appendChunk',
+  async (
+    _event,
+    payload: {
+      meetingId: string;
+      data: ArrayBuffer | Uint8Array;
+      mimeType?: string;
+      rms?: number;
+    }
+  ) => {
+    if (!meetingService) {
+      throw new Error('Meeting service not initialized');
+    }
+    return meetingService.appendChunk(payload);
+  }
+);
+
+ipcMain.handle('meetings.list', () => {
+  if (!meetingService) {
+    throw new Error('Meeting service not initialized');
+  }
+  return meetingService.list();
+});
+
+ipcMain.handle('meetings.get', (_event, id: string) => {
+  if (!meetingService) {
+    throw new Error('Meeting service not initialized');
+  }
+  return meetingService.get(id);
+});
+
+ipcMain.handle('meetings.search', (_event, query: string, limit?: number) => {
+  if (!meetingService) {
+    throw new Error('Meeting service not initialized');
+  }
+  return meetingService.search(query, limit);
+});
+
+ipcMain.handle('meetings.delete', (_event, id: string) => {
+  if (!meetingService) {
+    throw new Error('Meeting service not initialized');
+  }
+  return meetingService.delete(id);
+});
+
+ipcMain.handle('meetings.clearAll', () => {
+  if (!meetingService) {
+    throw new Error('Meeting service not initialized');
+  }
+  return meetingService.clearAll();
+});
+
+ipcMain.handle('meetings.requestMicrophoneAccess', async () => {
+  if (!meetingService) {
+    throw new Error('Meeting service not initialized');
+  }
+  return requestMeetingCapturePermissions();
+});
+
+ipcMain.handle('meetings.requestCapturePermissions', async () => {
+  if (!meetingService) {
+    throw new Error('Meeting service not initialized');
+  }
+  return requestMeetingCapturePermissions();
+});
+
+async function requestMeetingCapturePermissions(): Promise<{
+  permissions: ReturnType<MeetingService['getPermissions']>;
+  requestedMicrophone: boolean;
+  requestedScreen: boolean;
+}> {
+  if (!meetingService) {
+    throw new Error('Meeting service not initialized');
+  }
+  return meetingService.requestCapturePermissions();
+}
+
+ipcMain.handle('meetings.getPermissions', () => {
+  if (!meetingService) {
+    throw new Error('Meeting service not initialized');
+  }
+  return meetingService.getPermissions();
 });
 
 ipcMain.handle('logs.write', (_event, level: 'info' | 'warn' | 'error', args: unknown[]) => {

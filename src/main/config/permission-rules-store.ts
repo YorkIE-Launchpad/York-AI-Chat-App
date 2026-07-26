@@ -84,6 +84,7 @@ export function getPermissionRules(): PermissionRule[] {
  *      York IE HUB MCP tools (`mcp__York_IE_HUB__*` / legacy `mcp__Hub__*`),
  *      GTM Pulse MCP tools (`mcp__GTM_Pulse__*`),
  *      OpenAI budget meta-tools (`mcp_run`, and child-only `mcp_search_tools` / `mcp_call_tool`),
+ *      first-party meeting tools (`meeting_search`, `meeting_read`),
  *      and the first-party `webfetch` tool
  *   4. Default: 'ask' for unknown tools (conservative)
  *
@@ -110,8 +111,9 @@ export function decidePermission(
     return VALID_ACTIONS.has(rule.action) ? rule.action : 'ask';
   }
 
-  // Built-in default: Chrome / R&D Launchpad / York IE HUB / GTM Pulse MCP tools and webfetch
-  // run without a permission prompt. Explicit rules for a specific tool still win above.
+  // Built-in default: Chrome / R&D Launchpad / York IE HUB / GTM Pulse MCP tools,
+  // first-party meeting tools, and webfetch run without a permission prompt.
+  // Explicit rules for a specific tool still win above.
   // Legacy Launchpad/Hub prefixes are kept so older connector names keep working.
   if (lowered.startsWith('mcp__chrome__')) return 'allow';
   if (lowered.startsWith('mcp__r_d_launchpad__')) return 'allow';
@@ -119,6 +121,8 @@ export function decidePermission(
   if (lowered.startsWith('mcp__york_ie_hub__')) return 'allow';
   if (lowered.startsWith('mcp__hub__')) return 'allow';
   if (lowered.startsWith('mcp__gtm_pulse__')) return 'allow';
+  if (lowered === 'meeting_search') return 'allow';
+  if (lowered === 'meeting_read') return 'allow';
   if (lowered === 'webfetch') return 'allow';
   if (lowered === 'mcp_run') return 'allow';
   if (lowered === 'mcp_search_tools') return 'allow';

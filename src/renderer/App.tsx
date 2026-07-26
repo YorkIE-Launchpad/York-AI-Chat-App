@@ -21,6 +21,11 @@ import { Titlebar } from './components/Titlebar';
 import { SandboxSetupDialog } from './components/SandboxSetupDialog';
 import { SandboxSyncToast } from './components/SandboxSyncToast';
 import { GlobalNoticeToast } from './components/GlobalNoticeToast';
+import {
+  isMeetingAudioActive,
+  startMeetingCapture,
+  stopMeetingCapture,
+} from './meetings/meeting-audio-controller';
 import { PanelErrorBoundary } from './components/PanelErrorBoundary';
 import { useAuth } from './auth/AuthContext';
 import { LoginPage } from './components/LoginPage';
@@ -85,8 +90,10 @@ function AuthenticatedApp() {
 
   // Actions are still pulled directly from the store
   const clearGlobalNotice = useAppStore((s) => s.clearGlobalNotice);
+  const setGlobalNotice = useAppStore((s) => s.setGlobalNotice);
   const setSandboxSetupComplete = useAppStore((s) => s.setSandboxSetupComplete);
   const setShowSettings = useAppStore((s) => s.setShowSettings);
+  const setSettingsTab = useAppStore((s) => s.setSettingsTab);
   const setSidebarCollapsed = useAppStore((s) => s.setSidebarCollapsed);
   const setContextPanelCollapsed = useAppStore((s) => s.setContextPanelCollapsed);
 
@@ -104,6 +111,86 @@ function AuthenticatedApp() {
       listSessions();
     }
   }, []); // Empty deps - run once
+
+  useEffect(() => {
+    if (!isElectron || !window.electronAPI?.meetings) {
+      return;
+    }
+    const openMeetingsSettings = () => {
+      setSettingsTab('meetings');
+      setShowSettings(true);
+    };
+
+    const offAutoStart = window.electronAPI.meetings.onRequestAutoStart(() => {
+      void (async () => {
+        if (isMeetingAudioActive()) {
+          return;
+        }
+        try {
+          console.log('[Meetings] Auto-start requested');
+          await startMeetingCapture();
+          setGlobalNotice({
+            id: `meeting-auto-start-${Date.now()}`,
+            type: 'info',
+            message: '',
+            messageKey: 'meetings.autoRecordingNotification',
+            messageValues: { apps: 'Zoom' },
+            actionLabelKey: 'meetings.stopCaptureAction',
+            action: 'stop-meeting-capture',
+            durationMs: 5_000,
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          console.warn('[Meetings] Auto-start failed', error);
+          setGlobalNotice({
+            id: `meeting-auto-start-error-${Date.now()}`,
+            type: 'error',
+            message,
+            durationMs: 6_000,
+          });
+        }
+      })();
+    });
+
+    const offAutoStop = window.electronAPI.meetings.onRequestAutoStop(() => {
+      void (async () => {
+        try {
+          console.log('[Meetings] Auto-stop requested');
+          const meeting = await stopMeetingCapture();
+          setGlobalNotice({
+            id: `meeting-auto-stop-${Date.now()}`,
+            type: 'success',
+            message: '',
+            messageKey: 'meetings.autoRecordingStoppedNotification',
+            actionLabelKey: 'meetings.openMeetingsAction',
+            action: 'open-meetings',
+            durationMs: 5_000,
+          });
+          if (meeting) {
+            console.log('[Meetings] Auto-stopped meeting', meeting.id);
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          console.warn('[Meetings] Auto-stop failed', error);
+          setGlobalNotice({
+            id: `meeting-auto-stop-error-${Date.now()}`,
+            type: 'error',
+            message,
+            durationMs: 6_000,
+          });
+        }
+      })();
+    });
+
+    const offOpenSettings = window.electronAPI.meetings.onOpenSettings(() => {
+      openMeetingsSettings();
+    });
+    return () => {
+      offAutoStart();
+      offAutoStop();
+      offOpenSettings();
+    };
+  }, [isElectron, setGlobalNotice, setSettingsTab, setShowSettings]);
 
   // Apply theme to document root
   useEffect(() => {
@@ -140,9 +227,21 @@ function AuthenticatedApp() {
     setSandboxSetupComplete(true);
   }, [setSandboxSetupComplete]);
 
-  const handleGlobalNoticeAction = useCallback(() => {
-    clearGlobalNotice();
-  }, [clearGlobalNotice]);
+  const handleGlobalNoticeAction = useCallback(
+    (action: string) => {
+      if (action === 'open-meetings') {
+        setSettingsTab('meetings');
+        setShowSettings(true);
+      }
+      if (action === 'stop-meeting-capture') {
+        void stopMeetingCapture().catch((error) => {
+          console.warn('[Meetings] Manual stop from toast failed', error);
+        });
+      }
+      clearGlobalNotice();
+    },
+    [clearGlobalNotice, setSettingsTab, setShowSettings]
+  );
 
   // Determine if we should show the sandbox setup dialog
   // Show if there's progress and setup is not complete

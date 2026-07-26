@@ -61,6 +61,15 @@ function makeConfig(): AppConfig {
       evalArtifactsRoot: '',
       promptIterationRounds: 2,
     },
+    meetingsEnabled: true,
+    meetingsRuntime: {
+      transcriptionModel: 'gpt-4o-transcribe',
+      allowChatReference: true,
+      ingestIntoGlobalMemory: true,
+      recentMeetingCount: 5,
+      processDetectEnabled: true,
+      storageRoot: '',
+    },
     enableThinking: false,
     isConfigured: true,
   };

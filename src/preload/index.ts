@@ -26,6 +26,12 @@ import type {
   MemoryDebugFileInfo,
   MemoryDebugFileContent,
   MemoryInspectSessionResult,
+  MeetingOverview,
+  MeetingSession,
+  MeetingListItem,
+  MeetingCaptureStatus,
+  MeetingPermissionStatus,
+  MeetingSegment,
 } from '../renderer/types';
 import type { DiagnosticInput, DiagnosticResult } from '../renderer/types';
 import type {
@@ -530,6 +536,93 @@ contextBridge.exposeInMainWorld('electronAPI', {
     setEnabled: (enabled: boolean): Promise<{ success: boolean; enabled: boolean }> =>
       ipcRenderer.invoke('memory.setEnabled', enabled),
   },
+
+  meetings: {
+    getOverview: (): Promise<MeetingOverview> => ipcRenderer.invoke('meetings.getOverview'),
+    setEnabled: (enabled: boolean): Promise<{ success: boolean; enabled: boolean }> =>
+      ipcRenderer.invoke('meetings.setEnabled', enabled),
+    start: (title?: string): Promise<MeetingSession> => ipcRenderer.invoke('meetings.start', title),
+    stop: (): Promise<MeetingSession | null> => ipcRenderer.invoke('meetings.stop'),
+    getStatus: (): Promise<MeetingCaptureStatus> => ipcRenderer.invoke('meetings.getStatus'),
+    appendChunk: (payload: {
+      meetingId: string;
+      data: ArrayBuffer;
+      mimeType?: string;
+      rms?: number;
+    }): Promise<{ accepted: boolean; text?: string }> =>
+      ipcRenderer.invoke('meetings.appendChunk', payload),
+    list: (): Promise<MeetingListItem[]> => ipcRenderer.invoke('meetings.list'),
+    get: (id: string): Promise<MeetingSession | null> => ipcRenderer.invoke('meetings.get', id),
+    search: (query: string, limit?: number): Promise<MeetingListItem[]> =>
+      ipcRenderer.invoke('meetings.search', query, limit),
+    delete: (id: string): Promise<{ success: boolean }> =>
+      ipcRenderer.invoke('meetings.delete', id),
+    clearAll: (): Promise<{ success: boolean; deleted: number }> =>
+      ipcRenderer.invoke('meetings.clearAll'),
+    requestMicrophoneAccess: (): Promise<{
+      permissions: MeetingPermissionStatus;
+      requestedMicrophone: boolean;
+      requestedScreen: boolean;
+    }> => ipcRenderer.invoke('meetings.requestMicrophoneAccess'),
+    requestCapturePermissions: (): Promise<{
+      permissions: MeetingPermissionStatus;
+      requestedMicrophone: boolean;
+      requestedScreen: boolean;
+    }> => ipcRenderer.invoke('meetings.requestCapturePermissions'),
+    getPermissions: (): Promise<MeetingPermissionStatus> =>
+      ipcRenderer.invoke('meetings.getPermissions'),
+    onStatus: (callback: (status: MeetingCaptureStatus) => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, status: MeetingCaptureStatus) =>
+        callback(status);
+      ipcRenderer.on('meetings:status', listener);
+      return () => ipcRenderer.removeListener('meetings:status', listener);
+    },
+    onSegment: (
+      callback: (payload: {
+        meetingId: string;
+        segment: MeetingSegment;
+        liveTranscript: string;
+      }) => void
+    ): (() => void) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        payload: { meetingId: string; segment: MeetingSegment; liveTranscript: string }
+      ) => callback(payload);
+      ipcRenderer.on('meetings:segment', listener);
+      return () => ipcRenderer.removeListener('meetings:segment', listener);
+    },
+    onNotesReady: (callback: (meeting: MeetingSession) => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, meeting: MeetingSession) =>
+        callback(meeting);
+      ipcRenderer.on('meetings:notesReady', listener);
+      return () => ipcRenderer.removeListener('meetings:notesReady', listener);
+    },
+    onDetected: (
+      callback: (payload: { apps: string[]; newlyDetected: string[] }) => void
+    ): (() => void) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        payload: { apps: string[]; newlyDetected: string[] }
+      ) => callback(payload);
+      ipcRenderer.on('meetings:detected', listener);
+      return () => ipcRenderer.removeListener('meetings:detected', listener);
+    },
+    onRequestAutoStart: (callback: () => void): (() => void) => {
+      const listener = () => callback();
+      ipcRenderer.on('meetings:requestAutoStart', listener);
+      return () => ipcRenderer.removeListener('meetings:requestAutoStart', listener);
+    },
+    onRequestAutoStop: (callback: () => void): (() => void) => {
+      const listener = () => callback();
+      ipcRenderer.on('meetings:requestAutoStop', listener);
+      return () => ipcRenderer.removeListener('meetings:requestAutoStop', listener);
+    },
+    onOpenSettings: (callback: () => void): (() => void) => {
+      const listener = () => callback();
+      ipcRenderer.on('meetings:openSettings', listener);
+      return () => ipcRenderer.removeListener('meetings:openSettings', listener);
+    },
+  },
 });
 
 // Type declaration for the renderer process
@@ -815,6 +908,50 @@ declare global {
           workspaceKey?: string
         ) => Promise<MemoryInspectSessionResult | null>;
         setEnabled: (enabled: boolean) => Promise<{ success: boolean; enabled: boolean }>;
+      };
+      meetings: {
+        getOverview: () => Promise<MeetingOverview>;
+        setEnabled: (enabled: boolean) => Promise<{ success: boolean; enabled: boolean }>;
+        start: (title?: string) => Promise<MeetingSession>;
+        stop: () => Promise<MeetingSession | null>;
+        getStatus: () => Promise<MeetingCaptureStatus>;
+        appendChunk: (payload: {
+          meetingId: string;
+          data: ArrayBuffer;
+          mimeType?: string;
+          rms?: number;
+        }) => Promise<{ accepted: boolean; text?: string }>;
+        list: () => Promise<MeetingListItem[]>;
+        get: (id: string) => Promise<MeetingSession | null>;
+        search: (query: string, limit?: number) => Promise<MeetingListItem[]>;
+        delete: (id: string) => Promise<{ success: boolean }>;
+        clearAll: () => Promise<{ success: boolean; deleted: number }>;
+        requestMicrophoneAccess: () => Promise<{
+          permissions: MeetingPermissionStatus;
+          requestedMicrophone: boolean;
+          requestedScreen: boolean;
+        }>;
+        requestCapturePermissions: () => Promise<{
+          permissions: MeetingPermissionStatus;
+          requestedMicrophone: boolean;
+          requestedScreen: boolean;
+        }>;
+        getPermissions: () => Promise<MeetingPermissionStatus>;
+        onStatus: (callback: (status: MeetingCaptureStatus) => void) => () => void;
+        onSegment: (
+          callback: (payload: {
+            meetingId: string;
+            segment: MeetingSegment;
+            liveTranscript: string;
+          }) => void
+        ) => () => void;
+        onNotesReady: (callback: (meeting: MeetingSession) => void) => () => void;
+        onDetected: (
+          callback: (payload: { apps: string[]; newlyDetected: string[] }) => void
+        ) => () => void;
+        onRequestAutoStart: (callback: () => void) => () => void;
+        onRequestAutoStop: (callback: () => void) => () => void;
+        onOpenSettings: (callback: () => void) => () => void;
       };
     };
   }

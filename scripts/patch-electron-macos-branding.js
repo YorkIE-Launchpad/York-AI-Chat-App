@@ -70,6 +70,18 @@ plutilReplace(infoPlist, 'CFBundleName', PRODUCT_NAME);
 // Distinct id so Launch Services does not keep serving cached "Electron" metadata
 plutilReplace(infoPlist, 'CFBundleIdentifier', 'ie.york.vecos.dev');
 
+const MEETING_USAGE = {
+  NSMicrophoneUsageDescription:
+    'York IE VECOS needs microphone access to capture your voice during meetings.',
+  NSAudioCaptureUsageDescription:
+    'York IE VECOS needs system audio access to capture meeting audio from Zoom, Meet, and other apps.',
+  NSScreenCaptureUsageDescription:
+    'York IE VECOS needs screen and system audio recording for meeting capture and GUI automation.',
+};
+for (const [key, value] of Object.entries(MEETING_USAGE)) {
+  plutilReplace(infoPlist, key, value);
+}
+
 fs.writeFileSync(PATH_TXT, `${BUNDLE_NAME}/Contents/MacOS/Electron`, 'utf8');
 
 // Refresh Launch Services + Spotlight metadata for this bundle.

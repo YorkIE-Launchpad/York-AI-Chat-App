@@ -23,7 +23,11 @@ export interface GlobalNotice {
   messageValues?: Record<string, string | number>;
   type: GlobalNoticeType;
   actionLabel?: string;
+  /** Prefer this over actionLabel so the toast translates at render time. */
+  actionLabelKey?: string;
   action?: string;
+  /** Auto-dismiss delay in ms (default 6000). */
+  durationMs?: number;
 }
 
 export interface SessionExecutionClock {

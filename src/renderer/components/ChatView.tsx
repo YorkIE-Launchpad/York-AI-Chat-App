@@ -17,9 +17,10 @@ import { SlashCommandMenu } from './SlashCommandMenu';
 import { SubagentTracker } from './SubagentTracker';
 import { ContextUsageBar } from './ContextUsageBar';
 import type { Message, ContentBlock, Skill } from '../types';
-import { Send, Square, Plus, Loader2, Plug, X, Clock } from 'lucide-react';
+import { Send, Square, Plus, Loader2, Plug, X, Clock, Mic } from 'lucide-react';
 import { isScrollNearBottom, resolveSessionScrollTop } from '../utils/chat-scroll-position';
-import { useSlashCommands } from '../hooks/useSlashCommands';
+import { useSlashCommands, isMeetingSlashSkill } from '../hooks/useSlashCommands';
+import { MeetingPicker, type AttachedMeeting } from './MeetingPicker';
 
 type AttachedFile = {
   name: string;
@@ -51,6 +52,7 @@ export function ChatView() {
     setSelectedIndex: setSlashSelectedIndex,
     moveSelection: moveSlashSelection,
     close: closeSlashMenu,
+    meetingsReferenceAllowed,
   } = useSlashCommands(prompt);
   const [activeConnectors, setActiveConnectors] = useState<
     { id: string; name: string; connected: boolean; toolCount: number }[]
@@ -63,6 +65,8 @@ export function ChatView() {
     Array<{ url: string; base64: string; mediaType: string }>
   >([]);
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
+  const [attachedMeetings, setAttachedMeetings] = useState<AttachedMeeting[]>([]);
+  const [meetingPickerOpen, setMeetingPickerOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -611,17 +615,26 @@ export function ChatView() {
     return () => observer.disconnect();
   }, [activeSession?.title, activeConnectors.length]);
 
-  const handleSelectSlashSkill = useCallback((skill: Skill) => {
-    const next = `/${skill.name} `;
-    setPrompt(next);
-    requestAnimationFrame(() => {
-      if (textareaRef.current) {
-        textareaRef.current.focus();
-        const cursor = next.length;
-        textareaRef.current.setSelectionRange(cursor, cursor);
+  const handleSelectSlashSkill = useCallback(
+    (skill: Skill) => {
+      if (isMeetingSlashSkill(skill)) {
+        setPrompt('');
+        closeSlashMenu();
+        setMeetingPickerOpen(true);
+        return;
       }
-    });
-  }, []);
+      const next = `/${skill.name} `;
+      setPrompt(next);
+      requestAnimationFrame(() => {
+        if (textareaRef.current) {
+          textareaRef.current.focus();
+          const cursor = next.length;
+          textareaRef.current.setSelectionRange(cursor, cursor);
+        }
+      });
+    },
+    [closeSlashMenu]
+  );
 
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -630,7 +643,10 @@ export function ChatView() {
     const currentPrompt = textareaRef.current?.value || prompt;
 
     if (
-      (!currentPrompt.trim() && pastedImages.length === 0 && attachedFiles.length === 0) ||
+      (!currentPrompt.trim() &&
+        pastedImages.length === 0 &&
+        attachedFiles.length === 0 &&
+        attachedMeetings.length === 0) ||
       !activeSessionId ||
       isSubmitting
     )
@@ -665,6 +681,16 @@ export function ChatView() {
         });
       });
 
+      // Add meeting attachments (this turn only)
+      attachedMeetings.forEach((meeting) => {
+        contentBlocks.push({
+          type: 'meeting_attachment',
+          meetingId: meeting.meetingId,
+          title: meeting.title,
+          includeTranscript: meeting.includeTranscript,
+        });
+      });
+
       // Add text if present
       if (currentPrompt.trim()) {
         contentBlocks.push({
@@ -684,6 +710,7 @@ export function ChatView() {
       pastedImages.forEach((img) => URL.revokeObjectURL(img.url));
       setPastedImages([]);
       setAttachedFiles([]);
+      setAttachedMeetings([]);
     } finally {
       setIsSubmitting(false);
     }
@@ -877,6 +904,50 @@ export function ChatView() {
               </div>
             )}
 
+            {/* Meeting attachments */}
+            {attachedMeetings.length > 0 && (
+              <div className="space-y-2 mb-3">
+                {attachedMeetings.map((meeting) => (
+                  <div
+                    key={meeting.meetingId}
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg bg-surface-muted border border-border group"
+                  >
+                    <Mic className="h-4 w-4 flex-shrink-0 text-accent" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-text-primary truncate">{meeting.title}</p>
+                      <label className="mt-1 flex items-center gap-1.5 text-[11px] text-text-muted">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(meeting.includeTranscript)}
+                          onChange={(e) =>
+                            setAttachedMeetings((prev) =>
+                              prev.map((item) =>
+                                item.meetingId === meeting.meetingId
+                                  ? { ...item, includeTranscript: e.target.checked }
+                                  : item
+                              )
+                            )
+                          }
+                        />
+                        {t('meetings.includeTranscript')}
+                      </label>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setAttachedMeetings((prev) =>
+                          prev.filter((item) => item.meetingId !== meeting.meetingId)
+                        )
+                      }
+                      className="w-6 h-6 rounded-full bg-error/10 hover:bg-error/20 text-error flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
             <div
               className={`relative flex items-end gap-2 p-3.5 rounded-[1.75rem] bg-background/88 border border-border-muted shadow-soft transition-colors ${
                 isDragging ? 'ring-2 ring-accent bg-accent/5' : ''
@@ -898,6 +969,16 @@ export function ChatView() {
               >
                 <Plus className="w-5 h-5" />
               </button>
+              {meetingsReferenceAllowed && (
+                <button
+                  type="button"
+                  onClick={() => setMeetingPickerOpen(true)}
+                  className="w-9 h-9 rounded-2xl flex items-center justify-center text-text-muted hover:text-text-primary hover:bg-surface-hover transition-colors"
+                  title={t('meetings.attachMeeting')}
+                >
+                  <Mic className="w-5 h-5" />
+                </button>
+              )}
 
               <textarea
                 ref={textareaRef}
@@ -980,7 +1061,8 @@ export function ChatView() {
                     (!prompt.trim() &&
                       !textareaRef.current?.value.trim() &&
                       pastedImages.length === 0 &&
-                      attachedFiles.length === 0) ||
+                      attachedFiles.length === 0 &&
+                      attachedMeetings.length === 0) ||
                     isSubmitting
                   }
                   className="w-9 h-9 rounded-2xl flex items-center justify-center bg-accent text-background disabled:opacity-50 disabled:cursor-not-allowed hover:bg-accent-hover transition-colors"
@@ -997,6 +1079,16 @@ export function ChatView() {
           </form>
         </div>
       </div>
+      <MeetingPicker
+        open={meetingPickerOpen}
+        onClose={() => setMeetingPickerOpen(false)}
+        excludeIds={attachedMeetings.map((item) => item.meetingId)}
+        onSelect={(meeting) => {
+          setAttachedMeetings((prev) =>
+            prev.some((item) => item.meetingId === meeting.meetingId) ? prev : [...prev, meeting]
+          );
+        }}
+      />
     </div>
   );
 }

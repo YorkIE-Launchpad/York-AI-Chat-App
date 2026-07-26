@@ -15,8 +15,13 @@ import {
 } from '../../utils/markdown-local-link';
 import { normalizeLatexDelimiters } from '../../utils/latex-delimiters';
 import { AUTO_TEXT_DIRECTION_PROPS } from '../../utils/text-direction';
-import type { ToolUseContent, ToolResultContent, FileAttachmentContent } from '../../types';
-import { FileText } from 'lucide-react';
+import type {
+  ToolUseContent,
+  ToolResultContent,
+  FileAttachmentContent,
+  MeetingAttachmentContent,
+} from '../../types';
+import { FileText, Mic } from 'lucide-react';
 import { CodeBlock } from './CodeBlock';
 import { ThinkingBlock, escapeThinkTags } from './ThinkingBlock';
 import { ToolUseBlock } from './ToolUseBlock';
@@ -352,6 +357,21 @@ export const ContentBlockView = memo(function ContentBlockView({
           <FileText className="w-4 h-4 text-accent flex-shrink-0" />
           <div className="flex-1 min-w-0">
             <p className="text-sm text-text-primary truncate">{fileBlock.filename}</p>
+          </div>
+        </div>
+      );
+    }
+
+    case 'meeting_attachment': {
+      const meetingBlock = block as MeetingAttachmentContent;
+      return (
+        <div className="flex max-w-full min-w-0 items-center gap-2 px-3 py-2 rounded-lg bg-surface-muted border border-border overflow-hidden">
+          <Mic className="w-4 h-4 text-accent flex-shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm text-text-primary truncate">{meetingBlock.title}</p>
+            <p className="text-[11px] text-text-muted truncate">
+              {meetingBlock.includeTranscript ? 'Notes + transcript' : 'Notes'}
+            </p>
           </div>
         </div>
       );

@@ -99,7 +99,9 @@ mac:
   entitlementsInherit: resources/entitlements.mac.plist
   extendInfo:
     LSApplicationCategoryType: public.app-category.developer-tools
-    NSScreenCaptureUsageDescription: 'York IE VECOS needs screen recording access for GUI automation.'
+    NSMicrophoneUsageDescription: 'York IE VECOS needs microphone access to capture your voice during meetings.'
+    NSAudioCaptureUsageDescription: 'York IE VECOS needs system audio access to capture meeting audio from Zoom, Meet, and other apps.'
+    NSScreenCaptureUsageDescription: 'York IE VECOS needs screen and system audio recording for meeting capture and GUI automation.'
     NSAccessibilityUsageDescription: 'York IE VECOS needs accessibility access for GUI automation.'
   extraResources:
     - from: .bundle-resources/mcp
