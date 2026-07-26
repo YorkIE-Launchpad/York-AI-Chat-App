@@ -8,7 +8,7 @@
  *     forgetSessionPermissions()
  *   - Built-in Chrome MCP (`mcp__Chrome__*`), R&D Launchpad MCP (`mcp__R_D_Launchpad__*` /
  *     legacy `mcp__Launchpad__*`), York IE HUB MCP (`mcp__York_IE_HUB__*` / legacy `mcp__Hub__*`),
- *     GTM Pulse MCP (`mcp__GTM_Pulse__*`), OpenAI meta-tools (`mcp_search_tools`, `mcp_call_tool`),
+ *     GTM Pulse MCP (`mcp__GTM_Pulse__*`), OpenAI meta-tools (`mcp_run`, `mcp_search_tools`, `mcp_call_tool`),
  *     and `webfetch` auto-allow, overridable by rules
  *   - Garbage / malformed renderer input falls back to DEFAULT_RULES so the
  *     fail-safe is an extra prompt, never a silent auto-allow
@@ -93,6 +93,7 @@ describe('permission-rules-store', () => {
     });
 
     it('returns allow for OpenAI budget meta-tools by default', () => {
+      expect(decidePermission(SESSION_A, 'mcp_run', { goal: 'list leave' })).toBe('allow');
       expect(decidePermission(SESSION_A, 'mcp_search_tools', { query: 'employee' })).toBe('allow');
       expect(
         decidePermission(SESSION_A, 'mcp_call_tool', {

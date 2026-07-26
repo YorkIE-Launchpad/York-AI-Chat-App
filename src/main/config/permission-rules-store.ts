@@ -83,7 +83,7 @@ export function getPermissionRules(): PermissionRule[] {
  *      R&D Launchpad MCP tools (`mcp__R_D_Launchpad__*` / legacy `mcp__Launchpad__*`),
  *      York IE HUB MCP tools (`mcp__York_IE_HUB__*` / legacy `mcp__Hub__*`),
  *      GTM Pulse MCP tools (`mcp__GTM_Pulse__*`),
- *      OpenAI budget meta-tools (`mcp_search_tools`, `mcp_call_tool`),
+ *      OpenAI budget meta-tools (`mcp_run`, and child-only `mcp_search_tools` / `mcp_call_tool`),
  *      and the first-party `webfetch` tool
  *   4. Default: 'ask' for unknown tools (conservative)
  *
@@ -120,6 +120,7 @@ export function decidePermission(
   if (lowered.startsWith('mcp__hub__')) return 'allow';
   if (lowered.startsWith('mcp__gtm_pulse__')) return 'allow';
   if (lowered === 'webfetch') return 'allow';
+  if (lowered === 'mcp_run') return 'allow';
   if (lowered === 'mcp_search_tools') return 'allow';
   if (lowered === 'mcp_call_tool') return 'allow';
 

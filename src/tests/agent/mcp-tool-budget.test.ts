@@ -3,6 +3,7 @@ import type { ToolDefinition } from '@mariozechner/pi-coding-agent';
 import type { MCPManager, MCPTool } from '../../main/mcp/mcp-manager';
 import {
   MCP_CALL_TOOL_NAME,
+  MCP_RUN_TOOL_NAME,
   MCP_SEARCH_TOOLS_NAME,
   OPENAI_MAX_TOOLS,
   buildMcpMetaTools,
@@ -97,6 +98,49 @@ describe('searchMcpTools', () => {
     );
     expect(searchMcpTools(many, { limit: 5 })).toHaveLength(5);
   });
+
+  it('returns lean parameter summaries by default without full schemas', () => {
+    const withParams = [
+      makeMcpTool({
+        name: 'mcp__Hub__get_employee',
+        originalName: 'get_employee',
+        serverName: 'Hub',
+        description: 'Fetch an employee profile',
+        inputSchema: {
+          type: 'object',
+          properties: { q: { type: 'string' }, limit: { type: 'number' } },
+          required: ['q'],
+        },
+      }),
+    ];
+    const matches = searchMcpTools(withParams, { query: 'employee' });
+    expect(matches[0]?.parameters).toEqual([
+      { name: 'limit', required: false },
+      { name: 'q', required: true },
+    ]);
+    expect(matches[0]?.inputSchema).toBeUndefined();
+  });
+
+  it('includes full inputSchema when includeSchema is true', () => {
+    const withParams = [
+      makeMcpTool({
+        name: 'mcp__Hub__get_employee',
+        originalName: 'get_employee',
+        serverName: 'Hub',
+        inputSchema: {
+          type: 'object',
+          properties: { q: { type: 'string' }, limit: { type: 'number' } },
+          required: ['q'],
+        },
+      }),
+    ];
+    const matches = searchMcpTools(withParams, { query: 'employee', includeSchema: true });
+    expect(matches[0]?.inputSchema).toEqual({
+      type: 'object',
+      properties: { q: { type: 'string' }, limit: { type: 'number' } },
+      required: ['q'],
+    });
+  });
 });
 
 describe('selectCustomToolsForModel', () => {
@@ -123,8 +167,38 @@ describe('selectCustomToolsForModel', () => {
     ]);
   });
 
-  it('switches to meta tools when over OpenAI 128 budget', () => {
-    const flatCount = OPENAI_MAX_TOOLS; // 4 built-ins + extensions(2) + this => over
+  it('exposes parent mcp_run (not search/call) when over OpenAI budget', () => {
+    const flatCount = OPENAI_MAX_TOOLS;
+    const mcpTools = Array.from({ length: flatCount }, (_, i) =>
+      makeToolDef(`mcp__Launchpad__t${i}`)
+    );
+    const manager = makeMcpManager(
+      mcpTools.map((t) => makeMcpTool({ name: t.name, serverName: 'Launchpad' }))
+    );
+    const mcpRun = makeToolDef(MCP_RUN_TOOL_NAME);
+
+    const result = selectCustomToolsForModel({
+      api: 'openai-completions',
+      builtInToolCount: 4,
+      mcpManager: manager,
+      mcpTools,
+      extensionTools,
+      parentMetaTools: [mcpRun],
+    });
+
+    expect(result.mode).toBe('meta');
+    expect(result.customTools.map((t) => t.name)).toEqual([
+      MCP_RUN_TOOL_NAME,
+      'webfetch',
+      'spawn_subagent',
+    ]);
+    expect(result.customTools.map((t) => t.name)).not.toContain(MCP_SEARCH_TOOLS_NAME);
+    expect(result.customTools.map((t) => t.name)).not.toContain(MCP_CALL_TOOL_NAME);
+    expect(4 + result.customTools.length).toBeLessThanOrEqual(OPENAI_MAX_TOOLS);
+  });
+
+  it('uses search+call meta tools when useSearchCallMeta is set (child path)', () => {
+    const flatCount = OPENAI_MAX_TOOLS;
     const mcpTools = Array.from({ length: flatCount }, (_, i) =>
       makeToolDef(`mcp__Launchpad__t${i}`)
     );
@@ -137,17 +211,15 @@ describe('selectCustomToolsForModel', () => {
       builtInToolCount: 4,
       mcpManager: manager,
       mcpTools,
-      extensionTools,
+      extensionTools: [],
+      useSearchCallMeta: true,
     });
 
     expect(result.mode).toBe('meta');
     expect(result.customTools.map((t) => t.name)).toEqual([
       MCP_SEARCH_TOOLS_NAME,
       MCP_CALL_TOOL_NAME,
-      'webfetch',
-      'spawn_subagent',
     ]);
-    expect(4 + result.customTools.length).toBeLessThanOrEqual(OPENAI_MAX_TOOLS);
   });
 
   it('keeps flat tools on Anthropic even when over 128', () => {
@@ -192,7 +264,7 @@ describe('buildMcpMetaTools', () => {
     callTool = manager.callTool as unknown as ReturnType<typeof vi.fn>;
   });
 
-  it('searches tools via mcp_search_tools', async () => {
+  it('searches tools via mcp_search_tools with lean payloads', async () => {
     const [searchTool] = buildMcpMetaTools(manager);
     expect(searchTool?.name).toBe(MCP_SEARCH_TOOLS_NAME);
     const result = await searchTool!.execute(
@@ -203,9 +275,29 @@ describe('buildMcpMetaTools', () => {
       emptyExtensionCtx
     );
     const text = (result.content[0] as { text: string }).text;
-    const payload = JSON.parse(text) as { returned: number; tools: Array<{ name: string }> };
+    const payload = JSON.parse(text) as {
+      returned: number;
+      tools: Array<{ name: string; parameters: unknown[]; inputSchema?: unknown }>;
+    };
     expect(payload.returned).toBe(1);
     expect(payload.tools[0]?.name).toBe('mcp__Launchpad__list_features');
+    expect(payload.tools[0]?.parameters).toBeDefined();
+    expect(payload.tools[0]?.inputSchema).toBeUndefined();
+  });
+
+  it('includes schemas when include_schema is true', async () => {
+    const [searchTool] = buildMcpMetaTools(manager);
+    const result = await searchTool!.execute(
+      '1',
+      { query: 'features', include_schema: true },
+      undefined,
+      undefined,
+      emptyExtensionCtx
+    );
+    const payload = JSON.parse((result.content[0] as { text: string }).text) as {
+      tools: Array<{ inputSchema?: unknown }>;
+    };
+    expect(payload.tools[0]?.inputSchema).toBeDefined();
   });
 
   it('calls through mcp_call_tool', async () => {

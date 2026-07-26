@@ -2,8 +2,9 @@
  * @module main/agent/mcp-tool-budget
  *
  * OpenAI-compatible APIs reject requests with more than 128 tools.
- * When the flattened MCP tool set would exceed that budget, expose a small
- * pair of meta-tools so the model can still discover and call any MCP tool.
+ * When the flattened MCP tool set would exceed that budget, expose a parent-facing
+ * mcp_run tool that offloads search→call to a free OpenRouter child agent.
+ * Children still use mcp_search_tools + mcp_call_tool directly.
  */
 import { Type, type TSchema } from '@sinclair/typebox';
 import type { ToolDefinition } from '@mariozechner/pi-coding-agent';
@@ -15,10 +16,11 @@ import { augmentMcpToolDescription, leanMcpToolArgs } from './mcp-tool-payload';
 export const OPENAI_MAX_TOOLS = 128;
 export const MCP_SEARCH_TOOLS_NAME = 'mcp_search_tools';
 export const MCP_CALL_TOOL_NAME = 'mcp_call_tool';
+export const MCP_RUN_TOOL_NAME = 'mcp_run';
 export const MCP_META_TOOL_BEHAVIOR = `<tool_behavior>
 MCP tool access (budget mode):
 - Connected MCP servers expose too many tools to list directly for this model API.
-- Discover tools with mcp_search_tools (optional query/server/limit), then invoke with mcp_call_tool using the exact tool name returned.
+- Use mcp_run with a clear goal; a free child agent discovers and calls MCP tools, then returns distilled facts.
 - Prefer webfetch for reading http/https page content; use Chrome MCP only for interactive browser work.
 </tool_behavior>`;
 
@@ -32,6 +34,19 @@ export interface SelectCustomToolsResult {
   mode: McpToolExposureMode;
   toolsSignature: string;
 }
+
+export type McpSearchParamSummary = {
+  name: string;
+  required: boolean;
+};
+
+export type McpSearchToolHit = {
+  name: string;
+  server: string;
+  description: string;
+  parameters: McpSearchParamSummary[];
+  inputSchema?: MCPTool['inputSchema'];
+};
 
 export function needsOpenAIToolBudget(api: string | undefined | null): boolean {
   return api === 'openai-completions' || api === 'openai-responses';
@@ -64,18 +79,33 @@ function scoreToolMatch(tool: MCPTool, query: string): number {
   return score;
 }
 
+function summarizeInputParams(
+  inputSchema: MCPTool['inputSchema'] | undefined
+): McpSearchParamSummary[] {
+  const schema = inputSchema as
+    | { properties?: Record<string, unknown>; required?: string[] }
+    | undefined;
+  const properties = schema?.properties ?? {};
+  const required = new Set(schema?.required ?? []);
+  return Object.keys(properties)
+    .sort()
+    .map((name) => ({ name, required: required.has(name) }));
+}
+
 export function searchMcpTools(
   tools: MCPTool[],
-  options: { query?: string; server?: string; limit?: number } = {}
-): Array<{
-  name: string;
-  server: string;
-  description: string;
-  inputSchema: MCPTool['inputSchema'];
-}> {
+  options: {
+    query?: string;
+    server?: string;
+    limit?: number;
+    /** When true, include full JSON Schema per tool. Default: lean params only. */
+    includeSchema?: boolean;
+  } = {}
+): McpSearchToolHit[] {
   const limit = Math.min(Math.max(1, options.limit ?? DEFAULT_SEARCH_LIMIT), MAX_SEARCH_LIMIT);
   const serverFilter = options.server?.trim().toLowerCase();
   const query = options.query?.trim() ?? '';
+  const includeSchema = Boolean(options.includeSchema);
 
   let filtered = tools;
   if (serverFilter) {
@@ -92,15 +122,21 @@ export function searchMcpTools(
     filtered = [...filtered].sort((a, b) => a.name.localeCompare(b.name));
   }
 
-  return filtered.slice(0, limit).map((tool) => ({
-    name: tool.name,
-    server: tool.serverName,
-    description: augmentMcpToolDescription(
-      tool.name,
-      tool.description || `MCP tool from ${tool.serverName}`
-    ),
-    inputSchema: tool.inputSchema,
-  }));
+  return filtered.slice(0, limit).map((tool) => {
+    const hit: McpSearchToolHit = {
+      name: tool.name,
+      server: tool.serverName,
+      description: augmentMcpToolDescription(
+        tool.name,
+        tool.description || `MCP tool from ${tool.serverName}`
+      ),
+      parameters: summarizeInputParams(tool.inputSchema),
+    };
+    if (includeSchema) {
+      hit.inputSchema = tool.inputSchema;
+    }
+    return hit;
+  });
 }
 
 function summarizeDroppedByServer(mcpTools: MCPTool[]): string {
@@ -125,6 +161,9 @@ function resolveAllowedMcpTools(
   return all.filter((tool) => allowedToolNames.has(tool.name));
 }
 
+/**
+ * Child-facing meta tools: search + call (used by free mcp_run child and over-budget subagents).
+ */
 export function buildMcpMetaTools(
   mcpManager: MCPManager,
   allowedToolNames?: ReadonlySet<string> | null
@@ -133,7 +172,7 @@ export function buildMcpMetaTools(
     name: MCP_SEARCH_TOOLS_NAME,
     label: 'Search MCP tools',
     description:
-      'Search connected MCP tools by keyword and/or server name. Returns matching tool names, descriptions, and input schemas. Call this before mcp_call_tool when you need an MCP capability.',
+      'Search connected MCP tools by keyword and/or server name. Returns matching tool names, descriptions, and parameter summaries. Pass include_schema=true only when you need full JSON Schema before calling. Call this before mcp_call_tool when you need an MCP capability.',
     parameters: Type.Object({
       query: Type.Optional(
         Type.String({
@@ -153,15 +192,27 @@ export function buildMcpMetaTools(
           description: `Max results to return (default ${DEFAULT_SEARCH_LIMIT}, max ${MAX_SEARCH_LIMIT}).`,
         })
       ),
+      include_schema: Type.Optional(
+        Type.Boolean({
+          description:
+            'When true, include full inputSchema for each match. Default false (parameter names + required only).',
+        })
+      ),
     }),
     async execute(_toolCallId, params) {
-      const { query, server, limit } = (params || {}) as {
+      const { query, server, limit, include_schema } = (params || {}) as {
         query?: string;
         server?: string;
         limit?: number;
+        include_schema?: boolean;
       };
       const available = resolveAllowedMcpTools(mcpManager, allowedToolNames);
-      const matches = searchMcpTools(available, { query, server, limit });
+      const matches = searchMcpTools(available, {
+        query,
+        server,
+        limit,
+        includeSchema: include_schema,
+      });
       const payload = {
         totalAvailable: available.length,
         returned: matches.length,
@@ -247,10 +298,29 @@ export function selectCustomToolsForModel(input: {
   mcpManager: MCPManager | null;
   mcpTools: ToolDefinition[];
   extensionTools: ToolDefinition[];
-  /** When set, meta-tool search/call are restricted to these MCP tool names. */
+  /** When set, meta-tool search/call/run are restricted to these MCP tool names. */
   allowedToolNames?: ReadonlySet<string> | null;
+  /**
+   * Parent-facing tools used in meta mode (typically [mcp_run]).
+   * When omitted and useSearchCallMeta is true, falls back to mcp_search_tools + mcp_call_tool.
+   */
+  parentMetaTools?: ToolDefinition[];
+  /**
+   * When true (default for children), meta mode uses search+call instead of parentMetaTools.
+   * Parent sessions pass parentMetaTools and leave this false/undefined.
+   */
+  useSearchCallMeta?: boolean;
 }): SelectCustomToolsResult {
-  const { api, builtInToolCount, mcpManager, mcpTools, extensionTools, allowedToolNames } = input;
+  const {
+    api,
+    builtInToolCount,
+    mcpManager,
+    mcpTools,
+    extensionTools,
+    allowedToolNames,
+    parentMetaTools,
+    useSearchCallMeta,
+  } = input;
   const mcpNames = mcpTools.map((t) => t.name);
   const totalIfFlat = builtInToolCount + mcpTools.length + extensionTools.length;
 
@@ -268,7 +338,14 @@ export function selectCustomToolsForModel(input: {
     };
   }
 
-  const metaTools = buildMcpMetaTools(mcpManager, allowedToolNames ?? new Set(mcpNames));
+  const allowSet = allowedToolNames ?? new Set(mcpNames);
+  let metaTools: ToolDefinition[];
+  if (useSearchCallMeta || !parentMetaTools || parentMetaTools.length === 0) {
+    metaTools = buildMcpMetaTools(mcpManager, allowSet);
+  } else {
+    metaTools = parentMetaTools;
+  }
+
   const totalWithMeta = builtInToolCount + metaTools.length + extensionTools.length;
   const droppedSource =
     allowedToolNames && allowedToolNames.size > 0
@@ -276,8 +353,8 @@ export function selectCustomToolsForModel(input: {
       : mcpManager.getTools();
   log(
     `[McpToolBudget] OpenAI tool budget exceeded (${totalIfFlat} > ${OPENAI_MAX_TOOLS}). ` +
-      `Switching to meta tools (${totalWithMeta} total). Dropped flat MCP tools by server: ` +
-      summarizeDroppedByServer(droppedSource)
+      `Switching to meta tools (${totalWithMeta} total: ${metaTools.map((t) => t.name).join(', ')}). ` +
+      `Dropped flat MCP tools by server: ${summarizeDroppedByServer(droppedSource)}`
   );
 
   return {
