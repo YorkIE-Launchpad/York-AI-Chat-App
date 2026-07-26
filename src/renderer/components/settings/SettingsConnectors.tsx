@@ -698,7 +698,7 @@ function ServerForm({
   const [command, setCommand] = useState(server?.command || '');
   const [args, setArgs] = useState(server?.args?.join(' ') || '');
   const [url, setUrl] = useState(server?.url || '');
-  const [enabled, setEnabled] = useState(server?.enabled ?? true);
+  const [enabled, setEnabled] = useState(server?.enabled ?? false);
   // Environment variables (for tokens, etc.)
   const [envVars, setEnvVars] = useState<Record<string, string>>(server?.env || {});
   const [showEnvSection, setShowEnvSection] = useState(Object.keys(server?.env || {}).length > 0);

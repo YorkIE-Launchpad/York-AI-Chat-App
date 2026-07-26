@@ -8,7 +8,7 @@ import { authConfig } from '../../shared/auth-config';
 import { log, logError } from '../utils/logger';
 
 /**
- * Built-in Chrome MCP connector — seeded enabled by default (not a Quick Add preset).
+ * Built-in Chrome MCP connector — seeded disabled by default; user enables in Connectors.
  */
 export const DEFAULT_CHROME_MCP_SERVER: Omit<MCPServerConfig, 'id' | 'enabled'> = {
   name: 'Chrome',
@@ -27,7 +27,7 @@ export function isChromeMcpServer(server: Pick<MCPServerConfig, 'name' | 'args'>
 }
 
 /**
- * Built-in Launchpad MCP connector — seeded enabled by default (not a Quick Add preset).
+ * Built-in Launchpad MCP connector — seeded disabled by default; user enables in Connectors.
  * Uses mcp-remote over stdio. Cognito access token is injected at connect time.
  * Default URL is production LaunchPad MCP (UAT rejects Host header today).
  */
@@ -85,7 +85,7 @@ export function isLaunchpadMcpServer(
 }
 
 /**
- * Built-in Hub MCP connector — seeded enabled by default (not a Quick Add preset).
+ * Built-in Hub MCP connector — seeded disabled by default; user enables in Connectors.
  * Uses streamable HTTP. Cognito bearer token is injected at connect time (no MCP OAuth).
  */
 export function getDefaultHubMcpUrl(): string {
@@ -135,7 +135,7 @@ export function isHubMcpServer(
 }
 
 /**
- * Built-in GTM Pulse MCP connector — seeded enabled by default (not a Quick Add preset).
+ * Built-in GTM Pulse MCP connector — seeded disabled by default; user enables in Connectors.
  * Uses streamable HTTP. Browser MCP OAuth is used at connect time.
  */
 export function getDefaultGtmPulseMcpUrl(): string {
@@ -333,7 +333,7 @@ class MCPConfigStore {
     const chromeServer: MCPServerConfig = {
       ...DEFAULT_CHROME_MCP_SERVER,
       id: DEFAULT_CHROME_SERVER_ID,
-      enabled: true,
+      enabled: false,
     };
     this.saveServer(chromeServer);
     log('[MCPConfigStore] Seeded default Chrome MCP connector');
@@ -374,7 +374,7 @@ class MCPConfigStore {
     const launchpadServer: MCPServerConfig = {
       ...desired,
       id: DEFAULT_LAUNCHPAD_SERVER_ID,
-      enabled: true,
+      enabled: false,
     };
     this.saveServer(launchpadServer);
     log(`[MCPConfigStore] Seeded default Launchpad MCP connector at ${desiredUrl}`);
@@ -415,7 +415,7 @@ class MCPConfigStore {
     const hubServer: MCPServerConfig = {
       ...desired,
       id: DEFAULT_HUB_SERVER_ID,
-      enabled: true,
+      enabled: false,
     };
     this.saveServer(hubServer);
     log(`[MCPConfigStore] Seeded default Hub MCP connector at ${desiredUrl}`);
@@ -452,7 +452,7 @@ class MCPConfigStore {
     const gtmPulseServer: MCPServerConfig = {
       ...desired,
       id: DEFAULT_GTM_PULSE_SERVER_ID,
-      enabled: true,
+      enabled: false,
     };
     this.saveServer(gtmPulseServer);
     log(`[MCPConfigStore] Seeded default GTM Pulse MCP connector at ${desiredUrl}`);
