@@ -14,6 +14,12 @@ import { useAppStore } from '../../store';
 import { formatAppDateTime, joinAppList } from '../../utils/i18n-format';
 import { renderLocalizedBannerMessage, getWeekdayOptions, getScheduleModeOptions } from './shared';
 import type { LocalizedBanner, ScheduleFormMode } from './shared';
+import {
+  DEFAULT_SCHEDULE_MODEL,
+  DEFAULT_SCHEDULE_PROVIDER,
+  ScheduleModelSelector,
+  type ScheduleModelSelection,
+} from './ScheduleModelSelector';
 
 const isElectron = typeof window !== 'undefined' && window.electronAPI !== undefined;
 
@@ -51,6 +57,10 @@ export function SettingsSchedule({ isActive }: { isActive: boolean }) {
   const [enabled, setEnabled] = useState(true);
   const [repeatEvery, setRepeatEvery] = useState(1);
   const [repeatUnit, setRepeatUnit] = useState<ScheduleRepeatUnit>('day');
+  const [modelSelection, setModelSelection] = useState<ScheduleModelSelection>({
+    model: DEFAULT_SCHEDULE_MODEL,
+    provider: DEFAULT_SCHEDULE_PROVIDER,
+  });
   const weekdayOptions = getWeekdayOptions(t);
   const scheduleModeOptions = getScheduleModeOptions(t);
   const promptChangedWhileEditing = Boolean(
@@ -191,6 +201,8 @@ export function SettingsSchedule({ isActive }: { isActive: boolean }) {
           scheduleConfig,
           repeatEvery: scheduleMode === 'legacy-interval' ? repeatEvery : null,
           repeatUnit: scheduleMode === 'legacy-interval' ? repeatUnit : null,
+          model: modelSelection.model,
+          provider: modelSelection.provider,
         };
         if (shouldRegenerateTitle) {
           payload.prompt = trimmedPrompt;
@@ -218,6 +230,8 @@ export function SettingsSchedule({ isActive }: { isActive: boolean }) {
           enabled,
           repeatEvery: scheduleMode === 'legacy-interval' ? repeatEvery : null,
           repeatUnit: scheduleMode === 'legacy-interval' ? repeatUnit : null,
+          model: modelSelection.model,
+          provider: modelSelection.provider,
         };
         await window.electronAPI.schedule.create(payload);
         setSuccess({ key: 'schedule.created' });
@@ -334,6 +348,10 @@ export function SettingsSchedule({ isActive }: { isActive: boolean }) {
     );
     setRepeatEvery(task.repeatEvery ?? 1);
     setRepeatUnit(task.repeatUnit ?? 'day');
+    setModelSelection({
+      model: task.model || DEFAULT_SCHEDULE_MODEL,
+      provider: task.provider || DEFAULT_SCHEDULE_PROVIDER,
+    });
     setError(null);
     setSuccess(null);
   }
@@ -351,6 +369,10 @@ export function SettingsSchedule({ isActive }: { isActive: boolean }) {
     setEnabled(true);
     setRepeatEvery(1);
     setRepeatUnit('day');
+    setModelSelection({
+      model: DEFAULT_SCHEDULE_MODEL,
+      provider: DEFAULT_SCHEDULE_PROVIDER,
+    });
   }
 
   return (
@@ -395,6 +417,11 @@ export function SettingsSchedule({ isActive }: { isActive: boolean }) {
           onChange={(e) => setCwd(e.target.value)}
           placeholder={t('schedule.cwdPlaceholder')}
           className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm"
+        />
+        <ScheduleModelSelector
+          value={modelSelection}
+          onChange={setModelSelection}
+          disabled={isLoading}
         />
         <div className="rounded-lg border border-border bg-background p-3 space-y-3">
           <div className="flex items-center justify-between gap-2">
@@ -576,6 +603,9 @@ export function SettingsSchedule({ isActive }: { isActive: boolean }) {
                     </div>
                     <div className="text-xs text-text-muted truncate" title={task.cwd}>
                       {t('schedule.cwd', { value: task.cwd })}
+                    </div>
+                    <div className="text-xs text-text-muted truncate" title={task.model}>
+                      {t('schedule.modelLabel', { value: task.model })}
                     </div>
                     {task.lastError && (
                       <div className="text-xs text-error break-all">

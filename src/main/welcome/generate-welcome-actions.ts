@@ -1,5 +1,5 @@
 /**
- * Generate / cache / fall back welcome quick-action chips via OpenRouter free model.
+ * Generate / cache / fall back welcome quick-action chips + tagline via OpenRouter free model.
  */
 
 import type { AppConfig } from '../config/config-store';
@@ -7,40 +7,54 @@ import { resolveFreeModelForChild } from '../agent/free-model-resolve';
 import { runPiAiOneShot } from '../agent/sdk-one-shot';
 import { log, logWarn } from '../utils/logger';
 import {
+  DEFAULT_WELCOME_TAGLINE,
   buildConnectorFingerprint,
   formatWelcomeProfileSummary,
-  isWelcomeActionIcon,
   type WelcomeActionsSource,
   type WelcomeConnectorSnapshot,
   type WelcomeProfile,
   type WelcomeQuickAction,
   type WelcomeQuickActionsResponse,
 } from '../../shared/welcome-actions';
-import {
-  DEFAULT_HUB_MCP_NAME,
-  DEFAULT_LAUNCHPAD_MCP_NAME,
-  isGtmPulseMcpServer,
-  isHubMcpServer,
-  isLaunchpadMcpServer,
-} from '../mcp/mcp-config-store';
 import { welcomeActionsStore } from './welcome-actions-store';
+import {
+  enrichChipsWithConnectorNames,
+  extractJsonValue,
+  getStaticFallbackChips,
+  parseWelcomeGenerationPayload,
+} from './welcome-actions-helpers';
 
-const MAX_CHIPS = 6;
-const MAX_LABEL_LEN = 28;
+export {
+  enrichChipsWithConnectorNames,
+  getStaticFallbackChips,
+  parseAndValidateWelcomeChips,
+  parseWelcomeGenerationPayload,
+  sanitizeWelcomeTagline,
+} from './welcome-actions-helpers';
 
-const SYSTEM_PROMPT = `You generate welcome quick-action chips for York IE VECOS, an internal AI desktop app for York IE (investment + consultancy).
+const SYSTEM_PROMPT = `You generate the welcome screen for York IE VECOS, an internal AI desktop app for York IE (investment + consultancy).
 
-Return ONLY a JSON array of 5 or 6 objects. No markdown fences, no commentary.
-Each object:
+Return ONLY a JSON object. No markdown fences, no commentary.
 {
-  "id": "kebab-case-id",
-  "label": "short label <= 28 chars",
-  "prompt": "full actionable user message the assistant should receive",
-  "icon": one of FileText|BarChart3|FolderOpen|Mail|BookOpen|FileSearch|Users|Briefcase|Rocket|Calendar|ClipboardList|Target|Presentation|Search,
-  "requiresConnectorId": "<mcp server id from the connector list, or null>"
+  "tagline": "one short inviting subtitle for the welcome screen (<= 80 chars)",
+  "chips": [
+    {
+      "id": "kebab-case-id",
+      "label": "short label <= 28 chars",
+      "prompt": "full actionable user message the assistant should receive",
+      "icon": one of FileText|BarChart3|FolderOpen|Mail|BookOpen|FileSearch|Users|Briefcase|Rocket|Calendar|ClipboardList|Target|Presentation|Search,
+      "requiresConnectorId": "<mcp server id from the connector list, or null>"
+    }
+  ]
 }
 
-Rules:
+Tagline rules:
+- One sentence or short phrase; warm, professional, role-aware.
+- Reflect the user's title / function / squad when known (e.g. engineering manager, GTM, delivery, IC, ops).
+- Do not use the user's name or email in the tagline.
+- Example style: "Deal flow, diligence, or portfolio — what's next?"
+
+Chip rules (5 or 6 items):
 - Tailor actions to the user's title / function / squad when provided.
 - Prefer actions that use ENABLED connectors; set requiresConnectorId only to an id from the provided list.
 - Do not invent connectors that are not listed.
@@ -48,175 +62,14 @@ Rules:
 - Prompts must be concrete and ready to run (not placeholders like [topic]).
 - Labels should be title-case short phrases.`;
 
-export function enrichChipsWithConnectorNames(
-  chips: WelcomeQuickAction[],
-  connectors: WelcomeConnectorSnapshot[]
-): WelcomeQuickAction[] {
-  const byId = new Map(connectors.map((c) => [c.id, c.name]));
-  return chips.map((chip) => {
-    const id = chip.requiresConnectorId?.trim() || null;
-    if (!id) {
-      return { ...chip, requiresConnectorId: null, requiresConnectorName: null };
-    }
-    return {
-      ...chip,
-      requiresConnectorId: id,
-      requiresConnectorName: byId.get(id) ?? chip.requiresConnectorName ?? null,
-    };
-  });
-}
-
-export function getStaticFallbackChips(
-  connectors: WelcomeConnectorSnapshot[]
-): WelcomeQuickAction[] {
-  const hub = connectors.find((c) => isHubMcpServer({ name: c.name, type: 'streamable-http' }));
-  const launchpad = connectors.find((c) => isLaunchpadMcpServer({ name: c.name, type: 'stdio' }));
-  const gtm = connectors.find((c) =>
-    isGtmPulseMcpServer({ name: c.name, type: 'streamable-http' })
-  );
-
-  const chips: WelcomeQuickAction[] = [
-    {
-      id: 'draft-ic-memo',
-      label: 'Draft IC memo',
-      prompt:
-        'Help me draft an investment committee memo. Ask for the company name and stage if missing, then outline thesis, market, team, traction, risks, and a clear recommendation.',
-      icon: 'FileText',
-    },
-    {
-      id: 'prep-diligence',
-      label: 'Prep diligence notes',
-      prompt:
-        'Help me prepare a diligence checklist and note template for an active deal. Include product, GTM, financials, technical, and reference-check sections.',
-      icon: 'ClipboardList',
-    },
-    {
-      id: 'hub-timesheet',
-      label: 'Log Hub timesheet',
-      prompt:
-        'Help me review and log my York IE Hub timesheet for this week. List drafts if available, suggest hours by project, and walk me through save/submit.',
-      icon: 'Calendar',
-      requiresConnectorId: hub?.id ?? null,
-      requiresConnectorName: hub?.name ?? DEFAULT_HUB_MCP_NAME,
-    },
-    {
-      id: 'launchpad-release',
-      label: 'Check LaunchPad release',
-      prompt:
-        'Help me check the active R&D LaunchPad release: status, open work, and what to do next in the release loop.',
-      icon: 'Rocket',
-      requiresConnectorId: launchpad?.id ?? null,
-      requiresConnectorName: launchpad?.name ?? DEFAULT_LAUNCHPAD_MCP_NAME,
-    },
-    {
-      id: 'gtm-pipeline',
-      label: 'GTM pipeline snapshot',
-      prompt:
-        'Give me a concise GTM Pulse pipeline snapshot: key deals, next actions, and anything at risk this week.',
-      icon: 'Target',
-      requiresConnectorId: gtm?.id ?? null,
-      requiresConnectorName: gtm?.name ?? 'GTM Pulse',
-    },
-    {
-      id: 'client-deck',
-      label: 'Build client deck',
-      prompt:
-        'Help me create a short client update deck (PPTX). Ask for audience and goal if needed, then outline slides and generate the presentation.',
-      icon: 'Presentation',
-    },
-  ];
-
-  return enrichChipsWithConnectorNames(chips, connectors).slice(0, MAX_CHIPS);
-}
-
-function stripCodeFences(text: string): string {
-  const trimmed = text.trim();
-  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)```$/i);
-  return fenced ? fenced[1].trim() : trimmed;
-}
-
-function extractJsonArray(text: string): unknown {
-  const cleaned = stripCodeFences(text);
-  try {
-    return JSON.parse(cleaned) as unknown;
-  } catch {
-    const start = cleaned.indexOf('[');
-    const end = cleaned.lastIndexOf(']');
-    if (start >= 0 && end > start) {
-      return JSON.parse(cleaned.slice(start, end + 1)) as unknown;
-    }
-    throw new Error('No JSON array found');
-  }
-}
-
-function sanitizeId(raw: unknown, fallback: string): string {
-  if (typeof raw !== 'string' || !raw.trim()) return fallback;
-  return (
-    raw
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 48) || fallback
-  );
-}
-
-function sanitizeLabel(raw: unknown, fallback: string): string {
-  if (typeof raw !== 'string' || !raw.trim()) return fallback;
-  return raw.trim().replace(/\s+/g, ' ').slice(0, MAX_LABEL_LEN);
-}
-
-function sanitizePrompt(raw: unknown, fallback: string): string {
-  if (typeof raw !== 'string' || !raw.trim()) return fallback;
-  return raw.trim().slice(0, 2000);
-}
-
-/**
- * Validate and normalize LLM (or any) chip JSON into WelcomeQuickAction[].
- */
-export function parseAndValidateWelcomeChips(
-  raw: unknown,
-  connectors: WelcomeConnectorSnapshot[]
-): WelcomeQuickAction[] {
-  if (!Array.isArray(raw)) return [];
-  const knownIds = new Set(connectors.map((c) => c.id));
-  const seen = new Set<string>();
-  const chips: WelcomeQuickAction[] = [];
-
-  for (let i = 0; i < raw.length && chips.length < MAX_CHIPS; i++) {
-    const item = raw[i];
-    if (!item || typeof item !== 'object') continue;
-    const rec = item as Record<string, unknown>;
-    const id = sanitizeId(rec.id, `action-${i + 1}`);
-    if (seen.has(id)) continue;
-    seen.add(id);
-
-    const icon = isWelcomeActionIcon(rec.icon) ? rec.icon : 'FileText';
-    let requiresConnectorId: string | null = null;
-    if (typeof rec.requiresConnectorId === 'string' && rec.requiresConnectorId.trim()) {
-      const cid = rec.requiresConnectorId.trim();
-      if (knownIds.has(cid)) requiresConnectorId = cid;
-    }
-
-    const label = sanitizeLabel(rec.label, 'Quick action');
-    const prompt = sanitizePrompt(rec.prompt, label);
-    if (!prompt) continue;
-
-    chips.push({
-      id,
-      label,
-      prompt,
-      icon,
-      requiresConnectorId,
-    });
-  }
-
-  return enrichChipsWithConnectorNames(chips, connectors);
-}
-
 function buildUserPrompt(
   profile: WelcomeProfile | null,
-  connectors: WelcomeConnectorSnapshot[]
+  connectors: WelcomeConnectorSnapshot[],
+  options?: {
+    avoidChips?: WelcomeQuickAction[];
+    avoidTagline?: string | null;
+    shuffleNonce?: string;
+  }
 ): string {
   const profileBlock = profile
     ? JSON.stringify(
@@ -245,16 +98,49 @@ function buildUserPrompt(
     2
   );
 
-  return `User profile:\n${profileBlock}\n\nMCP connectors:\n${connectorBlock}\n\nGenerate the JSON array now.`;
+  let avoidBlock = '';
+  if (options?.avoidChips?.length || options?.avoidTagline) {
+    avoidBlock =
+      `\n\nGenerate a FRESH welcome that differs from the previous one (new tagline and chips; do not repeat):\n` +
+      JSON.stringify(
+        {
+          previousTagline: options.avoidTagline || null,
+          previousChips: (options.avoidChips || []).map((c) => ({ id: c.id, label: c.label })),
+        },
+        null,
+        2
+      );
+  }
+  if (options?.shuffleNonce) {
+    avoidBlock += `\n\nVariation token: ${options.shuffleNonce}`;
+  }
+
+  return `User profile:\n${profileBlock}\n\nMCP connectors:\n${connectorBlock}${avoidBlock}\n\nGenerate the JSON object now.`;
 }
 
-async function generateChipsWithLlm(
+interface GeneratedWelcome {
+  chips: WelcomeQuickAction[];
+  tagline: string;
+}
+
+async function generateWelcomeWithLlm(
   profile: WelcomeProfile | null,
   connectors: WelcomeConnectorSnapshot[],
-  config: AppConfig
-): Promise<WelcomeQuickAction[] | null> {
+  config: AppConfig,
+  options?: {
+    avoidChips?: WelcomeQuickAction[];
+    avoidTagline?: string | null;
+    shuffle?: boolean;
+  }
+): Promise<GeneratedWelcome | null> {
   try {
-    const userPrompt = buildUserPrompt(profile, connectors);
+    const userPrompt = buildUserPrompt(profile, connectors, {
+      avoidChips: options?.avoidChips,
+      avoidTagline: options?.avoidTagline,
+      shuffleNonce: options?.shuffle
+        ? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+        : undefined,
+    });
     const free = await resolveFreeModelForChild({
       promptText: userPrompt,
       parent: {
@@ -277,18 +163,20 @@ async function generateChipsWithLlm(
     };
 
     const result = await runPiAiOneShot(userPrompt, SYSTEM_PROMPT, oneShotConfig, {
-      temperature: 0.4,
-      maxTokens: 1200,
+      temperature: options?.shuffle ? 0.7 : 0.4,
+      maxTokens: 1400,
     });
 
-    const parsed = extractJsonArray(result.text);
-    const chips = parseAndValidateWelcomeChips(parsed, connectors);
-    if (chips.length < 3) {
-      logWarn('[WelcomeActions] LLM returned too few valid chips:', chips.length);
+    const parsed = extractJsonValue(result.text);
+    const payload = parseWelcomeGenerationPayload(parsed, connectors, DEFAULT_WELCOME_TAGLINE);
+    if (payload.chips.length < 3) {
+      logWarn('[WelcomeActions] LLM returned too few valid chips:', payload.chips.length);
       return null;
     }
-    log(`[WelcomeActions] Generated ${chips.length} chips via ${free.strategy}/${free.modelId}`);
-    return chips;
+    log(
+      `[WelcomeActions] Generated tagline + ${payload.chips.length} chips via ${free.strategy}/${free.modelId}`
+    );
+    return payload;
   } catch (error) {
     logWarn('[WelcomeActions] LLM generation failed:', error);
     return null;
@@ -303,7 +191,7 @@ export interface GetWelcomeQuickActionsOptions {
 }
 
 /**
- * Return cached chips when fingerprint matches; otherwise generate (or fall back).
+ * Return cached welcome when fingerprint matches; otherwise generate (or fall back).
  */
 export async function getWelcomeQuickActions(
   options: GetWelcomeQuickActionsOptions
@@ -312,11 +200,14 @@ export async function getWelcomeQuickActions(
   const fingerprint = buildConnectorFingerprint(connectors);
   const email = profile?.email?.trim().toLowerCase() || '';
 
+  const previous = forceRegenerate && email ? welcomeActionsStore.get(email) : null;
+
   if (!forceRegenerate && email) {
     const cached = welcomeActionsStore.get(email);
     if (cached && cached.connectorFingerprint === fingerprint && cached.chips?.length) {
       return {
         chips: enrichChipsWithConnectorNames(cached.chips, connectors),
+        tagline: cached.tagline?.trim() || DEFAULT_WELCOME_TAGLINE,
         source: 'cache',
         profileSummary: formatWelcomeProfileSummary(cached.profile || profile!),
         connectorFingerprint: fingerprint,
@@ -324,11 +215,18 @@ export async function getWelcomeQuickActions(
     }
   }
 
-  let chips = await generateChipsWithLlm(profile, connectors, config);
+  const generated = await generateWelcomeWithLlm(profile, connectors, config, {
+    avoidChips: previous?.chips,
+    avoidTagline: previous?.tagline,
+    shuffle: Boolean(forceRegenerate),
+  });
   let source: WelcomeActionsSource = 'generated';
+  let chips = generated?.chips ?? null;
+  let tagline = generated?.tagline ?? DEFAULT_WELCOME_TAGLINE;
 
   if (!chips || chips.length === 0) {
     chips = getStaticFallbackChips(connectors);
+    tagline = DEFAULT_WELCOME_TAGLINE;
     source = 'fallback';
   }
 
@@ -337,6 +235,7 @@ export async function getWelcomeQuickActions(
       email,
       connectorFingerprint: fingerprint,
       chips,
+      tagline,
       profile,
       updatedAt: Date.now(),
     });
@@ -344,6 +243,7 @@ export async function getWelcomeQuickActions(
 
   return {
     chips,
+    tagline,
     source,
     profileSummary: profile ? formatWelcomeProfileSummary(profile) : null,
     connectorFingerprint: fingerprint,

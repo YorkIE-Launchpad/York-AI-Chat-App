@@ -51,8 +51,13 @@ export interface WelcomeConnectorSnapshot {
 
 export type WelcomeActionsSource = 'cache' | 'generated' | 'fallback';
 
+/** Default welcome tagline when generation fails or profile is unknown. */
+export const DEFAULT_WELCOME_TAGLINE = "Deal flow, diligence, or portfolio — what's next?";
+
 export interface WelcomeQuickActionsResponse {
   chips: WelcomeQuickAction[];
+  /** Personalized one-line welcome subtitle. */
+  tagline: string;
   source: WelcomeActionsSource;
   profileSummary?: string | null;
   connectorFingerprint: string;

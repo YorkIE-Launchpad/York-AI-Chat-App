@@ -57,6 +57,10 @@ import { configStore } from '../config/config-store';
 import { resolveBackendClientApiKey } from '../config/backend-auth';
 import { normalizeOpenAICompatibleBaseUrl } from '../config/auth-utils';
 import {
+  applyBackendManagedCredentials,
+  isBackendManagedProvider,
+} from '../../shared/backend-config';
+import {
   buildTerminalErrorEmissionDetails,
   buildTerminalErrorMessage,
   isSdkRecoverableContextOverflowError,
@@ -1665,6 +1669,34 @@ ${hints.join('\n')}
 
       // Resolve model via pi-ai
       const runtimeConfig = configStore.getAll();
+      if (session.modelLocked && session.model?.trim()) {
+        runtimeConfig.model = session.model.trim();
+        if (session.provider?.trim()) {
+          runtimeConfig.provider = session.provider.trim() as typeof runtimeConfig.provider;
+          runtimeConfig.activeProfileKey =
+            session.provider.trim() as typeof runtimeConfig.activeProfileKey;
+          runtimeConfig.customProtocol =
+            session.provider === 'gemini'
+              ? 'gemini'
+              : session.provider === 'openai' || session.provider === 'openrouter'
+                ? 'openai'
+                : 'anthropic';
+          if (isBackendManagedProvider(session.provider)) {
+            const creds = applyBackendManagedCredentials({
+              provider: session.provider,
+              apiKey: '',
+              baseUrl: '',
+            });
+            runtimeConfig.apiKey = creds.apiKey || runtimeConfig.apiKey;
+            runtimeConfig.baseUrl = creds.baseUrl || runtimeConfig.baseUrl;
+          }
+        }
+        logCtx(
+          '[CoworkAgentRunner] Using locked session model:',
+          runtimeConfig.provider,
+          runtimeConfig.model
+        );
+      }
       let modelString = this.getCurrentModelString(runtimeConfig.model);
       let resolvedProvider = runtimeConfig.provider;
       let resolvedCustomProtocol = runtimeConfig.customProtocol;

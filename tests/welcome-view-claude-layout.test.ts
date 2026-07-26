@@ -30,4 +30,18 @@ describe('WelcomeView Claude-style layout', () => {
     expect(source).toContain('requiresConnectorName');
     expect(source).toContain('WELCOME_ICON_MAP');
   });
+
+  it('renders a dynamic welcome tagline from generation results', () => {
+    const source = fs.readFileSync(welcomeViewPath, 'utf8');
+    expect(source).toContain('welcomeTagline');
+    expect(source).toContain('displayTagline');
+    expect(source).toContain('result?.tagline');
+  });
+
+  it('exposes a shuffle control to regenerate welcome quick actions', () => {
+    const source = fs.readFileSync(welcomeViewPath, 'utf8');
+    expect(source).toContain('regenerateQuickActions');
+    expect(source).toContain('Shuffle');
+    expect(source).toContain('handleShuffleQuickActions');
+  });
 });

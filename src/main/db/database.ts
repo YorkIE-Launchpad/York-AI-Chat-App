@@ -107,6 +107,8 @@ export interface ScheduledTaskRow {
   last_run_at: number | null;
   last_run_session_id: string | null;
   last_error: string | null;
+  model: string | null;
+  provider: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -341,6 +343,8 @@ function initializeSchema(database: Database.Database): void {
     )
   `);
     ensureColumn(database, 'scheduled_tasks', 'schedule_config', 'schedule_config TEXT');
+    ensureColumn(database, 'scheduled_tasks', 'model', 'model TEXT');
+    ensureColumn(database, 'scheduled_tasks', 'provider', 'provider TEXT');
 
     database.exec(`
     CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_next_run
@@ -503,9 +507,9 @@ export function initDatabase(): DatabaseInstance {
 
   const insertScheduledTask = rawDb.prepare(`
     INSERT OR REPLACE INTO scheduled_tasks (
-      id, title, prompt, cwd, run_at, next_run_at, schedule_config, repeat_every, repeat_unit, enabled, last_run_at, last_run_session_id, last_error, created_at, updated_at
+      id, title, prompt, cwd, run_at, next_run_at, schedule_config, repeat_every, repeat_unit, enabled, last_run_at, last_run_session_id, last_error, model, provider, created_at, updated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const getScheduledTaskStmt = rawDb.prepare(`
@@ -677,6 +681,8 @@ export function initDatabase(): DatabaseInstance {
           task.last_run_at,
           task.last_run_session_id,
           task.last_error,
+          task.model,
+          task.provider,
           task.created_at,
           task.updated_at
         );

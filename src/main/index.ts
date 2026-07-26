@@ -60,7 +60,7 @@ import { mcpConfigStore } from './mcp/mcp-config-store';
 import { buildWelcomeConnectorSnapshot } from './welcome/connector-snapshot';
 import { getStaticFallbackChips, getWelcomeQuickActions } from './welcome/generate-welcome-actions';
 import { resolveWelcomeProfile } from './welcome/resolve-welcome-profile';
-import { buildConnectorFingerprint } from '../shared/welcome-actions';
+import { DEFAULT_WELCOME_TAGLINE, buildConnectorFingerprint } from '../shared/welcome-actions';
 import { getSandboxAdapter, shutdownSandbox } from './sandbox/sandbox-adapter';
 import { SandboxSync } from './sandbox/sandbox-sync';
 import { WSLBridge } from './sandbox/wsl-bridge';
@@ -1177,7 +1177,19 @@ app
           if (title !== task.title) {
             headlessScheduledTaskStore.update(task.id, { title });
           }
-          await sessionManager.startSession(title, task.prompt, task.cwd);
+          await sessionManager.startSession(
+            title,
+            task.prompt,
+            task.cwd,
+            undefined,
+            undefined,
+            undefined,
+            {
+              model: task.model,
+              provider: task.provider,
+              lockModel: true,
+            }
+          );
           return { sessionId: '' };
         },
         onTaskError: (taskId, error) => {
@@ -1610,7 +1622,19 @@ app
         if (title !== task.title) {
           scheduledTaskStore.update(task.id, { title });
         }
-        const started = await sessionManager.startSession(title, task.prompt, task.cwd);
+        const started = await sessionManager.startSession(
+          title,
+          task.prompt,
+          task.cwd,
+          undefined,
+          undefined,
+          undefined,
+          {
+            model: task.model,
+            provider: task.provider,
+            lockModel: true,
+          }
+        );
         // New sessions created by scheduled tasks need to be synced to the frontend session list
         sendToRenderer({
           type: 'session.update',
@@ -2568,6 +2592,7 @@ async function handleWelcomeQuickActions(forceRegenerate: boolean) {
     const connectors = buildWelcomeConnectorSnapshot(sessionManager?.getMCPManager() ?? null);
     return {
       chips: getStaticFallbackChips(connectors),
+      tagline: DEFAULT_WELCOME_TAGLINE,
       source: 'fallback' as const,
       profileSummary: null,
       connectorFingerprint: buildConnectorFingerprint(connectors),

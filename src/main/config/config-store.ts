@@ -33,7 +33,6 @@ import {
 } from './auth-utils';
 import { API_PROVIDER_PRESETS, PI_AI_CURATED_PRESETS } from '../../shared/api-model-presets';
 import {
-  AUTO_MODEL_ID,
   isAutoModelPreference,
   normalizeAutoModelPreference,
   type AutoModelPreference,
@@ -236,7 +235,7 @@ const defaultProfiles: Record<ProviderProfileKey, ProviderProfile> = {
   openrouter: {
     apiKey: '',
     baseUrl: 'https://openrouter.ai/api/v1',
-    model: 'anthropic/claude-sonnet-5',
+    model: 'openrouter/free',
   },
   anthropic: {
     apiKey: '',
@@ -275,16 +274,10 @@ const defaultProfiles: Record<ProviderProfileKey, ProviderProfile> = {
   },
 };
 
-/** Fresh default config set starts on Auto; provider profile presets stay concrete models. */
-const defaultConfigSetProfiles: Record<ProviderProfileKey, ProviderProfile> = {
-  ...Object.fromEntries(
-    Object.entries(defaultProfiles).map(([key, profile]) => [key, { ...profile }])
-  ),
-  openrouter: {
-    ...defaultProfiles.openrouter,
-    model: AUTO_MODEL_ID,
-  },
-} as Record<ProviderProfileKey, ProviderProfile>;
+/** Fresh default config set starts on OpenRouter Free; other provider presets stay concrete models. */
+const defaultConfigSetProfiles: Record<ProviderProfileKey, ProviderProfile> = Object.fromEntries(
+  Object.entries(defaultProfiles).map(([key, profile]) => [key, { ...profile }])
+) as Record<ProviderProfileKey, ProviderProfile>;
 
 const defaultConfigSet: ApiConfigSet = {
   id: DEFAULT_CONFIG_SET_ID,
@@ -303,7 +296,7 @@ const defaultConfig: AppConfig = {
   apiKey: defaultProfiles.openrouter.apiKey,
   baseUrl: defaultProfiles.openrouter.baseUrl,
   customProtocol: defaultConfigSet.customProtocol,
-  model: AUTO_MODEL_ID,
+  model: defaultProfiles.openrouter.model,
   autoModelPreference: 'balanced',
   activeProfileKey: defaultConfigSet.activeProfileKey,
   profiles: defaultConfigSetProfiles,

@@ -273,11 +273,16 @@ export class SessionManager {
     cwd?: string,
     allowedTools?: string[],
     content?: ContentBlock[],
-    memoryEnabled?: boolean
+    memoryEnabled?: boolean,
+    options?: {
+      model?: string;
+      provider?: string;
+      lockModel?: boolean;
+    }
   ): Promise<Session> {
     log('[SessionManager] Starting new session:', title);
 
-    const session = this.createSession(title, cwd, allowedTools, memoryEnabled);
+    const session = this.createSession(title, cwd, allowedTools, memoryEnabled, options);
 
     // Save to database
     this.saveSession(session);
@@ -305,7 +310,12 @@ export class SessionManager {
     title: string,
     cwd?: string,
     allowedTools?: string[],
-    memoryEnabled?: boolean
+    memoryEnabled?: boolean,
+    options?: {
+      model?: string;
+      provider?: string;
+      lockModel?: boolean;
+    }
   ): Session {
     const now = Date.now();
     // Prefer frontend-provided cwd; fallback to env vars if provided
@@ -315,6 +325,9 @@ export class SessionManager {
       typeof memoryEnabled === 'boolean'
         ? memoryEnabled
         : configStore.get('memoryEnabled') !== false;
+    const lockModel = options?.lockModel === true;
+    const lockedModel = options?.model?.trim();
+    const lockedProvider = options?.provider?.trim();
     return {
       id: uuidv4(),
       title,
@@ -335,7 +348,9 @@ export class SessionManager {
         'grep',
       ],
       memoryEnabled: resolvedMemoryEnabled,
-      model: configStore.get('model') || undefined,
+      model: lockModel && lockedModel ? lockedModel : configStore.get('model') || undefined,
+      provider: lockModel && lockedProvider ? lockedProvider : undefined,
+      modelLocked: lockModel && Boolean(lockedModel),
       createdAt: now,
       updatedAt: now,
     };
@@ -713,15 +728,18 @@ export class SessionManager {
         );
         const messagesForContext = [...existingMessages, userMessage];
 
-        // Update session model to match current config (may have changed since session creation)
-        const currentModel = configStore.get('model');
-        if (currentModel && currentModel !== session.model) {
-          session.model = currentModel;
-          this.db.sessions.update(session.id, { model: currentModel });
-          this.sendToRenderer({
-            type: 'session.update',
-            payload: { sessionId: session.id, updates: { model: currentModel } },
-          });
+        // Update session model to match current config (may have changed since session creation),
+        // unless this session pinned a model (e.g. scheduled tasks).
+        if (!session.modelLocked) {
+          const currentModel = configStore.get('model');
+          if (currentModel && currentModel !== session.model) {
+            session.model = currentModel;
+            this.db.sessions.update(session.id, { model: currentModel });
+            this.sendToRenderer({
+              type: 'session.update',
+              payload: { sessionId: session.id, updates: { model: currentModel } },
+            });
+          }
         }
 
         // Run the agent

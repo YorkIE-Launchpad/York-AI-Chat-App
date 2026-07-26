@@ -10,6 +10,10 @@ export interface Session {
   allowedTools: string[];
   memoryEnabled: boolean;
   model?: string;
+  /** When set, agent runs use this provider instead of global config. */
+  provider?: string;
+  /** When true, session model/provider stay pinned and are not overwritten from config. */
+  modelLocked?: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -146,6 +150,10 @@ export interface ScheduleTask {
   lastRunAt: number | null;
   lastRunSessionId: string | null;
   lastError: string | null;
+  /** Model id used when the task runs (defaults to openrouter/free). */
+  model: string;
+  /** Provider for the locked model (defaults to openrouter). */
+  provider: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -160,6 +168,8 @@ export interface ScheduleCreateInput {
   repeatEvery?: number | null;
   repeatUnit?: ScheduleRepeatUnit | null;
   enabled?: boolean;
+  model?: string;
+  provider?: string;
 }
 
 export interface ScheduleUpdateInput {
@@ -175,6 +185,8 @@ export interface ScheduleUpdateInput {
   lastRunAt?: number | null;
   lastRunSessionId?: string | null;
   lastError?: string | null;
+  model?: string;
+  provider?: string;
 }
 
 // Skills types

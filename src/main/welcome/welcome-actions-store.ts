@@ -9,6 +9,7 @@ interface WelcomeActionsCacheEntry {
   email: string;
   connectorFingerprint: string;
   chips: WelcomeQuickAction[];
+  tagline?: string;
   profile: WelcomeProfile | null;
   updatedAt: number;
 }

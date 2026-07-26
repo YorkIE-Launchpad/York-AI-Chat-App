@@ -49,6 +49,10 @@ export interface ScheduledTask {
   lastRunAt: number | null;
   lastRunSessionId: string | null;
   lastError: string | null;
+  /** Model id used when the task runs (defaults to openrouter/free). */
+  model: string;
+  /** Provider for the locked model (defaults to openrouter). */
+  provider: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -63,6 +67,8 @@ export interface ScheduledTaskCreateInput {
   repeatEvery?: number | null;
   repeatUnit?: ScheduleRepeatUnit | null;
   enabled?: boolean;
+  model?: string;
+  provider?: string;
 }
 
 export interface ScheduledTaskUpdateInput {
@@ -78,6 +84,8 @@ export interface ScheduledTaskUpdateInput {
   lastRunAt?: number | null;
   lastRunSessionId?: string | null;
   lastError?: string | null;
+  model?: string;
+  provider?: string;
 }
 
 export interface ScheduledTaskStore {

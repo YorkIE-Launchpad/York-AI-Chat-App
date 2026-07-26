@@ -1,19 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import {
-  extractHubProfileFields,
-  mergeHubProfileFields,
-} from '../../main/welcome/extract-hub-profile';
-import {
   enrichChipsWithConnectorNames,
   getStaticFallbackChips,
   parseAndValidateWelcomeChips,
-} from '../../main/welcome/generate-welcome-actions';
+  parseWelcomeGenerationPayload,
+  sanitizeWelcomeTagline,
+} from '../../main/welcome/welcome-actions-helpers';
 import {
+  DEFAULT_WELCOME_TAGLINE,
   buildConnectorFingerprint,
   formatWelcomeProfileSummary,
   isWelcomeActionIcon,
   type WelcomeConnectorSnapshot,
 } from '../../shared/welcome-actions';
+import {
+  extractHubProfileFields,
+  mergeHubProfileFields,
+} from '../../main/welcome/extract-hub-profile';
 
 const connectors: WelcomeConnectorSnapshot[] = [
   {
@@ -141,6 +144,41 @@ describe('parseAndValidateWelcomeChips', () => {
 
   it('returns empty for non-arrays', () => {
     expect(parseAndValidateWelcomeChips({ not: 'array' }, connectors)).toEqual([]);
+  });
+});
+
+describe('welcome tagline parsing', () => {
+  it('sanitizes taglines and falls back when too short', () => {
+    expect(sanitizeWelcomeTagline('  Shipping releases or clearing the bench — what next?  ')).toBe(
+      'Shipping releases or clearing the bench — what next?'
+    );
+    expect(sanitizeWelcomeTagline('Hi')).toBe(DEFAULT_WELCOME_TAGLINE);
+    expect(sanitizeWelcomeTagline(null)).toBe(DEFAULT_WELCOME_TAGLINE);
+  });
+
+  it('parses object payloads with tagline + chips', () => {
+    const payload = parseWelcomeGenerationPayload(
+      {
+        tagline: 'Timesheets, leave, or team reviews — ready?',
+        chips: [
+          { id: 'hub-leave', label: 'Book leave', prompt: 'Help me book leave', icon: 'Calendar' },
+          { id: 'a', label: 'A', prompt: 'a', icon: 'FileText' },
+          { id: 'b', label: 'B', prompt: 'b', icon: 'Rocket' },
+        ],
+      },
+      connectors
+    );
+    expect(payload.tagline).toBe('Timesheets, leave, or team reviews — ready?');
+    expect(payload.chips.length).toBe(3);
+  });
+
+  it('falls back tagline when LLM returns a bare chips array', () => {
+    const payload = parseWelcomeGenerationPayload(
+      [{ id: 'a', label: 'A', prompt: 'a', icon: 'FileText' }],
+      connectors
+    );
+    expect(payload.tagline).toBe(DEFAULT_WELCOME_TAGLINE);
+    expect(payload.chips.length).toBe(1);
   });
 });
 

@@ -1,11 +1,24 @@
 import { v4 as uuidv4 } from 'uuid';
 import type { DatabaseInstance, ScheduledTaskRow } from '../db/database';
+import { OPENROUTER_FREE_ROUTER_ID } from '../agent/free-model-resolve';
 import type {
   ScheduledTask,
   ScheduledTaskCreateInput,
   ScheduledTaskStore,
   ScheduledTaskUpdateInput,
 } from './scheduled-task-manager';
+
+export const DEFAULT_SCHEDULE_PROVIDER = 'openrouter';
+export const DEFAULT_SCHEDULE_MODEL = OPENROUTER_FREE_ROUTER_ID;
+
+export function resolveScheduleModel(
+  model?: string | null,
+  provider?: string | null
+): { model: string; provider: string } {
+  const resolvedModel = model?.trim() || DEFAULT_SCHEDULE_MODEL;
+  const resolvedProvider = provider?.trim() || DEFAULT_SCHEDULE_PROVIDER;
+  return { model: resolvedModel, provider: resolvedProvider };
+}
 
 export function createScheduledTaskStore(db: DatabaseInstance): ScheduledTaskStore {
   return {
@@ -16,6 +29,7 @@ export function createScheduledTaskStore(db: DatabaseInstance): ScheduledTaskSto
     },
     create: (input: ScheduledTaskCreateInput) => {
       const now = Date.now();
+      const { model, provider } = resolveScheduleModel(input.model, input.provider);
       const row: ScheduledTaskRow = {
         id: uuidv4(),
         title: input.title ?? '',
@@ -30,6 +44,8 @@ export function createScheduledTaskStore(db: DatabaseInstance): ScheduledTaskSto
         last_run_at: null,
         last_run_session_id: null,
         last_error: null,
+        model,
+        provider,
         created_at: now,
         updated_at: now,
       };
@@ -52,6 +68,7 @@ export function createScheduledTaskStore(db: DatabaseInstance): ScheduledTaskSto
 }
 
 function mapRowToTask(row: ScheduledTaskRow): ScheduledTask {
+  const { model, provider } = resolveScheduleModel(row.model, row.provider);
   return {
     id: row.id,
     title: row.title,
@@ -66,6 +83,8 @@ function mapRowToTask(row: ScheduledTaskRow): ScheduledTask {
     lastRunAt: row.last_run_at,
     lastRunSessionId: row.last_run_session_id,
     lastError: row.last_error,
+    model,
+    provider,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -87,6 +106,11 @@ function mapTaskUpdatesToRow(updates: ScheduledTaskUpdateInput): Partial<Schedul
   if (updates.lastRunAt !== undefined) mapped.last_run_at = updates.lastRunAt;
   if (updates.lastRunSessionId !== undefined) mapped.last_run_session_id = updates.lastRunSessionId;
   if (updates.lastError !== undefined) mapped.last_error = updates.lastError;
+  if (updates.model !== undefined || updates.provider !== undefined) {
+    const resolved = resolveScheduleModel(updates.model, updates.provider);
+    if (updates.model !== undefined) mapped.model = resolved.model;
+    if (updates.provider !== undefined) mapped.provider = resolved.provider;
+  }
   return mapped;
 }
 

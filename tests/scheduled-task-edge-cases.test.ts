@@ -21,6 +21,8 @@ function createTask(overrides: Partial<ScheduledTask> = {}): ScheduledTask {
     lastRunAt: null,
     lastRunSessionId: null,
     lastError: null,
+    model: 'openrouter/free',
+    provider: 'openrouter',
     createdAt: now,
     updatedAt: now,
     ...overrides,
@@ -38,6 +40,14 @@ function createStore(initialTasks: ScheduledTask[]): ScheduledTaskStore {
       const task: ScheduledTask = {
         ...input,
         id: `task-${tasks.size + 1}`,
+        scheduleConfig: input.scheduleConfig ?? null,
+        repeatEvery: input.repeatEvery ?? null,
+        repeatUnit: input.repeatUnit ?? null,
+        enabled: input.enabled ?? true,
+        nextRunAt: input.nextRunAt ?? input.runAt,
+        title: input.title ?? '',
+        model: input.model ?? 'openrouter/free',
+        provider: input.provider ?? 'openrouter',
         lastRunAt: null,
         lastRunSessionId: null,
         lastError: null,
@@ -131,7 +141,11 @@ describe('ScheduledTaskManager – edge cases', () => {
     };
 
     const executeTask = vi.fn().mockResolvedValue({ sessionId: 'session-null' });
-    const manager = new ScheduledTaskManager({ store: innerStore, executeTask, now: () => Date.now() });
+    const manager = new ScheduledTaskManager({
+      store: innerStore,
+      executeTask,
+      now: () => Date.now(),
+    });
     manager.start();
 
     // Should not throw even though store.update returns null
@@ -173,7 +187,7 @@ describe('ScheduledTaskManager – edge cases', () => {
     expect(final?.nextRunAt).toBeGreaterThan(now);
 
     // Access internal timers map to verify exactly one timer exists
-    const timers = (manager as any).timers as Map<string, NodeJS.Timeout>;
+    const timers = (manager as unknown as { timers: Map<string, NodeJS.Timeout> }).timers;
     expect(timers.size).toBe(1);
     expect(timers.has('rapid-toggle')).toBe(true);
   });

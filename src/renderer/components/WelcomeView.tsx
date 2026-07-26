@@ -23,6 +23,7 @@ import {
   Target,
   Presentation,
   Search,
+  Shuffle,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -112,6 +113,8 @@ export function WelcomeView() {
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [quickActions, setQuickActions] = useState<WelcomeQuickAction[] | null>(null);
+  const [welcomeTagline, setWelcomeTagline] = useState<string | null>(null);
+  const [isShufflingActions, setIsShufflingActions] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { startSession, changeWorkingDir, isElectron } = useIPC();
   const workingDir = useAppStore((state) => state.workingDir);
@@ -129,6 +132,7 @@ export function WelcomeView() {
 
   const fallbackChips = useMemo(() => buildI18nFallbackChips(t), [t]);
   const displayChips = quickActions ?? fallbackChips;
+  const displayTagline = welcomeTagline ?? t('welcome.title');
 
   useEffect(() => {
     let cancelled = false;
@@ -137,11 +141,15 @@ export function WelcomeView() {
         const api = window.electronAPI?.welcome;
         if (!api?.getQuickActions) return;
         const result = await api.getQuickActions();
-        if (!cancelled && result?.chips?.length) {
+        if (cancelled) return;
+        if (result?.chips?.length) {
           setQuickActions(result.chips);
         }
+        if (result?.tagline?.trim()) {
+          setWelcomeTagline(result.tagline.trim());
+        }
       } catch {
-        // Keep i18n fallback chips
+        // Keep i18n fallback chips / tagline
       }
     };
     void load();
@@ -149,6 +157,30 @@ export function WelcomeView() {
       cancelled = true;
     };
   }, []);
+
+  const handleShuffleQuickActions = useCallback(async () => {
+    const api = window.electronAPI?.welcome;
+    if (!api?.regenerateQuickActions || isShufflingActions) return;
+    setIsShufflingActions(true);
+    setSelectedTag(null);
+    try {
+      const result = await api.regenerateQuickActions();
+      if (result?.chips?.length) {
+        setQuickActions(result.chips);
+      }
+      if (result?.tagline?.trim()) {
+        setWelcomeTagline(result.tagline.trim());
+      }
+    } catch {
+      setGlobalNotice({
+        id: `notice-welcome-shuffle-${Date.now()}`,
+        type: 'warning',
+        message: t('welcome.shuffleActionsFailed'),
+      });
+    } finally {
+      setIsShufflingActions(false);
+    }
+  }, [isShufflingActions, setGlobalNotice, t]);
 
   const handleSelectSlashSkill = useCallback((skill: Skill) => {
     const next = `/${skill.name} `;
@@ -529,24 +561,26 @@ export function WelcomeView() {
             </div>
           </div>
           <p className="heading-serif text-[1.15rem] md:text-[1.45rem] font-medium tracking-[-0.02em] text-text-secondary text-center">
-            {t('welcome.title')}
+            {displayTagline}
           </p>
         </div>
 
         {/* Quick Action Tags */}
-        <div className="flex flex-wrap gap-2 justify-center px-3">
+        <div className="flex flex-wrap gap-2 justify-center items-center px-3">
           {displayChips.map((tag) => {
             const Icon = WELCOME_ICON_MAP[tag.icon] ?? FileText;
             const connectorBadge = tag.requiresConnectorName?.trim() || null;
             return (
               <button
                 key={tag.id}
+                type="button"
                 onClick={() => handleTagClick(tag.id, tag.prompt)}
+                disabled={isShufflingActions}
                 className={`inline-flex items-center gap-2 rounded-full border px-3 py-2 text-sm transition-colors ${
                   selectedTag === tag.id
                     ? 'border-accent/30 bg-accent-muted text-accent'
                     : 'border-border-subtle bg-background/65 text-text-secondary hover:bg-surface-hover hover:text-text-primary'
-                } ${connectorBadge ? 'relative' : ''}`}
+                } ${connectorBadge ? 'relative' : ''} ${isShufflingActions ? 'opacity-60' : ''}`}
               >
                 <Icon
                   className={`w-4 h-4 ${selectedTag === tag.id ? 'text-accent' : 'text-text-muted'}`}
@@ -560,6 +594,16 @@ export function WelcomeView() {
               </button>
             );
           })}
+          <button
+            type="button"
+            onClick={() => void handleShuffleQuickActions()}
+            disabled={isShufflingActions}
+            title={t('welcome.shuffleActions')}
+            aria-label={t('welcome.shuffleActions')}
+            className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-border-subtle bg-background/65 text-text-muted hover:bg-surface-hover hover:text-text-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Shuffle className={`w-3.5 h-3.5 ${isShufflingActions ? 'animate-spin' : ''}`} />
+          </button>
         </div>
 
         {/* Main Input Card - Right aligned */}

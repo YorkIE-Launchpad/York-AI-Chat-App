@@ -23,7 +23,9 @@ describe('SettingsPanel schedule tab entry', () => {
   it('handles null nextRunAt explicitly', () => {
     expect(settingsPanelContent).toContain('task.nextRunAt === null');
     expect(settingsPanelContent).toContain("t('schedule.nextRunNone')");
-    expect(settingsPanelContent).toContain("t('schedule.nextRun', { value: formatTime(task.nextRunAt) })");
+    expect(settingsPanelContent).toContain(
+      "t('schedule.nextRun', { value: formatTime(task.nextRunAt) })"
+    );
   });
 
   it('avoids resetting schedule time when editing without changing runAt', () => {
@@ -32,7 +34,7 @@ describe('SettingsPanel schedule tab entry', () => {
   });
 
   it('polls schedule list in background', () => {
-    expect(settingsPanelContent).toContain("void loadTasks({ silent: true })");
+    expect(settingsPanelContent).toContain('void loadTasks({ silent: true })');
   });
 
   it('validates future run time and suggests runNow for immediate execution', () => {
@@ -51,13 +53,19 @@ describe('SettingsPanel schedule tab entry', () => {
     expect(settingsPanelContent).toContain("t('schedule.strategy', {");
     expect(settingsPanelContent).toContain('formatScheduleRule(task, t, weekdayOptions)');
     expect(settingsPanelContent).toContain("t('schedule.lastRunNever')");
-    expect(settingsPanelContent).toContain("t('schedule.lastRun', { value: formatTime(task.lastRunAt) })");
+    expect(settingsPanelContent).toContain(
+      "t('schedule.lastRun', { value: formatTime(task.lastRunAt) })"
+    );
     expect(settingsPanelContent).toContain('{task.title}');
-    expect(settingsPanelContent).toContain("t('schedule.recentSession', { value: task.lastRunSessionId })");
+    expect(settingsPanelContent).toContain(
+      "t('schedule.recentSession', { value: task.lastRunSessionId })"
+    );
   });
 
   it('supports daily and weekly multi-slot schedule editing', () => {
-    expect(settingsPanelContent).toContain("const [scheduleMode, setScheduleMode] = useState<ScheduleFormMode>('once')");
+    expect(settingsPanelContent).toContain(
+      "const [scheduleMode, setScheduleMode] = useState<ScheduleFormMode>('once')"
+    );
     expect(settingsPanelContent).toContain('<ScheduleSelectMenu');
     expect(settingsPanelContent).toContain('<TimeMultiSelectMenu');
     expect(settingsPanelContent).toContain("label={t('schedule.mode')}");
@@ -85,7 +93,7 @@ describe('SettingsPanel schedule tab entry', () => {
   });
 
   it('shows clear stop semantics hint', () => {
-    expect(settingsPanelContent).toContain("title={");
+    expect(settingsPanelContent).toContain('title={');
     expect(settingsPanelContent).toContain("t('schedule.stopExecution')");
   });
 
@@ -98,7 +106,20 @@ describe('SettingsPanel schedule tab entry', () => {
 
   it('saves cwd in create and update payloads so backend validation can reject unsupported paths early', () => {
     expect(settingsPanelContent).toContain("cwd: cwd.trim() || workingDir || ''");
-    expect(settingsPanelContent).toContain('const updated = await window.electronAPI.schedule.update(editingId, payload);');
+    expect(settingsPanelContent).toContain(
+      'const updated = await window.electronAPI.schedule.update(editingId, payload);'
+    );
     expect(settingsPanelContent).toContain('await window.electronAPI.schedule.create(payload);');
+  });
+
+  it('includes a local model selector defaulting to openrouter/free', () => {
+    expect(settingsPanelContent).toContain('ScheduleModelSelector');
+    expect(settingsPanelContent).toContain('DEFAULT_SCHEDULE_MODEL');
+    expect(settingsPanelContent).toContain(
+      "export const DEFAULT_SCHEDULE_MODEL = 'openrouter/free'"
+    );
+    expect(settingsPanelContent).toContain('model: modelSelection.model');
+    expect(settingsPanelContent).toContain('provider: modelSelection.provider');
+    expect(settingsPanelContent).toContain("t('schedule.modelLabel'");
   });
 });
