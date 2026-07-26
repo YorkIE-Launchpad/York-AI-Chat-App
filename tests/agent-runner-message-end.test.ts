@@ -139,7 +139,7 @@ describe('toUserFacingErrorText', () => {
     expect(result).toContain('Original error:');
   });
 
-  it('maps Anthropic-style 400 usage-limit errors to meet-your-manager copy', () => {
+  it('maps Anthropic-style 400 usage-limit errors to contact-admin copy', () => {
     const raw =
       '400 {"type":"error","error":{"type":"invalid_request_error","message":"You have reached your specified API usage limits. You will regain access on 2026-08-01 at 00:00 UTC."},"request_id":"req_011CdGynYhzSgVkKGN7UcJf9"}';
     const result = toUserFacingErrorText(raw);
@@ -171,14 +171,33 @@ describe('toUserFacingErrorText', () => {
     ).toBe(CONTEXT_OVERFLOW_USER_MESSAGE);
   });
 
-  it('maps quota exceeded without status code to meet-your-manager copy', () => {
+  it('maps quota exceeded without status code to contact-admin copy', () => {
     expect(toUserFacingErrorText('quota exceeded for this organization')).toBe(
       USAGE_LIMIT_USER_MESSAGE
     );
   });
 
-  it('maps regain access without status code to meet-your-manager copy', () => {
+  it('maps regain access without status code to contact-admin copy', () => {
     expect(toUserFacingErrorText('You will regain access on 2026-08-01')).toBe(
+      USAGE_LIMIT_USER_MESSAGE
+    );
+  });
+
+  it('maps OpenRouter 402 credit errors to contact-admin copy without provider details', () => {
+    const raw =
+      "402 This request requires more credits, or fewer max_tokens. You requested up to 16384 tokens, but can only afford 800. To increase, visit https://openrouter.ai/workspaces/default/keys/a95827fde3abfee736e0df5301661c52d6b58fc66af4bf00dbb908fc205750fb and adjust the key's total limit";
+    const result = toUserFacingErrorText(raw);
+    expect(result).toBe(USAGE_LIMIT_USER_MESSAGE);
+    expect(result).not.toContain('openrouter.ai');
+    expect(result).not.toContain(
+      'a95827fde3abfee736e0df5301661c52d6b58fc66af4bf00dbb908fc205750fb'
+    );
+    expect(result).not.toContain('Original error:');
+    expect(result).not.toContain('check your configuration');
+  });
+
+  it('maps insufficient credits without status code to contact-admin copy', () => {
+    expect(toUserFacingErrorText('insufficient credits for this request')).toBe(
       USAGE_LIMIT_USER_MESSAGE
     );
   });
@@ -340,10 +359,22 @@ describe('buildTerminalErrorMessage', () => {
     expect(result).toContain('_Agent is retrying automatically, please wait..._');
   });
 
-  it('uses the manager hint for usage-limit terminal errors', () => {
+  it('uses the admin hint for usage-limit terminal errors', () => {
     const result = buildTerminalErrorMessage(USAGE_LIMIT_USER_MESSAGE);
     expect(result).toContain(`**Error**: ${USAGE_LIMIT_USER_MESSAGE}`);
-    expect(result).toContain('_Contact your manager to restore access._');
+    expect(result).toContain('_Contact your admin to restore access._');
+    expect(result).not.toContain('_Please check your configuration and retry._');
+  });
+
+  it('uses the admin hint for raw OpenRouter 402 credit errors', () => {
+    const raw =
+      "402 This request requires more credits, or fewer max_tokens. You requested up to 16384 tokens, but can only afford 800. To increase, visit https://openrouter.ai/workspaces/default/keys/a95827fde3abfee736e0df5301661c52d6b58fc66af4bf00dbb908fc205750fb and adjust the key's total limit";
+    const sanitized = toUserFacingErrorText(raw);
+    const result = buildTerminalErrorMessage(sanitized);
+    expect(sanitized).toBe(USAGE_LIMIT_USER_MESSAGE);
+    expect(result).toContain(`**Error**: ${USAGE_LIMIT_USER_MESSAGE}`);
+    expect(result).toContain('_Contact your admin to restore access._');
+    expect(result).not.toContain('openrouter.ai');
     expect(result).not.toContain('_Please check your configuration and retry._');
   });
 

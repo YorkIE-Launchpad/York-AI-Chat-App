@@ -26,7 +26,7 @@ interface ResolvedMessageEndPayload {
 const FOUR_XX_ERROR_RE = /\b4\d{2}\b/;
 
 export const USAGE_LIMIT_USER_MESSAGE =
-  "You've reached your API usage limit. Please meet your manager.";
+  "You've reached your API usage limit. Please contact your admin.";
 
 export const CONTEXT_OVERFLOW_USER_MESSAGE =
   'Context window exceeded: the conversation (plus tools/files) is too large for this model. Compact the session or start a new chat, then retry.';
@@ -47,12 +47,17 @@ export type AbortDisposition = 'timeout' | 'loop_guard' | 'stream_error' | 'user
 export function isUsageLimitError(errorText: string): boolean {
   const lower = errorText.toLowerCase();
   return (
+    /\b402\b/.test(errorText) ||
     lower.includes('usage limit') ||
     lower.includes('api usage') ||
     lower.includes('quota exceeded') ||
     lower.includes('out of quota') ||
     lower.includes('regain access') ||
     lower.includes('billing') ||
+    lower.includes('more credits') ||
+    lower.includes('requires more credits') ||
+    lower.includes('can only afford') ||
+    lower.includes('insufficient credits') ||
     errorText === USAGE_LIMIT_USER_MESSAGE
   );
 }
@@ -163,7 +168,7 @@ export function buildTerminalErrorMessage(errorText: string, partialText = ''): 
   const normalizedPartial = partialText.trimEnd();
   let hint = '_Agent is retrying automatically, please wait..._';
   if (isUsageLimitError(errorText)) {
-    hint = '_Contact your manager to restore access._';
+    hint = '_Contact your admin to restore access._';
   } else if (isContextOverflowError(errorText)) {
     hint = '_Use Compact in the context bar, or start a new chat._';
   } else if (FOUR_XX_ERROR_RE.test(errorText)) {
