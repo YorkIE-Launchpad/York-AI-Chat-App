@@ -8,6 +8,7 @@ directories:
 
 npmRebuild: true
 afterPack: ./scripts/after-pack.js
+afterSign: ./scripts/notarize.js
 afterAllArtifactBuild: ./scripts/compress-dmg.js
 
 files:
