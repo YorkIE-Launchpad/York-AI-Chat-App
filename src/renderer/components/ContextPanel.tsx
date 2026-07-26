@@ -592,11 +592,11 @@ function ConnectorItem({
   >(null);
 
   const status = server.status ?? (server.connected ? 'connected' : 'disabled');
-  const isHealthy = status === 'connected' && server.connected && server.toolCount > 0;
+  const isConnected = status === 'connected' && server.connected;
   const isConnecting = status === 'connecting';
   const showConnect = (status === 'disabled' || status === 'failed') && !isConnecting;
-  const showDisconnect = isHealthy;
-  const showReconnect = (isHealthy || status === 'failed') && !isConnecting;
+  const showDisconnect = isConnected;
+  const showReconnect = (isConnected || status === 'failed') && !isConnecting;
 
   // Get MCP tools used from this server
   // Tool names are in format: mcp__ServerName__toolname (with double underscores)
@@ -652,93 +652,116 @@ function ConnectorItem({
     }
   };
 
-  const statusLabel = (() => {
-    if (isConnecting) return t('mcp.connecting');
-    if (status === 'failed') return t('mcp.failed');
-    if (!isHealthy) return t('mcp.notConnected');
-    return null;
-  })();
+  const statusDotClass = isConnecting
+    ? 'bg-warning'
+    : status === 'failed'
+      ? 'bg-error'
+      : isConnected
+        ? 'bg-success'
+        : 'bg-text-muted';
 
   return (
     <div className="rounded-lg border border-border overflow-hidden">
       <button
         onClick={onToggle}
         className={`w-full px-3 py-2 flex items-center gap-2 transition-colors ${
-          isHealthy ? 'bg-mcp/10 hover:bg-mcp/20' : 'bg-surface-muted hover:bg-surface-hover'
+          isConnected ? 'bg-mcp/10 hover:bg-mcp/20' : 'bg-surface-muted hover:bg-surface-hover'
         }`}
       >
         <div
           className={`w-6 h-6 rounded flex items-center justify-center ${
-            isHealthy ? 'bg-mcp/20' : 'bg-surface-muted'
+            isConnected ? 'bg-mcp/20' : 'bg-surface-muted'
           }`}
         >
-          <Plug className={`w-3.5 h-3.5 ${isHealthy ? 'text-mcp' : 'text-text-muted'}`} />
+          <Plug className={`w-3.5 h-3.5 ${isConnected ? 'text-mcp' : 'text-text-muted'}`} />
         </div>
         <div className="flex-1 text-left min-w-0">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 min-w-0">
             <span className="text-sm font-medium text-text-primary truncate">{server.name}</span>
-            {statusLabel && <span className="text-xs text-text-muted">({statusLabel})</span>}
           </div>
-          {isHealthy && (
+          {isConnected && (
             <p className="text-xs text-text-muted">
               {t('mcp.toolCount', { count: server.toolCount })}
               {usageCount > 0 && ` • ${t('mcp.callCount', { count: usageCount })}`}
             </p>
           )}
         </div>
-        {(showConnect || showDisconnect || showReconnect || actionInFlight) && (
-          <div className="flex items-center gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
-            {showConnect && (
-              <button
-                type="button"
-                disabled={actionInFlight !== null}
-                title={t('mcp.connect')}
-                aria-label={t('mcp.connect')}
-                onClick={() => void runAction('connect')}
-                className="p-1 rounded text-text-muted hover:text-text-primary hover:bg-surface-hover disabled:opacity-50"
-              >
-                {actionInFlight === 'connect' ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <Plug className="w-3.5 h-3.5" />
-                )}
-              </button>
-            )}
-            {showDisconnect && (
-              <button
-                type="button"
-                disabled={actionInFlight !== null}
-                title={t('mcp.disconnect')}
-                aria-label={t('mcp.disconnect')}
-                onClick={() => void runAction('disconnect')}
-                className="p-1 rounded text-text-muted hover:text-text-primary hover:bg-surface-hover disabled:opacity-50"
-              >
-                {actionInFlight === 'disconnect' ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <Unplug className="w-3.5 h-3.5" />
-                )}
-              </button>
-            )}
-            {showReconnect && (
-              <button
-                type="button"
-                disabled={actionInFlight !== null}
-                title={t('mcp.reconnect')}
-                aria-label={t('mcp.reconnect')}
-                onClick={() => void runAction('reconnect')}
-                className="p-1 rounded text-text-muted hover:text-text-primary hover:bg-surface-hover disabled:opacity-50"
-              >
-                {actionInFlight === 'reconnect' ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <RefreshCw className="w-3.5 h-3.5" />
-                )}
-              </button>
-            )}
-          </div>
-        )}
-        {isHealthy &&
+        <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+          <span
+            className={`w-2 h-2 rounded-full ${statusDotClass}`}
+            title={
+              isConnecting
+                ? t('mcp.connecting')
+                : status === 'failed'
+                  ? t('mcp.failed')
+                  : isConnected
+                    ? t('mcp.connected')
+                    : t('mcp.notConnected')
+            }
+            aria-label={
+              isConnecting
+                ? t('mcp.connecting')
+                : status === 'failed'
+                  ? t('mcp.failed')
+                  : isConnected
+                    ? t('mcp.connected')
+                    : t('mcp.notConnected')
+            }
+          />
+          {(showConnect || showDisconnect || showReconnect || actionInFlight) && (
+            <div className="flex items-center gap-0.5">
+              {showConnect && (
+                <button
+                  type="button"
+                  disabled={actionInFlight !== null}
+                  title={t('mcp.connect')}
+                  aria-label={t('mcp.connect')}
+                  onClick={() => void runAction('connect')}
+                  className="p-1 rounded text-text-muted hover:text-text-primary hover:bg-surface-hover disabled:opacity-50"
+                >
+                  {actionInFlight === 'connect' ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Plug className="w-3.5 h-3.5" />
+                  )}
+                </button>
+              )}
+              {showDisconnect && (
+                <button
+                  type="button"
+                  disabled={actionInFlight !== null}
+                  title={t('mcp.disconnect')}
+                  aria-label={t('mcp.disconnect')}
+                  onClick={() => void runAction('disconnect')}
+                  className="p-1 rounded text-text-muted hover:text-text-primary hover:bg-surface-hover disabled:opacity-50"
+                >
+                  {actionInFlight === 'disconnect' ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Unplug className="w-3.5 h-3.5" />
+                  )}
+                </button>
+              )}
+              {showReconnect && (
+                <button
+                  type="button"
+                  disabled={actionInFlight !== null}
+                  title={t('mcp.reconnect')}
+                  aria-label={t('mcp.reconnect')}
+                  onClick={() => void runAction('reconnect')}
+                  className="p-1 rounded text-text-muted hover:text-text-primary hover:bg-surface-hover disabled:opacity-50"
+                >
+                  {actionInFlight === 'reconnect' ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <RefreshCw className="w-3.5 h-3.5" />
+                  )}
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+        {isConnected &&
           (expanded ? (
             <ChevronDown className="w-4 h-4 text-text-muted shrink-0" />
           ) : (
@@ -746,7 +769,7 @@ function ConnectorItem({
           ))}
       </button>
 
-      {expanded && isHealthy && (
+      {expanded && isConnected && (
         <div className="px-3 pb-2 space-y-1 bg-surface">
           {mcpToolsUsed.length > 0 ? (
             <>

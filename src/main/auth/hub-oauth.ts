@@ -1,6 +1,6 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { BrowserWindow, shell } from 'electron';
+import { BrowserWindow } from 'electron';
 import { authConfig } from '../../shared/auth-config';
 import { parseHubAuthResponse } from './hub-parse';
 import { log } from '../utils/logger';
@@ -33,6 +33,14 @@ function normalizeLoopbackHost(hostname: string): string {
   return hostname === 'localhost' ? '127.0.0.1' : hostname;
 }
 
+function loopbackHostsMatch(a: string, b: string): boolean {
+  const normalize = (host: string) =>
+    host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host === '::1'
+      ? '127.0.0.1'
+      : host;
+  return normalize(a) === normalize(b);
+}
+
 function redirectUrlUsesViteDevServer(redirectUrl: string): boolean {
   const viteDev = process.env.VITE_DEV_SERVER_URL?.trim();
   if (!viteDev) return false;
@@ -40,24 +48,53 @@ function redirectUrlUsesViteDevServer(redirectUrl: string): boolean {
     const redirect = new URL(redirectUrl);
     const vite = new URL(viteDev);
     const redirectPath = redirect.pathname.replace(/\/$/, '') || '/';
-    return redirect.origin === vite.origin && redirectPath === '/auth/callback';
+    const samePort =
+      (redirect.port || (redirect.protocol === 'https:' ? '443' : '80')) ===
+      (vite.port || (vite.protocol === 'https:' ? '443' : '80'));
+    return (
+      loopbackHostsMatch(redirect.hostname, vite.hostname) &&
+      samePort &&
+      redirectPath === '/auth/callback'
+    );
   } catch {
     return false;
   }
 }
 
-let viteOAuthWindow: BrowserWindow | null = null;
-
-function closeViteOAuthWindow(): void {
-  if (viteOAuthWindow && !viteOAuthWindow.isDestroyed()) {
-    viteOAuthWindow.close();
-  }
-  viteOAuthWindow = null;
+/** Success page for loopback OAuth — tries hard to close (works in Electron; best-effort in system browsers). */
+export function buildOAuthSuccessHtml(title: string, body: string): string {
+  return `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>${title}</title></head>
+<body>
+  <h1>${title}</h1>
+  <p>${body}</p>
+  <script>
+    (function () {
+      function attemptClose() {
+        try { window.open('', '_self'); } catch (e) {}
+        try { window.close(); } catch (e) {}
+      }
+      attemptClose();
+      setTimeout(attemptClose, 100);
+      setTimeout(attemptClose, 500);
+      setTimeout(attemptClose, 1200);
+    })();
+  </script>
+</body></html>`;
 }
 
-function openViteOAuthWindow(authUrl: string): void {
-  closeViteOAuthWindow();
-  viteOAuthWindow = new BrowserWindow({
+let oauthBrowserWindow: BrowserWindow | null = null;
+
+function closeOAuthBrowserWindow(): void {
+  if (oauthBrowserWindow && !oauthBrowserWindow.isDestroyed()) {
+    oauthBrowserWindow.close();
+  }
+  oauthBrowserWindow = null;
+}
+
+function openOAuthBrowserWindow(authUrl: string): void {
+  closeOAuthBrowserWindow();
+  oauthBrowserWindow = new BrowserWindow({
     width: 520,
     height: 720,
     show: true,
@@ -68,10 +105,10 @@ function openViteOAuthWindow(authUrl: string): void {
       contextIsolation: true,
     },
   });
-  viteOAuthWindow.on('closed', () => {
-    viteOAuthWindow = null;
+  oauthBrowserWindow.on('closed', () => {
+    oauthBrowserWindow = null;
   });
-  void viteOAuthWindow.loadURL(authUrl);
+  void oauthBrowserWindow.loadURL(authUrl);
 }
 
 export function initHubOAuthRelay(): void {
@@ -95,6 +132,7 @@ function submitPendingOAuthCode(code: string): boolean {
   clearTimeout(pendingViteOAuth.timer);
   pendingViteOAuth.resolve(code);
   pendingViteOAuth = null;
+  closeOAuthBrowserWindow();
   return true;
 }
 
@@ -178,9 +216,11 @@ function createOAuthCallbackServer(
       settled = true;
       response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       response.end(
-        '<html><body><h1>Sign-in complete</h1><p>You can return to York IE VECOS now.</p><script>setTimeout(() => window.close(), 1200);</script></body></html>'
+        buildOAuthSuccessHtml('Sign-in complete', 'You can return to York IE VECOS now.')
       );
       resolveCode(authorizationCode);
+      // Close Electron OAuth window as soon as the code arrives (system browsers ignore window.close).
+      closeOAuthBrowserWindow();
       void closeServer(server);
       return;
     }
@@ -319,24 +359,27 @@ export async function runHubGoogleOAuthFlow(): Promise<HubOAuthCallbackResult> {
   if (redirectUrlUsesViteDevServer(redirectUrl)) {
     ensureOAuthCodeRelayServer();
     const authUrl = await fetchHubGoogleAuthUrl(redirectUrl);
-    openViteOAuthWindow(authUrl);
+    openOAuthBrowserWindow(authUrl);
     try {
       const code = await waitForViteOAuthCode(redirectUrl);
       const parsed = await exchangeHubAuthCode(code, redirectUrl);
       return { parsed, redirectUri: redirectUrl };
     } finally {
-      closeViteOAuthWindow();
+      closeOAuthBrowserWindow();
     }
   }
 
   const listener = await createOAuthCallbackServer(redirectUrl, HUB_OAUTH_CALLBACK_TIMEOUT_MS);
   try {
     const authUrl = await fetchHubGoogleAuthUrl(redirectUrl);
-    await shell.openExternal(authUrl);
+    // Prefer an Electron window so we can auto-close after success.
+    // System browsers block window.close() on tabs not opened by script.
+    openOAuthBrowserWindow(authUrl);
     const code = await listener.waitForCode();
     const parsed = await exchangeHubAuthCode(code, redirectUrl);
     return { parsed, redirectUri: redirectUrl };
   } finally {
+    closeOAuthBrowserWindow();
     await listener.close();
   }
 }

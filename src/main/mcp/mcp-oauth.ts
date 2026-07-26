@@ -13,6 +13,27 @@ import type { AddressInfo } from 'node:net';
 
 export const MCP_OAUTH_CALLBACK_TIMEOUT_MS = 5 * 60 * 1000;
 
+function buildOAuthSuccessHtml(title: string, body: string): string {
+  return `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>${title}</title></head>
+<body>
+  <h1>${title}</h1>
+  <p>${body}</p>
+  <script>
+    (function () {
+      function attemptClose() {
+        try { window.open('', '_self'); } catch (e) {}
+        try { window.close(); } catch (e) {}
+      }
+      attemptClose();
+      setTimeout(attemptClose, 100);
+      setTimeout(attemptClose, 500);
+      setTimeout(attemptClose, 1200);
+    })();
+  </script>
+</body></html>`;
+}
+
 type OpenExternal = (url: string) => Promise<void> | void;
 
 type OAuthTransport = {
@@ -255,7 +276,7 @@ export async function createOAuthCallbackListener(
       settled = true;
       response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       response.end(
-        '<html><body><h1>Authorization complete</h1><p>You can return to York IE VECOS now.</p><script>setTimeout(() => window.close(), 1200);</script></body></html>'
+        buildOAuthSuccessHtml('Authorization complete', 'You can return to York IE VECOS now.')
       );
       resolveCode(authorizationCode);
       void closeServer(server);

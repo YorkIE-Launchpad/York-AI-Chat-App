@@ -43,14 +43,19 @@ function tryCloseAuthTab(): void {
   const attemptClose = () => {
     try {
       window.open('', '_self');
+    } catch {
+      // ignore
+    }
+    try {
       window.close();
     } catch {
       // Browsers may block close for tabs not opened by script.
     }
   };
   attemptClose();
-  window.setTimeout(attemptClose, 200);
-  window.setTimeout(attemptClose, 800);
+  window.setTimeout(attemptClose, 100);
+  window.setTimeout(attemptClose, 500);
+  window.setTimeout(attemptClose, 1200);
 }
 
 /**

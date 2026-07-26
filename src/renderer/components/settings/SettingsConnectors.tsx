@@ -530,23 +530,12 @@ function ServerCard({
         <div className="flex items-start justify-between">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-2 flex-wrap">
-              <div
-                className={`w-3 h-3 rounded-full ${
-                  serverStatus === 'connected'
-                    ? 'bg-success'
-                    : serverStatus === 'failed'
-                      ? 'bg-error'
-                      : serverStatus === 'connecting'
-                        ? 'bg-warning'
-                        : 'bg-text-muted'
-                }`}
-              />
               <h3 className="font-medium text-text-primary">{server.name}</h3>
               <span className="px-2 py-0.5 text-xs rounded bg-surface-muted text-text-muted">
                 {server.type.toUpperCase()}
               </span>
             </div>
-            <div className="text-sm text-text-muted space-y-1 ml-6 min-w-0">
+            <div className="text-sm text-text-muted space-y-1 min-w-0">
               {server.type === 'stdio' && (
                 <div
                   className="font-mono text-xs truncate"
@@ -565,26 +554,6 @@ function ServerCard({
                   {server.url}
                 </div>
               )}
-              {/* Status hint — consistent for all servers */}
-              <div
-                className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-md w-fit ${
-                  serverStatus === 'connected'
-                    ? 'bg-success/10 text-success'
-                    : serverStatus === 'failed'
-                      ? 'bg-error/10 text-error'
-                      : serverStatus === 'connecting'
-                        ? 'bg-warning/10 text-warning'
-                        : 'bg-accent/10 text-accent'
-                }`}
-              >
-                {serverStatus === 'connected'
-                  ? `✓ ${t('mcp.connected')}`
-                  : serverStatus === 'failed'
-                    ? t('mcp.failed', { defaultValue: 'Connection failed' })
-                    : serverStatus === 'connecting'
-                      ? `⏳ ${t('mcp.connecting')}`
-                      : t('mcp.disabled', { defaultValue: 'Disabled' })}
-              </div>
               <div className="flex items-center gap-4 mt-2">
                 <button
                   onClick={() => setShowTools(!showTools)}
@@ -640,6 +609,35 @@ function ServerCard({
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <div
+              className={`w-2 h-2 rounded-full shrink-0 ${
+                serverStatus === 'connected'
+                  ? 'bg-success'
+                  : serverStatus === 'failed'
+                    ? 'bg-error'
+                    : serverStatus === 'connecting'
+                      ? 'bg-warning'
+                      : 'bg-text-muted'
+              }`}
+              title={
+                serverStatus === 'connected'
+                  ? t('mcp.connected')
+                  : serverStatus === 'failed'
+                    ? t('mcp.failed', { defaultValue: 'Connection failed' })
+                    : serverStatus === 'connecting'
+                      ? t('mcp.connecting')
+                      : t('mcp.disabled', { defaultValue: 'Disabled' })
+              }
+              aria-label={
+                serverStatus === 'connected'
+                  ? t('mcp.connected')
+                  : serverStatus === 'failed'
+                    ? t('mcp.failed', { defaultValue: 'Connection failed' })
+                    : serverStatus === 'connecting'
+                      ? t('mcp.connecting')
+                      : t('mcp.disabled', { defaultValue: 'Disabled' })
+              }
+            />
             <button
               onClick={onToggleEnabled}
               disabled={isLoading}
