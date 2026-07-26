@@ -44,6 +44,16 @@ export interface AbortDispositionFlags {
 
 export type AbortDisposition = 'timeout' | 'loop_guard' | 'stream_error' | 'user';
 
+export function isRateLimitError(errorText: string): boolean {
+  const lower = errorText.toLowerCase();
+  return (
+    /\b429\b/.test(errorText) ||
+    lower.includes('rate limit') ||
+    lower.includes('rate limited') ||
+    lower.includes('too many requests')
+  );
+}
+
 export function isUsageLimitError(errorText: string): boolean {
   const lower = errorText.toLowerCase();
   return (
@@ -124,12 +134,8 @@ export function toUserFacingErrorText(errorText: string): string {
   ) {
     return `Authentication failed. Check that the API key is correct, not expired, and has access to the current model.\nOriginal error: ${errorText}`;
   }
-  if (
-    /\b429\b/.test(errorText) ||
-    lower.includes('rate limit') ||
-    lower.includes('too many requests')
-  ) {
-    return `Rate limited (429). The call frequency for the current model or API endpoint has reached its limit. Please retry later.\nOriginal error: ${errorText}`;
+  if (isRateLimitError(errorText)) {
+    return `Rate limited (429). The call frequency for the current model or API endpoint has reached its limit. Please retry later or contact your admin.\nOriginal error: ${errorText}`;
   }
   if (
     /\b(5\d{2})\b/.test(errorText) ||
@@ -169,6 +175,8 @@ export function buildTerminalErrorMessage(errorText: string, partialText = ''): 
   let hint = '_Agent is retrying automatically, please wait..._';
   if (isUsageLimitError(errorText)) {
     hint = '_Contact your admin to restore access._';
+  } else if (isRateLimitError(errorText)) {
+    hint = '_Please retry later or contact your admin._';
   } else if (isContextOverflowError(errorText)) {
     hint = '_Use Compact in the context bar, or start a new chat._';
   } else if (FOUR_XX_ERROR_RE.test(errorText)) {

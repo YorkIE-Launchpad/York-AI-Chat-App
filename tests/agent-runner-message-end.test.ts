@@ -212,6 +212,7 @@ describe('toUserFacingErrorText', () => {
   it('maps 429 / rate limit to throttle hint', () => {
     const result = toUserFacingErrorText('429 Too Many Requests - rate limit exceeded');
     expect(result).toContain('Rate limited (429)');
+    expect(result).toContain('contact your admin');
     expect(result).toContain('Original error:');
   });
 
@@ -267,6 +268,7 @@ describe('toUserFacingErrorText', () => {
   it('maps "too many requests" without status code to throttle hint', () => {
     const result = toUserFacingErrorText('too many requests');
     expect(result).toContain('Rate limited (429)');
+    expect(result).toContain('contact your admin');
     expect(result).toContain('Original error:');
   });
 
@@ -363,6 +365,17 @@ describe('buildTerminalErrorMessage', () => {
     const result = buildTerminalErrorMessage(USAGE_LIMIT_USER_MESSAGE);
     expect(result).toContain(`**Error**: ${USAGE_LIMIT_USER_MESSAGE}`);
     expect(result).toContain('_Contact your admin to restore access._');
+    expect(result).not.toContain('_Please check your configuration and retry._');
+  });
+
+  it('uses the admin hint for rate-limit terminal errors', () => {
+    const sanitized = toUserFacingErrorText(
+      '429 Rate limit exceeded: free-models-per-day. Add 10 credits to unlock 1000 free model requests per day'
+    );
+    const result = buildTerminalErrorMessage(sanitized);
+    expect(result).toContain('Rate limited (429)');
+    expect(result).toContain('contact your admin');
+    expect(result).toContain('_Please retry later or contact your admin._');
     expect(result).not.toContain('_Please check your configuration and retry._');
   });
 
