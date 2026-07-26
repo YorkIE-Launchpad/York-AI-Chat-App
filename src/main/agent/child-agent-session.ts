@@ -20,7 +20,7 @@ import { normalizeMcpToolResultForModel } from './tool-result-utils';
 import { buildMcpMetaTools, selectCustomToolsForModel } from './mcp-tool-budget';
 import { resolveFreeModelForChild } from './free-model-resolve';
 import { resolveAutoModelIfNeeded } from './auto-model-resolve';
-import type { CustomProtocolType } from '../config/config-store';
+import type { CustomProtocolType, ProviderType } from '../config/config-store';
 import {
   applyPiModelRuntimeOverrides,
   buildSyntheticPiModel,
@@ -176,7 +176,7 @@ async function resolveChildPiModel(options: {
       },
     });
     modelString = freeRoute.modelId;
-    provider = freeRoute.provider;
+    provider = freeRoute.provider as ProviderType;
     customProtocol = freeRoute.customProtocol;
     baseUrl = freeRoute.baseUrl || undefined;
     apiKey = freeRoute.apiKey || apiKey;
