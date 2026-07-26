@@ -57,6 +57,10 @@ import { listOllamaModels } from './config/ollama-api';
 import { fetchBackendModels } from './config/backend-client';
 import { setPermissionRules, decidePermission } from './config/permission-rules-store';
 import { mcpConfigStore } from './mcp/mcp-config-store';
+import { buildWelcomeConnectorSnapshot } from './welcome/connector-snapshot';
+import { getStaticFallbackChips, getWelcomeQuickActions } from './welcome/generate-welcome-actions';
+import { resolveWelcomeProfile } from './welcome/resolve-welcome-profile';
+import { buildConnectorFingerprint } from '../shared/welcome-actions';
 import { getSandboxAdapter, shutdownSandbox } from './sandbox/sandbox-adapter';
 import { SandboxSync } from './sandbox/sandbox-sync';
 import { WSLBridge } from './sandbox/wsl-bridge';
@@ -2547,6 +2551,33 @@ ipcMain.handle('mcp.getPresets', () => {
     return {};
   }
 });
+
+async function handleWelcomeQuickActions(forceRegenerate: boolean) {
+  try {
+    const mcpManager = sessionManager?.getMCPManager() ?? null;
+    const profile = await resolveWelcomeProfile({ mcpManager });
+    const connectors = buildWelcomeConnectorSnapshot(mcpManager);
+    return await getWelcomeQuickActions({
+      profile,
+      connectors,
+      config: configStore.getAll(),
+      forceRegenerate,
+    });
+  } catch (error) {
+    logError('[Welcome] Error getting quick actions:', error);
+    const connectors = buildWelcomeConnectorSnapshot(sessionManager?.getMCPManager() ?? null);
+    return {
+      chips: getStaticFallbackChips(connectors),
+      source: 'fallback' as const,
+      profileSummary: null,
+      connectorFingerprint: buildConnectorFingerprint(connectors),
+    };
+  }
+}
+
+ipcMain.handle('welcome.getQuickActions', async () => handleWelcomeQuickActions(false));
+
+ipcMain.handle('welcome.regenerateQuickActions', async () => handleWelcomeQuickActions(true));
 
 // Skills API handlers
 ipcMain.handle('skills.getAll', async () => {

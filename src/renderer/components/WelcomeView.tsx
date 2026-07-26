@@ -1,9 +1,10 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../store';
 import { useIPC } from '../hooks/useIPC';
 import type { ContentBlock, Skill } from '../types';
 import { getInitialSessionTitle } from '../../shared/session-title';
+import type { WelcomeActionIcon, WelcomeQuickAction } from '../../shared/welcome-actions';
 import {
   FileText,
   BarChart3,
@@ -14,6 +15,15 @@ import {
   Paperclip,
   BookOpen,
   FileSearch,
+  Users,
+  Briefcase,
+  Rocket,
+  Calendar,
+  ClipboardList,
+  Target,
+  Presentation,
+  Search,
+  type LucideIcon,
 } from 'lucide-react';
 
 type AttachedFile = {
@@ -29,6 +39,67 @@ import { ModelSelector } from './ModelSelector';
 import { SlashCommandMenu } from './SlashCommandMenu';
 import { useSlashCommands } from '../hooks/useSlashCommands';
 
+const WELCOME_ICON_MAP: Record<WelcomeActionIcon, LucideIcon> = {
+  FileText,
+  BarChart3,
+  FolderOpen,
+  Mail,
+  BookOpen,
+  FileSearch,
+  Users,
+  Briefcase,
+  Rocket,
+  Calendar,
+  ClipboardList,
+  Target,
+  Presentation,
+  Search,
+};
+
+function buildI18nFallbackChips(t: (key: string) => string): WelcomeQuickAction[] {
+  return [
+    {
+      id: 'draft-ic-memo',
+      label: t('welcome.draftIcMemo'),
+      prompt: t('welcome.quickPromptDraftIcMemo'),
+      icon: 'FileText',
+    },
+    {
+      id: 'prep-diligence',
+      label: t('welcome.prepDiligence'),
+      prompt: t('welcome.quickPromptPrepDiligence'),
+      icon: 'ClipboardList',
+    },
+    {
+      id: 'hub-timesheet',
+      label: t('welcome.logHubTimesheet'),
+      prompt: t('welcome.quickPromptHubTimesheet'),
+      icon: 'Calendar',
+      requiresConnectorName: 'York IE HUB',
+    },
+    {
+      id: 'launchpad-release',
+      label: t('welcome.checkLaunchpadRelease'),
+      prompt: t('welcome.quickPromptLaunchpadRelease'),
+      icon: 'Rocket',
+      requiresConnectorName: 'R&D Launchpad',
+    },
+    {
+      id: 'gtm-pipeline',
+      label: t('welcome.gtmPipelineSnapshot'),
+      prompt: t('welcome.quickPromptGtmPipeline'),
+      icon: 'Target',
+      requiresConnectorName: 'GTM Pulse',
+    },
+    {
+      id: 'client-deck',
+      label: t('welcome.buildClientDeck'),
+      prompt: t('welcome.quickPromptClientDeck'),
+      icon: 'Presentation',
+    },
+  ];
+}
+
 export function WelcomeView() {
   const { t } = useTranslation();
   const [prompt, setPrompt] = useState('');
@@ -40,6 +111,7 @@ export function WelcomeView() {
   >([]);
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);
+  const [quickActions, setQuickActions] = useState<WelcomeQuickAction[] | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { startSession, changeWorkingDir, isElectron } = useIPC();
   const workingDir = useAppStore((state) => state.workingDir);
@@ -54,6 +126,29 @@ export function WelcomeView() {
     moveSelection: moveSlashSelection,
     close: closeSlashMenu,
   } = useSlashCommands(prompt);
+
+  const fallbackChips = useMemo(() => buildI18nFallbackChips(t), [t]);
+  const displayChips = quickActions ?? fallbackChips;
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const api = window.electronAPI?.welcome;
+        if (!api?.getQuickActions) return;
+        const result = await api.getQuickActions();
+        if (!cancelled && result?.chips?.length) {
+          setQuickActions(result.chips);
+        }
+      } catch {
+        // Keep i18n fallback chips
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleSelectSlashSkill = useCallback((skill: Skill) => {
     const next = `/${skill.name} `;
@@ -417,46 +512,6 @@ export function WelcomeView() {
     adjustTextareaHeight();
   }, [prompt]);
 
-  const quickTags = [
-    {
-      id: 'create',
-      label: t('welcome.createFile'),
-      icon: FileText,
-      prompt: t('welcome.quickPromptCreate'),
-    },
-    {
-      id: 'crunch',
-      label: t('welcome.crunchData'),
-      icon: BarChart3,
-      prompt: t('welcome.quickPromptCrunch'),
-    },
-    {
-      id: 'organize',
-      label: t('welcome.organizeFiles'),
-      icon: FolderOpen,
-      prompt: t('welcome.quickPromptOrganize'),
-    },
-    {
-      id: 'email',
-      label: t('welcome.checkEmails'),
-      icon: Mail,
-      prompt: t('welcome.quickPromptEmail'),
-    },
-    {
-      id: 'papers',
-      label: t('welcome.searchPapers'),
-      icon: BookOpen,
-      prompt: t('welcome.quickPromptPapers'),
-    },
-    {
-      id: 'research-notion',
-      label: t('welcome.summarizePapersToNotion'),
-      icon: FileSearch,
-      prompt: t('welcome.quickPromptNotion'),
-      requiresNotion: true,
-    },
-  ];
-
   return (
     <div className="flex-1 flex flex-col items-center justify-center px-5 py-10 md:px-8 md:py-14">
       <div className="max-w-[840px] w-full space-y-7 animate-fade-in">
@@ -480,27 +535,31 @@ export function WelcomeView() {
 
         {/* Quick Action Tags */}
         <div className="flex flex-wrap gap-2 justify-center px-3">
-          {quickTags.map((tag) => (
-            <button
-              key={tag.id}
-              onClick={() => handleTagClick(tag.id, tag.prompt)}
-              className={`inline-flex items-center gap-2 rounded-full border px-3 py-2 text-sm transition-colors ${
-                selectedTag === tag.id
-                  ? 'border-accent/30 bg-accent-muted text-accent'
-                  : 'border-border-subtle bg-background/65 text-text-secondary hover:bg-surface-hover hover:text-text-primary'
-              } ${'requiresNotion' in tag && tag.requiresNotion ? 'relative' : ''}`}
-            >
-              <tag.icon
-                className={`w-4 h-4 ${selectedTag === tag.id ? 'text-accent' : 'text-text-muted'}`}
-              />
-              <span>{tag.label}</span>
-              {'requiresNotion' in tag && tag.requiresNotion && (
-                <span className="ml-1 px-1.5 py-px text-[9px] rounded bg-surface-active text-text-muted">
-                  {t('welcome.notionRequired')}
-                </span>
-              )}
-            </button>
-          ))}
+          {displayChips.map((tag) => {
+            const Icon = WELCOME_ICON_MAP[tag.icon] ?? FileText;
+            const connectorBadge = tag.requiresConnectorName?.trim() || null;
+            return (
+              <button
+                key={tag.id}
+                onClick={() => handleTagClick(tag.id, tag.prompt)}
+                className={`inline-flex items-center gap-2 rounded-full border px-3 py-2 text-sm transition-colors ${
+                  selectedTag === tag.id
+                    ? 'border-accent/30 bg-accent-muted text-accent'
+                    : 'border-border-subtle bg-background/65 text-text-secondary hover:bg-surface-hover hover:text-text-primary'
+                } ${connectorBadge ? 'relative' : ''}`}
+              >
+                <Icon
+                  className={`w-4 h-4 ${selectedTag === tag.id ? 'text-accent' : 'text-text-muted'}`}
+                />
+                <span>{tag.label}</span>
+                {connectorBadge && (
+                  <span className="ml-1 px-1.5 py-px text-[9px] rounded bg-surface-active text-text-muted">
+                    {connectorBadge}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
 
         {/* Main Input Card - Right aligned */}

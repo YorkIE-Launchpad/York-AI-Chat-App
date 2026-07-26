@@ -22,4 +22,12 @@ describe('WelcomeView Claude-style layout', () => {
     expect(source).toContain("import { ModelSelector } from './ModelSelector';");
     expect(source).toContain('<ModelSelector />');
   });
+
+  it('loads dynamic quick actions via welcome IPC and shows connector badges', () => {
+    const source = fs.readFileSync(welcomeViewPath, 'utf8');
+    expect(source).toContain('electronAPI?.welcome');
+    expect(source).toContain('getQuickActions');
+    expect(source).toContain('requiresConnectorName');
+    expect(source).toContain('WELCOME_ICON_MAP');
+  });
 });

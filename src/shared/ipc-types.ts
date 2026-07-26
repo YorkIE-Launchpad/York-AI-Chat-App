@@ -157,3 +157,15 @@ export interface RemoteSessionMapping {
   createdAt: number;
   lastActiveAt: number;
 }
+
+// ---------------------------------------------------------------------------
+// Welcome quick actions
+// ---------------------------------------------------------------------------
+
+export type {
+  WelcomeActionIcon,
+  WelcomeActionsSource,
+  WelcomeProfile,
+  WelcomeQuickAction,
+  WelcomeQuickActionsResponse,
+} from './welcome-actions';
