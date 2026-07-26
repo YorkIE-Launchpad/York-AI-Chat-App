@@ -277,6 +277,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getTools: (): Promise<McpTool[]> => ipcRenderer.invoke('mcp.getTools'),
     getServerStatus: (): Promise<McpServerStatus[]> => ipcRenderer.invoke('mcp.getServerStatus'),
     getPresets: (): Promise<McpPresetsMap> => ipcRenderer.invoke('mcp.getPresets'),
+    connectServer: (serverId: string): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('mcp.connectServer', serverId),
+    disconnectServer: (serverId: string): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('mcp.disconnectServer', serverId),
+    reconnectServer: (serverId: string): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('mcp.reconnectServer', serverId),
   },
 
   // Skills methods
@@ -607,6 +613,9 @@ declare global {
         getTools: () => Promise<McpTool[]>;
         getServerStatus: () => Promise<McpServerStatus[]>;
         getPresets: () => Promise<McpPresetsMap>;
+        connectServer: (serverId: string) => Promise<{ success: boolean; error?: string }>;
+        disconnectServer: (serverId: string) => Promise<{ success: boolean; error?: string }>;
+        reconnectServer: (serverId: string) => Promise<{ success: boolean; error?: string }>;
       };
       skills: {
         getAll: () => Promise<Skill[]>;

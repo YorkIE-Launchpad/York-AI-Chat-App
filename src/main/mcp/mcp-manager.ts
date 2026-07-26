@@ -886,7 +886,7 @@ export class MCPManager {
         }
 
         if (this.clients.has(serverId)) {
-          this.connectionStatus.set(serverId, 'connected');
+          await this.refreshTools();
           return;
         }
 
@@ -916,7 +916,8 @@ export class MCPManager {
   }
 
   /**
-   * Connect to a single MCP server
+   * Connect to a single MCP server.
+   * Leaves status as 'connecting' until refreshTools confirms tools were discovered.
    */
   private async connectServer(config: MCPServerConfig): Promise<void> {
     log(`[MCPManager] Connecting to MCP server: ${config.name} (${config.type})`);
@@ -926,7 +927,7 @@ export class MCPManager {
 
     try {
       await this.connectServerInternal(config);
-      this.connectionStatus.set(config.id, 'connected');
+      // Do not mark 'connected' here — that requires a non-empty tool list via refreshTools
       this.cancelConnectRetry(config.id);
     } catch (error) {
       this.connectionStatus.set(config.id, 'failed');
@@ -936,7 +937,7 @@ export class MCPManager {
 
   /**
    * Internal connect logic — separated so connectServer can guarantee
-   * connectionStatus is always set to 'connected' or 'failed'.
+   * connectionStatus is always set (connecting until tools load, or failed on error).
    */
   private async connectServerInternal(config: MCPServerConfig): Promise<void> {
     let transport: MCPTransport;
@@ -1830,6 +1831,15 @@ export class MCPManager {
 
       log(`[MCPManager] Raw tools from ${config.name}:`, listToolsResult);
       const tools = this.mapListToolsResponseToMcpTools(serverId, config, listToolsResult);
+      if (tools.length === 0) {
+        return {
+          kind: 'error',
+          serverId,
+          error: new Error(
+            `listTools succeeded but returned an empty tools array for ${config.name}`
+          ),
+        };
+      }
       log(`[MCPManager] ✓ Loaded ${tools.length} tools from ${config.name}`);
       return { kind: 'success', serverId, tools };
     } catch (error) {
@@ -1908,17 +1918,31 @@ export class MCPManager {
     );
 
     const newTools = new Map<string, MCPTool>();
+    const failedServerIds: string[] = [];
+
     for (const result of toolResults) {
       if (result.kind === 'success') {
         for (const tool of result.tools) {
           newTools.set(tool.name, tool);
         }
+        this.connectionStatus.set(result.serverId, 'connected');
         continue;
       }
 
       const error = result.error;
       const errMsg = error instanceof Error ? error.message : String(error);
-      logError(`[MCPManager] ❌ Error listing tools from ${result.serverId}:`, errMsg);
+      const config = this.serverConfigs.get(result.serverId);
+      const serverName = config?.name ?? result.serverId;
+      const isEmptyTools =
+        errMsg.includes('empty tools array') || /returned an empty tools array/i.test(errMsg);
+
+      if (isEmptyTools) {
+        logError(
+          `[MCPManager] Server ${serverName} listed 0 tools after connect — treating as failure (${errMsg})`
+        );
+      } else {
+        logError(`[MCPManager] ❌ Error listing tools from ${serverName}:`, errMsg);
+      }
 
       try {
         const win = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed());
@@ -1932,13 +1956,20 @@ export class MCPManager {
         // Best-effort notification; logging already happened above
       }
 
-      const config = this.serverConfigs.get(result.serverId);
       if (config && config.name.toLowerCase().includes('chrome')) {
         log(`[MCPManager] Chrome server may need reconnection. Trying to refresh...`);
       }
+
+      failedServerIds.push(result.serverId);
     }
 
     this.tools = newTools; // atomic swap
+
+    for (const serverId of failedServerIds) {
+      await this.disconnectServer(serverId);
+      // disconnectServer clears connectionStatus; mark failed explicitly
+      this.connectionStatus.set(serverId, 'failed');
+    }
 
     log(`[MCPManager] Total tools available: ${this.tools.size}`);
   }
@@ -2092,10 +2123,7 @@ export class MCPManager {
     throw lastError;
   }
 
-  private async reconnectServer(
-    serverId: string,
-    options?: { skipRefresh?: boolean }
-  ): Promise<boolean> {
+  async reconnectServer(serverId: string, options?: { skipRefresh?: boolean }): Promise<boolean> {
     // Prevent concurrent reconnect operations for the same server
     if (this.reconnectingServers.has(serverId)) {
       logWarn(
@@ -2147,7 +2175,7 @@ export class MCPManager {
     }> = [];
 
     for (const [serverId, config] of this.serverConfigs.entries()) {
-      const connected = this.clients.has(serverId);
+      let connected = this.clients.has(serverId);
       const toolCount = Array.from(this.tools.values()).filter(
         (tool) => tool.serverId === serverId
       ).length;
@@ -2167,10 +2195,20 @@ export class MCPManager {
         serverStatus = 'connecting';
       }
 
+      // Connected with 0 tools is not a valid healthy state — report as failure.
+      // Skip while still connecting (tools not discovered yet).
+      if (config.enabled && connected && toolCount === 0 && serverStatus === 'connected') {
+        logError(
+          `[MCPManager] Server ${config.name} reports connected with 0 tools — treating as failure`
+        );
+        serverStatus = 'failed';
+        connected = false;
+      }
+
       status.push({
         id: serverId,
         name: config.name,
-        connected,
+        connected: serverStatus === 'connected' && connected && toolCount > 0,
         status: serverStatus,
         toolCount,
       });

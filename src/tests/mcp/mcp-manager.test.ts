@@ -424,7 +424,20 @@ describe('MCPManager', () => {
         attempts++;
         if (attempts >= 2) {
           testManager.clients.set(serverId, {
-            listTools: vi.fn().mockResolvedValue({ tools: [] }),
+            listTools: vi.fn().mockResolvedValue({
+              tools: [
+                {
+                  name: 'ping',
+                  description: 'ok',
+                  inputSchema: { type: 'object', properties: {} },
+                },
+              ],
+            }),
+          });
+          testManager.tools.set('mcp__Retry_Server__ping', {
+            name: 'mcp__Retry_Server__ping',
+            serverId,
+            serverName: retryConfig.name,
           });
           testManager.connectionStatus.set(serverId, 'connected');
           return true;
@@ -520,6 +533,68 @@ describe('MCPManager', () => {
       await manager.disconnectServer('disc-test');
       statuses = manager.getServerStatus();
       expect(statuses[0].status).toBe('connecting');
+    });
+  });
+
+  describe('zero-tools failure', () => {
+    it('marks server as failed when listTools returns 0 tools', async () => {
+      const { logError } = await import('../../main/utils/logger');
+      const testManager = asTestManager(manager);
+      const mockClient: TestMCPClient = {
+        listTools: vi.fn().mockResolvedValue({ tools: [] }),
+      };
+      testManager.clients = new Map([['empty-tools', mockClient]]);
+      testManager.connectionStatus.set('empty-tools', 'connected');
+      testManager.serverConfigs = new Map([
+        [
+          'empty-tools',
+          {
+            id: 'empty-tools',
+            name: 'Empty Tools Server',
+            type: 'stdio',
+            command: 'empty',
+            enabled: true,
+          },
+        ],
+      ]);
+
+      await manager.refreshTools();
+
+      const statuses = manager.getServerStatus();
+      expect(statuses).toHaveLength(1);
+      expect(statuses[0]).toMatchObject({
+        id: 'empty-tools',
+        connected: false,
+        status: 'failed',
+        toolCount: 0,
+      });
+      expect(testManager.clients.has('empty-tools')).toBe(false);
+      expect(logError).toHaveBeenCalledWith(
+        expect.stringContaining('listed 0 tools after connect')
+      );
+    });
+
+    it('getServerStatus reports failed when client is connected with 0 tools', () => {
+      const testManager = asTestManager(manager);
+      testManager.clients = new Map([['zombie', {}]]);
+      testManager.connectionStatus.set('zombie', 'connected');
+      testManager.serverConfigs = new Map([
+        [
+          'zombie',
+          {
+            id: 'zombie',
+            name: 'Zombie',
+            type: 'stdio',
+            command: 'x',
+            enabled: true,
+          },
+        ],
+      ]);
+
+      const status = manager.getServerStatus()[0];
+      expect(status.status).toBe('failed');
+      expect(status.connected).toBe(false);
+      expect(status.toolCount).toBe(0);
     });
   });
 });

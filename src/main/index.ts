@@ -2475,6 +2475,70 @@ ipcMain.handle('mcp.getServerStatus', () => {
   }
 });
 
+ipcMain.handle('mcp.connectServer', async (_event, serverId: string) => {
+  try {
+    const config = mcpConfigStore.getServer(serverId);
+    if (!config) {
+      return { success: false, error: `MCP server not found: ${serverId}` };
+    }
+    const updated = { ...config, enabled: true };
+    mcpConfigStore.saveServer(updated);
+    if (sessionManager) {
+      const mcpManager = sessionManager.getMCPManager();
+      await mcpManager.updateServer(updated);
+      sessionManager.invalidateMcpServersCache();
+      log(`[MCP] Server ${updated.name} connected via IPC`);
+    }
+    return { success: true };
+  } catch (error) {
+    logError('[MCP] Error connecting server:', error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return { success: false, error: errorMessage };
+  }
+});
+
+ipcMain.handle('mcp.disconnectServer', async (_event, serverId: string) => {
+  try {
+    const config = mcpConfigStore.getServer(serverId);
+    if (!config) {
+      return { success: false, error: `MCP server not found: ${serverId}` };
+    }
+    const updated = { ...config, enabled: false };
+    mcpConfigStore.saveServer(updated);
+    if (sessionManager) {
+      const mcpManager = sessionManager.getMCPManager();
+      await mcpManager.updateServer(updated);
+      sessionManager.invalidateMcpServersCache();
+      log(`[MCP] Server ${updated.name} disconnected via IPC`);
+    }
+    return { success: true };
+  } catch (error) {
+    logError('[MCP] Error disconnecting server:', error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return { success: false, error: errorMessage };
+  }
+});
+
+ipcMain.handle('mcp.reconnectServer', async (_event, serverId: string) => {
+  try {
+    if (!sessionManager) {
+      return { success: false, error: 'Session manager not available' };
+    }
+    const mcpManager = sessionManager.getMCPManager();
+    const ok = await mcpManager.reconnectServer(serverId);
+    sessionManager.invalidateMcpServersCache();
+    if (!ok) {
+      return { success: false, error: `Failed to reconnect MCP server: ${serverId}` };
+    }
+    log(`[MCP] Server ${serverId} reconnected via IPC`);
+    return { success: true };
+  } catch (error) {
+    logError('[MCP] Error reconnecting server:', error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return { success: false, error: errorMessage };
+  }
+});
+
 ipcMain.handle('mcp.getPresets', () => {
   try {
     return mcpConfigStore.getPresets();

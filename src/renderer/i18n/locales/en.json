@@ -528,7 +528,11 @@
     "commandRequired": "Command is required",
     "urlRequired": "URL is required",
     "toolCount": "{{count}} tools",
-    "callCount": "{{count}} calls"
+    "callCount": "{{count}} calls",
+    "connect": "Connect",
+    "disconnect": "Disconnect",
+    "reconnect": "Reconnect",
+    "actionFailed": "Connector action failed"
   },
   "credentials": {
     "envVars": "Environment Variables",

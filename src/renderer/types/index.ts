@@ -867,6 +867,7 @@ export interface MCPServerInfo {
   id: string;
   name: string;
   connected: boolean;
+  status?: 'connecting' | 'connected' | 'failed' | 'disabled';
   toolCount: number;
   tools?: MCPToolInfo[];
 }
