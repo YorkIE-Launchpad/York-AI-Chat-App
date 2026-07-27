@@ -1,5 +1,11 @@
 import { authConfig } from '../../shared/auth-config';
 import { log, logWarn } from '../utils/logger';
+import {
+  assertAllowedGoogleConnectorEmail,
+  assertAllowedSlackWorkspace,
+  isAllowedGoogleConnectorEmail,
+  isAllowedSlackWorkspace,
+} from './connector-allowlist';
 import { runDesktopOAuthFlow } from './connector-oauth';
 import { connectorTokenStore } from './connector-token-store';
 import type {
@@ -67,6 +73,7 @@ class ConnectorManager {
       authResult.redirectUri
     );
     const record = await this.buildTokenRecord(connectorId, tokenPayload);
+    this.assertRecordAllowed(record);
     connectorTokenStore.save(record);
     log('[ConnectorManager] Connected connector', {
       connectorId,
@@ -84,6 +91,8 @@ class ConnectorManager {
     if (!current) {
       throw new Error(`${connectorId} connector is not connected`);
     }
+    this.enforceStoredRecordAllowed(current);
+
     if (!current.expiresAt || current.expiresAt - Date.now() > 60_000) {
       return current;
     }
@@ -105,6 +114,7 @@ class ConnectorManager {
       scope: refreshed.scope?.length ? refreshed.scope : current.scope,
       updatedAt: Date.now(),
     };
+    this.enforceStoredRecordAllowed(nextRecord);
     connectorTokenStore.save(nextRecord);
     return nextRecord;
   }
@@ -114,15 +124,20 @@ class ConnectorManager {
       if (!authConfig.slackClientId || !authConfig.slackClientSecret) {
         throw new Error('Slack OAuth credentials are missing');
       }
+      const extraAuthorizeParams: Record<string, string> = {
+        user_scope: SLACK_SCOPES.join(','),
+      };
+      const allowedTeamId = authConfig.slackAllowedTeamId?.trim();
+      if (allowedTeamId) {
+        extraAuthorizeParams.team = allowedTeamId;
+      }
       return {
         clientId: authConfig.slackClientId,
         clientSecret: authConfig.slackClientSecret,
         authorizeUrl: 'https://slack.com/oauth/v2/authorize',
         tokenUrl: 'https://slack.com/api/oauth.v2.access',
         scopes: [],
-        extraAuthorizeParams: {
-          user_scope: SLACK_SCOPES.join(','),
-        },
+        extraAuthorizeParams,
       };
     }
     if (!authConfig.googleConnectorClientId || !authConfig.googleConnectorClientSecret) {
@@ -137,6 +152,7 @@ class ConnectorManager {
       extraAuthorizeParams: {
         access_type: 'offline',
         prompt: 'consent',
+        hd: 'york.ie',
       },
     };
   }
@@ -285,32 +301,40 @@ class ConnectorManager {
 
     if (connectorId === 'slack') {
       const identity = await this.fetchSlackIdentity(accessToken);
-      return {
+      const record: ConnectorTokenRecord = {
         ...baseRecord,
         accountId: identity.userId,
         accountName: identity.userName,
         accountEmail: identity.email,
         workspaceName: identity.teamName,
+        workspaceId: identity.teamId,
+        workspaceUrl: identity.teamUrl,
       };
+      this.assertRecordAllowed(record);
+      return record;
     }
 
     if (connectorId === 'gmail') {
       const profile = await this.fetchGmailProfile(accessToken);
-      return {
+      const record: ConnectorTokenRecord = {
         ...baseRecord,
         accountEmail: profile.emailAddress,
         accountId: profile.emailAddress,
         accountName: profile.emailAddress,
       };
+      this.assertRecordAllowed(record);
+      return record;
     }
 
     const about = await this.fetchDriveAbout(accessToken);
-    return {
+    const record: ConnectorTokenRecord = {
       ...baseRecord,
       accountEmail: about.emailAddress,
       accountId: about.permissionId,
       accountName: about.displayName,
     };
+    this.assertRecordAllowed(record);
+    return record;
   }
 
   private extractScopes(payload: Record<string, unknown>): string[] {
@@ -328,10 +352,14 @@ class ConnectorManager {
     userName: string | null;
     email: string | null;
     teamName: string | null;
+    teamId: string | null;
+    teamUrl: string | null;
   }> {
     const authTest = await this.fetchJson('https://slack.com/api/auth.test', accessToken);
     const userId = typeof authTest.user_id === 'string' ? authTest.user_id : null;
     const teamName = typeof authTest.team === 'string' ? authTest.team : null;
+    const teamId = typeof authTest.team_id === 'string' ? authTest.team_id : null;
+    const teamUrl = typeof authTest.url === 'string' ? authTest.url : null;
 
     let userName: string | null = null;
     let email: string | null = null;
@@ -351,7 +379,7 @@ class ConnectorManager {
       userName = profile?.real_name || profile?.display_name || null;
       email = profile?.email || null;
     }
-    return { userId, userName, email, teamName };
+    return { userId, userName, email, teamName, teamId, teamUrl };
   }
 
   private async fetchGmailProfile(accessToken: string): Promise<{ emailAddress: string | null }> {
@@ -386,6 +414,45 @@ class ConnectorManager {
       emailAddress: typeof user.emailAddress === 'string' ? user.emailAddress : null,
       permissionId: typeof user.permissionId === 'string' ? user.permissionId : null,
     };
+  }
+
+  private assertRecordAllowed(record: ConnectorTokenRecord): void {
+    if (record.connectorId === 'slack') {
+      assertAllowedSlackWorkspace({
+        teamId: record.workspaceId,
+        teamName: record.workspaceName,
+        teamUrl: record.workspaceUrl,
+        allowedTeamId: authConfig.slackAllowedTeamId,
+      });
+      return;
+    }
+    const label = record.connectorId === 'gmail' ? 'Gmail' : 'Google Drive';
+    assertAllowedGoogleConnectorEmail(record.accountEmail, label);
+  }
+
+  private enforceStoredRecordAllowed(record: ConnectorTokenRecord): void {
+    const allowed =
+      record.connectorId === 'slack'
+        ? isAllowedSlackWorkspace({
+            teamId: record.workspaceId,
+            teamName: record.workspaceName,
+            teamUrl: record.workspaceUrl,
+            allowedTeamId: authConfig.slackAllowedTeamId,
+          })
+        : isAllowedGoogleConnectorEmail(record.accountEmail);
+
+    if (allowed) {
+      return;
+    }
+
+    logWarn('[ConnectorManager] Clearing disallowed connector token', {
+      connectorId: record.connectorId,
+      accountEmail: record.accountEmail,
+      workspaceName: record.workspaceName,
+      workspaceId: record.workspaceId,
+    });
+    connectorTokenStore.clear(record.connectorId);
+    this.assertRecordAllowed(record);
   }
 
   private async fetchJson(url: string, accessToken: string): Promise<Record<string, unknown>> {

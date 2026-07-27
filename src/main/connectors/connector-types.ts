@@ -11,6 +11,10 @@ export interface ConnectorTokenRecord {
   accountName?: string | null;
   accountId?: string | null;
   workspaceName?: string | null;
+  /** Slack team_id when known. */
+  workspaceId?: string | null;
+  /** Slack workspace URL from auth.test when known. */
+  workspaceUrl?: string | null;
   updatedAt: number;
 }
 

@@ -145,6 +145,10 @@ export const authConfig = {
   get slackClientSecret(): string | undefined {
     return readEnv('SLACK_CLIENT_SECRET') ?? readEnv('VITE_SLACK_CLIENT_SECRET');
   },
+  /** Optional hard pin: Slack team_id that may connect the Slack MCP connector. */
+  get slackAllowedTeamId(): string | undefined {
+    return readEnv('SLACK_ALLOWED_TEAM_ID') ?? readEnv('VITE_SLACK_ALLOWED_TEAM_ID');
+  },
   get googleConnectorClientId(): string | undefined {
     return (
       readEnv('GOOGLE_CONNECTOR_CLIENT_ID') ??
