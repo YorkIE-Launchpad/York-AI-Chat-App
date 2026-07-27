@@ -243,6 +243,7 @@ export class SessionManager {
     try {
       mcpConfigStore.ensureDefaultChromeServer();
       mcpConfigStore.ensureDefaultLaunchpadServer();
+      mcpConfigStore.ensureDefaultRndPulseServer();
       mcpConfigStore.ensureDefaultHubServer();
       mcpConfigStore.ensureDefaultGtmPulseServer();
       mcpConfigStore.ensureDefaultSlackServer();

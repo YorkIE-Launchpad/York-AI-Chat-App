@@ -55,6 +55,17 @@ export const authConfig = {
     return 'https://launchpad.yorkdevs.link/mcp';
   },
   /**
+   * R&D Pulse MCP endpoint. Prefer RND_PULSE_MCP_URL; otherwise
+   * `https://pulse.yorkdevs.link/mcp`.
+   */
+  get rndPulseMcpUrl(): string {
+    const explicit = readEnv('RND_PULSE_MCP_URL') ?? readEnv('VITE_RND_PULSE_MCP_URL');
+    if (explicit) {
+      return trimTrailingSlash(explicit);
+    }
+    return 'https://pulse.yorkdevs.link/mcp';
+  },
+  /**
    * Hub MCP endpoint. Prefer HUB_MCP_URL / VITE_HUB_MCP_URL; otherwise derive
    * from Hub API host (`api.*` → `mcp.*` + `/mcp`); last resort UAT.
    */

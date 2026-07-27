@@ -111,13 +111,14 @@ export function decidePermission(
     return VALID_ACTIONS.has(rule.action) ? rule.action : 'ask';
   }
 
-  // Built-in default: Chrome / R&D Launchpad / York IE HUB / GTM Pulse MCP tools,
+  // Built-in default: Chrome / R&D Launchpad / R&D Pulse / York IE HUB / GTM Pulse MCP tools,
   // first-party meeting tools, and webfetch run without a permission prompt.
   // Explicit rules for a specific tool still win above.
   // Legacy Launchpad/Hub prefixes are kept so older connector names keep working.
   if (lowered.startsWith('mcp__chrome__')) return 'allow';
   if (lowered.startsWith('mcp__r_d_launchpad__')) return 'allow';
   if (lowered.startsWith('mcp__launchpad__')) return 'allow';
+  if (lowered.startsWith('mcp__r_d_pulse__')) return 'allow';
   if (lowered.startsWith('mcp__york_ie_hub__')) return 'allow';
   if (lowered.startsWith('mcp__hub__')) return 'allow';
   if (lowered.startsWith('mcp__gtm_pulse__')) return 'allow';

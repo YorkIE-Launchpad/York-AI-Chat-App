@@ -78,6 +78,11 @@ describe('permission-rules-store', () => {
       expect(decidePermission(SESSION_A, 'mcp__launchpad__get_me', {})).toBe('allow');
     });
 
+    it('returns allow for R&D Pulse MCP tools by default', () => {
+      expect(decidePermission(SESSION_A, 'mcp__R_D_Pulse__list_items', {})).toBe('allow');
+      expect(decidePermission(SESSION_A, 'mcp__r_d_pulse__get_me', {})).toBe('allow');
+    });
+
     it('returns allow for York IE HUB MCP tools by default (new + legacy names)', () => {
       expect(decidePermission(SESSION_A, 'mcp__York_IE_HUB__list_employees', {})).toBe('allow');
       expect(decidePermission(SESSION_A, 'mcp__york_ie_hub__get_me', {})).toBe('allow');

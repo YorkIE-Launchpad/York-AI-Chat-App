@@ -18,6 +18,8 @@ import {
   DEFAULT_HUB_MCP_SERVER_ID,
   DEFAULT_LAUNCHPAD_MCP_NAME,
   DEFAULT_LAUNCHPAD_MCP_SERVER_ID,
+  DEFAULT_RND_PULSE_MCP_NAME,
+  DEFAULT_RND_PULSE_MCP_SERVER_ID,
   DEFAULT_SLACK_MCP_NAME,
   DEFAULT_SLACK_MCP_SERVER_ID,
 } from '../../shared/mcp-defaults';
@@ -29,6 +31,7 @@ export {
   DEFAULT_GOOGLE_DRIVE_MCP_NAME,
   DEFAULT_HUB_MCP_NAME,
   DEFAULT_LAUNCHPAD_MCP_NAME,
+  DEFAULT_RND_PULSE_MCP_NAME,
   DEFAULT_SLACK_MCP_NAME,
 } from '../../shared/mcp-defaults';
 
@@ -104,6 +107,54 @@ export function isLaunchpadMcpServer(
   const hasMcpRemote = args.some((arg) => arg.includes('mcp-remote'));
   const hasLaunchpadUrl = args.some((arg) => isLaunchpadHost(arg));
   return hasMcpRemote && hasLaunchpadUrl;
+}
+
+/**
+ * Built-in R&D Pulse MCP connector — seeded disabled by default; user enables in Connectors.
+ * Uses mcp-remote over stdio. Cognito access token is injected at connect time.
+ */
+export function getDefaultRndPulseMcpUrl(): string {
+  return authConfig.rndPulseMcpUrl;
+}
+
+export function buildDefaultRndPulseMcpServer(): Omit<MCPServerConfig, 'id' | 'enabled'> {
+  return {
+    name: DEFAULT_RND_PULSE_MCP_NAME,
+    type: 'stdio',
+    command: 'npx',
+    args: ['-y', 'mcp-remote', getDefaultRndPulseMcpUrl()],
+  };
+}
+
+export const DEFAULT_RND_PULSE_MCP_SERVER: Omit<MCPServerConfig, 'id' | 'enabled'> =
+  buildDefaultRndPulseMcpServer();
+
+const DEFAULT_RND_PULSE_SERVER_ID = DEFAULT_RND_PULSE_MCP_SERVER_ID;
+
+/** Match only pulse.yorkdevs.link — not gtm-pulse.yorkdevs.link. */
+function isRndPulseHost(value: string | undefined): boolean {
+  if (!value) return false;
+  return /(?:^|\/\/)pulse\.yorkdevs\.link/i.test(value);
+}
+
+function isRndPulseServerName(name: string): boolean {
+  const key = normalizeMcpServerNameKey(name);
+  return key === 'rdpulse' || key === 'rndpulse';
+}
+
+export function isRndPulseMcpServer(
+  server: Pick<MCPServerConfig, 'name' | 'args' | 'url' | 'type'>
+): boolean {
+  if (isRndPulseServerName(server.name)) {
+    return true;
+  }
+  if (isRndPulseHost(server.url)) {
+    return true;
+  }
+  const args = server.args ?? [];
+  const hasMcpRemote = args.some((arg) => arg.includes('mcp-remote'));
+  const hasRndPulseUrl = args.some((arg) => isRndPulseHost(arg));
+  return hasMcpRemote && hasRndPulseUrl;
 }
 
 /**
@@ -353,7 +404,7 @@ class MCPConfigStore {
 
   /**
    * Delete a server configuration.
-   * Built-in Chrome / Launchpad / Hub / GTM Pulse / connector MCP cannot be removed.
+   * Built-in Chrome / Launchpad / R&D Pulse / Hub / GTM Pulse / connector MCP cannot be removed.
    */
   deleteServer(serverId: string): boolean {
     const servers = this.getServers();
@@ -364,6 +415,10 @@ class MCPConfigStore {
     }
     if (target && isLaunchpadMcpServer(target)) {
       log('[MCPConfigStore] Refusing to delete built-in Launchpad MCP connector');
+      return false;
+    }
+    if (target && isRndPulseMcpServer(target)) {
+      log('[MCPConfigStore] Refusing to delete built-in R&D Pulse MCP connector');
       return false;
     }
     if (target && isHubMcpServer(target)) {
@@ -460,6 +515,47 @@ class MCPConfigStore {
     this.saveServer(launchpadServer);
     log(`[MCPConfigStore] Seeded default Launchpad MCP connector at ${desiredUrl}`);
     return launchpadServer;
+  }
+
+  /**
+   * Ensure the built-in R&D Pulse MCP connector exists.
+   * Does not re-enable or recreate if the user already has an R&D Pulse connector
+   * (including one they disabled or customized).
+   * Migrates the built-in default to current mcp-remote URL + stdio.
+   */
+  ensureDefaultRndPulseServer(): MCPServerConfig {
+    const desiredUrl = getDefaultRndPulseMcpUrl();
+    const desired = buildDefaultRndPulseMcpServer();
+    const existing = this.getServers().find(isRndPulseMcpServer);
+    if (existing) {
+      const needsMigration =
+        existing.id === DEFAULT_RND_PULSE_SERVER_ID &&
+        (existing.name !== desired.name ||
+          existing.type !== 'stdio' ||
+          existing.command !== 'npx' ||
+          !existing.args?.includes('mcp-remote') ||
+          !existing.args?.includes(desiredUrl));
+      if (needsMigration) {
+        const migrated: MCPServerConfig = {
+          id: existing.id,
+          enabled: existing.enabled,
+          ...desired,
+        };
+        this.saveServer(migrated);
+        log(`[MCPConfigStore] Migrated built-in R&D Pulse MCP to ${desired.name} @ ${desiredUrl}`);
+        return migrated;
+      }
+      return existing;
+    }
+
+    const rndPulseServer: MCPServerConfig = {
+      ...desired,
+      id: DEFAULT_RND_PULSE_SERVER_ID,
+      enabled: false,
+    };
+    this.saveServer(rndPulseServer);
+    log(`[MCPConfigStore] Seeded default R&D Pulse MCP connector at ${desiredUrl}`);
+    return rndPulseServer;
   }
 
   /**

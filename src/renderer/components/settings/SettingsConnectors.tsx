@@ -21,6 +21,7 @@ import type {
   MCPToolInfo,
   MCPPreset,
 } from './shared';
+import { sortMcpServersByDefaultOrder } from '../../../shared/mcp-defaults';
 
 const isElectron = typeof window !== 'undefined' && window.electronAPI !== undefined;
 
@@ -43,6 +44,21 @@ function isLaunchpadMcpServer(server: MCPServerConfig): boolean {
   const hasMcpRemote = args.some((arg) => arg.includes('mcp-remote'));
   const hasLaunchpadUrl = args.some((arg) => /launchpad\.yorkdevs\.link/i.test(arg));
   return hasMcpRemote && hasLaunchpadUrl;
+}
+
+/** Match only pulse.yorkdevs.link — not gtm-pulse.yorkdevs.link. */
+function isRndPulseMcpServer(server: MCPServerConfig): boolean {
+  const nameKey = server.name.toLowerCase().replace(/[^a-z0-9]+/g, '');
+  if (nameKey === 'rdpulse' || nameKey === 'rndpulse') {
+    return true;
+  }
+  if (server.url && /(?:^|\/\/)pulse\.yorkdevs\.link/i.test(server.url)) {
+    return true;
+  }
+  const args = server.args ?? [];
+  const hasMcpRemote = args.some((arg) => arg.includes('mcp-remote'));
+  const hasRndPulseUrl = args.some((arg) => /(?:^|\/\/)pulse\.yorkdevs\.link/i.test(arg));
+  return hasMcpRemote && hasRndPulseUrl;
 }
 
 function isHubMcpServer(server: MCPServerConfig): boolean {
@@ -77,6 +93,7 @@ function isBuiltinProtectedMcpServer(server: MCPServerConfig): boolean {
   return (
     isChromeMcpServer(server) ||
     isLaunchpadMcpServer(server) ||
+    isRndPulseMcpServer(server) ||
     isHubMcpServer(server) ||
     isGtmPulseMcpServer(server) ||
     server.name === 'Slack' ||
@@ -85,10 +102,11 @@ function isBuiltinProtectedMcpServer(server: MCPServerConfig): boolean {
   );
 }
 
-/** Built-in Hub / Launchpad / GTM Pulse URLs are env-driven — no UI edit. */
+/** Built-in Hub / Launchpad / R&D Pulse / GTM Pulse URLs are env-driven — no UI edit. */
 function isNonEditableBuiltinMcpServer(server: MCPServerConfig): boolean {
   return (
     isLaunchpadMcpServer(server) ||
+    isRndPulseMcpServer(server) ||
     isHubMcpServer(server) ||
     isGtmPulseMcpServer(server) ||
     server.name === 'Slack' ||
@@ -132,7 +150,7 @@ export function SettingsConnectors({ isActive }: { isActive: boolean }) {
   const loadServers = useCallback(async () => {
     try {
       const loaded = (await window.electronAPI.mcp.getServers()) as MCPServerConfig[];
-      setServers(loaded || []);
+      setServers(sortMcpServersByDefaultOrder(loaded || []));
       setError('');
     } catch (err) {
       console.error('Failed to load servers:', err);
@@ -307,6 +325,14 @@ export function SettingsConnectors({ isActive }: { isActive: boolean }) {
       setError(
         t('mcp.launchpadCannotDelete', {
           defaultValue: 'The built-in R&D Launchpad connector cannot be deleted',
+        })
+      );
+      return;
+    }
+    if (server && isRndPulseMcpServer(server)) {
+      setError(
+        t('mcp.rndPulseCannotDelete', {
+          defaultValue: 'The built-in R&D Pulse connector cannot be deleted',
         })
       );
       return;

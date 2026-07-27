@@ -190,6 +190,7 @@ initHubOAuthRelay();
 log('[Auth] Hub OAuth redirect URL (Launchpad-compatible):', authConfig.hubOAuthRedirectUrl);
 log('[Auth] Hub MCP URL:', authConfig.hubMcpUrl);
 log('[Auth] Launchpad MCP URL:', authConfig.launchpadMcpUrl);
+log('[Auth] R&D Pulse MCP URL:', authConfig.rndPulseMcpUrl);
 
 // Apply saved config (this overrides .env if config exists)
 if (configStore.isConfigured()) {

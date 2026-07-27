@@ -105,6 +105,23 @@ function isLaunchpadMcpServerConfig(
   return hasMcpRemote && hasLaunchpadUrl;
 }
 
+/** Match only pulse.yorkdevs.link — not gtm-pulse.yorkdevs.link. */
+function isRndPulseMcpServerConfig(
+  server: Pick<MCPServerConfig, 'name' | 'args' | 'url' | 'type'>
+): boolean {
+  const nameKey = server.name.toLowerCase().replace(/[^a-z0-9]+/g, '');
+  if (nameKey === 'rdpulse' || nameKey === 'rndpulse') {
+    return true;
+  }
+  if (server.url && /(?:^|\/\/)pulse\.yorkdevs\.link/i.test(server.url)) {
+    return true;
+  }
+  const args = server.args ?? [];
+  const hasMcpRemote = args.some((arg) => arg.includes('mcp-remote'));
+  const hasRndPulseUrl = args.some((arg) => /(?:^|\/\/)pulse\.yorkdevs\.link/i.test(arg));
+  return hasMcpRemote && hasRndPulseUrl;
+}
+
 function isHubMcpServerConfig(
   server: Pick<MCPServerConfig, 'name' | 'args' | 'url' | 'type'>
 ): boolean {
@@ -1043,10 +1060,14 @@ export class MCPManager {
         return arg;
       });
 
-      // Launchpad: inject Cognito JWT into mcp-remote --header at connect time
-      if (isLaunchpadMcpServerConfig(config)) {
+      // Launchpad / R&D Pulse: inject Cognito JWT into mcp-remote --header at connect time
+      if (isLaunchpadMcpServerConfig(config) || isRndPulseMcpServerConfig(config)) {
         args = await injectCognitoAuthHeader(args);
-        log('[MCPManager] Injected Cognito Authorization header for Launchpad MCP');
+        log(
+          `[MCPManager] Injected Cognito Authorization header for ${
+            isRndPulseMcpServerConfig(config) ? 'R&D Pulse' : 'Launchpad'
+          } MCP`
+        );
       }
 
       // Dev guard: running TypeScript directly with `node` will fail (no TS loader).
