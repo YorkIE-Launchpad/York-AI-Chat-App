@@ -5,7 +5,7 @@ import { isOfficialOpenAIBaseUrl } from '../config/auth-utils';
 const COMMON_FALLBACK_PROVIDERS = ['openai', 'anthropic', 'google'] as const;
 const INVALID_REGISTRY_PROVIDERS = new Set(['', 'custom']);
 const REASONING_MODEL_PATTERN =
-  /\bthinking\b|\breasoner\b|deepseek-r1|deepseek-v4|kimi-k2|qwen3(?:\.5)?(?=[:/-]|$)/i;
+  /\bthinking\b|\breasoner\b|deepseek-r1|deepseek-v4|kimi-k[23]|qwen3(?:\.5)?(?=[:/-]|$)/i;
 const DEEPSEEK_V4_MODEL_PATTERN = /(?:^|[/_-])deepseek[-_.]?v4(?:$|[-:_.])/i;
 /** GPT-5 / o-series need the Responses API (tools + reasoning are incompatible on chat/completions). */
 const OPENAI_RESPONSES_MODEL_PATTERN = /^(?:gpt-5(?:[.-]|$)|o[1-9](?:[.-]|$))/i;

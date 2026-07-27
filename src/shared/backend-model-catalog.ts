@@ -51,6 +51,7 @@ export const BACKEND_MODEL_CATALOG: Record<
     { id: 'qwen/qwen3-coder:free', name: 'Qwen3 Coder (Free)' },
     { id: 'nvidia/nemotron-3-super-120b-a12b:free', name: 'Nemotron 3 Super (Free)' },
     { id: 'poolside/laguna-m.1:free', name: 'Laguna M.1 (Free)' },
+    { id: 'moonshotai/kimi-k3', name: 'Kimi K3' },
     { id: 'anthropic/claude-fable-5', name: 'Claude Fable 5' },
     { id: 'anthropic/claude-opus-5', name: 'Claude Opus 5' },
     { id: 'anthropic/claude-opus-4.8', name: 'Claude Opus 4.8' },
