@@ -77,6 +77,7 @@ describe('Config File Sync', () => {
     it('does not contain sensitive fields', () => {
       const sensitiveFields = [
         'apiKey',
+        'openRouterUserApiKey',
         'baseUrl',
         'profiles',
         'configSets',

@@ -16,6 +16,7 @@ import {
   normalizeAutoModelPreference,
   type AutoModelPreference,
 } from '../../shared/auto-model';
+import { hasOpenRouterUserApiKey } from '../../shared/openrouter-user-key';
 
 const isElectron = typeof window !== 'undefined' && window.electronAPI !== undefined;
 
@@ -65,6 +66,8 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
   const appConfig = useAppStore((state) => state.appConfig);
   const setAppConfig = useAppStore((state) => state.setAppConfig);
   const setIsConfigured = useAppStore((state) => state.setIsConfigured);
+  const setShowSettings = useAppStore((state) => state.setShowSettings);
+  const setSettingsTab = useAppStore((state) => state.setSettingsTab);
   // Only models whose providers have API keys (from backend GET /models).
   const [models, setModels] = useState<BackendModelInfo[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -72,6 +75,12 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
   const [isSaving, setIsSaving] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const reconcileKeyRef = useRef<string | null>(null);
+
+  const hasOpenRouterKey = hasOpenRouterUserApiKey(appConfig?.openRouterUserApiKey);
+  const usableModels = useMemo(
+    () => (hasOpenRouterKey ? models : models.filter((m) => m.provider !== 'openrouter')),
+    [hasOpenRouterKey, models]
+  );
 
   const isAutoSelected = isAutoModelId(appConfig?.model);
   const autoPreference = normalizeAutoModelPreference(appConfig?.autoModelPreference);
@@ -139,13 +148,13 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
     if (!appConfig?.model || isAutoModelId(appConfig.model)) return null;
     if (isBackendManagedProvider(appConfig.provider)) {
       return (
-        models.find(
+        usableModels.find(
           (model) => model.provider === appConfig.provider && model.id === appConfig.model
         ) || null
       );
     }
     return null;
-  }, [appConfig?.model, appConfig?.provider, models]);
+  }, [appConfig?.model, appConfig?.provider, usableModels]);
 
   const saveConfig = useCallback(
     async (payload: Partial<AppConfig>) => {
@@ -168,20 +177,24 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
       autoModelPreference: autoPreference,
       apiKey: BACKEND_PROXY_PLACEHOLDER_KEY,
     };
-    if (isBackendManagedProvider(appConfig?.provider)) {
-      payload.provider = appConfig!.provider;
-      payload.activeProfileKey = profileKeyForProvider(appConfig!.provider as BackendCloudProvider);
+    const currentProvider = appConfig?.provider;
+    const canKeepProvider =
+      isBackendManagedProvider(currentProvider) &&
+      !(currentProvider === 'openrouter' && !hasOpenRouterKey);
+    if (canKeepProvider) {
+      payload.provider = currentProvider!;
+      payload.activeProfileKey = profileKeyForProvider(currentProvider as BackendCloudProvider);
       payload.customProtocol =
-        appConfig!.provider === 'gemini'
+        currentProvider === 'gemini'
           ? 'gemini'
-          : appConfig!.provider === 'openai' || appConfig!.provider === 'openrouter'
+          : currentProvider === 'openai' || currentProvider === 'openrouter'
             ? 'openai'
             : 'anthropic';
     } else {
       // Prefer a cloud provider so Auto can route via the local proxy.
       const preferred =
-        pickFallbackModel(models)?.provider ||
-        (PROVIDER_ORDER.find((p) => models.some((m) => m.provider === p)) ?? 'anthropic');
+        pickFallbackModel(usableModels)?.provider ||
+        (PROVIDER_ORDER.find((p) => usableModels.some((m) => m.provider === p)) ?? 'anthropic');
       payload.provider = preferred;
       payload.activeProfileKey = profileKeyForProvider(preferred);
       payload.customProtocol =
@@ -194,7 +207,7 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
     payload = applyBackendManagedCredentials(payload);
     await saveConfig(payload);
     setIsOpen(false);
-  }, [appConfig, autoPreference, models, saveConfig]);
+  }, [appConfig, autoPreference, hasOpenRouterKey, usableModels, saveConfig]);
 
   const handleSelectPreference = useCallback(
     async (preference: AutoModelPreference) => {
@@ -214,13 +227,19 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
 
   const handleSelect = useCallback(
     async (model: BackendModelInfo) => {
+      if (model.provider === 'openrouter' && !hasOpenRouterKey) {
+        setShowSettings(true);
+        setSettingsTab('general');
+        setIsOpen(false);
+        return;
+      }
       let payload: Partial<AppConfig> = {
         provider: model.provider,
         activeProfileKey: profileKeyForProvider(model.provider),
         customProtocol:
           model.provider === 'gemini'
             ? 'gemini'
-            : model.provider === 'openai'
+            : model.provider === 'openai' || model.provider === 'openrouter'
               ? 'openai'
               : 'anthropic',
         model: model.id,
@@ -230,14 +249,14 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
       await saveConfig(payload);
       setIsOpen(false);
     },
-    [saveConfig]
+    [hasOpenRouterKey, saveConfig, setSettingsTab, setShowSettings]
   );
 
-  // When the configured cloud model isn't in the backend catalog (e.g. Anthropic
-  // key missing so Claude models are omitted), fall back to the first available
-  // concrete model. Never overwrite a selection with Auto — Auto is opt-in only.
+  // When the configured cloud model isn't usable (missing from catalog or OpenRouter
+  // without BYOK), fall back to the first available concrete model. Never overwrite
+  // a selection with Auto — Auto is opt-in only.
   useEffect(() => {
-    if (!isElectron || isLoading || isSaving || models.length === 0 || !appConfig) return;
+    if (!isElectron || isLoading || isSaving || usableModels.length === 0 || !appConfig) return;
     // Virtual Auto model is not in the backend catalog; leave it alone.
     if (isAutoModelId(appConfig.model)) {
       reconcileKeyRef.current = null;
@@ -245,7 +264,7 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
     }
     if (!isBackendManagedProvider(appConfig.provider)) return;
 
-    const currentAvailable = models.some(
+    const currentAvailable = usableModels.some(
       (model) => model.provider === appConfig.provider && model.id === appConfig.model
     );
     if (currentAvailable) {
@@ -253,18 +272,18 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
       return;
     }
 
-    const fallback = pickFallbackModel(models, appConfig.provider);
+    const fallback = pickFallbackModel(usableModels, appConfig.provider);
     if (!fallback) return;
 
     const reconcileKey = `${fallback.provider}::${fallback.id}`;
     if (reconcileKeyRef.current === reconcileKey) return;
     reconcileKeyRef.current = reconcileKey;
     void handleSelect(fallback);
-  }, [appConfig, handleSelect, isLoading, isSaving, models]);
+  }, [appConfig, handleSelect, isLoading, isSaving, usableModels]);
 
   const pendingFallback =
     !isAutoSelected && !selectedModel && isBackendManagedProvider(appConfig?.provider)
-      ? pickFallbackModel(models, appConfig?.provider)
+      ? pickFallbackModel(usableModels, appConfig?.provider)
       : null;
 
   const displayName = isAutoSelected
@@ -379,11 +398,26 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
             {PROVIDER_ORDER.map((provider) => {
               const items = groupedModels[provider];
               if (items.length === 0) return null;
+              const openRouterDisabled = provider === 'openrouter' && !hasOpenRouterKey;
               return (
                 <div key={provider} className="px-1.5 py-1">
                   <div className="px-2.5 pb-1 pt-1.5 text-[11px] font-medium tracking-[0.04em] text-text-muted">
                     {PROVIDER_LABELS[provider]}
+                    {openRouterDisabled ? ' · key required' : ''}
                   </div>
+                  {openRouterDisabled && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowSettings(true);
+                        setSettingsTab('general');
+                        setIsOpen(false);
+                      }}
+                      className="mb-1 w-full rounded-xl px-2.5 py-2 text-left text-[12px] text-accent hover:bg-surface-hover"
+                    >
+                      Add OpenRouter key for free models (Settings)
+                    </button>
+                  )}
                   <div className="space-y-0.5">
                     {items.map((model) => {
                       const isSelected =
@@ -395,19 +429,25 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
                           type="button"
                           role="option"
                           aria-selected={isSelected}
+                          aria-disabled={openRouterDisabled}
+                          disabled={openRouterDisabled}
                           onClick={() => {
                             void handleSelect(model);
                           }}
                           className={`flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left transition-colors ${
-                            isSelected
-                              ? 'bg-accent-muted text-accent'
-                              : 'text-text-primary hover:bg-surface-hover'
+                            openRouterDisabled
+                              ? 'cursor-not-allowed text-text-muted opacity-50'
+                              : isSelected
+                                ? 'bg-accent-muted text-accent'
+                                : 'text-text-primary hover:bg-surface-hover'
                           }`}
                         >
                           <span className="whitespace-nowrap text-[13px] font-medium">
                             {shortModelName(model.name, model.id)}
                           </span>
-                          {isSelected && <Check className="h-3.5 w-3.5 shrink-0" />}
+                          {isSelected && !openRouterDisabled && (
+                            <Check className="h-3.5 w-3.5 shrink-0" />
+                          )}
                         </button>
                       );
                     })}
@@ -419,6 +459,11 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
             {!isLoading && models.length === 0 && (
               <div className="px-4 py-2 text-[11px] leading-snug text-text-muted">
                 No provider keys configured
+              </div>
+            )}
+            {!isLoading && !hasOpenRouterKey && models.some((m) => m.provider === 'openrouter') && (
+              <div className="border-t border-border-subtle px-4 py-2 text-[11px] leading-snug text-text-muted">
+                Free OpenRouter models need your key. Limits: &lt;$10 → 50/day; $10+ → 1000/day.
               </div>
             )}
           </div>

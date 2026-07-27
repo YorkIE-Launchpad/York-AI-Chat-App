@@ -42,8 +42,13 @@ import {
 } from 'lucide-react';
 import type { TraceStep, MCPServerInfo, ContentBlock, ToolUseContent } from '../types';
 import { getMcpToolDisplayName } from './message/toolHelpers';
+import { mergeDefaultMcpServerStatuses } from '../../shared/mcp-defaults';
 
 const EMPTY_STEPS: TraceStep[] = [];
+
+function normalizeMcpServers(servers: MCPServerInfo[] | null | undefined): MCPServerInfo[] {
+  return mergeDefaultMcpServerStatuses(servers || []);
+}
 
 export function ContextPanel() {
   const { t } = useTranslation();
@@ -58,7 +63,7 @@ export function ContextPanel() {
   const { getMCPServers, changeWorkingDir } = useIPC();
   const [artifactsOpen, setArtifactsOpen] = useState(true);
   const [expandedConnector, setExpandedConnector] = useState<string | null>(null);
-  const [mcpServers, setMcpServers] = useState<MCPServerInfo[]>([]);
+  const [mcpServers, setMcpServers] = useState<MCPServerInfo[]>(() => normalizeMcpServers([]));
   const [copiedPath, setCopiedPath] = useState(false);
   const [isChangingDir, setIsChangingDir] = useState(false);
   const [recentWorkspaceFiles, setRecentWorkspaceFiles] = useState<
@@ -270,7 +275,7 @@ export function ContextPanel() {
     const loadMCPServers = async () => {
       try {
         const servers = await getMCPServers();
-        setMcpServers(servers || []);
+        setMcpServers(normalizeMcpServers(servers));
       } catch (error) {
         console.error('Failed to load MCP servers:', error);
       }
@@ -558,7 +563,7 @@ export function ContextPanel() {
                   }
                   onStatusChange={async () => {
                     const servers = await getMCPServers();
-                    setMcpServers(servers || []);
+                    setMcpServers(normalizeMcpServers(servers));
                   }}
                 />
               ))}
@@ -622,6 +627,20 @@ function ConnectorItem({
     (s) => s.toolName?.startsWith('mcp__') && mcpToolsUsed.includes(s.toolName)
   ).length;
 
+  const statusLabel = isConnecting
+    ? t('mcp.connecting')
+    : status === 'failed'
+      ? t('mcp.failed')
+      : isConnected
+        ? t('mcp.connected')
+        : t('mcp.disabled');
+
+  const statusSubtitle = isConnected
+    ? `${statusLabel} • ${t('mcp.toolCount', { count: server.toolCount })}${
+        usageCount > 0 ? ` • ${t('mcp.callCount', { count: usageCount })}` : ''
+      }`
+    : statusLabel;
+
   const runAction = async (action: 'connect' | 'disconnect' | 'reconnect') => {
     if (actionInFlight) return;
     setActionInFlight(action);
@@ -679,34 +698,13 @@ function ConnectorItem({
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-sm font-medium text-text-primary truncate">{server.name}</span>
           </div>
-          {isConnected && (
-            <p className="text-xs text-text-muted">
-              {t('mcp.toolCount', { count: server.toolCount })}
-              {usageCount > 0 && ` • ${t('mcp.callCount', { count: usageCount })}`}
-            </p>
-          )}
+          <p className="text-xs text-text-muted truncate">{statusSubtitle}</p>
         </div>
         <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
           <span
             className={`w-2 h-2 rounded-full ${statusDotClass}`}
-            title={
-              isConnecting
-                ? t('mcp.connecting')
-                : status === 'failed'
-                  ? t('mcp.failed')
-                  : isConnected
-                    ? t('mcp.connected')
-                    : t('mcp.notConnected')
-            }
-            aria-label={
-              isConnecting
-                ? t('mcp.connecting')
-                : status === 'failed'
-                  ? t('mcp.failed')
-                  : isConnected
-                    ? t('mcp.connected')
-                    : t('mcp.notConnected')
-            }
+            title={statusLabel}
+            aria-label={statusLabel}
           />
           {(showConnect || showDisconnect || showReconnect || actionInFlight) && (
             <div className="flex items-center gap-0.5">

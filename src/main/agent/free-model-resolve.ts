@@ -1,6 +1,6 @@
 /**
  * Resolve a free / low-cost model for offloaded child agents (MCP run, spawn_subagent).
- * Preference: openrouter/free → any OpenRouter *:free → Auto eco → parent config.
+ * Preference: openrouter/free (when user BYOK present) → any OpenRouter *:free → Auto eco → parent.
  */
 import { pickAutoModel, scorePromptComplexity } from '../../shared/auto-model';
 import {
@@ -9,7 +9,10 @@ import {
   type BackendCloudProvider,
   type BackendModelInfo,
 } from '../../shared/backend-config';
+import { filterModelsForOpenRouterKey } from '../../shared/openrouter-fallback';
+import { hasOpenRouterUserApiKey } from '../../shared/openrouter-user-key';
 import { fetchBackendModels } from '../config/backend-client';
+import { configStore } from '../config/config-store';
 import { log, logWarn } from '../utils/logger';
 import { resolveAutoModelIfNeeded } from './auto-model-resolve';
 
@@ -110,16 +113,24 @@ export async function resolveFreeModelForChild(options: {
   promptText?: string;
   enabledModels?: BackendModelInfo[];
   parent?: ParentModelFallback;
+  /** When omitted, reads from config store. */
+  openRouterUserApiKey?: string | null;
 }): Promise<FreeModelResolveResult> {
-  const enabledModels = await getEnabledModels(options.enabledModels);
-  const freePick = pickFreeOpenRouterModel(enabledModels);
+  const openRouterUserApiKey =
+    options.openRouterUserApiKey !== undefined
+      ? options.openRouterUserApiKey
+      : configStore.getAll().openRouterUserApiKey;
+  const rawModels = await getEnabledModels(options.enabledModels);
+  const enabledModels = filterModelsForOpenRouterKey(rawModels, openRouterUserApiKey);
+  const canUseOpenRouter = hasOpenRouterUserApiKey(openRouterUserApiKey);
+  const freePick = canUseOpenRouter ? pickFreeOpenRouterModel(enabledModels) : null;
 
   if (freePick) {
     log(`[FreeModel] Using ${freePick.model.provider}/${freePick.model.id} (${freePick.strategy})`);
     return withOpenRouterCreds(freePick.model.id, freePick.strategy);
   }
 
-  // No free OpenRouter models in catalog — try Auto with eco preference.
+  // No free OpenRouter models available (or no BYOK) — try Auto with eco preference.
   const ecoRoute = await resolveAutoModelIfNeeded({
     model: 'auto',
     preference: 'eco',

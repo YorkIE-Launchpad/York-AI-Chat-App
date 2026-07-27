@@ -39,6 +39,8 @@ import { PluginCatalogService } from './skills/plugin-catalog-service';
 import { PluginRuntimeService } from './skills/plugin-runtime-service';
 import { MemoryService } from './memory/memory-service';
 import { MemoryExtension } from './memory/memory-extension';
+import { bindConnectorMemoryService } from './connectors/connector-memory';
+import { connectorManager } from './connectors/connector-manager';
 import { MeetingService } from './meetings/meeting-service';
 import { MeetingExtension } from './meetings/meeting-extension';
 import { ConfigExtension } from './config/config-extension';
@@ -96,6 +98,7 @@ import { installIpcAuthGuard } from './auth/ipc-auth-guard';
 import { warmupJwksCache } from './auth/cognito';
 import { submitViteOAuthCode, getOAuthDebugInfo, initHubOAuthRelay } from './auth/hub-oauth';
 import { authConfig } from '../shared/auth-config';
+import type { ConnectorId } from '../shared/ipc-types';
 import {
   getAuthStatus,
   startGoogleLogin,
@@ -1665,6 +1668,7 @@ app
 
     pluginRuntimeService = new PluginRuntimeService(new PluginCatalogService());
     memoryService = new MemoryService(db);
+    bindConnectorMemoryService(memoryService);
     meetingService = new MeetingService();
     meetingService.setMemoryService(memoryService);
     wireMeetingServiceEvents(meetingService);
@@ -2434,6 +2438,7 @@ ipcMain.handle('config.save', async (_event, newConfig: Partial<AppConfig>) => {
   log('[Config] Saving config:', {
     ...newConfig,
     apiKey: newConfig.apiKey ? '***' : '',
+    openRouterUserApiKey: newConfig.openRouterUserApiKey ? '***' : '',
     memoryRuntime: newConfig.memoryRuntime
       ? {
           ...newConfig.memoryRuntime,
@@ -2745,6 +2750,62 @@ ipcMain.handle('mcp.getPresets', () => {
   } catch (error) {
     logError('[MCP] Error getting presets:', error);
     return {};
+  }
+});
+
+ipcMain.handle('connectors.getStatus', () => {
+  return connectorManager.getStatuses();
+});
+
+ipcMain.handle('connectors.connect', async (_event, connectorId: ConnectorId) => {
+  try {
+    const status = await connectorManager.connect(connectorId);
+    const serverId =
+      connectorId === 'slack'
+        ? 'mcp-slack-default'
+        : connectorId === 'gmail'
+          ? 'mcp-gmail-default'
+          : 'mcp-google-drive-default';
+    const config = mcpConfigStore.getServer(serverId);
+    if (config && sessionManager) {
+      const enabledConfig = { ...config, enabled: true };
+      mcpConfigStore.saveServer(enabledConfig);
+      await sessionManager.getMCPManager().updateServer(enabledConfig);
+      sessionManager.invalidateMcpServersCache();
+    }
+    return { success: true, status };
+  } catch (error) {
+    logError('[Connectors] Error connecting connector:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+});
+
+ipcMain.handle('connectors.disconnect', async (_event, connectorId: ConnectorId) => {
+  try {
+    connectorManager.disconnect(connectorId);
+    const serverId =
+      connectorId === 'slack'
+        ? 'mcp-slack-default'
+        : connectorId === 'gmail'
+          ? 'mcp-gmail-default'
+          : 'mcp-google-drive-default';
+    const config = mcpConfigStore.getServer(serverId);
+    if (config && sessionManager) {
+      const disabledConfig = { ...config, enabled: false };
+      mcpConfigStore.saveServer(disabledConfig);
+      await sessionManager.getMCPManager().updateServer(disabledConfig);
+      sessionManager.invalidateMcpServersCache();
+    }
+    return { success: true };
+  } catch (error) {
+    logError('[Connectors] Error disconnecting connector:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
   }
 });
 

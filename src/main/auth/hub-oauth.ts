@@ -1,10 +1,10 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { BrowserWindow } from 'electron';
 import { authConfig } from '../../shared/auth-config';
 import { parseHubAuthResponse } from './hub-parse';
 import { log } from '../utils/logger';
 import type { AuthOAuthDebugInfo } from '../../shared/auth-types';
+import { closeOAuthBrowserWindow, openOAuthBrowserWindow } from './oauth-browser-window';
 import {
   ensureOAuthCodeRelayServer,
   getOAuthRelayBaseUrl,
@@ -81,34 +81,6 @@ export function buildOAuthSuccessHtml(title: string, body: string): string {
     })();
   </script>
 </body></html>`;
-}
-
-let oauthBrowserWindow: BrowserWindow | null = null;
-
-function closeOAuthBrowserWindow(): void {
-  if (oauthBrowserWindow && !oauthBrowserWindow.isDestroyed()) {
-    oauthBrowserWindow.close();
-  }
-  oauthBrowserWindow = null;
-}
-
-function openOAuthBrowserWindow(authUrl: string): void {
-  closeOAuthBrowserWindow();
-  oauthBrowserWindow = new BrowserWindow({
-    width: 520,
-    height: 720,
-    show: true,
-    autoHideMenuBar: true,
-    title: 'Sign in',
-    webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true,
-    },
-  });
-  oauthBrowserWindow.on('closed', () => {
-    oauthBrowserWindow = null;
-  });
-  void oauthBrowserWindow.loadURL(authUrl);
 }
 
 export function initHubOAuthRelay(): void {

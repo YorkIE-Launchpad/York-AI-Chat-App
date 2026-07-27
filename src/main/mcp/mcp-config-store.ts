@@ -5,19 +5,44 @@ import * as crypto from 'crypto';
 import path from 'path';
 import type { MCPServerConfig } from './mcp-manager';
 import { authConfig } from '../../shared/auth-config';
+import {
+  DEFAULT_CHROME_MCP_NAME,
+  DEFAULT_CHROME_MCP_SERVER_ID,
+  DEFAULT_GMAIL_MCP_NAME,
+  DEFAULT_GMAIL_MCP_SERVER_ID,
+  DEFAULT_GOOGLE_DRIVE_MCP_NAME,
+  DEFAULT_GOOGLE_DRIVE_MCP_SERVER_ID,
+  DEFAULT_GTM_PULSE_MCP_NAME,
+  DEFAULT_GTM_PULSE_MCP_SERVER_ID,
+  DEFAULT_HUB_MCP_NAME,
+  DEFAULT_HUB_MCP_SERVER_ID,
+  DEFAULT_LAUNCHPAD_MCP_NAME,
+  DEFAULT_LAUNCHPAD_MCP_SERVER_ID,
+  DEFAULT_SLACK_MCP_NAME,
+  DEFAULT_SLACK_MCP_SERVER_ID,
+} from '../../shared/mcp-defaults';
 import { log, logError } from '../utils/logger';
+
+export {
+  DEFAULT_CHROME_MCP_NAME,
+  DEFAULT_GMAIL_MCP_NAME,
+  DEFAULT_GOOGLE_DRIVE_MCP_NAME,
+  DEFAULT_HUB_MCP_NAME,
+  DEFAULT_LAUNCHPAD_MCP_NAME,
+  DEFAULT_SLACK_MCP_NAME,
+} from '../../shared/mcp-defaults';
 
 /**
  * Built-in Chrome MCP connector — seeded disabled by default; user enables in Connectors.
  */
 export const DEFAULT_CHROME_MCP_SERVER: Omit<MCPServerConfig, 'id' | 'enabled'> = {
-  name: 'Chrome',
+  name: DEFAULT_CHROME_MCP_NAME,
   type: 'stdio',
   command: 'npx',
   args: ['-y', 'chrome-devtools-mcp@latest', '--browser-url', 'http://localhost:9222'],
 };
 
-const DEFAULT_CHROME_SERVER_ID = 'mcp-chrome-default';
+const DEFAULT_CHROME_SERVER_ID = DEFAULT_CHROME_MCP_SERVER_ID;
 
 export function isChromeMcpServer(server: Pick<MCPServerConfig, 'name' | 'args'>): boolean {
   if (server.name.toLowerCase() === 'chrome') {
@@ -38,9 +63,6 @@ export function getDefaultLaunchpadMcpUrl(): string {
 /** @deprecated Use getDefaultLaunchpadMcpUrl() — kept for call sites that need a snapshot. */
 export const DEFAULT_LAUNCHPAD_MCP_URL = getDefaultLaunchpadMcpUrl();
 
-/** Display name for the built-in Launchpad connector. */
-export const DEFAULT_LAUNCHPAD_MCP_NAME = 'R&D Launchpad';
-
 export function buildDefaultLaunchpadMcpServer(): Omit<MCPServerConfig, 'id' | 'enabled'> {
   return {
     name: DEFAULT_LAUNCHPAD_MCP_NAME,
@@ -53,7 +75,7 @@ export function buildDefaultLaunchpadMcpServer(): Omit<MCPServerConfig, 'id' | '
 export const DEFAULT_LAUNCHPAD_MCP_SERVER: Omit<MCPServerConfig, 'id' | 'enabled'> =
   buildDefaultLaunchpadMcpServer();
 
-const DEFAULT_LAUNCHPAD_SERVER_ID = 'mcp-launchpad-default';
+const DEFAULT_LAUNCHPAD_SERVER_ID = DEFAULT_LAUNCHPAD_MCP_SERVER_ID;
 
 function normalizeMcpServerNameKey(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, '');
@@ -92,9 +114,6 @@ export function getDefaultHubMcpUrl(): string {
   return authConfig.hubMcpUrl;
 }
 
-/** Display name for the built-in Hub connector. */
-export const DEFAULT_HUB_MCP_NAME = 'York IE HUB';
-
 export function buildDefaultHubMcpServer(): Omit<MCPServerConfig, 'id' | 'enabled'> {
   return {
     name: DEFAULT_HUB_MCP_NAME,
@@ -106,7 +125,7 @@ export function buildDefaultHubMcpServer(): Omit<MCPServerConfig, 'id' | 'enable
 export const DEFAULT_HUB_MCP_SERVER: Omit<MCPServerConfig, 'id' | 'enabled'> =
   buildDefaultHubMcpServer();
 
-const DEFAULT_HUB_SERVER_ID = 'mcp-hub-default';
+const DEFAULT_HUB_SERVER_ID = DEFAULT_HUB_MCP_SERVER_ID;
 
 function isHubHost(value: string | undefined): boolean {
   if (!value) return false;
@@ -144,7 +163,7 @@ export function getDefaultGtmPulseMcpUrl(): string {
 
 export function buildDefaultGtmPulseMcpServer(): Omit<MCPServerConfig, 'id' | 'enabled'> {
   return {
-    name: 'GTM Pulse',
+    name: DEFAULT_GTM_PULSE_MCP_NAME,
     type: 'streamable-http',
     url: getDefaultGtmPulseMcpUrl(),
   };
@@ -153,7 +172,11 @@ export function buildDefaultGtmPulseMcpServer(): Omit<MCPServerConfig, 'id' | 'e
 export const DEFAULT_GTM_PULSE_MCP_SERVER: Omit<MCPServerConfig, 'id' | 'enabled'> =
   buildDefaultGtmPulseMcpServer();
 
-const DEFAULT_GTM_PULSE_SERVER_ID = 'mcp-gtm-pulse-default';
+const DEFAULT_GTM_PULSE_SERVER_ID = DEFAULT_GTM_PULSE_MCP_SERVER_ID;
+
+const DEFAULT_SLACK_SERVER_ID = DEFAULT_SLACK_MCP_SERVER_ID;
+const DEFAULT_GMAIL_SERVER_ID = DEFAULT_GMAIL_MCP_SERVER_ID;
+const DEFAULT_GOOGLE_DRIVE_SERVER_ID = DEFAULT_GOOGLE_DRIVE_MCP_SERVER_ID;
 
 function isGtmPulseHost(value: string | undefined): boolean {
   if (!value) return false;
@@ -174,6 +197,57 @@ export function isGtmPulseMcpServer(
   const hasMcpRemote = args.some((arg) => arg.includes('mcp-remote'));
   const hasGtmPulseUrl = args.some((arg) => isGtmPulseHost(arg));
   return hasMcpRemote && hasGtmPulseUrl;
+}
+
+export function buildDefaultSlackMcpServer(): Omit<MCPServerConfig, 'id' | 'enabled'> {
+  return {
+    name: DEFAULT_SLACK_MCP_NAME,
+    type: 'stdio',
+    command: 'node',
+    args: ['{SLACK_CONNECTOR_SERVER_PATH}'],
+    env: {},
+  };
+}
+
+export function buildDefaultGmailMcpServer(): Omit<MCPServerConfig, 'id' | 'enabled'> {
+  return {
+    name: DEFAULT_GMAIL_MCP_NAME,
+    type: 'stdio',
+    command: 'node',
+    args: ['{GMAIL_CONNECTOR_SERVER_PATH}'],
+    env: {},
+  };
+}
+
+export function buildDefaultGoogleDriveMcpServer(): Omit<MCPServerConfig, 'id' | 'enabled'> {
+  return {
+    name: DEFAULT_GOOGLE_DRIVE_MCP_NAME,
+    type: 'stdio',
+    command: 'node',
+    args: ['{GOOGLE_DRIVE_CONNECTOR_SERVER_PATH}'],
+    env: {},
+  };
+}
+
+export function isSlackMcpServer(server: Pick<MCPServerConfig, 'name' | 'args'>): boolean {
+  return (
+    server.name.toLowerCase() === DEFAULT_SLACK_MCP_NAME.toLowerCase() ||
+    Boolean(server.args?.some((arg) => arg.includes('slack-connector-server')))
+  );
+}
+
+export function isGmailMcpServer(server: Pick<MCPServerConfig, 'name' | 'args'>): boolean {
+  return (
+    server.name.toLowerCase() === DEFAULT_GMAIL_MCP_NAME.toLowerCase() ||
+    Boolean(server.args?.some((arg) => arg.includes('gmail-connector-server')))
+  );
+}
+
+export function isGoogleDriveMcpServer(server: Pick<MCPServerConfig, 'name' | 'args'>): boolean {
+  return (
+    server.name.toLowerCase() === DEFAULT_GOOGLE_DRIVE_MCP_NAME.toLowerCase() ||
+    Boolean(server.args?.some((arg) => arg.includes('google-drive-connector-server')))
+  );
 }
 
 /**
@@ -279,7 +353,7 @@ class MCPConfigStore {
 
   /**
    * Delete a server configuration.
-   * Built-in Chrome / Launchpad / Hub / GTM Pulse MCP cannot be removed.
+   * Built-in Chrome / Launchpad / Hub / GTM Pulse / connector MCP cannot be removed.
    */
   deleteServer(serverId: string): boolean {
     const servers = this.getServers();
@@ -298,6 +372,13 @@ class MCPConfigStore {
     }
     if (target && isGtmPulseMcpServer(target)) {
       log('[MCPConfigStore] Refusing to delete built-in GTM Pulse MCP connector');
+      return false;
+    }
+    if (
+      target &&
+      (isSlackMcpServer(target) || isGmailMcpServer(target) || isGoogleDriveMcpServer(target))
+    ) {
+      log('[MCPConfigStore] Refusing to delete built-in connector MCP');
       return false;
     }
     const filtered = servers.filter((s) => s.id !== serverId);
@@ -459,6 +540,79 @@ class MCPConfigStore {
     return gtmPulseServer;
   }
 
+  ensureDefaultSlackServer(): MCPServerConfig {
+    const desired = buildDefaultSlackMcpServer();
+    const existing = this.getServers().find(isSlackMcpServer);
+    if (existing) {
+      if (
+        existing.id === DEFAULT_SLACK_SERVER_ID &&
+        (existing.command !== desired.command || existing.name !== desired.name)
+      ) {
+        const migrated: MCPServerConfig = {
+          id: existing.id,
+          enabled: existing.enabled,
+          ...desired,
+        };
+        this.saveServer(migrated);
+        return migrated;
+      }
+      return existing;
+    }
+    const server: MCPServerConfig = { ...desired, id: DEFAULT_SLACK_SERVER_ID, enabled: false };
+    this.saveServer(server);
+    return server;
+  }
+
+  ensureDefaultGmailServer(): MCPServerConfig {
+    const desired = buildDefaultGmailMcpServer();
+    const existing = this.getServers().find(isGmailMcpServer);
+    if (existing) {
+      if (
+        existing.id === DEFAULT_GMAIL_SERVER_ID &&
+        (existing.command !== desired.command || existing.name !== desired.name)
+      ) {
+        const migrated: MCPServerConfig = {
+          id: existing.id,
+          enabled: existing.enabled,
+          ...desired,
+        };
+        this.saveServer(migrated);
+        return migrated;
+      }
+      return existing;
+    }
+    const server: MCPServerConfig = { ...desired, id: DEFAULT_GMAIL_SERVER_ID, enabled: false };
+    this.saveServer(server);
+    return server;
+  }
+
+  ensureDefaultGoogleDriveServer(): MCPServerConfig {
+    const desired = buildDefaultGoogleDriveMcpServer();
+    const existing = this.getServers().find(isGoogleDriveMcpServer);
+    if (existing) {
+      if (
+        existing.id === DEFAULT_GOOGLE_DRIVE_SERVER_ID &&
+        (existing.command !== desired.command || existing.name !== desired.name)
+      ) {
+        const migrated: MCPServerConfig = {
+          id: existing.id,
+          enabled: existing.enabled,
+          ...desired,
+        };
+        this.saveServer(migrated);
+        return migrated;
+      }
+      return existing;
+    }
+    const server: MCPServerConfig = {
+      ...desired,
+      id: DEFAULT_GOOGLE_DRIVE_SERVER_ID,
+      enabled: false,
+    };
+    this.saveServer(server);
+    return server;
+  }
+
   /**
    * Get preset configurations
    */
@@ -538,6 +692,18 @@ class MCPConfigStore {
     return this.getMcpServerPath('gui-operate-server.ts');
   }
 
+  private getSlackConnectorServerPath(): string | null {
+    return this.getMcpServerPath('slack-connector-server.ts');
+  }
+
+  private getGmailConnectorServerPath(): string | null {
+    return this.getMcpServerPath('gmail-connector-server.ts');
+  }
+
+  private getGoogleDriveConnectorServerPath(): string | null {
+    return this.getMcpServerPath('google-drive-connector-server.ts');
+  }
+
   /**
    * Create a server config from a preset
    */
@@ -561,6 +727,15 @@ class MCPConfigStore {
           // GUI Operate server path
           if (arg === '{GUI_OPERATE_SERVER_PATH}') {
             return this.getGuiOperateServerPath() || arg;
+          }
+          if (arg === '{SLACK_CONNECTOR_SERVER_PATH}') {
+            return this.getSlackConnectorServerPath() || arg;
+          }
+          if (arg === '{GMAIL_CONNECTOR_SERVER_PATH}') {
+            return this.getGmailConnectorServerPath() || arg;
+          }
+          if (arg === '{GOOGLE_DRIVE_CONNECTOR_SERVER_PATH}') {
+            return this.getGoogleDriveConnectorServerPath() || arg;
           }
           return arg;
         }),

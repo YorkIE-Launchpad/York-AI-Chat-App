@@ -84,9 +84,10 @@ describe('resolveFreeModelForChild', () => {
     clearFreeModelCatalogCache();
   });
 
-  it('resolves openrouter/free from catalog', async () => {
+  it('resolves openrouter/free from catalog when user key present', async () => {
     const result = await resolveFreeModelForChild({
       promptText: 'list leave requests',
+      openRouterUserApiKey: 'sk-or-test',
       enabledModels: [
         { id: OPENROUTER_FREE_ROUTER_ID, name: 'Free', provider: 'openrouter' },
         { id: 'claude-sonnet-5', name: 'Sonnet', provider: 'anthropic' },
@@ -99,9 +100,23 @@ describe('resolveFreeModelForChild', () => {
     expect(result.baseUrl).toContain('/openrouter');
   });
 
+  it('skips OpenRouter when user key is missing', async () => {
+    const result = await resolveFreeModelForChild({
+      promptText: 'list leave requests',
+      openRouterUserApiKey: '',
+      enabledModels: [
+        { id: OPENROUTER_FREE_ROUTER_ID, name: 'Free', provider: 'openrouter' },
+        { id: 'claude-sonnet-5', name: 'Sonnet', provider: 'anthropic' },
+      ],
+    });
+    expect(result.strategy).toBe('eco-auto');
+    expect(result.provider).toBe('anthropic');
+  });
+
   it('falls back to eco Auto when no free models', async () => {
     const result = await resolveFreeModelForChild({
       promptText: 'hi',
+      openRouterUserApiKey: '',
       enabledModels: [{ id: 'claude-haiku-4-5', name: 'Haiku', provider: 'anthropic' }],
       parent: { model: 'auto', autoModelPreference: 'balanced' },
     });

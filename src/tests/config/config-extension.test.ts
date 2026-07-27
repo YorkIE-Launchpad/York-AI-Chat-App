@@ -394,6 +394,7 @@ describe('config-extension', () => {
   describe('isKeyBlocked (blocklist pattern matching)', () => {
     it('blocks the explicit top-level sensitive fields', () => {
       expect(isKeyBlocked('apiKey')).toBe(true);
+      expect(isKeyBlocked('openRouterUserApiKey')).toBe(true);
       expect(isKeyBlocked('profiles')).toBe(true);
       expect(isKeyBlocked('configSets')).toBe(true);
       expect(isKeyBlocked('memoryRuntime')).toBe(true);

@@ -862,6 +862,8 @@ export interface AppConfig {
   sandboxEnabled?: boolean;
   memoryEnabled?: boolean;
   memoryRuntime?: MemoryRuntimeConfig;
+  /** User OpenRouter BYOK key; required to use OpenRouter models. */
+  openRouterUserApiKey?: string;
   meetingsEnabled?: boolean;
   meetingsRuntime?: MeetingsRuntimeConfig;
   enableThinking?: boolean;

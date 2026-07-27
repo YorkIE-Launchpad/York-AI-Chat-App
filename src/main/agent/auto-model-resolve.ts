@@ -16,7 +16,9 @@ import {
   type BackendCloudProvider,
   type BackendModelInfo,
 } from '../../shared/backend-config';
+import { filterModelsForOpenRouterKey } from '../../shared/openrouter-fallback';
 import { fetchBackendModels } from '../config/backend-client';
+import { configStore } from '../config/config-store';
 import { log } from '../utils/logger';
 
 export interface AutoResolveInput {
@@ -28,6 +30,8 @@ export interface AutoResolveInput {
   contextChars?: number;
   /** Optional prefetched catalog; fetched from backend when omitted. */
   enabledModels?: BackendModelInfo[];
+  /** When omitted, reads from config store. */
+  openRouterUserApiKey?: string | null;
 }
 
 export interface AutoResolveResult {
@@ -88,7 +92,12 @@ export async function resolveAutoModelIfNeeded(
     messageCount: input.messageCount,
     contextChars: input.contextChars,
   });
-  const enabledModels = await getEnabledModels(input.enabledModels);
+  const rawModels = await getEnabledModels(input.enabledModels);
+  const openRouterUserApiKey =
+    input.openRouterUserApiKey !== undefined
+      ? input.openRouterUserApiKey
+      : configStore.getAll().openRouterUserApiKey;
+  const enabledModels = filterModelsForOpenRouterKey(rawModels, openRouterUserApiKey);
   const pick = pickAutoModel(enabledModels, score, preference, {
     requireVision: Boolean(input.hasImages),
   });

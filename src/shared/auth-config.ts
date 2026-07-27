@@ -124,6 +124,41 @@ export const authConfig = {
       readEnv('VECOS_OAUTH_RELAY_PORT') ?? readEnv('VITE_VECOS_OAUTH_RELAY_PORT') ?? '19890';
     return `http://127.0.0.1:${port}`;
   },
+  /**
+   * Fixed loopback port for Slack / Gmail / Drive connector OAuth callbacks.
+   * Register `http://127.0.0.1:<port>/callback` in Slack and Google consoles.
+   */
+  get connectorOauthCallbackPort(): number {
+    const raw =
+      readEnv('CONNECTOR_OAUTH_CALLBACK_PORT') ??
+      readEnv('VITE_CONNECTOR_OAUTH_CALLBACK_PORT') ??
+      '19891';
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 19891;
+  },
+  get connectorOauthRedirectUri(): string {
+    return `http://127.0.0.1:${this.connectorOauthCallbackPort}/callback`;
+  },
+  get slackClientId(): string | undefined {
+    return readEnv('SLACK_CLIENT_ID') ?? readEnv('VITE_SLACK_CLIENT_ID');
+  },
+  get slackClientSecret(): string | undefined {
+    return readEnv('SLACK_CLIENT_SECRET') ?? readEnv('VITE_SLACK_CLIENT_SECRET');
+  },
+  get googleConnectorClientId(): string | undefined {
+    return (
+      readEnv('GOOGLE_CONNECTOR_CLIENT_ID') ??
+      readEnv('GOOGLE_CLIENT_ID') ??
+      readEnv('VITE_GOOGLE_CONNECTOR_CLIENT_ID')
+    );
+  },
+  get googleConnectorClientSecret(): string | undefined {
+    return (
+      readEnv('GOOGLE_CONNECTOR_CLIENT_SECRET') ??
+      readEnv('GOOGLE_CLIENT_SECRET') ??
+      readEnv('VITE_GOOGLE_CONNECTOR_CLIENT_SECRET')
+    );
+  },
 };
 
 /** POST target for browser OAuth callback (same-origin via Vite proxy in dev). */

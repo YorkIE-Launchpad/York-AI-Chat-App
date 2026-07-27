@@ -60,6 +60,16 @@ export type McpPresetsMap = Record<
   }
 >;
 
+export type ConnectorId = 'slack' | 'gmail' | 'google-drive';
+
+export interface ConnectorStatus {
+  connectorId: ConnectorId;
+  connected: boolean;
+  accountEmail?: string | null;
+  accountName?: string | null;
+  workspaceName?: string | null;
+}
+
 // ---------------------------------------------------------------------------
 // Remote
 // ---------------------------------------------------------------------------

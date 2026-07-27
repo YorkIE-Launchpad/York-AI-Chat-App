@@ -30,6 +30,21 @@ import {
   resolveSyntheticPiModelFallback,
 } from './pi-model-resolution';
 import { getSharedAuthStorage, ModelRegistry } from './shared-auth';
+import { fetchBackendModels } from '../config/backend-client';
+import {
+  filterModelsForOpenRouterKey,
+  resolveYorkPaidEcoFallback,
+} from '../../shared/openrouter-fallback';
+import {
+  isOpenRouterAccountLimitError,
+  openRouterKeyRequiredMessage,
+  openRouterLimitUserMessage,
+} from '../../shared/openrouter-limit';
+import {
+  OPENROUTER_LIMIT_FALLBACK_NOTE,
+  hasOpenRouterUserApiKey,
+  withOpenRouterUserKeyHeader,
+} from '../../shared/openrouter-user-key';
 import { v4 as uuidv4 } from 'uuid';
 
 export const MAX_CHILD_TIMEOUT_MS = 300_000;
@@ -238,6 +253,15 @@ async function resolveChildPiModel(options: {
 
   if (!piModel) return null;
 
+  if (provider === 'openrouter') {
+    const userKey = config.openRouterUserApiKey?.trim();
+    if (!hasOpenRouterUserApiKey(userKey)) {
+      log(`[ChildAgent] OpenRouter selected but no user key configured`);
+      return null;
+    }
+    piModel = withOpenRouterUserKeyHeader(piModel, userKey);
+  }
+
   const runtimeApiKey = (
     await resolveBackendClientApiKey({
       provider,
@@ -348,15 +372,20 @@ export async function runChildAgentSession(
 
     const resolved = await resolveChildPiModel({ modelMode, promptText: task });
     if (!resolved) {
+      const needsOrKey = configStore.getAll().provider === 'openrouter' || modelMode === 'free';
       return {
-        text: 'Error: could not resolve model for subagent. Check provider/model config.',
+        text:
+          needsOrKey && !hasOpenRouterUserApiKey(configStore.getAll().openRouterUserApiKey)
+            ? `Error: ${openRouterKeyRequiredMessage()}`
+            : 'Error: could not resolve model for subagent. Check provider/model config.',
         subagentId,
         durationMs: Date.now() - startTime,
         error: 'model',
       };
     }
 
-    const { piModel } = resolved;
+    let { piModel } = resolved;
+    let activeProvider = resolved.provider;
     const authStorage = getSharedAuthStorage();
     const modelRegistry = new ModelRegistry(authStorage);
     const config = configStore.getAll();
@@ -527,7 +556,87 @@ export async function runChildAgentSession(
       const racers: Promise<unknown>[] = [childSession.prompt(task), timeoutPromise];
       if (parentAbortPromise) racers.push(parentAbortPromise);
 
-      await Promise.race(racers);
+      try {
+        await Promise.race(racers);
+      } catch (promptErr) {
+        const promptMessage = promptErr instanceof Error ? promptErr.message : String(promptErr);
+        if (
+          !(promptErr instanceof ChildAgentTimeoutError) &&
+          !(promptErr instanceof ParentCancelledError) &&
+          isOpenRouterAccountLimitError(activeProvider, promptMessage)
+        ) {
+          const rawModels = await fetchBackendModels();
+          const enabledModels = filterModelsForOpenRouterKey(
+            rawModels,
+            config.openRouterUserApiKey
+          );
+          const fallback = resolveYorkPaidEcoFallback({
+            enabledModels,
+            promptText: task,
+            preference: 'eco',
+          });
+          if (!fallback) {
+            throw new Error(openRouterLimitUserMessage(true));
+          }
+          log(
+            `[ChildAgent] ${OPENROUTER_LIMIT_FALLBACK_NOTE} ${fallback.provider}/${fallback.modelId}`
+          );
+          let yorkModel = resolvePiRegistryModel(fallback.modelId, {
+            configProvider: fallback.customProtocol,
+            customBaseUrl: fallback.baseUrl,
+            rawProvider: fallback.provider,
+            customProtocol: fallback.customProtocol,
+          });
+          if (!yorkModel) {
+            const synthetic = resolveSyntheticPiModelFallback({
+              rawModel: fallback.modelId,
+              resolvedModelString: fallback.modelId,
+              rawProvider: fallback.provider,
+              routeProtocol: fallback.customProtocol,
+              baseUrl: fallback.baseUrl,
+            });
+            yorkModel = buildSyntheticPiModel(
+              synthetic.modelId,
+              synthetic.provider,
+              fallback.customProtocol,
+              fallback.baseUrl,
+              inferPiApi(fallback.customProtocol)
+            );
+            yorkModel = applyPiModelRuntimeOverrides(yorkModel, {
+              configProvider: fallback.customProtocol,
+              customBaseUrl: fallback.baseUrl,
+              rawProvider: fallback.provider,
+              customProtocol: fallback.customProtocol,
+            });
+          }
+          piModel = yorkModel;
+          activeProvider = fallback.provider;
+          const yorkApiKey = (
+            await resolveBackendClientApiKey({
+              provider: fallback.provider,
+              apiKey: fallback.apiKey,
+            })
+          ).trim();
+          if (yorkApiKey) {
+            authStorage.setRuntimeApiKey(fallback.provider, yorkApiKey);
+            if (piModel.provider !== fallback.provider) {
+              authStorage.setRuntimeApiKey(piModel.provider, yorkApiKey);
+            }
+          }
+          await childSession.setModel(piModel);
+
+          // Fresh timeout for the fallback attempt (prior timeout promise may already be settled).
+          const retryTimeoutPromise = new Promise<never>((_, reject) => {
+            if (timeoutId) clearTimeout(timeoutId);
+            timeoutId = setTimeout(() => reject(new ChildAgentTimeoutError()), timeoutMs);
+          });
+          const retryRacers: Promise<unknown>[] = [childSession.prompt(task), retryTimeoutPromise];
+          if (parentAbortPromise) retryRacers.push(parentAbortPromise);
+          await Promise.race(retryRacers);
+        } else {
+          throw promptErr;
+        }
+      }
     } finally {
       if (timeoutId) clearTimeout(timeoutId);
       if (parentAbortHandler && parentSignal) {

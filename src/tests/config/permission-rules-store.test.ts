@@ -92,6 +92,14 @@ describe('permission-rules-store', () => {
       expect(decidePermission(SESSION_A, 'mcp__gtm_pulse__list_projects', {})).toBe('allow');
     });
 
+    it('returns allow for Slack, Gmail, and Google Drive MCP tools by default', () => {
+      expect(decidePermission(SESSION_A, 'mcp__Slack__list_channels', {})).toBe('allow');
+      expect(decidePermission(SESSION_A, 'mcp__Gmail__get_email', {})).toBe('allow');
+      expect(decidePermission(SESSION_A, 'mcp__Google_Drive__get_document_content', {})).toBe(
+        'allow'
+      );
+    });
+
     it('returns allow for OpenAI budget meta-tools by default', () => {
       expect(decidePermission(SESSION_A, 'mcp_run', { goal: 'list leave' })).toBe('allow');
       expect(decidePermission(SESSION_A, 'mcp_search_tools', { query: 'employee' })).toBe('allow');
@@ -171,6 +179,14 @@ describe('permission-rules-store', () => {
       setPermissionRules([{ tool: 'mcp__GTM_Pulse__get_data_availability', action: 'ask' }]);
       expect(decidePermission(SESSION_A, 'mcp__GTM_Pulse__get_data_availability', {})).toBe('ask');
       expect(decidePermission(SESSION_A, 'mcp__GTM_Pulse__list_projects', {})).toBe('allow');
+    });
+
+    it('explicit ask rule for a connector tool overrides the built-in allow', () => {
+      setPermissionRules([{ tool: 'mcp__Google_Drive__get_document_content', action: 'ask' }]);
+      expect(decidePermission(SESSION_A, 'mcp__Google_Drive__get_document_content', {})).toBe(
+        'ask'
+      );
+      expect(decidePermission(SESSION_A, 'mcp__Google_Drive__search_files', {})).toBe('allow');
     });
 
     it('explicit ask rule for webfetch overrides the built-in allow', () => {

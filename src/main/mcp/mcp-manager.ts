@@ -23,6 +23,8 @@ import { connectWithOAuthRetry, OpenCoworkMcpOAuthProvider } from './mcp-oauth';
 import { mcpOAuthStore } from './mcp-oauth-store';
 import { getCognitoBearerAuthHeader } from '../config/backend-auth';
 import { clearHubMcpAuthCache, getHubMcpAuthHeaders } from './hub-mcp-auth';
+import { connectorManager } from '../connectors/connector-manager';
+import { maybeIngestConnectorToolResult } from '../connectors/connector-memory';
 import { log, logError, logWarn, logCtx, logCtxError, logTiming } from '../utils/logger';
 import { getDefaultShell } from '../utils/shell-resolver';
 
@@ -117,6 +119,16 @@ function isHubMcpServerConfig(
   const hasMcpRemote = args.some((arg) => arg.includes('mcp-remote'));
   const hasHubUrl = args.some((arg) => /hub\.yorkdevs\.link|hub\.york\.ie/i.test(arg));
   return hasMcpRemote && hasHubUrl;
+}
+
+function getConnectorIdForServer(
+  server: Pick<MCPServerConfig, 'name'>
+): 'slack' | 'gmail' | 'google-drive' | null {
+  const lowered = server.name.trim().toLowerCase();
+  if (lowered === 'slack') return 'slack';
+  if (lowered === 'gmail') return 'gmail';
+  if (lowered === 'google drive') return 'google-drive';
+  return null;
 }
 
 /**
@@ -891,7 +903,10 @@ export class MCPManager {
         }
 
         this.connectionStatus.set(serverId, 'connecting');
-        const reconnected = await this.reconnectServer(serverId, { skipRefresh: true });
+        const reconnected = await this.reconnectServer(serverId, {
+          skipRefresh: true,
+          preserveConnectRetry: true,
+        });
         if (reconnected) {
           await this.refreshTools();
           log(`[MCPManager] Connect retry succeeded for ${currentConfig.name}`);
@@ -909,8 +924,21 @@ export class MCPManager {
         );
       }
     } finally {
-      if (this.connectRetryControllers.get(serverId) === controller) {
+      const ownsController = this.connectRetryControllers.get(serverId) === controller;
+      if (ownsController) {
         this.connectRetryControllers.delete(serverId);
+      }
+
+      // If this loop still owns the retry slot and exited without a client while enabled,
+      // settle to failed instead of leaving an indefinite connecting state.
+      const currentConfig = this.serverConfigs.get(serverId);
+      if (
+        ownsController &&
+        currentConfig?.enabled &&
+        !this.clients.has(serverId) &&
+        this.connectionStatus.get(serverId) !== 'failed'
+      ) {
+        this.connectionStatus.set(serverId, 'failed');
       }
     }
   }
@@ -972,7 +1000,10 @@ export class MCPManager {
         config.name === 'GUI_Operate' ||
         config.name === 'GUI Operate' ||
         config.name === 'Software_Development' ||
-        config.name === 'Software Development';
+        config.name === 'Software Development' ||
+        config.name === 'Slack' ||
+        config.name === 'Gmail' ||
+        config.name === 'Google Drive';
       const isOldConfig =
         (command === 'npx' || command.endsWith('/npx')) &&
         args.includes('-y') &&
@@ -999,6 +1030,15 @@ export class MCPManager {
         // GUI Operate server path
         if (arg === '{GUI_OPERATE_SERVER_PATH}') {
           return this.getGuiOperateServerPath();
+        }
+        if (arg === '{SLACK_CONNECTOR_SERVER_PATH}') {
+          return this.getMcpServerPath('slack-connector-server.ts');
+        }
+        if (arg === '{GMAIL_CONNECTOR_SERVER_PATH}') {
+          return this.getMcpServerPath('gmail-connector-server.ts');
+        }
+        if (arg === '{GOOGLE_DRIVE_CONNECTOR_SERVER_PATH}') {
+          return this.getMcpServerPath('google-drive-connector-server.ts');
         }
         return arg;
       });
@@ -1028,7 +1068,23 @@ export class MCPManager {
 
       // Get environment variables before resolving npx so Windows can prefer a
       // real system npx.cmd later in PATH over the prepended bundled runtime.
-      const env = await this.getEnhancedEnv(config.env || {});
+      const extraConnectorEnv: Record<string, string> = {};
+      const connectorId = getConnectorIdForServer(config);
+      if (connectorId) {
+        const tokenRecord = await connectorManager.ensureFreshAccessToken(connectorId);
+        if (connectorId === 'slack') {
+          extraConnectorEnv.SLACK_USER_TOKEN = tokenRecord.accessToken;
+          if (tokenRecord.accountEmail) {
+            extraConnectorEnv.SLACK_ACCOUNT_EMAIL = tokenRecord.accountEmail;
+          }
+        } else {
+          extraConnectorEnv.GOOGLE_ACCESS_TOKEN = tokenRecord.accessToken;
+          if (tokenRecord.accountEmail) {
+            extraConnectorEnv.GOOGLE_ACCOUNT_EMAIL = tokenRecord.accountEmail;
+          }
+        }
+      }
+      const env = await this.getEnhancedEnv({ ...(config.env || {}), ...extraConnectorEnv });
 
       // If command is 'npx', resolve the concrete executable path now.
       if (command === 'npx' || command.endsWith('/npx')) {
@@ -1701,8 +1757,13 @@ export class MCPManager {
   /**
    * Disconnect from a specific server
    */
-  async disconnectServer(serverId: string): Promise<void> {
-    this.cancelConnectRetry(serverId);
+  async disconnectServer(
+    serverId: string,
+    options?: { cancelRetry?: boolean; preserveStatus?: boolean }
+  ): Promise<void> {
+    if (options?.cancelRetry !== false) {
+      this.cancelConnectRetry(serverId);
+    }
 
     const client = this.clients.get(serverId);
     const transport = this.transports.get(serverId);
@@ -1736,7 +1797,11 @@ export class MCPManager {
       this.tools.delete(toolName);
     }
 
-    this.connectionStatus.delete(serverId);
+    const preserveStatus =
+      options?.preserveStatus === true || this.reconnectingServers.has(serverId);
+    if (!preserveStatus) {
+      this.connectionStatus.delete(serverId);
+    }
     this.chromeReadyServerIds.delete(serverId);
     this.chromeReadyInFlight.delete(serverId);
 
@@ -2065,6 +2130,13 @@ export class MCPManager {
         }
 
         logTiming(`MCP tool ${actualToolName}`, callStartTime);
+        await maybeIngestConnectorToolResult({
+          serverId: currentTool.serverId,
+          serverName: currentTool.serverName,
+          toolName: actualToolName,
+          args,
+          result,
+        });
         return result;
       } catch (error: unknown) {
         lastError = error;
@@ -2123,7 +2195,10 @@ export class MCPManager {
     throw lastError;
   }
 
-  async reconnectServer(serverId: string, options?: { skipRefresh?: boolean }): Promise<boolean> {
+  async reconnectServer(
+    serverId: string,
+    options?: { skipRefresh?: boolean; preserveConnectRetry?: boolean }
+  ): Promise<boolean> {
     // Prevent concurrent reconnect operations for the same server
     if (this.reconnectingServers.has(serverId)) {
       logWarn(
@@ -2141,7 +2216,10 @@ export class MCPManager {
     // Pre-set 'connecting' before disconnect to avoid status flickering to 'disabled'
     this.connectionStatus.set(serverId, 'connecting');
     try {
-      await this.disconnectServer(serverId);
+      await this.disconnectServer(serverId, {
+        cancelRetry: options?.preserveConnectRetry !== true,
+        preserveStatus: true,
+      });
       await this.connectServer(config);
       if (!options?.skipRefresh) {
         await this.refreshTools();

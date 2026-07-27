@@ -71,6 +71,8 @@ const ENV_KEY_BY_PROVIDER: Record<BackendProvider, string> = {
 };
 
 export function providerHasKey(provider: BackendProvider): boolean {
+  // OpenRouter is user-BYOK only — always list catalog entries; client gates on user key.
+  if (provider === 'openrouter') return true;
   const key = process.env[ENV_KEY_BY_PROVIDER[provider]]?.trim();
   return Boolean(key);
 }
@@ -89,6 +91,8 @@ export function listEnabledModels(): BackendModelEntry[] {
 }
 
 export function getProviderApiKey(provider: BackendProvider): string | undefined {
+  // OpenRouter never uses a server env key.
+  if (provider === 'openrouter') return undefined;
   const key = process.env[ENV_KEY_BY_PROVIDER[provider]]?.trim();
   return key || undefined;
 }

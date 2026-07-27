@@ -39,6 +39,8 @@ import type {
   McpTool,
   McpServerStatus,
   McpPresetsMap,
+  ConnectorStatus,
+  ConnectorId,
   RemoteConfig,
   GatewayConfig,
   FeishuChannelConfig,
@@ -290,6 +292,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('mcp.disconnectServer', serverId),
     reconnectServer: (serverId: string): Promise<{ success: boolean; error?: string }> =>
       ipcRenderer.invoke('mcp.reconnectServer', serverId),
+  },
+
+  connectors: {
+    getStatus: (): Promise<ConnectorStatus[]> => ipcRenderer.invoke('connectors.getStatus'),
+    connect: (
+      connectorId: ConnectorId
+    ): Promise<{ success: boolean; status?: ConnectorStatus; error?: string }> =>
+      ipcRenderer.invoke('connectors.connect', connectorId),
+    disconnect: (connectorId: ConnectorId): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('connectors.disconnect', connectorId),
   },
 
   welcome: {
@@ -717,6 +729,13 @@ declare global {
         connectServer: (serverId: string) => Promise<{ success: boolean; error?: string }>;
         disconnectServer: (serverId: string) => Promise<{ success: boolean; error?: string }>;
         reconnectServer: (serverId: string) => Promise<{ success: boolean; error?: string }>;
+      };
+      connectors: {
+        getStatus: () => Promise<ConnectorStatus[]>;
+        connect: (
+          connectorId: ConnectorId
+        ) => Promise<{ success: boolean; status?: ConnectorStatus; error?: string }>;
+        disconnect: (connectorId: ConnectorId) => Promise<{ success: boolean; error?: string }>;
       };
       welcome: {
         getQuickActions: () => Promise<WelcomeQuickActionsResponse>;

@@ -121,6 +121,9 @@ export function decidePermission(
   if (lowered.startsWith('mcp__york_ie_hub__')) return 'allow';
   if (lowered.startsWith('mcp__hub__')) return 'allow';
   if (lowered.startsWith('mcp__gtm_pulse__')) return 'allow';
+  if (lowered.startsWith('mcp__slack__')) return 'allow';
+  if (lowered.startsWith('mcp__gmail__')) return 'allow';
+  if (lowered.startsWith('mcp__google_drive__')) return 'allow';
   if (lowered === 'meeting_search') return 'allow';
   if (lowered === 'meeting_read') return 'allow';
   if (lowered === 'webfetch') return 'allow';

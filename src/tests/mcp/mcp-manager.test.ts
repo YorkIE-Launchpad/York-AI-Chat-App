@@ -36,7 +36,10 @@ type TestManagerInternals = {
   serverConfigs: Map<string, MCPServerConfig>;
   connectionStatus: Map<string, 'connecting' | 'connected' | 'failed'>;
   connectRetryControllers: Map<string, AbortController>;
-  reconnectServer?: (serverId: string, options?: { skipRefresh?: boolean }) => Promise<boolean>;
+  reconnectServer?: (
+    serverId: string,
+    options?: { skipRefresh?: boolean; preserveConnectRetry?: boolean }
+  ) => Promise<boolean>;
   startConnectRetryLoop: (config: MCPServerConfig) => void;
 };
 
@@ -451,12 +454,43 @@ describe('MCPManager', () => {
 
       await vi.advanceTimersByTimeAsync(5000);
       expect(testManager.reconnectServer).toHaveBeenCalledTimes(1);
+      expect(testManager.reconnectServer).toHaveBeenNthCalledWith(1, retryConfig.id, {
+        skipRefresh: true,
+        preserveConnectRetry: true,
+      });
 
       await vi.advanceTimersByTimeAsync(5000);
       await Promise.resolve();
 
       expect(testManager.reconnectServer).toHaveBeenCalledTimes(2);
       expect(manager.getServerStatus()[0].status).toBe('connected');
+      expect(testManager.connectRetryControllers.has(retryConfig.id)).toBe(false);
+    });
+
+    it('keeps retrying after reconnect failure and eventually marks failed', async () => {
+      const testManager = asTestManager(manager);
+      const reconnectSpy = vi.spyOn(manager, 'reconnectServer');
+      const managerInternal = manager as unknown as {
+        connectServerInternal: (config: MCPServerConfig) => Promise<void>;
+      };
+      managerInternal.connectServerInternal = vi
+        .fn()
+        .mockRejectedValue(new Error('forced connect failure for retry regression'));
+
+      testManager.startConnectRetryLoop(retryConfig);
+
+      await vi.advanceTimersByTimeAsync(15000);
+      await Promise.resolve();
+
+      expect(reconnectSpy).toHaveBeenCalledTimes(3);
+      expect(manager.getServerStatus()[0].status).toBe('connecting');
+      expect(testManager.connectRetryControllers.has(retryConfig.id)).toBe(true);
+
+      await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+      await Promise.resolve();
+
+      expect(reconnectSpy.mock.calls.length).toBeGreaterThan(3);
+      expect(manager.getServerStatus()[0].status).toBe('failed');
       expect(testManager.connectRetryControllers.has(retryConfig.id)).toBe(false);
     });
 

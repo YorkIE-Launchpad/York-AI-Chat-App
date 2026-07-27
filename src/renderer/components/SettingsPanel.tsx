@@ -38,7 +38,7 @@ const VALID_TABS = new Set<TabId>([
   'general',
 ]);
 
-export function SettingsPanel({ onClose, initialTab = 'general' }: SettingsPanelProps) {
+export function SettingsPanel({ onClose, initialTab = 'connectors' }: SettingsPanelProps) {
   const { t } = useTranslation();
   const { width } = useWindowSize();
   const compactSidebar = width < 900;

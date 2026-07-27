@@ -61,6 +61,21 @@ import {
   isBackendManagedProvider,
 } from '../../shared/backend-config';
 import {
+  filterModelsForOpenRouterKey,
+  resolveYorkPaidEcoFallback,
+} from '../../shared/openrouter-fallback';
+import {
+  isOpenRouterAccountLimitError,
+  openRouterKeyRequiredMessage,
+  openRouterLimitUserMessage,
+} from '../../shared/openrouter-limit';
+import {
+  OPENROUTER_LIMIT_FALLBACK_NOTE,
+  hasOpenRouterUserApiKey,
+  withOpenRouterUserKeyHeader,
+} from '../../shared/openrouter-user-key';
+import { fetchBackendModels } from '../config/backend-client';
+import {
   buildTerminalErrorEmissionDetails,
   buildTerminalErrorMessage,
   isSdkRecoverableContextOverflowError,
@@ -1278,7 +1293,7 @@ ${hints.join('\n')}
     const runStartTime = Date.now();
     logCtx('[CoworkAgentRunner] run() started');
 
-    const controller = new AbortController();
+    let controller = new AbortController();
     try {
       // The SDK attaches many listeners on the same AbortSignal; raise the limit to avoid noisy warnings while debugging.
       setMaxListeners(0, controller.signal);
@@ -1313,6 +1328,12 @@ ${hints.join('\n')}
     // The catch block consults this flag to avoid overwriting the published
     // 'Request failed' trace state with a generic 'Cancelled' update.
     let abortedByStreamError = false;
+    // OpenRouter account limits are key-wide — one hit → single York eco retry.
+    const openRouterLimitRetry = {
+      pending: false,
+      done: false,
+      rawError: '',
+    };
 
     try {
       this.pathResolver.registerSession(session.id, session.mountedPaths);
@@ -1823,14 +1844,40 @@ ${hints.join('\n')}
       }
       logCtx('[CoworkAgentRunner] Resolved pi-ai model:', piModel.provider, piModel.id);
 
+      if (resolvedProvider === 'openrouter') {
+        const userKey = runtimeConfig.openRouterUserApiKey?.trim();
+        if (!hasOpenRouterUserApiKey(userKey)) {
+          const msg = openRouterKeyRequiredMessage();
+          this.sendMessage(session.id, {
+            id: uuidv4(),
+            sessionId: session.id,
+            role: 'assistant',
+            content: [{ type: 'text', text: `**Error**: ${msg}` }],
+            timestamp: Date.now(),
+          });
+          this.sendTraceUpdate(session.id, thinkingStepId, {
+            status: 'error',
+            title: 'OpenRouter key required',
+          });
+          return;
+        }
+        piModel = withOpenRouterUserKeyHeader(piModel, userKey);
+      }
+
+      // Definite model for the rest of this run (including York eco limit fallback).
+      if (!piModel) {
+        throw new Error('Failed to resolve pi-ai model');
+      }
+      let activePiModel = piModel;
+
       // For Ollama: query actual context window from /api/show if user hasn't configured one
       const provider = resolvedProvider || 'anthropic';
       if (provider === 'ollama' && !runtimeConfig.contextWindow) {
         const ollamaBaseUrl =
-          piModel.baseUrl || runtimeConfig.baseUrl || 'http://localhost:11434/v1';
+          activePiModel.baseUrl || runtimeConfig.baseUrl || 'http://localhost:11434/v1';
         const ollamaInfo = await fetchOllamaModelInfo({
           baseUrl: ollamaBaseUrl,
-          model: piModel.id,
+          model: activePiModel.id,
           apiKey: runtimeConfig.apiKey,
         });
         if (ollamaInfo.contextWindow) {
@@ -1838,10 +1885,10 @@ ${hints.join('\n')}
             '[CoworkAgentRunner] Ollama /api/show reported contextWindow:',
             ollamaInfo.contextWindow,
             '(was:',
-            piModel.contextWindow,
+            activePiModel.contextWindow,
             ')'
           );
-          piModel = { ...piModel, contextWindow: ollamaInfo.contextWindow };
+          activePiModel = { ...activePiModel, contextWindow: ollamaInfo.contextWindow };
         }
       }
 
@@ -1850,7 +1897,7 @@ ${hints.join('\n')}
         type: 'session.contextInfo',
         payload: {
           sessionId: session.id,
-          contextWindow: piModel.contextWindow || 128000,
+          contextWindow: activePiModel.contextWindow || 128000,
         },
       });
 
@@ -1869,9 +1916,12 @@ ${hints.join('\n')}
         authStorage.setRuntimeApiKey(piProvider, apiKey);
         // Also set the key for the model's native provider (e.g., when using
         // google/gemini via openrouter, pi-ai looks up "google" not "openrouter")
-        if (piModel.provider !== piProvider) {
-          authStorage.setRuntimeApiKey(piModel.provider, apiKey);
-          log('[CoworkAgentRunner] Set runtime API key for model provider:', piModel.provider);
+        if (activePiModel.provider !== piProvider) {
+          authStorage.setRuntimeApiKey(activePiModel.provider, apiKey);
+          log(
+            '[CoworkAgentRunner] Set runtime API key for model provider:',
+            activePiModel.provider
+          );
         }
         log('[CoworkAgentRunner] Set runtime API key for config provider:', piProvider);
       } else {
@@ -1880,9 +1930,9 @@ ${hints.join('\n')}
             '[CoworkAgentRunner] Ollama configured without explicit API key; relying on OpenAI-compatible placeholder/env auth path',
             safeStringify({
               provider,
-              modelProvider: piModel.provider,
-              modelId: piModel.id,
-              baseUrl: piModel.baseUrl || runtimeConfig.baseUrl || '',
+              modelProvider: activePiModel.provider,
+              modelId: activePiModel.id,
+              baseUrl: activePiModel.baseUrl || runtimeConfig.baseUrl || '',
             })
           );
         } else {
@@ -1891,7 +1941,12 @@ ${hints.join('\n')}
       }
 
       // baseUrl is now embedded in the model object via resolvePiModel()
-      logCtx('[CoworkAgentRunner] Model baseUrl:', piModel.baseUrl, 'api:', piModel.api);
+      logCtx(
+        '[CoworkAgentRunner] Model baseUrl:',
+        activePiModel.baseUrl,
+        'api:',
+        activePiModel.api
+      );
 
       logTiming('after pi-ai model resolution', runStartTime);
 
@@ -1985,7 +2040,11 @@ ${hints.join('\n')}
       logTiming('before building conversation context', runStartTime);
 
       // pi-ai handles auth and model routing natively — no proxy, no env overrides needed.
-      logCtx('[CoworkAgentRunner] Using pi-ai native routing for:', piModel.provider, piModel.id);
+      logCtx(
+        '[CoworkAgentRunner] Using pi-ai native routing for:',
+        activePiModel.provider,
+        activePiModel.id
+      );
 
       // Resolve thinking level early — needed for session reuse check below
       const enableThinking = configStore.get('enableThinking') ?? false;
@@ -1995,9 +2054,9 @@ ${hints.join('\n')}
       const sessionRuntimeSignature = buildPiSessionRuntimeSignature({
         configProvider: runtimeConfig.provider,
         customProtocol: runtimeConfig.customProtocol,
-        modelProvider: piModel.provider,
-        modelApi: piModel.api,
-        modelBaseUrl: piModel.baseUrl,
+        modelProvider: activePiModel.provider,
+        modelApi: activePiModel.api,
+        modelBaseUrl: activePiModel.baseUrl,
         effectiveCwd,
         apiKey,
       });
@@ -2082,7 +2141,7 @@ ${hints.join('\n')}
       // Coding tools are read/bash/edit/write (4). Wrappers preserve length; we
       // re-check with the real wrapped count before createAgentSession below.
       const toolSelection = selectCustomToolsForModel({
-        api: piModel.api,
+        api: activePiModel.api,
         builtInToolCount: 4,
         mcpManager: this.mcpManager ?? null,
         mcpTools: mcpCustomTools,
@@ -2153,7 +2212,7 @@ ${hints.join('\n')}
 
         if (historyMessages.length > 0) {
           // Content-aware chars-per-token estimation (CJK text uses ~1.5 chars/token vs ~4 for English)
-          const contextWindow = piModel.contextWindow || 128000;
+          const contextWindow = activePiModel.contextWindow || 128000;
           const historyBudgetRatio = provider === 'ollama' && contextWindow < 16384 ? 0.15 : 0.3;
           const historyTokenBudget = Math.floor(contextWindow * historyBudgetRatio);
 
@@ -2379,10 +2438,10 @@ Do not write to /mnt/user-data or other absolute mount paths — they are not th
       // Build a concise summary of the agent's own runtime configuration.
       // Intentionally excludes API keys, base URLs, and any other sensitive data.
       const configSummaryPrompt = `<your_configuration>
-- Model: ${piModel.id}
+- Model: ${activePiModel.id}
 - Provider: ${provider}
-- Context Window: ${piModel.contextWindow || 'unknown'} tokens
-- Max Output Tokens: ${piModel.maxTokens || 'default'}
+- Context Window: ${activePiModel.contextWindow || 'unknown'} tokens
+- Max Output Tokens: ${activePiModel.maxTokens || 'default'}
 - Thinking: ${enableThinking ? 'enabled' : 'disabled'}
 - Sandbox: ${runtimeConfig.sandboxEnabled ? 'enabled' : 'disabled'}
 - Memory: ${runtimeConfig.memoryEnabled ? 'enabled' : 'disabled'}
@@ -2458,7 +2517,7 @@ ${
       let effectiveToolsSignature = toolsSignature;
       if (wrappedTools.length !== 4) {
         const adjusted = selectCustomToolsForModel({
-          api: piModel.api,
+          api: activePiModel.api,
           builtInToolCount: wrappedTools.length,
           mcpManager: this.mcpManager ?? null,
           mcpTools: mcpCustomTools,
@@ -2472,7 +2531,7 @@ ${
 
       // Diagnostic: log tools being passed to SDK (helps debug Ollama tool use)
       logCtx(`[CoworkAgentRunner] Session reuse check: cached=${!!cachedSession}`);
-      logCtx(`[CoworkAgentRunner] Model=${piModel.id}, thinkingLevel=${thinkingLevel}`);
+      logCtx(`[CoworkAgentRunner] Model=${activePiModel.id}, thinkingLevel=${thinkingLevel}`);
       log(
         `[CoworkAgentRunner] Built-in tools (${wrappedTools.length}): ${wrappedTools.map((t: { name?: string; type?: string }) => t.name || t.type).join(', ')}`
       );
@@ -2486,18 +2545,18 @@ ${
         piSession = cachedSession.session;
 
         // Hot-swap model/thinking if changed — SDK supports this natively
-        if (cachedSession.modelId !== piModel.id) {
+        if (cachedSession.modelId !== activePiModel.id) {
           logCtx(
             '[CoworkAgentRunner] Model changed, hot-swapping:',
             cachedSession.modelId,
             '→',
-            piModel.id
+            activePiModel.id
           );
-          await piSession.setModel(piModel);
-          cachedSession.modelId = piModel.id;
+          await piSession.setModel(activePiModel);
+          cachedSession.modelId = activePiModel.id;
           // Update Ollama num_ctx ref if present
           if (cachedSession.ollamaNumCtx) {
-            cachedSession.ollamaNumCtx.value = piModel.contextWindow || 128000;
+            cachedSession.ollamaNumCtx.value = activePiModel.contextWindow || 128000;
             log(
               '[CoworkAgentRunner] Updated Ollama num_ctx on hot-swap:',
               cachedSession.ollamaNumCtx.value
@@ -2551,7 +2610,7 @@ ${
         const modelRegistry = new ModelRegistry(authStorage);
 
         // Ollama-specific compaction tuning based on actual context window
-        const contextWindow = piModel.contextWindow || 128000;
+        const contextWindow = activePiModel.contextWindow || 128000;
         let compactionSettings: {
           enabled: boolean;
           reserveTokens?: number;
@@ -2581,7 +2640,7 @@ ${
         }
 
         const { session: newPiSession } = await createAgentSession({
-          model: piModel,
+          model: activePiModel,
           thinkingLevel,
           authStorage,
           modelRegistry,
@@ -2619,7 +2678,7 @@ ${
         }
         this.piSessions.set(session.id, {
           session: piSession,
-          modelId: piModel.id,
+          modelId: activePiModel.id,
           thinkingLevel,
           runtimeSignature: sessionRuntimeSignature,
           skillsSignature,
@@ -2644,7 +2703,7 @@ ${
                 ) => Promise<Record<string, unknown>>)
               | undefined;
             const ollamaNumCtx = {
-              value: piModel.contextWindow || 128000,
+              value: activePiModel.contextWindow || 128000,
             };
             agent._onPayload = async (payload: Record<string, unknown>, modelArg: unknown) => {
               let result = originalOnPayload
@@ -2771,9 +2830,9 @@ ${
             safeStringify({
               sessionId: session.id,
               eventType,
-              modelId: piModel.id,
-              modelProvider: piModel.provider,
-              baseUrl: piModel.baseUrl || runtimeConfig.baseUrl || '',
+              modelId: activePiModel.id,
+              modelProvider: activePiModel.provider,
+              baseUrl: activePiModel.baseUrl || runtimeConfig.baseUrl || '',
               latencyMs: firstStreamEventAt - promptStartedAt,
             })
           );
@@ -2933,7 +2992,26 @@ ${
                   );
                   break;
                 }
-                emitTerminalError(resolveAssistantStreamErrorText(ame), { abort: true });
+                if (
+                  isOpenRouterAccountLimitError(resolvedProvider, rawStreamError) &&
+                  !openRouterLimitRetry.done
+                ) {
+                  openRouterLimitRetry.pending = true;
+                  openRouterLimitRetry.rawError = rawStreamError;
+                  abortedByStreamError = true;
+                  if (!controller.signal.aborted) {
+                    try {
+                      controller.abort();
+                    } catch (abortErr) {
+                      logWarn('[CoworkAgentRunner] openrouter-limit abort failed:', abortErr);
+                    }
+                  }
+                  break;
+                }
+                const userFacing = isOpenRouterAccountLimitError(resolvedProvider, rawStreamError)
+                  ? openRouterLimitUserMessage(true)
+                  : resolveAssistantStreamErrorText(ame);
+                emitTerminalError(userFacing, { abort: true });
               }
               break;
             }
@@ -2957,8 +3035,8 @@ ${
                   '[CoworkAgentRunner] Ollama message_end diagnostics',
                   safeStringify({
                     sessionId: session.id,
-                    modelId: piModel.id,
-                    modelProvider: piModel.provider,
+                    modelId: activePiModel.id,
+                    modelProvider: activePiModel.provider,
                     usedSyntheticModel,
                     receivedFirstStreamEvent,
                     firstStreamLatencyMs: firstStreamEventAt
@@ -2984,7 +3062,26 @@ ${
                   );
                   break;
                 }
-                emitTerminalError(resolvedPayload.errorText);
+                if (
+                  isOpenRouterAccountLimitError(resolvedProvider, rawError) &&
+                  !openRouterLimitRetry.done
+                ) {
+                  openRouterLimitRetry.pending = true;
+                  openRouterLimitRetry.rawError = rawError;
+                  abortedByStreamError = true;
+                  if (!controller.signal.aborted) {
+                    try {
+                      controller.abort();
+                    } catch (abortErr) {
+                      logWarn('[CoworkAgentRunner] openrouter-limit abort failed:', abortErr);
+                    }
+                  }
+                  break;
+                }
+                const userFacing = isOpenRouterAccountLimitError(resolvedProvider, rawError)
+                  ? openRouterLimitUserMessage(true)
+                  : resolvedPayload.errorText;
+                emitTerminalError(userFacing);
                 break;
               }
               if (resolvedPayload.shouldEmitMessage) {
@@ -3068,9 +3165,9 @@ ${
                     role: 'assistant',
                     content: contentBlocks,
                     timestamp: Date.now(),
-                    api: piModel.api,
-                    provider: piModel.provider,
-                    model: piModel.id,
+                    api: activePiModel.api,
+                    provider: activePiModel.provider,
+                    model: activePiModel.id,
                     tokenUsage,
                   };
                   this.sendMessage(session.id, assistantMsg);
@@ -3235,20 +3332,162 @@ ${
             '[CoworkAgentRunner] Starting Ollama prompt',
             safeStringify({
               sessionId: session.id,
-              modelId: piModel.id,
-              modelProvider: piModel.provider,
-              baseUrl: piModel.baseUrl || runtimeConfig.baseUrl || '',
+              modelId: activePiModel.id,
+              modelProvider: activePiModel.provider,
+              baseUrl: activePiModel.baseUrl || runtimeConfig.baseUrl || '',
               usedSyntheticModel,
               hasExplicitApiKey: Boolean(apiKey),
               thinkingLevel,
             })
           );
         }
-        const promptResult = await piSession.prompt(contextualPrompt);
-        log(
-          '[CoworkAgentRunner] prompt() returned:',
-          JSON.stringify(promptResult ?? 'void').substring(0, 1000)
-        );
+        try {
+          const promptResult = await piSession.prompt(contextualPrompt);
+          log(
+            '[CoworkAgentRunner] prompt() returned:',
+            JSON.stringify(promptResult ?? 'void').substring(0, 1000)
+          );
+        } catch (promptErr) {
+          // OpenRouter limit abort is intentional — fall through to York eco retry below.
+          if (
+            !(
+              openRouterLimitRetry.pending &&
+              !openRouterLimitRetry.done &&
+              promptErr instanceof Error &&
+              promptErr.name === 'AbortError'
+            )
+          ) {
+            throw promptErr;
+          }
+          logCtx('[CoworkAgentRunner] OpenRouter limit abort; preparing York eco fallback');
+        }
+
+        if (
+          openRouterLimitRetry.pending &&
+          !openRouterLimitRetry.done &&
+          !abortedByTimeout &&
+          !abortedByLoopGuard
+        ) {
+          openRouterLimitRetry.done = true;
+          openRouterLimitRetry.pending = false;
+          abortedByStreamError = false;
+          hasEmittedError = false;
+          terminalErrorText = undefined;
+          streamedText = '';
+
+          const rawModels = await fetchBackendModels();
+          const enabledModels = filterModelsForOpenRouterKey(
+            rawModels,
+            runtimeConfig.openRouterUserApiKey
+          );
+          const fallback = resolveYorkPaidEcoFallback({
+            enabledModels,
+            promptText: promptTextForAuto,
+            preference: 'eco',
+          });
+
+          if (!fallback) {
+            emitTerminalError(openRouterLimitUserMessage(true));
+          } else {
+            log(
+              `[CoworkAgentRunner] ${OPENROUTER_LIMIT_FALLBACK_NOTE} ${fallback.provider}/${fallback.modelId}`
+            );
+            this.sendToRenderer({
+              type: 'session.autoRoute',
+              payload: {
+                sessionId: session.id,
+                provider: fallback.provider,
+                modelId: fallback.modelId,
+                tier: 'fast',
+                score: 0,
+                reason: OPENROUTER_LIMIT_FALLBACK_NOTE,
+              },
+            });
+            this.sendMessage(session.id, {
+              id: uuidv4(),
+              sessionId: session.id,
+              role: 'assistant',
+              content: [
+                {
+                  type: 'text',
+                  text: `_${OPENROUTER_LIMIT_FALLBACK_NOTE} Now using ${fallback.provider}/${fallback.modelId}._`,
+                },
+              ],
+              timestamp: Date.now(),
+            });
+
+            const yorkProtocol = resolvePiRouteProtocol(fallback.provider, fallback.customProtocol);
+            let yorkModel = resolvePiRegistryModel(fallback.modelId, {
+              configProvider: yorkProtocol,
+              customBaseUrl: fallback.baseUrl,
+              rawProvider: fallback.provider,
+              customProtocol: fallback.customProtocol,
+            });
+            if (!yorkModel) {
+              const synthetic = resolveSyntheticPiModelFallback({
+                rawModel: fallback.modelId,
+                resolvedModelString: fallback.modelId,
+                rawProvider: fallback.provider,
+                routeProtocol: yorkProtocol,
+                baseUrl: fallback.baseUrl,
+              });
+              yorkModel = buildSyntheticPiModel(
+                synthetic.modelId,
+                synthetic.provider,
+                yorkProtocol,
+                fallback.baseUrl,
+                undefined,
+                undefined,
+                runtimeConfig.contextWindow,
+                runtimeConfig.maxTokens
+              );
+              yorkModel = applyPiModelRuntimeOverrides(yorkModel, {
+                configProvider: yorkProtocol,
+                customBaseUrl: fallback.baseUrl,
+                rawProvider: fallback.provider,
+                customProtocol: fallback.customProtocol,
+              });
+            }
+
+            if (!yorkModel) {
+              emitTerminalError(openRouterLimitUserMessage(true));
+            } else {
+              activePiModel = yorkModel;
+              resolvedProvider = fallback.provider;
+              await piSession.setModel(activePiModel);
+
+              const yorkApiKey = (
+                await resolveBackendClientApiKey({
+                  provider: fallback.provider,
+                  apiKey: fallback.apiKey,
+                })
+              ).trim();
+              if (yorkApiKey) {
+                const authStorage = getSharedAuthStorage();
+                authStorage.setRuntimeApiKey(fallback.provider, yorkApiKey);
+                if (activePiModel.provider !== fallback.provider) {
+                  authStorage.setRuntimeApiKey(activePiModel.provider, yorkApiKey);
+                }
+              }
+
+              // Fresh abort controller so subscribe callbacks accept events again.
+              controller = new AbortController();
+              try {
+                setMaxListeners(0, controller.signal);
+              } catch {
+                // ignore
+              }
+              this.activeControllers.set(session.id, controller);
+
+              resetActivityTimeout();
+              const retryResult = await piSession.prompt(contextualPrompt);
+              log(
+                '[CoworkAgentRunner] York eco fallback prompt() returned:',
+                JSON.stringify(retryResult ?? 'void').substring(0, 1000)
+              );
+            }
+          }
+        }
       } finally {
         try {
           unsubscribe();

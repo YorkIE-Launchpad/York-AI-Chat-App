@@ -43,6 +43,16 @@ export interface MCPPreset {
   envDescription?: Record<string, string>;
 }
 
+export type ConnectorId = 'slack' | 'gmail' | 'google-drive';
+
+export interface ConnectorStatus {
+  connectorId: ConnectorId;
+  connected: boolean;
+  accountEmail?: string | null;
+  accountName?: string | null;
+  workspaceName?: string | null;
+}
+
 export type LocalizedBanner = { key?: string; text?: string };
 
 export type ScheduleFormMode = 'once' | 'daily' | 'weekly' | 'legacy-interval';

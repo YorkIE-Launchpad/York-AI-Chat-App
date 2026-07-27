@@ -43,6 +43,7 @@ import {
   safeRemoveFile,
 } from './memory-utils';
 import { createMemoryTools } from './memory-tools';
+import type { ConnectorId } from '../connectors/connector-types';
 
 interface MemoryPaths {
   storageRoot: string;
@@ -292,6 +293,68 @@ export class MemoryService {
     ]);
 
     log(`[Memory] Ingested meeting ${meeting.id} into global memory`);
+  }
+
+  async ingestConnectorArtifact(input: {
+    connectorId: ConnectorId;
+    externalId: string;
+    title: string;
+    summary: string;
+    content: string;
+    occurredAt: number;
+    keywords?: string[];
+    coreKey?: string;
+    coreValue?: string;
+  }): Promise<void> {
+    if (!this.isEnabled()) {
+      return;
+    }
+
+    const sessionId = `${input.connectorId}:${input.externalId}`;
+    const sessionDate = formatTimestamp(input.occurredAt);
+    const keywords = [
+      ...new Set([...(input.keywords ?? []), ...extractKeywords(input.content)]),
+    ].slice(0, 24);
+    const fullTurns: MemoryTranscriptTurn[] = [
+      {
+        role: input.connectorId,
+        content: input.content || input.summary || input.title,
+        timestamp: input.occurredAt,
+      },
+    ];
+
+    await this.storeExperienceSession({
+      sourceWorkspace: null,
+      sessionId,
+      sessionTitle: input.title,
+      sessionDate,
+      sessionCreatedAt: input.occurredAt,
+      fullTurns,
+      extracted: {
+        sessionSummary: input.summary || input.title,
+        sessionKeywords: keywords,
+        chunks: [
+          {
+            summary: input.summary || input.title,
+            details: input.content,
+            keywords,
+            sourceTurns: [0],
+          },
+        ],
+      },
+    });
+
+    if (input.coreKey && input.coreValue) {
+      this.getCoreStore().applyActions([
+        {
+          op: 'upsert',
+          category: 'interests',
+          key: input.coreKey,
+          value: input.coreValue.slice(0, 500),
+          reason: `Auto-ingested from ${input.connectorId} connector`,
+        },
+      ]);
+    }
   }
 
   getTools(): MemoryToolDefinition[] {

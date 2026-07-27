@@ -245,6 +245,9 @@ export class SessionManager {
       mcpConfigStore.ensureDefaultLaunchpadServer();
       mcpConfigStore.ensureDefaultHubServer();
       mcpConfigStore.ensureDefaultGtmPulseServer();
+      mcpConfigStore.ensureDefaultSlackServer();
+      mcpConfigStore.ensureDefaultGmailServer();
+      mcpConfigStore.ensureDefaultGoogleDriveServer();
       const servers = mcpConfigStore.getEnabledServers();
       await this.mcpManager.initializeServers(servers);
       log(`[SessionManager] Initialized ${servers.length} MCP servers`);

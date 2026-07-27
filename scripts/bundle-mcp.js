@@ -31,6 +31,21 @@ const servers = [
     entry: 'software-dev-server-example.ts',
     description: 'Software Development MCP Server',
   },
+  {
+    name: 'slack-connector-server',
+    entry: 'slack-connector-server.ts',
+    description: 'Slack Connector MCP Server',
+  },
+  {
+    name: 'gmail-connector-server',
+    entry: 'gmail-connector-server.ts',
+    description: 'Gmail Connector MCP Server',
+  },
+  {
+    name: 'google-drive-connector-server',
+    entry: 'google-drive-connector-server.ts',
+    description: 'Google Drive Connector MCP Server',
+  },
 ];
 
 const NODE_EXTERNALS = [

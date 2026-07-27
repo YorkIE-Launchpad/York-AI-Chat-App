@@ -14,7 +14,13 @@ import {
   ChevronDown,
   X,
 } from 'lucide-react';
-import type { MCPServerConfig, MCPServerStatus, MCPToolInfo, MCPPreset } from './shared';
+import type {
+  ConnectorStatus,
+  MCPServerConfig,
+  MCPServerStatus,
+  MCPToolInfo,
+  MCPPreset,
+} from './shared';
 
 const isElectron = typeof window !== 'undefined' && window.electronAPI !== undefined;
 
@@ -72,13 +78,23 @@ function isBuiltinProtectedMcpServer(server: MCPServerConfig): boolean {
     isChromeMcpServer(server) ||
     isLaunchpadMcpServer(server) ||
     isHubMcpServer(server) ||
-    isGtmPulseMcpServer(server)
+    isGtmPulseMcpServer(server) ||
+    server.name === 'Slack' ||
+    server.name === 'Gmail' ||
+    server.name === 'Google Drive'
   );
 }
 
 /** Built-in Hub / Launchpad / GTM Pulse URLs are env-driven — no UI edit. */
 function isNonEditableBuiltinMcpServer(server: MCPServerConfig): boolean {
-  return isLaunchpadMcpServer(server) || isHubMcpServer(server) || isGtmPulseMcpServer(server);
+  return (
+    isLaunchpadMcpServer(server) ||
+    isHubMcpServer(server) ||
+    isGtmPulseMcpServer(server) ||
+    server.name === 'Slack' ||
+    server.name === 'Gmail' ||
+    server.name === 'Google Drive'
+  );
 }
 
 export function SettingsConnectors({ isActive }: { isActive: boolean }) {
@@ -101,6 +117,7 @@ export function SettingsConnectors({ isActive }: { isActive: boolean }) {
     preset: MCPPreset;
   } | null>(null);
   const [presetEnvValues, setPresetEnvValues] = useState<Record<string, string>>({});
+  const [connectorStatuses, setConnectorStatuses] = useState<ConnectorStatus[]>([]);
 
   // Auto-refresh
   const loadPresets = useCallback(async () => {
@@ -141,9 +158,24 @@ export function SettingsConnectors({ isActive }: { isActive: boolean }) {
     }
   }, []);
 
+  const loadConnectorStatuses = useCallback(async () => {
+    try {
+      const loaded = await window.electronAPI.connectors.getStatus();
+      setConnectorStatuses(loaded || []);
+    } catch (err) {
+      console.error('Failed to load connector statuses:', err);
+    }
+  }, []);
+
   const loadAll = useCallback(async () => {
-    await Promise.all([loadServers(), loadStatuses(), loadTools(), loadPresets()]);
-  }, [loadPresets, loadServers, loadStatuses, loadTools]);
+    await Promise.all([
+      loadServers(),
+      loadStatuses(),
+      loadTools(),
+      loadPresets(),
+      loadConnectorStatuses(),
+    ]);
+  }, [loadConnectorStatuses, loadPresets, loadServers, loadStatuses, loadTools]);
 
   useEffect(() => {
     if (!isElectron || !isActive) {
@@ -153,9 +185,42 @@ export function SettingsConnectors({ isActive }: { isActive: boolean }) {
     const interval = setInterval(() => {
       void loadTools();
       void loadStatuses();
+      void loadConnectorStatuses();
     }, 3000);
     return () => clearInterval(interval);
-  }, [isActive, loadAll, loadStatuses, loadTools]);
+  }, [isActive, loadAll, loadStatuses, loadTools, loadConnectorStatuses]);
+
+  async function handleConnect(connectorId: ConnectorStatus['connectorId']) {
+    setIsLoading(true);
+    setError('');
+    try {
+      const result = await window.electronAPI.connectors.connect(connectorId);
+      if (!result.success) {
+        setError(result.error || 'Failed to connect');
+      }
+      await loadAll();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to connect');
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function handleDisconnect(connectorId: ConnectorStatus['connectorId']) {
+    setIsLoading(true);
+    setError('');
+    try {
+      const result = await window.electronAPI.connectors.disconnect(connectorId);
+      if (!result.success) {
+        setError(result.error || 'Failed to disconnect');
+      }
+      await loadAll();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to disconnect');
+    } finally {
+      setIsLoading(false);
+    }
+  }
 
   async function handleAddPreset(presetKey: string) {
     const preset = presets[presetKey];
@@ -254,6 +319,13 @@ export function SettingsConnectors({ isActive }: { isActive: boolean }) {
       );
       return;
     }
+    if (
+      server &&
+      (server.name === 'Slack' || server.name === 'Gmail' || server.name === 'Google Drive')
+    ) {
+      setError('This built-in connector cannot be deleted');
+      return;
+    }
     if (!confirm(t('mcp.deleteConnectorConfirm'))) return;
     setIsLoading(true);
     try {
@@ -307,6 +379,63 @@ export function SettingsConnectors({ isActive }: { isActive: boolean }) {
       {/* Server List */}
       {!showAddForm && !editingServer && (
         <div className="space-y-3">
+          {error && (
+            <div className="rounded-lg border border-error/30 bg-error/10 px-3 py-2 text-sm text-error">
+              {error}
+            </div>
+          )}
+          <div className="grid items-stretch gap-3 md:grid-cols-3">
+            {connectorStatuses.map((connector) => (
+              <div
+                key={connector.connectorId}
+                className="flex h-full flex-col rounded-xl border border-border-subtle bg-background px-4 py-4"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h3 className="text-sm font-semibold text-text-primary">
+                      {connector.connectorId === 'google-drive'
+                        ? 'Google Drive'
+                        : connector.connectorId === 'gmail'
+                          ? 'Gmail'
+                          : 'Slack'}
+                    </h3>
+                    <p className="mt-1 min-h-8 text-xs leading-4 text-text-muted break-all">
+                      {connector.connected
+                        ? connector.accountEmail || connector.accountName || 'Connected'
+                        : 'Read-only OAuth connector'}
+                    </p>
+                  </div>
+                  {connector.connected ? (
+                    <CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-success" />
+                  ) : (
+                    <Plug className="mt-0.5 h-4 w-4 shrink-0 text-text-muted" />
+                  )}
+                </div>
+                <div className="mt-auto flex flex-wrap gap-2 pt-4">
+                  {connector.connected ? (
+                    <button
+                      type="button"
+                      onClick={() => void handleDisconnect(connector.connectorId)}
+                      disabled={isLoading}
+                      className="rounded-md border border-border-subtle px-3 py-1.5 text-xs text-text-primary transition-colors hover:bg-surface-hover disabled:opacity-50"
+                    >
+                      Disconnect
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => void handleConnect(connector.connectorId)}
+                      disabled={isLoading}
+                      className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent/90 disabled:opacity-50"
+                    >
+                      Connect
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+
           {servers.length === 0 ? (
             <div className="rounded-lg border border-border-subtle bg-background text-center py-8 text-text-muted">
               <Plug className="w-10 h-10 mx-auto mb-3 opacity-50" />

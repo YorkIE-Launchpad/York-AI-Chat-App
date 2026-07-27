@@ -138,6 +138,12 @@ export interface AppConfig {
   // Dedicated memory runtime config
   memoryRuntime: MemoryRuntimeConfig;
 
+  /**
+   * User's OpenRouter API key (BYOK). Required for all OpenRouter traffic.
+   * Never export to plaintext config; never write via agent tools.
+   */
+  openRouterUserApiKey?: string;
+
   // Meeting capture toggle
   meetingsEnabled: boolean;
 
@@ -327,6 +333,7 @@ const defaultConfig: AppConfig = {
   theme: 'light',
   sandboxEnabled: false,
   memoryEnabled: true,
+  openRouterUserApiKey: '',
   memoryRuntime: {
     llm: {
       inheritFromActive: true,
@@ -1111,6 +1118,10 @@ export class ConfigStore {
       sandboxEnabled: toBoolean(raw.sandboxEnabled, defaultConfig.sandboxEnabled),
       memoryEnabled: toBoolean(raw.memoryEnabled, defaultConfig.memoryEnabled),
       memoryRuntime: normalizeMemoryRuntimeConfig(raw.memoryRuntime),
+      openRouterUserApiKey:
+        typeof raw.openRouterUserApiKey === 'string'
+          ? raw.openRouterUserApiKey
+          : defaultConfig.openRouterUserApiKey,
       meetingsEnabled: toBoolean(raw.meetingsEnabled, defaultConfig.meetingsEnabled),
       meetingsRuntime: normalizeMeetingsRuntimeConfig(raw.meetingsRuntime),
       enableThinking: projected.enableThinking,
@@ -1537,6 +1548,10 @@ export class ConfigStore {
         updates.memoryRuntime !== undefined
           ? normalizeMemoryRuntimeConfig(updates.memoryRuntime)
           : current.memoryRuntime,
+      openRouterUserApiKey:
+        updates.openRouterUserApiKey !== undefined
+          ? updates.openRouterUserApiKey
+          : current.openRouterUserApiKey,
       meetingsEnabled:
         updates.meetingsEnabled !== undefined ? updates.meetingsEnabled : current.meetingsEnabled,
       meetingsRuntime:
@@ -1565,8 +1580,12 @@ export class ConfigStore {
     apiKey?: string;
     baseUrl?: string;
     model?: string;
+    openRouterUserApiKey?: string;
   }): boolean {
     if (isBackendManagedProvider(projection.provider)) {
+      if (projection.provider === 'openrouter') {
+        return Boolean(projection.openRouterUserApiKey?.trim() && projection.model?.trim());
+      }
       return Boolean(projection.model?.trim());
     }
     if (projection.provider === 'ollama' && !projection.model?.trim()) {
@@ -1639,6 +1658,7 @@ export class ConfigStore {
       apiKey: normalized.apiKey,
       baseUrl: normalized.baseUrl,
       model: normalized.model,
+      openRouterUserApiKey: normalized.openRouterUserApiKey,
     });
   }
 
@@ -1652,6 +1672,7 @@ export class ConfigStore {
         apiKey: projected.apiKey,
         baseUrl: projected.baseUrl,
         model: projected.model,
+        openRouterUserApiKey: normalized.openRouterUserApiKey,
       });
     });
   }

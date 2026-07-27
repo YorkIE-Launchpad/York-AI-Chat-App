@@ -24,6 +24,21 @@ import {
   resolveSyntheticPiModelFallback,
 } from './pi-model-resolution';
 import { resolveAutoModelIfNeeded } from './auto-model-resolve';
+import { fetchBackendModels } from '../config/backend-client';
+import {
+  filterModelsForOpenRouterKey,
+  resolveYorkPaidEcoFallback,
+} from '../../shared/openrouter-fallback';
+import {
+  isOpenRouterAccountLimitError,
+  openRouterKeyRequiredMessage,
+  openRouterLimitUserMessage,
+} from '../../shared/openrouter-limit';
+import {
+  OPENROUTER_LIMIT_FALLBACK_NOTE,
+  hasOpenRouterUserApiKey,
+  withOpenRouterUserKeyHeader,
+} from '../../shared/openrouter-user-key';
 
 const NETWORK_ERROR_RE =
   /enotfound|econnrefused|etimedout|eai_again|enetunreach|timed?\s*out|timeout|abort|network\s*error/i;
@@ -280,10 +295,19 @@ export async function runPiAiOneShot(
   }
 
   // piModel is guaranteed non-undefined after synthetic fallback
-  const resolvedModel = piModel!;
+  let resolvedModel = piModel!;
+  let activeProvider = effectiveConfig.provider || provider;
+
+  if (activeProvider === 'openrouter') {
+    const userKey = config.openRouterUserApiKey?.trim();
+    if (!hasOpenRouterUserApiKey(userKey)) {
+      throw new Error(openRouterKeyRequiredMessage());
+    }
+    resolvedModel = withOpenRouterUserKeyHeader(resolvedModel, userKey);
+  }
 
   // Cognito JWT for backend-managed proxy; otherwise configured key
-  const apiKey = (
+  let apiKey = (
     await resolveBackendClientApiKey({
       provider: effectiveConfig.provider,
       apiKey: effectiveConfig.apiKey,
@@ -327,39 +351,114 @@ export async function runPiAiOneShot(
     apiKey: apiKey || undefined,
   };
 
-  let response = await completeSimple(
-    resolvedModel,
-    {
-      systemPrompt,
-      messages: [userMsg],
-    },
-    baseOptions
-  );
-
-  // Some newer models reject temperature even when we didn't anticipate it.
-  // Retry once without temperature so memory / title / probe keep working.
-  const temperatureRejected =
-    (response.stopReason === 'error' || response.stopReason === 'aborted') &&
-    typeof response.errorMessage === 'string' &&
-    TEMPERATURE_UNSUPPORTED_RE.test(response.errorMessage) &&
-    baseOptions.temperature !== undefined;
-
-  if (temperatureRejected) {
-    logWarn(
-      '[OneShot] Model rejected temperature; retrying without it:',
-      resolvedModel.id,
-      response.errorMessage
-    );
-    const withoutTemperature = { ...baseOptions };
-    delete withoutTemperature.temperature;
-    response = await completeSimple(
-      resolvedModel,
+  const runOnce = async (model: typeof resolvedModel, opts: typeof baseOptions) => {
+    let response = await completeSimple(
+      model,
       {
         systemPrompt,
         messages: [userMsg],
       },
-      withoutTemperature
+      opts
     );
+
+    // Some newer models reject temperature even when we didn't anticipate it.
+    // Retry once without temperature so memory / title / probe keep working.
+    const temperatureRejected =
+      (response.stopReason === 'error' || response.stopReason === 'aborted') &&
+      typeof response.errorMessage === 'string' &&
+      TEMPERATURE_UNSUPPORTED_RE.test(response.errorMessage) &&
+      opts.temperature !== undefined;
+
+    if (temperatureRejected) {
+      logWarn(
+        '[OneShot] Model rejected temperature; retrying without it:',
+        model.id,
+        response.errorMessage
+      );
+      const withoutTemperature = { ...opts };
+      delete withoutTemperature.temperature;
+      response = await completeSimple(
+        model,
+        {
+          systemPrompt,
+          messages: [userMsg],
+        },
+        withoutTemperature
+      );
+    }
+    return response;
+  };
+
+  let response = await runOnce(resolvedModel, baseOptions);
+
+  // OpenRouter account limits are key-wide — one York eco retry.
+  const errorMessage =
+    (response.stopReason === 'error' || response.stopReason === 'aborted') &&
+    typeof response.errorMessage === 'string'
+      ? response.errorMessage
+      : '';
+  if (errorMessage && isOpenRouterAccountLimitError(activeProvider, errorMessage)) {
+    const rawModels = await fetchBackendModels();
+    const enabledModels = filterModelsForOpenRouterKey(rawModels, config.openRouterUserApiKey);
+    const fallback = resolveYorkPaidEcoFallback({
+      enabledModels,
+      promptText: prompt,
+      preference: 'eco',
+    });
+    if (!fallback) {
+      throw new Error(openRouterLimitUserMessage(true));
+    }
+    logWarn(`[OneShot] ${OPENROUTER_LIMIT_FALLBACK_NOTE} ${fallback.provider}/${fallback.modelId}`);
+    effectiveConfig = {
+      ...effectiveConfig,
+      model: fallback.modelId,
+      provider: fallback.provider,
+      customProtocol: fallback.customProtocol,
+      baseUrl: fallback.baseUrl,
+      apiKey: fallback.apiKey,
+    };
+    activeProvider = fallback.provider;
+    const yorkModelString = resolvePiModelString({
+      ...effectiveConfig,
+      defaultModel: fallback.modelId,
+    });
+    let yorkModel = resolvePiRegistryModel(yorkModelString, {
+      configProvider: fallback.customProtocol,
+      customBaseUrl: fallback.baseUrl,
+      rawProvider: fallback.provider,
+      customProtocol: fallback.customProtocol,
+    });
+    if (!yorkModel) {
+      const synthetic = resolveSyntheticPiModelFallback({
+        rawModel: fallback.modelId,
+        resolvedModelString: yorkModelString,
+        rawProvider: fallback.provider,
+        routeProtocol: fallback.customProtocol,
+        baseUrl: fallback.baseUrl,
+      });
+      yorkModel = buildSyntheticPiModel(
+        synthetic.modelId,
+        synthetic.provider,
+        fallback.customProtocol,
+        fallback.baseUrl || '',
+        inferPiApi(fallback.customProtocol)
+      );
+    }
+    resolvedModel = yorkModel!;
+    apiKey = (
+      await resolveBackendClientApiKey({
+        provider: fallback.provider,
+        apiKey: fallback.apiKey,
+      })
+    ).trim();
+    if (apiKey) {
+      const authStorage = getSharedAuthStorage();
+      authStorage.setRuntimeApiKey(fallback.provider, apiKey);
+      if (resolvedModel.provider !== fallback.provider) {
+        authStorage.setRuntimeApiKey(resolvedModel.provider, apiKey);
+      }
+    }
+    response = await runOnce(resolvedModel, { ...baseOptions, apiKey: apiKey || undefined });
   }
 
   // pi-ai resolves (not rejects) on provider errors — the error details
@@ -367,7 +466,11 @@ export async function runPiAiOneShot(
   // so callers (probe, title-gen) get a meaningful error via mapPiAiError.
   if (response.stopReason === 'error' || response.stopReason === 'aborted') {
     logWarn('[OneShot] Provider error-as-resolve:', response.stopReason, response.errorMessage);
-    throw new Error(response.errorMessage || 'Provider returned an error');
+    const details = response.errorMessage || 'Provider returned an error';
+    if (isOpenRouterAccountLimitError(activeProvider, details)) {
+      throw new Error(openRouterLimitUserMessage(true));
+    }
+    throw new Error(details);
   }
 
   // Extract text and thinking content from response
