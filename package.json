@@ -65,6 +65,7 @@
     "pre-build-check": "node scripts/pre-build-check.js",
     "stage:env-prod": "node scripts/stage-env-prod.js",
     "clean": "rimraf dist dist-electron dist-mcp dist-wsl-agent dist-lima-agent .bundle-resources release",
+    "clean:userdata": "node scripts/cleanup-userdata.js",
     "deploy:local": "bash scripts/deploy-local.sh",
     "dev:backend": "npm run dev --prefix backend"
   },
