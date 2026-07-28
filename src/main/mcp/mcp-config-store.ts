@@ -111,7 +111,8 @@ export function isLaunchpadMcpServer(
 
 /**
  * Built-in R&D Pulse MCP connector — seeded disabled by default; user enables in Connectors.
- * Uses mcp-remote over stdio. Cognito access token is injected at connect time.
+ * Uses mcp-remote over stdio. Hub Cognito **access** token is injected at connect time
+ * (Pulse validates via Hub /auth/me).
  */
 export function getDefaultRndPulseMcpUrl(): string {
   return authConfig.rndPulseMcpUrl;

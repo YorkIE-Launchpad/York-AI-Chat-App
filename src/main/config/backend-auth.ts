@@ -38,6 +38,13 @@ export async function getBackendAuthHeaders(): Promise<Record<string, string>> {
   return { Authorization: `Bearer ${token}` };
 }
 
+type CognitoBearerPick = {
+  token: string;
+  source: string;
+  tokenUse: string;
+  hasEmail: boolean;
+};
+
 /**
  * Resolve Cognito JWT Authorization headers for LaunchPad MCP.
  *
@@ -47,6 +54,8 @@ export async function getBackendAuthHeaders(): Promise<Record<string, string>> {
  *
  * Hub MCP does not use Cognito JWTs as the MCP bearer — see hub-mcp-auth.ts
  * (silent /oauth/hub-consent → Hub MCP session token).
+ *
+ * R&D Pulse uses {@link getPulseCognitoAuthHeaders} (Hub **access** token).
  */
 export async function getCognitoAuthHeaders(): Promise<Record<string, string>> {
   try {
@@ -67,21 +76,81 @@ export async function getCognitoAuthHeaders(): Promise<Record<string, string>> {
   throw new Error('Sign in required to authenticate Launchpad MCP');
 }
 
-function pickLaunchpadBearerToken(
+/**
+ * Resolve Cognito JWT Authorization headers for R&D Pulse MCP.
+ *
+ * Pulse validates the bearer via Hub `GET /api/auth/me` and requires a Hub
+ * Cognito **access** token (same as Pulse web `eip_access_token`).
+ */
+export async function getPulseCognitoAuthHeaders(): Promise<Record<string, string>> {
+  try {
+    const session = await ensureAuthenticatedSession();
+    const picked = pickPulseBearerToken(session.idToken, session.accessToken);
+    if (picked) {
+      log(
+        `[BackendAuth] R&D Pulse MCP using Cognito ${picked.source} ` +
+          `(token_use=${picked.tokenUse}, hasEmail=${picked.hasEmail})`
+      );
+      return { Authorization: `Bearer ${picked.token}` };
+    }
+  } catch (error) {
+    logWarn('[BackendAuth] Could not resolve Cognito access token for Pulse:', error);
+    throw error;
+  }
+
+  throw new Error('Sign in required to authenticate R&D Pulse MCP');
+}
+
+function collectCognitoCandidates(
   idToken: string | undefined,
   accessToken: string | undefined
-): { token: string; source: string; tokenUse: string; hasEmail: boolean } | null {
+): Array<{ token: string; source: string }> {
   const candidates: Array<{ token: string; source: string }> = [];
   const id = idToken?.trim() || '';
   const access = accessToken?.trim() || '';
   if (id) candidates.push({ token: id, source: 'idToken' });
   if (access && access !== id) candidates.push({ token: access, source: 'accessToken' });
+  return candidates;
+}
 
-  const scored = candidates.map(({ token, source }) => {
+function pickLaunchpadBearerToken(
+  idToken: string | undefined,
+  accessToken: string | undefined
+): CognitoBearerPick | null {
+  const scored = collectCognitoCandidates(idToken, accessToken).map(({ token, source }) => {
     const tokenUse = peekJwtClaim(token, 'token_use') || 'unknown';
     const hasEmail = Boolean(peekJwtClaim(token, 'email'));
     // Prefer id tokens / tokens with email (LaunchPad user resolution requirement).
     const score = (tokenUse === 'id' ? 4 : 0) + (hasEmail ? 3 : 0) + (source === 'idToken' ? 1 : 0);
+    return { token, source, tokenUse, hasEmail, score };
+  });
+
+  scored.sort((a, b) => b.score - a.score);
+  const best = scored[0];
+  if (!best?.token) return null;
+  return {
+    token: best.token,
+    source: best.source,
+    tokenUse: best.tokenUse,
+    hasEmail: best.hasEmail,
+  };
+}
+
+function pickPulseBearerToken(
+  idToken: string | undefined,
+  accessToken: string | undefined
+): CognitoBearerPick | null {
+  const candidates: Array<{ token: string; source: string }> = [];
+  const id = idToken?.trim() || '';
+  const access = accessToken?.trim() || '';
+  if (access) candidates.push({ token: access, source: 'accessToken' });
+  else if (id) candidates.push({ token: id, source: 'idToken' });
+
+  const scored = candidates.map(({ token, source }) => {
+    const tokenUse = peekJwtClaim(token, 'token_use') || 'unknown';
+    const hasEmail = Boolean(peekJwtClaim(token, 'email'));
+    const score =
+      (tokenUse === 'access' ? 4 : 0) + (source === 'accessToken' ? 3 : 0) + (hasEmail ? 1 : 0);
     return { token, source, tokenUse, hasEmail, score };
   });
 
@@ -111,8 +180,14 @@ function peekJwtClaim(token: string, claim: string): string | undefined {
   }
 }
 
-/** Single `--header` value for mcp-remote: `Authorization: Bearer <jwt>`. */
+/** Single `--header` value for mcp-remote: `Authorization: Bearer <jwt>` (LaunchPad id JWT). */
 export async function getCognitoBearerAuthHeader(): Promise<string> {
   const headers = await getCognitoAuthHeaders();
+  return `Authorization: ${headers.Authorization}`;
+}
+
+/** Single `--header` value for mcp-remote: Hub Cognito access JWT for R&D Pulse. */
+export async function getPulseCognitoBearerAuthHeader(): Promise<string> {
+  const headers = await getPulseCognitoAuthHeaders();
   return `Authorization: ${headers.Authorization}`;
 }

@@ -21,7 +21,10 @@ import { app, BrowserWindow, shell } from 'electron';
 import path from 'path';
 import { connectWithOAuthRetry, OpenCoworkMcpOAuthProvider } from './mcp-oauth';
 import { mcpOAuthStore } from './mcp-oauth-store';
-import { getCognitoBearerAuthHeader } from '../config/backend-auth';
+import {
+  getCognitoBearerAuthHeader,
+  getPulseCognitoBearerAuthHeader,
+} from '../config/backend-auth';
 import { clearHubMcpAuthCache, getHubMcpAuthHeaders } from './hub-mcp-auth';
 import { connectorManager } from '../connectors/connector-manager';
 import { maybeIngestConnectorToolResult } from '../connectors/connector-memory';
@@ -151,9 +154,16 @@ function getConnectorIdForServer(
 /**
  * Inject or replace mcp-remote `--header Authorization: Bearer …` with a fresh Cognito JWT.
  * Never persists the token into stored MCP config.
+ * LaunchPad uses Cognito id JWT; R&D Pulse uses Hub Cognito access JWT.
  */
-async function injectCognitoAuthHeader(args: string[]): Promise<string[]> {
-  const authHeader = await getCognitoBearerAuthHeader();
+async function injectCognitoAuthHeader(
+  args: string[],
+  options: { kind: 'launchpad' | 'pulse' } = { kind: 'launchpad' }
+): Promise<string[]> {
+  const authHeader =
+    options.kind === 'pulse'
+      ? await getPulseCognitoBearerAuthHeader()
+      : await getCognitoBearerAuthHeader();
   const nextArgs = [...args];
 
   for (let i = 0; i < nextArgs.length - 1; i++) {
@@ -1060,14 +1070,13 @@ export class MCPManager {
         return arg;
       });
 
-      // Launchpad / R&D Pulse: inject Cognito JWT into mcp-remote --header at connect time
-      if (isLaunchpadMcpServerConfig(config) || isRndPulseMcpServerConfig(config)) {
-        args = await injectCognitoAuthHeader(args);
-        log(
-          `[MCPManager] Injected Cognito Authorization header for ${
-            isRndPulseMcpServerConfig(config) ? 'R&D Pulse' : 'Launchpad'
-          } MCP`
-        );
+      // Launchpad: Cognito id JWT (email in payload). Pulse: Hub Cognito access JWT.
+      if (isRndPulseMcpServerConfig(config)) {
+        args = await injectCognitoAuthHeader(args, { kind: 'pulse' });
+        log('[MCPManager] Injected Cognito access-token Authorization header for R&D Pulse MCP');
+      } else if (isLaunchpadMcpServerConfig(config)) {
+        args = await injectCognitoAuthHeader(args, { kind: 'launchpad' });
+        log('[MCPManager] Injected Cognito id-token Authorization header for Launchpad MCP');
       }
 
       // Dev guard: running TypeScript directly with `node` will fail (no TS loader).
