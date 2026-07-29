@@ -180,7 +180,43 @@ module.exports = async function afterPack(context) {
     }
   }
 
-  // --- 5. Electron locales: keep only en ---
+  // --- 5. Bundled Python: drop pip/setuptools (Windows .exe launchers break codesign) ---
+  const pythonDir = path.join(resourcesDir, 'python');
+  if (platform === 'darwin' && fs.existsSync(pythonDir)) {
+    const libDir = path.join(pythonDir, 'lib');
+    if (fs.existsSync(libDir)) {
+      let removedExe = 0;
+      for (const pyDir of fs.readdirSync(libDir).filter((d) => d.startsWith('python'))) {
+        const stdlibSitePackages = path.join(libDir, pyDir, 'site-packages');
+        if (!fs.existsSync(stdlibSitePackages)) continue;
+        for (const entry of fs.readdirSync(stdlibSitePackages)) {
+          fs.rmSync(path.join(stdlibSitePackages, entry), { recursive: true, force: true });
+          removedExe++;
+        }
+      }
+      // Safety net: remove any stray Windows binaries under the python tree.
+      function removeWindowsBinaries(dir, depth) {
+        if (depth > 12) return;
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+          const fullPath = path.join(dir, entry.name);
+          if (entry.isDirectory()) {
+            removeWindowsBinaries(fullPath, depth + 1);
+            continue;
+          }
+          if (/\.(exe|dll)$/i.test(entry.name)) {
+            fs.rmSync(fullPath, { force: true });
+            removedExe++;
+          }
+        }
+      }
+      removeWindowsBinaries(pythonDir, 0);
+      if (removedExe > 0) {
+        console.log(`  ✓ python: removed pip/setuptools and ${removedExe} Windows binary artifact(s)`);
+      }
+    }
+  }
+
+  // --- 6. Electron locales: keep only en ---
   if (platform === 'darwin') {
     const appName = `${context.packager.appInfo.productFilename}.app`;
     const frameworkDir = path.join(

@@ -460,6 +460,26 @@ function cleanPythonRuntime(destDir, siteDir) {
     if (tclTkDirs.length > 0) console.log(`  ✓ Removed Tcl/Tk libraries (${tclTkDirs.length} dirs)`);
   }
 
+  // --- 5. Remove pip/setuptools from stdlib site-packages ---
+  // python-build-standalone ships pip+setuptools with Windows .exe launchers.
+  // electron-builder codesigns every binary in the app bundle; those .exe files
+  // are useless on macOS and can fail signing (e.g. timestamp service errors).
+  if (exists(libDir)) {
+    for (const pyDir of pythonLibDirs) {
+      const stdlibSitePackages = path.join(libDir, pyDir, 'site-packages');
+      if (!exists(stdlibSitePackages)) continue;
+
+      let removedCount = 0;
+      for (const entry of fs.readdirSync(stdlibSitePackages)) {
+        fs.rmSync(path.join(stdlibSitePackages, entry), { recursive: true, force: true });
+        removedCount++;
+      }
+      if (removedCount > 0) {
+        console.log(`  ✓ Removed stdlib site-packages (${removedCount} items, incl. pip/setuptools)`);
+      }
+    }
+  }
+
   // Report final size
   try {
     const sizeStr = execSync(`du -sh "${destDir}"`, { encoding: 'utf8' }).split('\t')[0];
