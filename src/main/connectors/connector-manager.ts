@@ -80,7 +80,7 @@ class ConnectorManager {
     const redirectUri = connectorId === 'zoom' ? authConfig.zoomOauthRedirectUri : undefined;
     if (connectorId === 'zoom' && !redirectUri) {
       throw new Error(
-        'ZOOM_OAUTH_REDIRECT_URI is required. Use https://<york-public>/oauth/zoom/callback in prod, or http://zoom-dev.york.ie:6789/callback with /etc/hosts for local dev.'
+        'ZOOM_OAUTH_REDIRECT_URI is required. Use https://<york-public>/oauth/zoom/callback in prod, or http://zoom-dev.york.ie:19891/callback with /etc/hosts for local dev.'
       );
     }
     const authResult = await runDesktopOAuthFlow({
@@ -118,6 +118,9 @@ class ConnectorManager {
       throw new Error(`${connectorId} connector is not connected`);
     }
     this.enforceStoredRecordAllowed(current);
+    if (connectorId === 'slack') {
+      this.assertSlackUserToken(current.accessToken, 'Stored Slack connector token');
+    }
 
     if (!current.expiresAt || current.expiresAt - Date.now() > 60_000) {
       return current;
@@ -248,28 +251,16 @@ class ConnectorManager {
       );
     }
     if (connectorId === 'slack') {
-      const authedUser =
-        payload.authed_user && typeof payload.authed_user === 'object'
-          ? (payload.authed_user as Record<string, unknown>)
-          : payload;
+      const parsed = this.parseSlackTokenPayload(payload, {
+        requireAuthedUser: false,
+        allowTopLevelAccessToken: true,
+      });
       return {
-        accessToken: String(authedUser.access_token || ''),
-        refreshToken:
-          typeof authedUser.refresh_token === 'string' && authedUser.refresh_token.trim()
-            ? authedUser.refresh_token
-            : undefined,
-        expiresAt:
-          typeof authedUser.expires_in === 'number'
-            ? Date.now() + Number(authedUser.expires_in) * 1000
-            : null,
-        tokenType: typeof payload.token_type === 'string' ? payload.token_type : undefined,
-        scope:
-          typeof authedUser.scope === 'string'
-            ? authedUser.scope
-                .split(/[ ,]+/)
-                .map((value) => value.trim())
-                .filter(Boolean)
-            : undefined,
+        accessToken: parsed.accessToken,
+        refreshToken: parsed.refreshToken,
+        expiresAt: parsed.expiresAt,
+        tokenType: 'user',
+        scope: parsed.scope,
       };
     }
     return {
@@ -297,13 +288,14 @@ class ConnectorManager {
     connectorId: ConnectorId,
     payload: Record<string, unknown>
   ): Promise<ConnectorTokenRecord> {
-    const slackAuthedUser =
-      connectorId === 'slack' && payload.authed_user && typeof payload.authed_user === 'object'
-        ? (payload.authed_user as Record<string, unknown>)
+    const slackTokenPayload =
+      connectorId === 'slack'
+        ? this.parseSlackTokenPayload(payload, {
+            requireAuthedUser: true,
+            allowTopLevelAccessToken: false,
+          })
         : null;
-    const accessToken = String(
-      connectorId === 'slack' ? slackAuthedUser?.access_token || '' : payload.access_token || ''
-    );
+    const accessToken = String(slackTokenPayload?.accessToken || payload.access_token || '');
     if (!accessToken) {
       throw new Error(`${connectorId} OAuth response did not include an access token`);
     }
@@ -312,24 +304,30 @@ class ConnectorManager {
       accessToken,
       refreshToken:
         typeof (connectorId === 'slack'
-          ? slackAuthedUser?.refresh_token
+          ? slackTokenPayload?.refreshToken
           : payload.refresh_token) === 'string' &&
         String(
-          connectorId === 'slack' ? slackAuthedUser?.refresh_token : payload.refresh_token
+          connectorId === 'slack' ? slackTokenPayload?.refreshToken : payload.refresh_token
         ).trim()
-          ? String(connectorId === 'slack' ? slackAuthedUser?.refresh_token : payload.refresh_token)
+          ? String(
+              connectorId === 'slack' ? slackTokenPayload?.refreshToken : payload.refresh_token
+            )
           : undefined,
       expiresAt:
-        typeof (connectorId === 'slack' ? slackAuthedUser?.expires_in : payload.expires_in) ===
+        typeof (connectorId === 'slack' ? slackTokenPayload?.rawExpiresIn : payload.expires_in) ===
         'number'
           ? Date.now() +
-            Number(connectorId === 'slack' ? slackAuthedUser?.expires_in : payload.expires_in) *
+            Number(connectorId === 'slack' ? slackTokenPayload?.rawExpiresIn : payload.expires_in) *
               1000
           : null,
-      tokenType: typeof payload.token_type === 'string' ? payload.token_type : undefined,
-      scope: this.extractScopes(
-        connectorId === 'slack' && slackAuthedUser ? slackAuthedUser : payload
-      ),
+      tokenType:
+        connectorId === 'slack'
+          ? 'user'
+          : typeof payload.token_type === 'string'
+            ? payload.token_type
+            : undefined,
+      scope:
+        connectorId === 'slack' ? (slackTokenPayload?.scope ?? []) : this.extractScopes(payload),
       updatedAt: Date.now(),
       accountEmail: null,
       accountId: null,
@@ -544,6 +542,69 @@ class ConnectorManager {
       throw new Error(this.formatApiError(payload, response.statusText));
     }
     return payload;
+  }
+
+  private parseSlackTokenPayload(
+    payload: Record<string, unknown>,
+    options: { requireAuthedUser: boolean; allowTopLevelAccessToken: boolean }
+  ): {
+    accessToken: string;
+    refreshToken?: string;
+    expiresAt: number | null;
+    rawExpiresIn?: number;
+    scope: string[];
+  } {
+    const authedUser =
+      payload.authed_user && typeof payload.authed_user === 'object'
+        ? (payload.authed_user as Record<string, unknown>)
+        : null;
+    if (options.requireAuthedUser && !authedUser) {
+      throw new Error('Slack OAuth response did not include an authed_user token');
+    }
+
+    const candidatePayload = authedUser ?? (options.allowTopLevelAccessToken ? payload : null);
+    const accessToken =
+      candidatePayload && typeof candidatePayload.access_token === 'string'
+        ? candidatePayload.access_token.trim()
+        : '';
+    if (!accessToken) {
+      throw new Error('Slack OAuth response did not include a user access token');
+    }
+    this.assertSlackUserToken(accessToken, 'Slack connector token');
+
+    const refreshToken =
+      candidatePayload && typeof candidatePayload.refresh_token === 'string'
+        ? candidatePayload.refresh_token.trim()
+        : '';
+    const rawExpiresIn =
+      candidatePayload && typeof candidatePayload.expires_in === 'number'
+        ? Number(candidatePayload.expires_in)
+        : typeof payload.expires_in === 'number'
+          ? Number(payload.expires_in)
+          : undefined;
+
+    const scopeSource =
+      candidatePayload && typeof candidatePayload.scope === 'string' ? candidatePayload : payload;
+    return {
+      accessToken,
+      refreshToken: refreshToken || undefined,
+      expiresAt: typeof rawExpiresIn === 'number' ? Date.now() + rawExpiresIn * 1000 : null,
+      rawExpiresIn,
+      scope: this.extractScopes(scopeSource),
+    };
+  }
+
+  private assertSlackUserToken(accessToken: string, label: string): void {
+    const trimmed = accessToken.trim();
+    if (!trimmed) {
+      throw new Error(`${label} is missing`);
+    }
+    if (trimmed.startsWith('xoxb-')) {
+      throw new Error(`${label} must be a Slack user token, not a bot token`);
+    }
+    if (!trimmed.startsWith('xoxp-') && !trimmed.startsWith('xoxe.xoxp-')) {
+      throw new Error(`${label} must be a Slack user token`);
+    }
   }
 
   private formatApiError(payload: Record<string, unknown>, statusText: string): string {

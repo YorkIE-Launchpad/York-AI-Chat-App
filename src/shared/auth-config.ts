@@ -143,9 +143,9 @@ export const authConfig = {
     const raw =
       readEnv('CONNECTOR_OAUTH_CALLBACK_PORT') ??
       readEnv('VITE_CONNECTOR_OAUTH_CALLBACK_PORT') ??
-      '6789';
+      '19891';
     const parsed = Number(raw);
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : 6789;
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 19891;
   },
   /**
    * Loopback redirect used by Slack / Gmail / Drive, and as Zoom's local code-delivery target
@@ -157,7 +157,7 @@ export const authConfig = {
   /**
    * Zoom authorize + token-exchange redirect_uri (required for Connect Zoom).
    * Prod: https://<york-public>/oauth/zoom/callback
-   * Dev:  http://zoom-dev.york.ie:6789/callback (+ /etc/hosts → 127.0.0.1)
+   * Dev:  http://zoom-dev.york.ie:19891/callback (+ /etc/hosts → 127.0.0.1)
    */
   get zoomOauthRedirectUri(): string | undefined {
     const raw = readEnv('ZOOM_OAUTH_REDIRECT_URI') ?? readEnv('VITE_ZOOM_OAUTH_REDIRECT_URI');

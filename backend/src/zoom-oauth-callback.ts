@@ -1,7 +1,7 @@
 import type { Request, Response, Router } from 'express';
 import { Router as createRouter } from 'express';
 
-const DEFAULT_LOCAL_CALLBACK = 'http://127.0.0.1:6789/callback';
+const DEFAULT_LOCAL_CALLBACK = 'http://127.0.0.1:19891/callback';
 
 function escapeHtml(value: string): string {
   return value
@@ -18,7 +18,7 @@ function escapeJsString(value: string): string {
 
 /**
  * HTML bridge: Zoom redirects here (public HTTPS), then we hand the code to
- * the local Electron connector listener on 127.0.0.1:6789.
+ * the local Electron connector listener on 127.0.0.1:19891.
  */
 export function buildZoomOauthBridgeHtml(input: {
   code?: string;
@@ -107,7 +107,7 @@ export function buildZoomOauthBridgeHtml(input: {
 
 export function createZoomOauthCallbackRouter(): Router {
   const router = createRouter();
-  const localPort = process.env.CONNECTOR_OAUTH_CALLBACK_PORT?.trim() || '6789';
+  const localPort = process.env.CONNECTOR_OAUTH_CALLBACK_PORT?.trim() || '19891';
   const localCallbackUrl =
     process.env.ZOOM_OAUTH_LOCAL_CALLBACK_URL?.trim() || `http://127.0.0.1:${localPort}/callback`;
 

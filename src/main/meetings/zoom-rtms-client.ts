@@ -22,6 +22,29 @@ function backendBase(): string {
   return resolveBackendUrl().replace(/\/+$/, '');
 }
 
+/** True when York backend rejected the request for missing/invalid Cognito JWT. */
+function isCognitoAuthRequiredBody(body: string): boolean {
+  return (
+    body.includes('Authentication required') ||
+    body.includes('Authentication failed') ||
+    body.includes('Cognito JWT')
+  );
+}
+
+function logZoomSessionAuthFailure(operation: string, status: number, body: string): void {
+  if (status === 401 && isCognitoAuthRequiredBody(body)) {
+    logWarn(
+      `[ZoomRTMS] ${operation} unauthorized — VECOS Cognito sign-in required for Zoom RTMS session APIs`,
+      `(POST /zoom/sessions/*). Sign in to VECOS, ensure backend Cognito env matches the app,`,
+      `and keep Zoom Marketplace Event Notification URL on /zoom/webhooks (not /zoom/sessions).`,
+      `status=${status}`,
+      body
+    );
+    return;
+  }
+  logWarn(`[ZoomRTMS] ${operation} failed`, status, body);
+}
+
 /**
  * Desktop client for Zoom RTMS: register with York backend, start RTMS via Zoom REST,
  * and poll for named transcript segments.
@@ -110,7 +133,7 @@ export class ZoomRtmsDesktopClient {
       });
       if (!response.ok) {
         const body = await response.text();
-        logWarn('[ZoomRTMS] registerSession failed', response.status, body);
+        logZoomSessionAuthFailure('registerSession', response.status, body);
         return false;
       }
       log(
@@ -124,7 +147,10 @@ export class ZoomRtmsDesktopClient {
       this.receivedCount = 0;
       return true;
     } catch (error) {
-      logWarn('[ZoomRTMS] registerSession error', error);
+      logWarn(
+        '[ZoomRTMS] registerSession error — ensure VECOS Cognito sign-in before Zoom RTMS register',
+        error
+      );
       return false;
     }
   }
@@ -182,7 +208,7 @@ export class ZoomRtmsDesktopClient {
       const response = await fetch(url.toString(), { headers });
       if (!response.ok) {
         const body = await response.text();
-        logWarn('[ZoomRTMS] pollOnce failed', `status=${response.status}`, body);
+        logZoomSessionAuthFailure('pollOnce', response.status, body);
         return;
       }
       const payload = (await response.json()) as {

@@ -5,8 +5,27 @@ const accessToken = process.env.SLACK_USER_TOKEN?.trim();
 if (!accessToken) {
   throw new Error('SLACK_USER_TOKEN is required for Slack connector MCP');
 }
+if (!accessToken.startsWith('xoxp-') && !accessToken.startsWith('xoxe.xoxp-')) {
+  throw new Error('SLACK_USER_TOKEN must be a Slack user token');
+}
 
 const client = new WebClient(accessToken);
+const CHANNEL_TYPES = 'public_channel,private_channel,mpim,im';
+const SLACK_CHANNEL_ID_RE = /^[CGD][A-Z0-9]+$/;
+
+type ChannelSummary = {
+  id: string;
+  name: string;
+  is_private: boolean;
+  is_im: boolean;
+  purpose?: string;
+};
+
+type SlimMessage = {
+  ts?: string;
+  user?: string;
+  text?: string;
+};
 
 function makeMemoryEnvelope(input: {
   externalId: string;
@@ -25,6 +44,164 @@ function makeMemoryEnvelope(input: {
     memorySummary: input.summary,
     memoryBody: input.body,
   };
+}
+
+function normalizeChannelInput(input: string): string {
+  return input.trim().replace(/^#/, '');
+}
+
+function formatChannelLabel(channel: {
+  id: string;
+  name?: string | null;
+  is_private?: boolean;
+}): string {
+  if (channel.name) {
+    return channel.is_private ? channel.name : `#${channel.name}`;
+  }
+  return channel.id;
+}
+
+function formatSlackError(error: unknown, context: string): Error {
+  const details =
+    error && typeof error === 'object'
+      ? (error as { data?: { error?: unknown }; code?: unknown; message?: unknown })
+      : null;
+  const slackError =
+    typeof details?.data?.error === 'string'
+      ? details.data.error
+      : typeof details?.code === 'string'
+        ? details.code
+        : typeof details?.message === 'string'
+          ? details.message
+          : 'unknown_error';
+
+  switch (slackError) {
+    case 'missing_scope':
+    case 'invalid_auth':
+    case 'token_expired':
+    case 'token_revoked':
+      return new Error(`${context} failed because the Slack connector needs to be reconnected.`);
+    case 'channel_not_found':
+      return new Error(`${context} failed because the Slack channel name or ID is invalid.`);
+    case 'not_in_channel':
+      return new Error(
+        `${context} failed because this Slack channel is not accessible to the connected user.`
+      );
+    case 'ratelimited':
+      return new Error(`${context} was rate limited by Slack. Please retry in a moment.`);
+    default:
+      return new Error(`${context} failed: ${slackError}`);
+  }
+}
+
+async function listChannels(limit: number): Promise<ChannelSummary[]> {
+  const channels: ChannelSummary[] = [];
+  let cursor: string | undefined;
+
+  while (channels.length < limit) {
+    const remaining = Math.max(limit - channels.length, 1);
+    const response = await client.conversations.list({
+      cursor,
+      limit: Math.min(remaining, 200),
+      exclude_archived: true,
+      types: CHANNEL_TYPES,
+    });
+    for (const channel of response.channels ?? []) {
+      if (!channel?.id) continue;
+      channels.push({
+        id: channel.id,
+        name: channel.name || channel.user || channel.id,
+        is_private: Boolean(channel.is_private),
+        is_im: Boolean(channel.is_im),
+        purpose: channel.purpose?.value,
+      });
+      if (channels.length >= limit) break;
+    }
+    cursor = response.response_metadata?.next_cursor || undefined;
+    if (!cursor) break;
+  }
+
+  return channels;
+}
+
+async function resolveChannel(channelRef: string): Promise<{
+  id: string;
+  name: string | null;
+  isPrivate: boolean;
+}> {
+  const normalized = normalizeChannelInput(channelRef);
+  if (!normalized) {
+    throw new Error('Slack channel name or ID is required.');
+  }
+
+  if (SLACK_CHANNEL_ID_RE.test(normalized)) {
+    try {
+      const response = await client.conversations.info({ channel: normalized });
+      const channel = response.channel;
+      return {
+        id: normalized,
+        name: channel?.name || null,
+        isPrivate: Boolean(channel?.is_private),
+      };
+    } catch (error) {
+      throw formatSlackError(error, `Looking up Slack channel ${normalized}`);
+    }
+  }
+
+  try {
+    const channels = await listChannels(500);
+    const match = channels.find((channel) => channel.name === normalized);
+    if (!match) {
+      throw new Error(`Slack channel "${normalized}" was not found.`);
+    }
+    return {
+      id: match.id,
+      name: match.name,
+      isPrivate: match.is_private,
+    };
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('was not found')) {
+      throw error;
+    }
+    throw formatSlackError(error, `Looking up Slack channel ${normalized}`);
+  }
+}
+
+function formatMessages(messages: SlimMessage[]): string {
+  return messages
+    .map((message) => `[${message.ts}] ${message.user || 'unknown'}: ${message.text || ''}`)
+    .join('\n');
+}
+
+function mapMessages(messages: SlimMessage[] | undefined): SlimMessage[] {
+  return (messages ?? []).map((message) => ({
+    ts: message.ts,
+    user: message.user,
+    text: message.text,
+  }));
+}
+
+async function searchChannelMessages(
+  channel: { id: string; name: string | null },
+  limit: number
+): Promise<SlimMessage[]> {
+  if (!channel.name) {
+    return [];
+  }
+  try {
+    const response = await client.search.messages({
+      query: `in:${channel.name}`,
+      count: limit,
+    });
+    const matches = response.messages?.matches ?? [];
+    return matches.map((message) => ({
+      ts: message.ts,
+      user: message.username || message.user,
+      text: message.text,
+    }));
+  } catch (error) {
+    throw formatSlackError(error, `Searching Slack messages in ${formatChannelLabel(channel)}`);
+  }
 }
 
 async function main() {
@@ -91,18 +268,8 @@ async function main() {
     ],
     handlers: {
       list_channels: async (args) => {
-        const response = await client.conversations.list({
-          limit: typeof args.limit === 'number' ? args.limit : 50,
-          exclude_archived: true,
-          types: 'public_channel,private_channel,mpim,im',
-        });
-        const channels = (response.channels ?? []).map((channel) => ({
-          id: channel.id,
-          name: channel.name,
-          is_private: channel.is_private,
-          is_im: channel.is_im,
-          purpose: channel.purpose?.value,
-        }));
+        const limit = typeof args.limit === 'number' ? args.limit : 50;
+        const channels = await listChannels(limit);
         return makeMemoryEnvelope({
           externalId: `slack:channels:${Date.now()}`,
           title: 'Slack channels',
@@ -116,35 +283,58 @@ async function main() {
         });
       },
       get_channel_history: async (args) => {
-        const channelId = String(args.channel_id || '');
-        const response = await client.conversations.history({
-          channel: channelId,
-          limit: typeof args.limit === 'number' ? args.limit : 50,
+        const requestedChannel = String(args.channel_id || '');
+        const limit = typeof args.limit === 'number' ? args.limit : 50;
+        const channel = await resolveChannel(requestedChannel);
+        let messages: SlimMessage[];
+        let usedFallbackSearch = false;
+        try {
+          const response = await client.conversations.history({
+            channel: channel.id,
+            limit,
+          });
+          messages = mapMessages(response.messages);
+        } catch (error) {
+          messages = await searchChannelMessages(channel, limit);
+          usedFallbackSearch = true;
+          if (messages.length === 0) {
+            throw formatSlackError(
+              error,
+              `Reading Slack channel ${formatChannelLabel({
+                id: channel.id,
+                name: channel.name,
+                is_private: channel.isPrivate,
+              })}`
+            );
+          }
+        }
+        const channelLabel = formatChannelLabel({
+          id: channel.id,
+          name: channel.name,
+          is_private: channel.isPrivate,
         });
-        const messages = (response.messages ?? []).map((message) => ({
-          ts: message.ts,
-          user: message.user,
-          text: message.text,
-        }));
         return makeMemoryEnvelope({
-          externalId: `slack:${channelId}:${messages[0]?.ts || Date.now()}`,
-          title: `Slack channel history ${channelId}`,
-          summary: `Fetched ${messages.length} messages from ${channelId}`,
-          body: messages
-            .map((message) => `[${message.ts}] ${message.user || 'unknown'}: ${message.text || ''}`)
-            .join('\n'),
+          externalId: `slack:${channel.id}:${messages[0]?.ts || Date.now()}`,
+          title: `Slack channel history ${channelLabel}`,
+          summary: `${usedFallbackSearch ? 'Searched' : 'Fetched'} ${messages.length} messages from ${channelLabel}`,
+          body: formatMessages(messages),
           occurredAt: Date.now(),
-          keywords: ['slack', 'messages', channelId],
+          keywords: ['slack', 'messages', channel.id, channel.name || channel.id],
           coreKey: 'slack_latest_read',
-          coreValue: `Read ${messages.length} Slack messages from ${channelId}`,
+          coreValue: `Read ${messages.length} Slack messages from ${channelLabel}`,
         });
       },
       search_messages: async (args) => {
         const query = String(args.query || '');
-        const response = await client.search.messages({
-          query,
-          count: typeof args.limit === 'number' ? args.limit : 20,
-        });
+        let response;
+        try {
+          response = await client.search.messages({
+            query,
+            count: typeof args.limit === 'number' ? args.limit : 20,
+          });
+        } catch (error) {
+          throw formatSlackError(error, 'Searching Slack messages');
+        }
         const matches = (response.messages?.matches ?? []).map((message) => ({
           ts: message.ts,
           text: message.text,
@@ -166,31 +356,42 @@ async function main() {
         });
       },
       get_thread: async (args) => {
-        const channelId = String(args.channel_id || '');
+        const channel = await resolveChannel(String(args.channel_id || ''));
         const threadTs = String(args.thread_ts || '');
-        const response = await client.conversations.replies({
-          channel: channelId,
-          ts: threadTs,
-        });
-        const messages = (response.messages ?? []).map((message) => ({
-          ts: message.ts,
-          user: message.user,
-          text: message.text,
-        }));
+        let response;
+        try {
+          response = await client.conversations.replies({
+            channel: channel.id,
+            ts: threadTs,
+          });
+        } catch (error) {
+          throw formatSlackError(
+            error,
+            `Reading Slack thread in ${formatChannelLabel({
+              id: channel.id,
+              name: channel.name,
+              is_private: channel.isPrivate,
+            })}`
+          );
+        }
+        const messages = mapMessages(response.messages);
         return makeMemoryEnvelope({
-          externalId: `slack:thread:${channelId}:${threadTs}`,
+          externalId: `slack:thread:${channel.id}:${threadTs}`,
           title: `Slack thread ${threadTs}`,
           summary: `Fetched ${messages.length} thread messages`,
-          body: messages
-            .map((message) => `[${message.ts}] ${message.user || 'unknown'}: ${message.text || ''}`)
-            .join('\n'),
+          body: formatMessages(messages),
           occurredAt: Date.now(),
-          keywords: ['slack', 'thread', channelId],
+          keywords: ['slack', 'thread', channel.id],
         });
       },
       get_user: async (args) => {
         const userId = String(args.user_id || '');
-        const response = await client.users.info({ user: userId });
+        let response;
+        try {
+          response = await client.users.info({ user: userId });
+        } catch (error) {
+          throw formatSlackError(error, `Reading Slack user ${userId}`);
+        }
         const user = response.user;
         const body = JSON.stringify(
           {

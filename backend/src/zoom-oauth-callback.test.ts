@@ -18,12 +18,12 @@ describe('buildZoomOauthBridgeHtml', () => {
     const html = buildZoomOauthBridgeHtml({
       code: 'auth-code',
       state: 'state-xyz',
-      localCallbackUrl: 'http://127.0.0.1:6789/callback',
+      localCallbackUrl: 'http://127.0.0.1:19891/callback',
     });
     assert.match(html, /Connecting Zoom/);
     assert.match(html, /auth-code/);
     assert.match(html, /state-xyz/);
-    assert.match(html, /127\.0\.0\.1:6789\/callback/);
+    assert.match(html, /127\.0\.0\.1:19891\/callback/);
     assert.match(html, /method: 'POST'/);
     assert.match(html, /location\.replace/);
   });

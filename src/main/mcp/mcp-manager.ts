@@ -151,6 +151,11 @@ function getConnectorIdForServer(
   return null;
 }
 
+function isSlackUserToken(token: string): boolean {
+  const trimmed = token.trim();
+  return trimmed.startsWith('xoxp-') || trimmed.startsWith('xoxe.xoxp-');
+}
+
 /**
  * Inject or replace mcp-remote `--header Authorization: Bearer …` with a fresh Cognito JWT.
  * Never persists the token into stored MCP config.
@@ -1103,6 +1108,11 @@ export class MCPManager {
       if (connectorId) {
         const tokenRecord = await connectorManager.ensureFreshAccessToken(connectorId);
         if (connectorId === 'slack') {
+          if (!isSlackUserToken(tokenRecord.accessToken)) {
+            throw new Error(
+              'Slack connector requires a Slack user token. Disconnect and reconnect Slack.'
+            );
+          }
           extraConnectorEnv.SLACK_USER_TOKEN = tokenRecord.accessToken;
           if (tokenRecord.accountEmail) {
             extraConnectorEnv.SLACK_ACCOUNT_EMAIL = tokenRecord.accountEmail;
