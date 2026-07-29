@@ -21,6 +21,8 @@ import { app, BrowserWindow, shell } from 'electron';
 import path from 'path';
 import { connectWithOAuthRetry, OpenCoworkMcpOAuthProvider } from './mcp-oauth';
 import { mcpOAuthStore } from './mcp-oauth-store';
+import { filterAtlassianToolsByProduct } from './atlassian-mcp-tools';
+import { resolveGoogleCalendarConnectorId } from './google-calendar-connector';
 import {
   getCognitoBearerAuthHeader,
   getPulseCognitoBearerAuthHeader,
@@ -30,6 +32,11 @@ import { connectorManager } from '../connectors/connector-manager';
 import { maybeIngestConnectorToolResult } from '../connectors/connector-memory';
 import { log, logError, logWarn, logCtx, logCtxError, logTiming } from '../utils/logger';
 import { getDefaultShell } from '../utils/shell-resolver';
+import {
+  DEFAULT_CONFLUENCE_MCP_NAME,
+  DEFAULT_GOOGLE_CALENDAR_MCP_NAME,
+  DEFAULT_JIRA_MCP_NAME,
+} from '../../shared/mcp-defaults';
 
 const MCP_LIST_TOOLS_TIMEOUT_MS = 5 * 60 * 1000;
 const MCP_TOOL_CALL_TIMEOUT_MS = 5 * 60 * 1000;
@@ -148,6 +155,9 @@ function getConnectorIdForServer(
   if (lowered === 'slack') return 'slack';
   if (lowered === 'gmail') return 'gmail';
   if (lowered === 'google drive') return 'google-drive';
+  if (lowered === DEFAULT_GOOGLE_CALENDAR_MCP_NAME.toLowerCase()) {
+    return resolveGoogleCalendarConnectorId((id) => connectorManager.isConnected(id));
+  }
   return null;
 }
 
@@ -1040,7 +1050,8 @@ export class MCPManager {
         config.name === 'Software Development' ||
         config.name === 'Slack' ||
         config.name === 'Gmail' ||
-        config.name === 'Google Drive';
+        config.name === 'Google Drive' ||
+        config.name === DEFAULT_GOOGLE_CALENDAR_MCP_NAME;
       const isOldConfig =
         (command === 'npx' || command.endsWith('/npx')) &&
         args.includes('-y') &&
@@ -1076,6 +1087,9 @@ export class MCPManager {
         }
         if (arg === '{GOOGLE_DRIVE_CONNECTOR_SERVER_PATH}') {
           return this.getMcpServerPath('google-drive-connector-server.ts');
+        }
+        if (arg === '{GOOGLE_CALENDAR_CONNECTOR_SERVER_PATH}') {
+          return this.getMcpServerPath('google-calendar-connector-server.ts');
         }
         return arg;
       });
@@ -1880,10 +1894,18 @@ export class MCPManager {
       tools: Array<{ name?: string; description?: string; inputSchema?: unknown }>;
     }
   ): MCPTool[] {
+    let rawTools = listToolsResult.tools;
+    const serverNameLower = config.name.trim().toLowerCase();
+    if (serverNameLower === DEFAULT_JIRA_MCP_NAME.toLowerCase()) {
+      rawTools = filterAtlassianToolsByProduct(rawTools, 'jira');
+    } else if (serverNameLower === DEFAULT_CONFLUENCE_MCP_NAME.toLowerCase()) {
+      rawTools = filterAtlassianToolsByProduct(rawTools, 'confluence');
+    }
+
     // Sort alphabetically so dedup suffix assignment is deterministic
     // across reconnects (otherwise session history can reference a name
     // that later changes if the server returns tools in a new order).
-    const sortedTools = [...listToolsResult.tools].sort((left, right) => {
+    const sortedTools = [...rawTools].sort((left, right) => {
       const leftName = left.name || '';
       const rightName = right.name || '';
       if (leftName < rightName) return -1;

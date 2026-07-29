@@ -1,3 +1,5 @@
+import { DEFAULT_ATLASSIAN_MCP_URL } from './mcp-defaults';
+
 function trimTrailingSlash(url: string): string {
   return url.replace(/\/$/, '');
 }
@@ -90,6 +92,17 @@ export const authConfig = {
       return trimTrailingSlash(explicit);
     }
     return 'https://gtm-pulse.yorkdevs.link/mcp';
+  },
+  /**
+   * Official Atlassian Rovo MCP endpoint (Jira + Confluence).
+   * Prefer ATLASSIAN_MCP_URL; otherwise https://mcp.atlassian.com/v1/mcp/authv2.
+   */
+  get atlassianMcpUrl(): string {
+    const explicit = readEnv('ATLASSIAN_MCP_URL') ?? readEnv('VITE_ATLASSIAN_MCP_URL');
+    if (explicit) {
+      return trimTrailingSlash(explicit);
+    }
+    return DEFAULT_ATLASSIAN_MCP_URL;
   },
   /**
    * Hub OAuth return URL — same as Launchpad:

@@ -46,6 +46,11 @@ const servers = [
     entry: 'google-drive-connector-server.ts',
     description: 'Google Drive Connector MCP Server',
   },
+  {
+    name: 'google-calendar-connector-server',
+    entry: 'google-calendar-connector-server.ts',
+    description: 'Google Calendar Connector MCP Server',
+  },
 ];
 
 const NODE_EXTERNALS = [

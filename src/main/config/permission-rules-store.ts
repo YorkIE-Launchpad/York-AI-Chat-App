@@ -83,6 +83,7 @@ export function getPermissionRules(): PermissionRule[] {
  *      R&D Launchpad MCP tools (`mcp__R_D_Launchpad__*` / legacy `mcp__Launchpad__*`),
  *      York IE HUB MCP tools (`mcp__York_IE_HUB__*` / legacy `mcp__Hub__*`),
  *      GTM Pulse MCP tools (`mcp__GTM_Pulse__*`),
+ *      Slack / Gmail / Google Drive / Jira / Confluence / Google Calendar MCP tools,
  *      OpenAI budget meta-tools (`mcp_run`, and child-only `mcp_search_tools` / `mcp_call_tool`),
  *      first-party meeting tools (`meeting_search`, `meeting_read`),
  *      and the first-party `webfetch` tool
@@ -111,7 +112,8 @@ export function decidePermission(
     return VALID_ACTIONS.has(rule.action) ? rule.action : 'ask';
   }
 
-  // Built-in default: Chrome / R&D Launchpad / R&D Pulse / York IE HUB / GTM Pulse MCP tools,
+  // Built-in default: Chrome / R&D Launchpad / R&D Pulse / York IE HUB / GTM Pulse /
+  // Slack / Gmail / Drive / Jira / Confluence / Google Calendar MCP tools,
   // first-party meeting tools, and webfetch run without a permission prompt.
   // Explicit rules for a specific tool still win above.
   // Legacy Launchpad/Hub prefixes are kept so older connector names keep working.
@@ -125,6 +127,9 @@ export function decidePermission(
   if (lowered.startsWith('mcp__slack__')) return 'allow';
   if (lowered.startsWith('mcp__gmail__')) return 'allow';
   if (lowered.startsWith('mcp__google_drive__')) return 'allow';
+  if (lowered.startsWith('mcp__jira__')) return 'allow';
+  if (lowered.startsWith('mcp__confluence__')) return 'allow';
+  if (lowered.startsWith('mcp__google_calendar__')) return 'allow';
   if (lowered === 'meeting_search') return 'allow';
   if (lowered === 'meeting_read') return 'allow';
   if (lowered === 'webfetch') return 'allow';

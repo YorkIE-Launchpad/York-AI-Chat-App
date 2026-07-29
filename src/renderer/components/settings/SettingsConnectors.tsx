@@ -98,7 +98,10 @@ function isBuiltinProtectedMcpServer(server: MCPServerConfig): boolean {
     isGtmPulseMcpServer(server) ||
     server.name === 'Slack' ||
     server.name === 'Gmail' ||
-    server.name === 'Google Drive'
+    server.name === 'Google Drive' ||
+    server.name === 'Jira' ||
+    server.name === 'Confluence' ||
+    server.name === 'Google Calendar'
   );
 }
 
@@ -111,7 +114,10 @@ function isNonEditableBuiltinMcpServer(server: MCPServerConfig): boolean {
     isGtmPulseMcpServer(server) ||
     server.name === 'Slack' ||
     server.name === 'Gmail' ||
-    server.name === 'Google Drive'
+    server.name === 'Google Drive' ||
+    server.name === 'Jira' ||
+    server.name === 'Confluence' ||
+    server.name === 'Google Calendar'
   );
 }
 
@@ -347,7 +353,12 @@ export function SettingsConnectors({ isActive }: { isActive: boolean }) {
     }
     if (
       server &&
-      (server.name === 'Slack' || server.name === 'Gmail' || server.name === 'Google Drive')
+      (server.name === 'Slack' ||
+        server.name === 'Gmail' ||
+        server.name === 'Google Drive' ||
+        server.name === 'Jira' ||
+        server.name === 'Confluence' ||
+        server.name === 'Google Calendar')
     ) {
       setError('This built-in connector cannot be deleted');
       return;

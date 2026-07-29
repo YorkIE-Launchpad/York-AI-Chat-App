@@ -97,12 +97,15 @@ describe('permission-rules-store', () => {
       expect(decidePermission(SESSION_A, 'mcp__gtm_pulse__list_projects', {})).toBe('allow');
     });
 
-    it('returns allow for Slack, Gmail, and Google Drive MCP tools by default', () => {
+    it('returns allow for Slack, Gmail, Google Drive, Jira, Confluence, and Google Calendar MCP tools by default', () => {
       expect(decidePermission(SESSION_A, 'mcp__Slack__list_channels', {})).toBe('allow');
       expect(decidePermission(SESSION_A, 'mcp__Gmail__get_email', {})).toBe('allow');
       expect(decidePermission(SESSION_A, 'mcp__Google_Drive__get_document_content', {})).toBe(
         'allow'
       );
+      expect(decidePermission(SESSION_A, 'mcp__Jira__getJiraIssue', {})).toBe('allow');
+      expect(decidePermission(SESSION_A, 'mcp__Confluence__getConfluencePage', {})).toBe('allow');
+      expect(decidePermission(SESSION_A, 'mcp__Google_Calendar__list_events', {})).toBe('allow');
     });
 
     it('returns allow for OpenAI budget meta-tools by default', () => {

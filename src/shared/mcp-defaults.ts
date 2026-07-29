@@ -10,6 +10,9 @@ export const DEFAULT_GTM_PULSE_MCP_SERVER_ID = 'mcp-gtm-pulse-default';
 export const DEFAULT_SLACK_MCP_SERVER_ID = 'mcp-slack-default';
 export const DEFAULT_GMAIL_MCP_SERVER_ID = 'mcp-gmail-default';
 export const DEFAULT_GOOGLE_DRIVE_MCP_SERVER_ID = 'mcp-google-drive-default';
+export const DEFAULT_JIRA_MCP_SERVER_ID = 'mcp-jira-default';
+export const DEFAULT_CONFLUENCE_MCP_SERVER_ID = 'mcp-confluence-default';
+export const DEFAULT_GOOGLE_CALENDAR_MCP_SERVER_ID = 'mcp-google-calendar-default';
 
 export const DEFAULT_CHROME_MCP_NAME = 'Chrome';
 export const DEFAULT_LAUNCHPAD_MCP_NAME = 'R&D Launchpad';
@@ -19,6 +22,12 @@ export const DEFAULT_GTM_PULSE_MCP_NAME = 'GTM Pulse';
 export const DEFAULT_SLACK_MCP_NAME = 'Slack';
 export const DEFAULT_GMAIL_MCP_NAME = 'Gmail';
 export const DEFAULT_GOOGLE_DRIVE_MCP_NAME = 'Google Drive';
+export const DEFAULT_JIRA_MCP_NAME = 'Jira';
+export const DEFAULT_CONFLUENCE_MCP_NAME = 'Confluence';
+export const DEFAULT_GOOGLE_CALENDAR_MCP_NAME = 'Google Calendar';
+
+/** Official Atlassian Rovo MCP endpoint (Jira + Confluence tools). */
+export const DEFAULT_ATLASSIAN_MCP_URL = 'https://mcp.atlassian.com/v1/mcp/authv2';
 
 export interface DefaultMcpConnectorDef {
   id: string;
@@ -34,6 +43,9 @@ export const DEFAULT_MCP_CONNECTORS: readonly DefaultMcpConnectorDef[] = [
   { id: DEFAULT_SLACK_MCP_SERVER_ID, name: DEFAULT_SLACK_MCP_NAME },
   { id: DEFAULT_GMAIL_MCP_SERVER_ID, name: DEFAULT_GMAIL_MCP_NAME },
   { id: DEFAULT_GOOGLE_DRIVE_MCP_SERVER_ID, name: DEFAULT_GOOGLE_DRIVE_MCP_NAME },
+  { id: DEFAULT_JIRA_MCP_SERVER_ID, name: DEFAULT_JIRA_MCP_NAME },
+  { id: DEFAULT_CONFLUENCE_MCP_SERVER_ID, name: DEFAULT_CONFLUENCE_MCP_NAME },
+  { id: DEFAULT_GOOGLE_CALENDAR_MCP_SERVER_ID, name: DEFAULT_GOOGLE_CALENDAR_MCP_NAME },
   { id: DEFAULT_CHROME_MCP_SERVER_ID, name: DEFAULT_CHROME_MCP_NAME },
 ] as const;
 

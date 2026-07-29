@@ -8,14 +8,20 @@ import { authConfig } from '../../shared/auth-config';
 import {
   DEFAULT_CHROME_MCP_NAME,
   DEFAULT_CHROME_MCP_SERVER_ID,
+  DEFAULT_CONFLUENCE_MCP_NAME,
+  DEFAULT_CONFLUENCE_MCP_SERVER_ID,
   DEFAULT_GMAIL_MCP_NAME,
   DEFAULT_GMAIL_MCP_SERVER_ID,
+  DEFAULT_GOOGLE_CALENDAR_MCP_NAME,
+  DEFAULT_GOOGLE_CALENDAR_MCP_SERVER_ID,
   DEFAULT_GOOGLE_DRIVE_MCP_NAME,
   DEFAULT_GOOGLE_DRIVE_MCP_SERVER_ID,
   DEFAULT_GTM_PULSE_MCP_NAME,
   DEFAULT_GTM_PULSE_MCP_SERVER_ID,
   DEFAULT_HUB_MCP_NAME,
   DEFAULT_HUB_MCP_SERVER_ID,
+  DEFAULT_JIRA_MCP_NAME,
+  DEFAULT_JIRA_MCP_SERVER_ID,
   DEFAULT_LAUNCHPAD_MCP_NAME,
   DEFAULT_LAUNCHPAD_MCP_SERVER_ID,
   DEFAULT_RND_PULSE_MCP_NAME,
@@ -27,9 +33,12 @@ import { log, logError } from '../utils/logger';
 
 export {
   DEFAULT_CHROME_MCP_NAME,
+  DEFAULT_CONFLUENCE_MCP_NAME,
   DEFAULT_GMAIL_MCP_NAME,
+  DEFAULT_GOOGLE_CALENDAR_MCP_NAME,
   DEFAULT_GOOGLE_DRIVE_MCP_NAME,
   DEFAULT_HUB_MCP_NAME,
+  DEFAULT_JIRA_MCP_NAME,
   DEFAULT_LAUNCHPAD_MCP_NAME,
   DEFAULT_RND_PULSE_MCP_NAME,
   DEFAULT_SLACK_MCP_NAME,
@@ -281,6 +290,61 @@ export function buildDefaultGoogleDriveMcpServer(): Omit<MCPServerConfig, 'id' |
   };
 }
 
+/**
+ * Built-in Jira MCP — official Atlassian Rovo remote MCP (streamable HTTP + browser OAuth).
+ * Tool list is filtered to Jira (+ shared Atlassian) tools at connect time.
+ */
+export function getDefaultAtlassianMcpUrl(): string {
+  return authConfig.atlassianMcpUrl;
+}
+
+export function buildDefaultJiraMcpServer(): Omit<MCPServerConfig, 'id' | 'enabled'> {
+  return {
+    name: DEFAULT_JIRA_MCP_NAME,
+    type: 'streamable-http',
+    url: getDefaultAtlassianMcpUrl(),
+  };
+}
+
+export function buildDefaultConfluenceMcpServer(): Omit<MCPServerConfig, 'id' | 'enabled'> {
+  return {
+    name: DEFAULT_CONFLUENCE_MCP_NAME,
+    type: 'streamable-http',
+    url: getDefaultAtlassianMcpUrl(),
+  };
+}
+
+export function buildDefaultGoogleCalendarMcpServer(): Omit<MCPServerConfig, 'id' | 'enabled'> {
+  return {
+    name: DEFAULT_GOOGLE_CALENDAR_MCP_NAME,
+    type: 'stdio',
+    command: 'node',
+    args: ['{GOOGLE_CALENDAR_CONNECTOR_SERVER_PATH}'],
+    env: {},
+  };
+}
+
+const DEFAULT_JIRA_SERVER_ID = DEFAULT_JIRA_MCP_SERVER_ID;
+const DEFAULT_CONFLUENCE_SERVER_ID = DEFAULT_CONFLUENCE_MCP_SERVER_ID;
+const DEFAULT_GOOGLE_CALENDAR_SERVER_ID = DEFAULT_GOOGLE_CALENDAR_MCP_SERVER_ID;
+
+export function isJiraMcpServer(server: Pick<MCPServerConfig, 'name' | 'url' | 'type'>): boolean {
+  return server.name.toLowerCase() === DEFAULT_JIRA_MCP_NAME.toLowerCase();
+}
+
+export function isConfluenceMcpServer(
+  server: Pick<MCPServerConfig, 'name' | 'url' | 'type'>
+): boolean {
+  return server.name.toLowerCase() === DEFAULT_CONFLUENCE_MCP_NAME.toLowerCase();
+}
+
+export function isGoogleCalendarMcpServer(server: Pick<MCPServerConfig, 'name' | 'args'>): boolean {
+  return (
+    server.name.toLowerCase() === DEFAULT_GOOGLE_CALENDAR_MCP_NAME.toLowerCase() ||
+    Boolean(server.args?.some((arg) => arg.includes('google-calendar-connector-server')))
+  );
+}
+
 export function isSlackMcpServer(server: Pick<MCPServerConfig, 'name' | 'args'>): boolean {
   return (
     server.name.toLowerCase() === DEFAULT_SLACK_MCP_NAME.toLowerCase() ||
@@ -430,9 +494,20 @@ class MCPConfigStore {
       log('[MCPConfigStore] Refusing to delete built-in GTM Pulse MCP connector');
       return false;
     }
+    if (target && isJiraMcpServer(target)) {
+      log('[MCPConfigStore] Refusing to delete built-in Jira MCP connector');
+      return false;
+    }
+    if (target && isConfluenceMcpServer(target)) {
+      log('[MCPConfigStore] Refusing to delete built-in Confluence MCP connector');
+      return false;
+    }
     if (
       target &&
-      (isSlackMcpServer(target) || isGmailMcpServer(target) || isGoogleDriveMcpServer(target))
+      (isSlackMcpServer(target) ||
+        isGmailMcpServer(target) ||
+        isGoogleDriveMcpServer(target) ||
+        isGoogleCalendarMcpServer(target))
     ) {
       log('[MCPConfigStore] Refusing to delete built-in connector MCP');
       return false;
@@ -704,6 +779,99 @@ class MCPConfigStore {
     const server: MCPServerConfig = {
       ...desired,
       id: DEFAULT_GOOGLE_DRIVE_SERVER_ID,
+      enabled: false,
+    };
+    this.saveServer(server);
+    return server;
+  }
+
+  /**
+   * Ensure the built-in Jira MCP connector exists (Atlassian Rovo remote).
+   */
+  ensureDefaultJiraServer(): MCPServerConfig {
+    const desiredUrl = getDefaultAtlassianMcpUrl();
+    const desired = buildDefaultJiraMcpServer();
+    const existing = this.getServers().find(isJiraMcpServer);
+    if (existing) {
+      const needsMigration =
+        existing.id === DEFAULT_JIRA_SERVER_ID &&
+        (existing.type !== 'streamable-http' || existing.url !== desiredUrl);
+      if (needsMigration) {
+        const migrated: MCPServerConfig = {
+          id: existing.id,
+          enabled: existing.enabled,
+          ...desired,
+        };
+        this.saveServer(migrated);
+        log(`[MCPConfigStore] Migrated built-in Jira MCP to streamable-http ${desiredUrl}`);
+        return migrated;
+      }
+      return existing;
+    }
+    const server: MCPServerConfig = {
+      ...desired,
+      id: DEFAULT_JIRA_SERVER_ID,
+      enabled: false,
+    };
+    this.saveServer(server);
+    log(`[MCPConfigStore] Seeded default Jira MCP connector at ${desiredUrl}`);
+    return server;
+  }
+
+  /**
+   * Ensure the built-in Confluence MCP connector exists (Atlassian Rovo remote).
+   */
+  ensureDefaultConfluenceServer(): MCPServerConfig {
+    const desiredUrl = getDefaultAtlassianMcpUrl();
+    const desired = buildDefaultConfluenceMcpServer();
+    const existing = this.getServers().find(isConfluenceMcpServer);
+    if (existing) {
+      const needsMigration =
+        existing.id === DEFAULT_CONFLUENCE_SERVER_ID &&
+        (existing.type !== 'streamable-http' || existing.url !== desiredUrl);
+      if (needsMigration) {
+        const migrated: MCPServerConfig = {
+          id: existing.id,
+          enabled: existing.enabled,
+          ...desired,
+        };
+        this.saveServer(migrated);
+        log(`[MCPConfigStore] Migrated built-in Confluence MCP to streamable-http ${desiredUrl}`);
+        return migrated;
+      }
+      return existing;
+    }
+    const server: MCPServerConfig = {
+      ...desired,
+      id: DEFAULT_CONFLUENCE_SERVER_ID,
+      enabled: false,
+    };
+    this.saveServer(server);
+    log(`[MCPConfigStore] Seeded default Confluence MCP connector at ${desiredUrl}`);
+    return server;
+  }
+
+  ensureDefaultGoogleCalendarServer(): MCPServerConfig {
+    const desired = buildDefaultGoogleCalendarMcpServer();
+    const existing = this.getServers().find(isGoogleCalendarMcpServer);
+    if (existing) {
+      if (
+        existing.id === DEFAULT_GOOGLE_CALENDAR_SERVER_ID &&
+        (existing.command !== desired.command || existing.name !== desired.name)
+      ) {
+        const migrated: MCPServerConfig = {
+          id: existing.id,
+          enabled: existing.enabled,
+          ...desired,
+        };
+        this.saveServer(migrated);
+        return migrated;
+      }
+      return existing;
+    }
+    const server: MCPServerConfig = {
+      ...desired,
+      id: DEFAULT_GOOGLE_CALENDAR_SERVER_ID,
       enabled: false,
     };
     this.saveServer(server);

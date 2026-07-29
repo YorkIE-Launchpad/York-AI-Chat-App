@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_CHROME_MCP_SERVER_ID,
+  DEFAULT_CONFLUENCE_MCP_SERVER_ID,
   DEFAULT_GMAIL_MCP_SERVER_ID,
+  DEFAULT_GOOGLE_CALENDAR_MCP_SERVER_ID,
   DEFAULT_GOOGLE_DRIVE_MCP_SERVER_ID,
   DEFAULT_GTM_PULSE_MCP_SERVER_ID,
   DEFAULT_HUB_MCP_SERVER_ID,
+  DEFAULT_JIRA_MCP_SERVER_ID,
   DEFAULT_LAUNCHPAD_MCP_SERVER_ID,
   DEFAULT_MCP_CONNECTORS,
   DEFAULT_RND_PULSE_MCP_NAME,
@@ -16,7 +19,7 @@ import {
 } from '../../shared/mcp-defaults';
 
 describe('mergeDefaultMcpServerStatuses', () => {
-  it('orders built-in connectors: Hub, Launchpad, R&D Pulse, GTM Pulse, Slack, Gmail, Drive, Chrome', () => {
+  it('orders built-in connectors: Hub, Launchpad, R&D Pulse, GTM Pulse, Slack, Gmail, Drive, Jira, Confluence, Calendar, Chrome', () => {
     expect(DEFAULT_MCP_CONNECTORS.map((c) => c.id)).toEqual([
       DEFAULT_HUB_MCP_SERVER_ID,
       DEFAULT_LAUNCHPAD_MCP_SERVER_ID,
@@ -25,6 +28,9 @@ describe('mergeDefaultMcpServerStatuses', () => {
       DEFAULT_SLACK_MCP_SERVER_ID,
       DEFAULT_GMAIL_MCP_SERVER_ID,
       DEFAULT_GOOGLE_DRIVE_MCP_SERVER_ID,
+      DEFAULT_JIRA_MCP_SERVER_ID,
+      DEFAULT_CONFLUENCE_MCP_SERVER_ID,
+      DEFAULT_GOOGLE_CALENDAR_MCP_SERVER_ID,
       DEFAULT_CHROME_MCP_SERVER_ID,
     ]);
     expect(DEFAULT_MCP_CONNECTORS.find((c) => c.id === DEFAULT_RND_PULSE_MCP_SERVER_ID)?.name).toBe(
