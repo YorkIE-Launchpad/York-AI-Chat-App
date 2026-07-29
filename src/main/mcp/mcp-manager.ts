@@ -363,6 +363,8 @@ export class MCPManager {
   private connectRetryControllers = new Map<string, AbortController>();
   // Tracks per-server connection status for UI display
   private connectionStatus = new Map<string, 'connecting' | 'connected' | 'failed'>();
+  // False until the first initializeServers pass finishes (and any queued replay)
+  private bootstrapComplete = false;
   // Chrome debug browser is started lazily on first Chrome tool call (not on MCP connect)
   private chromeReadyServerIds = new Set<string>();
   private chromeReadyInFlight = new Map<string, Promise<void>>();
@@ -655,6 +657,7 @@ export class MCPManager {
       return;
     }
     this.initializingServers = true;
+    this.bootstrapComplete = false;
     try {
       const fingerprint = JSON.stringify(
         configs.map((c) => ({
@@ -706,6 +709,8 @@ export class MCPManager {
         const pending = this.pendingInitConfigs;
         this.pendingInitConfigs = null;
         await this.initializeServers(pending);
+      } else {
+        this.bootstrapComplete = true;
       }
     }
   }
@@ -2338,6 +2343,24 @@ export class MCPManager {
     }
 
     return status;
+  }
+
+  /**
+   * Aggregate readiness for the renderer "tools not ready" banner.
+   * Ready once bootstrap has finished and no enabled server is still connecting.
+   */
+  getToolsReadyState(): {
+    ready: boolean;
+    connectingCount: number;
+    bootstrapComplete: boolean;
+  } {
+    const connectingCount = this.getServerStatus().filter((s) => s.status === 'connecting').length;
+    const bootstrapComplete = this.bootstrapComplete;
+    return {
+      ready: bootstrapComplete && connectingCount === 0,
+      connectingCount,
+      bootstrapComplete,
+    };
   }
 
   /**

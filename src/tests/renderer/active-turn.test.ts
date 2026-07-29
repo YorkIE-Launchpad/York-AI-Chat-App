@@ -4,7 +4,11 @@ import {
   findLatestUserMessageId,
   hasAssistantTextResponseForTurn,
   hasStreamingText,
+  isCompactionTraceStep,
+  isPendingStepId,
   messageHasAssistantText,
+  messageHasToolUse,
+  shouldClearActiveTurnOnStreamMessage,
 } from '../../renderer/utils/active-turn';
 
 function msg(id: string, role: Message['role'], text: string, sessionId = 's1'): Message {
@@ -48,6 +52,60 @@ describe('active-turn helpers', () => {
     expect(hasStreamingText('', '')).toBe(false);
     expect(hasStreamingText('hello', '')).toBe(true);
     expect(hasStreamingText('', 'thinking')).toBe(true);
+  });
+
+  it('detects tool_use blocks and only clears activeTurn for text-only replies', () => {
+    const textOnly = msg('a1', 'assistant', 'done');
+    const textAndTools: Message = {
+      id: 'a2',
+      sessionId: 's1',
+      role: 'assistant',
+      content: [
+        { type: 'text', text: 'Let me check' },
+        { type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'ls' } },
+      ],
+      timestamp: Date.now(),
+    };
+    const toolsOnly: Message = {
+      id: 'a3',
+      sessionId: 's1',
+      role: 'assistant',
+      content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: {} }],
+      timestamp: Date.now(),
+    };
+
+    expect(messageHasToolUse(textOnly)).toBe(false);
+    expect(messageHasToolUse(textAndTools)).toBe(true);
+    expect(shouldClearActiveTurnOnStreamMessage(textOnly)).toBe(true);
+    expect(shouldClearActiveTurnOnStreamMessage(textAndTools)).toBe(false);
+    expect(shouldClearActiveTurnOnStreamMessage(toolsOnly)).toBe(false);
+  });
+
+  it('identifies compaction trace steps without binding activeTurn', () => {
+    expect(
+      isCompactionTraceStep({
+        id: 'compaction-123',
+        title: 'Compacting context (overflow)...',
+      })
+    ).toBe(true);
+    expect(
+      isCompactionTraceStep({
+        id: 'compaction-end-456',
+        title: 'Context compaction completed',
+      })
+    ).toBe(true);
+    expect(
+      isCompactionTraceStep({
+        id: 'thinking-abc',
+        title: 'Compacting context (tokens)...',
+      })
+    ).toBe(true);
+    expect(isCompactionTraceStep({ id: 'thinking-abc', title: 'Working...' })).toBe(false);
+  });
+
+  it('detects optimistic pending-step ids', () => {
+    expect(isPendingStepId('pending-step-123')).toBe(true);
+    expect(isPendingStepId('real-step')).toBe(false);
   });
 });
 

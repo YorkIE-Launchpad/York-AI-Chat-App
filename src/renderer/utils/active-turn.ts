@@ -1,4 +1,4 @@
-import type { Message } from '../types';
+import type { Message, TraceStep } from '../types';
 
 /** True when the message includes non-empty assistant text (not tool-only). */
 export function messageHasAssistantText(message: Message): boolean {
@@ -6,6 +6,30 @@ export function messageHasAssistantText(message: Message): boolean {
   return message.content.some(
     (block) => block.type === 'text' && typeof block.text === 'string' && block.text.trim() !== ''
   );
+}
+
+/** True when the message includes one or more tool_use blocks. */
+export function messageHasToolUse(message: Message): boolean {
+  return message.content.some((block) => block.type === 'tool_use');
+}
+
+/**
+ * Clear activeTurn from stream.message only for a final-ish text reply.
+ * Text+tool_use turns must keep the turn active so later partials still render.
+ */
+export function shouldClearActiveTurnOnStreamMessage(message: Message): boolean {
+  return messageHasAssistantText(message) && !messageHasToolUse(message);
+}
+
+/** Compaction progress steps must not rebind activeTurn.stepId. */
+export function isCompactionTraceStep(step: Pick<TraceStep, 'id' | 'title'>): boolean {
+  if (step.id.startsWith('compaction-')) return true;
+  return /compacting context/i.test(step.title);
+}
+
+/** Optimistic mock step id used before the real thinking step arrives. */
+export function isPendingStepId(stepId: string): boolean {
+  return stepId.startsWith('pending-step-');
 }
 
 /**

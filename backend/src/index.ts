@@ -5,7 +5,10 @@ import { requireCognito } from './cognito-auth.js';
 import { listEnabledModels } from './models.js';
 import { proxyToProvider, type ProviderTarget } from './proxy.js';
 import { createZoomSessionRouter, createZoomWebhookRouter } from './zoom-routes.js';
-import { createZoomOauthCallbackRouter } from './zoom-oauth-callback.js';
+import {
+  createZoomOauthCallbackRouter,
+  createZoomOauthMisconfiguredRedirectRouter,
+} from './zoom-oauth-callback.js';
 
 dotenv.config();
 
@@ -49,6 +52,8 @@ const zoomJsonWithRawBody = express.json({
 
 // Zoom OAuth public callback (HTML bridge → local Electron listener). No Cognito.
 app.use('/oauth/zoom', createZoomOauthCallbackRouter());
+// Bare /callback is a common misconfig — explain the correct URI instead of Cognito 401 JSON.
+app.use(createZoomOauthMisconfiguredRedirectRouter());
 // Zoom webhooks must be public (signature-validated inside the router).
 app.use('/zoom', zoomJsonWithRawBody, createZoomWebhookRouter());
 // Zoom session register/poll require Cognito (applied inside the router).

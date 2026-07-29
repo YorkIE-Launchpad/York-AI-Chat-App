@@ -766,7 +766,8 @@
     "disclaimer": "York IE VECOS is AI-powered and may make mistakes. Please double-check responses.",
     "noModel": "No model",
     "connectorCount_one": "{{count}} connector",
-    "connectorCount_other": "{{count}} connectors"
+    "connectorCount_other": "{{count}} connectors",
+    "toolsNotReady": "Tools are still connecting…"
   },
   "context": {
     "progress": "Progress",

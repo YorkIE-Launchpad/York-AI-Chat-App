@@ -297,6 +297,41 @@ describe('SessionState unified store', () => {
       expect(useAppStore.getState().sessionStates['s1'].activeTurn).toBeNull();
     });
 
+    it('should clear pending-step active turn when real thinking step completes', () => {
+      useAppStore.getState().addSession(makeSession('s1'));
+      useAppStore.getState().addMessage('s1', {
+        id: 'msg1',
+        sessionId: 's1',
+        role: 'user',
+        content: [{ type: 'text', text: 'test' }],
+        timestamp: Date.now(),
+      });
+      useAppStore.getState().activateNextTurn('s1', 'pending-step-123');
+      expect(useAppStore.getState().sessionStates['s1'].activeTurn?.stepId).toBe(
+        'pending-step-123'
+      );
+      // Real thinking step completed before optimistic id was rebound
+      useAppStore.getState().clearActiveTurn('s1', 'real-thinking-step');
+      expect(useAppStore.getState().sessionStates['s1'].activeTurn).toBeNull();
+    });
+
+    it('should not clear a rebound real step when a different tool step completes', () => {
+      useAppStore.getState().addSession(makeSession('s1'));
+      useAppStore.getState().addMessage('s1', {
+        id: 'msg1',
+        sessionId: 's1',
+        role: 'user',
+        content: [{ type: 'text', text: 'test' }],
+        timestamp: Date.now(),
+      });
+      useAppStore.getState().activateNextTurn('s1', 'thinking-1');
+      useAppStore.getState().clearActiveTurn('s1', 'tool-step-xyz');
+      expect(useAppStore.getState().sessionStates['s1'].activeTurn).toEqual({
+        stepId: 'thinking-1',
+        userMessageId: 'msg1',
+      });
+    });
+
     it('should clear pending turns', () => {
       useAppStore.getState().addSession(makeSession('s1'));
       useAppStore.getState().addMessage('s1', {

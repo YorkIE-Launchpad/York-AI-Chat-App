@@ -208,6 +208,7 @@ async function createOAuthListener(providerRedirectUri: string): Promise<ActiveO
       res.writeHead(200, {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Private-Network': 'true',
       });
       res.end(JSON.stringify({ ok: true }));
     } else {
@@ -228,12 +229,13 @@ async function createOAuthListener(providerRedirectUri: string): Promise<ActiveO
       return;
     }
 
-    // CORS preflight from the public Zoom bridge page.
+    // CORS preflight from the public Zoom bridge page (incl. Private Network Access).
     if (req.method === 'OPTIONS') {
       res.writeHead(204, {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type',
+        'Access-Control-Allow-Private-Network': 'true',
       });
       res.end();
       return;

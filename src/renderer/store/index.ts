@@ -520,7 +520,15 @@ export const useAppStore = create<AppState>((set) => ({
     set((state) => {
       const ss = getSession(state.sessionStates, sessionId);
       if (!ss.activeTurn) return {};
-      if (stepId && ss.activeTurn.stepId !== stepId) return {};
+      // Optimistic pending-step-* may never rebind; allow clear from the real
+      // thinking step id so Processing cannot stick after a race.
+      if (
+        stepId &&
+        ss.activeTurn.stepId !== stepId &&
+        !ss.activeTurn.stepId.startsWith('pending-step-')
+      ) {
+        return {};
+      }
       return {
         sessionStates: patchSession(state.sessionStates, sessionId, {
           activeTurn: null,

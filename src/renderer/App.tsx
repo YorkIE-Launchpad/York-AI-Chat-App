@@ -1,4 +1,6 @@
 import { Suspense, lazy, useEffect, useRef, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
+import { RefreshCw } from 'lucide-react';
 import { useAppStore } from './store';
 import {
   useActiveSessionId,
@@ -13,6 +15,7 @@ import {
 } from './store/selectors';
 import { useIPC } from './hooks/useIPC';
 import { useWindowSize } from './hooks/useWindowSize';
+import { useToolsReady } from './hooks/useToolsReady';
 import { Sidebar } from './components/Sidebar';
 import { WelcomeView } from './components/WelcomeView';
 import { PermissionDialog } from './components/PermissionDialog';
@@ -76,6 +79,7 @@ function App() {
 }
 
 function AuthenticatedApp() {
+  const { t } = useTranslation();
   // --- Store state via selectors (each subscription is minimally scoped) ---
   const activeSessionId = useActiveSessionId();
   const settings = useSettings();
@@ -98,6 +102,7 @@ function AuthenticatedApp() {
   const setContextPanelCollapsed = useAppStore((s) => s.setContextPanelCollapsed);
 
   const { listSessions, isElectron } = useIPC();
+  const { ready: toolsReady } = useToolsReady(isElectron);
   const { width } = useWindowSize();
   const initialized = useRef(false);
   const sidebarBeforeSettings = useRef(false);
@@ -261,6 +266,20 @@ function AuthenticatedApp() {
 
         {/* Main Content Area */}
         <main className="flex-1 min-h-0 min-w-0 flex flex-col overflow-hidden bg-background">
+          {!showSettings && !toolsReady && (
+            <div
+              className="px-4 py-2 text-xs text-text-secondary border-b border-border-muted bg-surface/60 flex items-center gap-2 shrink-0"
+              role="status"
+              aria-live="polite"
+            >
+              <RefreshCw
+                className="w-3.5 h-3.5 animate-spin shrink-0 text-text-muted"
+                style={{ animationDuration: '3s' }}
+                aria-hidden="true"
+              />
+              <span>{t('chat.toolsNotReady')}</span>
+            </div>
+          )}
           {showSettings ? (
             <PanelErrorBoundary
               name="SettingsPanel"

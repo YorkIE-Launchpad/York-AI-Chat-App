@@ -40,6 +40,7 @@ import type {
   McpServerConfig,
   McpTool,
   McpServerStatus,
+  McpToolsReadyState,
   McpPresetsMap,
   ConnectorStatus,
   ConnectorId,
@@ -287,6 +288,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('mcp.deleteServer', serverId),
     getTools: (): Promise<McpTool[]> => ipcRenderer.invoke('mcp.getTools'),
     getServerStatus: (): Promise<McpServerStatus[]> => ipcRenderer.invoke('mcp.getServerStatus'),
+    getToolsReadyState: (): Promise<McpToolsReadyState> =>
+      ipcRenderer.invoke('mcp.getToolsReadyState'),
     getPresets: (): Promise<McpPresetsMap> => ipcRenderer.invoke('mcp.getPresets'),
     connectServer: (serverId: string): Promise<{ success: boolean; error?: string }> =>
       ipcRenderer.invoke('mcp.connectServer', serverId),
@@ -737,6 +740,7 @@ declare global {
         deleteServer: (serverId: string) => Promise<{ success: boolean; error?: string }>;
         getTools: () => Promise<McpTool[]>;
         getServerStatus: () => Promise<McpServerStatus[]>;
+        getToolsReadyState: () => Promise<McpToolsReadyState>;
         getPresets: () => Promise<McpPresetsMap>;
         connectServer: (serverId: string) => Promise<{ success: boolean; error?: string }>;
         disconnectServer: (serverId: string) => Promise<{ success: boolean; error?: string }>;

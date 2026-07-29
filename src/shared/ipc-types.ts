@@ -48,6 +48,13 @@ export interface McpServerStatus {
   toolCount: number;
 }
 
+/** Aggregate MCP readiness for the tools-not-ready startup banner. */
+export interface McpToolsReadyState {
+  ready: boolean;
+  connectingCount: number;
+  bootstrapComplete: boolean;
+}
+
 /**
  * Preset MCP server configs returned by `mcp.getPresets`.
  * Each value is a partial MCPServerConfig (without `id` and `enabled`).

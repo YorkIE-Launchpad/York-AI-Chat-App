@@ -12,8 +12,27 @@ import type {
 } from '../types';
 import { handleSubagentProgressEvent } from './useSubagentProgress';
 import { clearTurnStateOnServerError } from '../utils/clear-turn-on-error';
-import { findLatestUserMessageId, messageHasAssistantText } from '../utils/active-turn';
+import {
+  findLatestUserMessageId,
+  isCompactionTraceStep,
+  shouldClearActiveTurnOnStreamMessage,
+} from '../utils/active-turn';
+import {
+  STALE_TURN_WATCHDOG_INTERVAL_MS,
+  applyStaleTurnDecision,
+  decideStaleTurnAction,
+  findStaleActiveTurnSessionIds,
+  resolveMainSessionStatus,
+} from '../utils/stale-turn-watchdog';
 import i18n from '../i18n/config';
+
+function sessionIdFromServerEvent(event: ServerEvent): string | undefined {
+  if (!('payload' in event) || event.payload == null || typeof event.payload !== 'object') {
+    return undefined;
+  }
+  const payload = event.payload as { sessionId?: unknown };
+  return typeof payload.sessionId === 'string' ? payload.sessionId : undefined;
+}
 
 // Check if running in Electron
 const isElectron = typeof window !== 'undefined' && window.electronAPI !== undefined;
@@ -142,9 +161,17 @@ export function useIPC() {
       }
     };
 
+    /** Per-session last server-event timestamp for stale-turn recovery. */
+    const lastServerEventAt: Record<string, number> = {};
+
     const cleanup = window.electronAPI.on((event: ServerEvent) => {
       const store = useAppStore.getState();
       console.log('[useIPC] Received event:', event.type);
+
+      const eventSessionId = sessionIdFromServerEvent(event);
+      if (eventSessionId) {
+        lastServerEventAt[eventSessionId] = Date.now();
+      }
 
       try {
         switch (event.type) {
@@ -182,8 +209,8 @@ export function useIPC() {
             // Clear thinking buffer too — final thinking is in the message content blocks
             delete pendingThinking[event.payload.sessionId];
             store.addMessage(event.payload.sessionId, event.payload.message);
-            // Drop stale thinking step binding once a committed assistant text reply lands.
-            if (messageHasAssistantText(event.payload.message)) {
+            // Keep activeTurn across text+tool_use rounds so later partials still render.
+            if (shouldClearActiveTurnOnStreamMessage(event.payload.message)) {
               delete pendingThinkingStepIds[event.payload.sessionId];
               store.clearActiveTurn(event.payload.sessionId);
             }
@@ -198,29 +225,35 @@ export function useIPC() {
             break;
 
           case 'trace.step': {
-            if (event.payload.step.type === 'thinking' && event.payload.step.status === 'running') {
+            const step = event.payload.step;
+            // Compaction steps must not rebind activeTurn.stepId (would break gated clears).
+            if (
+              step.type === 'thinking' &&
+              step.status === 'running' &&
+              !isCompactionTraceStep(step)
+            ) {
               const currentState = useAppStore.getState();
               const ss = currentState.sessionStates[event.payload.sessionId];
               const pending = ss?.pendingTurns || [];
               const activeTurn = ss?.activeTurn;
               if (pending.length > 0) {
-                store.activateNextTurn(event.payload.sessionId, event.payload.step.id);
+                store.activateNextTurn(event.payload.sessionId, step.id);
               } else if (activeTurn) {
                 // Bind the real stepId so a mock stepId does not prevent cleanup
-                store.updateActiveTurnStep(event.payload.sessionId, event.payload.step.id);
+                store.updateActiveTurnStep(event.payload.sessionId, step.id);
               } else {
                 const lastUserId = findLatestUserMessageId(ss?.messages ?? []);
                 if (lastUserId) {
-                  store.beginActiveTurn(event.payload.sessionId, event.payload.step.id, lastUserId);
+                  store.beginActiveTurn(event.payload.sessionId, step.id, lastUserId);
                 } else {
-                  pendingThinkingStepIds[event.payload.sessionId] = event.payload.step.id;
+                  pendingThinkingStepIds[event.payload.sessionId] = step.id;
                 }
               }
             }
             bufferTrace({
               kind: 'add',
               sessionId: event.payload.sessionId,
-              step: event.payload.step,
+              step,
             });
             break;
           }
@@ -406,6 +439,54 @@ export function useIPC() {
     });
 
     let disposed = false;
+
+    const runStaleTurnWatchdog = async () => {
+      if (disposed) return;
+      const store = useAppStore.getState();
+      const now = Date.now();
+      const staleIds = findStaleActiveTurnSessionIds({
+        now,
+        lastServerEventAt,
+        sessionStates: store.sessionStates,
+      });
+      if (staleIds.length === 0) return;
+
+      let sessions: Session[] | null = null;
+      try {
+        sessions = await window.electronAPI.invoke<Session[]>({
+          type: 'session.list',
+          payload: {},
+        });
+      } catch (err) {
+        console.warn('[useIPC] Stale-turn watchdog failed to list sessions:', err);
+        return;
+      }
+      if (disposed) return;
+
+      const latest = useAppStore.getState();
+      for (const sessionId of staleIds) {
+        if (!latest.sessionStates[sessionId]?.activeTurn) continue;
+        const lastAt = lastServerEventAt[sessionId] ?? 0;
+        const quietMs = Date.now() - lastAt;
+        const mainStatus = resolveMainSessionStatus(sessions ?? undefined, sessionId);
+        const decision = decideStaleTurnAction({ quietMs, mainStatus });
+        if (decision.action === 'none') continue;
+        console.warn(
+          '[useIPC] Stale-turn watchdog recovering session',
+          sessionId,
+          decision.action,
+          `quietMs=${quietMs}`
+        );
+        applyStaleTurnDecision(latest, sessionId, decision, { now: Date.now() });
+        // Avoid immediately re-triggering for the same quiet window.
+        lastServerEventAt[sessionId] = Date.now();
+      }
+    };
+
+    const staleTurnWatchdogId = window.setInterval(() => {
+      void runStaleTurnWatchdog();
+    }, STALE_TURN_WATCHDOG_INTERVAL_MS);
+
     void (async () => {
       try {
         const [config, isConfigured, systemTheme] = await Promise.all([
@@ -444,6 +525,7 @@ export function useIPC() {
     // Cleanup on unmount only
     return () => {
       disposed = true;
+      window.clearInterval(staleTurnWatchdogId);
       console.log('[useIPC] Cleaning up IPC listener');
       // Flush any pending RAF batches before cancelling to avoid lost updates
       if (partialRafId !== null) {

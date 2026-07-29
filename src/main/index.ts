@@ -2764,6 +2764,19 @@ ipcMain.handle('mcp.getServerStatus', () => {
   }
 });
 
+ipcMain.handle('mcp.getToolsReadyState', () => {
+  try {
+    if (!sessionManager) {
+      return { ready: false, connectingCount: 0, bootstrapComplete: false };
+    }
+    const mcpManager = sessionManager.getMCPManager();
+    return mcpManager.getToolsReadyState();
+  } catch (error) {
+    logError('[MCP] Error getting tools ready state:', error);
+    return { ready: false, connectingCount: 0, bootstrapComplete: false };
+  }
+});
+
 ipcMain.handle('mcp.connectServer', async (_event, serverId: string) => {
   try {
     const config = mcpConfigStore.getServer(serverId);

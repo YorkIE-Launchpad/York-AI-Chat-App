@@ -58,6 +58,79 @@ describe('MCPManager', () => {
     manager = new MCPManager();
   });
 
+  describe('getToolsReadyState()', () => {
+    it('is not ready before bootstrap completes', () => {
+      expect(manager.getToolsReadyState()).toEqual({
+        ready: false,
+        connectingCount: 0,
+        bootstrapComplete: false,
+      });
+    });
+
+    it('is ready after bootstrap when no servers are connecting', async () => {
+      await manager.initializeServers([
+        {
+          id: 'disabled-only',
+          name: 'Disabled',
+          type: 'stdio',
+          command: 'echo',
+          enabled: false,
+        },
+      ]);
+
+      expect(manager.getToolsReadyState()).toEqual({
+        ready: true,
+        connectingCount: 0,
+        bootstrapComplete: true,
+      });
+    });
+
+    it('is not ready when an enabled server is still connecting after bootstrap', async () => {
+      await manager.initializeServers([
+        {
+          id: 'still-connecting',
+          name: 'Failing Server',
+          type: 'sse',
+          url: 'http://127.0.0.1:1/nonexistent',
+          enabled: true,
+        },
+      ]);
+
+      const state = manager.getToolsReadyState();
+      expect(state.bootstrapComplete).toBe(true);
+      expect(state.connectingCount).toBe(1);
+      expect(state.ready).toBe(false);
+
+      await manager.disconnectServer('still-connecting');
+    });
+
+    it('becomes ready once connecting servers reach a terminal status', async () => {
+      const configs: MCPServerConfig[] = [
+        {
+          id: 'manual',
+          name: 'Manual',
+          type: 'stdio',
+          command: 'echo',
+          enabled: true,
+        },
+      ];
+
+      await manager.initializeServers(configs);
+      const internals = asTestManager(manager);
+      // initializeServers may leave enabled servers connecting after failed connect;
+      // force a terminal failed status to simulate settle.
+      internals.connectionStatus.set('manual', 'failed');
+      internals.connectRetryControllers.get('manual')?.abort();
+      internals.connectRetryControllers.delete('manual');
+
+      expect(manager.getToolsReadyState()).toEqual({
+        ready: true,
+        connectingCount: 0,
+        bootstrapComplete: true,
+      });
+    });
+  });
+
   describe('getServerStatus()', () => {
     it('returns disabled status for disabled servers', async () => {
       const configs: MCPServerConfig[] = [
