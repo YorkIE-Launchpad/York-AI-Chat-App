@@ -80,8 +80,40 @@ vi.mock('../../main/meetings/meeting-transcription-service', () => ({
   },
 }));
 
+vi.mock('../../main/connectors/connector-manager', () => ({
+  connectorManager: {
+    isConnected: () => false,
+    ensureFreshAccessToken: async () => {
+      throw new Error('not connected');
+    },
+  },
+}));
+
+vi.mock('../../main/meetings/calendar-enrichment', () => ({
+  findCurrentCalendarMeeting: async () => null,
+}));
+
+vi.mock('../../main/meetings/zoom-rtms-client', () => ({
+  ZoomRtmsDesktopClient: class {
+    hasReceivedSegments = false;
+    async findLiveMeeting() {
+      return null;
+    }
+    async startParticipantRtms() {
+      return false;
+    }
+    async registerSession() {
+      return false;
+    }
+    startPolling() {}
+    stopPolling() {}
+    async unregister() {}
+  },
+}));
+
 import { MeetingService } from '../../main/meetings/meeting-service';
 import { createMeetingTools } from '../../main/meetings/meeting-tools';
+import { buildTranscriptText } from '../../shared/meetings/transcript-format';
 
 describe('MeetingService', () => {
   beforeEach(() => {
@@ -141,10 +173,25 @@ describe('MeetingService', () => {
     const finalized = await service.stop();
     const withoutTranscript = service.formatMeetingForPrompt(finalized!, false);
     expect(withoutTranscript).toContain('Sync notes');
-    expect(withoutTranscript).not.toContain('Raw transcript');
+    expect(withoutTranscript).not.toContain('Transcript (speaker-labeled)');
     const withTranscript = service.formatMeetingForPrompt(finalized!, true);
-    expect(withTranscript).toContain('Raw transcript');
+    expect(withTranscript).toContain('Transcript (speaker-labeled)');
     expect(withTranscript).toContain('hello from the meeting');
+  });
+
+  it('builds speaker-labeled transcript text', () => {
+    expect(
+      buildTranscriptText([
+        { text: 'hello', speaker: 'Alice' },
+        { text: 'world', speaker: null },
+      ])
+    ).toBe('Alice: hello\nworld');
+  });
+
+  it('reports zoomConnected false in overview when Zoom is disconnected', async () => {
+    const service = new MeetingService();
+    const overview = await service.getOverview();
+    expect(overview.zoomConnected).toBe(false);
   });
 
   it('exposes meeting_search and meeting_read tools', async () => {

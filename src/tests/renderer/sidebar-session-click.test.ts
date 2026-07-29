@@ -108,15 +108,65 @@ describe('Sidebar handleSessionClick — sessionStates dep loop prevention', () 
     };
 
     useAppStore.getState().setMessages(sessionId, [existingMsg]);
+    useAppStore.getState().setActiveSession(sessionId);
 
-    // Simulate the fixed handleSessionClick check:
-    // read at call-time rather than from a stale dep
-    const currentStates = useAppStore.getState().sessionStates;
-    const existingMessages = currentStates[sessionId]?.messages;
+    // Simulate the fixed handleSessionClick guard:
+    // already active + messages loaded → skip reload
+    const state = useAppStore.getState();
+    const alreadyActive = state.activeSessionId === sessionId;
+    const existingMessages = state.sessionStates[sessionId]?.messages ?? [];
 
-    // When messages exist, the callback should NOT call getSessionMessages again.
-    // This assertion verifies the guard condition works with getState().
+    expect(alreadyActive).toBe(true);
     expect(existingMessages).toHaveLength(1);
-    expect(existingMessages![0].id).toBe('msg-existing');
+    expect(existingMessages[0].id).toBe('msg-existing');
+  });
+
+  it('active but empty session should retry load (not early-return)', () => {
+    const sessionId = 'session-5';
+    useAppStore.getState().setActiveSession(sessionId);
+    // Session state may exist with empty messages after a failed load
+    useAppStore.getState().setMessages(sessionId, []);
+
+    const state = useAppStore.getState();
+    const alreadyActive = state.activeSessionId === sessionId;
+    const existingMessages = state.sessionStates[sessionId]?.messages ?? [];
+
+    // Guard must NOT skip — empty active session needs a retry
+    const shouldSkip = alreadyActive && existingMessages.length > 0;
+    expect(shouldSkip).toBe(false);
+  });
+
+  it('applies fetched messages when disk has more than memory', () => {
+    const sessionId = 'session-6';
+    useAppStore.getState().setMessages(sessionId, [
+      {
+        id: 'm1',
+        sessionId,
+        role: 'user',
+        content: [{ type: 'text', text: 'truncated' }],
+        timestamp: 1,
+      },
+    ]);
+
+    const latestExisting = useAppStore.getState().sessionStates[sessionId]?.messages ?? [];
+    const fetched = [
+      ...latestExisting,
+      {
+        id: 'm2',
+        sessionId,
+        role: 'assistant' as const,
+        content: [{ type: 'text' as const, text: 'full' }],
+        timestamp: 2,
+      },
+    ];
+
+    const shouldApply =
+      fetched.length > 0 && (latestExisting.length === 0 || fetched.length > latestExisting.length);
+    expect(shouldApply).toBe(true);
+
+    if (shouldApply) {
+      useAppStore.getState().setMessages(sessionId, fetched);
+    }
+    expect(useAppStore.getState().sessionStates[sessionId]?.messages).toHaveLength(2);
   });
 });

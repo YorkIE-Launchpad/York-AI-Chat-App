@@ -16,11 +16,35 @@ import { ModelSelector } from './ModelSelector';
 import { SlashCommandMenu } from './SlashCommandMenu';
 import { SubagentTracker } from './SubagentTracker';
 import { ContextUsageBar } from './ContextUsageBar';
-import type { Message, ContentBlock, Skill } from '../types';
-import { Send, Square, Plus, Loader2, Plug, X, Clock, Mic, Paperclip } from 'lucide-react';
+import type { Message, ContentBlock, Skill, ChatLoopStatus } from '../types';
+import {
+  Send,
+  Square,
+  Plus,
+  Loader2,
+  Plug,
+  X,
+  Clock,
+  Mic,
+  Paperclip,
+  RefreshCw,
+} from 'lucide-react';
 import { isScrollNearBottom, resolveSessionScrollTop } from '../utils/chat-scroll-position';
-import { useSlashCommands, isMeetingSlashSkill } from '../hooks/useSlashCommands';
+import {
+  useSlashCommands,
+  isMeetingSlashSkill,
+  isLoopStopBuiltinSkill,
+} from '../hooks/useSlashCommands';
 import { MeetingPicker, type AttachedMeeting } from './MeetingPicker';
+import { ChatLoopPanel } from './ChatLoopPanel';
+import {
+  formatInterval,
+  isLoopSlashInput,
+  msToLoopInterval,
+  parseLoopCommand,
+} from '../../shared/loop/parse';
+import { DEFAULT_GOAL_MAX_ITERATIONS } from '../../shared/loop/types';
+import { hasAssistantTextResponseForTurn, hasStreamingText } from '../utils/active-turn';
 
 type AttachedFile = {
   name: string;
@@ -41,6 +65,10 @@ export function ChatView() {
   const pendingTurns = usePendingTurns();
   const executionClock = useActiveExecutionClock();
   const setGlobalNotice = useAppStore((s) => s.setGlobalNotice);
+  const setStoreChatLoopStatus = useAppStore((s) => s.setChatLoopStatus);
+  const chatLoopStatus = useAppStore((s) =>
+    activeSessionId ? (s.chatLoopBySessionId[activeSessionId] ?? null) : null
+  );
   const { continueSession, stopSession, isElectron } = useIPC();
   const [prompt, setPrompt] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -68,8 +96,11 @@ export function ChatView() {
   const [attachedMeetings, setAttachedMeetings] = useState<AttachedMeeting[]>([]);
   const [meetingPickerOpen, setMeetingPickerOpen] = useState(false);
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
+  const [loopMenuOpen, setLoopMenuOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [loopNotice, setLoopNotice] = useState<string | null>(null);
   const attachMenuRef = useRef<HTMLDivElement>(null);
+  const loopMenuRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -86,6 +117,12 @@ export function ChatView() {
 
   const hasActiveTurn = Boolean(activeTurn);
   const pendingCount = pendingTurns.length;
+  const hasTextResponseForTurn = hasAssistantTextResponseForTurn(
+    messages,
+    activeTurn?.userMessageId
+  );
+  const showProcessingIndicator =
+    hasActiveTurn && !hasTextResponseForTurn && !hasStreamingText(partialMessage, partialThinking);
   const isSessionRunning = activeSession?.status === 'running';
   const canStop = isSessionRunning || hasActiveTurn || pendingCount > 0;
 
@@ -516,6 +553,26 @@ export function ChatView() {
     };
   }, [attachMenuOpen]);
 
+  useEffect(() => {
+    if (!loopMenuOpen) return;
+    const onPointerDown = (event: MouseEvent) => {
+      if (!loopMenuRef.current?.contains(event.target as Node)) {
+        setLoopMenuOpen(false);
+      }
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setLoopMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [loopMenuOpen]);
+
   // Handle drag and drop for images
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -643,7 +700,13 @@ export function ChatView() {
         setPrompt('');
         closeSlashMenu();
         setAttachMenuOpen(false);
+        setLoopMenuOpen(false);
         setMeetingPickerOpen(true);
+        return;
+      }
+      if (isLoopStopBuiltinSkill(skill)) {
+        setPrompt(skill.name === 'goal stop' ? '/goal stop' : '/loop stop');
+        closeSlashMenu();
         return;
       }
       const next = `/${skill.name} `;
@@ -657,6 +720,89 @@ export function ChatView() {
       });
     },
     [closeSlashMenu]
+  );
+
+  const refreshLoopStatus = useCallback(
+    async (sessionId: string) => {
+      if (!isElectron || !window.electronAPI.loop) return;
+      try {
+        const status = await window.electronAPI.loop.status(sessionId);
+        setStoreChatLoopStatus(sessionId, status);
+      } catch {
+        setStoreChatLoopStatus(sessionId, null);
+      }
+    },
+    [isElectron, setStoreChatLoopStatus]
+  );
+
+  useEffect(() => {
+    if (!activeSessionId || !isElectron) {
+      return;
+    }
+    void refreshLoopStatus(activeSessionId);
+  }, [activeSessionId, isElectron, refreshLoopStatus]);
+
+  // Show notice when a loop stops (via IPC update through the shared useIPC listener).
+  const prevLoopStatusRef = useRef<ChatLoopStatus | null>(null);
+  useEffect(() => {
+    prevLoopStatusRef.current = null;
+  }, [activeSessionId]);
+  useEffect(() => {
+    const prev = prevLoopStatusRef.current;
+    prevLoopStatusRef.current = chatLoopStatus;
+    if (prev && !chatLoopStatus) {
+      setLoopNotice(t('loop.stopped'));
+    }
+  }, [chatLoopStatus, t]);
+
+  const handleStopChatLoop = useCallback(async () => {
+    if (!activeSessionId || !isElectron) return;
+    try {
+      await window.electronAPI.loop.stop(activeSessionId);
+      setStoreChatLoopStatus(activeSessionId, null);
+      setLoopNotice(t('loop.stopped'));
+      setLoopMenuOpen(false);
+    } catch (err) {
+      setGlobalNotice({
+        id: `loop-stop-${Date.now()}`,
+        message: err instanceof Error ? err.message : t('loop.stopFailed'),
+        type: 'error',
+      });
+    }
+  }, [activeSessionId, isElectron, setGlobalNotice, setStoreChatLoopStatus, t]);
+
+  const startChatLoop = useCallback(
+    async (input: {
+      kind: 'interval' | 'goal';
+      prompt: string;
+      intervalMs: number;
+      maxIterations?: number | null;
+    }) => {
+      if (!activeSessionId || !isElectron) {
+        throw new Error(t('loop.startFailed'));
+      }
+      const status = await window.electronAPI.loop.start({
+        sessionId: activeSessionId,
+        kind: input.kind,
+        prompt: input.prompt,
+        intervalMs: input.intervalMs,
+        maxIterations:
+          input.kind === 'goal' ? (input.maxIterations ?? DEFAULT_GOAL_MAX_ITERATIONS) : null,
+        runImmediately: true,
+      });
+      setStoreChatLoopStatus(activeSessionId, status);
+      const intervalLabel = formatInterval(msToLoopInterval(input.intervalMs));
+      setLoopNotice(
+        input.kind === 'goal'
+          ? t('loop.goalStarted', {
+              interval: intervalLabel,
+              max: input.maxIterations ?? DEFAULT_GOAL_MAX_ITERATIONS,
+            })
+          : t('loop.started', { interval: intervalLabel })
+      );
+      return status;
+    },
+    [activeSessionId, isElectron, setStoreChatLoopStatus, t]
   );
 
   const handleSubmit = async (e?: React.FormEvent) => {
@@ -674,6 +820,44 @@ export function ChatView() {
       isSubmitting
     )
       return;
+
+    // Intercept /loop and /goal before normal send
+    if (isElectron && isLoopSlashInput(currentPrompt.trim())) {
+      setIsSubmitting(true);
+      try {
+        const parsed = parseLoopCommand(currentPrompt.trim());
+        if (parsed.type === 'usage') {
+          setLoopNotice(t('loop.usage'));
+          return;
+        }
+        if (parsed.type === 'stop') {
+          await handleStopChatLoop();
+          setPrompt('');
+          if (textareaRef.current) textareaRef.current.value = '';
+          return;
+        }
+        if (parsed.type === 'loop' || parsed.type === 'goal') {
+          await startChatLoop({
+            kind: parsed.type === 'goal' ? 'goal' : 'interval',
+            prompt: parsed.type === 'goal' ? parsed.goal : parsed.prompt,
+            intervalMs: parsed.interval.ms,
+            maxIterations: parsed.type === 'goal' ? parsed.maxIterations : null,
+          });
+          setPrompt('');
+          if (textareaRef.current) textareaRef.current.value = '';
+          return;
+        }
+      } catch (err) {
+        setGlobalNotice({
+          id: `loop-start-${Date.now()}`,
+          message: err instanceof Error ? err.message : t('loop.startFailed'),
+          type: 'error',
+        });
+        return;
+      } finally {
+        setIsSubmitting(false);
+      }
+    }
 
     setIsSubmitting(true);
     try {
@@ -789,34 +973,70 @@ export function ChatView() {
         >
           {activeSession.title}
         </h2>
-        {activeConnectors.length > 0 && (
-          <>
-            <div
-              ref={connectorMeasureRef}
-              aria-hidden="true"
-              className="absolute left-0 top-0 -z-10 opacity-0 pointer-events-none"
+        <div className="justify-self-end flex items-center gap-2">
+          {chatLoopStatus && (
+            <button
+              type="button"
+              onClick={() => void handleStopChatLoop()}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-accent/10 border border-accent/20 text-accent text-xs font-medium"
+              title={t('loop.stopButton')}
             >
-              <div className="flex items-center gap-2 px-2 py-1 rounded-lg border border-mcp/20">
-                <Plug className="w-3.5 h-3.5" />
-                <span className="text-xs font-medium whitespace-nowrap">
-                  {t('chat.connectorCount', { count: activeConnectors.length })}
+              <RefreshCw className="w-3.5 h-3.5 animate-spin" style={{ animationDuration: '3s' }} />
+              <span>
+                {chatLoopStatus.kind === 'goal'
+                  ? t('loop.badgeGoal', {
+                      interval: formatInterval(msToLoopInterval(chatLoopStatus.intervalMs)),
+                      tick: chatLoopStatus.tickCount,
+                    })
+                  : t('loop.badge', {
+                      interval: formatInterval(msToLoopInterval(chatLoopStatus.intervalMs)),
+                      tick: chatLoopStatus.tickCount,
+                    })}
+              </span>
+              <X className="w-3 h-3" />
+            </button>
+          )}
+          {activeConnectors.length > 0 && (
+            <>
+              <div
+                ref={connectorMeasureRef}
+                aria-hidden="true"
+                className="absolute left-0 top-0 -z-10 opacity-0 pointer-events-none"
+              >
+                <div className="flex items-center gap-2 px-2 py-1 rounded-lg border border-mcp/20">
+                  <Plug className="w-3.5 h-3.5" />
+                  <span className="text-xs font-medium whitespace-nowrap">
+                    {t('chat.connectorCount', { count: activeConnectors.length })}
+                  </span>
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-mcp/8 border border-mcp/15">
+                <Plug className="w-3.5 h-3.5 text-mcp" />
+                <span className="text-xs text-mcp font-medium">
+                  {showConnectorLabel
+                    ? t('chat.connectorCount', { count: activeConnectors.length })
+                    : activeConnectors.length}
                 </span>
               </div>
-            </div>
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-mcp/8 border border-mcp/15 justify-self-end">
-              <Plug className="w-3.5 h-3.5 text-mcp" />
-              <span className="text-xs text-mcp font-medium">
-                {showConnectorLabel
-                  ? t('chat.connectorCount', { count: activeConnectors.length })
-                  : activeConnectors.length}
-              </span>
-            </div>
-          </>
-        )}
+            </>
+          )}
+        </div>
       </div>
 
       {/* Context Usage Bar */}
       <ContextUsageBar />
+      {loopNotice && (
+        <div className="px-4 py-2 text-xs text-text-secondary border-b border-border-muted bg-surface/60 flex items-center justify-between gap-2">
+          <span>{loopNotice}</span>
+          <button
+            type="button"
+            className="text-text-muted hover:text-text-primary"
+            onClick={() => setLoopNotice(null)}
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* Messages */}
       <div ref={scrollContainerRef} className="flex-1 overflow-y-auto">
@@ -847,14 +1067,12 @@ export function ChatView() {
           <SubagentTracker sessionId={activeSessionId} />
 
           {/* Processing indicator - show when we have an active turn but no streaming content yet */}
-          {hasActiveTurn &&
-            (!partialMessage || partialMessage.trim() === '') &&
-            !partialThinking && (
-              <div className="flex items-center gap-3 px-4 py-3 rounded-full bg-background/80 border border-border-subtle max-w-fit">
-                <Loader2 className="w-4 h-4 text-accent animate-spin" />
-                <span className="text-sm text-text-secondary">{t('chat.processing')}</span>
-              </div>
-            )}
+          {showProcessingIndicator && (
+            <div className="flex items-center gap-3 px-4 py-3 rounded-full bg-background/80 border border-border-subtle max-w-fit">
+              <Loader2 className="w-4 h-4 text-accent animate-spin" />
+              <span className="text-sm text-text-secondary">{t('chat.processing')}</span>
+            </div>
+          )}
 
           {/* Real-time execution timer */}
           {liveElapsed > 0 && (
@@ -989,6 +1207,7 @@ export function ChatView() {
                 <button
                   type="button"
                   onClick={() => {
+                    setLoopMenuOpen(false);
                     if (meetingsReferenceAllowed) {
                       setAttachMenuOpen((open) => !open);
                       return;
@@ -1040,6 +1259,42 @@ export function ChatView() {
                   </div>
                 )}
               </div>
+
+              {isElectron && (
+                <div className="relative" ref={loopMenuRef}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAttachMenuOpen(false);
+                      setLoopMenuOpen((open) => !open);
+                    }}
+                    className={`w-9 h-9 rounded-2xl flex items-center justify-center transition-colors ${
+                      chatLoopStatus || loopMenuOpen
+                        ? 'text-accent bg-accent/10 hover:bg-accent/15'
+                        : 'text-text-muted hover:text-text-primary hover:bg-surface-hover'
+                    }`}
+                    title={t('loop.menuButton')}
+                    aria-expanded={loopMenuOpen}
+                    aria-haspopup="dialog"
+                  >
+                    <RefreshCw className="w-5 h-5" />
+                  </button>
+                  <ChatLoopPanel
+                    open={loopMenuOpen}
+                    initialText={prompt.trim()}
+                    activeStatus={chatLoopStatus}
+                    onClose={() => setLoopMenuOpen(false)}
+                    onStart={async ({ kind, prompt: loopPrompt, intervalMs }) => {
+                      await startChatLoop({ kind, prompt: loopPrompt, intervalMs });
+                      setPrompt('');
+                      if (textareaRef.current) textareaRef.current.value = '';
+                    }}
+                    onStop={async () => {
+                      await handleStopChatLoop();
+                    }}
+                  />
+                </div>
+              )}
 
               <textarea
                 ref={textareaRef}

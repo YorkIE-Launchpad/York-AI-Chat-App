@@ -1240,10 +1240,30 @@ export class SessionManager {
         const firstKey = this.messageCache.keys().next().value;
         if (firstKey) this.messageCache.delete(firstKey);
       }
-      this.messageCache.set(message.sessionId, [message]);
+      // Hydrate from DB instead of seeding with only this message. After cache
+      // eviction, a lone seed would make getMessages() return truncated history
+      // and history clicks look like the chat failed to load.
+      const messages = this.readMessagesFromDb(message.sessionId);
+      if (!messages.some((m) => m.id === message.id)) {
+        messages.push(message);
+      }
+      this.messageCache.set(message.sessionId, messages);
     }
 
     log('[SessionManager] Message saved:', message.id, 'role:', message.role);
+  }
+
+  private readMessagesFromDb(sessionId: string): Message[] {
+    const rows = this.db.messages.getBySessionId(sessionId);
+    return rows.map((row) => ({
+      id: row.id,
+      sessionId: row.session_id,
+      role: row.role as Message['role'],
+      content: this.normalizeContent(row.content),
+      timestamp: row.timestamp,
+      tokenUsage: row.token_usage ? JSON.parse(row.token_usage) : undefined,
+      executionTimeMs: row.execution_time_ms ?? undefined,
+    }));
   }
 
   // Get messages for a session
@@ -1253,16 +1273,7 @@ export class SessionManager {
       return [...cached];
     }
 
-    const rows = this.db.messages.getBySessionId(sessionId);
-    const messages = rows.map((row) => ({
-      id: row.id,
-      sessionId: row.session_id,
-      role: row.role as Message['role'],
-      content: this.normalizeContent(row.content),
-      timestamp: row.timestamp,
-      tokenUsage: row.token_usage ? JSON.parse(row.token_usage) : undefined,
-      executionTimeMs: row.execution_time_ms ?? undefined,
-    }));
+    const messages = this.readMessagesFromDb(sessionId);
     this.messageCache.set(sessionId, messages);
     return [...messages];
   }

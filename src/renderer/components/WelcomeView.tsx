@@ -25,6 +25,8 @@ import {
   Search,
   Shuffle,
   Mic,
+  RefreshCw,
+  Plus,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -39,8 +41,20 @@ type AttachedFile = {
 import welcomeLogoSrc from '../assets/logo.png';
 import { ModelSelector } from './ModelSelector';
 import { SlashCommandMenu } from './SlashCommandMenu';
-import { useSlashCommands, isMeetingSlashSkill } from '../hooks/useSlashCommands';
+import {
+  useSlashCommands,
+  isMeetingSlashSkill,
+  isLoopStopBuiltinSkill,
+} from '../hooks/useSlashCommands';
 import { MeetingPicker, type AttachedMeeting } from './MeetingPicker';
+import { ChatLoopPanel } from './ChatLoopPanel';
+import {
+  formatInterval,
+  isLoopSlashInput,
+  msToLoopInterval,
+  parseLoopCommand,
+} from '../../shared/loop/parse';
+import { DEFAULT_GOAL_MAX_ITERATIONS } from '../../shared/loop/types';
 
 const WELCOME_ICON_MAP: Record<WelcomeActionIcon, LucideIcon> = {
   FileText,
@@ -115,11 +129,14 @@ export function WelcomeView() {
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const [attachedMeetings, setAttachedMeetings] = useState<AttachedMeeting[]>([]);
   const [meetingPickerOpen, setMeetingPickerOpen] = useState(false);
+  const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
+  const [loopMenuOpen, setLoopMenuOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [quickActions, setQuickActions] = useState<WelcomeQuickAction[] | null>(null);
   const [welcomeTagline, setWelcomeTagline] = useState<string | null>(null);
   const [isShufflingActions, setIsShufflingActions] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const actionsMenuRef = useRef<HTMLDivElement>(null);
   const { startSession, changeWorkingDir, isElectron } = useIPC();
   const workingDir = useAppStore((state) => state.workingDir);
   const setGlobalNotice = useAppStore((state) => state.setGlobalNotice);
@@ -199,6 +216,11 @@ export function WelcomeView() {
         setMeetingPickerOpen(true);
         return;
       }
+      if (isLoopStopBuiltinSkill(skill)) {
+        setPrompt(skill.name === 'goal stop' ? '/goal stop' : '/loop stop');
+        closeSlashMenu();
+        return;
+      }
       const next = `/${skill.name} `;
       setPrompt(next);
       requestAnimationFrame(() => {
@@ -210,6 +232,86 @@ export function WelcomeView() {
       });
     },
     [closeSlashMenu]
+  );
+
+  useEffect(() => {
+    if (!actionsMenuOpen && !loopMenuOpen) return;
+    const onPointerDown = (event: MouseEvent) => {
+      if (!actionsMenuRef.current?.contains(event.target as Node)) {
+        setActionsMenuOpen(false);
+        setLoopMenuOpen(false);
+      }
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setActionsMenuOpen(false);
+        setLoopMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [actionsMenuOpen, loopMenuOpen]);
+
+  const clearComposer = useCallback(() => {
+    setPastedImages((prev) => {
+      prev.forEach((img) => URL.revokeObjectURL(img.url));
+      return [];
+    });
+    setPrompt('');
+    if (textareaRef.current) {
+      textareaRef.current.value = '';
+    }
+    setAttachedFiles([]);
+    setAttachedMeetings([]);
+  }, []);
+
+  const startSessionWithLoop = useCallback(
+    async (input: {
+      kind: 'interval' | 'goal';
+      prompt: string;
+      intervalMs: number;
+      maxIterations?: number | null;
+    }) => {
+      if (!isElectron || !window.electronAPI.loop) {
+        throw new Error(t('loop.startFailed'));
+      }
+      const contentBlocks: ContentBlock[] = [{ type: 'text', text: input.prompt }];
+      const sessionTitle = getInitialSessionTitle(input.prompt);
+      const session = await startSession(sessionTitle, contentBlocks, workingDir || undefined);
+      if (!session?.id) {
+        throw new Error(t('loop.startFailed'));
+      }
+      // First turn already ran via startSession — arm the timer only.
+      await window.electronAPI.loop.start({
+        sessionId: session.id,
+        kind: input.kind,
+        prompt: input.prompt,
+        intervalMs: input.intervalMs,
+        maxIterations:
+          input.kind === 'goal' ? (input.maxIterations ?? DEFAULT_GOAL_MAX_ITERATIONS) : null,
+        runImmediately: false,
+      });
+      setGlobalNotice({
+        id: `loop-welcome-${Date.now()}`,
+        type: 'success',
+        message:
+          input.kind === 'goal'
+            ? t('loop.goalStarted', {
+                interval: formatInterval(msToLoopInterval(input.intervalMs)),
+                max: input.maxIterations ?? DEFAULT_GOAL_MAX_ITERATIONS,
+              })
+            : t('loop.started', {
+                interval: formatInterval(msToLoopInterval(input.intervalMs)),
+              }),
+      });
+      clearComposer();
+      setLoopMenuOpen(false);
+    },
+    [clearComposer, isElectron, setGlobalNotice, startSession, t, workingDir]
   );
 
   const handleSelectFolder = async () => {
@@ -479,6 +581,48 @@ export function WelcomeView() {
     )
       return;
 
+    // Intercept /loop and /goal on the main welcome composer
+    if (isElectron && isLoopSlashInput(currentPrompt.trim())) {
+      setIsSubmitting(true);
+      try {
+        const parsed = parseLoopCommand(currentPrompt.trim());
+        if (parsed.type === 'usage') {
+          setGlobalNotice({
+            id: `loop-usage-${Date.now()}`,
+            type: 'info',
+            message: t('loop.usage'),
+          });
+          return;
+        }
+        if (parsed.type === 'stop') {
+          setGlobalNotice({
+            id: `loop-stop-welcome-${Date.now()}`,
+            type: 'info',
+            message: t('loop.stopNeedsSession'),
+          });
+          return;
+        }
+        if (parsed.type === 'loop' || parsed.type === 'goal') {
+          await startSessionWithLoop({
+            kind: parsed.type === 'goal' ? 'goal' : 'interval',
+            prompt: parsed.type === 'goal' ? parsed.goal : parsed.prompt,
+            intervalMs: parsed.interval.ms,
+            maxIterations: parsed.type === 'goal' ? parsed.maxIterations : null,
+          });
+          return;
+        }
+      } catch (err) {
+        setGlobalNotice({
+          id: `loop-start-${Date.now()}`,
+          type: 'error',
+          message: err instanceof Error ? err.message : t('loop.startFailed'),
+        });
+        return;
+      } finally {
+        setIsSubmitting(false);
+      }
+    }
+
     // Build content blocks
     const contentBlocks: ContentBlock[] = [];
 
@@ -532,14 +676,7 @@ export function WelcomeView() {
       );
       const session = await startSession(sessionTitle, contentBlocks, workingDir || undefined);
       if (session) {
-        setPrompt('');
-        if (textareaRef.current) {
-          textareaRef.current.value = '';
-        }
-        pastedImages.forEach((img) => URL.revokeObjectURL(img.url));
-        setPastedImages([]);
-        setAttachedFiles([]);
-        setAttachedMeetings([]);
+        clearComposer();
       }
     } finally {
       setIsSubmitting(false);
@@ -804,47 +941,130 @@ export function WelcomeView() {
           />
 
           {/* Bottom Actions */}
-          <div className="flex items-center justify-between pt-3 border-t border-border-muted">
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={handleSelectFolder}
-                className={`flex items-center gap-2 text-sm transition-colors ${
-                  workingDir
-                    ? 'text-text-secondary hover:text-text-primary'
-                    : 'text-accent hover:text-accent-hover'
-                }`}
-                title={workingDir || t('welcome.selectWorkingFolder')}
-              >
-                <FolderOpen className="w-4 h-4" />
-                <span>
-                  {workingDir ? workingDir.split(/[/\\]/).pop() : t('welcome.selectWorkingFolder')}
+          <div className="flex items-center justify-between gap-3 pt-3 border-t border-border-muted">
+            <div className="flex min-w-0 items-center gap-2">
+              <div className="relative" ref={actionsMenuRef}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLoopMenuOpen(false);
+                    setActionsMenuOpen((open) => !open);
+                  }}
+                  className={`flex h-9 w-9 items-center justify-center rounded-2xl transition-colors ${
+                    actionsMenuOpen || loopMenuOpen
+                      ? 'bg-accent/10 text-accent'
+                      : 'text-text-muted hover:bg-surface-hover hover:text-text-primary'
+                  }`}
+                  title={t('welcome.actionsMenu')}
+                  aria-label={t('welcome.actionsMenu')}
+                  aria-expanded={actionsMenuOpen || loopMenuOpen}
+                  aria-haspopup="menu"
+                >
+                  <Plus className="h-5 w-5" />
+                </button>
+                {actionsMenuOpen && (
+                  <div
+                    role="menu"
+                    className="absolute bottom-[calc(100%+8px)] left-0 z-30 min-w-[14rem] overflow-hidden rounded-[1.25rem] border border-border-subtle bg-background shadow-elevated"
+                  >
+                    <div className="space-y-0.5 p-1.5">
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setActionsMenuOpen(false);
+                          void handleSelectFolder();
+                        }}
+                        className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
+                      >
+                        <FolderOpen
+                          className={`h-4 w-4 ${workingDir ? 'text-text-muted' : 'text-accent'}`}
+                        />
+                        <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
+                          {workingDir
+                            ? workingDir.split(/[/\\]/).pop()
+                            : t('welcome.selectWorkingFolder')}
+                        </span>
+                      </button>
+                      {isElectron && (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            setActionsMenuOpen(false);
+                            void handleFileSelect();
+                          }}
+                          className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
+                        >
+                          <Paperclip className="h-4 w-4 text-text-muted" />
+                          <span className="text-[13px] font-medium">
+                            {t('welcome.attachFiles')}
+                          </span>
+                        </button>
+                      )}
+                      {isElectron && meetingsReferenceAllowed && (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            setActionsMenuOpen(false);
+                            setMeetingPickerOpen(true);
+                          }}
+                          className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
+                        >
+                          <Mic className="h-4 w-4 text-accent" />
+                          <span className="text-[13px] font-medium">
+                            {t('meetings.attachMeeting')}
+                          </span>
+                        </button>
+                      )}
+                      {isElectron && (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            setActionsMenuOpen(false);
+                            setLoopMenuOpen(true);
+                          }}
+                          className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
+                        >
+                          <RefreshCw className="h-4 w-4 text-text-muted" />
+                          <span className="text-[13px] font-medium">{t('loop.menuButton')}</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+                <ChatLoopPanel
+                  open={loopMenuOpen}
+                  align="left"
+                  initialText={prompt.trim()}
+                  activeStatus={null}
+                  onClose={() => setLoopMenuOpen(false)}
+                  onStart={async ({ kind, prompt: loopPrompt, intervalMs }) => {
+                    setIsSubmitting(true);
+                    try {
+                      await startSessionWithLoop({ kind, prompt: loopPrompt, intervalMs });
+                    } finally {
+                      setIsSubmitting(false);
+                    }
+                  }}
+                  onStop={async () => {
+                    setLoopMenuOpen(false);
+                  }}
+                />
+              </div>
+              {workingDir && (
+                <span
+                  className="min-w-0 max-w-[10rem] truncate text-xs text-text-muted"
+                  title={workingDir}
+                >
+                  {workingDir.split(/[/\\]/).pop()}
                 </span>
-              </button>
-
-              {isElectron && (
-                <button
-                  type="button"
-                  onClick={handleFileSelect}
-                  className="flex items-center gap-2 text-sm text-text-secondary hover:text-text-primary transition-colors"
-                >
-                  <Paperclip className="w-4 h-4" />
-                  <span>{t('welcome.attachFiles')}</span>
-                </button>
-              )}
-              {isElectron && meetingsReferenceAllowed && (
-                <button
-                  type="button"
-                  onClick={() => setMeetingPickerOpen(true)}
-                  className="flex items-center gap-2 text-sm text-text-secondary hover:text-text-primary transition-colors"
-                >
-                  <Mic className="w-4 h-4" />
-                  <span>{t('meetings.attachMeeting')}</span>
-                </button>
               )}
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex flex-shrink-0 items-center gap-2">
               <ModelSelector />
               <button
                 type="submit"

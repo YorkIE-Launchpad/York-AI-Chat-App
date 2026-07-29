@@ -31,10 +31,13 @@ describe('resolveScheduleModel', () => {
 });
 
 describe('scheduled task executeTask lock wiring', () => {
-  it('index.ts starts scheduled sessions with locked model from the task', async () => {
+  it('executeScheduledTask starts sessions with locked model from the task', async () => {
     const { readFileSync } = await import('node:fs');
     const { resolve } = await import('node:path');
-    const content = readFileSync(resolve(process.cwd(), 'src/main/index.ts'), 'utf8');
+    const content = readFileSync(
+      resolve(process.cwd(), 'src/main/schedule/execute-scheduled-task.ts'),
+      'utf8'
+    );
     expect(content).toContain('lockModel: true');
     expect(content).toContain('model: task.model');
     expect(content).toContain('provider: task.provider');

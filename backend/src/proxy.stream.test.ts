@@ -176,4 +176,67 @@ describe('proxyToProvider streaming passthrough', () => {
     assert.equal(lastUpstreamHeaders['x-api-key'], 'test-anthropic-key');
     assert.equal(lastUpstreamHeaders['authorization'], undefined);
   });
+
+  it('forwards a non-empty body when express.json ran on an ancestor route', async () => {
+    let upstreamBody = '';
+    const upstreamWithBodyCapture = http.createServer((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on('data', (chunk: Buffer) => chunks.push(chunk));
+      req.on('end', () => {
+        upstreamBody = Buffer.concat(chunks).toString('utf8');
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end('{"ok":true}');
+      });
+    });
+    const upstreamWithBodyCapturePort = await listen(upstreamWithBodyCapture);
+
+    const jsonThenProxyApp = express();
+    jsonThenProxyApp.use(express.json());
+    const target: ProviderTarget = {
+      provider: 'anthropic',
+      upstreamOrigin: `http://127.0.0.1:${upstreamWithBodyCapturePort}`,
+      mountPath: '/anthropic',
+    };
+    jsonThenProxyApp.use('/anthropic', (req, res) => {
+      void proxyToProvider(req, res, target);
+    });
+    const jsonThenProxyServer = http.createServer(jsonThenProxyApp);
+    const jsonThenProxyPort = await listen(jsonThenProxyServer);
+
+    const payload = {
+      model: 'claude-test',
+      stream: true,
+      messages: [{ role: 'user', content: 'hello from proxy regression' }],
+    };
+    const body = JSON.stringify(payload);
+
+    await new Promise<void>((resolve, reject) => {
+      const req = http.request(
+        {
+          hostname: '127.0.0.1',
+          port: jsonThenProxyPort,
+          path: '/anthropic/v1/messages',
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'content-length': Buffer.byteLength(body),
+            'x-api-key': 'client-cognito-jwt',
+          },
+        },
+        (res) => {
+          res.resume();
+          res.on('end', () => resolve());
+          res.on('error', reject);
+        }
+      );
+      req.on('error', reject);
+      req.write(body);
+      req.end();
+    });
+
+    assert.equal(upstreamBody, body);
+
+    await closeServer(jsonThenProxyServer);
+    await closeServer(upstreamWithBodyCapture);
+  });
 });

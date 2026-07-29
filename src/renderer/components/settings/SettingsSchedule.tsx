@@ -9,6 +9,9 @@ import type {
   ScheduleWeekday,
   ScheduleCreateInput,
   ScheduleUpdateInput,
+  WatchCheckType,
+  WatchCompareMode,
+  WatchConfig,
 } from '../../types';
 import { useAppStore } from '../../store';
 import { formatAppDateTime, joinAppList } from '../../utils/i18n-format';
@@ -22,6 +25,8 @@ import {
 } from './ScheduleModelSelector';
 
 const isElectron = typeof window !== 'undefined' && window.electronAPI !== undefined;
+
+type TaskKind = 'schedule' | 'loop' | 'watch';
 
 const SCHEDULE_TIME_SUGGESTIONS = [
   '06:00',
@@ -42,6 +47,7 @@ export function SettingsSchedule({ isActive }: { isActive: boolean }) {
   const { t } = useTranslation();
   const workingDir = useAppStore((state) => state.workingDir);
   const sessions = useAppStore((state) => state.sessions);
+  const activeSessionId = useAppStore((state) => state.activeSessionId);
   const [tasks, setTasks] = useState<ScheduleTask[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<LocalizedBanner | null>(null);
@@ -57,6 +63,11 @@ export function SettingsSchedule({ isActive }: { isActive: boolean }) {
   const [enabled, setEnabled] = useState(true);
   const [repeatEvery, setRepeatEvery] = useState(1);
   const [repeatUnit, setRepeatUnit] = useState<ScheduleRepeatUnit>('day');
+  const [taskKind, setTaskKind] = useState<TaskKind>('schedule');
+  const [bindActiveSession, setBindActiveSession] = useState(false);
+  const [watchCheckType, setWatchCheckType] = useState<WatchCheckType>('http');
+  const [watchCompareMode, setWatchCompareMode] = useState<WatchCompareMode>('hash');
+  const [watchTarget, setWatchTarget] = useState('');
   const [modelSelection, setModelSelection] = useState<ScheduleModelSelection>({
     model: DEFAULT_SCHEDULE_MODEL,
     provider: DEFAULT_SCHEDULE_PROVIDER,
@@ -169,6 +180,20 @@ export function SettingsSchedule({ isActive }: { isActive: boolean }) {
     setError(null);
     setSuccess(null);
     try {
+      const watchConfig = buildWatchConfigFromForm(
+        taskKind,
+        watchCheckType,
+        watchCompareMode,
+        watchTarget
+      );
+      if (taskKind === 'watch' && !watchConfig) {
+        setError({ key: 'schedule.watchTargetRequired' });
+        setIsLoading(false);
+        return;
+      }
+      const boundSessionId =
+        taskKind === 'loop' && bindActiveSession && activeSessionId ? activeSessionId : null;
+      const sessionMode = taskKind === 'loop' ? 'continue' : 'new';
       if (editingId) {
         const originalRunAtInput = editingTaskSnapshot
           ? toLocalDateTimeInput(editingTaskSnapshot.nextRunAt ?? editingTaskSnapshot.runAt)
@@ -203,6 +228,10 @@ export function SettingsSchedule({ isActive }: { isActive: boolean }) {
           repeatUnit: scheduleMode === 'legacy-interval' ? repeatUnit : null,
           model: modelSelection.model,
           provider: modelSelection.provider,
+          kind: taskKind,
+          sessionMode,
+          boundSessionId,
+          watchConfig,
         };
         if (shouldRegenerateTitle) {
           payload.prompt = trimmedPrompt;
@@ -232,6 +261,10 @@ export function SettingsSchedule({ isActive }: { isActive: boolean }) {
           repeatUnit: scheduleMode === 'legacy-interval' ? repeatUnit : null,
           model: modelSelection.model,
           provider: modelSelection.provider,
+          kind: taskKind,
+          sessionMode,
+          boundSessionId,
+          watchConfig,
         };
         await window.electronAPI.schedule.create(payload);
         setSuccess({ key: 'schedule.created' });
@@ -348,6 +381,11 @@ export function SettingsSchedule({ isActive }: { isActive: boolean }) {
     );
     setRepeatEvery(task.repeatEvery ?? 1);
     setRepeatUnit(task.repeatUnit ?? 'day');
+    setTaskKind(task.kind ?? 'schedule');
+    setBindActiveSession(Boolean(task.boundSessionId && task.boundSessionId === activeSessionId));
+    setWatchCheckType(task.watchConfig?.checkType ?? 'http');
+    setWatchCompareMode(task.watchConfig?.compareMode ?? 'hash');
+    setWatchTarget(extractWatchTarget(task.watchConfig));
     setModelSelection({
       model: task.model || DEFAULT_SCHEDULE_MODEL,
       provider: task.provider || DEFAULT_SCHEDULE_PROVIDER,
@@ -369,6 +407,11 @@ export function SettingsSchedule({ isActive }: { isActive: boolean }) {
     setEnabled(true);
     setRepeatEvery(1);
     setRepeatUnit('day');
+    setTaskKind('schedule');
+    setBindActiveSession(false);
+    setWatchCheckType('http');
+    setWatchCompareMode('hash');
+    setWatchTarget('');
     setModelSelection({
       model: DEFAULT_SCHEDULE_MODEL,
       provider: DEFAULT_SCHEDULE_PROVIDER,
@@ -408,10 +451,97 @@ export function SettingsSchedule({ isActive }: { isActive: boolean }) {
         <textarea
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
-          placeholder={t('schedule.promptPlaceholder')}
+          placeholder={
+            taskKind === 'watch'
+              ? t('schedule.watchPromptPlaceholder')
+              : t('schedule.promptPlaceholder')
+          }
           rows={3}
           className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm"
         />
+        <div className="grid gap-2 md:grid-cols-3">
+          <label className="text-sm text-text-secondary space-y-1">
+            <span>{t('schedule.taskKind')}</span>
+            <select
+              value={taskKind}
+              onChange={(e) => setTaskKind(e.target.value as TaskKind)}
+              className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm"
+            >
+              <option value="schedule">{t('schedule.kindSchedule')}</option>
+              <option value="loop">{t('schedule.kindLoop')}</option>
+              <option value="watch">{t('schedule.kindWatch')}</option>
+            </select>
+          </label>
+          {taskKind === 'loop' && (
+            <label className="flex items-center gap-2 text-sm text-text-secondary md:col-span-2">
+              <input
+                type="checkbox"
+                checked={bindActiveSession}
+                onChange={(e) => setBindActiveSession(e.target.checked)}
+                disabled={!activeSessionId}
+              />
+              {t('schedule.bindActiveSession')}
+            </label>
+          )}
+        </div>
+        {taskKind === 'watch' && (
+          <div className="rounded-lg border border-border bg-background p-3 space-y-3">
+            <div className="text-sm font-medium text-text-primary">{t('schedule.watchConfig')}</div>
+            <div className="grid gap-2 md:grid-cols-3">
+              <label className="text-sm text-text-secondary space-y-1">
+                <span>{t('schedule.watchCheckType')}</span>
+                <select
+                  value={watchCheckType}
+                  onChange={(e) => setWatchCheckType(e.target.value as WatchCheckType)}
+                  className="w-full px-3 py-2 rounded-lg bg-surface border border-border text-sm"
+                >
+                  <option value="http">HTTP</option>
+                  <option value="command">Command</option>
+                  <option value="file">File</option>
+                  <option value="agent">Agent</option>
+                </select>
+              </label>
+              <label className="text-sm text-text-secondary space-y-1">
+                <span>{t('schedule.watchCompareMode')}</span>
+                <select
+                  value={watchCompareMode}
+                  onChange={(e) => setWatchCompareMode(e.target.value as WatchCompareMode)}
+                  className="w-full px-3 py-2 rounded-lg bg-surface border border-border text-sm"
+                >
+                  <option value="hash">hash</option>
+                  <option value="status">status</option>
+                  <option value="jsonpath">jsonpath</option>
+                  <option value="regex">regex</option>
+                </select>
+              </label>
+              <label className="text-sm text-text-secondary space-y-1 md:col-span-1">
+                <span>
+                  {watchCheckType === 'http'
+                    ? t('schedule.watchUrl')
+                    : watchCheckType === 'command'
+                      ? t('schedule.watchCommand')
+                      : watchCheckType === 'file'
+                        ? t('schedule.watchPath')
+                        : t('schedule.watchAgentPrompt')}
+                </span>
+                <input
+                  value={watchTarget}
+                  onChange={(e) => setWatchTarget(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg bg-surface border border-border text-sm"
+                  placeholder={
+                    watchCheckType === 'http'
+                      ? 'https://…'
+                      : watchCheckType === 'command'
+                        ? 'git status --porcelain'
+                        : watchCheckType === 'file'
+                          ? '/path/to/file'
+                          : 'Has the PR been merged?'
+                  }
+                />
+              </label>
+            </div>
+          </div>
+        )}
         <input
           value={cwd}
           onChange={(e) => setCwd(e.target.value)}
@@ -571,6 +701,9 @@ export function SettingsSchedule({ isActive }: { isActive: boolean }) {
                           {task.title}
                         </div>
                         <div className="text-xs text-text-muted truncate">{task.prompt}</div>
+                        <div className="text-xs text-accent mt-0.5">
+                          {t(`schedule.kindLabel.${task.kind ?? 'schedule'}`)}
+                        </div>
                       </div>
                       <span
                         className={`text-xs px-2 py-1 rounded ${task.enabled ? 'bg-success/10 text-success' : 'bg-surface-hover text-text-muted'}`}
@@ -593,6 +726,24 @@ export function SettingsSchedule({ isActive }: { isActive: boolean }) {
                         ? t('schedule.lastRunNever')
                         : t('schedule.lastRun', { value: formatTime(task.lastRunAt) })}
                     </div>
+                    {task.kind === 'watch' && (
+                      <div className="text-xs text-text-muted">
+                        {task.lastCheckedAt
+                          ? t('schedule.watchLastChecked', {
+                              value: formatTime(task.lastCheckedAt),
+                              state:
+                                task.consecutiveUnchanged > 0
+                                  ? t('schedule.watchUnchanged')
+                                  : t('schedule.watchChanged'),
+                            })
+                          : t('schedule.watchNeverChecked')}
+                      </div>
+                    )}
+                    {task.kind === 'loop' && task.boundSessionId && (
+                      <div className="text-xs text-text-muted break-all">
+                        {t('schedule.boundSession', { value: task.boundSessionId })}
+                      </div>
+                    )}
                     {task.lastRunSessionId && (
                       <div className="text-xs text-text-muted break-all">
                         {t('schedule.recentSession', { value: task.lastRunSessionId })}
@@ -670,6 +821,33 @@ export function SettingsSchedule({ isActive }: { isActive: boolean }) {
 }
 
 // ==================== Schedule Helpers ====================
+
+function buildWatchConfigFromForm(
+  kind: TaskKind,
+  checkType: WatchCheckType,
+  compareMode: WatchCompareMode,
+  target: string
+): WatchConfig | null {
+  if (kind !== 'watch') return null;
+  const trimmed = target.trim();
+  if (!trimmed) return null;
+  if (checkType === 'http') {
+    return { checkType, compareMode, checkConfig: { url: trimmed } };
+  }
+  if (checkType === 'command') {
+    return { checkType, compareMode, checkConfig: { command: trimmed } };
+  }
+  if (checkType === 'file') {
+    return { checkType, compareMode, checkConfig: { path: trimmed } };
+  }
+  return { checkType: 'agent', compareMode, checkConfig: { checkPrompt: trimmed } };
+}
+
+function extractWatchTarget(watchConfig: WatchConfig | null | undefined): string {
+  if (!watchConfig?.checkConfig) return '';
+  const cfg = watchConfig.checkConfig;
+  return cfg.url || cfg.command || cfg.path || cfg.checkPrompt || '';
+}
 
 function toLocalDateTimeInput(timestamp: number): string {
   const date = new Date(timestamp);

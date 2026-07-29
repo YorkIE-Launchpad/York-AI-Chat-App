@@ -136,19 +136,33 @@ export const authConfig = {
     return `http://127.0.0.1:${port}`;
   },
   /**
-   * Fixed loopback port for Slack / Gmail / Drive connector OAuth callbacks.
-   * Register `http://127.0.0.1:<port>/callback` in Slack and Google consoles.
+   * Loopback port for connector OAuth local delivery (Slack/Gmail/Drive, and Zoom bridge hop).
+   * Override with CONNECTOR_OAUTH_CALLBACK_PORT.
    */
   get connectorOauthCallbackPort(): number {
     const raw =
       readEnv('CONNECTOR_OAUTH_CALLBACK_PORT') ??
       readEnv('VITE_CONNECTOR_OAUTH_CALLBACK_PORT') ??
-      '19891';
+      '6789';
     const parsed = Number(raw);
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : 19891;
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 6789;
   },
+  /**
+   * Loopback redirect used by Slack / Gmail / Drive, and as Zoom's local code-delivery target
+   * when ZOOM_OAUTH_REDIRECT_URI points at the public York backend bridge.
+   */
   get connectorOauthRedirectUri(): string {
     return `http://127.0.0.1:${this.connectorOauthCallbackPort}/callback`;
+  },
+  /**
+   * Zoom authorize + token-exchange redirect_uri (required for Connect Zoom).
+   * Prod: https://<york-public>/oauth/zoom/callback
+   * Dev:  http://zoom-dev.york.ie:6789/callback (+ /etc/hosts → 127.0.0.1)
+   */
+  get zoomOauthRedirectUri(): string | undefined {
+    const raw = readEnv('ZOOM_OAUTH_REDIRECT_URI') ?? readEnv('VITE_ZOOM_OAUTH_REDIRECT_URI');
+    const trimmed = raw?.trim();
+    return trimmed || undefined;
   },
   get slackClientId(): string | undefined {
     return readEnv('SLACK_CLIENT_ID') ?? readEnv('VITE_SLACK_CLIENT_ID');
@@ -173,6 +187,12 @@ export const authConfig = {
       readEnv('GOOGLE_CLIENT_SECRET') ??
       readEnv('VITE_GOOGLE_CONNECTOR_CLIENT_SECRET')
     );
+  },
+  get zoomConnectorClientId(): string | undefined {
+    return readEnv('ZOOM_CONNECTOR_CLIENT_ID') ?? readEnv('VITE_ZOOM_CONNECTOR_CLIENT_ID');
+  },
+  get zoomConnectorClientSecret(): string | undefined {
+    return readEnv('ZOOM_CONNECTOR_CLIENT_SECRET') ?? readEnv('VITE_ZOOM_CONNECTOR_CLIENT_SECRET');
   },
 };
 

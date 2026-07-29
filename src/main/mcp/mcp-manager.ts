@@ -1220,13 +1220,31 @@ export class MCPManager {
         }
       }
 
-      // Create STDIO transport - it will spawn the process internally
-      transport = new StdioClientTransport({
+      // Create STDIO transport - it will spawn the process internally.
+      // Pipe stderr so mcp-remote SSE idle disconnects don't inherit into the app console.
+      const stdioTransport = new StdioClientTransport({
         command,
         args,
         env,
         cwd: config.cwd || undefined,
+        stderr: 'pipe',
       });
+      transport = stdioTransport;
+
+      // Attach before connect(): SDK exposes a PassThrough immediately when stderr is piped.
+      const stderrStream = stdioTransport.stderr;
+      if (stderrStream) {
+        stderrStream.on('data', (data: Buffer) => {
+          try {
+            const message = data.toString().trim();
+            if (message) {
+              logMcpServerStderr(message);
+            }
+          } catch (error) {
+            logError('[MCPManager] Error processing MCP server stderr:', error);
+          }
+        });
+      }
 
       log(`[MCPManager] STDIO transport created successfully`);
     } else if (config.type === 'sse') {
@@ -1347,20 +1365,7 @@ export class MCPManager {
             // NOTE: Do NOT attach a 'data' listener to process.stdout here.
             // The StdioClientTransport owns stdout as its JSON-RPC channel; a competing
             // listener would consume bytes and corrupt the protocol framing.
-
-            // Listen to stderr for error messages
-            if (childProcess.stderr) {
-              childProcess.stderr.on('data', (data: Buffer) => {
-                try {
-                  const message = data.toString().trim();
-                  if (message) {
-                    logError(`[MCPManager] MCP server stderr: ${message}`);
-                  }
-                } catch (error) {
-                  logError('[MCPManager] Error processing MCP server stderr:', error);
-                }
-              });
-            }
+            // stderr is already attached on the transport PassThrough before connect().
 
             // Listen to process exit
             childProcess.on('exit', (code: number, signal: string) => {
@@ -2425,7 +2430,30 @@ function extractStructuredToolErrorMessage(result: unknown): string {
   return '';
 }
 
-function isReconnectableErrorText(text: string): boolean {
+/**
+ * mcp-remote logs remote SSE idle timeouts to stderr. These are expected and
+ * usually recoverable; demote them so they do not flood the console as errors.
+ */
+export function isTransientMcpRemoteStderr(message: string): boolean {
+  const normalized = message.trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+  if (normalized.includes('sse stream disconnected')) {
+    return true;
+  }
+  return normalized.includes('error from remote server') && normalized.includes('terminated');
+}
+
+function logMcpServerStderr(message: string): void {
+  if (isTransientMcpRemoteStderr(message)) {
+    logWarn(`[MCPManager] MCP server stderr (transient): ${message}`);
+    return;
+  }
+  logError(`[MCPManager] MCP server stderr: ${message}`);
+}
+
+export function isReconnectableErrorText(text: string): boolean {
   const normalized = text.trim().toLowerCase();
   if (!normalized) {
     return false;
@@ -2434,6 +2462,9 @@ function isReconnectableErrorText(text: string): boolean {
     normalized === 'not connected' ||
     normalized.includes('mcp server not connected') ||
     normalized.includes('connection closed') ||
+    normalized.includes('sse stream disconnected') ||
+    (normalized.includes('error from remote server') &&
+      (normalized.includes('terminated') || normalized.includes('disconnect'))) ||
     isAuthFailureErrorText(normalized)
   );
 }

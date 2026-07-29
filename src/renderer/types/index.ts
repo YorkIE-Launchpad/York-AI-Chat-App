@@ -162,8 +162,27 @@ export interface ScheduleTask {
   model: string;
   /** Provider for the locked model (defaults to openrouter). */
   provider: string;
+  kind: 'schedule' | 'loop' | 'watch';
+  sessionMode: 'new' | 'continue';
+  boundSessionId: string | null;
+  watchConfig: WatchConfig | null;
+  lastState: string | null;
+  lastCheckedAt: number | null;
+  consecutiveUnchanged: number;
   createdAt: number;
   updatedAt: number;
+}
+
+export type WatchCheckType = 'http' | 'command' | 'file' | 'agent';
+export type WatchCompareMode = 'hash' | 'status' | 'jsonpath' | 'regex';
+
+export interface WatchConfig {
+  checkType: WatchCheckType;
+  checkConfig: Record<string, string>;
+  compareMode: WatchCompareMode;
+  lastState?: string;
+  lastCheckedAt?: number;
+  consecutiveUnchanged?: number;
 }
 
 export interface ScheduleCreateInput {
@@ -178,6 +197,10 @@ export interface ScheduleCreateInput {
   enabled?: boolean;
   model?: string;
   provider?: string;
+  kind?: 'schedule' | 'loop' | 'watch';
+  sessionMode?: 'new' | 'continue';
+  boundSessionId?: string | null;
+  watchConfig?: WatchConfig | null;
 }
 
 export interface ScheduleUpdateInput {
@@ -195,6 +218,34 @@ export interface ScheduleUpdateInput {
   lastError?: string | null;
   model?: string;
   provider?: string;
+  kind?: 'schedule' | 'loop' | 'watch';
+  sessionMode?: 'new' | 'continue';
+  boundSessionId?: string | null;
+  watchConfig?: WatchConfig | null;
+  lastState?: string | null;
+  lastCheckedAt?: number | null;
+  consecutiveUnchanged?: number;
+}
+
+export interface ChatLoopStatus {
+  sessionId: string;
+  kind: 'interval' | 'goal';
+  prompt: string;
+  intervalMs: number;
+  tickCount: number;
+  maxIterations: number | null;
+  startedAt: number;
+  nextTickAt: number | null;
+  stopReason: string | null;
+}
+
+export interface ChatLoopStartInput {
+  sessionId: string;
+  kind: 'interval' | 'goal';
+  prompt: string;
+  intervalMs: number;
+  maxIterations?: number | null;
+  runImmediately?: boolean;
 }
 
 // Skills types
@@ -649,10 +700,14 @@ export type ServerEvent =
   | { type: 'navigate'; payload: string }
   | { type: 'scheduled-task.error'; payload: { taskId: string; error: string } }
   | {
+      type: 'chat-loop.update';
+      payload: { sessionId: string; status: ChatLoopStatus | null };
+    }
+  | {
       type: 'error';
       payload: {
         message: string;
-        code?: 'CONFIG_REQUIRED_ACTIVE_SET';
+        code?: 'CONFIG_REQUIRED_ACTIVE_SET' | 'AUTH_REQUIRED';
       };
     };
 
@@ -770,12 +825,17 @@ export interface MeetingsRuntimeConfig {
 
 export type MeetingStatus = 'recording' | 'finalizing' | 'ready' | 'error';
 
+export type MeetingSegmentSource = 'zoom-rtms' | 'local-stt';
+
 export interface MeetingSegment {
   id: string;
   text: string;
   startedAt: number;
   endedAt: number;
   createdAt: number;
+  speaker?: string | null;
+  speakerUserId?: string | null;
+  source?: MeetingSegmentSource;
 }
 
 export interface MeetingNotes {
@@ -799,6 +859,9 @@ export interface MeetingSession {
   notes?: MeetingNotes;
   error?: string;
   updatedAt: number;
+  attendees?: string[];
+  zoomMeetingUuid?: string | null;
+  zoomMeetingId?: string | null;
 }
 
 export interface MeetingListItem {
@@ -830,6 +893,7 @@ export interface MeetingPermissionStatus {
 
 export interface MeetingOverview {
   enabled: boolean;
+  zoomConnected: boolean;
   allowChatReference: boolean;
   processDetectEnabled: boolean;
   transcriptionModel: MeetingTranscriptionModel;

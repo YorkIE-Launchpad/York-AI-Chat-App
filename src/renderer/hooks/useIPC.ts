@@ -11,6 +11,8 @@ import type {
   ContentBlock,
 } from '../types';
 import { handleSubagentProgressEvent } from './useSubagentProgress';
+import { clearTurnStateOnServerError } from '../utils/clear-turn-on-error';
+import { findLatestUserMessageId, messageHasAssistantText } from '../utils/active-turn';
 import i18n from '../i18n/config';
 
 // Check if running in Electron
@@ -23,6 +25,19 @@ const isElectron = typeof window !== 'undefined' && window.electronAPI !== undef
 // unmounting a subsequent useIPC caller) tears down the single shared
 // listener, silently dropping subsequent events from main.
 let ipcListenerInstalled = false;
+
+/** Thinking step id received before optimistic activateNextTurn (session.start race). */
+const pendingThinkingStepIds: Record<string, string> = {};
+
+function bindPendingThinkingStep(sessionId: string): void {
+  const stepId = pendingThinkingStepIds[sessionId];
+  if (!stepId) return;
+  delete pendingThinkingStepIds[sessionId];
+  const ss = useAppStore.getState().sessionStates[sessionId];
+  if (ss?.activeTurn) {
+    useAppStore.getState().updateActiveTurnStep(sessionId, stepId);
+  }
+}
 
 export function useIPC() {
   // Handle incoming server events - only setup once across all useIPC() callers.
@@ -167,6 +182,11 @@ export function useIPC() {
             // Clear thinking buffer too — final thinking is in the message content blocks
             delete pendingThinking[event.payload.sessionId];
             store.addMessage(event.payload.sessionId, event.payload.message);
+            // Drop stale thinking step binding once a committed assistant text reply lands.
+            if (messageHasAssistantText(event.payload.message)) {
+              delete pendingThinkingStepIds[event.payload.sessionId];
+              store.clearActiveTurn(event.payload.sessionId);
+            }
             break;
 
           case 'stream.partial':
@@ -188,6 +208,13 @@ export function useIPC() {
               } else if (activeTurn) {
                 // Bind the real stepId so a mock stepId does not prevent cleanup
                 store.updateActiveTurnStep(event.payload.sessionId, event.payload.step.id);
+              } else {
+                const lastUserId = findLatestUserMessageId(ss?.messages ?? []);
+                if (lastUserId) {
+                  store.beginActiveTurn(event.payload.sessionId, event.payload.step.id, lastUserId);
+                } else {
+                  pendingThinkingStepIds[event.payload.sessionId] = event.payload.step.id;
+                }
               }
             }
             bufferTrace({
@@ -308,13 +335,19 @@ export function useIPC() {
 
           case 'error':
             console.error('[useIPC] Server error:', event.payload.message);
-            store.setLoading(false);
+            clearTurnStateOnServerError(store);
             if (event.payload.code === 'CONFIG_REQUIRED_ACTIVE_SET') {
               store.setGlobalNotice({
                 id: `notice-config-required-${Date.now()}`,
                 type: 'warning',
                 message: i18n.t('api.configRequiredActiveSet'),
                 messageKey: 'api.configRequiredActiveSet',
+              });
+            } else if (event.payload.code === 'AUTH_REQUIRED') {
+              store.setGlobalNotice({
+                id: `notice-auth-required-${Date.now()}`,
+                type: 'error',
+                message: event.payload.message,
               });
             } else {
               store.setGlobalNotice({
@@ -323,6 +356,10 @@ export function useIPC() {
                 message: event.payload.message,
               });
             }
+            break;
+
+          case 'chat-loop.update':
+            store.setChatLoopStatus(event.payload.sessionId, event.payload.status);
             break;
 
           case 'native-theme.changed':
@@ -565,11 +602,12 @@ export function useIPC() {
           // Immediately activate turn to show processing indicator while waiting for API
           const mockStepId = `pending-step-${Date.now()}`;
           activateNextTurn(session.id, mockStepId);
+          bindPendingThinkingStep(session.id);
         }
         // Loading will be reset when we receive session.status event
         return session;
       } catch (e) {
-        setLoading(false);
+        clearTurnStateOnServerError(useAppStore.getState());
         useAppStore.getState().setGlobalNotice({
           id: `notice-session-start-${Date.now()}`,
           type: 'error',
@@ -655,6 +693,7 @@ export function useIPC() {
       if (!shouldQueue) {
         const mockStepId = `pending-step-${Date.now()}`;
         activateNextTurn(sessionId, mockStepId);
+        bindPendingThinkingStep(sessionId);
       }
 
       try {
@@ -668,7 +707,7 @@ export function useIPC() {
         });
         // Loading will be reset when we receive session.status event
       } catch (e) {
-        setLoading(false);
+        clearTurnStateOnServerError(useAppStore.getState());
         useAppStore.getState().setGlobalNotice({
           id: `notice-session-continue-${Date.now()}`,
           type: 'error',

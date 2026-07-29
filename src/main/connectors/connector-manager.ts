@@ -3,8 +3,10 @@ import { log, logWarn } from '../utils/logger';
 import {
   assertAllowedGoogleConnectorEmail,
   assertAllowedSlackWorkspace,
+  assertAllowedZoomConnectorEmail,
   isAllowedGoogleConnectorEmail,
   isAllowedSlackWorkspace,
+  isAllowedZoomConnectorEmail,
 } from './connector-allowlist';
 import { runDesktopOAuthFlow } from './connector-oauth';
 import { connectorTokenStore } from './connector-token-store';
@@ -16,8 +18,15 @@ import type {
   ConnectorTokenRefreshResult,
 } from './connector-types';
 
-const GOOGLE_GMAIL_SCOPES = ['https://www.googleapis.com/auth/gmail.readonly'];
-const GOOGLE_DRIVE_SCOPES = ['https://www.googleapis.com/auth/drive.readonly'];
+const GOOGLE_CALENDAR_SCOPE = 'https://www.googleapis.com/auth/calendar.readonly';
+const GOOGLE_GMAIL_SCOPES = [
+  'https://www.googleapis.com/auth/gmail.readonly',
+  GOOGLE_CALENDAR_SCOPE,
+];
+const GOOGLE_DRIVE_SCOPES = [
+  'https://www.googleapis.com/auth/drive.readonly',
+  GOOGLE_CALENDAR_SCOPE,
+];
 const SLACK_SCOPES = [
   'channels:read',
   'groups:read',
@@ -31,10 +40,20 @@ const SLACK_SCOPES = [
   'users:read',
   'users:read.email',
 ];
+/** Zoom General App scopes for identity, live meetings, and RTMS start. */
+const ZOOM_SCOPES = [
+  'user:read:user',
+  'user:read:email',
+  'meeting:read:list_meetings',
+  'meeting:read:meeting',
+  'meeting:update:participant_rtms_app_status',
+];
+
+const ALL_CONNECTOR_IDS: ConnectorId[] = ['slack', 'gmail', 'google-drive', 'zoom'];
 
 class ConnectorManager {
   getStatuses(): ConnectorStatus[] {
-    return (['slack', 'gmail', 'google-drive'] as ConnectorId[]).map((connectorId) => {
+    return ALL_CONNECTOR_IDS.map((connectorId) => {
       const record = connectorTokenStore.load(connectorId);
       return {
         connectorId,
@@ -58,11 +77,18 @@ class ConnectorManager {
 
   async connect(connectorId: ConnectorId): Promise<ConnectorStatus> {
     const oauth = this.getOauthConfig(connectorId);
+    const redirectUri = connectorId === 'zoom' ? authConfig.zoomOauthRedirectUri : undefined;
+    if (connectorId === 'zoom' && !redirectUri) {
+      throw new Error(
+        'ZOOM_OAUTH_REDIRECT_URI is required. Use https://<york-public>/oauth/zoom/callback in prod, or http://zoom-dev.york.ie:6789/callback with /etc/hosts for local dev.'
+      );
+    }
     const authResult = await runDesktopOAuthFlow({
       authorizeUrl: oauth.authorizeUrl,
       clientId: oauth.clientId,
       scopes: oauth.scopes,
       extraAuthorizeParams: oauth.extraAuthorizeParams,
+      redirectUri,
     });
 
     const tokenPayload = await this.exchangeAuthorizationCode(
@@ -138,6 +164,18 @@ class ConnectorManager {
         tokenUrl: 'https://slack.com/api/oauth.v2.access',
         scopes: [],
         extraAuthorizeParams,
+      };
+    }
+    if (connectorId === 'zoom') {
+      if (!authConfig.zoomConnectorClientId || !authConfig.zoomConnectorClientSecret) {
+        throw new Error('Zoom OAuth credentials are missing');
+      }
+      return {
+        clientId: authConfig.zoomConnectorClientId,
+        clientSecret: authConfig.zoomConnectorClientSecret,
+        authorizeUrl: 'https://zoom.us/oauth/authorize',
+        tokenUrl: 'https://zoom.us/oauth/token',
+        scopes: ZOOM_SCOPES,
       };
     }
     if (!authConfig.googleConnectorClientId || !authConfig.googleConnectorClientSecret) {
@@ -326,6 +364,19 @@ class ConnectorManager {
       return record;
     }
 
+    if (connectorId === 'zoom') {
+      const identity = await this.fetchZoomIdentity(accessToken);
+      const record: ConnectorTokenRecord = {
+        ...baseRecord,
+        accountEmail: identity.email,
+        accountId: identity.userId,
+        accountName: identity.displayName,
+        workspaceName: identity.accountId,
+      };
+      this.assertRecordAllowed(record);
+      return record;
+    }
+
     const about = await this.fetchDriveAbout(accessToken);
     const record: ConnectorTokenRecord = {
       ...baseRecord,
@@ -416,6 +467,27 @@ class ConnectorManager {
     };
   }
 
+  private async fetchZoomIdentity(accessToken: string): Promise<{
+    userId: string | null;
+    email: string | null;
+    displayName: string | null;
+    accountId: string | null;
+  }> {
+    const payload = await this.fetchJson('https://api.zoom.us/v2/users/me', accessToken);
+    const first = typeof payload.first_name === 'string' ? payload.first_name : '';
+    const last = typeof payload.last_name === 'string' ? payload.last_name : '';
+    const displayName =
+      typeof payload.display_name === 'string' && payload.display_name.trim()
+        ? payload.display_name
+        : [first, last].filter(Boolean).join(' ').trim() || null;
+    return {
+      userId: typeof payload.id === 'string' ? payload.id : null,
+      email: typeof payload.email === 'string' ? payload.email : null,
+      displayName,
+      accountId: typeof payload.account_id === 'string' ? payload.account_id : null,
+    };
+  }
+
   private assertRecordAllowed(record: ConnectorTokenRecord): void {
     if (record.connectorId === 'slack') {
       assertAllowedSlackWorkspace({
@@ -424,6 +496,10 @@ class ConnectorManager {
         teamUrl: record.workspaceUrl,
         allowedTeamId: authConfig.slackAllowedTeamId,
       });
+      return;
+    }
+    if (record.connectorId === 'zoom') {
+      assertAllowedZoomConnectorEmail(record.accountEmail);
       return;
     }
     const label = record.connectorId === 'gmail' ? 'Gmail' : 'Google Drive';
@@ -439,7 +515,9 @@ class ConnectorManager {
             teamUrl: record.workspaceUrl,
             allowedTeamId: authConfig.slackAllowedTeamId,
           })
-        : isAllowedGoogleConnectorEmail(record.accountEmail);
+        : record.connectorId === 'zoom'
+          ? isAllowedZoomConnectorEmail(record.accountEmail)
+          : isAllowedGoogleConnectorEmail(record.accountEmail);
 
     if (allowed) {
       return;

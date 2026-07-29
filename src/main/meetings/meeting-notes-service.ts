@@ -44,14 +44,18 @@ export class MeetingNotesService {
       const response = await this.llm.complete({
         systemPrompt: [
           'You turn meeting transcripts into concise notes.',
+          'Transcript lines may be speaker-labeled as "Name: text" — preserve who said what in action items when relevant.',
           'Return ONLY valid JSON with keys: title (string), summary (string), actionItems (string[]), keyTopics (string[]).',
           'Keep summary under 180 words. Action items should be concrete and short.',
         ].join(' '),
         userPrompt: [
           `Meeting started at: ${new Date(meeting.startedAt).toISOString()}`,
+          meeting.attendees?.length ? `Attendees: ${meeting.attendees.join(', ')}` : '',
           'Transcript:',
           transcript.slice(0, 60_000),
-        ].join('\n\n'),
+        ]
+          .filter(Boolean)
+          .join('\n\n'),
         temperature: 0.2,
         maxTokens: 1200,
       });

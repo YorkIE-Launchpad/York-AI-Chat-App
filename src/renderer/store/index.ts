@@ -11,6 +11,7 @@ import type {
   SandboxSetupProgress,
   SandboxSyncStatus,
   SkillsStorageChangeEvent,
+  ChatLoopStatus,
 } from '../types';
 import { applySessionUpdate } from '../utils/session-update';
 
@@ -137,6 +138,9 @@ interface AppState {
   skillsStorageChangedAt: number;
   skillsStorageChangeEvent: SkillsStorageChangeEvent | null;
 
+  /** Active /loop|/goal status keyed by sessionId (null/missing = no loop). */
+  chatLoopBySessionId: Record<string, ChatLoopStatus>;
+
   // System theme (from OS native theme)
   systemDarkMode: boolean;
 
@@ -160,6 +164,7 @@ interface AppState {
   setPartialThinking: (sessionId: string, delta: string) => void;
   clearPartialThinking: (sessionId: string) => void;
   activateNextTurn: (sessionId: string, stepId: string) => void;
+  beginActiveTurn: (sessionId: string, stepId: string, userMessageId: string) => void;
   updateActiveTurnStep: (sessionId: string, stepId: string) => void;
   clearActiveTurn: (sessionId: string, stepId?: string) => void;
   clearPendingTurns: (sessionId: string) => void;
@@ -206,6 +211,8 @@ interface AppState {
   setSandboxSyncStatus: (status: SandboxSyncStatus | null) => void;
   setSkillsStorageChangedAt: (timestamp: number) => void;
   setSkillsStorageChangeEvent: (event: SkillsStorageChangeEvent | null) => void;
+
+  setChatLoopStatus: (sessionId: string, status: ChatLoopStatus | null) => void;
 
   // Context window actions
   setSessionContextWindow: (sessionId: string, contextWindow: number) => void;
@@ -270,6 +277,7 @@ export const useAppStore = create<AppState>((set) => ({
   sandboxSyncStatus: null,
   skillsStorageChangedAt: 0,
   skillsStorageChangeEvent: null,
+  chatLoopBySessionId: {},
   systemDarkMode: false,
 
   // Session actions
@@ -480,6 +488,23 @@ export const useAppStore = create<AppState>((set) => ({
       };
     }),
 
+  beginActiveTurn: (sessionId, stepId, userMessageId) =>
+    set((state) => {
+      const ss = getSession(state.sessionStates, sessionId);
+      const updatedMessages = ss.messages.map((message) =>
+        message.id === userMessageId ? { ...message, localStatus: undefined } : message
+      );
+      const updatedPendingTurns = ss.pendingTurns.filter((id) => id !== userMessageId);
+
+      return {
+        sessionStates: patchSession(state.sessionStates, sessionId, {
+          messages: updatedMessages,
+          pendingTurns: updatedPendingTurns,
+          activeTurn: { stepId, userMessageId },
+        }),
+      };
+    }),
+
   updateActiveTurnStep: (sessionId, stepId) =>
     set((state) => {
       const ss = getSession(state.sessionStates, sessionId);
@@ -653,6 +678,22 @@ export const useAppStore = create<AppState>((set) => ({
   setSandboxSyncStatus: (status) => set({ sandboxSyncStatus: status }),
   setSkillsStorageChangedAt: (timestamp) => set({ skillsStorageChangedAt: timestamp }),
   setSkillsStorageChangeEvent: (event) => set({ skillsStorageChangeEvent: event }),
+
+  setChatLoopStatus: (sessionId, status) =>
+    set((state) => {
+      if (!status) {
+        if (!(sessionId in state.chatLoopBySessionId)) return {};
+        const next = { ...state.chatLoopBySessionId };
+        delete next[sessionId];
+        return { chatLoopBySessionId: next };
+      }
+      return {
+        chatLoopBySessionId: {
+          ...state.chatLoopBySessionId,
+          [sessionId]: status,
+        },
+      };
+    }),
 
   // Context window actions
   setSessionContextWindow: (sessionId, contextWindow) =>

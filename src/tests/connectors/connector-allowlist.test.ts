@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   assertAllowedGoogleConnectorEmail,
   assertAllowedSlackWorkspace,
+  assertAllowedZoomConnectorEmail,
   isAllowedGoogleConnectorEmail,
   isAllowedSlackWorkspace,
+  isAllowedZoomConnectorEmail,
 } from '../../main/connectors/connector-allowlist';
 
 describe('connector allowlist', () => {
@@ -74,6 +76,19 @@ describe('connector allowlist', () => {
           teamUrl: 'https://acme.slack.com/',
         })
       ).toThrow('Only the York.ie Slack workspace can be connected');
+    });
+  });
+
+  describe('isAllowedZoomConnectorEmail', () => {
+    it('allows @york.ie Zoom emails', () => {
+      expect(isAllowedZoomConnectorEmail('ada@york.ie')).toBe(true);
+    });
+
+    it('rejects other emails', () => {
+      expect(isAllowedZoomConnectorEmail('ada@zoom.us')).toBe(false);
+      expect(() => assertAllowedZoomConnectorEmail('ada@gmail.com')).toThrow(
+        'Only @york.ie Zoom accounts can be connected'
+      );
     });
   });
 });

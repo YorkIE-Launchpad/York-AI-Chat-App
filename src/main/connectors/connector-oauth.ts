@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { createServer, type Server } from 'node:http';
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { authConfig } from '../../shared/auth-config';
 import { closeOAuthBrowserWindow, openOAuthBrowserWindow } from '../auth/oauth-browser-window';
 
@@ -40,6 +40,7 @@ export interface OAuthAuthorizationResult {
 }
 
 type ActiveOAuthListener = {
+  /** URI registered with the OAuth provider (authorize + token exchange). */
   redirectUri: string;
   waitForCode: (expectedState: string, timeoutMs: number) => Promise<string>;
   close: () => Promise<void>;
@@ -58,15 +59,30 @@ async function closeActiveListener(): Promise<void> {
   await previous.close().catch(() => undefined);
 }
 
+async function readJsonBody(req: IncomingMessage): Promise<unknown> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  const text = Buffer.concat(chunks).toString('utf8');
+  if (!text.trim()) return null;
+  return JSON.parse(text) as unknown;
+}
+
 /**
- * Desktop loopback OAuth for Slack / Gmail / Drive.
+ * Desktop OAuth for Slack / Gmail / Drive / Zoom.
  * Serializes flows and reclaims the fixed callback port so Connect Drive after Gmail works.
+ *
+ * @param redirectUri Optional provider redirect_uri (e.g. Zoom public backend or hosts-mapped URI).
+ *   Local listener always binds 127.0.0.1:CONNECTOR_OAUTH_CALLBACK_PORT for code delivery.
  */
 export async function runDesktopOAuthFlow(options: {
   authorizeUrl: string;
   clientId: string;
   scopes: string[];
   extraAuthorizeParams?: Record<string, string>;
+  /** OAuth redirect_uri for authorize + token exchange. Defaults to loopback connector URI. */
+  redirectUri?: string;
   timeoutMs?: number;
 }): Promise<OAuthAuthorizationResult> {
   const run = async (): Promise<OAuthAuthorizationResult> => {
@@ -74,15 +90,16 @@ export async function runDesktopOAuthFlow(options: {
     const state = toBase64Url(randomBytes(24));
     const codeVerifier = toBase64Url(randomBytes(48));
     const codeChallenge = sha256Base64Url(codeVerifier);
+    const providerRedirectUri = options.redirectUri?.trim() || authConfig.connectorOauthRedirectUri;
 
     await closeActiveListener();
-    const listener = await createOAuthListener();
+    const listener = await createOAuthListener(providerRedirectUri);
     activeListener = listener;
 
     const authUrl = new URL(options.authorizeUrl);
     authUrl.searchParams.set('response_type', 'code');
     authUrl.searchParams.set('client_id', options.clientId);
-    authUrl.searchParams.set('redirect_uri', listener.redirectUri);
+    authUrl.searchParams.set('redirect_uri', providerRedirectUri);
     if (options.scopes.length > 0) {
       authUrl.searchParams.set('scope', options.scopes.join(' '));
     }
@@ -109,7 +126,7 @@ export async function runDesktopOAuthFlow(options: {
       return {
         code,
         codeVerifier,
-        redirectUri: listener.redirectUri,
+        redirectUri: providerRedirectUri,
       };
     } finally {
       settled = true;
@@ -129,7 +146,7 @@ export async function runDesktopOAuthFlow(options: {
   return next;
 }
 
-async function createOAuthListener(): Promise<ActiveOAuthListener> {
+async function createOAuthListener(providerRedirectUri: string): Promise<ActiveOAuthListener> {
   let server: Server | null = null;
   let resolveCode: ((payload: { code: string; state: string }) => void) | null = null;
   let rejectCode: ((error: Error) => void) | null = null;
@@ -152,8 +169,56 @@ async function createOAuthListener(): Promise<ActiveOAuthListener> {
     resolveCode?.(payload);
   };
 
+  const handleCallbackPayload = (
+    res: ServerResponse,
+    payload: { code?: string; state?: string; error?: string },
+    asJson: boolean
+  ) => {
+    const error = payload.error?.trim() ?? '';
+    const code = payload.code?.trim() ?? '';
+    const state = payload.state?.trim() ?? '';
+
+    if (error) {
+      if (asJson) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error }));
+      } else {
+        res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(buildSuccessHtml('OAuth failed', `Authorization failed: ${error}`));
+      }
+      settleReject(new Error(`OAuth authorization failed: ${error}`));
+      closeOAuthBrowserWindow();
+      return;
+    }
+
+    if (!code || !state) {
+      if (asJson) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: 'Missing code or state' }));
+      } else {
+        res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(buildSuccessHtml('OAuth failed', 'Missing authorization code.'));
+      }
+      settleReject(new Error('OAuth callback missing authorization code or state'));
+      closeOAuthBrowserWindow();
+      return;
+    }
+
+    if (asJson) {
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+      });
+      res.end(JSON.stringify({ ok: true }));
+    } else {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(buildSuccessHtml('Connected', 'You can close this window and return to York.'));
+    }
+    settleResolve({ code, state });
+    closeOAuthBrowserWindow();
+  };
+
   const port = authConfig.connectorOauthCallbackPort;
-  const redirectUri = authConfig.connectorOauthRedirectUri;
 
   server = createServer((req, res) => {
     const requestUrl = req.url ? new URL(req.url, 'http://127.0.0.1') : null;
@@ -163,31 +228,60 @@ async function createOAuthListener(): Promise<ActiveOAuthListener> {
       return;
     }
 
-    const code = requestUrl.searchParams.get('code')?.trim() ?? '';
-    const state = requestUrl.searchParams.get('state')?.trim() ?? '';
-    const error = requestUrl.searchParams.get('error')?.trim() ?? '';
-
-    if (error) {
-      res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(buildSuccessHtml('OAuth failed', `Authorization failed: ${error}`));
-      settleReject(new Error(`OAuth authorization failed: ${error}`));
-      closeOAuthBrowserWindow();
+    // CORS preflight from the public Zoom bridge page.
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204, {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type',
+      });
+      res.end();
       return;
     }
 
-    if (!code || !state) {
-      res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(buildSuccessHtml('OAuth failed', 'Missing authorization code.'));
-      settleReject(new Error('OAuth callback missing authorization code or state'));
-      closeOAuthBrowserWindow();
+    if (req.method === 'POST') {
+      void (async () => {
+        try {
+          const body = (await readJsonBody(req)) as {
+            code?: string;
+            state?: string;
+            error?: string;
+          } | null;
+          handleCallbackPayload(
+            res,
+            {
+              code: body?.code,
+              state: body?.state,
+              error: body?.error,
+            },
+            true
+          );
+        } catch {
+          res.writeHead(400, {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+          });
+          res.end(JSON.stringify({ ok: false, error: 'Invalid JSON body' }));
+        }
+      })();
       return;
     }
 
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-    res.end(buildSuccessHtml('Connected', 'You can close this window and return to York.'));
-    // Resolve before closing the window so the closed handler does not cancel success.
-    settleResolve({ code, state });
-    closeOAuthBrowserWindow();
+    if (req.method !== 'GET') {
+      res.writeHead(405, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('Method not allowed');
+      return;
+    }
+
+    handleCallbackPayload(
+      res,
+      {
+        code: requestUrl.searchParams.get('code') ?? undefined,
+        state: requestUrl.searchParams.get('state') ?? undefined,
+        error: requestUrl.searchParams.get('error') ?? undefined,
+      },
+      false
+    );
   });
 
   await new Promise<void>((resolve, reject) => {
@@ -206,7 +300,7 @@ async function createOAuthListener(): Promise<ActiveOAuthListener> {
   });
 
   return {
-    redirectUri,
+    redirectUri: providerRedirectUri,
     waitForCode: async (expectedState: string, timeoutMs: number) => {
       let timeoutId: ReturnType<typeof setTimeout> | undefined;
       const timeoutPromise = new Promise<never>((_, reject) => {

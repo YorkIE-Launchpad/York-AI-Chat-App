@@ -32,8 +32,26 @@ export class AuthRequiredError extends Error {
 
 const PROACTIVE_REFRESH_BUFFER_SEC = 5 * 60;
 
+export type RefreshSessionFailureReason =
+  | 'invalid_grant'
+  | 'transient'
+  | 'unknown'
+  | 'no_session'
+  | 'establish_failed';
+
+export type RefreshSessionResult =
+  | { ok: true }
+  | { ok: false; reason: RefreshSessionFailureReason };
+
+function isDefinitiveRefreshFailure(reason: RefreshSessionFailureReason): boolean {
+  return reason === 'invalid_grant' || reason === 'no_session';
+}
+
 let session: AuthSessionPayload | null = null;
 let notifyRenderer: ((win: BrowserWindow | null) => void) | null = null;
+let refreshInFlight: Promise<RefreshSessionResult> | null = null;
+/** Window getter from initAuth / refresh timer — used so wipes always notify the renderer. */
+let getAuthWindow: (() => BrowserWindow | null) | null = null;
 
 export function setAuthRendererNotifier(fn: (win: BrowserWindow | null) => void): void {
   notifyRenderer = fn;
@@ -180,10 +198,15 @@ export async function restoreSessionFromStore(): Promise<AuthSessionPayload | nu
     };
     if (isTokenExpired(stored.idToken)) {
       const refreshed = await tryRefreshSession();
-      if (!refreshed) {
-        session = null;
-        clearPersistedSession();
-        return null;
+      if (!refreshed.ok) {
+        if (isDefinitiveRefreshFailure(refreshed.reason)) {
+          session = null;
+          clearPersistedSession();
+          return null;
+        }
+        // Transient Hub/network failure: keep persisted tokens for a later retry.
+        logWarn('[Auth] Session restore refresh failed transiently:', refreshed.reason);
+        return session;
       }
     } else {
       const synced = await syncMeFromToken();
@@ -238,24 +261,68 @@ export async function getMe(): Promise<{ user: AuthUser }> {
   return { user: withImage };
 }
 
-export async function tryRefreshSession(): Promise<boolean> {
-  if (!session?.refreshToken || !session.user.email) return false;
+async function doRefreshSession(): Promise<RefreshSessionResult> {
+  if (!session?.refreshToken || !session.user.email) {
+    return { ok: false, reason: 'no_session' };
+  }
   const refreshed = await hubRefreshTokens(session.refreshToken, session.user.email);
-  if (!refreshed) return false;
-  const idToken = refreshed.idToken ?? session.idToken;
-  const accessToken = refreshed.accessToken ?? session.accessToken;
-  const refreshToken = refreshed.refreshToken ?? session.refreshToken;
-  await establishSessionFromTokens(idToken, accessToken, refreshToken, null, {
-    email: session?.user.email,
-    name: session?.user.name,
-  });
-  return true;
+  if (!refreshed.ok) {
+    return { ok: false, reason: refreshed.reason };
+  }
+  const idToken = refreshed.tokens.idToken ?? session.idToken;
+  const accessToken = refreshed.tokens.accessToken ?? session.accessToken;
+  const refreshToken = refreshed.tokens.refreshToken ?? session.refreshToken;
+
+  // Persist rotated refresh token immediately so a later establish failure
+  // does not leave us holding an already-invalidated refresh token.
+  if (refreshed.tokens.refreshToken && refreshed.tokens.refreshToken !== session.refreshToken) {
+    session = { ...session, refreshToken: refreshed.tokens.refreshToken };
+    persistSession(session);
+  }
+
+  try {
+    await establishSessionFromTokens(idToken, accessToken, refreshToken, null, {
+      email: session?.user.email,
+      name: session?.user.name,
+    });
+    return { ok: true };
+  } catch (error) {
+    logWarn('[Auth] establishSessionFromTokens after Hub refresh failed:', error);
+    return { ok: false, reason: 'establish_failed' };
+  }
+}
+
+export async function tryRefreshSession(): Promise<RefreshSessionResult> {
+  if (refreshInFlight) return refreshInFlight;
+  const promise = doRefreshSession();
+  refreshInFlight = promise;
+  try {
+    return await promise;
+  } finally {
+    if (refreshInFlight === promise) {
+      refreshInFlight = null;
+    }
+  }
+}
+
+function wipeSession(win?: BrowserWindow | null): void {
+  session = null;
+  clearPersistedSession();
+  const target = win !== undefined ? win : (getAuthWindow?.() ?? null);
+  emitAuthChanged(target);
 }
 
 export async function ensureAuthenticatedSession(): Promise<AuthSessionPayload> {
   if (session && !isTokenExpired(session.idToken)) {
     if (isTokenExpiringSoon(session.idToken)) {
-      await tryRefreshSession();
+      // Proactive refresh — never wipe/throw while the token is still usable.
+      const result = await tryRefreshSession();
+      if (!result.ok) {
+        logWarn(
+          '[Auth] Proactive refresh failed while token still valid; continuing:',
+          result.reason
+        );
+      }
     }
     if (session && !isTokenExpired(session.idToken)) {
       return session;
@@ -266,11 +333,22 @@ export async function ensureAuthenticatedSession(): Promise<AuthSessionPayload> 
     return restored;
   }
   if (session && session.refreshToken) {
-    const ok = await tryRefreshSession();
-    if (ok && session) return session;
+    const result = await tryRefreshSession();
+    if (result.ok && session && !isTokenExpired(session.idToken)) {
+      return session;
+    }
+    if (!result.ok && isDefinitiveRefreshFailure(result.reason)) {
+      wipeSession();
+      throw new AuthRequiredError();
+    }
+    // Transient: keep persisted session for retry, but cannot satisfy this call.
+    if (session && !isTokenExpired(session.idToken)) {
+      return session;
+    }
+    logWarn('[Auth] ensureAuthenticatedSession: refresh unavailable, keeping session for retry');
+    throw new AuthRequiredError();
   }
-  session = null;
-  clearPersistedSession();
+  wipeSession();
   throw new AuthRequiredError();
 }
 
@@ -320,19 +398,27 @@ export async function logout(win: BrowserWindow | null): Promise<void> {
 }
 
 export async function refreshAuth(win: BrowserWindow | null): Promise<AuthStatusResponse> {
-  const ok = await tryRefreshSession();
-  if (!ok) {
-    session = null;
-    clearPersistedSession();
+  const result = await tryRefreshSession();
+  if (result.ok) {
+    emitAuthChanged(win);
+    return getAuthStatus();
+  }
+  if (isDefinitiveRefreshFailure(result.reason)) {
+    wipeSession(win);
     throw new AuthRequiredError();
   }
-  emitAuthChanged(win);
-  return getAuthStatus();
+  logWarn('[Auth] refreshAuth failed transiently:', result.reason);
+  // Keep session; return current status if tokens are still usable.
+  if (session && !isTokenExpired(session.idToken)) {
+    return getAuthStatus();
+  }
+  throw new AuthRequiredError();
 }
 
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
 
 export function startAuthRefreshTimer(getWindow: () => BrowserWindow | null): void {
+  getAuthWindow = getWindow;
   if (refreshTimer) clearInterval(refreshTimer);
   refreshTimer = setInterval(() => {
     if (!session?.refreshToken) {
@@ -346,16 +432,32 @@ export function startAuthRefreshTimer(getWindow: () => BrowserWindow | null): vo
         isTokenExpired(session.idToken) ||
         isTokenExpiringSoon(session.idToken, PROACTIVE_REFRESH_BUFFER_SEC)
       ) {
-        const ok = await tryRefreshSession();
-        if (ok) emitAuthChanged(getWindow());
-        else {
-          session = null;
-          clearPersistedSession();
+        const result = await tryRefreshSession();
+        if (result.ok) {
           emitAuthChanged(getWindow());
+          return;
         }
+        // Only wipe when the token is already unusable; keep a still-valid token.
+        if (isDefinitiveRefreshFailure(result.reason) && isTokenExpired(session.idToken)) {
+          wipeSession(getWindow());
+          return;
+        }
+        logWarn('[Auth] Proactive refresh failed transiently, will retry:', result.reason);
       }
     })();
   }, 60_000);
+}
+
+/** Test-only: reset in-memory auth session and refresh mutex. */
+export function __resetAuthSessionForTests(): void {
+  session = null;
+  refreshInFlight = null;
+  getAuthWindow = null;
+}
+
+/** Test-only: seed an in-memory auth session. */
+export function __setAuthSessionForTests(payload: AuthSessionPayload): void {
+  session = payload;
 }
 
 export function stopAuthRefreshTimer(): void {
@@ -366,6 +468,7 @@ export function stopAuthRefreshTimer(): void {
 }
 
 export async function initAuth(getWindow: () => BrowserWindow | null): Promise<void> {
+  getAuthWindow = getWindow;
   initHubOAuthRelay();
   await restoreSessionFromStore();
   if (session?.refreshToken) {

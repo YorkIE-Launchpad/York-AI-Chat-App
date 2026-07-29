@@ -109,6 +109,13 @@ export interface ScheduledTaskRow {
   last_error: string | null;
   model: string | null;
   provider: string | null;
+  kind: string | null;
+  session_mode: string | null;
+  bound_session_id: string | null;
+  watch_config: string | null;
+  last_state: string | null;
+  last_checked_at: number | null;
+  consecutive_unchanged: number | null;
   created_at: number;
   updated_at: number;
 }
@@ -345,6 +352,18 @@ function initializeSchema(database: Database.Database): void {
     ensureColumn(database, 'scheduled_tasks', 'schedule_config', 'schedule_config TEXT');
     ensureColumn(database, 'scheduled_tasks', 'model', 'model TEXT');
     ensureColumn(database, 'scheduled_tasks', 'provider', 'provider TEXT');
+    ensureColumn(database, 'scheduled_tasks', 'kind', 'kind TEXT');
+    ensureColumn(database, 'scheduled_tasks', 'session_mode', 'session_mode TEXT');
+    ensureColumn(database, 'scheduled_tasks', 'bound_session_id', 'bound_session_id TEXT');
+    ensureColumn(database, 'scheduled_tasks', 'watch_config', 'watch_config TEXT');
+    ensureColumn(database, 'scheduled_tasks', 'last_state', 'last_state TEXT');
+    ensureColumn(database, 'scheduled_tasks', 'last_checked_at', 'last_checked_at INTEGER');
+    ensureColumn(
+      database,
+      'scheduled_tasks',
+      'consecutive_unchanged',
+      'consecutive_unchanged INTEGER'
+    );
 
     database.exec(`
     CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_next_run
@@ -507,9 +526,9 @@ export function initDatabase(): DatabaseInstance {
 
   const insertScheduledTask = rawDb.prepare(`
     INSERT OR REPLACE INTO scheduled_tasks (
-      id, title, prompt, cwd, run_at, next_run_at, schedule_config, repeat_every, repeat_unit, enabled, last_run_at, last_run_session_id, last_error, model, provider, created_at, updated_at
+      id, title, prompt, cwd, run_at, next_run_at, schedule_config, repeat_every, repeat_unit, enabled, last_run_at, last_run_session_id, last_error, model, provider, kind, session_mode, bound_session_id, watch_config, last_state, last_checked_at, consecutive_unchanged, created_at, updated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const getScheduledTaskStmt = rawDb.prepare(`
@@ -683,6 +702,13 @@ export function initDatabase(): DatabaseInstance {
           task.last_error,
           task.model,
           task.provider,
+          task.kind,
+          task.session_mode,
+          task.bound_session_id,
+          task.watch_config,
+          task.last_state,
+          task.last_checked_at,
+          task.consecutive_unchanged,
           task.created_at,
           task.updated_at
         );

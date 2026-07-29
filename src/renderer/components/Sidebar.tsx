@@ -21,6 +21,11 @@ import type { Session } from '../types';
 
 import sidebarLogoSrc from '../assets/logo.png';
 
+// Monotonic per-session load tokens so a slow history fetch cannot apply after
+// a newer click for the same session (rapid switching).
+const sessionMessageLoadIds: Record<string, number> = {};
+const sessionTraceLoadIds: Record<string, number> = {};
+
 type SessionGroup = {
   key: string;
   label: string;
@@ -230,42 +235,58 @@ export function Sidebar() {
     async (sessionId: string) => {
       setShowSettings(false);
 
-      if (activeSessionId === sessionId) return;
+      // Read at call-time — do not close over activeSessionId / sessionStates.
+      // sessionStates gets a new object ref on every patchSession, and including
+      // it in deps caused React #185 when switching sessions (issue #217).
+      const state = useAppStore.getState();
+      const alreadyActive = state.activeSessionId === sessionId;
+      const existingMessages = state.sessionStates[sessionId]?.messages ?? [];
+      const existingSteps = state.sessionStates[sessionId]?.traceSteps ?? [];
 
-      setActiveSession(sessionId);
+      // Already viewing this chat with messages loaded — nothing to do.
+      // If messages are empty (failed/racy prior load), fall through and retry.
+      if (alreadyActive && existingMessages.length > 0) return;
 
-      // Read sessionStates at call-time from the store rather than closing over
-      // the selector value. The selector returns a new object reference every
-      // time any session's state changes (patchSession spreads the whole map),
-      // so including it in deps would rebuild this callback on every streaming
-      // tick and cause a React #185 "Maximum update depth exceeded" loop when
-      // rapidly switching sessions on slow renderers (e.g. Windows).
-      const currentSessionStates = useAppStore.getState().sessionStates;
-
-      const existingMessages = currentSessionStates[sessionId]?.messages;
-      if ((!existingMessages || existingMessages.length === 0) && isElectron) {
-        try {
-          const messages = await getSessionMessages(sessionId);
-          if (messages && messages.length > 0) {
-            setMessages(sessionId, messages);
-          }
-        } catch (error) {
-          console.error('[Sidebar] Failed to load messages:', error);
-        }
+      if (!alreadyActive) {
+        setActiveSession(sessionId);
       }
 
-      const existingSteps = currentSessionStates[sessionId]?.traceSteps;
-      if ((!existingSteps || existingSteps.length === 0) && isElectron) {
-        try {
-          const steps = await getSessionTraceSteps(sessionId);
-          setTraceSteps(sessionId, steps || []);
-        } catch (error) {
-          console.error('[Sidebar] Failed to load trace steps:', error);
+      if (!isElectron) return;
+
+      const messageLoadId = (sessionMessageLoadIds[sessionId] ?? 0) + 1;
+      sessionMessageLoadIds[sessionId] = messageLoadId;
+
+      try {
+        const messages = await getSessionMessages(sessionId);
+        if (sessionMessageLoadIds[sessionId] !== messageLoadId) return;
+
+        const latestExisting = useAppStore.getState().sessionStates[sessionId]?.messages ?? [];
+        // Apply when empty, or when disk has more than memory (heals truncated
+        // loads from a previously incomplete message cache).
+        if (
+          messages.length > 0 &&
+          (latestExisting.length === 0 || messages.length > latestExisting.length)
+        ) {
+          setMessages(sessionId, messages);
         }
+      } catch (error) {
+        console.error('[Sidebar] Failed to load messages:', error);
+      }
+
+      if (existingSteps.length > 0) return;
+
+      const traceLoadId = (sessionTraceLoadIds[sessionId] ?? 0) + 1;
+      sessionTraceLoadIds[sessionId] = traceLoadId;
+
+      try {
+        const steps = await getSessionTraceSteps(sessionId);
+        if (sessionTraceLoadIds[sessionId] !== traceLoadId) return;
+        setTraceSteps(sessionId, steps || []);
+      } catch (error) {
+        console.error('[Sidebar] Failed to load trace steps:', error);
       }
     },
     [
-      activeSessionId,
       getSessionMessages,
       getSessionTraceSteps,
       isElectron,

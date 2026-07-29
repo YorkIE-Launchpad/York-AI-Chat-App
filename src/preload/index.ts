@@ -17,6 +17,8 @@ import type {
   ScheduleTask,
   ScheduleCreateInput,
   ScheduleUpdateInput,
+  ChatLoopStatus,
+  ChatLoopStartInput,
   ProviderModelInfo,
   LocalOllamaDiscoveryResult,
   MemoryOverview,
@@ -518,6 +520,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     runNow: (id: string): Promise<ScheduleTask | null> => ipcRenderer.invoke('schedule.runNow', id),
   },
 
+  loop: {
+    start: (payload: ChatLoopStartInput): Promise<ChatLoopStatus> =>
+      ipcRenderer.invoke('loop.start', payload),
+    stop: (sessionId: string): Promise<ChatLoopStatus | null> =>
+      ipcRenderer.invoke('loop.stop', sessionId),
+    status: (sessionId: string): Promise<ChatLoopStatus | null> =>
+      ipcRenderer.invoke('loop.status', sessionId),
+    list: (): Promise<ChatLoopStatus[]> => ipcRenderer.invoke('loop.list'),
+  },
+
   memory: {
     getOverview: (cwd?: string): Promise<MemoryOverview> =>
       ipcRenderer.invoke('memory.getOverview', cwd),
@@ -901,6 +913,12 @@ declare global {
         delete: (id: string) => Promise<{ success: boolean }>;
         toggle: (id: string, enabled: boolean) => Promise<ScheduleTask | null>;
         runNow: (id: string) => Promise<ScheduleTask | null>;
+      };
+      loop: {
+        start: (payload: ChatLoopStartInput) => Promise<ChatLoopStatus>;
+        stop: (sessionId: string) => Promise<ChatLoopStatus | null>;
+        status: (sessionId: string) => Promise<ChatLoopStatus | null>;
+        list: () => Promise<ChatLoopStatus[]>;
       };
       memory: {
         getOverview: (cwd?: string) => Promise<MemoryOverview>;

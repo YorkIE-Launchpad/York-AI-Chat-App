@@ -149,5 +149,11 @@ export async function requireCognito(
     return;
   }
 
+  (
+    req as Request & { cognito?: { payload: CognitoJwtPayload; tokenUse: 'id' | 'access' } }
+  ).cognito = {
+    payload: result.payload,
+    tokenUse: result.tokenUse,
+  };
   next();
 }

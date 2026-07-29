@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import type { DatabaseInstance, ScheduledTaskRow } from '../db/database';
 import { OPENROUTER_FREE_ROUTER_ID } from '../agent/free-model-resolve';
+import type { ScheduleSessionMode, ScheduleTaskKind, WatchConfig } from '../../shared/loop/types';
 import type {
   ScheduledTask,
   ScheduledTaskCreateInput,
@@ -30,6 +31,8 @@ export function createScheduledTaskStore(db: DatabaseInstance): ScheduledTaskSto
     create: (input: ScheduledTaskCreateInput) => {
       const now = Date.now();
       const { model, provider } = resolveScheduleModel(input.model, input.provider);
+      const kind = normalizeKind(input.kind);
+      const sessionMode = input.sessionMode ?? (kind === 'loop' ? 'continue' : 'new');
       const row: ScheduledTaskRow = {
         id: uuidv4(),
         title: input.title ?? '',
@@ -46,6 +49,13 @@ export function createScheduledTaskStore(db: DatabaseInstance): ScheduledTaskSto
         last_error: null,
         model,
         provider,
+        kind,
+        session_mode: sessionMode,
+        bound_session_id: input.boundSessionId ?? null,
+        watch_config: input.watchConfig ? JSON.stringify(input.watchConfig) : null,
+        last_state: null,
+        last_checked_at: null,
+        consecutive_unchanged: 0,
         created_at: now,
         updated_at: now,
       };
@@ -67,8 +77,19 @@ export function createScheduledTaskStore(db: DatabaseInstance): ScheduledTaskSto
   };
 }
 
+function normalizeKind(value?: ScheduleTaskKind | null): ScheduleTaskKind {
+  if (value === 'loop' || value === 'watch' || value === 'schedule') return value;
+  return 'schedule';
+}
+
+function normalizeSessionMode(value?: string | null, kind?: ScheduleTaskKind): ScheduleSessionMode {
+  if (value === 'continue' || value === 'new') return value;
+  return kind === 'loop' ? 'continue' : 'new';
+}
+
 function mapRowToTask(row: ScheduledTaskRow): ScheduledTask {
   const { model, provider } = resolveScheduleModel(row.model, row.provider);
+  const kind = normalizeKind(row.kind as ScheduleTaskKind | null);
   return {
     id: row.id,
     title: row.title,
@@ -85,6 +106,13 @@ function mapRowToTask(row: ScheduledTaskRow): ScheduledTask {
     lastError: row.last_error,
     model,
     provider,
+    kind,
+    sessionMode: normalizeSessionMode(row.session_mode, kind),
+    boundSessionId: row.bound_session_id,
+    watchConfig: parseWatchConfig(row.watch_config),
+    lastState: row.last_state,
+    lastCheckedAt: row.last_checked_at,
+    consecutiveUnchanged: row.consecutive_unchanged ?? 0,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -111,6 +139,17 @@ function mapTaskUpdatesToRow(updates: ScheduledTaskUpdateInput): Partial<Schedul
     if (updates.model !== undefined) mapped.model = resolved.model;
     if (updates.provider !== undefined) mapped.provider = resolved.provider;
   }
+  if (updates.kind !== undefined) mapped.kind = normalizeKind(updates.kind);
+  if (updates.sessionMode !== undefined) mapped.session_mode = updates.sessionMode;
+  if (updates.boundSessionId !== undefined) mapped.bound_session_id = updates.boundSessionId;
+  if (updates.watchConfig !== undefined) {
+    mapped.watch_config = updates.watchConfig ? JSON.stringify(updates.watchConfig) : null;
+  }
+  if (updates.lastState !== undefined) mapped.last_state = updates.lastState;
+  if (updates.lastCheckedAt !== undefined) mapped.last_checked_at = updates.lastCheckedAt;
+  if (updates.consecutiveUnchanged !== undefined) {
+    mapped.consecutive_unchanged = updates.consecutiveUnchanged;
+  }
   return mapped;
 }
 
@@ -120,6 +159,15 @@ function parseScheduleConfig(value: string | null): ScheduledTask['scheduleConfi
   }
   try {
     return JSON.parse(value) as ScheduledTask['scheduleConfig'];
+  } catch {
+    return null;
+  }
+}
+
+function parseWatchConfig(value: string | null): WatchConfig | null {
+  if (!value) return null;
+  try {
+    return JSON.parse(value) as WatchConfig;
   } catch {
     return null;
   }

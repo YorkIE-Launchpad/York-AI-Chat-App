@@ -345,6 +345,20 @@ export async function proxyToProvider(
 }
 
 function readRequestBody(req: Request): Promise<Buffer> {
+  // express.json() on an ancestor route consumes the stream; reconstruct the body
+  // so provider proxy calls still forward the client payload.
+  if (req.readableEnded && req.body !== undefined) {
+    if (Buffer.isBuffer(req.body)) {
+      return Promise.resolve(req.body);
+    }
+    if (typeof req.body === 'string') {
+      return Promise.resolve(Buffer.from(req.body, 'utf8'));
+    }
+    if (typeof req.body === 'object' && req.body !== null) {
+      return Promise.resolve(Buffer.from(JSON.stringify(req.body), 'utf8'));
+    }
+  }
+
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     req.on('data', (chunk: Buffer) => chunks.push(chunk));

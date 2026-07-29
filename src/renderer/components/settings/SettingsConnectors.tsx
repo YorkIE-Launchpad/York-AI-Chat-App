@@ -410,7 +410,7 @@ export function SettingsConnectors({ isActive }: { isActive: boolean }) {
               {error}
             </div>
           )}
-          <div className="grid items-stretch gap-3 md:grid-cols-3">
+          <div className="grid items-stretch gap-3 md:grid-cols-2 xl:grid-cols-4">
             {connectorStatuses.map((connector) => (
               <div
                 key={connector.connectorId}
@@ -423,12 +423,16 @@ export function SettingsConnectors({ isActive }: { isActive: boolean }) {
                         ? 'Google Drive'
                         : connector.connectorId === 'gmail'
                           ? 'Gmail'
-                          : 'Slack'}
+                          : connector.connectorId === 'zoom'
+                            ? 'Zoom'
+                            : 'Slack'}
                     </h3>
                     <p className="mt-1 min-h-8 text-xs leading-4 text-text-muted break-all">
                       {connector.connected
                         ? connector.accountEmail || connector.accountName || 'Connected'
-                        : 'Read-only OAuth connector'}
+                        : connector.connectorId === 'zoom'
+                          ? 'Connect Zoom to auto-capture meetings with speaker names'
+                          : 'Read-only OAuth connector'}
                     </p>
                   </div>
                   {connector.connected ? (

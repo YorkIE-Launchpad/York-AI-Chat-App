@@ -133,8 +133,8 @@ describe('SessionManager message cache', () => {
     const msgs = manager.getMessages('s2');
     expect(msgs).toHaveLength(1);
     expect(msgs[0].id).toBe('msg-a');
-    // DB should not have been queried since the message was cached by saveMessage
-    expect(db.messages.getBySessionId).toHaveBeenCalledTimes(0);
+    // Hydration reads DB once on saveMessage cache miss; getMessages hits cache.
+    expect(db.messages.getBySessionId).toHaveBeenCalledTimes(1);
 
     // Saving another message appends to the cache
     manager.saveMessage({
@@ -147,6 +147,54 @@ describe('SessionManager message cache', () => {
     const msgs2 = manager.getMessages('s2');
     expect(msgs2).toHaveLength(2);
     expect(msgs2[1].id).toBe('msg-b');
-    expect(db.messages.getBySessionId).toHaveBeenCalledTimes(0);
+    expect(db.messages.getBySessionId).toHaveBeenCalledTimes(1);
+  });
+
+  it('hydrates full DB history when saveMessage hits an uncached session with prior messages', () => {
+    const db = makeDb();
+    db.messages.getBySessionId = vi.fn(() => [
+      {
+        id: 'm1',
+        session_id: 's-old',
+        role: 'user',
+        content: JSON.stringify([{ type: 'text', text: 'hello' }]),
+        timestamp: 1,
+        token_usage: null,
+        execution_time_ms: null,
+      },
+      {
+        id: 'm2',
+        session_id: 's-old',
+        role: 'assistant',
+        content: JSON.stringify([{ type: 'text', text: 'hi' }]),
+        timestamp: 2,
+        token_usage: null,
+        execution_time_ms: null,
+      },
+      {
+        id: 'm3',
+        session_id: 's-old',
+        role: 'user',
+        content: JSON.stringify([{ type: 'text', text: 'again' }]),
+        timestamp: 3,
+        token_usage: null,
+        execution_time_ms: null,
+      },
+    ]);
+    const manager = new SessionManager(db as unknown as DatabaseInstance, vi.fn());
+
+    // Session was evicted from cache; a new message arrives without getMessages first.
+    manager.saveMessage({
+      id: 'm3',
+      sessionId: 's-old',
+      role: 'user',
+      content: [{ type: 'text', text: 'again' }],
+      timestamp: 3,
+    });
+
+    const msgs = manager.getMessages('s-old');
+    expect(msgs.map((m) => m.id)).toEqual(['m1', 'm2', 'm3']);
+    // Must not return only the newly saved message.
+    expect(msgs).toHaveLength(3);
   });
 });

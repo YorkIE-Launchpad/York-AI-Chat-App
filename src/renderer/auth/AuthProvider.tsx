@@ -2,16 +2,11 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import type { AuthStatusResponse, AuthUser } from '../../shared/auth-types';
 import { AuthContext } from './AuthContext';
 import {
-  AUTH_STORAGE_KEYS,
   clearAuthLocalStorage,
   readStoredUser,
   sanitizeUserForStorage,
   writeAuthToLocalStorage,
 } from './auth-storage';
-import { isTokenExpired, isTokenExpiringSoon } from './token-utils';
-
-const PROACTIVE_REFRESH_BUFFER_SEC = 5 * 60;
-const REFRESH_CHECK_INTERVAL_MS = 60_000;
 
 type AuthApi = NonNullable<typeof window.electronAPI>['auth'];
 
@@ -87,32 +82,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     clearAuth();
   }, [authApi, clearAuth]);
 
-  const tryProactiveRefresh = useCallback(async () => {
-    if (!authApi) return;
-    const token = localStorage.getItem(AUTH_STORAGE_KEYS.token);
-    const refreshToken = localStorage.getItem(AUTH_STORAGE_KEYS.refreshToken);
-    if (!refreshToken) {
-      if (token && isTokenExpired(token)) {
-        clearAuth();
-      }
-      return;
-    }
-    const needsRefresh =
-      !token || isTokenExpired(token) || isTokenExpiringSoon(token, PROACTIVE_REFRESH_BUFFER_SEC);
-    if (!needsRefresh) return;
-
-    const result = await authApi.refresh();
-    if (result.success && result.user) {
-      applyStatusToState({
-        user: result.user,
-        tokens: result.tokens ?? null,
-      });
-      setUser(sanitizeUserForStorage(result.user));
-    } else {
-      clearAuth();
-    }
-  }, [authApi, clearAuth]);
-
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -151,14 +120,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
     return unsubscribe;
   }, [authApi]);
-
-  useEffect(() => {
-    if (!user || !authApi) return;
-    const id = setInterval(() => {
-      void tryProactiveRefresh();
-    }, REFRESH_CHECK_INTERVAL_MS);
-    return () => clearInterval(id);
-  }, [user, authApi, tryProactiveRefresh]);
 
   return (
     <AuthContext.Provider value={{ user, loading, logout, checkAuth }}>

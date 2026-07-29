@@ -94,6 +94,7 @@ export function SettingsMeetings() {
   const [showRaw, setShowRaw] = useState(false);
 
   const enabled = overview?.enabled ?? appConfig?.meetingsEnabled ?? true;
+  const zoomConnected = overview?.zoomConnected ?? false;
   const micGranted = overview?.permissions.microphone === 'granted';
   const needsPermissions = !micGranted;
 
@@ -319,7 +320,29 @@ export function SettingsMeetings() {
   return (
     <div className="space-y-6">
       <SettingsContentSection title={t('meetings.title')} description={t('meetings.description')}>
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border-muted bg-background/70 px-3 py-2.5">
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-text-primary">
+              {zoomConnected ? t('meetings.zoomConnected') : t('meetings.zoomNotConnected')}
+            </p>
+            <p className="mt-1 text-xs text-text-muted">{t('meetings.zoomGateHint')}</p>
+          </div>
+          {!zoomConnected ? (
+            <button
+              type="button"
+              onClick={() => {
+                setSettingsTab('connectors');
+                setShowSettings(true);
+              }}
+              className="rounded-lg bg-accent px-3.5 py-2 text-sm font-medium text-white transition-colors hover:bg-accent/90"
+            >
+              {t('meetings.openZoomConnector')}
+            </button>
+          ) : (
+            <CheckCircle2 className="h-5 w-5 shrink-0 text-success" />
+          )}
+        </div>
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="text-sm font-medium text-text-primary">
               {enabled ? t('meetings.enabled') : t('meetings.disabled')}
@@ -455,15 +478,6 @@ export function SettingsMeetings() {
             <option value="whisper-1">whisper-1</option>
           </select>
         </label>
-        <div className="mt-3">
-          <ToggleField
-            label={t('meetings.processDetect')}
-            checked={runtimeDraft.processDetectEnabled}
-            onChange={(checked) =>
-              setRuntimeDraft((prev) => ({ ...prev, processDetectEnabled: checked }))
-            }
-          />
-        </div>
         <button
           type="button"
           disabled={isBusy}

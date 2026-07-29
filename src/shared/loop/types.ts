@@ -1,0 +1,97 @@
+/**
+ * Shared types for chat loops, scheduled loops, and WatchTask reactive polling.
+ */
+
+export type ChatLoopKind = 'interval' | 'goal';
+
+export type ScheduleTaskKind = 'schedule' | 'loop' | 'watch';
+
+export type ScheduleSessionMode = 'new' | 'continue';
+
+export type LoopIntervalUnit = 's' | 'm' | 'h' | 'd';
+
+export interface LoopInterval {
+  value: number;
+  unit: LoopIntervalUnit;
+  /** Duration in milliseconds (clamped to MIN_LOOP_INTERVAL_MS). */
+  ms: number;
+}
+
+/** Minimum interval for any automated loop/schedule fire. */
+export const MIN_LOOP_INTERVAL_MS = 30_000;
+
+/** Max goal iterations before auto-stop. */
+export const DEFAULT_GOAL_MAX_ITERATIONS = 20;
+
+export type WatchCheckType = 'http' | 'command' | 'file' | 'agent';
+
+export type WatchCompareMode = 'hash' | 'status' | 'jsonpath' | 'regex';
+
+export interface HttpWatchCheckConfig {
+  url: string;
+  /** Optional JSONPath-like simple selector (dot path) into JSON body. */
+  bodySelector?: string;
+}
+
+export interface CommandWatchCheckConfig {
+  command: string;
+}
+
+export interface FileWatchCheckConfig {
+  path: string;
+}
+
+export interface AgentWatchCheckConfig {
+  checkPrompt: string;
+}
+
+export type WatchCheckConfig =
+  | HttpWatchCheckConfig
+  | CommandWatchCheckConfig
+  | FileWatchCheckConfig
+  | AgentWatchCheckConfig;
+
+export interface WatchConfig {
+  checkType: WatchCheckType;
+  checkConfig: WatchCheckConfig;
+  compareMode: WatchCompareMode;
+  lastState?: string;
+  lastCheckedAt?: number;
+  consecutiveUnchanged?: number;
+}
+
+export type ParsedLoopCommand =
+  | { type: 'stop' }
+  | { type: 'usage' }
+  | {
+      type: 'loop';
+      kind: 'interval';
+      prompt: string;
+      interval: LoopInterval;
+    }
+  | {
+      type: 'goal';
+      kind: 'goal';
+      goal: string;
+      interval: LoopInterval;
+      maxIterations: number;
+    };
+
+export const GOAL_STATUS_COMPLETE = 'GOAL_STATUS: complete';
+export const GOAL_STATUS_IN_PROGRESS = 'GOAL_STATUS: in_progress';
+
+export function buildGoalTickPrompt(goal: string): string {
+  return [
+    'Continue working toward this goal:',
+    goal,
+    '',
+    'When the goal is fully achieved, end your reply with a line containing exactly:',
+    GOAL_STATUS_COMPLETE,
+    'Otherwise end with:',
+    GOAL_STATUS_IN_PROGRESS,
+  ].join('\n');
+}
+
+export function isGoalCompleteInText(text: string): boolean {
+  return /GOAL_STATUS:\s*complete\b/i.test(text);
+}

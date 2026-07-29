@@ -1,4 +1,4 @@
-export type ConnectorId = 'slack' | 'gmail' | 'google-drive';
+export type ConnectorId = 'slack' | 'gmail' | 'google-drive' | 'zoom';
 
 export interface ConnectorTokenRecord {
   connectorId: ConnectorId;

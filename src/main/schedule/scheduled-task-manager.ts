@@ -15,10 +15,13 @@ import {
   buildScheduledTaskFallbackTitle,
   buildScheduledTaskTitle,
 } from '../../shared/schedule/task-title';
+import type { ScheduleSessionMode, ScheduleTaskKind, WatchConfig } from '../../shared/loop/types';
 import { log, logError } from '../utils/logger';
+import { checkWatchCondition } from './watch-checks';
 
 export type ScheduleRepeatUnit = 'minute' | 'hour' | 'day';
 export type ScheduledTaskWeekday = 0 | 1 | 2 | 3 | 4 | 5 | 6;
+export type { ScheduleTaskKind, ScheduleSessionMode };
 
 export interface ScheduledTaskDailyScheduleConfig {
   kind: 'daily';
@@ -53,6 +56,14 @@ export interface ScheduledTask {
   model: string;
   /** Provider for the locked model (defaults to openrouter). */
   provider: string;
+  /** schedule = new session; loop = continue bound session; watch = check then act. */
+  kind: ScheduleTaskKind;
+  sessionMode: ScheduleSessionMode;
+  boundSessionId: string | null;
+  watchConfig: WatchConfig | null;
+  lastState: string | null;
+  lastCheckedAt: number | null;
+  consecutiveUnchanged: number;
   createdAt: number;
   updatedAt: number;
 }
@@ -69,6 +80,10 @@ export interface ScheduledTaskCreateInput {
   enabled?: boolean;
   model?: string;
   provider?: string;
+  kind?: ScheduleTaskKind;
+  sessionMode?: ScheduleSessionMode;
+  boundSessionId?: string | null;
+  watchConfig?: WatchConfig | null;
 }
 
 export interface ScheduledTaskUpdateInput {
@@ -86,6 +101,13 @@ export interface ScheduledTaskUpdateInput {
   lastError?: string | null;
   model?: string;
   provider?: string;
+  kind?: ScheduleTaskKind;
+  sessionMode?: ScheduleSessionMode;
+  boundSessionId?: string | null;
+  watchConfig?: WatchConfig | null;
+  lastState?: string | null;
+  lastCheckedAt?: number | null;
+  consecutiveUnchanged?: number;
 }
 
 export interface ScheduledTaskStore {
@@ -113,12 +135,18 @@ interface ScheduledTaskManagerOptions {
   executeTask: (task: ScheduledTask) => Promise<ScheduledTaskRunResult>;
   onTaskError?: (taskId: string, error: string) => void;
   now?: () => number;
+  /** Optional agent-driven watch check (checkType: 'agent'). */
+  runAgentWatchCheck?: (
+    prompt: string,
+    cwd: string
+  ) => Promise<{ changed: boolean; summary: string }>;
 }
 
 export class ScheduledTaskManager {
   private readonly store: ScheduledTaskStore;
   private readonly executeTask: (task: ScheduledTask) => Promise<ScheduledTaskRunResult>;
   private readonly onTaskError?: (taskId: string, error: string) => void;
+  private readonly runAgentWatchCheck?: ScheduledTaskManagerOptions['runAgentWatchCheck'];
   private readonly now: () => number;
   private readonly timers = new Map<string, NodeJS.Timeout>();
   private readonly executingTasks = new Set<string>();
@@ -128,6 +156,7 @@ export class ScheduledTaskManager {
     this.store = options.store;
     this.executeTask = options.executeTask;
     this.onTaskError = options.onTaskError;
+    this.runAgentWatchCheck = options.runAgentWatchCheck;
     this.now = options.now ?? (() => Date.now());
   }
 
@@ -179,6 +208,8 @@ export class ScheduledTaskManager {
       normalizedScheduleConfig || normalizedRepeatEvery === null
         ? null
         : normalizeRepeatUnit(input.repeatUnit);
+    const kind = normalizeTaskKind(input.kind);
+    const sessionMode = input.sessionMode ?? (kind === 'loop' ? 'continue' : 'new');
     const created = this.store.create({
       ...input,
       title: normalizedTitle,
@@ -188,6 +219,10 @@ export class ScheduledTaskManager {
       enabled: input.enabled ?? true,
       repeatEvery: normalizedRepeatEvery,
       repeatUnit: normalizedRepeatUnit,
+      kind,
+      sessionMode,
+      boundSessionId: input.boundSessionId ?? null,
+      watchConfig: input.watchConfig ?? null,
     });
     this.scheduleTask(created);
     return created;
@@ -371,12 +406,33 @@ export class ScheduledTaskManager {
 
   private async executeAndRecord(task: ScheduledTask): Promise<ScheduledTaskExecutionRecord> {
     try {
+      if (task.kind === 'watch' && task.watchConfig) {
+        const check = await checkWatchCondition(task.watchConfig, task.cwd, {
+          runAgentCheck: this.runAgentWatchCheck
+            ? (prompt) => this.runAgentWatchCheck!(prompt, task.cwd)
+            : undefined,
+        });
+        const consecutiveUnchanged = check.changed ? 0 : (task.consecutiveUnchanged ?? 0) + 1;
+        this.store.update(task.id, {
+          lastState: check.state,
+          lastCheckedAt: this.now(),
+          consecutiveUnchanged,
+          lastError: null,
+        });
+        if (!check.changed) {
+          log(`[ScheduledTask] Watch ${task.id} unchanged (${check.summary}); skipping agent act`);
+          return { success: true, sessionId: task.lastRunSessionId ?? '' };
+        }
+        log(`[ScheduledTask] Watch ${task.id} changed (${check.summary}); running act prompt`);
+      }
+
       const result = await this.executeTask(task);
       try {
         this.store.update(task.id, {
           lastRunAt: this.now(),
           lastRunSessionId: result.sessionId,
           lastError: null,
+          ...(task.kind === 'loop' && result.sessionId ? { boundSessionId: result.sessionId } : {}),
         });
       } catch (error) {
         logError('[ScheduledTaskManager] Failed to update store:', error);
@@ -405,6 +461,11 @@ export class ScheduledTaskManager {
       this.timers.delete(taskId);
     }
   }
+}
+
+function normalizeTaskKind(value: ScheduleTaskKind | undefined): ScheduleTaskKind {
+  if (value === 'loop' || value === 'watch' || value === 'schedule') return value;
+  return 'schedule';
 }
 
 function normalizeRepeatEvery(value: number | null | undefined): number | null {

@@ -1,11 +1,15 @@
 import { randomUUID } from 'crypto';
 import { systemPreferences } from 'electron';
 import { configStore, type MeetingsRuntimeConfig } from '../config/config-store';
+import { connectorManager } from '../connectors/connector-manager';
 import { log, logWarn } from '../utils/logger';
+import { buildTranscriptText } from '../../shared/meetings/transcript-format';
+import { findCurrentCalendarMeeting } from './calendar-enrichment';
 import { MeetingNotesService } from './meeting-notes-service';
 import { detectMeetingApps, detectZoomMicUsage } from './meeting-mic-detector';
 import { MeetingStore } from './meeting-store';
 import { MeetingTranscriptionService } from './meeting-transcription-service';
+import { ZoomRtmsDesktopClient, type ZoomRtmsTranscriptSegment } from './zoom-rtms-client';
 import type { MemoryService } from '../memory/memory-service';
 import type {
   MeetingCaptureStatus,
@@ -34,6 +38,8 @@ const DETECTION_POLL_ACTIVE_MS = 5_000;
 const DETECTION_NOTIFY_COOLDOWN_MS = 60 * 1000;
 /** Require this many consecutive "gone" polls before auto-stop. */
 const ZOOM_ABSENT_POLLS_BEFORE_STOP = 2;
+/** Fall back to local Whisper if RTMS has not delivered segments by then. */
+const RTMS_FALLBACK_MS = 25_000;
 
 function defaultRuntime(): MeetingsRuntimeConfig {
   return {
@@ -98,9 +104,22 @@ export class MeetingService {
   /** Raw audio kept for finalize retry when live STT produced no text. */
   private pendingAudioChunks: Array<{ buffer: Buffer; mimeType: string }> = [];
   private pendingTranscriptions = new Set<Promise<unknown>>();
+  private readonly zoomRtms = new ZoomRtmsDesktopClient();
+  /** When true, local Whisper chunks are accepted (RTMS timed out or unavailable). */
+  private localSttFallbackActive = false;
+  private rtmsFallbackTimer: ReturnType<typeof setTimeout> | null = null;
 
   setMemoryService(service: MemoryService | null): void {
     this.memoryService = service;
+  }
+
+  isZoomConnected(): boolean {
+    return connectorManager.isConnected('zoom');
+  }
+
+  /** Auto mic-detect runs only when Zoom is connected. */
+  private shouldAutoDetect(): boolean {
+    return this.isZoomConnected();
   }
 
   isEnabled(): boolean {
@@ -153,9 +172,9 @@ export class MeetingService {
     return () => this.autoStopListeners.delete(listener);
   }
 
-  /** Start/stop background meeting-app detection based on settings. */
+  /** Start/stop background meeting-app detection based on Zoom connection. */
   syncDetectionPolling(): void {
-    const shouldPoll = this.isEnabled() && this.getRuntime().processDetectEnabled !== false;
+    const shouldPoll = this.shouldAutoDetect();
     if (shouldPoll) {
       this.restartDetectionTimer(
         this.activeMeetingId ? DETECTION_POLL_ACTIVE_MS : DETECTION_POLL_MS
@@ -262,15 +281,16 @@ export class MeetingService {
   async getOverview(): Promise<MeetingOverview> {
     const runtime = this.getRuntime();
     const readiness = this.transcription.getReadiness();
-    const detectedMeetingApps =
-      this.isEnabled() && runtime.processDetectEnabled
-        ? this.lastDetectedApps.length
-          ? this.lastDetectedApps
-          : await detectMeetingApps()
-        : [];
+    const zoomConnected = this.isZoomConnected();
+    const detectedMeetingApps = zoomConnected
+      ? this.lastDetectedApps.length
+        ? this.lastDetectedApps
+        : await detectMeetingApps()
+      : [];
 
     return {
       enabled: this.isEnabled(),
+      zoomConnected,
       allowChatReference: runtime.allowChatReference !== false,
       processDetectEnabled: runtime.processDetectEnabled !== false,
       transcriptionModel: runtime.transcriptionModel || 'gpt-4o-transcribe',
@@ -285,7 +305,7 @@ export class MeetingService {
   }
 
   private async pollMeetingDetection(): Promise<void> {
-    if (!this.isEnabled() || this.getRuntime().processDetectEnabled === false) {
+    if (!this.shouldAutoDetect()) {
       return;
     }
 
@@ -431,6 +451,9 @@ export class MeetingService {
       `Date: ${date}`,
       `Summary: ${summary}`,
     ];
+    if (meeting.attendees?.length) {
+      lines.push(`Attendees: ${meeting.attendees.join('; ')}`);
+    }
     if (meeting.notes?.keyTopics?.length) {
       lines.push(`Key topics: ${meeting.notes.keyTopics.join('; ')}`);
     }
@@ -438,7 +461,7 @@ export class MeetingService {
       lines.push(`Action items: ${meeting.notes.actionItems.join('; ')}`);
     }
     if (includeTranscript) {
-      lines.push(`Raw transcript:\n${meeting.transcriptText || '(empty)'}`);
+      lines.push(`Transcript (speaker-labeled):\n${meeting.transcriptText || '(empty)'}`);
     }
     return lines.join('\n');
   }
@@ -459,15 +482,17 @@ export class MeetingService {
     await this.requestMicrophoneAccess();
 
     const now = Date.now();
+    const calendar = await findCurrentCalendarMeeting(now);
     const meeting: MeetingSession = {
       id: randomUUID(),
-      title: title?.trim() || `Meeting ${new Date(now).toLocaleString()}`,
+      title: title?.trim() || calendar?.title || `Meeting ${new Date(now).toLocaleString()}`,
       status: 'recording',
       createdAt: now,
       startedAt: now,
       segments: [],
       transcriptText: '',
       updatedAt: now,
+      attendees: calendar?.attendees?.length ? calendar.attendees : undefined,
     };
 
     this.store.save(meeting);
@@ -479,12 +504,137 @@ export class MeetingService {
     this.pendingTranscriptions.clear();
     this.zoomAbsentPolls = 0;
     this.pendingRendererAutoStop = false;
+    this.localSttFallbackActive = !this.isZoomConnected();
+    this.clearRtmsFallbackTimer();
     this.emitStatus();
-    if (this.isEnabled() && this.getRuntime().processDetectEnabled !== false) {
+    if (this.shouldAutoDetect()) {
       this.restartDetectionTimer(DETECTION_POLL_ACTIVE_MS);
     }
+
+    if (this.isZoomConnected()) {
+      void this.bootstrapZoomRtms(meeting.id);
+      this.rtmsFallbackTimer = setTimeout(() => {
+        if (!this.activeMeetingId || this.activeMeetingId !== meeting.id) return;
+        if (this.zoomRtms.hasReceivedSegments) return;
+        this.localSttFallbackActive = true;
+        log('[Meetings] RTMS silent — enabling local STT fallback');
+      }, RTMS_FALLBACK_MS);
+    }
+
     log(`[Meetings] Started capture ${meeting.id}`);
     return meeting;
+  }
+
+  private clearRtmsFallbackTimer(): void {
+    if (this.rtmsFallbackTimer) {
+      clearTimeout(this.rtmsFallbackTimer);
+      this.rtmsFallbackTimer = null;
+    }
+  }
+
+  private async bootstrapZoomRtms(yorkMeetingId: string): Promise<void> {
+    try {
+      log('[Meetings] bootstrapZoomRtms start', `yorkMeetingId=${yorkMeetingId}`);
+      const zoomToken = await connectorManager.ensureFreshAccessToken('zoom');
+      log(
+        '[Meetings] Zoom token ready for RTMS bootstrap',
+        `accountId=${zoomToken.accountId || 'n/a'}`
+      );
+      const live = await this.zoomRtms.findLiveMeeting(zoomToken.accessToken);
+      if (live) {
+        const current = this.store.get(yorkMeetingId);
+        if (current) {
+          current.zoomMeetingId = live.id;
+          current.zoomMeetingUuid = live.uuid;
+          if (!current.title || current.title.startsWith('Meeting ')) {
+            current.title = live.topic;
+          }
+          current.updatedAt = Date.now();
+          this.store.save(current);
+        }
+        await this.zoomRtms.startParticipantRtms(zoomToken.accessToken, live.id);
+      } else {
+        logWarn('[Meetings] No live Zoom meeting discovered during RTMS bootstrap');
+      }
+
+      const registered = await this.zoomRtms.registerSession({
+        yorkMeetingId,
+        zoomMeetingUuid: live?.uuid ?? null,
+        zoomMeetingId: live?.id ?? null,
+        zoomUserId: zoomToken.accountId ?? null,
+      });
+      if (!registered) {
+        logWarn(
+          '[Meetings] Zoom RTMS session registration failed',
+          `yorkMeetingId=${yorkMeetingId}`
+        );
+      }
+
+      this.zoomRtms.startPolling(yorkMeetingId, (segments) => {
+        this.ingestRtmsSegments(yorkMeetingId, segments);
+      });
+    } catch (error) {
+      logWarn('[Meetings] bootstrapZoomRtms failed — local STT fallback', error);
+      this.localSttFallbackActive = true;
+    }
+  }
+
+  private ingestRtmsSegments(meetingId: string, rtmsSegments: ZoomRtmsTranscriptSegment[]): void {
+    if (!this.activeMeetingId || this.activeMeetingId !== meetingId) {
+      return;
+    }
+    const latest = this.store.get(meetingId);
+    if (!latest || (latest.status !== 'recording' && latest.status !== 'finalizing')) {
+      return;
+    }
+
+    this.localSttFallbackActive = false;
+    this.clearRtmsFallbackTimer();
+    const withSpeaker = rtmsSegments.filter((item) => !!item.speaker?.trim()).length;
+    log(
+      '[Meetings] ingestRtmsSegments',
+      `meetingId=${meetingId}`,
+      `count=${rtmsSegments.length}`,
+      `withSpeaker=${withSpeaker}`
+    );
+
+    for (const item of rtmsSegments) {
+      const text = item.text.trim();
+      if (!text) continue;
+      const segment: MeetingSegment = {
+        id: item.id || randomUUID(),
+        text,
+        startedAt: item.startedAt || Date.now(),
+        endedAt: item.endedAt || Date.now(),
+        createdAt: Date.now(),
+        speaker: item.speaker,
+        speakerUserId: item.speakerUserId,
+        source: 'zoom-rtms',
+      };
+      latest.segments.push(segment);
+    }
+
+    latest.transcriptText = buildTranscriptText(latest.segments);
+    latest.updatedAt = Date.now();
+    this.store.save(latest);
+    this.liveTranscript = latest.transcriptText;
+    this.captureError = undefined;
+
+    const appended = latest.segments.slice(-rtmsSegments.length);
+    for (const segment of appended) {
+      for (const listener of this.segmentListeners) {
+        try {
+          listener({
+            meetingId: latest.id,
+            segment,
+            liveTranscript: this.liveTranscript,
+          });
+        } catch (error) {
+          logWarn('[Meetings] Segment listener failed', error);
+        }
+      }
+    }
+    this.emitStatus();
   }
 
   async appendChunk(payload: {
@@ -497,6 +647,19 @@ export class MeetingService {
       return { accepted: false };
     }
     if (!this.activeMeetingId || payload.meetingId !== this.activeMeetingId) {
+      return { accepted: false };
+    }
+
+    // Prefer Zoom RTMS named transcripts; buffer audio until fallback activates.
+    if (!this.localSttFallbackActive) {
+      const bufferEarly = Buffer.isBuffer(payload.data)
+        ? payload.data
+        : Buffer.from(
+            payload.data instanceof ArrayBuffer ? new Uint8Array(payload.data) : payload.data
+          );
+      if (bufferEarly.byteLength >= 1500) {
+        this.bufferAudioChunk(bufferEarly, payload.mimeType || 'audio/webm');
+      }
       return { accepted: false };
     }
 
@@ -570,10 +733,11 @@ export class MeetingService {
         startedAt: now - 5_000,
         endedAt: now,
         createdAt: now,
+        source: 'local-stt',
       };
 
       latest.segments.push(segment);
-      latest.transcriptText = latest.segments.map((item) => item.text).join('\n');
+      latest.transcriptText = buildTranscriptText(latest.segments);
       latest.updatedAt = now;
       this.store.save(latest);
       this.liveTranscript = latest.transcriptText;
@@ -606,13 +770,17 @@ export class MeetingService {
       return null;
     }
 
+    this.clearRtmsFallbackTimer();
+    void this.zoomRtms.unregister();
+
     const meeting = this.store.get(meetingId);
     this.activeMeetingId = null;
     this.activeStartedAt = null;
     this.zoomAbsentPolls = 0;
     this.pendingRendererAutoStop = false;
+    this.localSttFallbackActive = false;
     this.emitStatus();
-    if (this.isEnabled() && this.getRuntime().processDetectEnabled !== false) {
+    if (this.shouldAutoDetect()) {
       this.restartDetectionTimer(DETECTION_POLL_MS);
     }
 

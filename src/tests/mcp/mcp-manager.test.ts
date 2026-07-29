@@ -20,7 +20,11 @@ vi.mock('../../main/utils/shell-resolver', () => ({
   getDefaultShell: () => '/bin/bash',
 }));
 
-import { MCPManager } from '../../main/mcp/mcp-manager';
+import {
+  MCPManager,
+  isReconnectableErrorText,
+  isTransientMcpRemoteStderr,
+} from '../../main/mcp/mcp-manager';
 import type { MCPServerConfig } from '../../main/mcp/mcp-manager';
 
 type TestMCPClient = {
@@ -398,6 +402,63 @@ describe('MCPManager', () => {
       expect(mockClient.listTools).toHaveBeenCalledTimes(1);
       expect(manager.getTools()).toEqual([]);
     });
+
+    it('reconnects and retries listTools on SSE stream disconnected errors', async () => {
+      const testManager = asTestManager(manager);
+      const mockClientAfterReconnect: TestMCPClient = {
+        listTools: vi.fn().mockResolvedValue({
+          tools: [
+            {
+              name: 'list_projects',
+              description: 'List projects',
+              inputSchema: { type: 'object', properties: {} },
+            },
+          ],
+        }),
+      };
+      const mockClient: TestMCPClient = {
+        listTools: vi
+          .fn()
+          .mockRejectedValue(new Error('SSE stream disconnected: TypeError: terminated')),
+      };
+
+      testManager.clients = new Map([['mcp-launchpad-default', mockClient]]);
+      testManager.serverConfigs = new Map([
+        [
+          'mcp-launchpad-default',
+          {
+            id: 'mcp-launchpad-default',
+            name: 'Launchpad',
+            type: 'stdio',
+            command: 'npx',
+            args: ['-y', 'mcp-remote', 'https://example.com/mcp'],
+            enabled: true,
+          },
+        ],
+      ]);
+      testManager.reconnectServer = vi.fn().mockImplementation(async (serverId: string) => {
+        testManager.clients.set(serverId, mockClientAfterReconnect);
+        return true;
+      });
+
+      await manager.refreshTools();
+
+      expect(testManager.reconnectServer).toHaveBeenCalledWith('mcp-launchpad-default', {
+        skipRefresh: true,
+      });
+      expect(mockClient.listTools).toHaveBeenCalledTimes(1);
+      expect(mockClientAfterReconnect.listTools).toHaveBeenCalledTimes(1);
+      expect(manager.getTools()).toEqual([
+        {
+          name: 'mcp__Launchpad__list_projects',
+          originalName: 'list_projects',
+          description: 'List projects',
+          inputSchema: { type: 'object', properties: {}, required: undefined },
+          serverId: 'mcp-launchpad-default',
+          serverName: 'Launchpad',
+        },
+      ]);
+    });
   });
 
   describe('connect retry on failure', () => {
@@ -630,5 +691,45 @@ describe('MCPManager', () => {
       expect(status.connected).toBe(false);
       expect(status.toolCount).toBe(0);
     });
+  });
+});
+
+describe('isTransientMcpRemoteStderr', () => {
+  it('classifies mcp-remote SSE idle disconnects as transient', () => {
+    expect(
+      isTransientMcpRemoteStderr(
+        '[58574] Error from remote server: Error: SSE stream disconnected: TypeError: terminated'
+      )
+    ).toBe(true);
+    expect(isTransientMcpRemoteStderr('SSE stream disconnected: TypeError: terminated')).toBe(true);
+  });
+
+  it('does not classify real spawn/auth stderr as transient', () => {
+    expect(isTransientMcpRemoteStderr('Error: spawn npx ENOENT')).toBe(false);
+    expect(isTransientMcpRemoteStderr('authentication failed')).toBe(false);
+    expect(isTransientMcpRemoteStderr('')).toBe(false);
+  });
+});
+
+describe('isReconnectableErrorText', () => {
+  it('matches existing reconnectable phrases', () => {
+    expect(isReconnectableErrorText('Not connected')).toBe(true);
+    expect(isReconnectableErrorText('MCP server not connected')).toBe(true);
+    expect(isReconnectableErrorText('Connection closed')).toBe(true);
+    expect(isReconnectableErrorText('authentication failed')).toBe(true);
+  });
+
+  it('matches SSE disconnect / remote terminated phrases', () => {
+    expect(isReconnectableErrorText('SSE stream disconnected: TypeError: terminated')).toBe(true);
+    expect(
+      isReconnectableErrorText(
+        'Error from remote server: Error: SSE stream disconnected: TypeError: terminated'
+      )
+    ).toBe(true);
+  });
+
+  it('does not match unrelated errors', () => {
+    expect(isReconnectableErrorText('listTools timeout after 300000ms')).toBe(false);
+    expect(isReconnectableErrorText('')).toBe(false);
   });
 });

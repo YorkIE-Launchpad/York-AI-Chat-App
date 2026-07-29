@@ -94,6 +94,13 @@ import {
   type ScheduledTaskUpdateInput,
 } from './schedule/scheduled-task-manager';
 import { createScheduledTaskStore } from './schedule/scheduled-task-store';
+import { executeScheduledTask } from './schedule/execute-scheduled-task';
+import {
+  ChatLoopManager,
+  extractAssistantText,
+  type ChatLoopStartInput,
+} from './loop/chat-loop-manager';
+import { runPiAiOneShot } from './agent/sdk-one-shot';
 import { installIpcAuthGuard } from './auth/ipc-auth-guard';
 import { warmupJwksCache } from './auth/cognito';
 import { submitViteOAuthCode, getOAuthDebugInfo, initHubOAuthRelay } from './auth/hub-oauth';
@@ -111,6 +118,7 @@ import {
   startAuthRefreshTimer,
   ensureAuthenticatedSession,
   AuthRequiredError,
+  AUTH_REQUIRED_CODE,
   isAuthenticated,
   completeOAuthFromHubCode,
   getCurrentSession,
@@ -208,6 +216,7 @@ let pluginRuntimeService: PluginRuntimeService | null = null;
 let memoryService: MemoryService | null = null;
 let meetingService: MeetingService | null = null;
 let scheduledTaskManager: ScheduledTaskManager | null = null;
+let chatLoopManager: ChatLoopManager | null = null;
 
 /**
  * Tool names that a spawned subagent may never invoke, regardless of what
@@ -1328,32 +1337,40 @@ app
           if (!sessionManager) {
             throw new Error('Session manager not initialized');
           }
-          const unsupportedReason = getWorkspacePathUnsupportedReason(task.cwd);
-          if (unsupportedReason) {
-            throw new Error(unsupportedReason);
-          }
-          const fallbackTitle = buildScheduledTaskFallbackTitle(task.prompt);
-          const needsRegeneratedTitle = !task.title?.trim() || task.title === fallbackTitle;
-          const title = needsRegeneratedTitle
-            ? await resolveScheduledTaskTitle(task.prompt, task.cwd, task.title)
-            : buildScheduledTaskTitle(task.title);
-          if (title !== task.title) {
-            headlessScheduledTaskStore.update(task.id, { title });
-          }
-          await sessionManager.startSession(
-            title,
-            task.prompt,
-            task.cwd,
-            undefined,
-            undefined,
-            undefined,
-            {
-              model: task.model,
-              provider: task.provider,
-              lockModel: true,
-            }
+          return executeScheduledTask(task, {
+            sessionManager,
+            resolveTitle: resolveScheduledTaskTitle,
+            updateTaskTitle: (taskId, title) => {
+              headlessScheduledTaskStore.update(taskId, { title });
+            },
+            validateCwd: getWorkspacePathUnsupportedReason,
+            omitSessionId: true,
+          });
+        },
+        runAgentWatchCheck: async (prompt) => {
+          const config = configStore.getAll();
+          const result = await runPiAiOneShot(
+            `${prompt}\n\nReply with JSON only: {"changed":boolean,"summary":string}`,
+            'You are a change detector. Return JSON only.',
+            config,
+            { maxTokens: 256, temperature: 0 }
           );
-          return { sessionId: '' };
+          try {
+            const parsed = JSON.parse(result.text.trim()) as {
+              changed?: boolean;
+              summary?: string;
+            };
+            return {
+              changed: Boolean(parsed.changed),
+              summary:
+                typeof parsed.summary === 'string' ? parsed.summary : result.text.slice(0, 200),
+            };
+          } catch {
+            return {
+              changed: /changed|yes|true/i.test(result.text),
+              summary: result.text.slice(0, 200),
+            };
+          }
         },
         onTaskError: (taskId, error) => {
           headlessSendWithPermission({
@@ -1365,11 +1382,34 @@ app
       });
       scheduledTaskManager.start();
 
+      chatLoopManager = new ChatLoopManager({
+        api: {
+          continueSession: async (sessionId, prompt) => {
+            if (!sessionManager) throw new Error('Session manager not initialized');
+            await sessionManager.continueSession(sessionId, prompt);
+          },
+          getSessionStatus: (sessionId) => {
+            const session = sessionManager?.listSessions().find((s) => s.id === sessionId);
+            if (!session) return null;
+            if (session.status === 'running') return 'running';
+            if (session.status === 'completed') return 'completed';
+            return 'idle';
+          },
+          getLatestAssistantText: (sessionId) => {
+            if (!sessionManager) return null;
+            return extractAssistantText(sessionManager.getMessages(sessionId));
+          },
+          sessionExists: (sessionId) =>
+            Boolean(sessionManager?.listSessions().some((s) => s.id === sessionId)),
+        },
+      });
+
       // Headless cleanup on exit signals
       const headlessCleanup = async () => {
         log('[Headless] Cleaning up...');
         stopConfigFileWatcher();
         scheduledTaskManager?.stop();
+        chatLoopManager?.stopAll('shutdown');
         try {
           const mcpManager = sessionManager?.getMCPManager();
           if (mcpManager) {
@@ -1780,37 +1820,45 @@ app
         if (!sessionManager) {
           throw new Error('Session manager not initialized');
         }
-        const unsupportedReason = getWorkspacePathUnsupportedReason(task.cwd);
-        if (unsupportedReason) {
-          throw new Error(unsupportedReason);
-        }
-        const fallbackTitle = buildScheduledTaskFallbackTitle(task.prompt);
-        const needsRegeneratedTitle = !task.title?.trim() || task.title === fallbackTitle;
-        const title = needsRegeneratedTitle
-          ? await resolveScheduledTaskTitle(task.prompt, task.cwd, task.title)
-          : buildScheduledTaskTitle(task.title);
-        if (title !== task.title) {
-          scheduledTaskStore.update(task.id, { title });
-        }
-        const started = await sessionManager.startSession(
-          title,
-          task.prompt,
-          task.cwd,
-          undefined,
-          undefined,
-          undefined,
-          {
-            model: task.model,
-            provider: task.provider,
-            lockModel: true,
-          }
-        );
-        // New sessions created by scheduled tasks need to be synced to the frontend session list
-        sendToRenderer({
-          type: 'session.update',
-          payload: { sessionId: started.id, updates: started },
+        return executeScheduledTask(task, {
+          sessionManager,
+          resolveTitle: resolveScheduledTaskTitle,
+          updateTaskTitle: (taskId, title) => {
+            scheduledTaskStore.update(taskId, { title });
+          },
+          validateCwd: getWorkspacePathUnsupportedReason,
+          onSessionStarted: (started) => {
+            sendToRenderer({
+              type: 'session.update',
+              payload: { sessionId: started.id, updates: started },
+            });
+          },
         });
-        return { sessionId: started.id };
+      },
+      runAgentWatchCheck: async (prompt) => {
+        const config = configStore.getAll();
+        const result = await runPiAiOneShot(
+          `${prompt}\n\nReply with JSON only: {"changed":boolean,"summary":string}`,
+          'You are a change detector. Return JSON only.',
+          config,
+          { maxTokens: 256, temperature: 0 }
+        );
+        try {
+          const parsed = JSON.parse(result.text.trim()) as {
+            changed?: boolean;
+            summary?: string;
+          };
+          return {
+            changed: Boolean(parsed.changed),
+            summary:
+              typeof parsed.summary === 'string' ? parsed.summary : result.text.slice(0, 200),
+          };
+        } catch {
+          return {
+            changed: /changed|yes|true/i.test(result.text),
+            summary: result.text.slice(0, 200),
+          };
+        }
       },
       onTaskError: (taskId, error) => {
         sendToRenderer({
@@ -1821,6 +1869,34 @@ app
       now: () => Date.now(),
     });
     scheduledTaskManager.start();
+
+    chatLoopManager = new ChatLoopManager({
+      api: {
+        continueSession: async (sessionId, prompt) => {
+          if (!sessionManager) throw new Error('Session manager not initialized');
+          await sessionManager.continueSession(sessionId, prompt);
+        },
+        getSessionStatus: (sessionId) => {
+          const session = sessionManager?.listSessions().find((s) => s.id === sessionId);
+          if (!session) return null;
+          if (session.status === 'running') return 'running';
+          if (session.status === 'completed') return 'completed';
+          return 'idle';
+        },
+        getLatestAssistantText: (sessionId) => {
+          if (!sessionManager) return null;
+          return extractAssistantText(sessionManager.getMessages(sessionId));
+        },
+        sessionExists: (sessionId) =>
+          Boolean(sessionManager?.listSessions().some((s) => s.id === sessionId)),
+      },
+      onChanged: (status, sessionId) => {
+        sendToRenderer({
+          type: 'chat-loop.update',
+          payload: { sessionId, status },
+        });
+      },
+    });
 
     // Initialize remote manager
     remoteManager.setRendererCallback(sendToRenderer);
@@ -1920,6 +1996,7 @@ async function cleanupSandboxResources(): Promise<void> {
   stopConfigFileWatcher();
   skillsManager?.stopStorageMonitoring();
   scheduledTaskManager?.stop();
+  chatLoopManager?.stopAll('shutdown');
   tray?.destroy();
   tray = null;
 
@@ -2132,9 +2209,15 @@ ipcMain.on('client-event', async (_event, data: ClientEvent) => {
     await handleClientEvent(data);
   } catch (error) {
     logError('Error handling client event:', error);
+    const payload: { message: string; code?: 'CONFIG_REQUIRED_ACTIVE_SET' | 'AUTH_REQUIRED' } = {
+      message: error instanceof Error ? error.message : 'Unknown error',
+    };
+    if (error instanceof AuthRequiredError) {
+      payload.code = AUTH_REQUIRED_CODE;
+    }
     sendToRenderer({
       type: 'error',
-      payload: { message: error instanceof Error ? error.message : 'Unknown error' },
+      payload,
     });
   }
 });
@@ -2758,21 +2841,28 @@ ipcMain.handle('connectors.getStatus', () => {
   return connectorManager.getStatuses();
 });
 
+function mcpServerIdForConnector(connectorId: ConnectorId): string | null {
+  if (connectorId === 'slack') return 'mcp-slack-default';
+  if (connectorId === 'gmail') return 'mcp-gmail-default';
+  if (connectorId === 'google-drive') return 'mcp-google-drive-default';
+  return null;
+}
+
 ipcMain.handle('connectors.connect', async (_event, connectorId: ConnectorId) => {
   try {
     const status = await connectorManager.connect(connectorId);
-    const serverId =
-      connectorId === 'slack'
-        ? 'mcp-slack-default'
-        : connectorId === 'gmail'
-          ? 'mcp-gmail-default'
-          : 'mcp-google-drive-default';
-    const config = mcpConfigStore.getServer(serverId);
-    if (config && sessionManager) {
-      const enabledConfig = { ...config, enabled: true };
-      mcpConfigStore.saveServer(enabledConfig);
-      await sessionManager.getMCPManager().updateServer(enabledConfig);
-      sessionManager.invalidateMcpServersCache();
+    const serverId = mcpServerIdForConnector(connectorId);
+    if (serverId) {
+      const config = mcpConfigStore.getServer(serverId);
+      if (config && sessionManager) {
+        const enabledConfig = { ...config, enabled: true };
+        mcpConfigStore.saveServer(enabledConfig);
+        await sessionManager.getMCPManager().updateServer(enabledConfig);
+        sessionManager.invalidateMcpServersCache();
+      }
+    }
+    if (connectorId === 'zoom' && meetingService) {
+      meetingService.syncDetectionPolling();
     }
     return { success: true, status };
   } catch (error) {
@@ -2787,18 +2877,18 @@ ipcMain.handle('connectors.connect', async (_event, connectorId: ConnectorId) =>
 ipcMain.handle('connectors.disconnect', async (_event, connectorId: ConnectorId) => {
   try {
     connectorManager.disconnect(connectorId);
-    const serverId =
-      connectorId === 'slack'
-        ? 'mcp-slack-default'
-        : connectorId === 'gmail'
-          ? 'mcp-gmail-default'
-          : 'mcp-google-drive-default';
-    const config = mcpConfigStore.getServer(serverId);
-    if (config && sessionManager) {
-      const disabledConfig = { ...config, enabled: false };
-      mcpConfigStore.saveServer(disabledConfig);
-      await sessionManager.getMCPManager().updateServer(disabledConfig);
-      sessionManager.invalidateMcpServersCache();
+    const serverId = mcpServerIdForConnector(connectorId);
+    if (serverId) {
+      const config = mcpConfigStore.getServer(serverId);
+      if (config && sessionManager) {
+        const disabledConfig = { ...config, enabled: false };
+        mcpConfigStore.saveServer(disabledConfig);
+        await sessionManager.getMCPManager().updateServer(disabledConfig);
+        sessionManager.invalidateMcpServersCache();
+      }
+    }
+    if (connectorId === 'zoom' && meetingService) {
+      meetingService.syncDetectionPolling();
     }
     return { success: true };
   } catch (error) {
@@ -3686,6 +3776,40 @@ ipcMain.handle('schedule.runNow', async (_event, id: string) => {
   return scheduledTaskManager.runNow(id);
 });
 
+ipcMain.handle('loop.start', (_event, payload: ChatLoopStartInput) => {
+  if (!chatLoopManager) {
+    throw new Error('Chat loop manager not initialized');
+  }
+  if (!payload?.sessionId || !payload.prompt?.trim()) {
+    throw new Error('sessionId and prompt are required');
+  }
+  return chatLoopManager.start({
+    sessionId: payload.sessionId,
+    kind: payload.kind === 'goal' ? 'goal' : 'interval',
+    prompt: payload.prompt.trim(),
+    intervalMs: payload.intervalMs,
+    maxIterations: payload.maxIterations,
+    runImmediately: payload.runImmediately,
+  });
+});
+
+ipcMain.handle('loop.stop', (_event, sessionId: string) => {
+  if (!chatLoopManager) {
+    throw new Error('Chat loop manager not initialized');
+  }
+  return chatLoopManager.stop(sessionId, 'user_stop');
+});
+
+ipcMain.handle('loop.status', (_event, sessionId: string) => {
+  if (!chatLoopManager) return null;
+  return chatLoopManager.status(sessionId);
+});
+
+ipcMain.handle('loop.list', () => {
+  if (!chatLoopManager) return [];
+  return chatLoopManager.list();
+});
+
 ipcMain.handle('memory.getOverview', (_event, cwd?: string) => {
   if (!memoryService) {
     throw new Error('Memory service not initialized');
@@ -4033,9 +4157,13 @@ async function handleClientEvent(event: ClientEvent): Promise<unknown> {
       return sm.stopSession(event.payload.sessionId);
 
     case 'session.delete':
+      chatLoopManager?.stop(event.payload.sessionId, 'session_deleted');
       return sm.deleteSession(event.payload.sessionId);
 
     case 'session.batchDelete':
+      for (const sessionId of event.payload.sessionIds) {
+        chatLoopManager?.stop(sessionId, 'session_deleted');
+      }
       return sm.batchDeleteSessions(event.payload.sessionIds);
 
     case 'session.list': {

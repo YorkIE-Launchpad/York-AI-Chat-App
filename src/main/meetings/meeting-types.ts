@@ -2,12 +2,18 @@ export type MeetingStatus = 'recording' | 'finalizing' | 'ready' | 'error';
 
 export type MeetingTranscriptionModel = 'gpt-4o-transcribe' | 'whisper-1';
 
+export type MeetingSegmentSource = 'zoom-rtms' | 'local-stt';
+
 export interface MeetingSegment {
   id: string;
   text: string;
   startedAt: number;
   endedAt: number;
   createdAt: number;
+  /** Zoom display name when known. */
+  speaker?: string | null;
+  speakerUserId?: string | null;
+  source?: MeetingSegmentSource;
 }
 
 export interface MeetingNotes {
@@ -31,6 +37,10 @@ export interface MeetingSession {
   notes?: MeetingNotes;
   error?: string;
   updatedAt: number;
+  /** Calendar / Zoom metadata for context. */
+  attendees?: string[];
+  zoomMeetingUuid?: string | null;
+  zoomMeetingId?: string | null;
 }
 
 export interface MeetingListItem {
@@ -62,6 +72,8 @@ export interface MeetingPermissionStatus {
 
 export interface MeetingOverview {
   enabled: boolean;
+  /** True when Zoom OAuth connector is connected — gates auto-capture. */
+  zoomConnected: boolean;
   allowChatReference: boolean;
   processDetectEnabled: boolean;
   transcriptionModel: MeetingTranscriptionModel;

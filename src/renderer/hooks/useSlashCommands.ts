@@ -5,6 +5,9 @@ import { useAppStore } from '../store';
 const isElectron = typeof window !== 'undefined' && window.electronAPI !== undefined;
 
 export const MEETING_SLASH_SKILL_ID = '__builtin_meeting';
+export const LOOP_SLASH_SKILL_ID = '__builtin_loop';
+export const GOAL_SLASH_SKILL_ID = '__builtin_goal';
+export const LOOP_STOP_SLASH_SKILL_ID = '__builtin_loop_stop';
 
 export const MEETING_SLASH_SKILL: Skill = {
   id: MEETING_SLASH_SKILL_ID,
@@ -16,8 +19,68 @@ export const MEETING_SLASH_SKILL: Skill = {
   createdAt: 0,
 };
 
+export const LOOP_SLASH_SKILL: Skill = {
+  id: LOOP_SLASH_SKILL_ID,
+  name: 'loop',
+  description: 'Repeat a prompt in this session on a set interval (/loop 5m …)',
+  type: 'builtin',
+  enabled: true,
+  userInvocable: true,
+  argumentHint: '<interval> <prompt>',
+  createdAt: 0,
+};
+
+export const GOAL_SLASH_SKILL: Skill = {
+  id: GOAL_SLASH_SKILL_ID,
+  name: 'goal',
+  description: 'Keep working until a goal is met on a set interval (/goal 2m …)',
+  type: 'builtin',
+  enabled: true,
+  userInvocable: true,
+  argumentHint: '<interval> <goal>',
+  createdAt: 0,
+};
+
+export const LOOP_STOP_SLASH_SKILL: Skill = {
+  id: LOOP_STOP_SLASH_SKILL_ID,
+  name: 'loop stop',
+  description: 'Stop the active loop or goal for this session',
+  type: 'builtin',
+  enabled: true,
+  userInvocable: true,
+  createdAt: 0,
+};
+
+export const GOAL_STOP_SLASH_SKILL_ID = '__builtin_goal_stop';
+
+export const GOAL_STOP_SLASH_SKILL: Skill = {
+  id: GOAL_STOP_SLASH_SKILL_ID,
+  name: 'goal stop',
+  description: 'Stop the active loop or goal for this session',
+  type: 'builtin',
+  enabled: true,
+  userInvocable: true,
+  createdAt: 0,
+};
+
 export function isMeetingSlashSkill(skill: Skill | null | undefined): boolean {
   return Boolean(skill && skill.id === MEETING_SLASH_SKILL_ID);
+}
+
+export function isLoopBuiltinSkill(skill: Skill | null | undefined): boolean {
+  return Boolean(
+    skill &&
+    (skill.id === LOOP_SLASH_SKILL_ID ||
+      skill.id === GOAL_SLASH_SKILL_ID ||
+      skill.id === LOOP_STOP_SLASH_SKILL_ID ||
+      skill.id === GOAL_STOP_SLASH_SKILL_ID)
+  );
+}
+
+export function isLoopStopBuiltinSkill(skill: Skill | null | undefined): boolean {
+  return Boolean(
+    skill && (skill.id === LOOP_STOP_SLASH_SKILL_ID || skill.id === GOAL_STOP_SLASH_SKILL_ID)
+  );
 }
 
 export function isSlashCommandInput(value: string): boolean {
@@ -94,14 +157,20 @@ export function useSlashCommands(prompt: string) {
   const filteredSkills = useMemo(() => {
     if (!matchesSlash) return [];
     const query = getSlashQuery(prompt);
-    const builtin = meetingsReferenceAllowed
-      ? [
-          {
-            ...MEETING_SLASH_SKILL,
-            description: MEETING_SLASH_SKILL.description,
-          },
-        ]
-      : [];
+    const builtin = [
+      ...(meetingsReferenceAllowed
+        ? [
+            {
+              ...MEETING_SLASH_SKILL,
+              description: MEETING_SLASH_SKILL.description,
+            },
+          ]
+        : []),
+      LOOP_SLASH_SKILL,
+      GOAL_SLASH_SKILL,
+      LOOP_STOP_SLASH_SKILL,
+      GOAL_STOP_SLASH_SKILL,
+    ];
     const combined = [...builtin, ...skills];
     if (!query) return combined;
     return combined.filter((skill) => {

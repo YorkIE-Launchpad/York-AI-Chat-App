@@ -69,3 +69,14 @@ export function assertAllowedSlackWorkspace(input: {
     throw new Error('Only the York.ie Slack workspace can be connected');
   }
 }
+
+/** Zoom accounts must use the same @york.ie email domain as Google connectors. */
+export function isAllowedZoomConnectorEmail(email: string | null | undefined): boolean {
+  return isAllowedGoogleConnectorEmail(email);
+}
+
+export function assertAllowedZoomConnectorEmail(email: string | null | undefined): void {
+  if (!isAllowedZoomConnectorEmail(email)) {
+    throw new Error('Only @york.ie Zoom accounts can be connected');
+  }
+}

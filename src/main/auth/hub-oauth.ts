@@ -372,29 +372,122 @@ export async function hubLogoutRequest(accessToken: string, refreshToken?: strin
   }
 }
 
+export type HubRefreshFailureReason = 'invalid_grant' | 'transient' | 'unknown';
+
+export type HubRefreshTokensResult =
+  | {
+      ok: true;
+      tokens: {
+        idToken?: string;
+        accessToken?: string;
+        refreshToken?: string;
+      };
+    }
+  | {
+      ok: false;
+      reason: HubRefreshFailureReason;
+    };
+
+function extractHubRefreshRecord(data: unknown): Record<string, unknown> {
+  if (!data || typeof data !== 'object') return {};
+  const root = data as { data?: Record<string, unknown> };
+  const body = root.data ?? (data as Record<string, unknown>);
+  return body && typeof body === 'object' ? (body as Record<string, unknown>) : {};
+}
+
+function looksLikeInvalidGrantMessage(message: string): boolean {
+  const lower = message.toLowerCase();
+  return (
+    lower.includes('invalid') ||
+    lower.includes('expired') ||
+    lower.includes('revoked') ||
+    lower.includes('not authorized') ||
+    lower.includes('unauthorized')
+  );
+}
+
+/** Classify a Hub /api/auth/refresh HTTP response (pure; used by hubRefreshTokens and tests). */
+export function interpretHubRefreshHttpResponse(
+  status: number,
+  data: unknown
+): HubRefreshTokensResult {
+  const record = extractHubRefreshRecord(data);
+  const idToken = (record.idToken ?? record.id_token) as string | undefined;
+  const accessToken = (record.accessToken ?? record.access_token) as string | undefined;
+  const newRefresh = (record.refreshToken ?? record.refresh_token) as string | undefined;
+  const message = String(
+    record.message ?? record.error ?? record.errorMessage ?? record.error_description ?? ''
+  );
+
+  if (status === 401 || status === 403) {
+    return { ok: false, reason: 'invalid_grant' };
+  }
+
+  if (status >= 500) {
+    return { ok: false, reason: 'transient' };
+  }
+
+  if (status >= 200 && status < 300) {
+    if (!idToken && !accessToken) {
+      return {
+        ok: false,
+        reason: looksLikeInvalidGrantMessage(message) ? 'invalid_grant' : 'unknown',
+      };
+    }
+    return {
+      ok: true,
+      tokens: { idToken, accessToken, refreshToken: newRefresh },
+    };
+  }
+
+  // 4xx other than 401/403 — usually bad refresh token
+  if (status === 400 || looksLikeInvalidGrantMessage(message)) {
+    return { ok: false, reason: 'invalid_grant' };
+  }
+
+  return { ok: false, reason: 'unknown' };
+}
+
 export async function hubRefreshTokens(
   refreshToken: string,
   email: string
-): Promise<{
-  idToken?: string;
-  accessToken?: string;
-  refreshToken?: string;
-} | null> {
+): Promise<HubRefreshTokensResult> {
+  const controller = new AbortController();
+  const timeoutMs = 12_000;
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(`${authConfig.hubApiUrl}/api/auth/refresh`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ refreshToken, email }),
+      signal: controller.signal,
     });
-    const data = await res.json();
-    const body = (data as { data?: Record<string, unknown> }).data ?? data;
-    const record = body as Record<string, unknown>;
-    const idToken = (record.idToken ?? record.id_token) as string | undefined;
-    const accessToken = (record.accessToken ?? record.access_token) as string | undefined;
-    const newRefresh = (record.refreshToken ?? record.refresh_token) as string | undefined;
-    if (!idToken && !accessToken) return null;
-    return { idToken, accessToken, refreshToken: newRefresh };
-  } catch {
-    return null;
+
+    let data: unknown = null;
+    try {
+      data = await res.json();
+    } catch {
+      if (res.status >= 500 || res.status === 0) {
+        return { ok: false, reason: 'transient' };
+      }
+      if (res.status === 401 || res.status === 403 || res.status === 400) {
+        return { ok: false, reason: 'invalid_grant' };
+      }
+      return { ok: false, reason: res.ok ? 'unknown' : 'transient' };
+    }
+
+    return interpretHubRefreshHttpResponse(res.status, data);
+  } catch (error) {
+    if (
+      (error instanceof Error && error.name === 'AbortError') ||
+      (typeof DOMException !== 'undefined' &&
+        error instanceof DOMException &&
+        error.name === 'AbortError')
+    ) {
+      return { ok: false, reason: 'transient' };
+    }
+    return { ok: false, reason: 'transient' };
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
