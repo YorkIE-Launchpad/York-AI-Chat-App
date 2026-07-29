@@ -44,6 +44,12 @@ describe('resolvePathAgainstWorkspace', () => {
     );
   });
 
+  it('remaps exact /workspace root to workspace path', () => {
+    expect(resolvePathAgainstWorkspace('/workspace', '/Users/haoqing/project')).toBe(
+      '/Users/haoqing/project'
+    );
+  });
+
   it('remaps Windows workspace prefix to workspace path', () => {
     expect(resolvePathAgainstWorkspace('C:\\workspace\\src\\index.ts', 'D:\\myproject')).toBe(
       'D:\\myproject\\src\\index.ts'

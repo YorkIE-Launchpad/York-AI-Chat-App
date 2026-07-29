@@ -1194,7 +1194,7 @@ ${hints.join('\n')}
   }
 
   /**
-   * Remap Claude Cowork virtual roots (`/mnt/user-data`, `/mnt/workspace`) onto
+   * Remap virtual roots (`/mnt/user-data`, `/mnt/workspace`, `/workspace`) onto
    * the session workspace so skill-driven doc generation writes into the same folder.
    */
   private static wrapToolsForCoworkPathRemap(
@@ -2425,13 +2425,14 @@ ${hints.join('\n')}
           ? `<workspace_info>
 Your current workspace is located at: ${VIRTUAL_WORKSPACE_PATH}
 This is an isolated sandbox environment. Use ${VIRTUAL_WORKSPACE_PATH} as the root path for file operations.
+Prefer relative paths under this workspace (e.g. outputs/my-file.md). Do not invent other absolute roots outside ${VIRTUAL_WORKSPACE_PATH}.
 Do not write to /mnt/user-data or other absolute mount paths — save generated documents under this workspace (e.g. outputs/).
 </workspace_info>`
           : workingDir
             ? `<workspace_info>
 Your current workspace is: ${workingDir}
 Use this folder (or relative paths under it) for all file reads and writes. Prefer relative paths like outputs/my-file.md.
-Do not write to /mnt/user-data or other absolute mount paths — they are not the workspace.
+Do NOT use /workspace, /mnt/user-data, /mnt/workspace, or any other absolute virtual roots — they are not the workspace. Do not invent absolute directories outside this folder.
 </workspace_info>`
             : '';
 
