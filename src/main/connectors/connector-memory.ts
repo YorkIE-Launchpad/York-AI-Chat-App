@@ -42,8 +42,14 @@ function parseJsonText<T>(text: string): T | null {
 function toConnectorId(serverName: string): ConnectorId | null {
   const lowered = serverName.trim().toLowerCase();
   if (lowered === 'slack') return 'slack';
-  if (lowered === 'gmail') return 'gmail';
-  if (lowered === 'google drive') return 'google-drive';
+  if (
+    lowered === 'gmail' ||
+    lowered === 'google drive' ||
+    lowered === 'google calendar' ||
+    lowered === 'google'
+  ) {
+    return 'google';
+  }
   return null;
 }
 

@@ -43,7 +43,7 @@ export interface MCPPreset {
   envDescription?: Record<string, string>;
 }
 
-export type ConnectorId = 'slack' | 'gmail' | 'google-drive' | 'zoom';
+export type ConnectorId = 'slack' | 'google' | 'zoom';
 
 export interface ConnectorStatus {
   connectorId: ConnectorId;

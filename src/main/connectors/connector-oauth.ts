@@ -70,8 +70,8 @@ async function readJsonBody(req: IncomingMessage): Promise<unknown> {
 }
 
 /**
- * Desktop OAuth for Slack / Gmail / Drive / Zoom.
- * Serializes flows and reclaims the fixed callback port so Connect Drive after Gmail works.
+ * Desktop OAuth for Slack / Google / Zoom.
+ * Serializes flows and reclaims the fixed callback port so sequential Connects work.
  *
  * @param redirectUri Optional provider redirect_uri (e.g. Zoom public backend or hosts-mapped URI).
  *   Local listener always binds 127.0.0.1:CONNECTOR_OAUTH_CALLBACK_PORT for code delivery.

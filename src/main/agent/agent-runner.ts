@@ -2475,6 +2475,7 @@ ${
     ? `MCP tool access (budget mode):
 - Connected MCP servers expose too many tools to list directly for this model API.
 - Use mcp_run with a clear goal; a free child agent discovers and calls MCP tools, then returns distilled facts.
+- For Jira/Confluence/Atlassian: pass server (e.g. "Confluence" or "Jira") and timeout_seconds: 240 (up to 300 for large pages). Prefer a narrow goal (one page or issue) over broad space crawls.
 - Prefer webfetch for reading http/https page content; use Chrome MCP only for interactive browser work.`
     : `Tool routing:
 - Prefer webfetch for reading or fetching http/https page content (no browser window).

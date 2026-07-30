@@ -7,13 +7,12 @@ import type { MCPManager } from '../mcp/mcp-manager';
 import type { ServerEvent } from '../../renderer/types';
 import { MCP_RUN_TOOL_NAME } from './mcp-tool-budget';
 import {
-  DEFAULT_CHILD_TIMEOUT_MS,
-  MAX_CHILD_TIMEOUT_MS,
   buildMcpRunChildSystemPrompt,
   childAgentConcurrency,
   runChildAgentSession,
   type ChildPermissionHandler,
 } from './child-agent-session';
+import { resolveMcpRunTimeoutMs } from './mcp-run-timeout';
 
 export interface BuildMcpRunToolOptions {
   mcpManager: MCPManager;
@@ -41,7 +40,7 @@ export function buildMcpRunTool(options: BuildMcpRunToolOptions): ToolDefinition
     name: MCP_RUN_TOOL_NAME,
     label: 'Run MCP task',
     description:
-      'Offload an MCP data/task goal to a free child agent. The child discovers tools with mcp_search_tools and invokes them with mcp_call_tool, then returns only distilled facts. Prefer this over guessing MCP tool names.',
+      'Offload an MCP data/task goal to a free child agent. The child discovers tools with mcp_search_tools and invokes them with mcp_call_tool, then returns only distilled facts. Prefer this over guessing MCP tool names. For Jira/Confluence/Atlassian, pass server (e.g. "Confluence") and timeout_seconds: 240 (up to 300 for large pages); keep goals narrow (single page/issue).',
     parameters: Type.Object({
       goal: Type.String({
         description:
@@ -60,7 +59,8 @@ export function buildMcpRunTool(options: BuildMcpRunToolOptions): ToolDefinition
       ),
       timeout_seconds: Type.Optional(
         Type.Number({
-          description: 'Maximum child execution time in seconds. Default: 120, max: 300.',
+          description:
+            'Maximum child execution time in seconds. Default: 120 (240 for Jira/Confluence/Atlassian), max: 300.',
           minimum: 10,
           maximum: 300,
         })
@@ -81,10 +81,11 @@ export function buildMcpRunTool(options: BuildMcpRunToolOptions): ToolDefinition
         };
       }
 
-      const timeoutMs = Math.min(
-        (timeout_seconds || DEFAULT_CHILD_TIMEOUT_MS / 1000) * 1000,
-        MAX_CHILD_TIMEOUT_MS
-      );
+      const timeoutMs = resolveMcpRunTimeoutMs({
+        goal: goalText,
+        server,
+        timeoutSeconds: timeout_seconds,
+      });
 
       const allowedList =
         allowedToolNames && allowedToolNames.size > 0 ? [...allowedToolNames] : undefined;

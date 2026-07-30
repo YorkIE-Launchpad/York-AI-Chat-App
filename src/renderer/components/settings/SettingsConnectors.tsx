@@ -421,7 +421,7 @@ export function SettingsConnectors({ isActive }: { isActive: boolean }) {
               {error}
             </div>
           )}
-          <div className="grid items-stretch gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <div className="grid items-stretch gap-3 md:grid-cols-2 xl:grid-cols-3">
             {connectorStatuses.map((connector) => (
               <div
                 key={connector.connectorId}
@@ -430,20 +430,20 @@ export function SettingsConnectors({ isActive }: { isActive: boolean }) {
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <h3 className="text-sm font-semibold text-text-primary">
-                      {connector.connectorId === 'google-drive'
-                        ? 'Google Drive'
-                        : connector.connectorId === 'gmail'
-                          ? 'Gmail'
-                          : connector.connectorId === 'zoom'
-                            ? 'Zoom'
-                            : 'Slack'}
+                      {connector.connectorId === 'google'
+                        ? 'Google'
+                        : connector.connectorId === 'zoom'
+                          ? 'Zoom'
+                          : 'Slack'}
                     </h3>
                     <p className="mt-1 min-h-8 text-xs leading-4 text-text-muted break-all">
                       {connector.connected
                         ? connector.accountEmail || connector.accountName || 'Connected'
                         : connector.connectorId === 'zoom'
                           ? 'Connect Zoom to auto-capture meetings with speaker names'
-                          : 'Read-only OAuth connector'}
+                          : connector.connectorId === 'google'
+                            ? 'Gmail, Drive, and Calendar (read-only)'
+                            : 'Read-only OAuth connector'}
                     </p>
                   </div>
                   {connector.connected ? (

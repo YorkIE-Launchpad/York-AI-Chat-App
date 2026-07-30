@@ -25,3 +25,36 @@ export function filterAtlassianToolsByProduct<T extends { name?: string }>(
     return lowered.includes(productNeedle);
   });
 }
+
+/** Normalize Atlassian MCP URLs so Jira/Confluence siblings share one key. */
+export function normalizeAtlassianMcpShareUrl(url: string): string {
+  const trimmed = url.trim();
+  try {
+    const parsed = new URL(trimmed);
+    parsed.hash = '';
+    const path = parsed.pathname.replace(/\/+$/, '') || '';
+    return `${parsed.protocol}//${parsed.host.toLowerCase()}${path}${parsed.search}`;
+  } catch {
+    return trimmed.replace(/\/+$/, '').toLowerCase();
+  }
+}
+
+export function isAtlassianCatalogServerName(name: string): boolean {
+  const lowered = name.trim().toLowerCase();
+  return lowered === 'jira' || lowered === 'confluence';
+}
+
+/**
+ * Built-in Jira/Confluence streamable-http rows that point at the same Rovo MCP URL.
+ */
+export function isShareableAtlassianRemoteMcpServer(server: {
+  name: string;
+  type: string;
+  url?: string;
+}): boolean {
+  return (
+    server.type === 'streamable-http' &&
+    Boolean(server.url?.trim()) &&
+    isAtlassianCatalogServerName(server.name)
+  );
+}

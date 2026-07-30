@@ -18,14 +18,10 @@ import type {
   ConnectorTokenRefreshResult,
 } from './connector-types';
 
-const GOOGLE_CALENDAR_SCOPE = 'https://www.googleapis.com/auth/calendar.readonly';
-const GOOGLE_GMAIL_SCOPES = [
+const GOOGLE_SCOPES = [
   'https://www.googleapis.com/auth/gmail.readonly',
-  GOOGLE_CALENDAR_SCOPE,
-];
-const GOOGLE_DRIVE_SCOPES = [
   'https://www.googleapis.com/auth/drive.readonly',
-  GOOGLE_CALENDAR_SCOPE,
+  'https://www.googleapis.com/auth/calendar.readonly',
 ];
 const SLACK_SCOPES = [
   'channels:read',
@@ -49,9 +45,13 @@ const ZOOM_SCOPES = [
   'meeting:update:participant_rtms_app_status',
 ];
 
-const ALL_CONNECTOR_IDS: ConnectorId[] = ['slack', 'gmail', 'google-drive', 'zoom'];
+const ALL_CONNECTOR_IDS: ConnectorId[] = ['slack', 'google', 'zoom'];
 
 class ConnectorManager {
+  constructor() {
+    connectorTokenStore.clearLegacyGoogleTokens();
+  }
+
   getStatuses(): ConnectorStatus[] {
     return ALL_CONNECTOR_IDS.map((connectorId) => {
       const record = connectorTokenStore.load(connectorId);
@@ -189,7 +189,7 @@ class ConnectorManager {
       clientSecret: authConfig.googleConnectorClientSecret,
       authorizeUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
       tokenUrl: 'https://oauth2.googleapis.com/token',
-      scopes: connectorId === 'gmail' ? GOOGLE_GMAIL_SCOPES : GOOGLE_DRIVE_SCOPES,
+      scopes: GOOGLE_SCOPES,
       extraAuthorizeParams: {
         access_type: 'offline',
         prompt: 'consent',
@@ -350,7 +350,7 @@ class ConnectorManager {
       return record;
     }
 
-    if (connectorId === 'gmail') {
+    if (connectorId === 'google') {
       const profile = await this.fetchGmailProfile(accessToken);
       const record: ConnectorTokenRecord = {
         ...baseRecord,
@@ -375,15 +375,7 @@ class ConnectorManager {
       return record;
     }
 
-    const about = await this.fetchDriveAbout(accessToken);
-    const record: ConnectorTokenRecord = {
-      ...baseRecord,
-      accountEmail: about.emailAddress,
-      accountId: about.permissionId,
-      accountName: about.displayName,
-    };
-    this.assertRecordAllowed(record);
-    return record;
+    throw new Error(`Unsupported connector: ${connectorId}`);
   }
 
   private extractScopes(payload: Record<string, unknown>): string[] {
@@ -441,30 +433,6 @@ class ConnectorManager {
     };
   }
 
-  private async fetchDriveAbout(accessToken: string): Promise<{
-    displayName: string | null;
-    emailAddress: string | null;
-    permissionId: string | null;
-  }> {
-    const payload = await this.fetchJson(
-      'https://www.googleapis.com/drive/v3/about?fields=user(displayName,emailAddress,permissionId)',
-      accessToken
-    );
-    const user =
-      payload.user && typeof payload.user === 'object'
-        ? (payload.user as {
-            displayName?: string;
-            emailAddress?: string;
-            permissionId?: string;
-          })
-        : {};
-    return {
-      displayName: typeof user.displayName === 'string' ? user.displayName : null,
-      emailAddress: typeof user.emailAddress === 'string' ? user.emailAddress : null,
-      permissionId: typeof user.permissionId === 'string' ? user.permissionId : null,
-    };
-  }
-
   private async fetchZoomIdentity(accessToken: string): Promise<{
     userId: string | null;
     email: string | null;
@@ -500,8 +468,7 @@ class ConnectorManager {
       assertAllowedZoomConnectorEmail(record.accountEmail);
       return;
     }
-    const label = record.connectorId === 'gmail' ? 'Gmail' : 'Google Drive';
-    assertAllowedGoogleConnectorEmail(record.accountEmail, label);
+    assertAllowedGoogleConnectorEmail(record.accountEmail, 'Google');
   }
 
   private enforceStoredRecordAllowed(record: ConnectorTokenRecord): void {

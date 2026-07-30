@@ -67,7 +67,7 @@ export type McpPresetsMap = Record<
   }
 >;
 
-export type ConnectorId = 'slack' | 'gmail' | 'google-drive' | 'zoom';
+export type ConnectorId = 'slack' | 'google' | 'zoom';
 
 export interface ConnectorStatus {
   connectorId: ConnectorId;

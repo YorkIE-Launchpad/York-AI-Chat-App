@@ -1,13 +1,10 @@
 /**
- * Google Calendar MCP reuses Gmail or Drive connector OAuth tokens
- * (both already request calendar.readonly).
+ * Google Calendar MCP uses the unified Google connector OAuth token
+ * (scopes include calendar.readonly).
  */
 export function resolveGoogleCalendarConnectorId(
-  isConnected: (connectorId: 'gmail' | 'google-drive') => boolean
-): 'gmail' | 'google-drive' {
-  if (isConnected('gmail')) return 'gmail';
-  if (isConnected('google-drive')) return 'google-drive';
-  throw new Error(
-    'Google Calendar MCP requires Gmail or Google Drive to be connected (same Google OAuth).'
-  );
+  isConnected: (connectorId: 'google') => boolean
+): 'google' {
+  if (isConnected('google')) return 'google';
+  throw new Error('Google Calendar MCP requires Google to be connected.');
 }

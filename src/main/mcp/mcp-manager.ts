@@ -21,7 +21,11 @@ import { app, BrowserWindow, shell } from 'electron';
 import path from 'path';
 import { connectWithOAuthRetry, OpenCoworkMcpOAuthProvider } from './mcp-oauth';
 import { mcpOAuthStore } from './mcp-oauth-store';
-import { filterAtlassianToolsByProduct } from './atlassian-mcp-tools';
+import {
+  filterAtlassianToolsByProduct,
+  isShareableAtlassianRemoteMcpServer,
+  normalizeAtlassianMcpShareUrl,
+} from './atlassian-mcp-tools';
 import { resolveGoogleCalendarConnectorId } from './google-calendar-connector';
 import {
   getCognitoBearerAuthHeader,
@@ -148,13 +152,10 @@ function isHubMcpServerConfig(
   return hasMcpRemote && hasHubUrl;
 }
 
-function getConnectorIdForServer(
-  server: Pick<MCPServerConfig, 'name'>
-): 'slack' | 'gmail' | 'google-drive' | null {
+function getConnectorIdForServer(server: Pick<MCPServerConfig, 'name'>): 'slack' | 'google' | null {
   const lowered = server.name.trim().toLowerCase();
   if (lowered === 'slack') return 'slack';
-  if (lowered === 'gmail') return 'gmail';
-  if (lowered === 'google drive') return 'google-drive';
+  if (lowered === 'gmail' || lowered === 'google drive') return 'google';
   if (lowered === DEFAULT_GOOGLE_CALENDAR_MCP_NAME.toLowerCase()) {
     return resolveGoogleCalendarConnectorId((id) => connectorManager.isConnected(id));
   }
@@ -359,6 +360,10 @@ export class MCPManager {
   private serverConfigs: Map<string, MCPServerConfig> = new Map();
   private oauthProviders: Map<string, { provider: OpenCoworkMcpOAuthProvider; serverUrl: string }> =
     new Map();
+  /** shareKey (normalized URL) -> server ids that alias the same Atlassian client/transport */
+  private sharedAtlassianOwners: Map<string, Set<string>> = new Map();
+  /** Serializes connect for a shared Atlassian URL so Jira/Confluence don't double-open. */
+  private atlassianConnectChains: Map<string, Promise<unknown>> = new Map();
   private npxPath: string | null = null; // Cached npx path
   // Fingerprint of last initialized config to skip redundant re-init
   private lastConfigFingerprint: string | null = null;
@@ -1001,13 +1006,76 @@ export class MCPManager {
     this.connectionStatus.set(config.id, 'connecting');
 
     try {
-      await this.connectServerInternal(config);
+      if (isShareableAtlassianRemoteMcpServer(config) && config.url) {
+        await this.connectShareableAtlassianServer(config);
+      } else {
+        await this.connectServerInternal(config);
+      }
       // Do not mark 'connected' here — that requires a non-empty tool list via refreshTools
       this.cancelConnectRetry(config.id);
     } catch (error) {
       this.connectionStatus.set(config.id, 'failed');
       throw error;
     }
+  }
+
+  private enqueueAtlassianConnect(shareKey: string, task: () => Promise<void>): Promise<void> {
+    const prev = this.atlassianConnectChains.get(shareKey) ?? Promise.resolve();
+    const next = prev.then(task, task);
+    this.atlassianConnectChains.set(
+      shareKey,
+      next.then(
+        () => undefined,
+        () => undefined
+      )
+    );
+    return next;
+  }
+
+  private registerSharedAtlassianOwner(serverId: string, shareKey: string): void {
+    let owners = this.sharedAtlassianOwners.get(shareKey);
+    if (!owners) {
+      owners = new Set();
+      this.sharedAtlassianOwners.set(shareKey, owners);
+    }
+    owners.add(serverId);
+  }
+
+  private tryAliasSharedAtlassianClient(config: MCPServerConfig, shareKey: string): boolean {
+    const owners = this.sharedAtlassianOwners.get(shareKey);
+    if (!owners || owners.size === 0) {
+      return false;
+    }
+    for (const ownerId of owners) {
+      if (ownerId === config.id) continue;
+      const client = this.clients.get(ownerId);
+      const transport = this.transports.get(ownerId);
+      if (!client || !transport) continue;
+
+      this.clients.set(config.id, client);
+      this.transports.set(config.id, transport);
+      owners.add(config.id);
+
+      const oauth = this.oauthProviders.get(ownerId);
+      if (oauth) {
+        this.oauthProviders.set(config.id, oauth);
+      }
+
+      log(`[MCPManager] Reusing shared Atlassian MCP client for ${config.name} (via ${ownerId})`);
+      return true;
+    }
+    return false;
+  }
+
+  private async connectShareableAtlassianServer(config: MCPServerConfig): Promise<void> {
+    const shareKey = normalizeAtlassianMcpShareUrl(config.url!);
+    await this.enqueueAtlassianConnect(shareKey, async () => {
+      if (this.tryAliasSharedAtlassianClient(config, shareKey)) {
+        return;
+      }
+      await this.connectServerInternal(config);
+      this.registerSharedAtlassianOwner(config.id, shareKey);
+    });
   }
 
   /**
@@ -1489,7 +1557,37 @@ export class MCPManager {
       return existing.provider;
     }
 
-    const persisted = mcpOAuthStore.load(config.id, config.url);
+    const shareKey = isShareableAtlassianRemoteMcpServer(config)
+      ? normalizeAtlassianMcpShareUrl(config.url)
+      : null;
+
+    if (shareKey) {
+      for (const [id, entry] of this.oauthProviders) {
+        if (id === config.id) continue;
+        const sibling = this.serverConfigs.get(id);
+        if (
+          !sibling?.url ||
+          !isShareableAtlassianRemoteMcpServer(sibling) ||
+          normalizeAtlassianMcpShareUrl(sibling.url) !== shareKey
+        ) {
+          continue;
+        }
+        this.oauthProviders.set(config.id, entry);
+        return entry.provider;
+      }
+    }
+
+    let persisted = mcpOAuthStore.load(config.id, config.url);
+    if (!persisted && shareKey) {
+      for (const [id, sibling] of this.serverConfigs) {
+        if (id === config.id || !sibling.url || !isShareableAtlassianRemoteMcpServer(sibling)) {
+          continue;
+        }
+        if (normalizeAtlassianMcpShareUrl(sibling.url) !== shareKey) continue;
+        persisted = mcpOAuthStore.load(id, config.url);
+        if (persisted) break;
+      }
+    }
 
     const provider = new OpenCoworkMcpOAuthProvider({
       openExternal: async (url) => {
@@ -1497,6 +1595,14 @@ export class MCPManager {
       },
       onPersist: (record) => {
         mcpOAuthStore.save(config.id, record);
+        if (!shareKey) return;
+        for (const [id, sibling] of this.serverConfigs) {
+          if (id === config.id || !sibling.url || !isShareableAtlassianRemoteMcpServer(sibling)) {
+            continue;
+          }
+          if (normalizeAtlassianMcpShareUrl(sibling.url) !== shareKey) continue;
+          mcpOAuthStore.save(id, record);
+        }
       },
       persisted: persisted ?? undefined,
       serverUrl: config.url,
@@ -1823,31 +1929,75 @@ export class MCPManager {
    */
   async disconnectServer(
     serverId: string,
-    options?: { cancelRetry?: boolean; preserveStatus?: boolean }
+    options?: { cancelRetry?: boolean; preserveStatus?: boolean; forceCloseShared?: boolean }
   ): Promise<void> {
     if (options?.cancelRetry !== false) {
       this.cancelConnectRetry(serverId);
     }
 
-    const client = this.clients.get(serverId);
-    const transport = this.transports.get(serverId);
+    const config = this.serverConfigs.get(serverId);
+    const shareKey =
+      config && isShareableAtlassianRemoteMcpServer(config) && config.url
+        ? normalizeAtlassianMcpShareUrl(config.url)
+        : null;
+    const owners = shareKey ? this.sharedAtlassianOwners.get(shareKey) : undefined;
+    const forceCloseShared = options?.forceCloseShared === true;
 
-    if (client) {
-      try {
-        await client.close();
-      } catch (error) {
-        logError(`[MCPManager] Error closing client for ${serverId}:`, error);
+    let skipClientClose = false;
+    if (shareKey && owners?.has(serverId) && !forceCloseShared) {
+      owners.delete(serverId);
+      if (owners.size > 0) {
+        // Sibling still using the shared client — drop this alias only.
+        skipClientClose = true;
+        this.clients.delete(serverId);
+        this.transports.delete(serverId);
+        this.oauthProviders.delete(serverId);
+        log(
+          `[MCPManager] Detached ${serverId} from shared Atlassian client (${owners.size} owner(s) remain)`
+        );
+      } else {
+        this.sharedAtlassianOwners.delete(shareKey);
       }
-      this.clients.delete(serverId);
+    } else if (shareKey && owners && forceCloseShared) {
+      // Tear down the shared transport for all catalog rows on this URL.
+      for (const ownerId of [...owners]) {
+        if (ownerId === serverId) continue;
+        this.clients.delete(ownerId);
+        this.transports.delete(ownerId);
+        this.oauthProviders.delete(ownerId);
+        for (const [toolName, tool] of this.tools.entries()) {
+          if (tool.serverId === ownerId) {
+            this.tools.delete(toolName);
+          }
+        }
+        if (!options?.preserveStatus) {
+          this.connectionStatus.delete(ownerId);
+        }
+      }
+      this.sharedAtlassianOwners.delete(shareKey);
     }
 
-    if (transport) {
-      try {
-        await transport.close();
-      } catch (error) {
-        logError(`[MCPManager] Error closing transport for ${serverId}:`, error);
+    if (!skipClientClose) {
+      const client = this.clients.get(serverId);
+      const transport = this.transports.get(serverId);
+
+      if (client) {
+        try {
+          await client.close();
+        } catch (error) {
+          logError(`[MCPManager] Error closing client for ${serverId}:`, error);
+        }
+        this.clients.delete(serverId);
       }
-      this.transports.delete(serverId);
+
+      if (transport) {
+        try {
+          await transport.close();
+        } catch (error) {
+          logError(`[MCPManager] Error closing transport for ${serverId}:`, error);
+        }
+        this.transports.delete(serverId);
+      }
     }
 
     // Remove tools from this server
@@ -2288,11 +2438,36 @@ export class MCPManager {
     // Pre-set 'connecting' before disconnect to avoid status flickering to 'disabled'
     this.connectionStatus.set(serverId, 'connecting');
     try {
+      const shareKey =
+        isShareableAtlassianRemoteMcpServer(config) && config.url
+          ? normalizeAtlassianMcpShareUrl(config.url)
+          : null;
+      const siblingIds = shareKey
+        ? [...(this.sharedAtlassianOwners.get(shareKey) ?? [])].filter((id) => id !== serverId)
+        : [];
+
       await this.disconnectServer(serverId, {
         cancelRetry: options?.preserveConnectRetry !== true,
         preserveStatus: true,
+        forceCloseShared: Boolean(shareKey),
       });
       await this.connectServer(config);
+
+      for (const siblingId of siblingIds) {
+        const sibling = this.serverConfigs.get(siblingId);
+        if (!sibling?.enabled || this.clients.has(siblingId)) continue;
+        this.connectionStatus.set(siblingId, 'connecting');
+        try {
+          await this.connectServer(sibling);
+        } catch (siblingError) {
+          logError(
+            `[MCPManager] Failed to re-alias Atlassian sibling ${siblingId} after reconnect:`,
+            siblingError
+          );
+          this.connectionStatus.set(siblingId, 'failed');
+        }
+      }
+
       if (!options?.skipRefresh) {
         await this.refreshTools();
       }

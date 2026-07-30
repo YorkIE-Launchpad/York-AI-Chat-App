@@ -1,14 +1,13 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 
 const mockState = vi.hoisted(() => ({
-  gmailConnected: true,
+  googleConnected: true,
   token: 'google-token',
 }));
 
 vi.mock('../../main/connectors/connector-manager', () => ({
   connectorManager: {
-    isConnected: (id: string) =>
-      id === 'gmail' ? mockState.gmailConnected : id === 'google-drive' ? false : false,
+    isConnected: (id: string) => (id === 'google' ? mockState.googleConnected : false),
     ensureFreshAccessToken: async () => ({ accessToken: mockState.token }),
   },
 }));
@@ -24,7 +23,7 @@ describe('findCurrentCalendarMeeting', () => {
   const originalFetch = globalThis.fetch;
 
   beforeEach(() => {
-    mockState.gmailConnected = true;
+    mockState.googleConnected = true;
   });
 
   afterEach(() => {
@@ -32,7 +31,7 @@ describe('findCurrentCalendarMeeting', () => {
   });
 
   it('returns null when no Google connector is connected', async () => {
-    mockState.gmailConnected = false;
+    mockState.googleConnected = false;
     expect(await findCurrentCalendarMeeting()).toBeNull();
   });
 

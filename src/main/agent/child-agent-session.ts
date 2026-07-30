@@ -698,7 +698,7 @@ export async function runChildAgentSession(
 
     return {
       text: isTimeout
-        ? `Subagent timed out after ${Math.round(durationMs / 1000)}s. Consider simplifying the task or increasing timeout_seconds.`
+        ? `Subagent timed out after ${Math.round(durationMs / 1000)}s (child wall-clock). This does not always mean the MCP server failed — remote MCP calls (especially Atlassian Jira/Confluence) often need timeout_seconds up to 300. Retry with a narrower goal and a higher timeout_seconds.`
         : isCancelled
           ? 'Subagent cancelled: parent session was stopped.'
           : `Subagent error: ${message}`,

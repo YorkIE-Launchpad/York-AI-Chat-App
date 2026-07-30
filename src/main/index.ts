@@ -2854,26 +2854,30 @@ ipcMain.handle('connectors.getStatus', () => {
   return connectorManager.getStatuses();
 });
 
-function mcpServerIdForConnector(connectorId: ConnectorId): string | null {
-  if (connectorId === 'slack') return 'mcp-slack-default';
-  if (connectorId === 'gmail') return 'mcp-gmail-default';
-  if (connectorId === 'google-drive') return 'mcp-google-drive-default';
-  return null;
+function mcpServerIdsForConnector(connectorId: ConnectorId): string[] {
+  if (connectorId === 'slack') return ['mcp-slack-default'];
+  if (connectorId === 'google') {
+    return ['mcp-gmail-default', 'mcp-google-drive-default', 'mcp-google-calendar-default'];
+  }
+  return [];
+}
+
+async function setConnectorMcpEnabled(connectorId: ConnectorId, enabled: boolean): Promise<void> {
+  if (!sessionManager) return;
+  for (const serverId of mcpServerIdsForConnector(connectorId)) {
+    const config = mcpConfigStore.getServer(serverId);
+    if (!config) continue;
+    const nextConfig = { ...config, enabled };
+    mcpConfigStore.saveServer(nextConfig);
+    await sessionManager.getMCPManager().updateServer(nextConfig);
+  }
+  sessionManager.invalidateMcpServersCache();
 }
 
 ipcMain.handle('connectors.connect', async (_event, connectorId: ConnectorId) => {
   try {
     const status = await connectorManager.connect(connectorId);
-    const serverId = mcpServerIdForConnector(connectorId);
-    if (serverId) {
-      const config = mcpConfigStore.getServer(serverId);
-      if (config && sessionManager) {
-        const enabledConfig = { ...config, enabled: true };
-        mcpConfigStore.saveServer(enabledConfig);
-        await sessionManager.getMCPManager().updateServer(enabledConfig);
-        sessionManager.invalidateMcpServersCache();
-      }
-    }
+    await setConnectorMcpEnabled(connectorId, true);
     if (connectorId === 'zoom' && meetingService) {
       meetingService.syncDetectionPolling();
     }
@@ -2890,16 +2894,7 @@ ipcMain.handle('connectors.connect', async (_event, connectorId: ConnectorId) =>
 ipcMain.handle('connectors.disconnect', async (_event, connectorId: ConnectorId) => {
   try {
     connectorManager.disconnect(connectorId);
-    const serverId = mcpServerIdForConnector(connectorId);
-    if (serverId) {
-      const config = mcpConfigStore.getServer(serverId);
-      if (config && sessionManager) {
-        const disabledConfig = { ...config, enabled: false };
-        mcpConfigStore.saveServer(disabledConfig);
-        await sessionManager.getMCPManager().updateServer(disabledConfig);
-        sessionManager.invalidateMcpServersCache();
-      }
-    }
+    await setConnectorMcpEnabled(connectorId, false);
     if (connectorId === 'zoom' && meetingService) {
       meetingService.syncDetectionPolling();
     }

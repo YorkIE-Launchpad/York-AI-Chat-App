@@ -52,22 +52,17 @@ function extractAttendees(event: Record<string, unknown>): string[] {
 
 /**
  * Match the current time to a Google Calendar event (prefer Zoom-linked events).
- * Uses Gmail or Google Drive connector token (both request calendar.readonly).
+ * Uses the unified Google connector token (includes calendar.readonly).
  */
 export async function findCurrentCalendarMeeting(
   now = Date.now()
 ): Promise<CalendarMeetingMatch | null> {
-  const connectorId = connectorManager.isConnected('gmail')
-    ? 'gmail'
-    : connectorManager.isConnected('google-drive')
-      ? 'google-drive'
-      : null;
-  if (!connectorId) {
+  if (!connectorManager.isConnected('google')) {
     return null;
   }
 
   try {
-    const record = await connectorManager.ensureFreshAccessToken(connectorId);
+    const record = await connectorManager.ensureFreshAccessToken('google');
     const timeMin = new Date(now - 15 * 60_000).toISOString();
     const timeMax = new Date(now + 15 * 60_000).toISOString();
     const url = new URL('https://www.googleapis.com/calendar/v3/calendars/primary/events');

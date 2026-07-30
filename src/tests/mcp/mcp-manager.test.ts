@@ -40,11 +40,18 @@ type TestManagerInternals = {
   serverConfigs: Map<string, MCPServerConfig>;
   connectionStatus: Map<string, 'connecting' | 'connected' | 'failed'>;
   connectRetryControllers: Map<string, AbortController>;
+  sharedAtlassianOwners: Map<string, Set<string>>;
+  transports: Map<string, { close: () => Promise<void> }>;
+  oauthProviders: Map<string, unknown>;
   reconnectServer?: (
     serverId: string,
     options?: { skipRefresh?: boolean; preserveConnectRetry?: boolean }
   ) => Promise<boolean>;
   startConnectRetryLoop: (config: MCPServerConfig) => void;
+  disconnectServer: (
+    serverId: string,
+    options?: { cancelRetry?: boolean; preserveStatus?: boolean; forceCloseShared?: boolean }
+  ) => Promise<void>;
 };
 
 function asTestManager(manager: MCPManager): TestManagerInternals {
@@ -763,6 +770,96 @@ describe('MCPManager', () => {
       expect(status.status).toBe('failed');
       expect(status.connected).toBe(false);
       expect(status.toolCount).toBe(0);
+    });
+  });
+
+  describe('shared Atlassian client ownership', () => {
+    const ATLASSIAN_URL = 'https://mcp.atlassian.com/v1/mcp/authv2';
+
+    it('detaches one product without closing the shared client while a sibling remains', async () => {
+      const internals = asTestManager(manager);
+      const sharedClient = {
+        close: vi.fn(async () => undefined),
+      };
+      const sharedTransport = {
+        close: vi.fn(async () => undefined),
+      };
+
+      internals.serverConfigs.set('jira', {
+        id: 'jira',
+        name: 'Jira',
+        type: 'streamable-http',
+        url: ATLASSIAN_URL,
+        enabled: true,
+      });
+      internals.serverConfigs.set('confluence', {
+        id: 'confluence',
+        name: 'Confluence',
+        type: 'streamable-http',
+        url: ATLASSIAN_URL,
+        enabled: true,
+      });
+      internals.clients.set('jira', sharedClient as unknown as TestMCPClient);
+      internals.clients.set('confluence', sharedClient as unknown as TestMCPClient);
+      internals.transports.set('jira', sharedTransport);
+      internals.transports.set('confluence', sharedTransport);
+      internals.sharedAtlassianOwners.set(
+        'https://mcp.atlassian.com/v1/mcp/authv2',
+        new Set(['jira', 'confluence'])
+      );
+      internals.tools.set('mcp__Jira__getJiraIssue', {
+        name: 'mcp__Jira__getJiraIssue',
+        serverId: 'jira',
+      });
+      internals.tools.set('mcp__Confluence__getConfluencePage', {
+        name: 'mcp__Confluence__getConfluencePage',
+        serverId: 'confluence',
+      });
+
+      await internals.disconnectServer('confluence');
+
+      expect(internals.clients.has('confluence')).toBe(false);
+      expect(internals.clients.get('jira')).toBe(sharedClient);
+      expect(sharedClient.close).not.toHaveBeenCalled();
+      expect(sharedTransport.close).not.toHaveBeenCalled();
+      expect(internals.tools.has('mcp__Confluence__getConfluencePage')).toBe(false);
+      expect(internals.tools.has('mcp__Jira__getJiraIssue')).toBe(true);
+      expect([
+        ...internals.sharedAtlassianOwners.get('https://mcp.atlassian.com/v1/mcp/authv2')!,
+      ]).toEqual(['jira']);
+    });
+
+    it('closes the shared client when the last Atlassian owner disconnects', async () => {
+      const internals = asTestManager(manager);
+      const sharedClient = {
+        close: vi.fn(async () => undefined),
+      };
+      const sharedTransport = {
+        close: vi.fn(async () => undefined),
+      };
+
+      internals.serverConfigs.set('jira', {
+        id: 'jira',
+        name: 'Jira',
+        type: 'streamable-http',
+        url: ATLASSIAN_URL,
+        enabled: true,
+      });
+      internals.clients.set('jira', sharedClient as unknown as TestMCPClient);
+      internals.transports.set('jira', sharedTransport);
+      internals.sharedAtlassianOwners.set(
+        'https://mcp.atlassian.com/v1/mcp/authv2',
+        new Set(['jira'])
+      );
+
+      await internals.disconnectServer('jira');
+
+      expect(sharedClient.close).toHaveBeenCalledTimes(1);
+      expect(sharedTransport.close).toHaveBeenCalledTimes(1);
+      expect(internals.clients.has('jira')).toBe(false);
+      expect(internals.sharedAtlassianOwners.has('https://mcp.atlassian.com/v1/mcp/authv2')).toBe(
+        false
+      );
     });
   });
 });

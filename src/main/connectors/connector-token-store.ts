@@ -55,6 +55,22 @@ class ConnectorTokenStore {
     this.store.set('records', records);
   }
 
+  /** Drop pre-unified Gmail/Drive token keys (incomplete scopes vs combined Google). */
+  clearLegacyGoogleTokens(): void {
+    const records = { ...this.store.get('records') } as Record<string, ConnectorTokenRecord>;
+    let changed = false;
+    for (const legacyId of ['gmail', 'google-drive'] as const) {
+      if (legacyId in records) {
+        delete records[legacyId];
+        changed = true;
+      }
+    }
+    if (changed) {
+      this.store.set('records', records as Partial<Record<ConnectorId, ConnectorTokenRecord>>);
+      log('[ConnectorTokenStore] Cleared legacy gmail/google-drive connector tokens');
+    }
+  }
+
   getAll(): Partial<Record<ConnectorId, ConnectorTokenRecord>> {
     return { ...this.store.get('records') };
   }
