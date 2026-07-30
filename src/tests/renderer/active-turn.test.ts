@@ -1,15 +1,27 @@
 import { describe, expect, it } from 'vitest';
-import type { Message } from '../../renderer/types';
+import type { Message, TraceStep } from '../../renderer/types';
 import {
   findLatestUserMessageId,
   hasAssistantTextResponseForTurn,
+  hasInProgressToolUseForTurn,
   hasStreamingText,
   isCompactionTraceStep,
   isPendingStepId,
   messageHasAssistantText,
   messageHasToolUse,
+  resolveActiveTurnStatusLabel,
   shouldClearActiveTurnOnStreamMessage,
 } from '../../renderer/utils/active-turn';
+
+function traceStep(
+  partial: Partial<TraceStep> & Pick<TraceStep, 'id' | 'type' | 'status'>
+): TraceStep {
+  return {
+    title: '',
+    timestamp: Date.now(),
+    ...partial,
+  };
+}
 
 function msg(id: string, role: Message['role'], text: string, sessionId = 's1'): Message {
   return {
@@ -106,6 +118,125 @@ describe('active-turn helpers', () => {
   it('detects optimistic pending-step ids', () => {
     expect(isPendingStepId('pending-step-123')).toBe(true);
     expect(isPendingStepId('real-step')).toBe(false);
+  });
+
+  it('resolves wait-status label preferring running tool_call over thinking', () => {
+    expect(resolveActiveTurnStatusLabel([])).toBeNull();
+    expect(
+      resolveActiveTurnStatusLabel([
+        traceStep({ id: 't1', type: 'thinking', status: 'completed', title: 'Done' }),
+      ])
+    ).toBeNull();
+
+    expect(
+      resolveActiveTurnStatusLabel([
+        traceStep({
+          id: 'think',
+          type: 'thinking',
+          status: 'running',
+          title: 'Processing request...',
+        }),
+      ])
+    ).toBe('Processing request...');
+
+    expect(
+      resolveActiveTurnStatusLabel([
+        traceStep({
+          id: 'think',
+          type: 'thinking',
+          status: 'running',
+          title: 'Processing request...',
+        }),
+        traceStep({
+          id: 'tool-1',
+          type: 'tool_call',
+          status: 'running',
+          title: 'Read',
+          toolName: 'Read',
+        }),
+      ])
+    ).toBe('Read');
+
+    expect(
+      resolveActiveTurnStatusLabel([
+        traceStep({
+          id: 'think',
+          type: 'thinking',
+          status: 'running',
+          title: 'Waiting for model to load into memory...',
+        }),
+        traceStep({
+          id: 'compaction-1',
+          type: 'thinking',
+          status: 'running',
+          title: 'Compacting context...',
+        }),
+      ])
+    ).toBe('Waiting for model to load into memory...');
+
+    expect(
+      resolveActiveTurnStatusLabel([
+        traceStep({
+          id: 'compaction-1',
+          type: 'thinking',
+          status: 'running',
+          title: 'Compacting context...',
+        }),
+      ])
+    ).toBe('Compacting context...');
+
+    expect(
+      resolveActiveTurnStatusLabel([
+        traceStep({
+          id: 'tool-1',
+          type: 'tool_call',
+          status: 'running',
+          title: '',
+          toolName: 'Bash',
+        }),
+      ])
+    ).toBe('Bash');
+  });
+
+  it('detects in-progress tool_use for the anchored turn', () => {
+    const withOpenTool: Message[] = [
+      msg('u1', 'user', 'run tool'),
+      {
+        id: 'a1',
+        sessionId: 's1',
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: {} }],
+        timestamp: Date.now(),
+      },
+    ];
+    expect(hasInProgressToolUseForTurn(withOpenTool, 'u1')).toBe(true);
+    expect(hasInProgressToolUseForTurn(withOpenTool, 'missing')).toBe(false);
+
+    const withResult: Message[] = [
+      ...withOpenTool,
+      {
+        id: 'a2',
+        sessionId: 's1',
+        role: 'assistant',
+        content: [{ type: 'tool_result', toolUseId: 't1', content: 'ok' }],
+        timestamp: Date.now(),
+      },
+    ];
+    expect(hasInProgressToolUseForTurn(withResult, 'u1')).toBe(false);
+
+    const stoppedByNextUser: Message[] = [
+      msg('u1', 'user', 'first'),
+      {
+        id: 'a1',
+        sessionId: 's1',
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: {} }],
+        timestamp: Date.now(),
+      },
+      msg('u2', 'user', 'second'),
+    ];
+    expect(hasInProgressToolUseForTurn(stoppedByNextUser, 'u1')).toBe(true);
+    expect(hasInProgressToolUseForTurn(stoppedByNextUser, 'u2')).toBe(false);
   });
 });
 

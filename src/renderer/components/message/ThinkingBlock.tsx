@@ -1,5 +1,5 @@
 // Collapsible "thinking" block — Claude extended thinking display
-import { Suspense, lazy, useState, memo } from 'react';
+import { Suspense, lazy, useState, useEffect, useRef, memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronDown, ChevronRight, Brain } from 'lucide-react';
 import { PanelErrorBoundary } from '../PanelErrorBoundary';
@@ -39,12 +39,25 @@ export function escapeThinkTags(text: string): string {
 
 interface ThinkingBlockProps {
   block: { type: 'thinking'; thinking: string };
+  isStreaming?: boolean;
 }
 
-export const ThinkingBlock = memo(function ThinkingBlock({ block }: ThinkingBlockProps) {
+export const ThinkingBlock = memo(function ThinkingBlock({
+  block,
+  isStreaming = false,
+}: ThinkingBlockProps) {
   const { t } = useTranslation();
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(isStreaming);
+  const userToggledRef = useRef(false);
   const text = block.thinking || '';
+
+  // Auto-expand while streaming unless the user explicitly collapsed.
+  useEffect(() => {
+    if (isStreaming && !userToggledRef.current) {
+      setExpanded(true);
+    }
+  }, [isStreaming]);
+
   if (!text) return null;
 
   // Preview: first ~80 chars, clean up broken ** markers from truncation
@@ -59,7 +72,10 @@ export const ThinkingBlock = memo(function ThinkingBlock({ block }: ThinkingBloc
   return (
     <div className="rounded-2xl border border-border-subtle bg-background/40 overflow-hidden">
       <button
-        onClick={() => setExpanded(!expanded)}
+        onClick={() => {
+          userToggledRef.current = true;
+          setExpanded((prev) => !prev);
+        }}
         className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-surface-hover/50 transition-colors"
       >
         <Brain className="w-3.5 h-3.5 text-text-muted flex-shrink-0" />

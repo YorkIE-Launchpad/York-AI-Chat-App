@@ -8,6 +8,7 @@ import {
   useActiveTurn,
   usePendingTurns,
   useActiveExecutionClock,
+  useActiveTraceSteps,
 } from '../store/selectors';
 import { useAppStore } from '../store';
 import { useIPC } from '../hooks/useIPC';
@@ -44,7 +45,12 @@ import {
   parseLoopCommand,
 } from '../../shared/loop/parse';
 import { DEFAULT_GOAL_MAX_ITERATIONS } from '../../shared/loop/types';
-import { hasAssistantTextResponseForTurn, hasStreamingText } from '../utils/active-turn';
+import {
+  hasAssistantTextResponseForTurn,
+  hasInProgressToolUseForTurn,
+  hasStreamingText,
+  resolveActiveTurnStatusLabel,
+} from '../utils/active-turn';
 import { AttachmentImageThumb, FileAttachmentChip } from './attachments';
 import { isImageExtension } from '../utils/attachment-preview';
 import {
@@ -72,6 +78,7 @@ export function ChatView() {
   const activeTurn = useActiveTurn();
   const pendingTurns = usePendingTurns();
   const executionClock = useActiveExecutionClock();
+  const traceSteps = useActiveTraceSteps();
   const setGlobalNotice = useAppStore((s) => s.setGlobalNotice);
   const setStoreChatLoopStatus = useAppStore((s) => s.setChatLoopStatus);
   const chatLoopStatus = useAppStore((s) =>
@@ -130,7 +137,11 @@ export function ChatView() {
     activeTurn?.userMessageId
   );
   const showProcessingIndicator =
-    hasActiveTurn && !hasTextResponseForTurn && !hasStreamingText(partialMessage, partialThinking);
+    hasActiveTurn &&
+    !hasTextResponseForTurn &&
+    !hasStreamingText(partialMessage, partialThinking) &&
+    !hasInProgressToolUseForTurn(messages, activeTurn?.userMessageId);
+  const processingStatusLabel = resolveActiveTurnStatusLabel(traceSteps) ?? t('chat.processing');
   const isSessionRunning = activeSession?.status === 'running';
   const canStop = isSessionRunning || hasActiveTurn || pendingCount > 0;
 
@@ -1133,9 +1144,9 @@ export function ChatView() {
 
           {/* Processing indicator - show when we have an active turn but no streaming content yet */}
           {showProcessingIndicator && (
-            <div className="flex items-center gap-3 px-4 py-3 rounded-full bg-background/80 border border-border-subtle max-w-fit">
-              <Loader2 className="w-4 h-4 text-accent animate-spin" />
-              <span className="text-sm text-text-secondary">{t('chat.processing')}</span>
+            <div className="flex items-center gap-3 px-4 py-3 rounded-full bg-background/80 border border-border-subtle max-w-md min-w-0">
+              <Loader2 className="w-4 h-4 text-accent animate-spin flex-shrink-0" />
+              <span className="text-sm text-text-secondary truncate">{processingStatusLabel}</span>
             </div>
           )}
 

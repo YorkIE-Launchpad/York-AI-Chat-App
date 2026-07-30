@@ -63,3 +63,70 @@ export function findLatestUserMessageId(messages: Message[]): string | undefined
 export function hasStreamingText(partialMessage: string, partialThinking: string): boolean {
   return Boolean(partialMessage.trim() || partialThinking.trim());
 }
+
+/**
+ * Label for the wait-status pill from the latest running TraceStep.
+ * Prefers tool_call titles, then other non-compaction steps, then compaction.
+ * Returns null when nothing useful is available (caller falls back to i18n).
+ */
+export function resolveActiveTurnStatusLabel(traceSteps: TraceStep[]): string | null {
+  let runningTool: TraceStep | undefined;
+  let runningOther: TraceStep | undefined;
+  let runningCompaction: TraceStep | undefined;
+
+  for (let i = traceSteps.length - 1; i >= 0; i -= 1) {
+    const step = traceSteps[i];
+    if (step.status !== 'running') continue;
+
+    if (step.type === 'tool_call') {
+      if (!runningTool) runningTool = step;
+      continue;
+    }
+
+    if (isCompactionTraceStep(step)) {
+      if (!runningCompaction) runningCompaction = step;
+      continue;
+    }
+
+    if (!runningOther && step.title.trim()) {
+      runningOther = step;
+    }
+  }
+
+  const pick = runningTool ?? runningOther ?? runningCompaction;
+  if (!pick) return null;
+  const label = (pick.title || pick.toolName || '').trim();
+  return label || null;
+}
+
+/**
+ * True when the turn after `userMessageId` has a tool_use without a matching tool_result.
+ * Used to hide the wait pill once ToolUseBlock already owns the in-progress status.
+ */
+export function hasInProgressToolUseForTurn(
+  messages: Message[],
+  userMessageId: string | undefined
+): boolean {
+  if (!userMessageId) return false;
+  const anchorIndex = messages.findIndex((message) => message.id === userMessageId);
+  if (anchorIndex === -1) return false;
+
+  const toolUseIds = new Set<string>();
+  const completedToolUseIds = new Set<string>();
+
+  for (let i = anchorIndex + 1; i < messages.length; i += 1) {
+    if (messages[i].role === 'user') break;
+    for (const block of messages[i].content) {
+      if (block.type === 'tool_use') {
+        toolUseIds.add(block.id);
+      } else if (block.type === 'tool_result') {
+        completedToolUseIds.add(block.toolUseId);
+      }
+    }
+  }
+
+  for (const id of toolUseIds) {
+    if (!completedToolUseIds.has(id)) return true;
+  }
+  return false;
+}

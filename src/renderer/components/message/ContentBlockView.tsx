@@ -381,7 +381,12 @@ export const ContentBlockView = memo(function ContentBlockView({
       );
 
     case 'thinking':
-      return <ThinkingBlock block={block as { type: 'thinking'; thinking: string }} />;
+      return (
+        <ThinkingBlock
+          block={block as { type: 'thinking'; thinking: string }}
+          isStreaming={isStreaming}
+        />
+      );
 
     default:
       return null;
