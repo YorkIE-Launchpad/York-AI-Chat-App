@@ -898,6 +898,12 @@ describe('isReconnectableErrorText', () => {
     ).toBe(true);
   });
 
+  it('matches Streamable HTTP session ID loss', () => {
+    expect(isReconnectableErrorText('Bad Request: No valid session ID provided')).toBe(true);
+    expect(isReconnectableErrorText('invalid session id')).toBe(true);
+    expect(isReconnectableErrorText('session id expired')).toBe(true);
+  });
+
   it('does not match unrelated errors', () => {
     expect(isReconnectableErrorText('listTools timeout after 300000ms')).toBe(false);
     expect(isReconnectableErrorText('')).toBe(false);

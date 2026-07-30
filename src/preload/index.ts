@@ -468,7 +468,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
       level: 'info' | 'warn' | 'error',
       ...args: unknown[]
     ): Promise<{ success: boolean; error?: string }> =>
-      ipcRenderer.invoke('logs.write', level, ...args),
+      // Pass args as a single array — main expects `args: unknown[]` then spreads.
+      // Spreading here would make the first string arg get character-spread in main.
+      ipcRenderer.invoke('logs.write', level, args),
   },
 
   // Remote control methods

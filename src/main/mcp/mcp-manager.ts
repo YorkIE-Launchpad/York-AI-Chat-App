@@ -2695,8 +2695,20 @@ export function isReconnectableErrorText(text: string): boolean {
     normalized.includes('sse stream disconnected') ||
     (normalized.includes('error from remote server') &&
       (normalized.includes('terminated') || normalized.includes('disconnect'))) ||
+    isStreamableHttpSessionErrorText(normalized) ||
     isAuthFailureErrorText(normalized)
   );
+}
+
+/** Streamable HTTP protocol session lost/expired — re-initialize the transport. */
+function isStreamableHttpSessionErrorText(text: string): boolean {
+  if (text.includes('no valid session id')) {
+    return true;
+  }
+  if (!text.includes('session id')) {
+    return false;
+  }
+  return text.includes('provided') || text.includes('invalid') || text.includes('expired');
 }
 
 function isAuthFailureErrorText(text: string): boolean {

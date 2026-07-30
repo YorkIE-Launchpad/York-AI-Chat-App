@@ -73,6 +73,11 @@ export default defineConfig(({ command }) => {
                 output: {
                   // Ensure consistent interop for CJS/ESM
                   interop: 'auto',
+                  // Inline pi-ai (and other) dynamic provider imports into the
+                  // single main bundle so a mid-rebuild emptyOutDir cannot
+                  // delete hashed openai-completions-*.js chunks that a still-
+                  // running Electron process lazily requires.
+                  inlineDynamicImports: true,
                 },
               },
             },

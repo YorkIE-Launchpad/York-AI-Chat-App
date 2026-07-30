@@ -21,4 +21,9 @@ describe('vite watch ignores build artifacts', () => {
     const emptyOutDirCount = (viteConfigContent.match(/emptyOutDir:\s*true/g) || []).length;
     expect(emptyOutDirCount).toBeGreaterThanOrEqual(3);
   });
+
+  it('inlines dynamic imports in the electron main bundle', () => {
+    // Avoid hashed pi-ai provider chunks that break after emptyOutDir mid-rebuild.
+    expect(viteConfigContent).toContain('inlineDynamicImports: true');
+  });
 });
