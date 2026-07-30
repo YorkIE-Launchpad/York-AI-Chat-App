@@ -554,6 +554,14 @@ export class SessionManager {
     content: ContentBlock[]
   ): Promise<ContentBlock[]> {
     const processedContent: ContentBlock[] = [];
+    const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp']);
+    const mimeByExt: Record<string, 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'> = {
+      png: 'image/png',
+      jpg: 'image/jpeg',
+      jpeg: 'image/jpeg',
+      gif: 'image/gif',
+      webp: 'image/webp',
+    };
 
     for (const block of content) {
       if (block.type === 'file_attachment') {
@@ -641,6 +649,32 @@ export class SessionManager {
                 // Continue anyway - file is in macOS .tmp, agent might still work via direct access
               }
             }
+          }
+
+          // Image attachments become ImageContent so the UI can show thumbnails
+          // and the model receives vision input (instead of a filename-only chip).
+          const ext = path.extname(destFilename).slice(1).toLowerCase();
+          const declaredMime = (fileBlock.mimeType || '').toLowerCase();
+          const mediaType =
+            mimeByExt[ext] ||
+            (declaredMime === 'image/jpeg' ||
+            declaredMime === 'image/png' ||
+            declaredMime === 'image/gif' ||
+            declaredMime === 'image/webp'
+              ? declaredMime
+              : null);
+
+          if (mediaType && IMAGE_EXTS.has(ext)) {
+            const imageBuffer = fs.readFileSync(destPath);
+            processedContent.push({
+              type: 'image',
+              source: {
+                type: 'base64',
+                media_type: mediaType,
+                data: imageBuffer.toString('base64'),
+              },
+            });
+            continue;
           }
 
           // Update the content block with the new relative path and actual size

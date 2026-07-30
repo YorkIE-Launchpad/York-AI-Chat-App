@@ -21,12 +21,15 @@ import type {
   FileAttachmentContent,
   MeetingAttachmentContent,
 } from '../../types';
-import { FileText, Mic } from 'lucide-react';
+import { Mic } from 'lucide-react';
 import { CodeBlock } from './CodeBlock';
 import { ThinkingBlock, escapeThinkTags } from './ThinkingBlock';
 import { ToolUseBlock } from './ToolUseBlock';
 import { ToolResultBlock } from './ToolResultBlock';
 import type { ContentBlockViewProps } from './types';
+import { AttachmentImageThumb } from '../attachments';
+import { ALLOWED_IMAGE_MIME_TYPES } from '../../utils/attachment-preview';
+import { FileAttachmentBlock } from './FileAttachmentBlock';
 
 const MessageMarkdown = lazy(() =>
   import('../MessageMarkdown').then((module) => ({ default: module.MessageMarkdown }))
@@ -330,8 +333,7 @@ export const ContentBlockView = memo(function ContentBlockView({
       if (!imageBlock.source?.media_type || !imageBlock.source?.data) {
         return null;
       }
-      const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
-      if (!ALLOWED_IMAGE_TYPES.has(imageBlock.source.media_type)) {
+      if (!ALLOWED_IMAGE_MIME_TYPES.has(imageBlock.source.media_type)) {
         return null;
       }
       const { source } = imageBlock;
@@ -339,27 +341,14 @@ export const ContentBlockView = memo(function ContentBlockView({
 
       return (
         <div className={`${isUser ? 'inline-block' : ''}`}>
-          <img
-            src={imageSrc}
-            alt={t('messageCard.pastedContentAlt')}
-            className="w-full max-w-full rounded-lg border border-border"
-            style={{ maxHeight: '600px', objectFit: 'contain' }}
-          />
+          <AttachmentImageThumb src={imageSrc} alt={t('messageCard.pastedContentAlt')} />
         </div>
       );
     }
 
     case 'file_attachment': {
       const fileBlock = block as FileAttachmentContent;
-
-      return (
-        <div className="flex max-w-full min-w-0 items-center gap-2 px-3 py-2 rounded-lg bg-surface-muted border border-border overflow-hidden">
-          <FileText className="w-4 h-4 text-accent flex-shrink-0" />
-          <div className="flex-1 min-w-0">
-            <p className="text-sm text-text-primary truncate">{fileBlock.filename}</p>
-          </div>
-        </div>
-      );
+      return <FileAttachmentBlock block={fileBlock} isUser={isUser} message={message} />;
     }
 
     case 'meeting_attachment': {

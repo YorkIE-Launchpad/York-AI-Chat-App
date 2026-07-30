@@ -45,6 +45,14 @@ import {
 } from '../../shared/loop/parse';
 import { DEFAULT_GOAL_MAX_ITERATIONS } from '../../shared/loop/types';
 import { hasAssistantTextResponseForTurn, hasStreamingText } from '../utils/active-turn';
+import { AttachmentImageThumb, FileAttachmentChip } from './attachments';
+import { isImageExtension } from '../utils/attachment-preview';
+import {
+  isBrowserFileImage,
+  loadComposerImageFromPath,
+  mimeForAttachedFile,
+  normalizeSelectedFiles,
+} from '../utils/load-composer-image';
 
 type AttachedFile = {
   name: string;
@@ -513,21 +521,41 @@ export function ChatView() {
     }
 
     try {
-      const filePaths = await window.electronAPI.selectFiles();
-      if (filePaths.length === 0) return;
+      const selected = normalizeSelectedFiles(await window.electronAPI.selectFiles());
+      if (selected.length === 0) return;
 
-      // Get file info for each selected file
-      const newFiles = filePaths.map((filePath) => {
-        const fileName = filePath.split(/[/\\]/).pop() || 'unknown';
-        return {
-          name: fileName,
-          path: filePath,
-          size: 0, // Will be set by backend when copying
-          type: 'application/octet-stream',
-        };
-      });
+      const newFiles: AttachedFile[] = [];
+      const newImages: Array<{ url: string; base64: string; mediaType: string }> = [];
 
-      setAttachedFiles((prev) => [...prev, ...newFiles]);
+      for (const file of selected) {
+        if (isImageExtension(file.name)) {
+          const image = await loadComposerImageFromPath(
+            file.path,
+            file.name,
+            resizeImageIfNeeded,
+            blobToBase64,
+            file.dataUrl
+          );
+          if (image) {
+            newImages.push(image);
+            continue;
+          }
+        }
+
+        newFiles.push({
+          name: file.name,
+          path: file.path,
+          size: file.size,
+          type: mimeForAttachedFile(file.name, file.mimeType),
+        });
+      }
+
+      if (newImages.length > 0) {
+        setPastedImages((prev) => [...prev, ...newImages]);
+      }
+      if (newFiles.length > 0) {
+        setAttachedFiles((prev) => [...prev, ...newFiles]);
+      }
     } catch (error) {
       console.error('[ChatView] Error selecting files:', error);
     }
@@ -592,8 +620,8 @@ export function ChatView() {
     setIsDragging(false);
 
     const files = Array.from(e.dataTransfer.files);
-    const imageFiles = files.filter((file) => file.type.startsWith('image/'));
-    const otherFiles = files.filter((file) => !file.type.startsWith('image/'));
+    const imageFiles = files.filter((file) => isBrowserFileImage(file));
+    const otherFiles = files.filter((file) => !isBrowserFileImage(file));
 
     // Process images
     if (imageFiles.length > 0) {
@@ -608,7 +636,7 @@ export function ChatView() {
           newImages.push({
             url,
             base64,
-            mediaType: resizedBlob.type,
+            mediaType: resizedBlob.type || mimeForAttachedFile(file.name, file.type),
           });
         } catch (err) {
           // Notify the user instead of silently dropping the error
@@ -634,7 +662,7 @@ export function ChatView() {
             name: file.name,
             path: droppedPath,
             size: file.size,
-            type: file.type || 'application/octet-stream',
+            type: mimeForAttachedFile(file.name, file.type),
             inlineDataBase64,
           };
         })
@@ -876,8 +904,45 @@ export function ChatView() {
         });
       });
 
-      // Add file attachments
-      attachedFiles.forEach((file) => {
+      // Promote image files to ImageContent; keep other files as attachments
+      for (const file of attachedFiles) {
+        if (isImageExtension(file.name)) {
+          if (file.inlineDataBase64) {
+            const mediaType = (file.type.startsWith('image/') ? file.type : null) || 'image/jpeg';
+            contentBlocks.push({
+              type: 'image',
+              source: {
+                type: 'base64',
+                media_type: mediaType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
+                data: file.inlineDataBase64,
+              },
+            });
+            continue;
+          }
+
+          const image = await loadComposerImageFromPath(
+            file.path,
+            file.name,
+            resizeImageIfNeeded,
+            blobToBase64
+          );
+          if (image) {
+            contentBlocks.push({
+              type: 'image',
+              source: {
+                type: 'base64',
+                media_type: image.mediaType as
+                  | 'image/jpeg'
+                  | 'image/png'
+                  | 'image/gif'
+                  | 'image/webp',
+                data: image.base64,
+              },
+            });
+            continue;
+          }
+        }
+
         contentBlocks.push({
           type: 'file_attachment',
           filename: file.name,
@@ -886,7 +951,7 @@ export function ChatView() {
           mimeType: file.type,
           inlineDataBase64: file.inlineDataBase64,
         });
-      });
+      }
 
       // Add meeting attachments (this turn only)
       attachedMeetings.forEach((meeting) => {
@@ -1104,20 +1169,24 @@ export function ChatView() {
             {pastedImages.length > 0 && (
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2 mb-3">
                 {pastedImages.map((img, index) => (
-                  <div key={img.url || `pasted-image-${index}`} className="relative group">
-                    <img
-                      src={img.url}
-                      alt={t('common.pastedImageAlt', { index: index + 1 })}
-                      className="w-full aspect-square object-cover rounded-lg border border-border block"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => removeImage(index)}
-                      className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-error text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </div>
+                  <AttachmentImageThumb
+                    key={img.url || `pasted-image-${index}`}
+                    src={img.url}
+                    alt={t('common.pastedImageAlt', { index: index + 1 })}
+                    variant="grid"
+                    removeButton={
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeImage(index);
+                        }}
+                        className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-error text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    }
+                  />
                 ))}
               </div>
             )}
@@ -1126,21 +1195,20 @@ export function ChatView() {
             {attachedFiles.length > 0 && (
               <div className="space-y-2 mb-3">
                 {attachedFiles.map((file, index) => (
-                  <div
+                  <FileAttachmentChip
                     key={file.path || `attached-file-${index}`}
-                    className="flex items-center gap-2 px-3 py-2 rounded-lg bg-surface-muted border border-border group"
-                  >
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-text-primary truncate">{file.name}</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => removeFile(index)}
-                      className="w-6 h-6 rounded-full bg-error/10 hover:bg-error/20 text-error flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
+                    filename={file.name}
+                    className="group"
+                    removeButton={
+                      <button
+                        type="button"
+                        onClick={() => removeFile(index)}
+                        className="w-6 h-6 rounded-full bg-error/10 hover:bg-error/20 text-error flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    }
+                  />
                 ))}
               </div>
             )}

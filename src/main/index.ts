@@ -27,7 +27,7 @@ import {
   Notification,
   systemPreferences,
 } from 'electron';
-import { join, resolve, dirname, isAbsolute, basename } from 'path';
+import { join, resolve, dirname, isAbsolute, basename, extname } from 'path';
 import * as fs from 'fs';
 import { execFileSync } from 'child_process';
 import { config } from 'dotenv';
@@ -2428,6 +2428,8 @@ ipcMain.handle(
   }
 );
 
+const MAX_FILE_DATA_URL_BYTES = 8 * 1024 * 1024; // 8MB cap for renderer previews
+
 ipcMain.handle('dialog.selectFiles', async () => {
   const result = await dialog.showOpenDialog({
     properties: ['openFile', 'multiSelections'],
@@ -2438,8 +2440,78 @@ ipcMain.handle('dialog.selectFiles', async () => {
     return [];
   }
 
-  return result.filePaths;
+  const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp']);
+  const mimeByExt: Record<string, string> = {
+    png: 'image/png',
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    gif: 'image/gif',
+    webp: 'image/webp',
+    pdf: 'application/pdf',
+  };
+
+  return result.filePaths.map((filePath) => {
+    const name = basename(filePath);
+    const ext = extname(filePath).slice(1).toLowerCase();
+    const mimeType = mimeByExt[ext] || 'application/octet-stream';
+    let size = 0;
+    let dataUrl: string | undefined;
+    try {
+      const stat = fs.statSync(filePath);
+      size = stat.size;
+      if (IMAGE_EXTS.has(ext) && stat.isFile() && stat.size <= MAX_FILE_DATA_URL_BYTES) {
+        const buffer = fs.readFileSync(filePath);
+        dataUrl = `data:${mimeType};base64,${buffer.toString('base64')}`;
+      }
+    } catch (error) {
+      logError('[Files] selectFiles preview failed:', error);
+    }
+    return { path: filePath, name, size, mimeType, dataUrl };
+  });
 });
+
+ipcMain.handle(
+  'files.readAsDataUrl',
+  async (
+    _event,
+    filePath: string
+  ): Promise<{ success: boolean; dataUrl?: string; size?: number; error?: string }> => {
+    try {
+      if (typeof filePath !== 'string' || !filePath.trim()) {
+        return { success: false, error: 'Invalid path' };
+      }
+      const resolved = resolve(filePath);
+      const stat = fs.statSync(resolved);
+      if (!stat.isFile()) {
+        return { success: false, error: 'Not a file' };
+      }
+      if (stat.size > MAX_FILE_DATA_URL_BYTES) {
+        return { success: false, error: 'File too large', size: stat.size };
+      }
+      const buffer = fs.readFileSync(resolved);
+      const ext = extname(resolved).slice(1).toLowerCase();
+      const mimeByExt: Record<string, string> = {
+        png: 'image/png',
+        jpg: 'image/jpeg',
+        jpeg: 'image/jpeg',
+        gif: 'image/gif',
+        webp: 'image/webp',
+      };
+      const mime = mimeByExt[ext] || 'application/octet-stream';
+      return {
+        success: true,
+        dataUrl: `data:${mime};base64,${buffer.toString('base64')}`,
+        size: stat.size,
+      };
+    } catch (error) {
+      logError('[Files] readAsDataUrl failed:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to read file',
+      };
+    }
+  }
+);
 
 // Config IPC handlers
 ipcMain.handle('config.get', () => {

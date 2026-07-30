@@ -9,9 +9,8 @@ import {
 } from '../../utils/tool-result-summary';
 import type { ToolResultContent, ContentBlock, ToolUseContent, Message } from '../../types';
 import { getMcpToolDisplayName } from './toolHelpers';
-
-// Only allow safe image MIME types for data: URI rendering
-const ALLOWED_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
+import { AttachmentImageThumb } from '../attachments';
+import { ALLOWED_IMAGE_MIME_TYPES } from '../../utils/attachment-preview';
 
 interface ToolResultBlockProps {
   block: ToolResultContent;
@@ -83,7 +82,7 @@ export const ToolResultBlock = memo(function ToolResultBlock({
 
   const validImages =
     block.images?.filter(
-      (image) => image?.mimeType && image?.data && ALLOWED_IMAGE_TYPES.has(image.mimeType)
+      (image) => image?.mimeType && image?.data && ALLOWED_IMAGE_MIME_TYPES.has(image.mimeType)
     ) ?? [];
   const hasImages = validImages.length > 0;
   const preferImageOutput = shouldPreferToolResultImages(
@@ -137,14 +136,11 @@ export const ToolResultBlock = memo(function ToolResultBlock({
           {preferImageOutput && hasImages && (
             <div className="space-y-2">
               {validImages.map((image, index) => (
-                <div key={index} className="border border-border rounded-lg overflow-hidden">
-                  <img
-                    src={`data:${image.mimeType};base64,${image.data}`}
-                    alt={`Screenshot ${index + 1}`}
-                    className="w-full h-auto"
-                    style={{ maxHeight: '400px', objectFit: 'contain' }}
-                  />
-                </div>
+                <AttachmentImageThumb
+                  key={index}
+                  src={`data:${image.mimeType};base64,${image.data}`}
+                  alt={`Screenshot ${index + 1}`}
+                />
               ))}
             </div>
           )}
@@ -160,14 +156,11 @@ export const ToolResultBlock = memo(function ToolResultBlock({
           {!preferImageOutput && hasImages && (
             <div className="mt-2 space-y-2">
               {validImages.map((image, index) => (
-                <div key={index} className="border border-border rounded-lg overflow-hidden">
-                  <img
-                    src={`data:${image.mimeType};base64,${image.data}`}
-                    alt={`Screenshot ${index + 1}`}
-                    className="w-full h-auto"
-                    style={{ maxHeight: '400px', objectFit: 'contain' }}
-                  />
-                </div>
+                <AttachmentImageThumb
+                  key={index}
+                  src={`data:${image.mimeType};base64,${image.data}`}
+                  alt={`Screenshot ${index + 1}`}
+                />
               ))}
             </div>
           )}

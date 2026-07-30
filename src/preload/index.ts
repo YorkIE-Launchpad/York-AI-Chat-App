@@ -226,7 +226,22 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('shell.showItemInFolder', filePath, cwd),
 
   // Select files using native dialog
-  selectFiles: (): Promise<string[]> => ipcRenderer.invoke('dialog.selectFiles'),
+  selectFiles: (): Promise<
+    Array<{
+      path: string;
+      name: string;
+      size: number;
+      mimeType: string;
+      dataUrl?: string;
+    }>
+  > => ipcRenderer.invoke('dialog.selectFiles'),
+
+  files: {
+    readAsDataUrl: (
+      filePath: string
+    ): Promise<{ success: boolean; dataUrl?: string; size?: number; error?: string }> =>
+      ipcRenderer.invoke('files.readAsDataUrl', filePath),
+  },
 
   artifacts: {
     listRecentFiles: (
@@ -698,7 +713,20 @@ declare global {
       };
       openExternal: (url: string) => Promise<boolean>;
       showItemInFolder: (filePath: string, cwd?: string) => Promise<boolean>;
-      selectFiles: () => Promise<string[]>;
+      selectFiles: () => Promise<
+        Array<{
+          path: string;
+          name: string;
+          size: number;
+          mimeType: string;
+          dataUrl?: string;
+        }>
+      >;
+      files: {
+        readAsDataUrl: (
+          filePath: string
+        ) => Promise<{ success: boolean; dataUrl?: string; size?: number; error?: string }>;
+      };
       artifacts: {
         listRecentFiles: (
           cwd: string,

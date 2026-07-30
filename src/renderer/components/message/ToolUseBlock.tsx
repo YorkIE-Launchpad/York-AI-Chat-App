@@ -11,9 +11,8 @@ import type { ToolUseContent, ToolResultContent, ContentBlock, Message } from '.
 import { AskUserQuestionBlock } from './AskUserQuestionBlock';
 import { TodoWriteBlock } from './TodoWriteBlock';
 import { getToolIcon, getToolLabel } from './toolHelpers';
-
-// Only allow safe image MIME types for data: URI rendering
-const ALLOWED_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
+import { AttachmentImageThumb } from '../attachments';
+import { ALLOWED_IMAGE_MIME_TYPES } from '../../utils/attachment-preview';
 
 interface ToolUseBlockProps {
   block: ToolUseContent;
@@ -90,7 +89,7 @@ export const ToolUseBlock = memo(function ToolUseBlock({
   const summary = getSummary();
   const validImages =
     toolResult?.images?.filter(
-      (image) => image?.mimeType && image?.data && ALLOWED_IMAGE_TYPES.has(image.mimeType)
+      (image) => image?.mimeType && image?.data && ALLOWED_IMAGE_MIME_TYPES.has(image.mimeType)
     ) ?? [];
   const preferImageOutput = toolResult
     ? shouldPreferToolResultImages(
@@ -207,12 +206,10 @@ export const ToolUseBlock = memo(function ToolUseBlock({
               </div>
               {preferImageOutput &&
                 validImages.map((image, index) => (
-                  <div key={index} className="mt-2 border border-border rounded-lg overflow-hidden">
-                    <img
+                  <div key={index} className="mt-2">
+                    <AttachmentImageThumb
                       src={`data:${image.mimeType};base64,${image.data}`}
                       alt={`Output ${index + 1}`}
-                      className="w-full h-auto"
-                      style={{ maxHeight: '400px', objectFit: 'contain' }}
                     />
                   </div>
                 ))}
@@ -227,12 +224,10 @@ export const ToolUseBlock = memo(function ToolUseBlock({
               )}
               {!preferImageOutput &&
                 validImages.map((image, index) => (
-                  <div key={index} className="mt-2 border border-border rounded-lg overflow-hidden">
-                    <img
+                  <div key={index} className="mt-2">
+                    <AttachmentImageThumb
                       src={`data:${image.mimeType};base64,${image.data}`}
                       alt={`Output ${index + 1}`}
-                      className="w-full h-auto"
-                      style={{ maxHeight: '400px', objectFit: 'contain' }}
                     />
                   </div>
                 ))}
