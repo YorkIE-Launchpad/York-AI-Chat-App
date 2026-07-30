@@ -73,11 +73,13 @@ export default defineConfig(({ command }) => {
                 output: {
                   // Ensure consistent interop for CJS/ESM
                   interop: 'auto',
-                  // Inline pi-ai (and other) dynamic provider imports into the
-                  // single main bundle so a mid-rebuild emptyOutDir cannot
-                  // delete hashed openai-completions-*.js chunks that a still-
-                  // running Electron process lazily requires.
-                  inlineDynamicImports: true,
+                  // Stable chunk/asset names (no content hash). emptyOutDir wipes
+                  // dist on rebuild; hashed pi-ai provider chunks left a live
+                  // Electron process requiring deleted filenames. Do not use
+                  // inlineDynamicImports — that eagerly loads photon-node and
+                  // crashes on missing photon_rs_bg.wasm at startup.
+                  chunkFileNames: '[name].js',
+                  assetFileNames: '[name][extname]',
                 },
               },
             },

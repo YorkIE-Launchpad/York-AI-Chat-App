@@ -22,8 +22,11 @@ describe('vite watch ignores build artifacts', () => {
     expect(emptyOutDirCount).toBeGreaterThanOrEqual(3);
   });
 
-  it('inlines dynamic imports in the electron main bundle', () => {
+  it('uses stable electron main chunk names (no content hash)', () => {
     // Avoid hashed pi-ai provider chunks that break after emptyOutDir mid-rebuild.
-    expect(viteConfigContent).toContain('inlineDynamicImports: true');
+    // Prefer stable names over inlineDynamicImports (which eagerly loads photon wasm).
+    expect(viteConfigContent).toContain("chunkFileNames: '[name].js'");
+    expect(viteConfigContent).toContain("assetFileNames: '[name][extname]'");
+    expect(viteConfigContent).not.toContain('inlineDynamicImports: true');
   });
 });
