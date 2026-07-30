@@ -2,9 +2,9 @@
  * @module main/agent/mcp-tool-budget
  *
  * OpenAI-compatible APIs reject requests with more than 128 tools.
- * When the flattened MCP tool set would exceed that budget, expose a parent-facing
- * mcp_run tool that offloads search→call to a free OpenRouter child agent.
- * Children still use mcp_search_tools + mcp_call_tool directly.
+ * When the flattened MCP tool set would exceed that budget, expose
+ * mcp_search_tools + mcp_call_tool so the parent (and children) discover and
+ * invoke MCP tools without listing every flat tool.
  */
 import { Type, type TSchema } from '@sinclair/typebox';
 import type { ToolDefinition } from '@mariozechner/pi-coding-agent';
@@ -20,8 +20,7 @@ export const MCP_RUN_TOOL_NAME = 'mcp_run';
 export const MCP_META_TOOL_BEHAVIOR = `<tool_behavior>
 MCP tool access (budget mode):
 - Connected MCP servers expose too many tools to list directly for this model API.
-- Use mcp_run with a clear goal; a free child agent discovers and calls MCP tools, then returns distilled facts.
-- For Jira/Confluence/Atlassian: pass server (e.g. "Confluence" or "Jira") and timeout_seconds: 240 (up to 300 for large pages). Prefer a narrow goal (one page or issue) over broad space crawls.
+- Use mcp_search_tools to find tools by keyword and/or server, then mcp_call_tool with the exact tool name and arguments.
 - Prefer webfetch for reading http/https page content; use Chrome MCP only for interactive browser work.
 </tool_behavior>`;
 
@@ -163,7 +162,7 @@ function resolveAllowedMcpTools(
 }
 
 /**
- * Child-facing meta tools: search + call (used by free mcp_run child and over-budget subagents).
+ * Meta tools: search + call (parent and children when over the OpenAI tool budget).
  */
 export function buildMcpMetaTools(
   mcpManager: MCPManager,
@@ -302,13 +301,13 @@ export function selectCustomToolsForModel(input: {
   /** When set, meta-tool search/call/run are restricted to these MCP tool names. */
   allowedToolNames?: ReadonlySet<string> | null;
   /**
-   * Parent-facing tools used in meta mode (typically [mcp_run]).
-   * When omitted and useSearchCallMeta is true, falls back to mcp_search_tools + mcp_call_tool.
+   * Optional override tools for meta mode. When omitted (or useSearchCallMeta is true),
+   * meta mode uses mcp_search_tools + mcp_call_tool.
    */
   parentMetaTools?: ToolDefinition[];
   /**
-   * When true (default for children), meta mode uses search+call instead of parentMetaTools.
-   * Parent sessions pass parentMetaTools and leave this false/undefined.
+   * When true, meta mode uses mcp_search_tools + mcp_call_tool instead of parentMetaTools.
+   * Parent and child sessions both prefer this path for lower latency.
    */
   useSearchCallMeta?: boolean;
 }): SelectCustomToolsResult {

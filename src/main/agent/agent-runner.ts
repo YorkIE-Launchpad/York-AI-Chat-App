@@ -113,11 +113,11 @@ import {
   leanMcpToolArgs,
 } from './mcp-tool-payload';
 import {
-  MCP_RUN_TOOL_NAME,
+  MCP_CALL_TOOL_NAME,
+  MCP_SEARCH_TOOLS_NAME,
   selectCustomToolsForModel,
   type McpToolExposureMode,
 } from './mcp-tool-budget';
-import { buildMcpRunTool } from './mcp-run-tool';
 import { fetchOllamaModelInfo } from '../config/ollama-api';
 import { createWindowsBashOperations } from './windows-bash-operations';
 import { createCompactionExtensionFactory } from './compaction-extension';
@@ -2106,38 +2106,6 @@ ${hints.join('\n')}
       // cold-start history injection so a toolsSignature miss recreates correctly.
       const mcpCustomTools = this.mcpManager ? buildMcpCustomTools(this.mcpManager) : [];
       const extensionCustomTools = extensionResult.customTools || [];
-      const parentMetaTools =
-        this.mcpManager != null
-          ? [
-              buildMcpRunTool({
-                mcpManager: this.mcpManager,
-                sendEvent: this.sendToRenderer,
-                parentSessionId: session.id,
-                requestPermission: async (toolName, toolInput) => {
-                  const decision = decidePermission(
-                    session.id,
-                    toolName,
-                    (toolInput && typeof toolInput === 'object' ? toolInput : {}) as Record<
-                      string,
-                      unknown
-                    >
-                  );
-                  if (decision === 'allow') return 'allow';
-                  if (decision === 'deny') return 'deny';
-                  // 'ask' — for child MCP meta tools, default allow (same as built-in MCP allowlist path)
-                  if (
-                    toolName === 'mcp_search_tools' ||
-                    toolName === 'mcp_call_tool' ||
-                    toolName === MCP_RUN_TOOL_NAME
-                  ) {
-                    return 'allow';
-                  }
-                  return 'deny';
-                },
-                getParentAbortSignal: () => this.activeControllers.get(session.id)?.signal ?? null,
-              }),
-            ]
-          : undefined;
       // Coding tools are read/bash/edit/write (4). Wrappers preserve length; we
       // re-check with the real wrapped count before createAgentSession below.
       const toolSelection = selectCustomToolsForModel({
@@ -2146,7 +2114,7 @@ ${hints.join('\n')}
         mcpManager: this.mcpManager ?? null,
         mcpTools: mcpCustomTools,
         extensionTools: extensionCustomTools,
-        parentMetaTools,
+        useSearchCallMeta: true,
       });
       let customTools = toolSelection.customTools;
       let mcpToolMode: McpToolExposureMode = toolSelection.mode;
@@ -2169,7 +2137,9 @@ ${hints.join('\n')}
       if (mcpCustomTools.length > 0) {
         log(
           `[CoworkAgentRunner] MCP tools available (${mcpCustomTools.length}), exposure mode=${mcpToolMode}:`,
-          mcpToolMode === 'meta' ? MCP_RUN_TOOL_NAME : mcpCustomTools.map((t) => t.name).join(', ')
+          mcpToolMode === 'meta'
+            ? `${MCP_SEARCH_TOOLS_NAME}, ${MCP_CALL_TOOL_NAME}`
+            : mcpCustomTools.map((t) => t.name).join(', ')
         );
       }
       if (extensionCustomTools.length > 0) {
@@ -2474,8 +2444,7 @@ ${
   mcpToolMode === 'meta'
     ? `MCP tool access (budget mode):
 - Connected MCP servers expose too many tools to list directly for this model API.
-- Use mcp_run with a clear goal; a free child agent discovers and calls MCP tools, then returns distilled facts.
-- For Jira/Confluence/Atlassian: pass server (e.g. "Confluence" or "Jira") and timeout_seconds: 240 (up to 300 for large pages). Prefer a narrow goal (one page or issue) over broad space crawls.
+- Use mcp_search_tools to find tools by keyword and/or server, then mcp_call_tool with the exact tool name and arguments.
 - Prefer webfetch for reading http/https page content; use Chrome MCP only for interactive browser work.`
     : `Tool routing:
 - Prefer webfetch for reading or fetching http/https page content (no browser window).
@@ -2524,7 +2493,7 @@ ${
           mcpManager: this.mcpManager ?? null,
           mcpTools: mcpCustomTools,
           extensionTools: extensionCustomTools,
-          parentMetaTools,
+          useSearchCallMeta: true,
         });
         customTools = adjusted.customTools;
         mcpToolMode = adjusted.mode;

@@ -39,10 +39,10 @@ function createSpawnSubagentTool(
     name: 'spawn_subagent',
     label: 'spawn_subagent',
     description:
-      'Spawn a child agent to complete a focused sub-task in its own context. ' +
-      'By default the child uses a free OpenRouter model to save tokens; pass model="inherit" to use the parent model. ' +
-      'The child inherits your tools but not your conversation history. ' +
-      'It cannot spawn further subagents. Use for tasks that benefit from isolated context.',
+      'Spawn a child agent only when you need isolated context or true parallel sub-tasks. ' +
+      'Prefer completing MCP and routine work yourself with available tools (including mcp_search_tools / mcp_call_tool) — ' +
+      'child agents add latency. The child inherits your tools but not conversation history and cannot spawn further subagents. ' +
+      'Default model is free OpenRouter; pass model="inherit" for the parent quality model.',
     parameters: Type.Object({
       task: Type.String({
         description:

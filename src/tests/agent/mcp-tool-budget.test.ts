@@ -167,7 +167,7 @@ describe('selectCustomToolsForModel', () => {
     ]);
   });
 
-  it('exposes parent mcp_run (not search/call) when over OpenAI budget', () => {
+  it('exposes search+call meta tools (not mcp_run) when over OpenAI budget', () => {
     const flatCount = OPENAI_MAX_TOOLS;
     const mcpTools = Array.from({ length: flatCount }, (_, i) =>
       makeToolDef(`mcp__Launchpad__t${i}`)
@@ -175,7 +175,6 @@ describe('selectCustomToolsForModel', () => {
     const manager = makeMcpManager(
       mcpTools.map((t) => makeMcpTool({ name: t.name, serverName: 'Launchpad' }))
     );
-    const mcpRun = makeToolDef(MCP_RUN_TOOL_NAME);
 
     const result = selectCustomToolsForModel({
       api: 'openai-completions',
@@ -183,17 +182,17 @@ describe('selectCustomToolsForModel', () => {
       mcpManager: manager,
       mcpTools,
       extensionTools,
-      parentMetaTools: [mcpRun],
+      useSearchCallMeta: true,
     });
 
     expect(result.mode).toBe('meta');
     expect(result.customTools.map((t) => t.name)).toEqual([
-      MCP_RUN_TOOL_NAME,
+      MCP_SEARCH_TOOLS_NAME,
+      MCP_CALL_TOOL_NAME,
       'webfetch',
       'spawn_subagent',
     ]);
-    expect(result.customTools.map((t) => t.name)).not.toContain(MCP_SEARCH_TOOLS_NAME);
-    expect(result.customTools.map((t) => t.name)).not.toContain(MCP_CALL_TOOL_NAME);
+    expect(result.customTools.map((t) => t.name)).not.toContain(MCP_RUN_TOOL_NAME);
     expect(4 + result.customTools.length).toBeLessThanOrEqual(OPENAI_MAX_TOOLS);
   });
 

@@ -18,6 +18,7 @@ describe('SubagentExtension', () => {
 
     const tool = result.customTools?.[0];
     expect(tool?.name).toBe('spawn_subagent');
+    expect(tool?.description).toContain('Prefer completing');
     expect(tool?.description).toContain('free OpenRouter');
     expect(tool?.description).toContain('model="inherit"');
 
