@@ -115,6 +115,7 @@ export function buildMcpRunChildSystemPrompt(
   const parts = [
     'You are an MCP tool runner. Discover the right MCP tools and call them to fulfill the goal.',
     'Use mcp_search_tools to find tools, then mcp_call_tool to invoke them.',
+    'After mcp_search_tools returns matches, immediately call mcp_call_tool in the same turn — do not stop after searching.',
     'Return ONLY the distilled facts needed to answer the goal — no preamble, no tool narration.',
     '',
     `## Goal`,

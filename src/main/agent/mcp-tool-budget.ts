@@ -21,6 +21,8 @@ export const MCP_META_TOOL_BEHAVIOR = `<tool_behavior>
 MCP tool access (budget mode):
 - Connected MCP servers expose too many tools to list directly for this model API.
 - Use mcp_search_tools to find tools by keyword and/or server, then mcp_call_tool with the exact tool name and arguments.
+- After mcp_search_tools returns matches, you MUST immediately call mcp_call_tool in the same turn with the exact name and arguments. Do not end the turn with only a plan or thinking after discovery.
+- Prefer a tight query and/or server filter, and a small limit, so search results stay short.
 - Prefer webfetch for reading http/https page content; use Chrome MCP only for interactive browser work.
 </tool_behavior>`;
 
@@ -172,7 +174,7 @@ export function buildMcpMetaTools(
     name: MCP_SEARCH_TOOLS_NAME,
     label: 'Search MCP tools',
     description:
-      'Search connected MCP tools by keyword and/or server name. Returns matching tool names, descriptions, and parameter summaries. Pass include_schema=true only when you need full JSON Schema before calling. Call this before mcp_call_tool when you need an MCP capability.',
+      'Search connected MCP tools by keyword and/or server name. Returns matching tool names, descriptions, and parameter summaries. Pass include_schema=true only when you need full JSON Schema before calling. Call this before mcp_call_tool when you need an MCP capability. After results return, immediately call mcp_call_tool in the same turn — do not stop after searching. Prefer a tight query/server and a small limit.',
     parameters: Type.Object({
       query: Type.Optional(
         Type.String({

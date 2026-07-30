@@ -118,6 +118,13 @@ import {
   selectCustomToolsForModel,
   type McpToolExposureMode,
 } from './mcp-tool-budget';
+import {
+  INCOMPLETE_TURN_FAILURE_MESSAGE,
+  buildIncompleteTurnSteerMessage,
+  detectIncompleteTurn,
+  summarizeContentBlocks,
+  type TurnContentSummary,
+} from './incomplete-turn';
 import { fetchOllamaModelInfo } from '../config/ollama-api';
 import { createWindowsBashOperations } from './windows-bash-operations';
 import { createCompactionExtensionFactory } from './compaction-extension';
@@ -2445,6 +2452,8 @@ ${
     ? `MCP tool access (budget mode):
 - Connected MCP servers expose too many tools to list directly for this model API.
 - Use mcp_search_tools to find tools by keyword and/or server, then mcp_call_tool with the exact tool name and arguments.
+- After mcp_search_tools returns matches, you MUST immediately call mcp_call_tool in the same turn with the exact name and arguments. Do not end the turn with only a plan or thinking after discovery.
+- Prefer a tight query and/or server filter, and a small limit, so search results stay short.
 - Prefer webfetch for reading http/https page content; use Chrome MCP only for interactive browser work.`
     : `Tool routing:
 - Prefer webfetch for reading or fetching http/https page content (no browser window).
@@ -2713,6 +2722,13 @@ ${
       // Two layers: hash of whole tool-call group (window=20, warn=3/halt=5/abort=8)
       //             + per-tool frequency (warn=30/halt=50/abort=80).
       const loopGuard = new LoopGuard();
+      // Track tools + final assistant content so we can detect "search then stop" turns.
+      const toolsInvokedThisTurn: string[] = [];
+      let finalAssistantSummary: TurnContentSummary = {
+        hasText: false,
+        hasThinking: false,
+        hasToolUse: false,
+      };
       const handleLoopGuardDecision = (decision: LoopGuardDecision, context: string): void => {
         if (decision.action === 'none' || controller.signal.aborted) return;
         logWarn(`[LoopGuard] ${context}: action=${decision.action} reason=${decision.reason}`);
@@ -3116,6 +3132,7 @@ ${
                 }
 
                 if (contentBlocks.length > 0) {
+                  finalAssistantSummary = summarizeContentBlocks(contentBlocks);
                   const msgWithUsage = msg as { usage?: unknown };
                   const tokenUsage = normalizeTokenUsage(msgWithUsage.usage);
                   if (msgWithUsage.usage) {
@@ -3149,6 +3166,9 @@ ${
 
             case 'tool_execution_start': {
               logCtx(`[CoworkAgentRunner] Tool execution start: ${event.toolName}`);
+              if (typeof event.toolName === 'string' && event.toolName) {
+                toolsInvokedThisTurn.push(event.toolName);
+              }
               // ── Loop guard layer 2: per-tool cumulative frequency ──
               handleLoopGuardDecision(
                 loopGuard.recordToolInvocation(event.toolName),
@@ -3456,6 +3476,81 @@ ${
                 '[CoworkAgentRunner] York eco fallback prompt() returned:',
                 JSON.stringify(retryResult ?? 'void').substring(0, 1000)
               );
+            }
+          }
+        }
+
+        // ── Incomplete-turn recovery: search-then-stop / thinking-only on actionable asks ──
+        // Models in meta MCP mode often end after mcp_search_tools without mcp_call_tool.
+        // Steer once, then surface a clear failure if still incomplete.
+        const canAttemptIncompleteRecovery =
+          !controller.signal.aborted &&
+          !abortedByTimeout &&
+          !abortedByLoopGuard &&
+          !abortedByStreamError &&
+          !hasEmittedError &&
+          !openRouterLimitRetry.pending;
+
+        if (canAttemptIncompleteRecovery) {
+          const incomplete = detectIncompleteTurn({
+            userPrompt: prompt,
+            toolsInvoked: toolsInvokedThisTurn,
+            finalAssistant: finalAssistantSummary,
+          });
+          if (incomplete.incomplete) {
+            logWarn(
+              `[IncompleteTurn] Detected ${incomplete.reason}; steering once to finish the action`
+            );
+            const steerText = buildIncompleteTurnSteerMessage(incomplete.reason);
+            finalAssistantSummary = {
+              hasText: false,
+              hasThinking: false,
+              hasToolUse: false,
+            };
+            this.sendTraceUpdate(session.id, thinkingStepId, {
+              title: 'Continuing incomplete action...',
+            });
+            resetActivityTimeout();
+            try {
+              const continueResult = await piSession.prompt(steerText);
+              log(
+                '[IncompleteTurn] continuation prompt() returned:',
+                JSON.stringify(continueResult ?? 'void').substring(0, 500)
+              );
+            } catch (continueErr) {
+              if (continueErr instanceof Error && continueErr.name === 'AbortError') {
+                // Timeout / loop-guard / user abort — outer handlers use abort flags.
+              } else {
+                throw continueErr;
+              }
+            }
+
+            if (
+              !controller.signal.aborted &&
+              !abortedByTimeout &&
+              !abortedByLoopGuard &&
+              !abortedByStreamError &&
+              !hasEmittedError
+            ) {
+              const stillIncomplete = detectIncompleteTurn({
+                userPrompt: prompt,
+                toolsInvoked: toolsInvokedThisTurn,
+                finalAssistant: finalAssistantSummary,
+              });
+              if (stillIncomplete.incomplete) {
+                logWarn(
+                  `[IncompleteTurn] Still incomplete after steer (${stillIncomplete.reason}); surfacing failure`
+                );
+                this.sendMessage(session.id, {
+                  id: uuidv4(),
+                  sessionId: session.id,
+                  role: 'assistant',
+                  content: [{ type: 'text', text: INCOMPLETE_TURN_FAILURE_MESSAGE }],
+                  timestamp: Date.now(),
+                });
+                hasEmittedError = true;
+                terminalErrorText = INCOMPLETE_TURN_FAILURE_MESSAGE;
+              }
             }
           }
         }
