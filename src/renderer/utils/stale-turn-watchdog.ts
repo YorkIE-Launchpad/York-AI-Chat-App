@@ -43,14 +43,18 @@ export type StaleTurnDecision =
 
 /**
  * Decide how to recover an orphaned activeTurn given quiet time and main status.
+ * When awaitingUserInput (AskUserQuestion / permission dialog), never force-clear —
+ * silence is expected while the user decides. Orphan clear_idle still applies.
  */
 export function decideStaleTurnAction(params: {
   quietMs: number;
   mainStatus: SessionStatus | undefined;
+  awaitingUserInput?: boolean;
 }): StaleTurnDecision {
-  const { quietMs, mainStatus } = params;
+  const { quietMs, mainStatus, awaitingUserInput } = params;
   if (quietMs < STALE_TURN_RECONCILE_MS) return { action: 'none' };
   if (mainStatus && mainStatus !== 'running') return { action: 'clear_idle' };
+  if (awaitingUserInput) return { action: 'none' };
   if (quietMs >= STALE_TURN_FORCE_CLEAR_MS) return { action: 'force_clear_running' };
   return { action: 'none' };
 }

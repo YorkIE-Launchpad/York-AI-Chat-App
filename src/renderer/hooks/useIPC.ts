@@ -48,6 +48,9 @@ let ipcListenerInstalled = false;
 /** Thinking step id received before optimistic activateNextTurn (session.start race). */
 const pendingThinkingStepIds: Record<string, string> = {};
 
+/** Per-session last activity timestamp for stale-turn recovery (shared with respondToQuestion). */
+const lastServerEventAt: Record<string, number> = {};
+
 function bindPendingThinkingStep(sessionId: string): void {
   const stepId = pendingThinkingStepIds[sessionId];
   if (!stepId) return;
@@ -160,9 +163,6 @@ export function useIPC() {
         store.markInitialConfigStatusSeen();
       }
     };
-
-    /** Per-session last server-event timestamp for stale-turn recovery. */
-    const lastServerEventAt: Record<string, number> = {};
 
     const cleanup = window.electronAPI.on((event: ServerEvent) => {
       const store = useAppStore.getState();
@@ -469,7 +469,11 @@ export function useIPC() {
         const lastAt = lastServerEventAt[sessionId] ?? 0;
         const quietMs = Date.now() - lastAt;
         const mainStatus = resolveMainSessionStatus(sessions ?? undefined, sessionId);
-        const decision = decideStaleTurnAction({ quietMs, mainStatus });
+        const awaitingUserInput = Boolean(
+          latest.pendingQuestionsBySessionId[sessionId] ||
+          latest.pendingPermission?.sessionId === sessionId
+        );
+        const decision = decideStaleTurnAction({ quietMs, mainStatus, awaitingUserInput });
         if (decision.action === 'none') continue;
         console.warn(
           '[useIPC] Stale-turn watchdog recovering session',
@@ -910,6 +914,9 @@ export function useIPC() {
         payload: { questionId, answer },
       });
       clearPendingQuestion(sessionId, questionId);
+      // User answer is a client event — refresh quiet clock so a long pre-submit
+      // wait cannot immediately force-clear after the question is answered.
+      lastServerEventAt[sessionId] = Date.now();
     },
     [send, clearPendingQuestion]
   );

@@ -74,6 +74,33 @@ describe('stale-turn-watchdog', () => {
     ).toEqual({ action: 'force_clear_running' });
   });
 
+  it('does not force-clear while awaiting user input even past the quiet window', () => {
+    expect(
+      decideStaleTurnAction({
+        quietMs: STALE_TURN_FORCE_CLEAR_MS,
+        mainStatus: 'running',
+        awaitingUserInput: true,
+      })
+    ).toEqual({ action: 'none' });
+    expect(
+      decideStaleTurnAction({
+        quietMs: STALE_TURN_FORCE_CLEAR_MS,
+        mainStatus: 'running',
+        awaitingUserInput: false,
+      })
+    ).toEqual({ action: 'force_clear_running' });
+  });
+
+  it('still clears idle when main is not running even if awaiting user input', () => {
+    expect(
+      decideStaleTurnAction({
+        quietMs: STALE_TURN_RECONCILE_MS,
+        mainStatus: 'idle',
+        awaitingUserInput: true,
+      })
+    ).toEqual({ action: 'clear_idle' });
+  });
+
   it('resolves main session status from the list payload', () => {
     const sessions = [makeSession('s1', 'running'), makeSession('s2', 'idle')];
     expect(resolveMainSessionStatus(sessions, 's2')).toBe('idle');
