@@ -41,6 +41,9 @@ export default defineConfig(({ command }) => {
           vite: {
             build: {
               outDir: 'dist-electron/main',
+              // Prevent hashed chunk accumulation across rebuilds (otherwise
+              // electron-builder packs multi-GB stale output into app.asar).
+              emptyOutDir: true,
               rollupOptions: {
                 external: [
                   ...nodeBuiltins,
@@ -83,6 +86,7 @@ export default defineConfig(({ command }) => {
           vite: {
             build: {
               outDir: 'dist-electron/preload',
+              emptyOutDir: true,
               rollupOptions: {
                 external: ['electron'],
               },

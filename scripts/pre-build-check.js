@@ -127,6 +127,26 @@ function buildCheckList(platform, arch) {
   return checks;
 }
 
+/** Max hashed main-process chunks allowed before packaging (stale rebuilds). */
+const MAX_HASHED_MAIN_CHUNKS = 5;
+
+/**
+ * Count Vite hashed main chunks (`index-<hash>.js`) in dist-electron/main.
+ * A clean build should leave only the current chunk(s); hundreds means emptyOutDir failed.
+ *
+ * @param {string} rootDir
+ * @returns {number}
+ */
+function countHashedMainChunks(rootDir) {
+  const mainDir = path.join(rootDir, 'dist-electron', 'main');
+  if (!fs.existsSync(mainDir)) {
+    return 0;
+  }
+  return fs
+    .readdirSync(mainDir)
+    .filter((name) => /^index-[A-Za-z0-9_-]+\.js$/.test(name)).length;
+}
+
 /**
  * Run all pre-build checks and return results.
  *
@@ -179,6 +199,34 @@ function runChecks(rootDir, platform, arch) {
     });
   }
 
+  // Guard against packaging multi-GB stale Vite electron output.
+  const hashedChunkCount = countHashedMainChunks(rootDir);
+  const staleChunksLabel = `Electron main hashed chunks (≤${MAX_HASHED_MAIN_CHUNKS})`;
+  const staleChunksPath = 'dist-electron/main/index-*.js';
+  if (hashedChunkCount <= MAX_HASHED_MAIN_CHUNKS) {
+    passed += 1;
+    console.log(`${GREEN}[pass]${RESET} ${staleChunksLabel}`);
+    console.log(`       ${staleChunksPath} (${hashedChunkCount} found)`);
+    results.push({
+      label: staleChunksLabel,
+      relPath: staleChunksPath,
+      passed: true,
+      severity: 'fatal',
+    });
+  } else {
+    failed += 1;
+    console.log(`${RED}[fail]${RESET} ${staleChunksLabel}`);
+    console.log(
+      `       ${staleChunksPath} (${hashedChunkCount} found — stale rebuilds will inflate app.asar; clean dist-electron and rebuild)`
+    );
+    results.push({
+      label: staleChunksLabel,
+      relPath: staleChunksPath,
+      passed: false,
+      severity: 'fatal',
+    });
+  }
+
   const hasFatal = failed > 0;
   return { results, passed, warnings, failed, hasFatal };
 }
@@ -208,7 +256,7 @@ function main() {
   process.exit(0);
 }
 
-module.exports = { runChecks, buildCheckList };
+module.exports = { runChecks, buildCheckList, countHashedMainChunks, MAX_HASHED_MAIN_CHUNKS };
 
 if (require.main === module) {
   main();

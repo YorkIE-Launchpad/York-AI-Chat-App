@@ -10,6 +10,10 @@
  *
  * If any of the three vars is missing the script silently skips notarization,
  * so local dev builds still work without credentials.
+ *
+ * Note: mac.notarize is set to false in electron-builder.yml so electron-builder's
+ * built-in notarization does not run in addition to this hook (which would double
+ * upload/poll time for large apps).
  */
 const { notarize } = require('@electron/notarize');
 
@@ -33,7 +37,8 @@ exports.default = async function afterSign(context) {
     return;
   }
 
-  console.log(`[notarize] Notarizing ${appId} at ${appPath} ...`);
+  // Built-in electron-builder notarization is disabled (mac.notarize: false).
+  console.log(`[notarize] Notarizing ${appId} at ${appPath} (afterSign only) ...`);
 
   await notarize({
     appBundleId: appId,

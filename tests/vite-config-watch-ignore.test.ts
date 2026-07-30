@@ -13,4 +13,12 @@ describe('vite watch ignores build artifacts', () => {
     expect(viteConfigContent).toContain("'**/dist-electron/**'");
     expect(viteConfigContent).toContain('ignored: ignoredWatchPaths');
   });
+
+  it('empties electron outDirs so hashed chunks do not accumulate', () => {
+    expect(viteConfigContent).toContain("outDir: 'dist-electron/main'");
+    expect(viteConfigContent).toContain("outDir: 'dist-electron/preload'");
+    // Both electron builds must empty their outDir (renderer already does).
+    const emptyOutDirCount = (viteConfigContent.match(/emptyOutDir:\s*true/g) || []).length;
+    expect(emptyOutDirCount).toBeGreaterThanOrEqual(3);
+  });
 });
