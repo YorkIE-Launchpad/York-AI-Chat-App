@@ -1133,7 +1133,11 @@ export function ChatView() {
                 typeof message.id === 'string' && message.id.startsWith('partial-');
               return (
                 <div key={message.id}>
-                  <MessageCard message={message} isStreaming={isStreaming} />
+                  <MessageCard
+                    message={message}
+                    isStreaming={isStreaming}
+                    allMessages={displayedMessages}
+                  />
                 </div>
               );
             })

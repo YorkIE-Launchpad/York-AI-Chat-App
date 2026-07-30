@@ -1,5 +1,6 @@
 import { WebClient } from '@slack/web-api';
 import { startConnectorMcpServer } from './connector-mcp-utils';
+import { resolveSlackPermalink } from './slack-permalink';
 
 const accessToken = process.env.SLACK_USER_TOKEN?.trim();
 if (!accessToken) {
@@ -25,6 +26,8 @@ type SlimMessage = {
   ts?: string;
   user?: string;
   text?: string;
+  channelId?: string;
+  permalink?: string | null;
 };
 
 function makeMemoryEnvelope(input: {
@@ -169,15 +172,25 @@ async function resolveChannel(channelRef: string): Promise<{
 
 function formatMessages(messages: SlimMessage[]): string {
   return messages
-    .map((message) => `[${message.ts}] ${message.user || 'unknown'}: ${message.text || ''}`)
+    .map((message) => {
+      const permalink = resolveSlackPermalink({
+        permalink: message.permalink,
+        channelId: message.channelId,
+        ts: message.ts,
+      });
+      const base = `[${message.ts}] ${message.user || 'unknown'}: ${message.text || ''}`;
+      return permalink ? `${base}\nLink: ${permalink}` : base;
+    })
     .join('\n');
 }
 
-function mapMessages(messages: SlimMessage[] | undefined): SlimMessage[] {
+function mapMessages(messages: SlimMessage[] | undefined, channelId?: string): SlimMessage[] {
   return (messages ?? []).map((message) => ({
     ts: message.ts,
     user: message.user,
     text: message.text,
+    channelId: channelId || message.channelId,
+    permalink: message.permalink ?? null,
   }));
 }
 
@@ -198,6 +211,11 @@ async function searchChannelMessages(
       ts: message.ts,
       user: message.username || message.user,
       text: message.text,
+      channelId: channel.id,
+      permalink:
+        typeof (message as { permalink?: unknown }).permalink === 'string'
+          ? (message as { permalink: string }).permalink
+          : null,
     }));
   } catch (error) {
     throw formatSlackError(error, `Searching Slack messages in ${formatChannelLabel(channel)}`);
@@ -313,7 +331,7 @@ async function main() {
             channel: channel.id,
             limit,
           });
-          messages = mapMessages(response.messages);
+          messages = mapMessages(response.messages, channel.id);
         } catch (error) {
           messages = await searchChannelMessages(channel, limit);
           usedFallbackSearch = true;
@@ -355,21 +373,37 @@ async function main() {
         } catch (error) {
           throw formatSlackError(error, 'Searching Slack messages');
         }
-        const matches = (response.messages?.matches ?? []).map((message) => ({
-          ts: message.ts,
-          text: message.text,
-          channel: message.channel?.name || message.channel?.id,
-          username: message.username || message.user,
-        }));
+        const matches = (response.messages?.matches ?? []).map((message) => {
+          const channelId =
+            typeof message.channel === 'object' && message.channel && 'id' in message.channel
+              ? String((message.channel as { id?: string }).id || '')
+              : typeof message.channel === 'string'
+                ? message.channel
+                : '';
+          const permalink =
+            typeof (message as { permalink?: unknown }).permalink === 'string'
+              ? (message as { permalink: string }).permalink
+              : resolveSlackPermalink({
+                  channelId,
+                  ts: message.ts,
+                });
+          return {
+            ts: message.ts,
+            text: message.text,
+            channel: message.channel?.name || message.channel?.id || channelId,
+            username: message.username || message.user,
+            permalink,
+          };
+        });
         return makeMemoryEnvelope({
           externalId: `slack:search:${query}`,
           title: `Slack search: ${query}`,
           summary: `Found ${matches.length} Slack message matches`,
           body: matches
-            .map(
-              (message) =>
-                `${message.channel || 'unknown'} [${message.ts}] ${message.username || 'unknown'}: ${message.text || ''}`
-            )
+            .map((message) => {
+              const base = `${message.channel || 'unknown'} [${message.ts}] ${message.username || 'unknown'}: ${message.text || ''}`;
+              return message.permalink ? `${base}\nLink: ${message.permalink}` : base;
+            })
             .join('\n'),
           occurredAt: Date.now(),
           keywords: ['slack', 'search', ...query.split(/\s+/).filter(Boolean)],
@@ -394,7 +428,7 @@ async function main() {
             })}`
           );
         }
-        const messages = mapMessages(response.messages);
+        const messages = mapMessages(response.messages, channel.id);
         return makeMemoryEnvelope({
           externalId: `slack:thread:${channel.id}:${threadTs}`,
           title: `Slack thread ${threadTs}`,

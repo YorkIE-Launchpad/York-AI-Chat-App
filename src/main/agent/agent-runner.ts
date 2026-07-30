@@ -2439,7 +2439,15 @@ Do NOT use /workspace, /mnt/user-data, /mnt/workspace, or any other absolute vir
         configSummaryPrompt,
         workspaceInfoPrompt,
         `<citation_requirements>
-If your answer uses linkable content from MCP tools, include a "Sources:" section and otherwise use standard Markdown links: [Title](https://claude.ai/chat/URL).
+When your answer uses data from MCP tools (or other linkable tool results), you MUST end with a "Sources:" section.
+Format:
+Sources:
+- [Title](https://example.com/real-url-from-tool)
+Rules:
+- Use real URLs from tool payloads (html_link, web_view_link, permalink, issue/page URLs, etc.).
+- Prefer standard Markdown links: [Title](https://...).
+- If a hit has no URL, cite the connector and identifier as plain text (e.g. "York Hub — employee Jane Doe"). Never invent URLs.
+- Only list sources that tools actually returned. Do not invent sources.
 </citation_requirements>`,
         `<tool_behavior>
 AskUserQuestion:

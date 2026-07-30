@@ -24,9 +24,10 @@ describe('CoworkAgentRunner York IE SDK integration', () => {
   });
 
   it('uses standard markdown link guidance for sources citations', () => {
-    expect(agentRunnerContent).toContain(
-      'otherwise use standard Markdown links: [Title](https://claude.ai/chat/URL)'
-    );
+    expect(agentRunnerContent).toContain('<citation_requirements>');
+    expect(agentRunnerContent).toContain('you MUST end with a "Sources:" section.');
+    expect(agentRunnerContent).toContain('Prefer standard Markdown links: [Title](https://...).');
+    expect(agentRunnerContent).not.toContain('https://claude.ai/chat/URL');
   });
 
   it('avoids duplicating the current user prompt in contextual history assembly', () => {

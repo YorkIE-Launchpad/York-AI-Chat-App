@@ -122,7 +122,8 @@ action items, or follow-ups:
    employee search); otherwise query with the name as given.
 4. **Synthesize** concrete commitments as bullets with **source + date**. If
    nothing solid is found, say so and list which sources were checked — never
-   invent promises.
+   invent promises. Always end the reply with a `Sources:` section (see
+   golden rules).
 5. If a connector is disconnected or errors, skip it, note the gap, continue
    with the rest.
 
@@ -135,11 +136,16 @@ User: “What did I promise Jay?”
 → Gmail search_emails (Jay / from:me / newer_than:…)
 → meeting_search("Jay") → meeting_read on matches
 → Answer: bullets with source+date, or "checked Slack, Gmail, meetings — no clear promise found"
+→ Sources: markdown links from tool payloads (or connector + id when no URL)
 ```
 
 ## Golden rules
 
-1. Prefer tools over guessing. Cite **Sources** for MCP/linkable hits.
+1. Prefer tools over guessing. When the answer used MCP/linkable hits, **always**
+   end with a `Sources:` section of bullet markdown links
+   `[Title](https://...)` using real URLs from tool payloads (`html_link`,
+   `web_view_link`, permalinks, issue/page URLs). If a hit has no URL, cite
+   the connector and identifier as plain text — never invent URLs or sources.
 2. Unavailable/disabled connector → state it; do not pretend you searched it.
 3. This skill routes only. Deep Hub/Launchpad work → load those skills.
 4. Answer in chat unless the user explicitly asks for a file.

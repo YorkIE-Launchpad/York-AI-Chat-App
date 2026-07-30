@@ -836,7 +836,8 @@
     "submitAnswers": "Submit Answers",
     "freeTextPlaceholder": "Type your answer…",
     "thinking": "Thinking",
-    "executionTime": "Execution time: {{time}}"
+    "executionTime": "Execution time: {{time}}",
+    "sources": "Sources"
   },
   "schedule": {
     "createTitle": "Create Schedule",

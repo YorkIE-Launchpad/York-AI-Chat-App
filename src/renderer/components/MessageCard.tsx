@@ -5,13 +5,21 @@ import { useTranslation } from 'react-i18next';
 import { Copy, Check, Clock, XCircle } from 'lucide-react';
 import type { Message, ContentBlock, ToolUseContent, ToolResultContent } from '../types';
 import { ContentBlockView } from './message/ContentBlockView';
+import { McpSourcesFooter } from './message/McpSourcesFooter';
+import { shouldShowMcpSourcesFooter } from '../utils/mcp-sources';
 
 interface MessageCardProps {
   message: Message;
   isStreaming?: boolean;
+  /** Full session messages — used for turn-aware MCP Sources fallback. */
+  allMessages?: Message[];
 }
 
-export const MessageCard = memo(function MessageCard({ message, isStreaming }: MessageCardProps) {
+export const MessageCard = memo(function MessageCard({
+  message,
+  isStreaming,
+  allMessages,
+}: MessageCardProps) {
   const { t } = useTranslation();
   const isUser = message.role === 'user';
   const isQueued = message.localStatus === 'queued';
@@ -36,6 +44,17 @@ export const MessageCard = memo(function MessageCard({ message, isStreaming }: M
     }
     return ids;
   }, [contentBlocks]);
+
+  const mcpSourcesFooter = useMemo(() => {
+    if (isUser || !allMessages || allMessages.length === 0) {
+      return { show: false as const, sources: [] };
+    }
+    return shouldShowMcpSourcesFooter({
+      messages: allMessages,
+      messageId: message.id,
+      isStreaming,
+    });
+  }, [allMessages, isStreaming, isUser, message.id]);
 
   // Extract text content for copying
   const getTextContent = () =>
@@ -130,6 +149,7 @@ export const MessageCard = memo(function MessageCard({ message, isStreaming }: M
               />
             );
           })}
+          {mcpSourcesFooter.show && <McpSourcesFooter sources={mcpSourcesFooter.sources} />}
         </div>
       )}
     </div>
