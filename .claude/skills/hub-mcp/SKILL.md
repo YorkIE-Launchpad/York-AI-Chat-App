@@ -61,26 +61,27 @@ Rules:
 
 ## Intent → tools (start here)
 
-| User intent                | Start                                                                 | Then                                                                        |
-| -------------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| Find a person / “who is”   | `list_employees` or `search_organization`                             | `get_employee_profile` / `get_employee_team`                                |
-| Company / dashboard news   | `list_announcements`                                                  | `get_announcement`; mutate only with `manage-announcements`                 |
-| Project picker             | `list_projects` (id+title)                                            | `get_project`                                                               |
-| Delivery overview          | `list_project_summaries` (`active`?)                                  | allocations / release notes / jira quality                                  |
-| Who is staffed             | `list_project_allocations`                                            | `get_project_allocation_timeline` (project id + email; **employee-scoped**) |
-| Find bench people          | `send_project_bench_suggestions_chat` or project/position bench tools | Use returned emails with employee tools                                     |
-| Log my hours               | `list_my_timesheet_drafts`                                            | `bulk_save_timesheets` → `submit_timesheet_draft`                           |
-| Approve hours              | `list_pending_timesheet_reviews`                                      | `bulk_approve_timesheets_by_filters` (`approved_by` email)                  |
-| Book leave                 | `list_my_leave_requests` / calendar                                   | `apply_for_leave`                                                           |
-| Book WFH                   | `get_wfh_summary` / calendar                                          | `apply_for_work_from_home` (`reason` ≥ 10 chars)                            |
-| Manager approval inbox     | `list_pending_leave_wfh_requests`                                     | `review_leave_request` / `review_work_from_home_request`                    |
-| Hiring pipeline            | `list_hiring_positions`                                               | candidates → interviews                                                     |
-| Team goals                 | `get_team_mbo_statuses` (year)                                        | `list_mbos` / `get_mbo`                                                     |
-| Hardware / SaaS            | `list_inventory_items` / `list_software_subscriptions`                | get + history/metrics                                                       |
-| Product idea / bug for Hub | `create_hub_request`                                                  | list/stats/upvote/comment                                                   |
-| Thank a peer               | resolve email                                                         | `send_kudos` (message + category)                                           |
-| Client / quote lookup      | `list_clients` / `list_quotations`                                    | get + items + linked projects                                               |
-| KPIs / red flags           | `get_analytics_dashboard_catalog`                                     | specific `get_*_analytics`                                                  |
+| User intent                                                 | Start                                                                 | Then                                                                                                                    |
+| ----------------------------------------------------------- | --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Find a person / “who is”                                    | `list_employees` or `search_organization`                             | `get_employee_profile` / `get_employee_team`                                                                            |
+| Calendar invite / Slack DM / kudos / any tool needing email | `list_employees` (name → **email**)                                   | Pass email to Calendar `attendees`, Slack, `send_kudos`, etc. — never ask the user for a company email when Hub matches |
+| Company / dashboard news                                    | `list_announcements`                                                  | `get_announcement`; mutate only with `manage-announcements`                                                             |
+| Project picker                                              | `list_projects` (id+title)                                            | `get_project`                                                                                                           |
+| Delivery overview                                           | `list_project_summaries` (`active`?)                                  | allocations / release notes / jira quality                                                                              |
+| Who is staffed                                              | `list_project_allocations`                                            | `get_project_allocation_timeline` (project id + email; **employee-scoped**)                                             |
+| Find bench people                                           | `send_project_bench_suggestions_chat` or project/position bench tools | Use returned emails with employee tools                                                                                 |
+| Log my hours                                                | `list_my_timesheet_drafts`                                            | `bulk_save_timesheets` → `submit_timesheet_draft`                                                                       |
+| Approve hours                                               | `list_pending_timesheet_reviews`                                      | `bulk_approve_timesheets_by_filters` (`approved_by` email)                                                              |
+| Book leave                                                  | `list_my_leave_requests` / calendar                                   | `apply_for_leave`                                                                                                       |
+| Book WFH                                                    | `get_wfh_summary` / calendar                                          | `apply_for_work_from_home` (`reason` ≥ 10 chars)                                                                        |
+| Manager approval inbox                                      | `list_pending_leave_wfh_requests`                                     | `review_leave_request` / `review_work_from_home_request`                                                                |
+| Hiring pipeline                                             | `list_hiring_positions`                                               | candidates → interviews                                                                                                 |
+| Team goals                                                  | `get_team_mbo_statuses` (year)                                        | `list_mbos` / `get_mbo`                                                                                                 |
+| Hardware / SaaS                                             | `list_inventory_items` / `list_software_subscriptions`                | get + history/metrics                                                                                                   |
+| Product idea / bug for Hub                                  | `create_hub_request`                                                  | list/stats/upvote/comment                                                                                               |
+| Thank a peer                                                | resolve email                                                         | `send_kudos` (message + category)                                                                                       |
+| Client / quote lookup                                       | `list_clients` / `list_quotations`                                    | get + items + linked projects                                                                                           |
+| KPIs / red flags                                            | `get_analytics_dashboard_catalog`                                     | specific `get_*_analytics`                                                                                              |
 
 ## Domain semantics LLMs must know
 
@@ -152,7 +153,8 @@ Rules:
 
 ## Workflow checklists
 
-**Resolve person:** search/list → use **email** everywhere downstream.
+**Resolve person:** search/list → use **email** everywhere downstream
+(including Google Calendar `create_event` `attendees`, Slack, kudos).
 
 **Timesheet week:** drafts → bulk save → optional AI → submit → (manager)
 pending → bulk approve.

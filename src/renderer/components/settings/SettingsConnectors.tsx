@@ -442,7 +442,7 @@ export function SettingsConnectors({ isActive }: { isActive: boolean }) {
                         : connector.connectorId === 'zoom'
                           ? 'Connect Zoom to auto-capture meetings with speaker names'
                           : connector.connectorId === 'google'
-                            ? 'Gmail, Drive, and Calendar (read-only)'
+                            ? 'Gmail, Drive, and Calendar (create/update events with approval)'
                             : 'Read-only OAuth connector'}
                     </p>
                   </div>

@@ -226,7 +226,7 @@ async function main() {
       {
         name: 'create_event',
         description:
-          'Create a Google Calendar event on the primary calendar. Requires user approval.',
+          'Create a Google Calendar event on the primary calendar (may prompt for permission).',
         inputSchema: {
           type: 'object',
           properties: {
@@ -251,7 +251,8 @@ async function main() {
       },
       {
         name: 'update_event',
-        description: 'Update fields on an existing Google Calendar event. Requires user approval.',
+        description:
+          'Update fields on an existing Google Calendar event (may prompt for permission).',
         inputSchema: {
           type: 'object',
           properties: {
@@ -271,7 +272,7 @@ async function main() {
       },
       {
         name: 'delete_event',
-        description: 'Delete a Google Calendar event by id. Requires user approval.',
+        description: 'Delete a Google Calendar event by id (may prompt for permission).',
         inputSchema: {
           type: 'object',
           properties: {
