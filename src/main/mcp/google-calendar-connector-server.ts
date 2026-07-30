@@ -5,16 +5,71 @@ if (!accessToken) {
   throw new Error('GOOGLE_ACCESS_TOKEN is required for Google Calendar connector MCP');
 }
 
-async function fetchJson(url: string): Promise<Record<string, unknown>> {
+type CalendarFetchOptions = {
+  method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
+  body?: unknown;
+};
+
+const ALL_DAY_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function formatCalendarError(status: number, message: string, context: string): Error {
+  const lower = message.toLowerCase();
+  if (
+    status === 401 ||
+    status === 403 ||
+    lower.includes('insufficient') ||
+    lower.includes('insufficient authentication') ||
+    lower.includes('access not configured') ||
+    lower.includes('request had insufficient authentication scopes')
+  ) {
+    return new Error(
+      `${context} failed because the Google connector needs to be reconnected with Calendar events access.`
+    );
+  }
+  return new Error(`${context} failed: ${message || 'unknown_error'}`);
+}
+
+async function fetchJson(
+  url: string,
+  options: CalendarFetchOptions = {}
+): Promise<Record<string, unknown>> {
   const response = await fetch(url, {
-    headers: { Authorization: `Bearer ${accessToken}` },
+    method: options.method ?? 'GET',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      ...(options.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+    },
+    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
   });
-  const payload = (await response.json()) as Record<string, unknown>;
+
+  const rawText = await response.text();
+  let payload: Record<string, unknown> = {};
+  if (rawText.trim()) {
+    try {
+      payload = JSON.parse(rawText) as Record<string, unknown>;
+    } catch {
+      if (!response.ok) {
+        throw formatCalendarError(
+          response.status,
+          rawText || response.statusText || 'Calendar API request failed',
+          'Calendar API request'
+        );
+      }
+      throw new Error('Calendar API returned a non-JSON response.');
+    }
+  }
+
   if (!response.ok) {
     const error = payload.error as { message?: string } | undefined;
-    throw new Error(error?.message || response.statusText || 'Calendar API request failed');
+    const message = error?.message || response.statusText || 'Calendar API request failed';
+    throw formatCalendarError(response.status, message, 'Calendar API request');
   }
+
   return payload;
+}
+
+function optionalString(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
 }
 
 function eventStartMs(event: Record<string, unknown>): number | undefined {
@@ -58,6 +113,67 @@ function buildEnvelope(input: {
   };
 }
 
+function parseEventBoundary(value: string): { date: string } | { dateTime: string } {
+  if (ALL_DAY_DATE_RE.test(value)) {
+    return { date: value };
+  }
+  const ms = Date.parse(value);
+  if (!Number.isFinite(ms)) {
+    throw new Error(
+      `Invalid calendar time "${value}". Use ISO 8601 dateTime or YYYY-MM-DD for all-day.`
+    );
+  }
+  return { dateTime: value };
+}
+
+function parseAttendees(value: unknown): Array<{ email: string }> | undefined {
+  const emails: string[] = [];
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const email = optionalString(item);
+      if (email) emails.push(email);
+    }
+  } else {
+    const raw = optionalString(value);
+    if (raw) {
+      for (const part of raw.split(',')) {
+        const email = part.trim();
+        if (email) emails.push(email);
+      }
+    }
+  }
+  if (emails.length === 0) return undefined;
+  return emails.map((email) => ({ email }));
+}
+
+function buildEventBody(
+  args: Record<string, unknown>,
+  requireBounds: boolean
+): Record<string, unknown> {
+  const body: Record<string, unknown> = {};
+  const summary = optionalString(args.summary);
+  const description = optionalString(args.description);
+  const location = optionalString(args.location);
+  const start = optionalString(args.start);
+  const end = optionalString(args.end);
+  const attendees = parseAttendees(args.attendees);
+
+  if (summary) body.summary = summary;
+  if (description) body.description = description;
+  if (location) body.location = location;
+  if (attendees) body.attendees = attendees;
+
+  if (requireBounds) {
+    if (!start) throw new Error('Calendar event start is required.');
+    if (!end) throw new Error('Calendar event end is required.');
+  }
+
+  if (start) body.start = parseEventBoundary(start);
+  if (end) body.end = parseEventBoundary(end);
+
+  return body;
+}
+
 async function main() {
   await startConnectorMcpServer({
     serverName: 'google-calendar-connector-server',
@@ -99,6 +215,63 @@ async function main() {
       {
         name: 'get_event',
         description: 'Read a Google Calendar event by event id from the primary calendar.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            event_id: { type: 'string' },
+          },
+          required: ['event_id'],
+        },
+      },
+      {
+        name: 'create_event',
+        description:
+          'Create a Google Calendar event on the primary calendar. Requires user approval.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            summary: { type: 'string', description: 'Event title.' },
+            start: {
+              type: 'string',
+              description: 'Start time (ISO 8601) or all-day date (YYYY-MM-DD).',
+            },
+            end: {
+              type: 'string',
+              description: 'End time (ISO 8601) or all-day end date (YYYY-MM-DD).',
+            },
+            description: { type: 'string' },
+            location: { type: 'string' },
+            attendees: {
+              type: 'string',
+              description: 'Optional attendee emails, comma-separated.',
+            },
+          },
+          required: ['summary', 'start', 'end'],
+        },
+      },
+      {
+        name: 'update_event',
+        description: 'Update fields on an existing Google Calendar event. Requires user approval.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            event_id: { type: 'string' },
+            summary: { type: 'string' },
+            start: { type: 'string' },
+            end: { type: 'string' },
+            description: { type: 'string' },
+            location: { type: 'string' },
+            attendees: {
+              type: 'string',
+              description: 'Optional attendee emails, comma-separated.',
+            },
+          },
+          required: ['event_id'],
+        },
+      },
+      {
+        name: 'delete_event',
+        description: 'Delete a Google Calendar event by id. Requires user approval.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -209,6 +382,58 @@ async function main() {
           occurredAt: eventStartMs(payload) ?? Date.now(),
           keywords: ['calendar', 'event', title],
         });
+      },
+      create_event: async (args) => {
+        const summary = optionalString(args.summary);
+        if (!summary) {
+          throw new Error('Calendar event summary is required.');
+        }
+        const eventBody = buildEventBody({ ...args, summary }, true);
+        const payload = await fetchJson(
+          'https://www.googleapis.com/calendar/v3/calendars/primary/events',
+          { method: 'POST', body: eventBody }
+        );
+        return {
+          ok: true,
+          event_id: typeof payload.id === 'string' ? payload.id : null,
+          html_link: typeof payload.htmlLink === 'string' ? payload.htmlLink : null,
+          summary: typeof payload.summary === 'string' ? payload.summary : summary,
+        };
+      },
+      update_event: async (args) => {
+        const eventId = optionalString(args.event_id);
+        if (!eventId) {
+          throw new Error('Calendar event_id is required.');
+        }
+        const eventBody = buildEventBody(args, false);
+        if (Object.keys(eventBody).length === 0) {
+          throw new Error('Provide at least one field to update on the calendar event.');
+        }
+        const payload = await fetchJson(
+          `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}`,
+          { method: 'PATCH', body: eventBody }
+        );
+        return {
+          ok: true,
+          event_id: typeof payload.id === 'string' ? payload.id : eventId,
+          html_link: typeof payload.htmlLink === 'string' ? payload.htmlLink : null,
+          summary: typeof payload.summary === 'string' ? payload.summary : null,
+        };
+      },
+      delete_event: async (args) => {
+        const eventId = optionalString(args.event_id);
+        if (!eventId) {
+          throw new Error('Calendar event_id is required.');
+        }
+        await fetchJson(
+          `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}`,
+          { method: 'DELETE' }
+        );
+        return {
+          ok: true,
+          event_id: eventId,
+          deleted: true,
+        };
       },
     },
   });

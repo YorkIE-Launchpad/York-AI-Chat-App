@@ -19,19 +19,19 @@ workflows: load `hub-mcp` or `rnd-launchpad-mcp-sdlc` after routing here.
 
 ## Platform map
 
-| System              | What it holds                                                              | How to use                                                                |
-| ------------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| **Hub**             | People, culture, HR ops (employees, leave, timesheets, allocations, kudos) | Hub MCP → follow `hub-mcp`                                                |
-| **R&D Launchpad**   | Client SaaS build & delivery (releases, features, bugs, QA)                | Launchpad MCP → follow `rnd-launchpad-mcp-sdlc`                           |
-| **R&D Pulse**       | Analytics for that R&D product/project                                     | R&D Pulse MCP                                                             |
-| **GTM Pulse**       | GTM / go-to-market analytics                                               | GTM Pulse MCP                                                             |
-| **Slack**           | Chat, DMs, threads                                                         | MCP: `search_messages`, `get_thread`, `get_channel_history`, `get_user`   |
-| **Gmail**           | Email                                                                      | MCP: `search_emails`, `get_email`                                         |
-| **Drive**           | Docs, decks, shared files                                                  | MCP: `search_files`, `get_document_content`, …                            |
-| **Google Calendar** | Calendar events                                                            | MCP: `list_events`, `search_events`, `get_event` (needs Google connector) |
-| **Jira**            | Issues, projects, JQL                                                      | Official Atlassian MCP (enable Jira connector)                            |
-| **Confluence**      | Pages, spaces, CQL                                                         | Official Atlassian MCP (enable Confluence connector)                      |
-| **Meetings**        | Captured Zoom/meeting notes & transcripts                                  | First-party: `meeting_search`, `meeting_read` (not MCP)                   |
+| System              | What it holds                                                              | How to use                                                                                                                                                                             |
+| ------------------- | -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Hub**             | People, culture, HR ops (employees, leave, timesheets, allocations, kudos) | Hub MCP → follow `hub-mcp`                                                                                                                                                             |
+| **R&D Launchpad**   | Client SaaS build & delivery (releases, features, bugs, QA)                | Launchpad MCP → follow `rnd-launchpad-mcp-sdlc`                                                                                                                                        |
+| **R&D Pulse**       | Analytics for that R&D product/project                                     | R&D Pulse MCP                                                                                                                                                                          |
+| **GTM Pulse**       | GTM / go-to-market analytics                                               | GTM Pulse MCP                                                                                                                                                                          |
+| **Slack**           | Chat, DMs, threads                                                         | MCP: `search_messages`, `get_thread`, `get_channel_history`, `get_user`; write: `post_message` (ask)                                                                                   |
+| **Gmail**           | Email                                                                      | MCP: `search_emails`, `get_email`; write: `send_email`, `create_draft`, `update_draft` (ask)                                                                                           |
+| **Drive**           | Docs, decks, shared files                                                  | MCP: `search_files`, `get_document_content`, …; write: `create_document`, `update_document_content`, `create_folder` (ask)                                                             |
+| **Google Calendar** | Calendar events                                                            | MCP: `list_events`, `search_events`, `get_event`; write: `create_event`, `update_event`, `delete_event` (ask)                                                                          |
+| **Jira**            | Issues, projects, JQL                                                      | MCP: `getJiraIssue`, `searchJiraIssuesUsingJql`, …; write: `createJiraIssue`, `editJiraIssue`, `transitionJiraIssue`, `addCommentToJiraIssue`, `addWorklogToJiraIssue` (ask)           |
+| **Confluence**      | Pages, spaces, CQL                                                         | MCP: `getConfluencePage`, `searchConfluenceUsingCql`, …; write: `createConfluencePage`, `updateConfluencePage`, `createConfluenceFooterComment`, `createConfluenceInlineComment` (ask) |
+| **Meetings**        | Captured Zoom/meeting notes & transcripts                                  | First-party: `meeting_search`, `meeting_read` (not MCP)                                                                                                                                |
 
 GTM Launchpad is not in the MCP catalog — do not invent tools for it.
 

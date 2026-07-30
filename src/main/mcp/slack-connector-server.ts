@@ -265,6 +265,26 @@ async function main() {
           required: ['user_id'],
         },
       },
+      {
+        name: 'post_message',
+        description:
+          'Post a message to a Slack channel or reply in a thread. Requires user approval.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            channel: {
+              type: 'string',
+              description: 'Channel name (e.g. general) or ID (e.g. C0123…).',
+            },
+            text: { type: 'string', description: 'Message text to post.' },
+            thread_ts: {
+              type: 'string',
+              description: 'Optional parent message timestamp to reply in that thread.',
+            },
+          },
+          required: ['channel', 'text'],
+        },
+      },
     ],
     handlers: {
       list_channels: async (args) => {
@@ -412,6 +432,36 @@ async function main() {
           occurredAt: Date.now(),
           keywords: ['slack', 'user', userId],
         });
+      },
+      post_message: async (args) => {
+        const text = String(args.text || '').trim();
+        if (!text) {
+          throw new Error('Slack message text is required.');
+        }
+        const threadTs = typeof args.thread_ts === 'string' ? args.thread_ts.trim() : '';
+        const channel = await resolveChannel(String(args.channel || ''));
+        const channelLabel = formatChannelLabel({
+          id: channel.id,
+          name: channel.name,
+          is_private: channel.isPrivate,
+        });
+        let response;
+        try {
+          response = await client.chat.postMessage({
+            channel: channel.id,
+            text,
+            ...(threadTs ? { thread_ts: threadTs } : {}),
+          });
+        } catch (error) {
+          throw formatSlackError(error, `Posting Slack message to ${channelLabel}`);
+        }
+        return {
+          ok: true,
+          channel: channel.id,
+          channel_label: channelLabel,
+          ts: response.ts ?? null,
+          ...(threadTs ? { thread_ts: threadTs } : {}),
+        };
       },
     },
   });

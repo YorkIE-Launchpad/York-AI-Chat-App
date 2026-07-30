@@ -20,8 +20,11 @@ import type {
 
 const GOOGLE_SCOPES = [
   'https://www.googleapis.com/auth/gmail.readonly',
+  'https://www.googleapis.com/auth/gmail.compose',
   'https://www.googleapis.com/auth/drive.readonly',
-  'https://www.googleapis.com/auth/calendar.readonly',
+  'https://www.googleapis.com/auth/drive.file',
+  'https://www.googleapis.com/auth/documents',
+  'https://www.googleapis.com/auth/calendar.events',
 ];
 const SLACK_SCOPES = [
   'channels:read',
@@ -35,6 +38,7 @@ const SLACK_SCOPES = [
   'search:read',
   'users:read',
   'users:read.email',
+  'chat:write',
 ];
 /** Zoom General App scopes for identity, live meetings, and RTMS start. */
 const ZOOM_SCOPES = [

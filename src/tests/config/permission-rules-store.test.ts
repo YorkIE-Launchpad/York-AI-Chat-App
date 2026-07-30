@@ -97,15 +97,90 @@ describe('permission-rules-store', () => {
       expect(decidePermission(SESSION_A, 'mcp__gtm_pulse__list_projects', {})).toBe('allow');
     });
 
-    it('returns allow for Slack, Gmail, Google Drive, Jira, Confluence, and Google Calendar MCP tools by default', () => {
+    it('returns allow for Slack/Gmail/Drive/Calendar/Jira/Confluence read tools by default', () => {
       expect(decidePermission(SESSION_A, 'mcp__Slack__list_channels', {})).toBe('allow');
+      expect(decidePermission(SESSION_A, 'mcp__Slack__get_channel_history', {})).toBe('allow');
+      expect(decidePermission(SESSION_A, 'mcp__Slack__search_messages', {})).toBe('allow');
+      expect(decidePermission(SESSION_A, 'mcp__Slack__get_thread', {})).toBe('allow');
+      expect(decidePermission(SESSION_A, 'mcp__Slack__get_user', {})).toBe('allow');
+      expect(decidePermission(SESSION_A, 'mcp__Gmail__search_emails', {})).toBe('allow');
       expect(decidePermission(SESSION_A, 'mcp__Gmail__get_email', {})).toBe('allow');
+      expect(decidePermission(SESSION_A, 'mcp__Gmail__list_labels', {})).toBe('allow');
+      expect(decidePermission(SESSION_A, 'mcp__Google_Drive__search_files', {})).toBe('allow');
+      expect(decidePermission(SESSION_A, 'mcp__Google_Drive__list_files', {})).toBe('allow');
+      expect(decidePermission(SESSION_A, 'mcp__Google_Drive__get_file_metadata', {})).toBe('allow');
       expect(decidePermission(SESSION_A, 'mcp__Google_Drive__get_document_content', {})).toBe(
         'allow'
       );
       expect(decidePermission(SESSION_A, 'mcp__Jira__getJiraIssue', {})).toBe('allow');
+      expect(decidePermission(SESSION_A, 'mcp__Jira__searchJiraIssuesUsingJql', {})).toBe('allow');
+      expect(decidePermission(SESSION_A, 'mcp__Jira__atlassianUserInfo', {})).toBe('allow');
+      expect(decidePermission(SESSION_A, 'mcp__Jira__getAccessibleAtlassianResources', {})).toBe(
+        'allow'
+      );
       expect(decidePermission(SESSION_A, 'mcp__Confluence__getConfluencePage', {})).toBe('allow');
+      expect(decidePermission(SESSION_A, 'mcp__Confluence__searchConfluenceUsingCql', {})).toBe(
+        'allow'
+      );
+      expect(decidePermission(SESSION_A, 'mcp__Confluence__atlassianUserInfo', {})).toBe('allow');
       expect(decidePermission(SESSION_A, 'mcp__Google_Calendar__list_events', {})).toBe('allow');
+      expect(decidePermission(SESSION_A, 'mcp__Google_Calendar__search_events', {})).toBe('allow');
+      expect(decidePermission(SESSION_A, 'mcp__Google_Calendar__get_event', {})).toBe('allow');
+    });
+
+    it('returns ask for Slack and Gmail write tools by default', () => {
+      expect(decidePermission(SESSION_A, 'mcp__Slack__post_message', { channel: 'general' })).toBe(
+        'ask'
+      );
+      expect(decidePermission(SESSION_A, 'mcp__Gmail__send_email', { to: 'a@b.com' })).toBe('ask');
+      expect(decidePermission(SESSION_A, 'mcp__Gmail__create_draft', { body: 'hi' })).toBe('ask');
+      expect(
+        decidePermission(SESSION_A, 'mcp__Gmail__update_draft', { draft_id: 'r1', body: 'hi' })
+      ).toBe('ask');
+    });
+
+    it('returns ask for Drive and Calendar write tools by default', () => {
+      expect(
+        decidePermission(SESSION_A, 'mcp__Google_Drive__create_document', { title: 'Notes' })
+      ).toBe('ask');
+      expect(
+        decidePermission(SESSION_A, 'mcp__Google_Drive__update_document_content', {
+          file_id: 'abc',
+          body: 'hi',
+        })
+      ).toBe('ask');
+      expect(
+        decidePermission(SESSION_A, 'mcp__Google_Drive__create_folder', { name: 'Folder' })
+      ).toBe('ask');
+      expect(
+        decidePermission(SESSION_A, 'mcp__Google_Calendar__create_event', {
+          summary: 'Sync',
+          start: '2026-08-01T10:00:00Z',
+          end: '2026-08-01T11:00:00Z',
+        })
+      ).toBe('ask');
+      expect(
+        decidePermission(SESSION_A, 'mcp__Google_Calendar__update_event', { event_id: 'evt1' })
+      ).toBe('ask');
+      expect(
+        decidePermission(SESSION_A, 'mcp__Google_Calendar__delete_event', { event_id: 'evt1' })
+      ).toBe('ask');
+    });
+
+    it('returns ask for Jira and Confluence write tools by default', () => {
+      expect(decidePermission(SESSION_A, 'mcp__Jira__createJiraIssue', {})).toBe('ask');
+      expect(decidePermission(SESSION_A, 'mcp__Jira__editJiraIssue', {})).toBe('ask');
+      expect(decidePermission(SESSION_A, 'mcp__Jira__transitionJiraIssue', {})).toBe('ask');
+      expect(decidePermission(SESSION_A, 'mcp__Jira__addCommentToJiraIssue', {})).toBe('ask');
+      expect(decidePermission(SESSION_A, 'mcp__Jira__addWorklogToJiraIssue', {})).toBe('ask');
+      expect(decidePermission(SESSION_A, 'mcp__Confluence__createConfluencePage', {})).toBe('ask');
+      expect(decidePermission(SESSION_A, 'mcp__Confluence__updateConfluencePage', {})).toBe('ask');
+      expect(
+        decidePermission(SESSION_A, 'mcp__Confluence__createConfluenceFooterComment', {})
+      ).toBe('ask');
+      expect(
+        decidePermission(SESSION_A, 'mcp__Confluence__createConfluenceInlineComment', {})
+      ).toBe('ask');
     });
 
     it('returns allow for OpenAI budget meta-tools by default', () => {

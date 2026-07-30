@@ -29,6 +29,72 @@ const DEFAULT_RULES: PermissionRule[] = [
 
 const VALID_ACTIONS: ReadonlySet<PermissionRule['action']> = new Set(['allow', 'deny', 'ask']);
 
+/** Slack MCP tools that may run without a permission prompt (reads only). */
+const SLACK_READ_TOOLS = new Set([
+  'mcp__slack__list_channels',
+  'mcp__slack__get_channel_history',
+  'mcp__slack__search_messages',
+  'mcp__slack__get_thread',
+  'mcp__slack__get_user',
+]);
+
+/** Gmail MCP tools that may run without a permission prompt (reads only). */
+const GMAIL_READ_TOOLS = new Set([
+  'mcp__gmail__search_emails',
+  'mcp__gmail__get_email',
+  'mcp__gmail__list_labels',
+]);
+
+/** Google Drive MCP tools that may run without a permission prompt (reads only). */
+const DRIVE_READ_TOOLS = new Set([
+  'mcp__google_drive__search_files',
+  'mcp__google_drive__list_files',
+  'mcp__google_drive__get_file_metadata',
+  'mcp__google_drive__get_document_content',
+]);
+
+/** Google Calendar MCP tools that may run without a permission prompt (reads only). */
+const CALENDAR_READ_TOOLS = new Set([
+  'mcp__google_calendar__list_events',
+  'mcp__google_calendar__search_events',
+  'mcp__google_calendar__get_event',
+]);
+
+/** Shared Atlassian Rovo discovery tools exposed on both Jira and Confluence servers. */
+const ATLASSIAN_SHARED_READ_SUFFIXES = [
+  'atlassianuserinfo',
+  'getaccessibleatlassianresources',
+  'searchatlassian',
+  'fetchatlassian',
+] as const;
+
+/** Jira MCP tools that may run without a permission prompt (reads / search only). */
+const JIRA_READ_TOOLS = new Set([
+  ...ATLASSIAN_SHARED_READ_SUFFIXES.map((name) => `mcp__jira__${name}`),
+  'mcp__jira__getjiraissue',
+  'mcp__jira__getjiraissueremoteissuelinks',
+  'mcp__jira__getjiraissuetypemetawithfields',
+  'mcp__jira__getjiraprojectissuetypesmetadata',
+  'mcp__jira__getissuelinktypes',
+  'mcp__jira__gettransitionsforjiraissue',
+  'mcp__jira__getvisiblejiraprojects',
+  'mcp__jira__lookupjiraaccountid',
+  'mcp__jira__searchjiraissuesusingjql',
+]);
+
+/** Confluence MCP tools that may run without a permission prompt (reads / search only). */
+const CONFLUENCE_READ_TOOLS = new Set([
+  ...ATLASSIAN_SHARED_READ_SUFFIXES.map((name) => `mcp__confluence__${name}`),
+  'mcp__confluence__getconfluencepage',
+  'mcp__confluence__getconfluencepagedescendants',
+  'mcp__confluence__getconfluencepagefootercomments',
+  'mcp__confluence__getconfluencepageinlinecomments',
+  'mcp__confluence__getconfluencecommentchildren',
+  'mcp__confluence__getconfluencespaces',
+  'mcp__confluence__getpagesinconfluencespace',
+  'mcp__confluence__searchconfluenceusingcql',
+]);
+
 let rules: PermissionRule[] = [...DEFAULT_RULES];
 
 /** Session-scoped "always allow" decisions, keyed by sessionId → set of lowercase tool names. */
@@ -83,7 +149,7 @@ export function getPermissionRules(): PermissionRule[] {
  *      R&D Launchpad MCP tools (`mcp__R_D_Launchpad__*` / legacy `mcp__Launchpad__*`),
  *      York IE HUB MCP tools (`mcp__York_IE_HUB__*` / legacy `mcp__Hub__*`),
  *      GTM Pulse MCP tools (`mcp__GTM_Pulse__*`),
- *      Slack / Gmail / Google Drive / Jira / Confluence / Google Calendar MCP tools,
+ *      Slack / Gmail / Drive / Calendar / Jira / Confluence read tools (see allowlists below; write tools ask),
  *      OpenAI budget meta-tools (`mcp_run`, and child-only `mcp_search_tools` / `mcp_call_tool`),
  *      first-party meeting tools (`meeting_search`, `meeting_read`),
  *      and the first-party `webfetch` tool
@@ -113,8 +179,9 @@ export function decidePermission(
   }
 
   // Built-in default: Chrome / R&D Launchpad / R&D Pulse / York IE HUB / GTM Pulse /
-  // Slack / Gmail / Drive / Jira / Confluence / Google Calendar MCP tools,
+  // Slack / Gmail / Drive / Calendar / Jira / Confluence read tools,
   // first-party meeting tools, and webfetch run without a permission prompt.
+  // Slack / Gmail / Drive / Calendar / Jira / Confluence write tools fall through to 'ask'.
   // Explicit rules for a specific tool still win above.
   // Legacy Launchpad/Hub prefixes are kept so older connector names keep working.
   if (lowered.startsWith('mcp__chrome__')) return 'allow';
@@ -124,12 +191,12 @@ export function decidePermission(
   if (lowered.startsWith('mcp__york_ie_hub__')) return 'allow';
   if (lowered.startsWith('mcp__hub__')) return 'allow';
   if (lowered.startsWith('mcp__gtm_pulse__')) return 'allow';
-  if (lowered.startsWith('mcp__slack__')) return 'allow';
-  if (lowered.startsWith('mcp__gmail__')) return 'allow';
-  if (lowered.startsWith('mcp__google_drive__')) return 'allow';
-  if (lowered.startsWith('mcp__jira__')) return 'allow';
-  if (lowered.startsWith('mcp__confluence__')) return 'allow';
-  if (lowered.startsWith('mcp__google_calendar__')) return 'allow';
+  if (SLACK_READ_TOOLS.has(lowered)) return 'allow';
+  if (GMAIL_READ_TOOLS.has(lowered)) return 'allow';
+  if (DRIVE_READ_TOOLS.has(lowered)) return 'allow';
+  if (JIRA_READ_TOOLS.has(lowered)) return 'allow';
+  if (CONFLUENCE_READ_TOOLS.has(lowered)) return 'allow';
+  if (CALENDAR_READ_TOOLS.has(lowered)) return 'allow';
   if (lowered === 'meeting_search') return 'allow';
   if (lowered === 'meeting_read') return 'allow';
   if (lowered === 'webfetch') return 'allow';
