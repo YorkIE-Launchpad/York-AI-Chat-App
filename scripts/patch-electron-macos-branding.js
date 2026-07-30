@@ -5,14 +5,16 @@
  *
  * Info.plist CFBundle* alone is not enough: macOS often keeps the display
  * name from the filesystem name `Electron.app`. This script renames the
- * bundle, updates electron's path.txt, replaces the icon, and re-registers
- * the app with Launch Services.
+ * bundle, updates electron's path.txt, replaces the icon, re-signs ad-hoc
+ * (required for Electron 41+ OS notifications), and re-registers the app
+ * with Launch Services.
  */
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync, spawnSync } = require('node:child_process');
 
 const PRODUCT_NAME = 'York IE VECOS';
+const BUNDLE_ID = 'ie.york.vecos.dev';
 const BUNDLE_NAME = `${PRODUCT_NAME}.app`;
 const ROOT = path.resolve(__dirname, '..');
 const ELECTRON_DIR = path.join(ROOT, 'node_modules', 'electron');
@@ -68,7 +70,7 @@ if (fs.existsSync(ICON_SRC)) {
 plutilReplace(infoPlist, 'CFBundleDisplayName', PRODUCT_NAME);
 plutilReplace(infoPlist, 'CFBundleName', PRODUCT_NAME);
 // Distinct id so Launch Services does not keep serving cached "Electron" metadata
-plutilReplace(infoPlist, 'CFBundleIdentifier', 'ie.york.vecos.dev');
+plutilReplace(infoPlist, 'CFBundleIdentifier', BUNDLE_ID);
 
 const MEETING_USAGE = {
   NSMicrophoneUsageDescription:
@@ -83,6 +85,37 @@ for (const [key, value] of Object.entries(MEETING_USAGE)) {
 }
 
 fs.writeFileSync(PATH_TXT, `${BUNDLE_NAME}/Contents/MacOS/Electron`, 'utf8');
+
+// Electron 41+ uses UNNotification, which requires a valid code signature.
+// Patching Info.plist / icon invalidates the stock signature — re-sign ad-hoc.
+function resignBrandedApp(bundlePath) {
+  try {
+    execFileSync(
+      'codesign',
+      ['--force', '--deep', '--sign', '-', '--identifier', BUNDLE_ID, bundlePath],
+      { stdio: 'inherit' }
+    );
+  } catch (error) {
+    console.error('[brand:electron] codesign failed — OS notifications will not work in dev:', error);
+    process.exitCode = 1;
+    return false;
+  }
+
+  try {
+    execFileSync('codesign', ['--verify', '--verbose=2', bundlePath], { stdio: 'inherit' });
+    console.log(`[brand:electron] codesign ok (${BUNDLE_ID})`);
+    return true;
+  } catch (error) {
+    console.error(
+      '[brand:electron] codesign verify failed — OS notifications will not work in dev:',
+      error
+    );
+    process.exitCode = 1;
+    return false;
+  }
+}
+
+resignBrandedApp(appBundle);
 
 // Refresh Launch Services + Spotlight metadata for this bundle.
 // Without unregister/re-register, macOS often keeps serving cached "Electron".

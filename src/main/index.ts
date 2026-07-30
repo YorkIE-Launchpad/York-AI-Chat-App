@@ -714,7 +714,11 @@ function showMeetingOsNotification(options: { title: string; body: string }): vo
       }
     });
     notification.on('failed', (event, error) => {
-      logWarn('[Meetings] OS notification failed', error || event);
+      logWarn(
+        '[Meetings] OS notification failed — on macOS Electron 41+ requires a valid code signature ' +
+          '(dev: npm run brand:electron re-signs the host) and Notification Center permission for this app',
+        error || event
+      );
       retainedMeetingNotifications.delete(notification);
     });
     notification.on('close', () => {
