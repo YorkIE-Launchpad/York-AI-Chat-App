@@ -339,7 +339,7 @@ async function waitForDevServer(url: string, maxAttempts = 30, intervalMs = 500)
 // without the old process blocking the new one during async cleanup.
 const isDev = !!process.env.VITE_DEV_SERVER_URL;
 const ELECTRON_DEVTOOLS_DEBUG_PORT = '9223';
-const PRODUCT_NAME = 'York IE VECOS';
+const PRODUCT_NAME = 'York WorkOS';
 
 function resolveResourcePath(...parts: string[]): string {
   return app.isPackaged
@@ -1963,7 +1963,7 @@ app
     logError('[App] Startup failed:', error);
     const message = error instanceof Error ? error.message : 'Unknown startup error';
     dialog.showErrorBox(
-      'York IE VECOS failed to start',
+      'York WorkOS failed to start',
       `${message}\n\nPlease check the logs for more information.`
     );
     app.quit();

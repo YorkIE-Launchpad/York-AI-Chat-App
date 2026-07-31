@@ -4,8 +4,9 @@
  * Uses Hub Nest user APIs (Cognito access JWT) — not /api/external/v2
  * (those are M2M / x-api-key only and reject Cognito with 401).
  *
- * Primary: GET /api/users/:email/allocated-projects
- * Fallback: GET /api/projects/external/list (roles + allocations)
+ * Primary: GET /api/projects/list
+ * Fallback: GET /api/users/:email/allocated-projects
+ * After primary fails once (401/403/empty/non-ok), skip primary for 10m and always use fallback.
  */
 import { authConfig } from '../../shared/auth-config';
 import type { AllocatedHubProject } from '../../shared/workspace-division';
@@ -13,6 +14,9 @@ import { ensureAuthenticatedSession } from '../auth/session';
 import { log, logWarn } from '../utils/logger';
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
+const PRIMARY_SKIP_TTL_MS = 10 * 60 * 1000;
+
+const PROJECTS_LIST = '/api/projects/list';
 
 type FetchFn = typeof fetch;
 
@@ -32,10 +36,33 @@ interface CacheEntry {
   email: string;
 }
 
+/** Per-email: skip /api/projects/list until this timestamp. */
+const primarySkipUntilByEmail = new Map<string, number>();
+
 let cache: CacheEntry | null = null;
 
 export function clearHubAllocationsCache(): void {
   cache = null;
+  primarySkipUntilByEmail.clear();
+}
+
+/** Test helper — clear primary-skip state. */
+export function clearPrimarySkipCache(): void {
+  primarySkipUntilByEmail.clear();
+}
+
+/** Test helper — whether primary is currently skipped for an email. */
+export function isPrimaryProjectsListSkipped(email: string, now = Date.now()): boolean {
+  const until = primarySkipUntilByEmail.get(email.trim().toLowerCase());
+  return typeof until === 'number' && now < until;
+}
+
+function markPrimarySkip(email: string, now = Date.now()): void {
+  primarySkipUntilByEmail.set(email.trim().toLowerCase(), now + PRIMARY_SKIP_TTL_MS);
+}
+
+function clearPrimarySkip(email: string): void {
+  primarySkipUntilByEmail.delete(email.trim().toLowerCase());
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -99,7 +126,7 @@ export function normalizeAllocatedProject(row: unknown): AllocatedHubProject | n
   const id =
     stringField(record, 'id', 'projectId', 'hubProjectId', 'clientProjectId') ||
     (nested ? stringField(nested, 'id', 'projectId', 'hubProjectId') : null);
-  // Prefer explicit `name` (EIP). Hub allocated-projects uses `title` as project name.
+  // Prefer explicit `name` (EIP). Hub allocated-projects / list uses `title` as project name.
   const hasExplicitName = Boolean(stringField(record, 'name', 'projectName', 'hubProjectName'));
   const name =
     stringField(record, 'name', 'projectName', 'hubProjectName') ||
@@ -130,7 +157,7 @@ export function dedupeAllocatedProjects(projects: AllocatedHubProject[]): Alloca
   return Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/** Parse GET /api/users/:email/allocated-projects envelope. */
+/** Parse GET /api/projects/list or /api/users/:email/allocated-projects envelope. */
 export function parseUserAllocatedProjects(payload: unknown): AllocatedHubProject[] {
   const projects = unwrapDataArray(payload)
     .map((row) => normalizeAllocatedProject(row))
@@ -139,8 +166,7 @@ export function parseUserAllocatedProjects(payload: unknown): AllocatedHubProjec
 }
 
 /**
- * Parse GET /api/projects/external/list (projects where user is role-holder or allocated).
- * Also accepts legacy clients/with-allocations shapes for tests.
+ * Parse GET /api/projects/external/list (legacy) and clients/with-allocations shapes for tests.
  */
 export function parseClientsWithAllocations(payload: unknown): AllocatedHubProject[] {
   const root = asRecord(payload) || {};
@@ -251,55 +277,84 @@ function allocatedProjectsPath(email: string): string {
   return `/api/users/${encodeURIComponent(email)}/allocated-projects`;
 }
 
-const PROJECTS_EXTERNAL_LIST = '/api/projects/external/list';
+async function hubGetWithTokenRetry(
+  path: string,
+  token: string,
+  alternateToken: string | null,
+  fetchFn: FetchFn
+): Promise<{ ok: boolean; status: number; json: unknown }> {
+  let result = await hubGet(path, token, fetchFn);
+  if ((!result.ok || result.status === 401 || result.status === 403) && alternateToken) {
+    logWarn('[HubAllocations]', path, 'failed with primary token — retrying alternate');
+    result = await hubGet(path, alternateToken, fetchFn);
+  }
+  return result;
+}
 
-/** Fetch + parse allocated projects (testable without Electron session). */
+async function fetchAllocatedProjectsFallback(input: {
+  token: string;
+  email: string;
+  alternateToken: string | null;
+  fetchFn: FetchFn;
+}): Promise<AllocatedHubProject[]> {
+  const path = allocatedProjectsPath(input.email);
+  const result = await hubGetWithTokenRetry(path, input.token, input.alternateToken, input.fetchFn);
+
+  if (result.ok && isSuccessEnvelope(result.json)) {
+    return parseUserAllocatedProjects(result.json);
+  }
+
+  throw new HubAllocationsError(
+    result.status || 502,
+    result.status === 401
+      ? `Hub rejected Cognito access token for ${path} (401). Try signing out and back in.`
+      : 'Failed to load Hub project allocations'
+  );
+}
+
+/**
+ * Fetch + parse allocated projects (testable without Electron session).
+ * Primary /api/projects/list; on fail/empty mark skip and use allocated-projects.
+ */
 export async function fetchAllocatedProjectsForUser(input: {
   token: string;
   email: string;
   alternateToken?: string | null;
   fetchFn?: FetchFn;
+  /** When true, ignore primary-skip and try /api/projects/list again. */
+  forcePrimary?: boolean;
 }): Promise<AllocatedHubProject[]> {
   const fetchFn = input.fetchFn ?? fetch;
-  const { token, email, alternateToken = null } = input;
-  const path = allocatedProjectsPath(email);
+  const { token, email, alternateToken = null, forcePrimary = false } = input;
+  const skipPrimary = !forcePrimary && isPrimaryProjectsListSkipped(email);
 
-  let primary = await hubGet(path, token, fetchFn);
-  if ((!primary.ok || primary.status === 401) && alternateToken) {
-    logWarn('[HubAllocations] allocated-projects failed with primary token — retrying alternate');
-    primary = await hubGet(path, alternateToken, fetchFn);
+  if (!skipPrimary) {
+    const primary = await hubGetWithTokenRetry(PROJECTS_LIST, token, alternateToken, fetchFn);
+    if (primary.ok && isSuccessEnvelope(primary.json)) {
+      const projects = parseUserAllocatedProjects(primary.json);
+      if (projects.length > 0) {
+        clearPrimarySkip(email);
+        return projects;
+      }
+      logWarn('[HubAllocations] /api/projects/list returned 0 projects — using allocated-projects');
+    } else {
+      logWarn(
+        '[HubAllocations] /api/projects/list failed:',
+        primary.status,
+        '— using allocated-projects'
+      );
+    }
+    markPrimarySkip(email);
+  } else {
+    log('[HubAllocations] Skipping /api/projects/list (cached failure) — allocated-projects only');
   }
 
-  if (primary.ok && isSuccessEnvelope(primary.json)) {
-    return parseUserAllocatedProjects(primary.json);
-  }
-
-  if (primary.status === 401) {
-    throw new HubAllocationsError(
-      401,
-      `Hub rejected Cognito access token for ${path} (401). Try signing out and back in.`
-    );
-  }
-
-  logWarn(
-    '[HubAllocations] allocated-projects failed:',
-    primary.status,
-    '— trying /api/projects/external/list'
-  );
-
-  let fallback = await hubGet(PROJECTS_EXTERNAL_LIST, token, fetchFn);
-  if ((!fallback.ok || fallback.status === 401) && alternateToken) {
-    fallback = await hubGet(PROJECTS_EXTERNAL_LIST, alternateToken, fetchFn);
-  }
-
-  if (!fallback.ok || !isSuccessEnvelope(fallback.json)) {
-    throw new HubAllocationsError(
-      fallback.status || primary.status || 502,
-      'Failed to load Hub project allocations'
-    );
-  }
-
-  return parseClientsWithAllocations(fallback.json);
+  return fetchAllocatedProjectsFallback({
+    token,
+    email,
+    alternateToken,
+    fetchFn,
+  });
 }
 
 export async function listAllocatedProjects(options?: {
@@ -318,6 +373,10 @@ export async function listAllocatedProjects(options?: {
         : accessToken
       : null;
 
+  if (options?.forceRefresh) {
+    clearPrimarySkip(email);
+  }
+
   if (
     !options?.forceRefresh &&
     cache &&
@@ -332,12 +391,13 @@ export async function listAllocatedProjects(options?: {
     alternateToken,
     email,
     fetchFn,
+    forcePrimary: Boolean(options?.forceRefresh),
   });
   cache = { projects, fetchedAt: Date.now(), email: email.toLowerCase() };
   log(
     '[HubAllocations] Loaded',
     projects.length,
-    'projects via /api/users/.../allocated-projects for',
+    'projects for',
     email,
     `@ ${authConfig.hubApiUrl}`
   );

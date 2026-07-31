@@ -794,7 +794,7 @@ export function WelcomeView() {
             />
             <div className="text-left">
               <h1 className="text-[2.35rem] md:text-[3.1rem] leading-none font-semibold tracking-[-0.05em] text-text-primary">
-                York IE VECOS
+                York WorkOS
               </h1>
             </div>
           </div>

@@ -276,7 +276,7 @@ export async function createOAuthCallbackListener(
       settled = true;
       response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       response.end(
-        buildOAuthSuccessHtml('Authorization complete', 'You can return to York IE VECOS now.')
+        buildOAuthSuccessHtml('Authorization complete', 'You can return to York WorkOS now.')
       );
       resolveCode(authorizationCode);
       void closeServer(server);

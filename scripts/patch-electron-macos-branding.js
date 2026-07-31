@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Patch the local Electron macOS host so Dock / Cmd-Tab / menu bar show
- * "York IE VECOS" during `npm run dev`.
+ * "York WorkOS" during `npm run dev`.
  *
  * Info.plist CFBundle* alone is not enough: macOS often keeps the display
  * name from the filesystem name `Electron.app`. This script renames the
@@ -13,7 +13,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync, spawnSync } = require('node:child_process');
 
-const PRODUCT_NAME = 'York IE VECOS';
+const PRODUCT_NAME = 'York WorkOS';
 const BUNDLE_ID = 'ie.york.vecos.dev';
 const BUNDLE_NAME = `${PRODUCT_NAME}.app`;
 const ROOT = path.resolve(__dirname, '..');
@@ -74,11 +74,11 @@ plutilReplace(infoPlist, 'CFBundleIdentifier', BUNDLE_ID);
 
 const MEETING_USAGE = {
   NSMicrophoneUsageDescription:
-    'York IE VECOS needs microphone access to capture your voice during meetings.',
+    'York WorkOS needs microphone access to capture your voice during meetings.',
   NSAudioCaptureUsageDescription:
-    'York IE VECOS needs system audio access to capture meeting audio from Zoom, Meet, and other apps.',
+    'York WorkOS needs system audio access to capture meeting audio from Zoom, Meet, and other apps.',
   NSScreenCaptureUsageDescription:
-    'York IE VECOS needs screen and system audio recording for meeting capture and GUI automation.',
+    'York WorkOS needs screen and system audio recording for meeting capture and GUI automation.',
 };
 for (const [key, value] of Object.entries(MEETING_USAGE)) {
   plutilReplace(infoPlist, key, value);

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import {
   buildDivisionSystemPrompt,
   divisionMemoryKey,
@@ -177,17 +177,26 @@ describe('hub-allocations parsers', () => {
 });
 
 describe('fetchAllocatedProjectsForUser', () => {
-  it('uses /api/users/:email/allocated-projects when successful', async () => {
+  beforeEach(async () => {
+    const { clearPrimarySkipCache, clearHubAllocationsCache } =
+      await import('../../main/hub/hub-allocations');
+    clearPrimarySkipCache();
+    clearHubAllocationsCache();
+  });
+
+  it('uses /api/projects/list when successful with items', async () => {
     const { fetchAllocatedProjectsForUser } = await import('../../main/hub/hub-allocations');
+    const calls: string[] = [];
     const fetchFn = async (url: string | URL) => {
       const href = String(url);
-      expect(href).toContain('/api/users/me%40york.ie/allocated-projects');
+      calls.push(href);
+      expect(href).toContain('/api/projects/list');
       return {
         ok: true,
         status: 200,
         json: async () => ({
           success: true,
-          data: [{ id: '1', title: 'FromUserAlloc' }],
+          data: [{ id: '1', title: 'FromList' }],
         }),
       } as Response;
     };
@@ -196,20 +205,22 @@ describe('fetchAllocatedProjectsForUser', () => {
       email: 'me@york.ie',
       fetchFn: fetchFn as typeof fetch,
     });
-    expect(projects).toEqual([{ id: '1', name: 'FromUserAlloc' }]);
+    expect(projects).toEqual([{ id: '1', name: 'FromList' }]);
+    expect(calls.some((c) => c.includes('/allocated-projects'))).toBe(false);
   });
 
-  it('falls back to /api/projects/external/list on non-auth failure', async () => {
-    const { fetchAllocatedProjectsForUser } = await import('../../main/hub/hub-allocations');
+  it('falls back to allocated-projects when list is empty and caches skip', async () => {
+    const { fetchAllocatedProjectsForUser, isPrimaryProjectsListSkipped } =
+      await import('../../main/hub/hub-allocations');
     const calls: string[] = [];
     const fetchFn = async (url: string | URL) => {
       const href = String(url);
       calls.push(href);
-      if (href.includes('/allocated-projects')) {
+      if (href.includes('/api/projects/list')) {
         return {
-          ok: false,
-          status: 500,
-          json: async () => ({ success: false }),
+          ok: true,
+          status: 200,
+          json: async () => ({ success: true, data: [] }),
         } as Response;
       }
       return {
@@ -226,18 +237,47 @@ describe('fetchAllocatedProjectsForUser', () => {
       email: 'me@york.ie',
       fetchFn: fetchFn as typeof fetch,
     });
+    expect(calls.filter((c) => c.includes('/api/projects/list')).length).toBe(1);
     expect(calls.some((c) => c.includes('/allocated-projects'))).toBe(true);
-    expect(calls.some((c) => c.includes('/api/projects/external/list'))).toBe(true);
     expect(projects).toEqual([{ id: '7', name: 'FallbackProj', hours: 4 }]);
+    expect(isPrimaryProjectsListSkipped('me@york.ie')).toBe(true);
   });
 
-  it('retries allocated-projects with alternate token on 401', async () => {
+  it('falls back on 401/403 from projects/list', async () => {
     const { fetchAllocatedProjectsForUser } = await import('../../main/hub/hub-allocations');
-    const authHeaders: string[] = [];
-    const fetchFn = async (_url: string | URL, init?: RequestInit) => {
-      const header = String((init?.headers as Record<string, string>)?.Authorization || '');
-      authHeaders.push(header);
-      if (header.includes('access-tok')) {
+    const fetchFn = async (url: string | URL) => {
+      const href = String(url);
+      if (href.includes('/api/projects/list')) {
+        return {
+          ok: false,
+          status: 403,
+          json: async () => ({ success: false }),
+        } as Response;
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          success: true,
+          data: [{ id: '9', title: 'AllocOnly' }],
+        }),
+      } as Response;
+    };
+    const projects = await fetchAllocatedProjectsForUser({
+      token: 'tok',
+      email: 'me@york.ie',
+      fetchFn: fetchFn as typeof fetch,
+    });
+    expect(projects).toEqual([{ id: '9', name: 'AllocOnly' }]);
+  });
+
+  it('skips projects/list on second call while primary-skip is active', async () => {
+    const { fetchAllocatedProjectsForUser } = await import('../../main/hub/hub-allocations');
+    const calls: string[] = [];
+    const fetchFn = async (url: string | URL) => {
+      const href = String(url);
+      calls.push(href);
+      if (href.includes('/api/projects/list')) {
         return {
           ok: false,
           status: 401,
@@ -249,9 +289,53 @@ describe('fetchAllocatedProjectsForUser', () => {
         status: 200,
         json: async () => ({
           success: true,
-          data: [{ id: '2', title: 'ViaId' }],
+          data: [{ id: '3', title: 'CachedFallback' }],
         }),
       } as Response;
+    };
+    await fetchAllocatedProjectsForUser({
+      token: 'tok',
+      email: 'me@york.ie',
+      fetchFn: fetchFn as typeof fetch,
+    });
+    calls.length = 0;
+    const projects = await fetchAllocatedProjectsForUser({
+      token: 'tok',
+      email: 'me@york.ie',
+      fetchFn: fetchFn as typeof fetch,
+    });
+    expect(calls.some((c) => c.includes('/api/projects/list'))).toBe(false);
+    expect(calls.some((c) => c.includes('/allocated-projects'))).toBe(true);
+    expect(projects).toEqual([{ id: '3', name: 'CachedFallback' }]);
+  });
+
+  it('retries projects/list with alternate token on 401', async () => {
+    const { fetchAllocatedProjectsForUser, clearPrimarySkipCache } =
+      await import('../../main/hub/hub-allocations');
+    clearPrimarySkipCache();
+    const authHeaders: string[] = [];
+    const fetchFn = async (url: string | URL, init?: RequestInit) => {
+      const href = String(url);
+      const header = String((init?.headers as Record<string, string>)?.Authorization || '');
+      if (href.includes('/api/projects/list')) {
+        authHeaders.push(header);
+        if (header.includes('access-tok')) {
+          return {
+            ok: false,
+            status: 401,
+            json: async () => ({ success: false }),
+          } as Response;
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            success: true,
+            data: [{ id: '2', title: 'ViaId' }],
+          }),
+        } as Response;
+      }
+      throw new Error('should not call allocated-projects');
     };
     const projects = await fetchAllocatedProjectsForUser({
       token: 'access-tok',
@@ -263,7 +347,7 @@ describe('fetchAllocatedProjectsForUser', () => {
     expect(projects).toEqual([{ id: '2', name: 'ViaId' }]);
   });
 
-  it('throws on 401 when both tokens fail allocated-projects', async () => {
+  it('throws when fallback allocated-projects also fails', async () => {
     const { fetchAllocatedProjectsForUser, HubAllocationsError } =
       await import('../../main/hub/hub-allocations');
     const fetchFn = async () =>
