@@ -209,19 +209,28 @@ function createReleaseTag() {
 function discoverDmgs() {
   if (!fs.existsSync(RELEASE_DIR)) return [];
 
+  const versionToken = `-${VERSION}-`;
   return fs
     .readdirSync(RELEASE_DIR)
     .filter((f) => f.endsWith('.dmg'))
-    .map((filename) => {
+    .flatMap((filename) => {
+      if (!filename.includes(versionToken)) {
+        console.warn(
+          `[upload-s3] Skipping DMG not matching v${VERSION}: ${filename}`
+        );
+        return [];
+      }
       const archMatch = filename.match(/-mac-([^.]+)\.dmg$/);
       const arch = archMatch ? archMatch[1] : 'unknown';
       const stable = `York-WorkOS-mac-${arch}.dmg`;
-      return {
-        localPath: path.join(RELEASE_DIR, filename),
-        versionedKey: `${PREFIX}/${VERSION}/${filename}`,
-        latestKey: `${PREFIX}/latest/${stable}`,
-        label: filename,
-      };
+      return [
+        {
+          localPath: path.join(RELEASE_DIR, filename),
+          versionedKey: `${PREFIX}/${VERSION}/${filename}`,
+          latestKey: `${PREFIX}/latest/${stable}`,
+          label: filename,
+        },
+      ];
     });
 }
 
