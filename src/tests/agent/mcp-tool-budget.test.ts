@@ -18,15 +18,25 @@ import {
 } from '../../main/config/mcp-write-access-store';
 
 function makeMcpTool(overrides: Partial<MCPTool> & Pick<MCPTool, 'name'>): MCPTool {
+  const inputSchema = overrides.inputSchema ?? {
+    type: 'object' as const,
+    properties: { q: { type: 'string' } },
+    required: ['q'],
+  };
+  const originalName = overrides.originalName ?? overrides.name.replace(/^mcp__[^_]+__/, '');
   return {
     name: overrides.name,
-    originalName: overrides.originalName ?? overrides.name.replace(/^mcp__[^_]+__/, ''),
+    originalName,
     description: overrides.description ?? `Description for ${overrides.name}`,
-    inputSchema: overrides.inputSchema ?? {
-      type: 'object',
-      properties: { q: { type: 'string' } },
-      required: ['q'],
-    },
+    inputSchema,
+    outputSchema: overrides.outputSchema,
+    toolDefinition:
+      overrides.toolDefinition ??
+      ({
+        name: originalName,
+        description: overrides.description ?? `Description for ${overrides.name}`,
+        inputSchema,
+      } as MCPTool['toolDefinition']),
     serverId: overrides.serverId ?? 'server-1',
     serverName: overrides.serverName ?? 'Launchpad',
   };
