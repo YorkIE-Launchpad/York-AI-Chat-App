@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 
 vi.mock('electron', () => ({
+  default: {},
   app: {
     isPackaged: false,
     getPath: () => '/tmp',

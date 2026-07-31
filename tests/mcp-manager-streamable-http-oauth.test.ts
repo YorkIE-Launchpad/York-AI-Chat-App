@@ -128,7 +128,15 @@ describe('MCPManager streamable HTTP OAuth', () => {
     });
 
     mockState.mockClientListTools.mockReset();
-    mockState.mockClientListTools.mockResolvedValue({ tools: [] });
+    mockState.mockClientListTools.mockResolvedValue({
+      tools: [
+        {
+          name: 'example_tool',
+          description: 'Example tool',
+          inputSchema: { type: 'object', properties: {} },
+        },
+      ],
+    });
 
     let connectAttempt = 0;
     mockState.mockClientConnect.mockReset();

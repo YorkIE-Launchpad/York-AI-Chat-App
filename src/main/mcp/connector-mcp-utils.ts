@@ -42,7 +42,7 @@ export async function startConnectorMcpServer(options: {
     server.setRequestHandler(
       'tools/list',
       async (): Promise<ListToolsResult> => ({
-        tools: options.tools,
+        tools: options.tools as ListToolsResult['tools'],
       })
     );
 
