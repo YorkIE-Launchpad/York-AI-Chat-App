@@ -1781,9 +1781,9 @@ async function executeCliclick(command: string): Promise<{ stdout: string; stder
     if (/Accessibility privileges not enabled/i.test(result.stderr || '')) {
       const hint =
         '\n\nmacOS Permissions:\n' +
-        '- System Settings → Privacy & Security → Accessibility: allow York WorkOS\n' +
+        '- System Settings → Privacy & Security → Accessibility: allow York GrowthOS\n' +
         '- If running from a terminal: allow Terminal/iTerm\n' +
-        '- After granting permission, restart York WorkOS and try again\n';
+        '- After granting permission, restart York GrowthOS and try again\n';
       throw new Error(
         `cliclick cannot control UI because Accessibility permission is not enabled.${hint}`
       );
@@ -1794,8 +1794,8 @@ async function executeCliclick(command: string): Promise<{ stdout: string; stder
     const baseMessage = error instanceof Error ? error.message : String(error);
     const hint =
       '\n\nmacOS Permissions:\n' +
-      '- System Settings → Privacy & Security → Accessibility: allow York WorkOS\n' +
-      '- System Settings → Privacy & Security → Automation: allow York WorkOS to control “System Events”\n';
+      '- System Settings → Privacy & Security → Accessibility: allow York GrowthOS\n' +
+      '- System Settings → Privacy & Security → Automation: allow York GrowthOS to control “System Events”\n';
     throw new Error(`${baseMessage}${hint}`);
   }
 }
@@ -3818,7 +3818,7 @@ async function takeScreenshot(
     const baseMessage = error instanceof Error ? error.message : String(error);
     const hint =
       '\n\nmacOS Permissions:\n' +
-      '- System Settings → Privacy & Security → Screen Recording: allow York WorkOS\n' +
+      '- System Settings → Privacy & Security → Screen Recording: allow York GrowthOS\n' +
       '- Restart the app and try again\n';
     throw new Error(`${baseMessage}${hint}`);
   }

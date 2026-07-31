@@ -42,13 +42,13 @@ export function LoginPage() {
               className="h-14 w-14 rounded-2xl object-contain flex-shrink-0"
             />
             <span className="text-[1.34rem] leading-none font-semibold tracking-[-0.035em] text-text-primary">
-              York WorkOS
+              York GrowthOS
             </span>
           </div>
           <div className="space-y-2">
             <h1 className="text-xl font-semibold text-text-primary">Sign in to continue</h1>
             <p className="text-sm text-text-muted">
-              Use your York IE Google account to access York WorkOS.
+              Use your York IE Google account to access York GrowthOS.
             </p>
           </div>
 

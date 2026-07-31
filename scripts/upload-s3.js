@@ -151,7 +151,7 @@ function generateReleaseNotes(outPath) {
     groups[section].push(parsed.description);
   }
 
-  const lines = [`# York WorkOS v${VERSION}`, ''];
+  const lines = [`# York GrowthOS v${VERSION}`, ''];
   if (previousTag) {
     lines.push(`Changes since \`${previousTag}\`.`, '');
   } else {
@@ -189,7 +189,7 @@ function createReleaseTag() {
     console.log(`\n[upload-s3] Creating annotated tag ${TAG_NAME}`);
     execFileSync(
       'git',
-      ['tag', '-a', TAG_NAME, '-m', `York WorkOS v${VERSION}`],
+      ['tag', '-a', TAG_NAME, '-m', `York GrowthOS v${VERSION}`],
       { cwd: ROOT, stdio: 'inherit' }
     );
     console.log(`  ✓ Created ${TAG_NAME}`);
@@ -222,7 +222,7 @@ function discoverDmgs() {
       }
       const archMatch = filename.match(/-mac-([^.]+)\.dmg$/);
       const arch = archMatch ? archMatch[1] : 'unknown';
-      const stable = `York-WorkOS-mac-${arch}.dmg`;
+      const stable = `York-GrowthOS-mac-${arch}.dmg`;
       return [
         {
           localPath: path.join(RELEASE_DIR, filename),
@@ -262,7 +262,7 @@ function discoverAndZipApps(tmpDir) {
       const baseName = appName.replace(/\.app$/, '');
       const zipFilename = `${baseName}-${VERSION}-mac-${arch}.zip`;
       const zipPath = path.join(tmpDir, zipFilename);
-      const stable = `York-WorkOS-mac-${arch}.zip`;
+      const stable = `York-GrowthOS-mac-${arch}.zip`;
 
       console.log(`\n[upload-s3] Zipping ${appName} → ${zipFilename}`);
       execFileSync(
@@ -413,7 +413,7 @@ function main() {
     createReleaseTag();
 
     console.log('\n════════════════════════════════════════');
-    console.log(`  Upload complete — York WorkOS v${VERSION}`);
+    console.log(`  Upload complete — York GrowthOS v${VERSION}`);
     console.log('════════════════════════════════════════');
     console.log('\nPublic URLs:\n');
     for (const url of urls) {

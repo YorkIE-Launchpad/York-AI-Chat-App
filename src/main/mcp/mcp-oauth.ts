@@ -290,7 +290,7 @@ export async function createOAuthCallbackListener(
       settled = true;
       response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       response.end(
-        buildOAuthSuccessHtml('Authorization complete', 'You can return to York WorkOS now.')
+        buildOAuthSuccessHtml('Authorization complete', 'You can return to York GrowthOS now.')
       );
       resolveCallback(new URLSearchParams(parsedUrl.searchParams));
       void closeServer(server);
@@ -300,7 +300,7 @@ export async function createOAuthCallbackListener(
     settled = true;
     response.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
     response.end(
-      '<html><body><h1>Authorization failed</h1><p>Return to York WorkOS for details.</p></body></html>'
+      '<html><body><h1>Authorization failed</h1><p>Return to York GrowthOS for details.</p></body></html>'
     );
     resolveCallback(new URLSearchParams(parsedUrl.searchParams));
     void closeServer(server);

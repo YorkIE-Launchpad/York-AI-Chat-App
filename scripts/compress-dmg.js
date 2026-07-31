@@ -33,7 +33,7 @@ module.exports = async function afterAllArtifactBuild(buildResult) {
   }
 
   const { outDir, configuration } = buildResult;
-  const productName = configuration.productName || 'York WorkOS';
+  const productName = configuration.productName || 'York GrowthOS';
   const version = buildResult.configuration.buildVersion ||
     require(path.join(process.cwd(), 'package.json')).version;
 

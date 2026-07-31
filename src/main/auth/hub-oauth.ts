@@ -187,7 +187,9 @@ function createOAuthCallbackServer(
     if (authorizationCode) {
       settled = true;
       response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      response.end(buildOAuthSuccessHtml('Sign-in complete', 'You can return to York WorkOS now.'));
+      response.end(
+        buildOAuthSuccessHtml('Sign-in complete', 'You can return to York GrowthOS now.')
+      );
       resolveCode(authorizationCode);
       // Close Electron OAuth window as soon as the code arrives (system browsers ignore window.close).
       closeOAuthBrowserWindow();

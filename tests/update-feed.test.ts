@@ -60,7 +60,7 @@ describe('update-feed helpers', () => {
       version: '2.3.0',
       files: [
         {
-          url: 'York-WorkOS-mac-arm64.zip',
+          url: 'York-GrowthOS-mac-arm64.zip',
           sha512: 'abc123base64',
           size: 42,
         },
@@ -70,10 +70,10 @@ describe('update-feed helpers', () => {
 
     expect(yml).toContain('version: 2.3.0');
     expect(yml).toContain('files:');
-    expect(yml).toContain('  - url: York-WorkOS-mac-arm64.zip');
+    expect(yml).toContain('  - url: York-GrowthOS-mac-arm64.zip');
     expect(yml).toContain('    sha512: abc123base64');
     expect(yml).toContain('    size: 42');
-    expect(yml).toContain('path: York-WorkOS-mac-arm64.zip');
+    expect(yml).toContain('path: York-GrowthOS-mac-arm64.zip');
     expect(yml).toContain('sha512: abc123base64');
     expect(yml).toContain("releaseDate: '2026-07-31T12:00:00.000Z'");
   });
@@ -82,15 +82,15 @@ describe('update-feed helpers', () => {
     const yml = buildLatestMacYml({
       version: '2.3.0',
       files: [
-        { url: 'York-WorkOS-mac-arm64.zip', sha512: 'arm', size: 1 },
-        { url: 'York-WorkOS-mac-x64.zip', sha512: 'x64', size: 2 },
+        { url: 'York-GrowthOS-mac-arm64.zip', sha512: 'arm', size: 1 },
+        { url: 'York-GrowthOS-mac-x64.zip', sha512: 'x64', size: 2 },
       ],
       releaseDate: '2026-07-31T12:00:00.000Z',
     });
 
-    expect(yml).toContain('path: York-WorkOS-mac-arm64.zip');
+    expect(yml).toContain('path: York-GrowthOS-mac-arm64.zip');
     expect(yml).toContain('sha512: arm');
-    expect(yml).toContain('  - url: York-WorkOS-mac-x64.zip');
+    expect(yml).toContain('  - url: York-GrowthOS-mac-x64.zip');
   });
 
   it('rejects empty files / missing version', () => {

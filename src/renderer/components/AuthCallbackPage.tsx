@@ -14,7 +14,7 @@ async function deliverOAuthCodeToApp(
   const relayUrls = [resolveOAuthRelayPostUrl(), `${authConfig.oauthRelayBaseUrl}/relay`];
   const uniqueUrls = [...new Set(relayUrls)];
 
-  let lastError = 'Could not reach York WorkOS OAuth relay';
+  let lastError = 'Could not reach York GrowthOS OAuth relay';
   for (const relayUrl of uniqueUrls) {
     try {
       const res = await fetch(relayUrl, {
@@ -31,7 +31,7 @@ async function deliverOAuthCodeToApp(
     } catch (error) {
       lastError =
         error instanceof Error
-          ? `${error.message} (tried ${relayUrl}; is York WorkOS running?)`
+          ? `${error.message} (tried ${relayUrl}; is York GrowthOS running?)`
           : `Could not reach ${relayUrl}`;
     }
   }
@@ -90,7 +90,7 @@ export function AuthCallbackPage() {
         setMessage('Sign-in complete. Closing…');
         tryCloseAuthTab();
         window.setTimeout(() => {
-          setMessage('Sign-in complete. You can close this tab and return to York WorkOS.');
+          setMessage('Sign-in complete. You can close this tab and return to York GrowthOS.');
         }, 2500);
       } else {
         setIsError(true);

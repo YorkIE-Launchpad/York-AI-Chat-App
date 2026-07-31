@@ -85,7 +85,7 @@ export function ensureOAuthCodeRelayServer(): void {
         res.end(
           JSON.stringify({
             ok: false,
-            error: 'No active sign-in in York WorkOS. Start sign-in from the app first.',
+            error: 'No active sign-in in York GrowthOS. Start sign-in from the app first.',
           })
         );
         return;
