@@ -18,6 +18,8 @@ import {
   LogOut,
 } from 'lucide-react';
 import type { Session } from '../types';
+import { DivisionSwitcher } from './DivisionSwitcher';
+import { sessionMatchesActiveDivision } from '../../shared/workspace-division';
 
 import sidebarLogoSrc from '../assets/logo.png';
 
@@ -114,6 +116,7 @@ export function Sidebar() {
   const { t } = useTranslation();
   const { user, logout } = useAuth();
   const sessions = useAppStore((s) => s.sessions);
+  const activeDivision = useAppStore((s) => s.activeDivision);
   const activeSessionId = useAppStore((s) => s.activeSessionId);
   const settings = useAppStore((s) => s.settings);
   const setActiveSession = useAppStore((s) => s.setActiveSession);
@@ -137,11 +140,15 @@ export function Sidebar() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const normalizedQuery = useMemo(() => searchQuery.trim().toLowerCase(), [searchQuery]);
+  const divisionSessions = useMemo(
+    () => sessions.filter((session) => sessionMatchesActiveDivision(session, activeDivision)),
+    [sessions, activeDivision]
+  );
   const filteredSessions = useMemo(() => {
     return normalizedQuery
-      ? sessions.filter((session) => session.title.toLowerCase().includes(normalizedQuery))
-      : sessions;
-  }, [sessions, normalizedQuery]);
+      ? divisionSessions.filter((session) => session.title.toLowerCase().includes(normalizedQuery))
+      : divisionSessions;
+  }, [divisionSessions, normalizedQuery]);
 
   const groupedSessions = useMemo(
     () => groupSessionsByDate(filteredSessions, t),
@@ -418,15 +425,22 @@ export function Sidebar() {
           </button>
         </div>
 
+        <div className="mt-3 space-y-1.5">
+          <p className="px-0.5 text-[11px] font-medium tracking-[0.04em] text-text-muted">
+            Choose Workspace
+          </p>
+          <DivisionSwitcher compact />
+        </div>
+
         <button
           onClick={handleNewSession}
-          className="mt-3 w-full flex items-center gap-2 rounded-xl bg-background/60 px-3 py-2 text-left text-text-primary hover:bg-surface-hover transition-colors"
+          className="mt-3 w-full flex items-center gap-2 rounded-xl bg-background px-3 py-2 text-left text-text-primary hover:bg-surface-hover transition-colors"
         >
           <Plus className="w-4 h-4 text-text-secondary flex-shrink-0" />
           <span className="text-[13px] font-medium">{t('sidebar.newTask')}</span>
         </button>
 
-        {sessions.length > 0 && (
+        {divisionSessions.length > 0 && (
           <div className="mt-2 flex items-center gap-2">
             <div className="relative flex-1 min-w-0">
               <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-muted" />
@@ -462,7 +476,15 @@ export function Sidebar() {
       <div className="flex-1 overflow-y-auto px-3 py-4">
         {groupedSessions.length === 0 ? (
           <div className="px-3 py-6">
-            <p className="text-sm text-text-secondary">{t('sidebar.noTasks')}</p>
+            <p className="text-sm text-text-secondary">
+              {activeDivision?.kind === 'hub'
+                ? 'No chats in Hub yet'
+                : activeDivision?.kind === 'project'
+                  ? 'No chats in this project yet'
+                  : activeDivision?.kind === 'general'
+                    ? 'No chats in General yet'
+                    : t('sidebar.noTasks')}
+            </p>
             <p className="mt-1 text-xs leading-5 text-text-muted">{t('sidebar.noTasksHint')}</p>
           </div>
         ) : (

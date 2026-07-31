@@ -14,6 +14,12 @@ import type {
   ChatLoopStatus,
 } from '../types';
 import { applySessionUpdate } from '../utils/session-update';
+import type { ActiveDivision } from '../../shared/workspace-division';
+import {
+  loadActiveDivisionFromStorage,
+  saveActiveDivisionToStorage,
+  sessionMatchesActiveDivision,
+} from '../../shared/workspace-division';
 
 export type GlobalNoticeType = 'info' | 'warning' | 'error' | 'success';
 
@@ -129,6 +135,9 @@ interface AppState {
   // Working directory
   workingDir: string | null;
 
+  /** Active workspace division (General / Hub / Project). Null = show chooser. */
+  activeDivision: ActiveDivision | null;
+
   // Sandbox setup
   sandboxSetupProgress: SandboxSetupProgress | null;
   isSandboxSetupComplete: boolean;
@@ -203,6 +212,9 @@ interface AppState {
   // Working directory actions
   setWorkingDir: (path: string | null) => void;
 
+  // Workspace division
+  setActiveDivision: (division: ActiveDivision | null) => void;
+
   // Sandbox setup actions
   setSandboxSetupProgress: (progress: SandboxSetupProgress | null) => void;
   setSandboxSetupComplete: (complete: boolean) => void;
@@ -272,6 +284,7 @@ export const useAppStore = create<AppState>((set) => ({
   hasSeenInitialConfigStatus: false,
   globalNotice: null,
   workingDir: null,
+  activeDivision: loadActiveDivisionFromStorage(),
   sandboxSetupProgress: null,
   isSandboxSetupComplete: false,
   sandboxSyncStatus: null,
@@ -677,6 +690,23 @@ export const useAppStore = create<AppState>((set) => ({
 
   // Working directory actions
   setWorkingDir: (path) => set({ workingDir: path }),
+
+  setActiveDivision: (division) =>
+    set((state) => {
+      saveActiveDivisionToStorage(division);
+      const activeSession =
+        state.activeSessionId != null
+          ? state.sessions.find((s) => s.id === state.activeSessionId)
+          : null;
+      const keepActive =
+        activeSession && sessionMatchesActiveDivision(activeSession, division)
+          ? state.activeSessionId
+          : null;
+      return {
+        activeDivision: division,
+        activeSessionId: keepActive,
+      };
+    }),
 
   // Sandbox setup actions
   setSandboxSetupProgress: (progress) => set({ sandboxSetupProgress: progress }),

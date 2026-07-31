@@ -592,6 +592,18 @@ export function useIPC() {
       setLoading(true);
       console.log('[useIPC] Starting session:', title);
 
+      const activeDivision = useAppStore.getState().activeDivision;
+      const divisionPayload =
+        activeDivision?.kind === 'project'
+          ? {
+              division: 'project' as const,
+              hubProjectId: activeDivision.hubProjectId,
+              hubProjectName: activeDivision.hubProjectName,
+            }
+          : activeDivision?.kind === 'hub'
+            ? { division: 'hub' as const }
+            : { division: 'general' as const };
+
       // Normalize input to ContentBlock array
       const content: ContentBlock[] =
         typeof promptOrContent === 'string'
@@ -624,6 +636,9 @@ export function useIPC() {
             'grep',
           ],
           memoryEnabled: true,
+          ...divisionPayload,
+          hubProjectId: activeDivision?.kind === 'project' ? activeDivision.hubProjectId : null,
+          hubProjectName: activeDivision?.kind === 'project' ? activeDivision.hubProjectName : null,
         };
 
         addSession(session);
@@ -668,6 +683,7 @@ export function useIPC() {
             prompt,
             cwd,
             content, // Send full content blocks including images
+            ...divisionPayload,
           },
         });
         if (session) {

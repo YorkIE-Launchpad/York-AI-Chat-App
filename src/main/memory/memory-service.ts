@@ -44,6 +44,11 @@ import {
 } from './memory-utils';
 import { createMemoryTools } from './memory-tools';
 import type { ConnectorId } from '../connectors/connector-types';
+import {
+  divisionMemoryKey,
+  normalizeSessionDivision,
+  parseDivisionKind,
+} from '../../shared/workspace-division';
 
 interface MemoryPaths {
   storageRoot: string;
@@ -511,7 +516,15 @@ export class MemoryService {
     };
   }
 
-  async buildPromptPrefix(session: { cwd?: string }, prompt: string): Promise<string> {
+  async buildPromptPrefix(
+    session: {
+      cwd?: string;
+      division?: string;
+      hubProjectId?: string | null;
+      hubProjectName?: string | null;
+    },
+    prompt: string
+  ): Promise<string> {
     if (!this.isEnabled()) {
       return '';
     }
@@ -524,7 +537,11 @@ export class MemoryService {
 
     const experienceContext = await this.buildExperienceContext(
       prompt,
-      normalizeWorkspaceKey(session.cwd)
+      divisionMemoryKey({
+        division: parseDivisionKind(session.division),
+        hubProjectId: session.hubProjectId,
+        hubProjectName: session.hubProjectName,
+      })
     );
     if (experienceContext.trim()) {
       sections.push(
@@ -650,7 +667,11 @@ export class MemoryService {
       return;
     }
 
-    const sourceWorkspace = normalizeWorkspaceKey(session.cwd);
+    const sourceWorkspace = divisionMemoryKey({
+      division: parseDivisionKind(session.division),
+      hubProjectId: session.hubProjectId,
+      hubProjectName: session.hubProjectName,
+    });
     const stateStore = this.getStateStore();
     const previousState = stateStore.get(session.id);
     const lastProcessedMessageCount = previousState?.lastProcessedMessageCount || 0;
@@ -746,7 +767,11 @@ export class MemoryService {
       const fullMessages = this.getMessagesForSession(sessionRow.id);
       const fullTurns = messagesToTranscript(fullMessages);
       const sessionDate = this.resolveSessionDate(session, fullMessages);
-      const sourceWorkspace = normalizeWorkspaceKey(session.cwd);
+      const sourceWorkspace = divisionMemoryKey({
+        division: parseDivisionKind(session.division),
+        hubProjectId: session.hubProjectId,
+        hubProjectName: session.hubProjectName,
+      });
       const extracted = fullTurns.length
         ? await this.experienceExtractor.extractSession({
             sessionId: session.id,
@@ -1072,6 +1097,11 @@ export class MemoryService {
   }
 
   private sessionRowToSession(row: SessionRow): MemoryIngestionInput['session'] {
+    const divisionFields = normalizeSessionDivision({
+      division: parseDivisionKind(row.division),
+      hubProjectId: row.hub_project_id,
+      hubProjectName: row.hub_project_name,
+    });
     return {
       id: row.id,
       title: row.title,
@@ -1081,6 +1111,9 @@ export class MemoryService {
       allowedTools: [],
       memoryEnabled: row.memory_enabled === 1,
       model: row.model || undefined,
+      division: divisionFields.division,
+      hubProjectId: divisionFields.hubProjectId,
+      hubProjectName: divisionFields.hubProjectName,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       claudeSessionId: row.claude_session_id || undefined,

@@ -35,6 +35,11 @@ import { initDatabase, closeDatabase } from './db/database';
 import { SessionManager } from './session/session-manager';
 import { SkillsManager } from './skills/skills-manager';
 import { HubSkillsLibraryService } from './skills/hub-skills-library-service';
+import {
+  clearHubAllocationsCache,
+  HubAllocationsError,
+  listAllocatedProjects,
+} from './hub/hub-allocations';
 import { PluginCatalogService } from './skills/plugin-catalog-service';
 import { PluginRuntimeService } from './skills/plugin-runtime-service';
 import { MemoryService } from './memory/memory-service';
@@ -2171,6 +2176,7 @@ ipcMain.handle('auth.getAvatarDataUrl', async (_event, imageUrl?: string) => {
 
 ipcMain.handle('auth.logout', async () => {
   stopAuthRefreshTimer();
+  clearHubAllocationsCache();
   await authLogout(mainWindow);
   return { success: true };
 });
@@ -2198,12 +2204,34 @@ ipcMain.handle('auth.submitOAuthCode', async (_event, code: string, redirectUri:
   try {
     const status = await completeOAuthFromHubCode(mainWindow, code.trim(), redirect);
     startAuthRefreshTimer(() => mainWindow);
+    clearHubAllocationsCache();
     return { success: true, ...status };
   } catch (error) {
     logError('[Auth] OAuth callback failed:', error);
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Sign-in failed',
+    };
+  }
+});
+
+ipcMain.handle('hub.listAllocatedProjects', async (_event, forceRefresh?: boolean) => {
+  try {
+    await ensureAuthenticatedSession();
+    const projects = await listAllocatedProjects({ forceRefresh: Boolean(forceRefresh) });
+    return { success: true, projects };
+  } catch (error) {
+    if (error instanceof AuthRequiredError) {
+      return { success: false, projects: [], error: error.message, code: error.code };
+    }
+    if (error instanceof HubAllocationsError) {
+      return { success: false, projects: [], error: error.message, code: 'HUB_ALLOCATIONS' };
+    }
+    logError('[HubAllocations] listAllocatedProjects failed:', error);
+    return {
+      success: false,
+      projects: [],
+      error: error instanceof Error ? error.message : 'Failed to load allocations',
     };
   }
 });
@@ -4227,7 +4255,12 @@ async function handleClientEvent(event: ClientEvent): Promise<unknown> {
         event.payload.cwd,
         event.payload.allowedTools,
         event.payload.content,
-        event.payload.memoryEnabled
+        event.payload.memoryEnabled,
+        {
+          division: event.payload.division,
+          hubProjectId: event.payload.hubProjectId,
+          hubProjectName: event.payload.hubProjectName,
+        }
       );
 
     case 'session.continue':

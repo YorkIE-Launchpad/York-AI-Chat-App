@@ -5,6 +5,7 @@ import { useIPC } from '../hooks/useIPC';
 import type { ContentBlock, Skill } from '../types';
 import { getInitialSessionTitle } from '../../shared/session-title';
 import type { WelcomeActionIcon, WelcomeQuickAction } from '../../shared/welcome-actions';
+import { DivisionChooser } from './DivisionChooser';
 import {
   FileText,
   BarChart3,
@@ -147,6 +148,7 @@ export function WelcomeView() {
   const actionsMenuRef = useRef<HTMLDivElement>(null);
   const { startSession, changeWorkingDir, isElectron } = useIPC();
   const workingDir = useAppStore((state) => state.workingDir);
+  const activeDivision = useAppStore((state) => state.activeDivision);
   const setGlobalNotice = useAppStore((state) => state.setGlobalNotice);
   const canSubmit =
     prompt.trim().length > 0 ||
@@ -796,355 +798,376 @@ export function WelcomeView() {
               </h1>
             </div>
           </div>
-          <p className="heading-serif text-[1.15rem] md:text-[1.45rem] font-medium tracking-[-0.02em] text-text-secondary text-center">
-            {displayTagline}
-          </p>
+          {!activeDivision ? (
+            <p className="heading-serif text-[1.15rem] md:text-[1.45rem] font-medium tracking-[-0.02em] text-text-secondary text-center">
+              Pick a workspace to get started
+            </p>
+          ) : (
+            <p className="heading-serif text-[1.15rem] md:text-[1.45rem] font-medium tracking-[-0.02em] text-text-secondary text-center">
+              {displayTagline}
+            </p>
+          )}
         </div>
 
-        {/* Quick Action Tags */}
-        <div className="flex flex-wrap gap-2 justify-center items-center px-3">
-          {displayChips.map((tag) => {
-            const Icon = WELCOME_ICON_MAP[tag.icon] ?? FileText;
-            const connectorBadge = tag.requiresConnectorName?.trim() || null;
-            return (
-              <button
-                key={tag.id}
-                type="button"
-                onClick={() => handleTagClick(tag.id, tag.prompt)}
-                disabled={isShufflingActions}
-                className={`inline-flex items-center gap-2 rounded-full border px-3 py-2 text-sm transition-colors ${
-                  selectedTag === tag.id
-                    ? 'border-accent/30 bg-accent-muted text-accent'
-                    : 'border-border-subtle bg-background/65 text-text-secondary hover:bg-surface-hover hover:text-text-primary'
-                } ${connectorBadge ? 'relative' : ''} ${isShufflingActions ? 'opacity-60' : ''}`}
-              >
-                <Icon
-                  className={`w-4 h-4 ${selectedTag === tag.id ? 'text-accent' : 'text-text-muted'}`}
-                />
-                <span>{tag.label}</span>
-                {connectorBadge && (
-                  <span className="ml-1 px-1.5 py-px text-[9px] rounded bg-surface-active text-text-muted">
-                    {connectorBadge}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-          <button
-            type="button"
-            onClick={() => void handleShuffleQuickActions()}
-            disabled={isShufflingActions}
-            title={t('welcome.shuffleActions')}
-            aria-label={t('welcome.shuffleActions')}
-            className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-border-subtle bg-background/65 text-text-muted hover:bg-surface-hover hover:text-text-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <Shuffle className={`w-3.5 h-3.5 ${isShufflingActions ? 'animate-spin' : ''}`} />
-          </button>
-        </div>
-
-        {/* Main Input Card - Right aligned */}
-        <form
-          onSubmit={handleSubmit}
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
-          className={`relative rounded-[1.9rem] border border-border-muted bg-background/85 shadow-soft px-5 py-5 space-y-4 transition-colors ${
-            isDragging ? 'ring-2 ring-accent bg-accent/5' : ''
-          }`}
-        >
-          <SlashCommandMenu
-            open={isSlashMenuOpen}
-            skills={slashSkills}
-            selectedIndex={slashSelectedIndex}
-            onSelect={handleSelectSlashSkill}
-            onHoverIndex={setSlashSelectedIndex}
-            onClose={closeSlashMenu}
-          />
-          {/* Image previews */}
-          {pastedImages.length > 0 && (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2 pb-2 border-b border-border w-full">
-              {pastedImages.map((img, index) => (
-                <AttachmentImageThumb
-                  key={img.url || `pasted-image-${index}`}
-                  src={img.url}
-                  alt={t('welcome.pastedImageAlt', { index: index + 1 })}
-                  variant="grid"
-                  removeButton={
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        removeImage(index);
-                      }}
-                      className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-error text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  }
-                />
-              ))}
-            </div>
-          )}
-
-          {/* File attachments */}
-          {attachedFiles.length > 0 && (
-            <div className="space-y-2 mb-3">
-              {attachedFiles.map((file, index) => (
-                <FileAttachmentChip
-                  key={file.path || `attached-file-${index}`}
-                  filename={file.name}
-                  className="group"
-                  removeButton={
-                    <button
-                      type="button"
-                      onClick={() => removeFile(index)}
-                      className="w-6 h-6 rounded-full bg-error/10 hover:bg-error/20 text-error flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  }
-                />
-              ))}
-            </div>
-          )}
-
-          {attachedMeetings.length > 0 && (
-            <div className="space-y-2 mb-3">
-              {attachedMeetings.map((meeting) => (
-                <div
-                  key={meeting.meetingId}
-                  className="flex items-center gap-2 px-3 py-2 rounded-lg bg-surface-muted border border-border group"
-                >
-                  <Mic className="h-4 w-4 flex-shrink-0 text-accent" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm text-text-primary truncate">{meeting.title}</p>
-                    <label className="mt-1 flex items-center gap-1.5 text-[11px] text-text-muted">
-                      <input
-                        type="checkbox"
-                        checked={Boolean(meeting.includeTranscript)}
-                        onChange={(e) =>
-                          setAttachedMeetings((prev) =>
-                            prev.map((item) =>
-                              item.meetingId === meeting.meetingId
-                                ? { ...item, includeTranscript: e.target.checked }
-                                : item
-                            )
-                          )
-                        }
-                        className="h-3.5 w-3.5 accent-accent"
-                      />
-                      {t('meetings.includeTranscript')}
-                    </label>
-                  </div>
+        {!activeDivision ? (
+          <DivisionChooser />
+        ) : (
+          <>
+            {/* Quick Action Tags */}
+            <div className="flex flex-wrap gap-2 justify-center items-center px-3">
+              {displayChips.map((tag) => {
+                const Icon = WELCOME_ICON_MAP[tag.icon] ?? FileText;
+                const connectorBadge = tag.requiresConnectorName?.trim() || null;
+                return (
                   <button
+                    key={tag.id}
                     type="button"
-                    onClick={() =>
-                      setAttachedMeetings((prev) =>
-                        prev.filter((item) => item.meetingId !== meeting.meetingId)
-                      )
-                    }
-                    className="w-6 h-6 rounded-full bg-error/10 hover:bg-error/20 text-error flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                    onClick={() => handleTagClick(tag.id, tag.prompt)}
+                    disabled={isShufflingActions}
+                    className={`inline-flex items-center gap-2 rounded-full border px-3 py-2 text-sm transition-colors ${
+                      selectedTag === tag.id
+                        ? 'border-accent/30 bg-accent-muted text-accent'
+                        : 'border-border-subtle bg-background/65 text-text-secondary hover:bg-surface-hover hover:text-text-primary'
+                    } ${connectorBadge ? 'relative' : ''} ${isShufflingActions ? 'opacity-60' : ''}`}
                   >
-                    <X className="w-3.5 h-3.5" />
+                    <Icon
+                      className={`w-4 h-4 ${selectedTag === tag.id ? 'text-accent' : 'text-text-muted'}`}
+                    />
+                    <span>{tag.label}</span>
+                    {connectorBadge && (
+                      <span className="ml-1 px-1.5 py-px text-[9px] rounded bg-surface-active text-text-muted">
+                        {connectorBadge}
+                      </span>
+                    )}
                   </button>
-                </div>
-              ))}
+                );
+              })}
+              <button
+                type="button"
+                onClick={() => void handleShuffleQuickActions()}
+                disabled={isShufflingActions}
+                title={t('welcome.shuffleActions')}
+                aria-label={t('welcome.shuffleActions')}
+                className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-border-subtle bg-background/65 text-text-muted hover:bg-surface-hover hover:text-text-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Shuffle className={`w-3.5 h-3.5 ${isShufflingActions ? 'animate-spin' : ''}`} />
+              </button>
             </div>
-          )}
 
-          {/* Text Input - Auto-resizing */}
-          <textarea
-            ref={textareaRef}
-            value={prompt}
-            onChange={(e) => {
-              setPrompt(e.target.value);
-              adjustTextareaHeight();
-            }}
-            onCompositionStart={() => {
-              isComposingRef.current = true;
-            }}
-            onCompositionEnd={() => {
-              isComposingRef.current = false;
-            }}
-            onPaste={handlePaste}
-            placeholder={t('welcome.placeholder')}
-            rows={1}
-            style={{ minHeight: '72px', maxHeight: '200px' }}
-            className="w-full resize-none bg-transparent border-none outline-none text-text-primary placeholder:text-text-muted text-base leading-relaxed overflow-hidden"
-            onKeyDown={(e) => {
-              if (isSlashMenuOpen) {
-                if (e.key === 'ArrowDown') {
-                  e.preventDefault();
-                  moveSlashSelection(1);
-                  return;
-                }
-                if (e.key === 'ArrowUp') {
-                  e.preventDefault();
-                  moveSlashSelection(-1);
-                  return;
-                }
-                if ((e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) && slashSelectedSkill) {
-                  if (e.nativeEvent.isComposing || isComposingRef.current || e.keyCode === 229) {
-                    return;
-                  }
-                  e.preventDefault();
-                  handleSelectSlashSkill(slashSelectedSkill);
-                  return;
-                }
-                if (e.key === 'Escape') {
-                  e.preventDefault();
-                  closeSlashMenu();
-                  return;
-                }
-              }
-              // Enter to send, Shift+Enter for new line
-              if (e.key === 'Enter' && !e.shiftKey) {
-                if (e.nativeEvent.isComposing || isComposingRef.current || e.keyCode === 229) {
-                  return;
-                }
-                e.preventDefault();
-                handleSubmit();
-              }
-            }}
-          />
+            {/* Main Input Card - Right aligned */}
+            <form
+              onSubmit={handleSubmit}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              className={`relative rounded-[1.9rem] border border-border-muted bg-background/85 shadow-soft px-5 py-5 space-y-4 transition-colors ${
+                isDragging ? 'ring-2 ring-accent bg-accent/5' : ''
+              }`}
+            >
+              <SlashCommandMenu
+                open={isSlashMenuOpen}
+                skills={slashSkills}
+                selectedIndex={slashSelectedIndex}
+                onSelect={handleSelectSlashSkill}
+                onHoverIndex={setSlashSelectedIndex}
+                onClose={closeSlashMenu}
+              />
+              {/* Image previews */}
+              {pastedImages.length > 0 && (
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2 pb-2 border-b border-border w-full">
+                  {pastedImages.map((img, index) => (
+                    <AttachmentImageThumb
+                      key={img.url || `pasted-image-${index}`}
+                      src={img.url}
+                      alt={t('welcome.pastedImageAlt', { index: index + 1 })}
+                      variant="grid"
+                      removeButton={
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            removeImage(index);
+                          }}
+                          className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-error text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      }
+                    />
+                  ))}
+                </div>
+              )}
 
-          {/* Bottom Actions */}
-          <div className="flex items-center justify-between gap-3 pt-3 border-t border-border-muted">
-            <div className="flex min-w-0 items-center gap-2">
-              <div className="relative" ref={actionsMenuRef}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setLoopMenuOpen(false);
-                    setActionsMenuOpen((open) => !open);
-                  }}
-                  className={`flex h-9 w-9 items-center justify-center rounded-2xl transition-colors ${
-                    actionsMenuOpen || loopMenuOpen
-                      ? 'bg-accent/10 text-accent'
-                      : 'text-text-muted hover:bg-surface-hover hover:text-text-primary'
-                  }`}
-                  title={t('welcome.actionsMenu')}
-                  aria-label={t('welcome.actionsMenu')}
-                  aria-expanded={actionsMenuOpen || loopMenuOpen}
-                  aria-haspopup="menu"
-                >
-                  <Plus className="h-5 w-5" />
-                </button>
-                {actionsMenuOpen && (
-                  <div
-                    role="menu"
-                    className="absolute bottom-[calc(100%+8px)] left-0 z-30 min-w-[14rem] overflow-hidden rounded-[1.25rem] border border-border-subtle bg-background shadow-elevated"
-                  >
-                    <div className="space-y-0.5 p-1.5">
+              {/* File attachments */}
+              {attachedFiles.length > 0 && (
+                <div className="space-y-2 mb-3">
+                  {attachedFiles.map((file, index) => (
+                    <FileAttachmentChip
+                      key={file.path || `attached-file-${index}`}
+                      filename={file.name}
+                      className="group"
+                      removeButton={
+                        <button
+                          type="button"
+                          onClick={() => removeFile(index)}
+                          className="w-6 h-6 rounded-full bg-error/10 hover:bg-error/20 text-error flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      }
+                    />
+                  ))}
+                </div>
+              )}
+
+              {attachedMeetings.length > 0 && (
+                <div className="space-y-2 mb-3">
+                  {attachedMeetings.map((meeting) => (
+                    <div
+                      key={meeting.meetingId}
+                      className="flex items-center gap-2 px-3 py-2 rounded-lg bg-surface-muted border border-border group"
+                    >
+                      <Mic className="h-4 w-4 flex-shrink-0 text-accent" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-text-primary truncate">{meeting.title}</p>
+                        <label className="mt-1 flex items-center gap-1.5 text-[11px] text-text-muted">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(meeting.includeTranscript)}
+                            onChange={(e) =>
+                              setAttachedMeetings((prev) =>
+                                prev.map((item) =>
+                                  item.meetingId === meeting.meetingId
+                                    ? { ...item, includeTranscript: e.target.checked }
+                                    : item
+                                )
+                              )
+                            }
+                            className="h-3.5 w-3.5 accent-accent"
+                          />
+                          {t('meetings.includeTranscript')}
+                        </label>
+                      </div>
                       <button
                         type="button"
-                        role="menuitem"
-                        onClick={() => {
-                          setActionsMenuOpen(false);
-                          void handleSelectFolder();
-                        }}
-                        className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
+                        onClick={() =>
+                          setAttachedMeetings((prev) =>
+                            prev.filter((item) => item.meetingId !== meeting.meetingId)
+                          )
+                        }
+                        className="w-6 h-6 rounded-full bg-error/10 hover:bg-error/20 text-error flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
                       >
-                        <FolderOpen
-                          className={`h-4 w-4 ${workingDir ? 'text-text-muted' : 'text-accent'}`}
-                        />
-                        <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
-                          {workingDir
-                            ? workingDir.split(/[/\\]/).pop()
-                            : t('welcome.selectWorkingFolder')}
-                        </span>
+                        <X className="w-3.5 h-3.5" />
                       </button>
-                      {isElectron && (
-                        <button
-                          type="button"
-                          role="menuitem"
-                          onClick={() => {
-                            setActionsMenuOpen(false);
-                            void handleFileSelect();
-                          }}
-                          className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
-                        >
-                          <Paperclip className="h-4 w-4 text-text-muted" />
-                          <span className="text-[13px] font-medium">
-                            {t('welcome.attachFiles')}
-                          </span>
-                        </button>
-                      )}
-                      {isElectron && meetingsReferenceAllowed && (
-                        <button
-                          type="button"
-                          role="menuitem"
-                          onClick={() => {
-                            setActionsMenuOpen(false);
-                            setMeetingPickerOpen(true);
-                          }}
-                          className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
-                        >
-                          <Mic className="h-4 w-4 text-accent" />
-                          <span className="text-[13px] font-medium">
-                            {t('meetings.attachMeeting')}
-                          </span>
-                        </button>
-                      )}
-                      {isElectron && (
-                        <button
-                          type="button"
-                          role="menuitem"
-                          onClick={() => {
-                            setActionsMenuOpen(false);
-                            setLoopMenuOpen(true);
-                          }}
-                          className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
-                        >
-                          <RefreshCw className="h-4 w-4 text-text-muted" />
-                          <span className="text-[13px] font-medium">{t('loop.menuButton')}</span>
-                        </button>
-                      )}
                     </div>
-                  </div>
-                )}
-                <ChatLoopPanel
-                  open={loopMenuOpen}
-                  align="left"
-                  initialText={prompt.trim()}
-                  activeStatus={null}
-                  onClose={() => setLoopMenuOpen(false)}
-                  onStart={async ({ kind, prompt: loopPrompt, intervalMs }) => {
-                    setIsSubmitting(true);
-                    try {
-                      await startSessionWithLoop({ kind, prompt: loopPrompt, intervalMs });
-                    } finally {
-                      setIsSubmitting(false);
-                    }
-                  }}
-                  onStop={async () => {
-                    setLoopMenuOpen(false);
-                  }}
-                />
-              </div>
-              {workingDir && (
-                <span
-                  className="min-w-0 max-w-[10rem] truncate text-xs text-text-muted"
-                  title={workingDir}
-                >
-                  {workingDir.split(/[/\\]/).pop()}
-                </span>
+                  ))}
+                </div>
               )}
-            </div>
 
-            <div className="flex flex-shrink-0 items-center gap-2">
-              <ModelSelector />
-              <button
-                type="submit"
-                disabled={!canSubmit || isSubmitting}
-                className="btn btn-primary px-5 py-2.5 rounded-2xl disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <span>{isSubmitting ? t('welcome.starting') : t('welcome.letsGo')}</span>
-                <ArrowRight className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-        </form>
+              {/* Text Input - Auto-resizing */}
+              <textarea
+                ref={textareaRef}
+                value={prompt}
+                onChange={(e) => {
+                  setPrompt(e.target.value);
+                  adjustTextareaHeight();
+                }}
+                onCompositionStart={() => {
+                  isComposingRef.current = true;
+                }}
+                onCompositionEnd={() => {
+                  isComposingRef.current = false;
+                }}
+                onPaste={handlePaste}
+                placeholder={t('welcome.placeholder')}
+                rows={1}
+                style={{ minHeight: '72px', maxHeight: '200px' }}
+                className="w-full resize-none bg-transparent border-none outline-none text-text-primary placeholder:text-text-muted text-base leading-relaxed overflow-hidden"
+                onKeyDown={(e) => {
+                  if (isSlashMenuOpen) {
+                    if (e.key === 'ArrowDown') {
+                      e.preventDefault();
+                      moveSlashSelection(1);
+                      return;
+                    }
+                    if (e.key === 'ArrowUp') {
+                      e.preventDefault();
+                      moveSlashSelection(-1);
+                      return;
+                    }
+                    if (
+                      (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) &&
+                      slashSelectedSkill
+                    ) {
+                      if (
+                        e.nativeEvent.isComposing ||
+                        isComposingRef.current ||
+                        e.keyCode === 229
+                      ) {
+                        return;
+                      }
+                      e.preventDefault();
+                      handleSelectSlashSkill(slashSelectedSkill);
+                      return;
+                    }
+                    if (e.key === 'Escape') {
+                      e.preventDefault();
+                      closeSlashMenu();
+                      return;
+                    }
+                  }
+                  // Enter to send, Shift+Enter for new line
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    if (e.nativeEvent.isComposing || isComposingRef.current || e.keyCode === 229) {
+                      return;
+                    }
+                    e.preventDefault();
+                    handleSubmit();
+                  }
+                }}
+              />
+
+              {/* Bottom Actions */}
+              <div className="flex items-center justify-between gap-3 pt-3 border-t border-border-muted">
+                <div className="flex min-w-0 items-center gap-2">
+                  <div className="relative" ref={actionsMenuRef}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLoopMenuOpen(false);
+                        setActionsMenuOpen((open) => !open);
+                      }}
+                      className={`flex h-9 w-9 items-center justify-center rounded-2xl transition-colors ${
+                        actionsMenuOpen || loopMenuOpen
+                          ? 'bg-accent/10 text-accent'
+                          : 'text-text-muted hover:bg-surface-hover hover:text-text-primary'
+                      }`}
+                      title={t('welcome.actionsMenu')}
+                      aria-label={t('welcome.actionsMenu')}
+                      aria-expanded={actionsMenuOpen || loopMenuOpen}
+                      aria-haspopup="menu"
+                    >
+                      <Plus className="h-5 w-5" />
+                    </button>
+                    {actionsMenuOpen && (
+                      <div
+                        role="menu"
+                        className="absolute bottom-[calc(100%+8px)] left-0 z-30 min-w-[14rem] overflow-hidden rounded-[1.25rem] border border-border-subtle bg-background shadow-elevated"
+                      >
+                        <div className="space-y-0.5 p-1.5">
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => {
+                              setActionsMenuOpen(false);
+                              void handleSelectFolder();
+                            }}
+                            className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
+                          >
+                            <FolderOpen
+                              className={`h-4 w-4 ${workingDir ? 'text-text-muted' : 'text-accent'}`}
+                            />
+                            <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
+                              {workingDir
+                                ? workingDir.split(/[/\\]/).pop()
+                                : t('welcome.selectWorkingFolder')}
+                            </span>
+                          </button>
+                          {isElectron && (
+                            <button
+                              type="button"
+                              role="menuitem"
+                              onClick={() => {
+                                setActionsMenuOpen(false);
+                                void handleFileSelect();
+                              }}
+                              className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
+                            >
+                              <Paperclip className="h-4 w-4 text-text-muted" />
+                              <span className="text-[13px] font-medium">
+                                {t('welcome.attachFiles')}
+                              </span>
+                            </button>
+                          )}
+                          {isElectron && meetingsReferenceAllowed && (
+                            <button
+                              type="button"
+                              role="menuitem"
+                              onClick={() => {
+                                setActionsMenuOpen(false);
+                                setMeetingPickerOpen(true);
+                              }}
+                              className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
+                            >
+                              <Mic className="h-4 w-4 text-accent" />
+                              <span className="text-[13px] font-medium">
+                                {t('meetings.attachMeeting')}
+                              </span>
+                            </button>
+                          )}
+                          {isElectron && (
+                            <button
+                              type="button"
+                              role="menuitem"
+                              onClick={() => {
+                                setActionsMenuOpen(false);
+                                setLoopMenuOpen(true);
+                              }}
+                              className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
+                            >
+                              <RefreshCw className="h-4 w-4 text-text-muted" />
+                              <span className="text-[13px] font-medium">
+                                {t('loop.menuButton')}
+                              </span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                    <ChatLoopPanel
+                      open={loopMenuOpen}
+                      align="left"
+                      initialText={prompt.trim()}
+                      activeStatus={null}
+                      onClose={() => setLoopMenuOpen(false)}
+                      onStart={async ({ kind, prompt: loopPrompt, intervalMs }) => {
+                        setIsSubmitting(true);
+                        try {
+                          await startSessionWithLoop({ kind, prompt: loopPrompt, intervalMs });
+                        } finally {
+                          setIsSubmitting(false);
+                        }
+                      }}
+                      onStop={async () => {
+                        setLoopMenuOpen(false);
+                      }}
+                    />
+                  </div>
+                  {workingDir && (
+                    <span
+                      className="min-w-0 max-w-[10rem] truncate text-xs text-text-muted"
+                      title={workingDir}
+                    >
+                      {workingDir.split(/[/\\]/).pop()}
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex flex-shrink-0 items-center gap-2">
+                  <ModelSelector />
+                  <button
+                    type="submit"
+                    disabled={!canSubmit || isSubmitting}
+                    className="btn btn-primary px-5 py-2.5 rounded-2xl disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <span>{isSubmitting ? t('welcome.starting') : t('welcome.letsGo')}</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            </form>
+          </>
+        )}
       </div>
       <MeetingPicker
         open={meetingPickerOpen}

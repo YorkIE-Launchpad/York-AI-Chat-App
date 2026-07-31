@@ -64,6 +64,9 @@ export interface SessionRow {
   allowed_tools: string; // JSON string
   memory_enabled: number;
   model: string | null;
+  division: string;
+  hub_project_id: string | null;
+  hub_project_name: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -249,6 +252,14 @@ function initializeSchema(database: Database.Database): void {
 
     ensureColumn(database, 'sessions', 'openai_thread_id', 'openai_thread_id TEXT');
     ensureColumn(database, 'sessions', 'model', 'model TEXT');
+    ensureColumn(database, 'sessions', 'division', "division TEXT NOT NULL DEFAULT 'general'");
+    ensureColumn(database, 'sessions', 'hub_project_id', 'hub_project_id TEXT');
+    ensureColumn(database, 'sessions', 'hub_project_name', 'hub_project_name TEXT');
+
+    // Backfill null division for rows created before the column existed
+    database.exec(
+      `UPDATE sessions SET division = 'general' WHERE division IS NULL OR division = ''`
+    );
 
     // Create messages table
     database.exec(`
@@ -467,8 +478,8 @@ export function initDatabase(): DatabaseInstance {
   // Prepare statements for better performance
   const insertSession = rawDb.prepare(`
     INSERT OR REPLACE INTO sessions
-    (id, title, claude_session_id, openai_thread_id, status, cwd, mounted_paths, allowed_tools, memory_enabled, model, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    (id, title, claude_session_id, openai_thread_id, status, cwd, mounted_paths, allowed_tools, memory_enabled, model, division, hub_project_id, hub_project_name, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   // Note: Dynamic update queries are built in sessions.update() for flexibility
@@ -559,6 +570,9 @@ export function initDatabase(): DatabaseInstance {
           session.allowed_tools,
           session.memory_enabled,
           session.model,
+          session.division || 'general',
+          session.hub_project_id ?? null,
+          session.hub_project_name ?? null,
           session.created_at,
           session.updated_at
         );

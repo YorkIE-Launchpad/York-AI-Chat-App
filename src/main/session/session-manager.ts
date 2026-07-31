@@ -60,6 +60,11 @@ import {
 } from './session-title-utils';
 import { generateTitleWithSdk } from '../agent/sdk-one-shot';
 import { buildScheduledTaskTitle } from '../../shared/schedule/task-title';
+import {
+  normalizeSessionDivision,
+  parseDivisionKind,
+  type SessionDivisionFields,
+} from '../../shared/workspace-division';
 
 interface AgentRunner {
   run(session: Session, prompt: string, existingMessages: Message[]): Promise<void>;
@@ -292,6 +297,9 @@ export class SessionManager {
       model?: string;
       provider?: string;
       lockModel?: boolean;
+      division?: SessionDivisionFields['division'];
+      hubProjectId?: string | null;
+      hubProjectName?: string | null;
     }
   ): Promise<Session> {
     log('[SessionManager] Starting new session:', title);
@@ -329,6 +337,9 @@ export class SessionManager {
       model?: string;
       provider?: string;
       lockModel?: boolean;
+      division?: SessionDivisionFields['division'];
+      hubProjectId?: string | null;
+      hubProjectName?: string | null;
     }
   ): Session {
     const now = Date.now();
@@ -342,6 +353,11 @@ export class SessionManager {
     const lockModel = options?.lockModel === true;
     const lockedModel = options?.model?.trim();
     const lockedProvider = options?.provider?.trim();
+    const divisionFields = normalizeSessionDivision({
+      division: options?.division,
+      hubProjectId: options?.hubProjectId,
+      hubProjectName: options?.hubProjectName,
+    });
     return {
       id: uuidv4(),
       title,
@@ -365,6 +381,9 @@ export class SessionManager {
       model: lockModel && lockedModel ? lockedModel : configStore.get('model') || undefined,
       provider: lockModel && lockedProvider ? lockedProvider : undefined,
       modelLocked: lockModel && Boolean(lockedModel),
+      division: divisionFields.division,
+      hubProjectId: divisionFields.hubProjectId,
+      hubProjectName: divisionFields.hubProjectName,
       createdAt: now,
       updatedAt: now,
     };
@@ -372,6 +391,11 @@ export class SessionManager {
 
   // Save session to database
   private saveSession(session: Session) {
+    const divisionFields = normalizeSessionDivision({
+      division: session.division,
+      hubProjectId: session.hubProjectId,
+      hubProjectName: session.hubProjectName,
+    });
     this.db.sessions.create({
       id: session.id,
       title: session.title,
@@ -383,16 +407,31 @@ export class SessionManager {
       allowed_tools: JSON.stringify(session.allowedTools),
       memory_enabled: session.memoryEnabled ? 1 : 0,
       model: session.model || null,
+      division: divisionFields.division,
+      hub_project_id: divisionFields.hubProjectId ?? null,
+      hub_project_name: divisionFields.hubProjectName ?? null,
       created_at: session.createdAt,
       updated_at: session.updatedAt,
     });
   }
 
-  // Load session from database
-  private loadSession(sessionId: string): Session | null {
-    const row = this.db.sessions.get(sessionId);
-    if (!row) return null;
-
+  private mapSessionRow(row: {
+    id: string;
+    title: string;
+    claude_session_id: string | null;
+    openai_thread_id: string | null;
+    status: string;
+    cwd: string | null;
+    mounted_paths: string;
+    allowed_tools: string;
+    memory_enabled: number;
+    model: string | null;
+    division?: string | null;
+    hub_project_id?: string | null;
+    hub_project_name?: string | null;
+    created_at: number;
+    updated_at: number;
+  }): Session {
     let mountedPaths;
     try {
       mountedPaths = JSON.parse(row.mounted_paths);
@@ -409,6 +448,12 @@ export class SessionManager {
       allowedTools = [];
     }
 
+    const divisionFields = normalizeSessionDivision({
+      division: parseDivisionKind(row.division),
+      hubProjectId: row.hub_project_id,
+      hubProjectName: row.hub_project_name,
+    });
+
     return {
       id: row.id,
       title: row.title,
@@ -420,47 +465,24 @@ export class SessionManager {
       allowedTools,
       memoryEnabled: row.memory_enabled === 1,
       model: row.model || undefined,
+      division: divisionFields.division,
+      hubProjectId: divisionFields.hubProjectId,
+      hubProjectName: divisionFields.hubProjectName,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
   }
 
+  // Load session from database
+  private loadSession(sessionId: string): Session | null {
+    const row = this.db.sessions.get(sessionId);
+    if (!row) return null;
+    return this.mapSessionRow(row);
+  }
+
   // List all sessions
   listSessions(): Session[] {
-    const rows = this.db.sessions.getAll();
-
-    return rows.map((row) => {
-      let mountedPaths;
-      try {
-        mountedPaths = JSON.parse(row.mounted_paths);
-      } catch (e) {
-        logError('[SessionManager] Failed to parse mounted_paths:', e);
-        mountedPaths = [];
-      }
-
-      let allowedTools;
-      try {
-        allowedTools = JSON.parse(row.allowed_tools);
-      } catch (e) {
-        logError('[SessionManager] Failed to parse allowed_tools:', e);
-        allowedTools = [];
-      }
-
-      return {
-        id: row.id,
-        title: row.title,
-        claudeSessionId: row.claude_session_id || undefined,
-        openaiThreadId: row.openai_thread_id || undefined,
-        status: row.status as Session['status'],
-        cwd: row.cwd || undefined,
-        mountedPaths,
-        allowedTools,
-        memoryEnabled: row.memory_enabled === 1,
-        model: row.model || undefined,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
-      };
-    });
+    return this.db.sessions.getAll().map((row) => this.mapSessionRow(row));
   }
 
   // Continue an existing session

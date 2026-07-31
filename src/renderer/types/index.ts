@@ -1,3 +1,5 @@
+import type { WorkspaceDivisionKind } from '../../shared/workspace-division';
+
 // Session types
 export interface Session {
   id: string;
@@ -14,6 +16,12 @@ export interface Session {
   provider?: string;
   /** When true, session model/provider stay pinned and are not overwritten from config. */
   modelLocked?: boolean;
+  /** Workspace division: general / hub / project. Defaults to general. */
+  division?: WorkspaceDivisionKind;
+  /** Hub project id when division === 'project'. */
+  hubProjectId?: string | null;
+  /** Hub project display name when division === 'project'. */
+  hubProjectName?: string | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -555,6 +563,9 @@ export type ClientEvent =
         allowedTools?: string[];
         content?: ContentBlock[];
         memoryEnabled?: boolean;
+        division?: WorkspaceDivisionKind;
+        hubProjectId?: string | null;
+        hubProjectName?: string | null;
       };
     }
   | {

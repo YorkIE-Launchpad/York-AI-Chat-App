@@ -53,6 +53,7 @@ import type {
   WelcomeQuickActionsResponse,
 } from '../shared/ipc-types';
 import type { AuthStatusResponse, AuthUser, AuthOAuthDebugInfo } from '../shared/auth-types';
+import type { AllocatedHubProject } from '../shared/workspace-division';
 
 // Track registered callbacks to prevent duplicate listeners
 let registeredCallback: ((event: ServerEvent) => void) | null = null;
@@ -203,6 +204,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on('auth:changed', listener);
       return () => ipcRenderer.removeListener('auth:changed', listener);
     },
+  },
+
+  hub: {
+    listAllocatedProjects: (
+      forceRefresh?: boolean
+    ): Promise<{
+      success: boolean;
+      projects: AllocatedHubProject[];
+      error?: string;
+      code?: string;
+    }> => ipcRenderer.invoke('hub.listAllocatedProjects', forceRefresh),
   },
 
   // Open links in default browser
@@ -712,6 +724,14 @@ declare global {
           redirectUri: string
         ) => Promise<{ success: boolean; error?: string; pending?: boolean }>;
         onChanged: (callback: (status: AuthStatusResponse) => void) => () => void;
+      };
+      hub: {
+        listAllocatedProjects: (forceRefresh?: boolean) => Promise<{
+          success: boolean;
+          projects: AllocatedHubProject[];
+          error?: string;
+          code?: string;
+        }>;
       };
       openExternal: (url: string) => Promise<boolean>;
       showItemInFolder: (filePath: string, cwd?: string) => Promise<boolean>;

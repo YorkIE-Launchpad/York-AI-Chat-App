@@ -59,7 +59,18 @@ const EN_STOP_WORDS = new Set([
   'based',
 ]);
 
-const ZH_STOP_WORDS = ['我们', '你们', '他们', '进行', '一个', '这个', '那个', '需要', '可以', '已经'];
+const ZH_STOP_WORDS = [
+  '我们',
+  '你们',
+  '他们',
+  '进行',
+  '一个',
+  '这个',
+  '那个',
+  '需要',
+  '可以',
+  '已经',
+];
 const CORE_CATEGORIES = new Set<CoreMemoryCategory>([
   'identity',
   'preferences',
@@ -71,10 +82,18 @@ export function normalizeWorkspaceKey(cwd?: string | null): string | null {
   if (!cwd) {
     return null;
   }
+  const trimmed = cwd.trim();
+  if (!trimmed) {
+    return null;
+  }
+  // Division memory keys must not be filesystem-resolved.
+  if (trimmed.startsWith('vecos://')) {
+    return trimmed;
+  }
   try {
-    return path.resolve(cwd);
+    return path.resolve(trimmed);
   } catch {
-    return cwd;
+    return trimmed;
   }
 }
 

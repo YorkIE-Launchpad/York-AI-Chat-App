@@ -94,6 +94,10 @@ import {
 } from './pi-model-resolution';
 import { formatAutoRouteLabel, resolveAutoModelIfNeeded } from './auto-model-resolve';
 import { AUTO_MODEL_ID } from '../../shared/auto-model';
+import {
+  buildDivisionSystemPrompt,
+  filterMcpToolsForDivision,
+} from '../../shared/workspace-division';
 import { buildPiSessionRuntimeSignature } from './pi-session-runtime';
 import {
   LoopGuard,
@@ -2111,7 +2115,9 @@ ${hints.join('\n')}
 
       // Bridge MCP tools and apply OpenAI 128-tool budget before session reuse /
       // cold-start history injection so a toolsSignature miss recreates correctly.
-      const mcpCustomTools = this.mcpManager ? buildMcpCustomTools(this.mcpManager) : [];
+      const mcpCustomTools = this.mcpManager
+        ? filterMcpToolsForDivision(buildMcpCustomTools(this.mcpManager), session)
+        : [];
       const extensionCustomTools = extensionResult.customTools || [];
       // Coding tools are read/bash/edit/write (4). Wrappers preserve length; we
       // re-check with the real wrapped count before createAgentSession below.
@@ -2425,8 +2431,16 @@ Do NOT use /workspace, /mnt/user-data, /mnt/workspace, or any other absolute vir
 - Memory: ${runtimeConfig.memoryEnabled ? 'enabled' : 'disabled'}
 </your_configuration>`;
 
+      const divisionKind =
+        session.division === 'hub' || session.division === 'project' ? session.division : 'general';
+      const workspaceScopeRule =
+        divisionKind === 'hub' || divisionKind === 'project'
+          ? '\n9. Workspace scope: if the request is personal, general, or outside this workspace, refuse and tell the user to switch workspace in the sidebar. Do not execute off-scope tools.'
+          : '';
+
       const coworkAppendPrompt = [
         'You are a York IE VECOS assistant. Be concise, accurate, and tool-capable.',
+        buildDivisionSystemPrompt(session),
         `CRITICAL BEHAVIORAL RULES:
 1. CHAT FIRST: By default, respond to the user in plain text within the conversation. Do NOT create, write, or edit files unless the user explicitly asks you to (e.g., "create a file", "write this to...", "edit the code", "save as...", mentions a specific file path, or describes code changes they want applied). For questions, summaries, explanations, analysis, and general conversation — always reply directly in chat text.
 2. NEVER ask clarification questions in plain text. When a request is actionable, proceed immediately with reasonable assumptions. If you truly cannot proceed without user input, you MUST use the AskUserQuestion tool — never write questions as regular assistant text.
@@ -2435,7 +2449,7 @@ Do NOT use /workspace, /mnt/user-data, /mnt/workspace, or any other absolute vir
 5. When given a task, START DOING IT. Do not restate the task, do not list what you will do, do not ask for confirmation. Just execute.
 6. York IE people named in the request: resolve via Hub (list_employees / search_organization) before asking. Do not ask the user for their company email when Hub can resolve the name.
 7. Never use AskUserQuestion for meta permission ("can I ask…", "may I proceed…", "should I look up…"). Ask only for a concrete missing detail that would make the next action wrong.
-8. Google Calendar create/update/delete: call the tool when available (approval UI may prompt). Do not refuse and hand the user a copy-paste invite instead.`,
+8. Google Calendar create/update/delete: call the tool when available (approval UI may prompt). Do not refuse and hand the user a copy-paste invite instead.${workspaceScopeRule}`,
         configSummaryPrompt,
         workspaceInfoPrompt,
         `<citation_requirements>
