@@ -660,6 +660,42 @@ function setupMeetingMediaCapture(): void {
   }
 }
 
+/** Queued when auto-start fires before the renderer is ready to receive IPC. */
+let pendingMeetingsAutoStartIpc = false;
+let pendingMeetingsAutoStartNotify = false;
+
+function flushPendingMeetingsAutoStart(): void {
+  if (!pendingMeetingsAutoStartIpc) return;
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (mainWindow.webContents.isLoading()) return;
+  pendingMeetingsAutoStartIpc = false;
+  const showNotify = pendingMeetingsAutoStartNotify;
+  pendingMeetingsAutoStartNotify = false;
+  log('[Meetings] Flushing queued auto-start request to renderer');
+  sendMeetingsAutoStartToRenderer(showNotify);
+}
+
+function sendMeetingsAutoStartToRenderer(showOsNotification: boolean): void {
+  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isLoading()) {
+    pendingMeetingsAutoStartIpc = true;
+    pendingMeetingsAutoStartNotify = pendingMeetingsAutoStartNotify || showOsNotification;
+    log('[Meetings] Renderer not ready — queuing auto-start IPC');
+    return;
+  }
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore();
+  }
+  mainWindow.show();
+  mainWindow.focus();
+  mainWindow.webContents.send('meetings:requestAutoStart');
+  if (showOsNotification) {
+    showMeetingOsNotification({
+      title: 'Live capture in progress',
+      body: 'York is capturing this Zoom call. Notes will save to History when it ends.',
+    });
+  }
+}
+
 function wireMeetingServiceEvents(service: MeetingService): void {
   service.onStatus((status) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -682,20 +718,9 @@ function wireMeetingServiceEvents(service: MeetingService): void {
       mainWindow.webContents.send('meetings:detected', payload);
     }
   });
-  service.onAutoStartRequested(() => {
+  service.onAutoStartRequested((options) => {
     log('[Meetings] Broadcasting auto-start request to renderer');
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      if (mainWindow.isMinimized()) {
-        mainWindow.restore();
-      }
-      mainWindow.show();
-      mainWindow.focus();
-      mainWindow.webContents.send('meetings:requestAutoStart');
-    }
-    showMeetingOsNotification({
-      title: 'Live capture in progress',
-      body: 'York is capturing this Zoom call. Notes will save to History when it ends.',
-    });
+    sendMeetingsAutoStartToRenderer(Boolean(options?.showOsNotification));
   });
   service.onAutoStopRequested(() => {
     log('[Meetings] Broadcasting auto-stop request to renderer');
@@ -930,6 +955,9 @@ function createWindow() {
 
     // Start sandbox bootstrap after window is loaded
     startSandboxBootstrap();
+
+    // Late-open Zoom: deliver auto-start that fired before the renderer was ready.
+    flushPendingMeetingsAutoStart();
   });
 }
 
@@ -4171,6 +4199,17 @@ ipcMain.handle('meetings.getPermissions', () => {
     throw new Error('Meeting service not initialized');
   }
   return meetingService.getPermissions();
+});
+
+ipcMain.handle('meetings.autoStartResult', (_event, result: { ok: boolean; error?: string }) => {
+  if (!meetingService) {
+    return { success: false };
+  }
+  meetingService.reportAutoStartResult({
+    ok: Boolean(result?.ok),
+    error: typeof result?.error === 'string' ? result.error : undefined,
+  });
+  return { success: true };
 });
 
 ipcMain.handle('logs.write', (_event, level: 'info' | 'warn' | 'error', args: unknown[]) => {

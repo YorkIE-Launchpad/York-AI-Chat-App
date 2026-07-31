@@ -17,7 +17,27 @@ vi.mock('../../main/utils/logger', () => ({
   logWarn: () => {},
 }));
 
-import { findCurrentCalendarMeeting } from '../../main/meetings/calendar-enrichment';
+import {
+  extractZoomMeetingIdFromText,
+  findCurrentCalendarMeeting,
+} from '../../main/meetings/calendar-enrichment';
+
+describe('extractZoomMeetingIdFromText', () => {
+  it('parses zoom.us/j meeting links', () => {
+    expect(extractZoomMeetingIdFromText('Join https://zoom.us/j/12345678901?pwd=abc')).toBe(
+      '12345678901'
+    );
+  });
+
+  it('parses other Zoom URL shapes', () => {
+    expect(extractZoomMeetingIdFromText('https://york.zoom.us/s/98765432109')).toBe('98765432109');
+    expect(extractZoomMeetingIdFromText('https://zoom.us/wc/join/11122233344')).toBe('11122233344');
+  });
+
+  it('returns null when no Zoom id is present', () => {
+    expect(extractZoomMeetingIdFromText('https://meet.google.com/abc-defg-hij')).toBeNull();
+  });
+});
 
 describe('findCurrentCalendarMeeting', () => {
   const originalFetch = globalThis.fetch;
@@ -49,7 +69,7 @@ describe('findCurrentCalendarMeeting', () => {
           {
             id: '2',
             summary: 'Standup',
-            location: 'https://zoom.us/j/123',
+            location: 'https://zoom.us/j/12345678901',
             attendees: [{ displayName: 'Bob' }],
           },
         ],
@@ -59,5 +79,25 @@ describe('findCurrentCalendarMeeting', () => {
     const match = await findCurrentCalendarMeeting(Date.now());
     expect(match?.title).toBe('Standup');
     expect(match?.attendees).toContain('Bob');
+    expect(match?.zoomMeetingId).toBe('12345678901');
+  });
+
+  it('extracts Zoom meeting id from description when location lacks it', async () => {
+    globalThis.fetch = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        items: [
+          {
+            id: '3',
+            summary: 'Client call',
+            description: 'Please join: https://zoom.us/j/55566677788',
+            attendees: [],
+          },
+        ],
+      }),
+    })) as unknown as typeof fetch;
+
+    const match = await findCurrentCalendarMeeting(Date.now());
+    expect(match?.zoomMeetingId).toBe('55566677788');
   });
 });

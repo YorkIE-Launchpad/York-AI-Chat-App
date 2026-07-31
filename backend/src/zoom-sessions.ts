@@ -25,9 +25,77 @@ export interface ZoomSessionRecord {
 const sessionsByYorkId = new Map<string, ZoomSessionRecord>();
 const yorkIdByZoomUuid = new Map<string, string>();
 
+/** Segments received before any York desktop session registered for this UUID. */
+const orphanSegmentsByUuid = new Map<string, ZoomRtmsSegment[]>();
+const ORPHAN_MAX_SEGMENTS = 500;
+const ORPHAN_MAX_AGE_MS = 30 * 60_000;
+
+function trimOrphans(segments: ZoomRtmsSegment[]): ZoomRtmsSegment[] {
+  const cutoff = Date.now() - ORPHAN_MAX_AGE_MS;
+  const fresh = segments.filter((s) => (s.endedAt || s.startedAt || 0) >= cutoff);
+  if (fresh.length > ORPHAN_MAX_SEGMENTS) {
+    return fresh.slice(fresh.length - ORPHAN_MAX_SEGMENTS);
+  }
+  return fresh;
+}
+
+function bufferOrphanSegment(zoomMeetingUuid: string, segment: ZoomRtmsSegment): void {
+  const existing = orphanSegmentsByUuid.get(zoomMeetingUuid) || [];
+  existing.push(segment);
+  orphanSegmentsByUuid.set(zoomMeetingUuid, trimOrphans(existing));
+}
+
+function flushOrphansIntoSession(zoomMeetingUuid: string, session: ZoomSessionRecord): number {
+  const orphans = orphanSegmentsByUuid.get(zoomMeetingUuid);
+  if (!orphans?.length) return 0;
+  orphanSegmentsByUuid.delete(zoomMeetingUuid);
+  for (const segment of orphans) {
+    segment.meetingUuid = zoomMeetingUuid;
+    session.segments.push(segment);
+  }
+  session.updatedAt = Date.now();
+  return orphans.length;
+}
+
+function pickSpeakerName(content: {
+  user_name?: unknown;
+  userName?: unknown;
+  speaker?: unknown;
+  speaker_name?: unknown;
+  speakerName?: unknown;
+}): string | null {
+  for (const key of ['user_name', 'userName', 'speaker_name', 'speakerName', 'speaker'] as const) {
+    const value = content[key];
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+  }
+  return null;
+}
+
+function pickSpeakerUserId(content: {
+  user_id?: unknown;
+  userId?: unknown;
+  speaker_user_id?: unknown;
+  speakerUserId?: unknown;
+}): string | null {
+  for (const key of ['user_id', 'userId', 'speaker_user_id', 'speakerUserId'] as const) {
+    const value = content[key];
+    if (value != null && String(value).trim()) {
+      return String(value);
+    }
+  }
+  return null;
+}
+
 export function mapRtmsTranscriptPacket(content: {
   user_id?: number | string;
   user_name?: string;
+  userName?: string;
+  userId?: number | string;
+  speaker?: string;
+  speaker_name?: string;
+  speakerName?: string;
   start_time?: number;
   end_time?: number;
   timestamp?: number;
@@ -51,11 +119,8 @@ export function mapRtmsTranscriptPacket(content: {
   return {
     id: randomUUID(),
     text,
-    speaker:
-      typeof content.user_name === 'string' && content.user_name.trim()
-        ? content.user_name.trim()
-        : null,
-    speakerUserId: content.user_id != null ? String(content.user_id) : null,
+    speaker: pickSpeakerName(content),
+    speakerUserId: pickSpeakerUserId(content),
     startedAt,
     endedAt,
   };
@@ -83,6 +148,15 @@ export function registerZoomSession(input: {
   sessionsByYorkId.set(record.yorkMeetingId, record);
   if (record.zoomMeetingUuid) {
     yorkIdByZoomUuid.set(record.zoomMeetingUuid, record.yorkMeetingId);
+    const flushed = flushOrphansIntoSession(record.zoomMeetingUuid, record);
+    if (flushed > 0) {
+      console.log(
+        '[york-ie-backend] Flushed orphan RTMS segments on register',
+        `yorkMeetingId=${record.yorkMeetingId}`,
+        `zoomMeetingUuid=${record.zoomMeetingUuid}`,
+        `count=${flushed}`
+      );
+    }
   }
   return record;
 }
@@ -109,6 +183,7 @@ export function bindZoomUuidToSession(zoomMeetingUuid: string, yorkMeetingId: st
   record.zoomMeetingUuid = zoomMeetingUuid;
   record.updatedAt = Date.now();
   yorkIdByZoomUuid.set(zoomMeetingUuid, yorkMeetingId);
+  flushOrphansIntoSession(zoomMeetingUuid, record);
 }
 
 /**
@@ -138,7 +213,10 @@ export function appendSegmentToZoomUuid(
   segment: ZoomRtmsSegment
 ): ZoomSessionRecord | null {
   const session = resolveSessionForZoomUuid(zoomMeetingUuid);
-  if (!session) return null;
+  if (!session) {
+    bufferOrphanSegment(zoomMeetingUuid, segment);
+    return null;
+  }
   segment.meetingUuid = zoomMeetingUuid;
   session.segments.push(segment);
   session.updatedAt = Date.now();
@@ -179,4 +257,10 @@ export function verifyZoomWebhookSignature(input: {
 export function clearZoomSessionsForTests(): void {
   sessionsByYorkId.clear();
   yorkIdByZoomUuid.clear();
+  orphanSegmentsByUuid.clear();
+}
+
+/** Test helper: peek orphan buffer size for a UUID. */
+export function getOrphanSegmentCountForTests(zoomMeetingUuid: string): number {
+  return orphanSegmentsByUuid.get(zoomMeetingUuid)?.length || 0;
 }

@@ -678,6 +678,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on('meetings:openSettings', listener);
       return () => ipcRenderer.removeListener('meetings:openSettings', listener);
     },
+    reportAutoStartResult: (result: {
+      ok: boolean;
+      error?: string;
+    }): Promise<{ success: boolean }> => ipcRenderer.invoke('meetings.autoStartResult', result),
   },
 });
 
@@ -1043,6 +1047,10 @@ declare global {
         onRequestAutoStart: (callback: () => void) => () => void;
         onRequestAutoStop: (callback: () => void) => () => void;
         onOpenSettings: (callback: () => void) => () => void;
+        reportAutoStartResult: (result: {
+          ok: boolean;
+          error?: string;
+        }) => Promise<{ success: boolean }>;
       };
     };
   }

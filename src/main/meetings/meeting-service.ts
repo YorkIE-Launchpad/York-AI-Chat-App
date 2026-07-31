@@ -4,7 +4,7 @@ import { configStore, type MeetingsRuntimeConfig } from '../config/config-store'
 import { connectorManager } from '../connectors/connector-manager';
 import { log, logWarn } from '../utils/logger';
 import { buildTranscriptText } from '../../shared/meetings/transcript-format';
-import { findCurrentCalendarMeeting } from './calendar-enrichment';
+import { findCurrentCalendarMeeting, type CalendarMeetingMatch } from './calendar-enrichment';
 import { MeetingNotesService } from './meeting-notes-service';
 import { detectMeetingApps, detectZoomMicUsage } from './meeting-mic-detector';
 import { MeetingStore } from './meeting-store';
@@ -29,17 +29,21 @@ type SegmentListener = (payload: {
 }) => void;
 type NotesListener = (meeting: MeetingSession) => void;
 type DetectionListener = (payload: { apps: string[]; newlyDetected: string[] }) => void;
-type AutoCaptureListener = () => void;
+type AutoCaptureListener = (options?: { showOsNotification?: boolean }) => void;
 
 const DETECTION_POLL_MS = 12_000;
 /** Poll faster while capturing so leaving a Zoom call is noticed sooner. */
 const DETECTION_POLL_ACTIVE_MS = 5_000;
-/** Don't re-notify / re-auto-start the same app more often than this. */
+/** Don't re-fire OS notifications for the same app more often than this. */
 const DETECTION_NOTIFY_COOLDOWN_MS = 60 * 1000;
+/** Retry auto-start IPC while Zoom mic stays active after a miss/failure. */
+const AUTO_START_RETRY_MS = 15_000;
 /** Require this many consecutive "gone" polls before auto-stop. */
 const ZOOM_ABSENT_POLLS_BEFORE_STOP = 2;
 /** Fall back to local Whisper if RTMS has not delivered segments by then. */
 const RTMS_FALLBACK_MS = 25_000;
+/** Retry Zoom RTMS start if segments have not arrived yet. */
+const RTMS_START_RETRY_MS = 12_000;
 
 function defaultRuntime(): MeetingsRuntimeConfig {
   return {
@@ -99,6 +103,10 @@ export class MeetingService {
   private lastNotifiedAt = new Map<string, number>();
   private zoomAbsentPolls = 0;
   private pendingRendererAutoStop = false;
+  /** True while Zoom mic is active but capture has not successfully started. */
+  private pendingAutoStart = false;
+  private pendingAutoStartSince: number | null = null;
+  private lastAutoStartAttemptAt = 0;
   private detectionPollMs = DETECTION_POLL_MS;
   private micProbeUnavailableLogged = false;
   /** Raw audio kept for finalize retry when live STT produced no text. */
@@ -108,6 +116,7 @@ export class MeetingService {
   /** When true, local Whisper chunks are accepted (RTMS timed out or unavailable). */
   private localSttFallbackActive = false;
   private rtmsFallbackTimer: ReturnType<typeof setTimeout> | null = null;
+  private rtmsStartRetryTimer: ReturnType<typeof setTimeout> | null = null;
 
   setMemoryService(service: MemoryService | null): void {
     this.memoryService = service;
@@ -187,6 +196,31 @@ export class MeetingService {
     this.detectionBootstrapped = false;
     this.zoomAbsentPolls = 0;
     this.pendingRendererAutoStop = false;
+    this.clearPendingAutoStart();
+  }
+
+  private clearPendingAutoStart(): void {
+    this.pendingAutoStart = false;
+    this.pendingAutoStartSince = null;
+    this.lastAutoStartAttemptAt = 0;
+  }
+
+  /** Renderer ack after auto-start IPC — success clears pending; failure keeps retrying. */
+  reportAutoStartResult(result: { ok: boolean; error?: string }): void {
+    if (result.ok) {
+      log('[Meetings] Auto-start acknowledged by renderer');
+      this.clearPendingAutoStart();
+      return;
+    }
+    logWarn(
+      '[Meetings] Auto-start failed in renderer — will retry while Zoom mic stays active',
+      result.error || 'unknown error'
+    );
+    // Keep pendingAutoStart; next poll retries after AUTO_START_RETRY_MS.
+    if (!this.pendingAutoStart) {
+      this.pendingAutoStart = true;
+      this.pendingAutoStartSince = Date.now();
+    }
   }
 
   private clearDetectionTimer(): void {
@@ -332,6 +366,7 @@ export class MeetingService {
     this.detectionBootstrapped = true;
 
     if (this.activeMeetingId) {
+      this.clearPendingAutoStart();
       this.restartDetectionTimer(DETECTION_POLL_ACTIVE_MS);
       // Granola-style: stop when Zoom releases the microphone.
       if (!usage.zoomUsingMic) {
@@ -362,23 +397,43 @@ export class MeetingService {
     this.zoomAbsentPolls = 0;
     this.pendingRendererAutoStop = false;
 
-    const toStart = wasBootstrapping
-      ? apps.filter((app) => app === 'Zoom' && this.shouldNotifyForApp(app))
-      : newlyDetected.filter((app) => app === 'Zoom' && this.shouldNotifyForApp(app));
-
-    if (!toStart.length) {
+    if (!usage.zoomUsingMic) {
+      this.clearPendingAutoStart();
       return;
     }
 
-    for (const app of toStart) {
-      this.lastNotifiedAt.set(app, Date.now());
+    // Zoom mic active and no capture — keep requesting until start succeeds.
+    if (!this.pendingAutoStart) {
+      this.pendingAutoStart = true;
+      this.pendingAutoStartSince = Date.now();
     }
 
+    const isEdge = wasBootstrapping || newlyDetected.includes('Zoom');
+    const retryDue =
+      this.lastAutoStartAttemptAt > 0 &&
+      Date.now() - this.lastAutoStartAttemptAt >= AUTO_START_RETRY_MS;
+    const firstAttempt = this.lastAutoStartAttemptAt === 0;
+    if (!isEdge && !firstAttempt && !retryDue) {
+      return;
+    }
+
+    const showOsNotification = this.shouldNotifyForApp('Zoom');
+    if (showOsNotification) {
+      this.lastNotifiedAt.set('Zoom', Date.now());
+    }
+
+    const reason = isEdge || firstAttempt ? 'detect' : 'retry';
     log(
-      `[Meetings] Zoom using microphone — requesting auto-start ` +
-        `(mode=${usage.mode} processes=${usage.processes.map((p) => p.name || p.pid).join(',')})`
+      `[Meetings] Zoom using microphone — requesting auto-start (${reason}) ` +
+        `(mode=${usage.mode} processes=${usage.processes.map((p) => p.name || p.pid).join(',')})` +
+        (this.pendingAutoStartSince
+          ? ` pendingForMs=${Date.now() - this.pendingAutoStartSince}`
+          : '')
     );
-    const payload = { apps, newlyDetected: toStart };
+    const payload = {
+      apps,
+      newlyDetected: isEdge ? newlyDetected.filter((app) => app === 'Zoom') : ['Zoom'],
+    };
     for (const listener of this.detectionListeners) {
       try {
         listener(payload);
@@ -386,13 +441,14 @@ export class MeetingService {
         logWarn('[Meetings] Detection listener failed', error);
       }
     }
-    this.emitAutoStart();
+    this.lastAutoStartAttemptAt = Date.now();
+    this.emitAutoStart({ showOsNotification });
   }
 
-  private emitAutoStart(): void {
+  private emitAutoStart(options?: { showOsNotification?: boolean }): void {
     for (const listener of this.autoStartListeners) {
       try {
-        listener();
+        listener(options);
       } catch (error) {
         logWarn('[Meetings] Auto-start listener failed', error);
       }
@@ -493,6 +549,7 @@ export class MeetingService {
       transcriptText: '',
       updatedAt: now,
       attendees: calendar?.attendees?.length ? calendar.attendees : undefined,
+      zoomMeetingId: calendar?.zoomMeetingId ?? undefined,
     };
 
     this.store.save(meeting);
@@ -504,18 +561,21 @@ export class MeetingService {
     this.pendingTranscriptions.clear();
     this.zoomAbsentPolls = 0;
     this.pendingRendererAutoStop = false;
+    this.clearPendingAutoStart();
     this.localSttFallbackActive = !this.isZoomConnected();
     this.clearRtmsFallbackTimer();
+    this.clearRtmsStartRetryTimer();
     this.emitStatus();
     if (this.shouldAutoDetect()) {
       this.restartDetectionTimer(DETECTION_POLL_ACTIVE_MS);
     }
 
     if (this.isZoomConnected()) {
-      void this.bootstrapZoomRtms(meeting.id);
+      void this.bootstrapZoomRtms(meeting.id, calendar);
       this.rtmsFallbackTimer = setTimeout(() => {
         if (!this.activeMeetingId || this.activeMeetingId !== meeting.id) return;
         if (this.zoomRtms.hasReceivedSegments) return;
+        this.clearRtmsStartRetryTimer();
         this.localSttFallbackActive = true;
         log('[Meetings] RTMS silent — enabling local STT fallback');
       }, RTMS_FALLBACK_MS);
@@ -532,7 +592,51 @@ export class MeetingService {
     }
   }
 
-  private async bootstrapZoomRtms(yorkMeetingId: string): Promise<void> {
+  private clearRtmsStartRetryTimer(): void {
+    if (this.rtmsStartRetryTimer) {
+      clearTimeout(this.rtmsStartRetryTimer);
+      this.rtmsStartRetryTimer = null;
+    }
+  }
+
+  private scheduleRtmsStartRetry(yorkMeetingId: string, zoomMeetingId: string): void {
+    this.clearRtmsStartRetryTimer();
+    this.rtmsStartRetryTimer = setTimeout(() => {
+      void this.retryRtmsStart(yorkMeetingId, zoomMeetingId);
+    }, RTMS_START_RETRY_MS);
+  }
+
+  private async retryRtmsStart(yorkMeetingId: string, zoomMeetingId: string): Promise<void> {
+    if (!this.activeMeetingId || this.activeMeetingId !== yorkMeetingId) return;
+    if (this.zoomRtms.hasReceivedSegments) return;
+    try {
+      log('[Meetings] Retrying Zoom RTMS start', `meetingId=${zoomMeetingId}`);
+      const zoomToken = await connectorManager.ensureFreshAccessToken('zoom');
+      await this.zoomRtms.startParticipantRtms(zoomToken.accessToken, zoomMeetingId);
+      // One more retry before the 25s local-STT fallback.
+      if (!this.zoomRtms.hasReceivedSegments) {
+        this.rtmsStartRetryTimer = setTimeout(() => {
+          void (async () => {
+            if (!this.activeMeetingId || this.activeMeetingId !== yorkMeetingId) return;
+            if (this.zoomRtms.hasReceivedSegments) return;
+            try {
+              const token = await connectorManager.ensureFreshAccessToken('zoom');
+              await this.zoomRtms.startParticipantRtms(token.accessToken, zoomMeetingId);
+            } catch (error) {
+              logWarn('[Meetings] Second RTMS start retry failed', error);
+            }
+          })();
+        }, RTMS_START_RETRY_MS);
+      }
+    } catch (error) {
+      logWarn('[Meetings] RTMS start retry failed', error);
+    }
+  }
+
+  private async bootstrapZoomRtms(
+    yorkMeetingId: string,
+    calendar?: CalendarMeetingMatch | null
+  ): Promise<void> {
     try {
       log('[Meetings] bootstrapZoomRtms start', `yorkMeetingId=${yorkMeetingId}`);
       const zoomToken = await connectorManager.ensureFreshAccessToken('zoom');
@@ -541,26 +645,34 @@ export class MeetingService {
         `accountId=${zoomToken.accountId || 'n/a'}`
       );
       const live = await this.zoomRtms.findLiveMeeting(zoomToken.accessToken);
-      if (live) {
+      const calendarZoomId = calendar?.zoomMeetingId || null;
+      const zoomMeetingId = live?.id || calendarZoomId;
+      const zoomMeetingUuid = live?.uuid ?? null;
+
+      if (live || calendarZoomId) {
         const current = this.store.get(yorkMeetingId);
         if (current) {
-          current.zoomMeetingId = live.id;
-          current.zoomMeetingUuid = live.uuid;
-          if (!current.title || current.title.startsWith('Meeting ')) {
+          if (zoomMeetingId) current.zoomMeetingId = zoomMeetingId;
+          if (zoomMeetingUuid) current.zoomMeetingUuid = zoomMeetingUuid;
+          if (live && (!current.title || current.title.startsWith('Meeting '))) {
             current.title = live.topic;
           }
           current.updatedAt = Date.now();
           this.store.save(current);
         }
-        await this.zoomRtms.startParticipantRtms(zoomToken.accessToken, live.id);
+      }
+
+      if (zoomMeetingId) {
+        await this.zoomRtms.startParticipantRtms(zoomToken.accessToken, zoomMeetingId);
+        this.scheduleRtmsStartRetry(yorkMeetingId, zoomMeetingId);
       } else {
-        logWarn('[Meetings] No live Zoom meeting discovered during RTMS bootstrap');
+        logWarn('[Meetings] No live Zoom meeting or calendar Zoom ID — cannot start RTMS via REST');
       }
 
       const registered = await this.zoomRtms.registerSession({
         yorkMeetingId,
-        zoomMeetingUuid: live?.uuid ?? null,
-        zoomMeetingId: live?.id ?? null,
+        zoomMeetingUuid,
+        zoomMeetingId: zoomMeetingId ?? null,
         zoomUserId: zoomToken.accountId ?? null,
       });
       if (!registered) {
@@ -590,6 +702,7 @@ export class MeetingService {
 
     this.localSttFallbackActive = false;
     this.clearRtmsFallbackTimer();
+    this.clearRtmsStartRetryTimer();
     const withSpeaker = rtmsSegments.filter((item) => !!item.speaker?.trim()).length;
     log(
       '[Meetings] ingestRtmsSegments',
@@ -771,6 +884,7 @@ export class MeetingService {
     }
 
     this.clearRtmsFallbackTimer();
+    this.clearRtmsStartRetryTimer();
     void this.zoomRtms.unregister();
 
     const meeting = this.store.get(meetingId);

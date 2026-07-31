@@ -1,3 +1,4 @@
+import { authConfig } from '../../shared/auth-config';
 import { resolveBackendUrl } from '../../shared/backend-config';
 import { getBackendAuthHeaders } from '../config/backend-auth';
 import { log, logWarn } from '../utils/logger';
@@ -43,6 +44,12 @@ function logZoomSessionAuthFailure(operation: string, status: number, body: stri
     return;
   }
   logWarn(`[ZoomRTMS] ${operation} failed`, status, body);
+}
+
+/** Zoom errors that mean RTMS is already running — treat as success for mid-meeting join. */
+function isRtmsAlreadyActiveError(status: number, body: string): boolean {
+  if (status === 409) return true;
+  return /already\s*(started|active|running|in\s*progress)|rtms.*(started|active)/i.test(body);
 }
 
 /**
@@ -96,23 +103,65 @@ export class ZoomRtmsDesktopClient {
   }
 
   /**
-   * RTMS is webhook-push only — Zoom sends meeting.rtms_started to the backend when a
-   * meeting begins and the Marketplace app has RTMS enabled.  There is no REST endpoint to
-   * initiate RTMS from the participant side; this method is intentionally a no-op.
+   * Start (or confirm) participant RTMS for a live meeting via Zoom REST.
+   * Zoom then sends meeting.rtms_started to the backend webhook for SDK join.
    *
-   * To receive RTMS webhooks you must:
-   *  1. Enable the RTMS feature on your Zoom General App in the Marketplace.
-   *  2. Add a webhook endpoint: POST https://<backend>/zoom/webhooks
-   *  3. Subscribe to the meeting.rtms_started (and meeting.rtms_stopped) events.
+   * Prerequisites: Marketplace RTMS entitlement, scope
+   * meeting:update:participant_rtms_app_status, and webhook on /zoom/webhooks.
    */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  startParticipantRtms(_accessToken: string, meetingId: string): Promise<boolean> {
-    log(
-      '[ZoomRTMS] RTMS is webhook-driven — no REST call needed.',
-      `meetingId=${meetingId}`,
-      'Waiting for backend to receive meeting.rtms_started webhook from Zoom.'
-    );
-    return Promise.resolve(true);
+  async startParticipantRtms(accessToken: string, meetingId: string): Promise<boolean> {
+    const clientId = authConfig.zoomConnectorClientId?.trim();
+    if (!clientId) {
+      logWarn('[ZoomRTMS] Missing ZOOM_CONNECTOR_CLIENT_ID — cannot PATCH rtms_app/status');
+      return false;
+    }
+    if (!meetingId?.trim()) {
+      logWarn('[ZoomRTMS] startParticipantRtms called without meetingId');
+      return false;
+    }
+
+    try {
+      const url = `https://api.zoom.us/v2/live_meetings/${encodeURIComponent(meetingId)}/rtms_app/status`;
+      log('[ZoomRTMS] Starting participant RTMS', `meetingId=${meetingId}`);
+      const response = await fetch(url, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          action: 'start',
+          settings: { client_id: clientId },
+        }),
+      });
+      const body = await response.text();
+      if (response.ok) {
+        log(
+          '[ZoomRTMS] RTMS start accepted',
+          `meetingId=${meetingId}`,
+          `status=${response.status}`
+        );
+        return true;
+      }
+      if (isRtmsAlreadyActiveError(response.status, body)) {
+        log(
+          '[ZoomRTMS] RTMS already active — treating as success',
+          `meetingId=${meetingId}`,
+          `status=${response.status}`
+        );
+        return true;
+      }
+      logWarn(
+        '[ZoomRTMS] startParticipantRtms failed',
+        `meetingId=${meetingId}`,
+        `status=${response.status}`,
+        body
+      );
+      return false;
+    } catch (error) {
+      logWarn('[ZoomRTMS] startParticipantRtms error', error);
+      return false;
+    }
   }
 
   async registerSession(input: {

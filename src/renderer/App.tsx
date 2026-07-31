@@ -128,12 +128,15 @@ function AuthenticatedApp() {
 
     const offAutoStart = window.electronAPI.meetings.onRequestAutoStart(() => {
       void (async () => {
+        const reportResult = window.electronAPI.meetings.reportAutoStartResult;
         if (isMeetingAudioActive()) {
+          await reportResult?.({ ok: true });
           return;
         }
         try {
           console.log('[Meetings] Auto-start requested');
           await startMeetingCapture();
+          await reportResult?.({ ok: true });
           setGlobalNotice({
             id: `meeting-auto-start-${Date.now()}`,
             type: 'info',
@@ -147,6 +150,7 @@ function AuthenticatedApp() {
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           console.warn('[Meetings] Auto-start failed', error);
+          await reportResult?.({ ok: false, error: message });
           setGlobalNotice({
             id: `meeting-auto-start-error-${Date.now()}`,
             type: 'error',

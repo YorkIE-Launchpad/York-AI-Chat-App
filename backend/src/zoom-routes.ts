@@ -25,6 +25,9 @@ type RtmsJoinFn = (payload: Record<string, unknown>) => void;
 
 let rtmsJoin: RtmsJoinFn | null = null;
 
+/** Active RTMS joins keyed by meeting UUID — avoid stacking duplicate SDK clients. */
+const activeRtmsJoins = new Set<string>();
+
 /**
  * Optionally wire a live RTMS joiner (e.g. @zoom/rtms Client).
  * When unset, webhook events are accepted and CRC works; transcripts can still be
@@ -32,6 +35,66 @@ let rtmsJoin: RtmsJoinFn | null = null;
  */
 export function setZoomRtmsJoiner(join: RtmsJoinFn | null): void {
   rtmsJoin = join;
+}
+
+/** Test helper to clear active join tracking. */
+export function clearActiveRtmsJoinsForTests(): void {
+  activeRtmsJoins.clear();
+}
+
+function extractMeetingUuid(eventBody: Record<string, unknown>): string | null {
+  const payloadObject = (eventBody as { payload?: { object?: { meeting_uuid?: string } } }).payload
+    ?.object;
+  if (payloadObject && typeof payloadObject.meeting_uuid === 'string') {
+    return payloadObject.meeting_uuid;
+  }
+  return null;
+}
+
+function extractSpeakerFromMetadata(metadata: unknown): {
+  user_name?: string;
+  user_id?: string | number;
+} {
+  if (!metadata || typeof metadata !== 'object') return {};
+  const meta = metadata as Record<string, unknown>;
+  const nested =
+    meta.user && typeof meta.user === 'object' ? (meta.user as Record<string, unknown>) : null;
+
+  const nameCandidates = [
+    meta.userName,
+    meta.user_name,
+    meta.speakerName,
+    meta.speaker_name,
+    meta.speaker,
+    nested?.userName,
+    nested?.user_name,
+    nested?.name,
+  ];
+  const idCandidates = [
+    meta.userId,
+    meta.user_id,
+    meta.speakerUserId,
+    meta.speaker_user_id,
+    nested?.userId,
+    nested?.user_id,
+    nested?.id,
+  ];
+
+  let user_name: string | undefined;
+  for (const value of nameCandidates) {
+    if (typeof value === 'string' && value.trim()) {
+      user_name = value.trim();
+      break;
+    }
+  }
+  let user_id: string | number | undefined;
+  for (const value of idCandidates) {
+    if (value != null && String(value).trim()) {
+      user_id = value as string | number;
+      break;
+    }
+  }
+  return { user_name, user_id };
 }
 
 async function tryLoadZoomRtmsSdk(): Promise<void> {
@@ -50,24 +113,14 @@ async function tryLoadZoomRtmsSdk(): Promise<void> {
       default?: {
         Client: new () => {
           onTranscriptData: (
-            cb: (
-              data: Buffer | string,
-              size: number,
-              timestamp: number,
-              metadata: { userName?: string; userId?: number | string }
-            ) => void
+            cb: (data: Buffer | string, size: number, timestamp: number, metadata: unknown) => void
           ) => void;
           join: (payload: unknown) => void;
         };
       };
       Client?: new () => {
         onTranscriptData: (
-          cb: (
-            data: Buffer | string,
-            size: number,
-            timestamp: number,
-            metadata: { userName?: string; userId?: number | string }
-          ) => void
+          cb: (data: Buffer | string, size: number, timestamp: number, metadata: unknown) => void
         ) => void;
         join: (payload: unknown) => void;
       };
@@ -75,21 +128,28 @@ async function tryLoadZoomRtmsSdk(): Promise<void> {
     const Client = mod.default?.Client || mod.Client;
     if (!Client) return;
     rtmsJoin = (eventBody) => {
+      const meetingUuid = extractMeetingUuid(eventBody);
+      if (!meetingUuid) {
+        console.warn('[york-ie-backend] RTMS join skipped — missing meeting_uuid');
+        return;
+      }
+      if (activeRtmsJoins.has(meetingUuid)) {
+        console.log(
+          '[york-ie-backend] RTMS join already active — skipping duplicate',
+          `meetingUuid=${meetingUuid}`
+        );
+        return;
+      }
+      activeRtmsJoins.add(meetingUuid);
+      console.log('[york-ie-backend] RTMS join invoked', `meetingUuid=${meetingUuid}`);
       const client = new Client();
-      const payloadObject = (eventBody as { payload?: { object?: { meeting_uuid?: string } } })
-        .payload?.object;
-      const meetingUuid =
-        payloadObject && typeof payloadObject.meeting_uuid === 'string'
-          ? payloadObject.meeting_uuid
-          : null;
-      console.log('[york-ie-backend] RTMS join invoked', `meetingUuid=${meetingUuid || 'missing'}`);
       client.onTranscriptData((data, _size, timestamp, metadata) => {
-        if (!meetingUuid) return;
+        const speakerMeta = extractSpeakerFromMetadata(metadata);
         const segment = mapRtmsTranscriptPacket({
           data,
           timestamp,
-          user_name: metadata?.userName,
-          user_id: metadata?.userId,
+          user_name: speakerMeta.user_name,
+          user_id: speakerMeta.user_id,
         });
         if (segment) {
           appendSegmentToZoomUuid(meetingUuid, segment);
@@ -158,6 +218,12 @@ function handleZoomWebhook(req: Request, res: Response): void {
     }
   } else if (event === 'meeting.rtms_started') {
     console.warn('[york-ie-backend] meeting.rtms_started received but rtmsJoin is unavailable');
+  } else if (event === 'meeting.rtms_stopped') {
+    const meetingUuid = extractMeetingUuid(body);
+    if (meetingUuid) {
+      activeRtmsJoins.delete(meetingUuid);
+      console.log('[york-ie-backend] RTMS stopped', `meetingUuid=${meetingUuid}`);
+    }
   }
 
   res.json({ ok: true });

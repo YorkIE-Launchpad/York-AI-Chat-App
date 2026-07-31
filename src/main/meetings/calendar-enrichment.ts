@@ -7,14 +7,33 @@ export interface CalendarMeetingMatch {
   eventId: string;
   htmlLink?: string;
   hangoutLink?: string;
+  /** Numeric Zoom meeting ID parsed from event links when available. */
+  zoomMeetingId?: string | null;
 }
 
-function looksLikeZoomEvent(event: Record<string, unknown>): boolean {
+/** Extract a Zoom meeting numeric ID from free-text / URLs. */
+export function extractZoomMeetingIdFromText(text: string): string | null {
+  if (!text?.trim()) return null;
+  const patterns = [
+    /zoom\.us\/j\/(\d{9,13})/i,
+    /zoom\.us\/s\/(\d{9,13})/i,
+    /zoom\.us\/wc\/join\/(\d{9,13})/i,
+    /zoom\.us\/meeting\/(\d{9,13})/i,
+    /zoom\.us\/w\/(\d{9,13})/i,
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match?.[1]) return match[1];
+  }
+  return null;
+}
+
+function collectEventHaystacks(event: Record<string, unknown>): string[] {
   const haystacks: string[] = [];
-  for (const key of ['summary', 'description', 'location', 'hangoutLink'] as const) {
+  for (const key of ['summary', 'description', 'location', 'hangoutLink', 'htmlLink'] as const) {
     const value = event[key];
     if (typeof value === 'string' && value.trim()) {
-      haystacks.push(value.toLowerCase());
+      haystacks.push(value);
     }
   }
   const conf =
@@ -23,16 +42,30 @@ function looksLikeZoomEvent(event: Record<string, unknown>): boolean {
       : null;
   for (const entry of conf?.entryPoints || []) {
     if (typeof entry.uri === 'string') {
-      haystacks.push(entry.uri.toLowerCase());
+      haystacks.push(entry.uri);
     }
   }
-  return haystacks.some(
-    (text) =>
-      text.includes('zoom.us') ||
-      text.includes('zoom.com') ||
-      text.includes('zoom meeting') ||
-      /\bzoom\b/.test(text)
-  );
+  return haystacks;
+}
+
+function looksLikeZoomEvent(event: Record<string, unknown>): boolean {
+  return collectEventHaystacks(event).some((text) => {
+    const lower = text.toLowerCase();
+    return (
+      lower.includes('zoom.us') ||
+      lower.includes('zoom.com') ||
+      lower.includes('zoom meeting') ||
+      /\bzoom\b/.test(lower)
+    );
+  });
+}
+
+function extractZoomMeetingIdFromEvent(event: Record<string, unknown>): string | null {
+  for (const text of collectEventHaystacks(event)) {
+    const id = extractZoomMeetingIdFromText(text);
+    if (id) return id;
+  }
+  return null;
 }
 
 function extractAttendees(event: Record<string, unknown>): string[] {
@@ -108,6 +141,7 @@ export async function findCurrentCalendarMeeting(
       eventId: typeof chosen.id === 'string' ? chosen.id : '',
       htmlLink: typeof chosen.htmlLink === 'string' ? chosen.htmlLink : undefined,
       hangoutLink: typeof chosen.hangoutLink === 'string' ? chosen.hangoutLink : undefined,
+      zoomMeetingId: extractZoomMeetingIdFromEvent(chosen),
     };
   } catch (error) {
     logWarn('[Calendar] findCurrentCalendarMeeting error', error);
