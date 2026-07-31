@@ -2,12 +2,14 @@
 
 /**
  * Upload macOS release artifacts (DMG + zipped .app) to S3,
+ * publish electron-updater feed metadata (latest-mac.yml),
  * generate release notes from the previous git tag, upload them,
  * then create and push an annotated v{version} tag (skip create if already present).
  *
  * Layout:
  *   s3://york-internal-apps/york-workos/{version}/{filename}
  *   s3://york-internal-apps/york-workos/latest/{stable-filename}
+ *   s3://york-internal-apps/york-workos/latest/latest-mac.yml
  *
  * Usage:
  *   npm run upload:s3
@@ -20,6 +22,7 @@ const { execFileSync } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { fileDigest, buildLatestMacYml } = require('./update-feed');
 
 const BUCKET = 'york-internal-apps';
 const REGION = 'ap-south-1';
@@ -225,7 +228,7 @@ function discoverDmgs() {
 /**
  * Zip each .app under release/mac-* and return upload descriptors.
  * @param {string} tmpDir
- * @returns {{ localPath: string; versionedKey: string; latestKey: string; label: string }[]}
+ * @returns {{ localPath: string; versionedKey: string; latestKey: string; label: string; stableFilename: string; arch: string }[]}
  */
 function discoverAndZipApps(tmpDir) {
   if (!fs.existsSync(RELEASE_DIR)) return [];
@@ -236,7 +239,7 @@ function discoverAndZipApps(tmpDir) {
     .map((d) => path.join(RELEASE_DIR, d))
     .filter((p) => fs.statSync(p).isDirectory());
 
-  /** @type {{ localPath: string; versionedKey: string; latestKey: string; label: string }[]} */
+  /** @type {{ localPath: string; versionedKey: string; latestKey: string; label: string; stableFilename: string; arch: string }[]} */
   const artifacts = [];
 
   for (const macDir of macDirs) {
@@ -267,11 +270,35 @@ function discoverAndZipApps(tmpDir) {
         versionedKey: `${PREFIX}/${VERSION}/${zipFilename}`,
         latestKey: `${PREFIX}/latest/${stable}`,
         label: zipFilename,
+        stableFilename: stable,
+        arch,
       });
     }
   }
 
   return artifacts;
+}
+
+/**
+ * Prefer arm64 as the primary path entry for latest-mac.yml.
+ * @param {{ arch: string; stableFilename: string; localPath: string }[]} zips
+ * @returns {{ url: string; sha512: string; size: number }[]}
+ */
+function buildMacUpdateFiles(zips) {
+  const ordered = [...zips].sort((a, b) => {
+    if (a.arch === 'arm64') return -1;
+    if (b.arch === 'arm64') return 1;
+    return a.arch.localeCompare(b.arch);
+  });
+
+  return ordered.map((zip) => {
+    const digest = fileDigest(zip.localPath);
+    return {
+      url: zip.stableFilename,
+      sha512: digest.sha512,
+      size: digest.size,
+    };
+  });
 }
 
 /**
@@ -295,6 +322,8 @@ function uploadFile(localPath, key) {
   ];
   if (localPath.endsWith('.md')) {
     args.push('--content-type', 'text/markdown; charset=utf-8');
+  } else if (localPath.endsWith('.yml') || localPath.endsWith('.yaml')) {
+    args.push('--content-type', 'text/yaml; charset=utf-8');
   }
   execFileSync('aws', args, { stdio: 'inherit' });
 }
@@ -348,6 +377,29 @@ function main() {
     uploadFile(notesPath, notesLatestKey);
     urls.push(publicUrl(notesVersionedKey));
     urls.push(publicUrl(notesLatestKey));
+
+    if (apps.length > 0) {
+      const ymlPath = path.join(tmpDir, 'latest-mac.yml');
+      const yml = buildLatestMacYml({
+        version: VERSION,
+        files: buildMacUpdateFiles(apps),
+        releaseDate: new Date().toISOString(),
+      });
+      fs.writeFileSync(ymlPath, yml, 'utf8');
+
+      const ymlVersionedKey = `${PREFIX}/${VERSION}/latest-mac.yml`;
+      const ymlLatestKey = `${PREFIX}/latest/latest-mac.yml`;
+
+      console.log(`\n[upload-s3] latest-mac.yml (v${VERSION})`);
+      uploadFile(ymlPath, ymlVersionedKey);
+      uploadFile(ymlPath, ymlLatestKey);
+      urls.push(publicUrl(ymlVersionedKey));
+      urls.push(publicUrl(ymlLatestKey));
+    } else {
+      console.warn(
+        '\n[upload-s3] WARNING: No mac zip artifacts — skipped latest-mac.yml (auto-update feed unchanged).'
+      );
+    }
 
     createReleaseTag();
 

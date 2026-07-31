@@ -111,6 +111,14 @@ import {
 } from './loop/chat-loop-manager';
 import { runPiAiOneShot } from './agent/sdk-one-shot';
 import { installIpcAuthGuard } from './auth/ipc-auth-guard';
+import {
+  startAutoUpdater,
+  stopAutoUpdater,
+  isInstallingUpdate,
+  getUpdaterStatus,
+  checkForAppUpdates,
+  quitAndInstallUpdate,
+} from './updater';
 import { warmupJwksCache } from './auth/cognito';
 import { submitViteOAuthCode, getOAuthDebugInfo, initHubOAuthRelay } from './auth/hub-oauth';
 import { authConfig } from '../shared/auth-config';
@@ -1859,18 +1867,8 @@ app
       }
     });
 
-    // Auto-updater: check for updates in production
-    if (!isDev) {
-      import('electron-updater')
-        .then(({ autoUpdater }) => {
-          autoUpdater.checkForUpdatesAndNotify().catch((err: unknown) => {
-            log('[AutoUpdater] Update check failed:', err);
-          });
-        })
-        .catch((err: unknown) => {
-          log('[AutoUpdater] Failed to load electron-updater:', err);
-        });
-    }
+    // Auto-updater: macOS packaged builds only (S3 generic feed)
+    void startAutoUpdater(log);
 
     startNavServer(() => mainWindow);
 
@@ -2055,6 +2053,7 @@ async function cleanupSandboxResources(): Promise<void> {
 
   stopNavServer();
   stopConfigFileWatcher();
+  stopAutoUpdater();
   skillsManager?.stopStorageMonitoring();
   scheduledTaskManager?.stop();
   chatLoopManager?.stopAll('shutdown');
@@ -2140,6 +2139,22 @@ for (const sig of ['SIGTERM', 'SIGINT'] as const) {
 
 // Handle app quit - before-quit (for macOS Cmd+Q and other quit methods)
 app.on('before-quit', async (event) => {
+  // Let electron-updater replace the app and relaunch without app.exit(0).
+  if (isInstallingUpdate()) {
+    isQuitting = true;
+    stopAutoUpdater();
+    stopNavServer();
+    tray?.destroy();
+    tray = null;
+    try {
+      closeDatabase();
+    } catch {
+      /* best-effort */
+    }
+    closeLogFile();
+    return;
+  }
+
   // In dev mode, exit quickly — no need for async sandbox cleanup
   if (process.env.VITE_DEV_SERVER_URL) {
     stopNavServer();
@@ -2316,6 +2331,29 @@ ipcMain.handle('get-version', () => {
   } catch (error) {
     logError('[IPC] Error getting version:', error);
     return 'unknown';
+  }
+});
+
+ipcMain.handle('updater.getStatus', () => getUpdaterStatus());
+
+ipcMain.handle('updater.check', async () => {
+  try {
+    return await checkForAppUpdates();
+  } catch (error) {
+    logError('[IPC] updater.check failed:', error);
+    return getUpdaterStatus();
+  }
+});
+
+ipcMain.handle('updater.quitAndInstall', () => {
+  try {
+    return quitAndInstallUpdate();
+  } catch (error) {
+    logError('[IPC] updater.quitAndInstall failed:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to install update',
+    };
   }
 });
 

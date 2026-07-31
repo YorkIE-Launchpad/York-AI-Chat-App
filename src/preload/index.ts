@@ -36,6 +36,7 @@ import type {
   MeetingSegment,
 } from '../renderer/types';
 import type { DiagnosticInput, DiagnosticResult } from '../renderer/types';
+import type { UpdaterStatus } from '../shared/updater-types';
 import type {
   McpServerConfig,
   McpTool,
@@ -175,6 +176,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // App info
   getVersion: () => ipcRenderer.invoke('get-version'),
+
+  updater: {
+    getStatus: (): Promise<UpdaterStatus> => ipcRenderer.invoke('updater.getStatus'),
+    check: (): Promise<UpdaterStatus> => ipcRenderer.invoke('updater.check'),
+    quitAndInstall: (): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('updater.quitAndInstall'),
+    onStatus: (callback: (status: UpdaterStatus) => void): (() => void) => {
+      const listener = (_: Electron.IpcRendererEvent, status: UpdaterStatus) => {
+        callback(status);
+      };
+      ipcRenderer.on('updater:status', listener);
+      return () => ipcRenderer.removeListener('updater:status', listener);
+    },
+  },
 
   auth: {
     getStatus: (): Promise<AuthStatusResponse> => ipcRenderer.invoke('auth.getStatus'),
@@ -711,6 +726,12 @@ declare global {
       platform: NodeJS.Platform;
       getSystemTheme: () => Promise<{ shouldUseDarkColors: boolean }>;
       getVersion: () => Promise<string>;
+      updater: {
+        getStatus: () => Promise<UpdaterStatus>;
+        check: () => Promise<UpdaterStatus>;
+        quitAndInstall: () => Promise<{ success: boolean; error?: string }>;
+        onStatus: (callback: (status: UpdaterStatus) => void) => () => void;
+      };
       auth: {
         getStatus: () => Promise<AuthStatusResponse>;
         getOAuthDebug: (rendererRedirectUrl?: string) => Promise<AuthOAuthDebugInfo>;

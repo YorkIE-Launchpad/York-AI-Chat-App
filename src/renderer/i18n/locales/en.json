@@ -78,7 +78,17 @@
     "theme": "Theme",
     "themeLight": "Light",
     "themeDark": "Dark",
-    "themeSystem": "System"
+    "themeSystem": "System",
+    "about": "About",
+    "versionLabel": "York WorkOS v{{version}}",
+    "updateUpToDate": "You're up to date",
+    "updateChecking": "Checking for updates…",
+    "updateAvailable": "Version {{version}} is available",
+    "updateDownloading": "Downloading update… {{percent}}%",
+    "updateReady": "Version {{version}} is ready to install",
+    "updateError": "Update check failed",
+    "checkForUpdates": "Check for updates",
+    "restartToUpdate": "Restart to update"
   },
   "memory": {
     "title": "Memory",

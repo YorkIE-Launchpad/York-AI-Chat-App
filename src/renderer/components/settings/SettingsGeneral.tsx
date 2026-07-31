@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ExternalLink, LogOut } from 'lucide-react';
+import { ExternalLink, LogOut, RefreshCw } from 'lucide-react';
 import { useAppStore } from '../../store';
 import { useAuth } from '../../auth/AuthContext';
 import { hasOpenRouterUserApiKey } from '../../../shared/openrouter-user-key';
+import { useUpdaterStatus } from '../../hooks/useUpdaterStatus';
 
 const isElectron = typeof window !== 'undefined' && window.electronAPI !== undefined;
 
@@ -19,6 +20,13 @@ export function SettingsGeneral() {
   const [keyDirty, setKeyDirty] = useState(false);
   const [savingKey, setSavingKey] = useState(false);
   const [keySaveMessage, setKeySaveMessage] = useState<string | null>(null);
+  const {
+    status: updaterStatus,
+    checking: updaterChecking,
+    installing: updaterInstalling,
+    checkForUpdates,
+    quitAndInstall,
+  } = useUpdaterStatus();
 
   useEffect(() => {
     try {
@@ -188,8 +196,75 @@ export function SettingsGeneral() {
 
       {/* About */}
       {appVer && (
-        <div className="pt-4 border-t border-border">
-          <p className="text-xs text-text-muted">York WorkOS v{appVer}</p>
+        <div className="pt-4 border-t border-border space-y-3">
+          <div>
+            <p className="text-sm font-medium text-text-primary mb-1">{t('general.about')}</p>
+            <p className="text-xs text-text-muted">
+              {t('general.versionLabel', { version: appVer })}
+            </p>
+          </div>
+
+          {updaterStatus.status !== 'unsupported' && (
+            <div className="space-y-2">
+              {updaterStatus.status === 'idle' && (
+                <p className="text-xs text-text-muted">{t('general.updateUpToDate')}</p>
+              )}
+              {(updaterStatus.status === 'checking' || updaterChecking) && (
+                <p className="text-xs text-text-muted">{t('general.updateChecking')}</p>
+              )}
+              {updaterStatus.status === 'available' && updaterStatus.version && (
+                <p className="text-xs text-text-secondary">
+                  {t('general.updateAvailable', { version: updaterStatus.version })}
+                </p>
+              )}
+              {updaterStatus.status === 'downloading' && (
+                <p className="text-xs text-text-secondary">
+                  {t('general.updateDownloading', {
+                    percent: updaterStatus.percent ?? 0,
+                  })}
+                </p>
+              )}
+              {updaterStatus.status === 'ready' && (
+                <div className="space-y-2">
+                  {updaterStatus.version && (
+                    <p className="text-xs text-text-secondary">
+                      {t('general.updateReady', { version: updaterStatus.version })}
+                    </p>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => void quitAndInstall()}
+                    disabled={updaterInstalling}
+                    className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+                  >
+                    <RefreshCw className={`h-4 w-4 ${updaterInstalling ? 'animate-spin' : ''}`} />
+                    {t('general.restartToUpdate')}
+                  </button>
+                </div>
+              )}
+              {updaterStatus.status === 'error' && (
+                <p className="text-xs text-red-500">
+                  {updaterStatus.message || t('general.updateError')}
+                </p>
+              )}
+
+              {updaterStatus.status !== 'ready' &&
+                updaterStatus.status !== 'downloading' &&
+                updaterStatus.status !== 'available' && (
+                  <button
+                    type="button"
+                    onClick={() => void checkForUpdates()}
+                    disabled={updaterChecking || updaterStatus.status === 'checking'}
+                    className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-xs text-text-secondary hover:border-accent/50 hover:text-text-primary disabled:opacity-50"
+                  >
+                    <RefreshCw
+                      className={`h-3.5 w-3.5 ${updaterChecking || updaterStatus.status === 'checking' ? 'animate-spin' : ''}`}
+                    />
+                    {t('general.checkForUpdates')}
+                  </button>
+                )}
+            </div>
+          )}
         </div>
       )}
     </div>

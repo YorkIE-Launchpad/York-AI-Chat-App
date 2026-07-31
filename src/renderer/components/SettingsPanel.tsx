@@ -9,6 +9,7 @@ import {
   ChevronRight,
   BrainCircuit,
   AudioLines,
+  RefreshCw,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useWindowSize } from '../hooks/useWindowSize';
@@ -20,6 +21,7 @@ import { SettingsGeneral } from './settings/SettingsGeneral';
 import { SettingsLogs } from './settings/SettingsLogs';
 import { SettingsMemory } from './settings/SettingsMemory';
 import { SettingsMeetings } from './settings/SettingsMeetings';
+import { useUpdaterStatus } from '../hooks/useUpdaterStatus';
 
 interface SettingsPanelProps {
   onClose: () => void;
@@ -53,6 +55,11 @@ export function SettingsPanel({ onClose, initialTab = 'connectors' }: SettingsPa
   // Track which tabs have been viewed at least once (for lazy loading)
   const [viewedTabs, setViewedTabs] = useState<Set<TabId>>(new Set([resolvedInitial]));
   const [appVersion, setAppVersion] = useState('');
+  const {
+    status: updaterStatus,
+    installing: updaterInstalling,
+    quitAndInstall,
+  } = useUpdaterStatus();
   useEffect(() => {
     try {
       const v = window.electronAPI?.getVersion?.();
@@ -176,11 +183,22 @@ export function SettingsPanel({ onClose, initialTab = 'connectors' }: SettingsPa
           >
             {compactSidebar ? <X className="w-4 h-4 mx-auto" /> : t('common.close')}
           </button>
-          {!compactSidebar && (
-            <p className="text-[10px] text-text-muted text-center mt-2 select-text">
-              v{appVersion}
-            </p>
-          )}
+          {!compactSidebar &&
+            (updaterStatus.status === 'ready' ? (
+              <button
+                type="button"
+                onClick={() => void quitAndInstall()}
+                disabled={updaterInstalling}
+                className="w-full mt-2 inline-flex items-center justify-center gap-1.5 rounded-lg bg-accent px-3 py-2 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${updaterInstalling ? 'animate-spin' : ''}`} />
+                {t('general.restartToUpdate')}
+              </button>
+            ) : (
+              <p className="text-[10px] text-text-muted text-center mt-2 select-text">
+                v{appVersion}
+              </p>
+            ))}
         </div>
       </div>
 

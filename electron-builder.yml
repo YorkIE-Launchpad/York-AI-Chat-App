@@ -184,6 +184,5 @@ extraMetadata:
   main: dist-electron/main/index.js
 
 publish:
-  provider: github
-  owner: YorkIE-Launchpad
-  repo: open-cowork
+  provider: generic
+  url: https://york-internal-apps.s3.ap-south-1.amazonaws.com/york-workos/latest
