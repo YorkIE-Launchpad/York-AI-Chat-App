@@ -1,6 +1,6 @@
 {
   "name": "york-ie",
-  "version": "2.5.4",
+  "version": "2.6.0",
   "description": "Open-source AI agent desktop app for Windows & macOS — one-click install Claude Code, MCP tools, and Skills with sandbox isolation and multi-model support",
   "keywords": [
     "ai-agent",
