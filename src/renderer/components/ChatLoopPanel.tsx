@@ -43,11 +43,15 @@ export function ChatLoopPanel({
 
   useEffect(() => {
     if (!open) return;
+    setError(null);
+    const draftEmpty = !text.trim() && !selectedChip && !customInterval.trim();
+    if (!draftEmpty) return;
     setText(initialText);
     setSelectedChip(null);
     setCustomInterval('');
-    setError(null);
     setMode(activeStatus?.kind === 'goal' ? 'goal' : 'interval');
+    // Only seed when opening (or seed inputs change) while draft is empty — keep typed draft across dismiss.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally omit draft fields so edits while open do not re-run
   }, [open, initialText, activeStatus?.kind]);
 
   if (!open) return null;
@@ -62,6 +66,14 @@ export function ChatLoopPanel({
       return parsed?.ms ?? null;
     }
     return null;
+  };
+
+  const resetDraft = () => {
+    setText('');
+    setSelectedChip(null);
+    setCustomInterval('');
+    setMode('interval');
+    setError(null);
   };
 
   const handleStart = async () => {
@@ -83,6 +95,7 @@ export function ChatLoopPanel({
         prompt: trimmed,
         intervalMs,
       });
+      resetDraft();
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : t('loop.startFailed'));
