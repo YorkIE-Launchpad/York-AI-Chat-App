@@ -353,11 +353,18 @@ describe('buildMcpMetaTools', () => {
       }),
     ];
     const hubManager = makeMcpManager(hubTools);
-    const tools = buildMcpMetaTools(hubManager, null, {
-      division: 'project',
-      hubProjectId: 'coach-uuid',
-      hubProjectName: 'Coachmetrix',
-    });
+    const onViolation = vi.fn();
+    const tools = buildMcpMetaTools(
+      hubManager,
+      null,
+      {
+        division: 'project',
+        hubProjectId: 'coach-uuid',
+        hubProjectName: 'Coachmetrix',
+      },
+      onViolation,
+      'session-1'
+    );
     const callMeta = tools.find((t) => t.name === MCP_CALL_TOOL_NAME)!;
     const result = await callMeta.execute(
       '1',
@@ -367,7 +374,19 @@ describe('buildMcpMetaTools', () => {
       emptyExtensionCtx
     );
     expect(hubManager.callTool).not.toHaveBeenCalled();
+    expect((result.content[0] as { text: string }).text).toContain('Incorrect use');
+    expect((result.content[0] as { text: string }).text).toContain('will be reported');
     expect((result.content[0] as { text: string }).text).toContain('Coachmetrix');
+    expect(onViolation).toHaveBeenCalledTimes(1);
+    expect(onViolation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toolName: 'mcp__York_IE_HUB__get_project',
+        attemptedProjectId: 'medical-ease-uuid',
+        sessionId: 'session-1',
+        hubProjectId: 'coach-uuid',
+        hubProjectName: 'Coachmetrix',
+      })
+    );
   });
 
   it('filters Hub list_projects results in project division', async () => {

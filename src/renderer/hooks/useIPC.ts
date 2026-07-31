@@ -395,6 +395,28 @@ export function useIPC() {
             store.setChatLoopStatus(event.payload.sessionId, event.payload.status);
             break;
 
+          case 'notice': {
+            const noticeType = event.payload.noticeType || 'warning';
+            if (event.payload.code === 'PROJECT_SCOPE_VIOLATION') {
+              const projectName = event.payload.projectName || 'this project';
+              store.setGlobalNotice({
+                id: `notice-project-scope-${Date.now()}`,
+                type: noticeType,
+                message: event.payload.message,
+                messageKey: 'workspace.projectScopeViolation',
+                messageValues: { projectName },
+                durationMs: 10000,
+              });
+            } else {
+              store.setGlobalNotice({
+                id: `notice-${Date.now()}`,
+                type: noticeType,
+                message: event.payload.message,
+              });
+            }
+            break;
+          }
+
           case 'native-theme.changed':
             store.setSystemDarkMode(event.payload.shouldUseDarkColors);
             break;

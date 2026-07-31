@@ -70,9 +70,12 @@ describe('project-mcp-scope', () => {
     );
     expect(prepared.kind).toBe('block');
     if (prepared.kind === 'block') {
+      expect(prepared.message).toContain('Incorrect use');
+      expect(prepared.message).toContain('will be reported');
       expect(prepared.message).toContain('Coachmetrix');
       expect(prepared.message).toContain('coach-uuid');
       expect(prepared.message).toContain('Switch Project workspace');
+      expect(prepared.attemptedProjectId).toBe('medical-ease-uuid');
     }
   });
 
@@ -149,7 +152,10 @@ describe('project-mcp-scope', () => {
   });
 
   it('exposes a refuse message for UI/tool errors', () => {
-    expect(projectScopeRefuseMessage(coachSession)).toContain('Coachmetrix');
+    const message = projectScopeRefuseMessage(coachSession);
+    expect(message).toContain('Incorrect use');
+    expect(message).toContain('will be reported');
+    expect(message).toContain('Coachmetrix');
   });
 });
 
@@ -158,6 +164,7 @@ describe('buildDivisionSystemPrompt project refuse line', () => {
     const prompt = buildDivisionSystemPrompt(coachSession);
     expect(prompt).toContain('If the user names another project');
     expect(prompt).toContain('do not call Hub project tools');
+    expect(prompt).toContain('Incorrect use. This will be reported.');
     expect(prompt).toContain('Coachmetrix');
   });
 });

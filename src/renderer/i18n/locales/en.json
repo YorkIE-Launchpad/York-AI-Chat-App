@@ -755,6 +755,9 @@
     "cancel": "Cancel",
     "confirmDelete": "Delete"
   },
+  "workspace": {
+    "projectScopeViolation": "Incorrect use. This attempt will be reported. This session is scoped to \"{{projectName}}\". Switch Project workspace (or General) in the sidebar to query another project."
+  },
   "chat": {
     "sendMessage": "Send message",
     "stop": "Stop",

@@ -57,8 +57,13 @@ import {
 import {
   applyProjectScopedMcpResultFilter,
   prepareProjectScopedMcpArgs,
+  type OnProjectScopeViolation,
 } from '../../shared/project-mcp-scope';
 import { v4 as uuidv4 } from 'uuid';
+import {
+  createProjectScopeViolationReporter,
+  emitProjectScopeBlock,
+} from './project-scope-violation';
 
 export const MAX_CHILD_TIMEOUT_MS = 300_000;
 export const DEFAULT_CHILD_TIMEOUT_MS = 120_000;
@@ -145,7 +150,9 @@ export function buildMcpRunChildSystemPrompt(
 
 function buildFlatMcpTools(
   mcpManager: MCPManager,
-  division?: Partial<SessionDivisionFields> | null
+  division?: Partial<SessionDivisionFields> | null,
+  onProjectScopeViolation?: OnProjectScopeViolation | null,
+  sessionId?: string | null
 ): ToolDefinition[] {
   return mcpManager.getTools().map((mcpTool) => {
     const parameters = Type.Unsafe<Record<string, unknown>>(
@@ -166,6 +173,13 @@ function buildFlatMcpTools(
         );
         const prepared = prepareProjectScopedMcpArgs(mcpTool.name, leanArgs, division);
         if (prepared.kind === 'block') {
+          emitProjectScopeBlock(
+            onProjectScopeViolation,
+            prepared,
+            mcpTool.name,
+            division,
+            sessionId
+          );
           return {
             content: [{ type: 'text' as const, text: prepared.message }],
             details: undefined,
@@ -442,15 +456,31 @@ export async function runChildAgentSession(
 
     let customTools: ToolDefinition[] = [];
     const codingTools = includeCodingTools ? createCodingTools(cwd) : [];
+    const onProjectScopeViolation = createProjectScopeViolationReporter({
+      sessionId: input.parentSessionId,
+      division: input.division,
+      sendToRenderer: input.sendEvent,
+    });
 
     if (mcpToolsMode === 'meta-only' && input.mcpManager) {
       let allowed: Set<string> | null = null;
       if (input.allowedTools && input.allowedTools.length > 0) {
         allowed = new Set(input.allowedTools);
       }
-      customTools = buildMcpMetaTools(input.mcpManager, allowed, input.division);
+      customTools = buildMcpMetaTools(
+        input.mcpManager,
+        allowed,
+        input.division,
+        onProjectScopeViolation,
+        input.parentSessionId
+      );
     } else if (mcpToolsMode === 'flat' && input.mcpManager) {
-      let mcpCustomTools = buildFlatMcpTools(input.mcpManager, input.division);
+      let mcpCustomTools = buildFlatMcpTools(
+        input.mcpManager,
+        input.division,
+        onProjectScopeViolation,
+        input.parentSessionId
+      );
       let allowedToolNames: Set<string> | null = null;
       if (input.allowedTools && input.allowedTools.length > 0) {
         allowedToolNames = new Set(input.allowedTools);
@@ -467,6 +497,8 @@ export async function runChildAgentSession(
         parentMetaTools: undefined,
         useSearchCallMeta: true,
         division: input.division,
+        onProjectScopeViolation,
+        sessionId: input.parentSessionId,
       });
       customTools = toolSelection.customTools;
       if (toolSelection.mode === 'meta') {

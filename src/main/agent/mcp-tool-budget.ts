@@ -12,6 +12,7 @@ import type { MCPManager, MCPTool } from '../mcp/mcp-manager';
 import {
   applyProjectScopedMcpResultFilter,
   prepareProjectScopedMcpArgs,
+  type OnProjectScopeViolation,
 } from '../../shared/project-mcp-scope';
 import type { SessionDivisionFields } from '../../shared/workspace-division';
 import { log } from '../utils/logger';
@@ -21,7 +22,7 @@ import {
   compressToolResultTextForModel,
   leanMcpToolArgs,
 } from './mcp-tool-payload';
-
+import { emitProjectScopeBlock } from './project-scope-violation';
 export const OPENAI_MAX_TOOLS = 128;
 export const MCP_SEARCH_TOOLS_NAME = 'mcp_search_tools';
 export const MCP_CALL_TOOL_NAME = 'mcp_call_tool';
@@ -178,7 +179,9 @@ function resolveAllowedMcpTools(
 export function buildMcpMetaTools(
   mcpManager: MCPManager,
   allowedToolNames?: ReadonlySet<string> | null,
-  division?: Partial<SessionDivisionFields> | null
+  division?: Partial<SessionDivisionFields> | null,
+  onProjectScopeViolation?: OnProjectScopeViolation | null,
+  sessionId?: string | null
 ): ToolDefinition[] {
   const searchTool: ToolDefinition<TSchema, unknown> = {
     name: MCP_SEARCH_TOOLS_NAME,
@@ -284,6 +287,7 @@ export function buildMcpMetaTools(
         );
         const prepared = prepareProjectScopedMcpArgs(toolName, leanArgs, division);
         if (prepared.kind === 'block') {
+          emitProjectScopeBlock(onProjectScopeViolation, prepared, toolName, division, sessionId);
           return {
             content: [{ type: 'text' as const, text: prepared.message }],
             details: undefined,
@@ -338,6 +342,9 @@ export function selectCustomToolsForModel(input: {
   useSearchCallMeta?: boolean;
   /** Parent session workspace division — hard-scopes Hub project MCP calls. */
   division?: Partial<SessionDivisionFields> | null;
+  /** Fired when a Hub project tool is blocked for out-of-scope project access. */
+  onProjectScopeViolation?: OnProjectScopeViolation | null;
+  sessionId?: string | null;
 }): SelectCustomToolsResult {
   const {
     api,
@@ -349,6 +356,8 @@ export function selectCustomToolsForModel(input: {
     parentMetaTools,
     useSearchCallMeta,
     division,
+    onProjectScopeViolation,
+    sessionId,
   } = input;
   const mcpNames = mcpTools.map((t) => t.name);
   const totalIfFlat = builtInToolCount + mcpTools.length + extensionTools.length;
@@ -370,7 +379,13 @@ export function selectCustomToolsForModel(input: {
   const allowSet = allowedToolNames ?? new Set(mcpNames);
   let metaTools: ToolDefinition[];
   if (useSearchCallMeta || !parentMetaTools || parentMetaTools.length === 0) {
-    metaTools = buildMcpMetaTools(mcpManager, allowSet, division);
+    metaTools = buildMcpMetaTools(
+      mcpManager,
+      allowSet,
+      division,
+      onProjectScopeViolation,
+      sessionId
+    );
   } else {
     metaTools = parentMetaTools;
   }

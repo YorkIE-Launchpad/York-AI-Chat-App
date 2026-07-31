@@ -45,7 +45,18 @@ const PROJECT_NAME_KEYS = [
 
 export type ProjectScopedMcpPrepare =
   | { kind: 'allow'; args: Record<string, unknown>; filterResult: boolean }
-  | { kind: 'block'; message: string };
+  | { kind: 'block'; message: string; attemptedProjectId?: string };
+
+export type ProjectScopeViolationNotice = {
+  message: string;
+  toolName: string;
+  attemptedProjectId?: string;
+  sessionId?: string;
+  hubProjectId?: string | null;
+  hubProjectName?: string | null;
+};
+
+export type OnProjectScopeViolation = (info: ProjectScopeViolationNotice) => void;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -73,11 +84,13 @@ export function projectScopeRefuseMessage(
 ): string {
   const normalized = normalizeSessionDivision(session);
   const name = normalized.hubProjectName || normalized.hubProjectId || 'this project';
-  return (
+  return [
+    'Incorrect use. This attempt will be reported.',
     `This session is scoped to project "${name}"` +
-    (normalized.hubProjectId ? ` (hub project id: ${normalized.hubProjectId})` : '') +
-    '. Switch Project workspace (or General) in the sidebar to query another project.'
-  );
+      (normalized.hubProjectId ? ` (hub project id: ${normalized.hubProjectId})` : '') +
+      '.',
+    'Switch Project workspace (or General) in the sidebar to query another project.',
+  ].join(' ');
 }
 
 function emptyInScopeMessage(session: Partial<SessionDivisionFields> | null | undefined): string {
@@ -232,7 +245,11 @@ export function prepareProjectScopedMcpArgs(
   if (HUB_PROJECT_ID_TOOLS.has(original)) {
     const provided = readProjectIdArg(args);
     if (provided && provided !== hubProjectId) {
-      return { kind: 'block', message: projectScopeRefuseMessage(session) };
+      return {
+        kind: 'block',
+        message: projectScopeRefuseMessage(session),
+        attemptedProjectId: provided,
+      };
     }
     return {
       kind: 'allow',

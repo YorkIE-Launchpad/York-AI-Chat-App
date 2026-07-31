@@ -715,6 +715,15 @@ export type ServerEvent =
       payload: { sessionId: string; status: ChatLoopStatus | null };
     }
   | {
+      type: 'notice';
+      payload: {
+        message: string;
+        noticeType?: 'info' | 'warning' | 'error' | 'success';
+        code?: 'PROJECT_SCOPE_VIOLATION';
+        projectName?: string;
+      };
+    }
+  | {
       type: 'error';
       payload: {
         message: string;

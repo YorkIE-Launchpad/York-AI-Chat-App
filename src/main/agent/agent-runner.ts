@@ -105,7 +105,12 @@ import {
 import {
   applyProjectScopedMcpResultFilter,
   prepareProjectScopedMcpArgs,
+  type OnProjectScopeViolation,
 } from '../../shared/project-mcp-scope';
+import {
+  createProjectScopeViolationReporter,
+  emitProjectScopeBlock,
+} from './project-scope-violation';
 import { buildPiSessionRuntimeSignature } from './pi-session-runtime';
 import {
   LoopGuard,
@@ -463,7 +468,9 @@ async function enrichProcessPathForBuild(): Promise<void> {
  */
 function buildMcpCustomTools(
   mcpManager: MCPManager,
-  division?: Partial<SessionDivisionFields> | null
+  division?: Partial<SessionDivisionFields> | null,
+  onProjectScopeViolation?: OnProjectScopeViolation | null,
+  sessionId?: string | null
 ): ToolDefinition[] {
   const mcpTools = mcpManager.getTools();
   return mcpTools.map((mcpTool) => {
@@ -483,6 +490,13 @@ function buildMcpCustomTools(
           const leanArgs = leanMcpToolArgs(params as Record<string, unknown>, mcpTool.inputSchema);
           const prepared = prepareProjectScopedMcpArgs(mcpTool.name, leanArgs, division);
           if (prepared.kind === 'block') {
+            emitProjectScopeBlock(
+              onProjectScopeViolation,
+              prepared,
+              mcpTool.name,
+              division,
+              sessionId
+            );
             return {
               content: [{ type: 'text' as const, text: prepared.message }],
               details: undefined,
@@ -2158,8 +2172,16 @@ ${hints.join('\n')}
 
       // Bridge MCP tools and apply OpenAI 128-tool budget before session reuse /
       // cold-start history injection so a toolsSignature miss recreates correctly.
+      const onProjectScopeViolation = createProjectScopeViolationReporter({
+        sessionId: session.id,
+        division: session,
+        sendToRenderer: this.sendToRenderer,
+      });
       const mcpCustomTools = this.mcpManager
-        ? filterMcpToolsForDivision(buildMcpCustomTools(this.mcpManager, session), session)
+        ? filterMcpToolsForDivision(
+            buildMcpCustomTools(this.mcpManager, session, onProjectScopeViolation, session.id),
+            session
+          )
         : [];
       const extensionCustomTools = extensionResult.customTools || [];
       // Coding tools are read/bash/edit/write (4). Wrappers preserve length; we
@@ -2172,6 +2194,8 @@ ${hints.join('\n')}
         extensionTools: extensionCustomTools,
         useSearchCallMeta: true,
         division: session,
+        onProjectScopeViolation,
+        sessionId: session.id,
       });
       let customTools = toolSelection.customTools;
       let mcpToolMode: McpToolExposureMode = toolSelection.mode;
@@ -2575,6 +2599,8 @@ ${
           extensionTools: extensionCustomTools,
           useSearchCallMeta: true,
           division: session,
+          onProjectScopeViolation,
+          sessionId: session.id,
         });
         customTools = adjusted.customTools;
         mcpToolMode = adjusted.mode;
