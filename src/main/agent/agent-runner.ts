@@ -26,6 +26,10 @@ import { getSharedAuthStorage, ModelRegistry } from './shared-auth';
 import type { Session, Message, TraceStep, ServerEvent, ContentBlock } from '../../renderer/types';
 import { v4 as uuidv4 } from 'uuid';
 import { decidePermission, rememberAlwaysAllow } from '../config/permission-rules-store';
+import {
+  MCP_WRITE_DISABLED_MESSAGE,
+  isMcpWriteAccessDenied,
+} from '../config/mcp-write-access-store';
 import { PathResolver } from '../sandbox/path-resolver';
 import { MCPManager } from '../mcp/mcp-manager';
 import { mcpConfigStore } from '../mcp/mcp-config-store';
@@ -1065,10 +1069,13 @@ ${hints.join('\n')}
         const displayName = getDisplayName(toolName);
 
         if (decision === 'deny') {
-          log(`[CoworkAgentRunner] Tool '${toolName}' denied by rule`);
+          const reason = isMcpWriteAccessDenied(toolName)
+            ? MCP_WRITE_DISABLED_MESSAGE
+            : `Tool '${displayName}' is denied by your permission rules.`;
+          log(`[CoworkAgentRunner] Tool '${toolName}' denied: ${reason}`);
           return {
             block: true,
-            reason: `Tool '${displayName}' is denied by your permission rules.`,
+            reason,
           };
         }
 

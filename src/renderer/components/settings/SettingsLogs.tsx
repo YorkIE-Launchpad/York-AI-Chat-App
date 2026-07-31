@@ -1,16 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import {
-  AlertCircle,
-  CheckCircle,
-  Loader2,
-  Save,
-  Globe,
-  Trash2,
-  Copy,
-} from 'lucide-react';
+import { AlertCircle, CheckCircle, Loader2, Save, Globe, Trash2, Copy } from 'lucide-react';
 import { formatAppDateTime } from '../../utils/i18n-format';
-import { SettingsContentSection } from './shared';
+import { SettingsContentSection, SettingsSwitch } from './shared';
 
 const isElectron = typeof window !== 'undefined' && window.electronAPI !== undefined;
 
@@ -173,19 +165,12 @@ export function SettingsLogs({ isActive }: { isActive: boolean }) {
             <h4 className="text-sm font-semibold text-text-primary">{t('logs.enableDevLogs')}</h4>
             <p className="mt-1 text-xs leading-5 text-text-muted">{t('logs.enableDevLogsDesc')}</p>
           </div>
-          <button
-            onClick={handleToggleDevLogs}
+          <SettingsSwitch
+            checked={devLogsEnabled}
+            onChange={() => void handleToggleDevLogs()}
             disabled={isLoading}
-            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 disabled:opacity-50 flex-shrink-0 ${
-              devLogsEnabled ? 'bg-accent' : 'bg-surface-muted'
-            }`}
-          >
-            <span
-              className={`inline-block h-4 w-4 transform rounded-full bg-text-primary transition-transform ${
-                devLogsEnabled ? 'translate-x-6' : 'translate-x-1'
-              }`}
-            />
-          </button>
+            aria-label={t('logs.enableDevLogs')}
+          />
         </div>
       </section>
 

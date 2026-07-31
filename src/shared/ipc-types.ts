@@ -24,6 +24,8 @@ export interface McpServerConfig {
   url?: string;
   headers?: Record<string, string>;
   enabled: boolean;
+  /** When false, mutating tools from this connector are denied. Default: true. */
+  writeEnabled?: boolean;
 }
 
 /** Tool exposed by an MCP server (mirrors MCPTool in mcp-manager.ts). */

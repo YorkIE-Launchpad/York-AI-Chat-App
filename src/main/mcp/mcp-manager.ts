@@ -67,6 +67,11 @@ export interface MCPServerConfig {
   url?: string; // For SSE / Streamable HTTP: server URL
   headers?: Record<string, string>; // For SSE / Streamable HTTP: HTTP headers
   enabled: boolean;
+  /**
+   * When false, mutating MCP tools from this server are hard-denied.
+   * Omitted / true = writes allowed (subject to the global kill-switch).
+   */
+  writeEnabled?: boolean;
 }
 
 /**

@@ -14,6 +14,8 @@
  * harmless extra prompt, never an unintended auto-allow.
  */
 import type { PermissionRule } from '../../renderer/types';
+import { MCP_FIRST_PARTY_READ_TOOLS } from '../../shared/mcp-write-policy';
+import { isMcpWriteAccessDenied } from './mcp-write-access-store';
 
 // Mirrors the renderer defaults in src/renderer/store/index.ts
 const DEFAULT_RULES: PermissionRule[] = [
@@ -28,72 +30,6 @@ const DEFAULT_RULES: PermissionRule[] = [
 ];
 
 const VALID_ACTIONS: ReadonlySet<PermissionRule['action']> = new Set(['allow', 'deny', 'ask']);
-
-/** Slack MCP tools that may run without a permission prompt (reads only). */
-const SLACK_READ_TOOLS = new Set([
-  'mcp__slack__list_channels',
-  'mcp__slack__get_channel_history',
-  'mcp__slack__search_messages',
-  'mcp__slack__get_thread',
-  'mcp__slack__get_user',
-]);
-
-/** Gmail MCP tools that may run without a permission prompt (reads only). */
-const GMAIL_READ_TOOLS = new Set([
-  'mcp__gmail__search_emails',
-  'mcp__gmail__get_email',
-  'mcp__gmail__list_labels',
-]);
-
-/** Google Drive MCP tools that may run without a permission prompt (reads only). */
-const DRIVE_READ_TOOLS = new Set([
-  'mcp__google_drive__search_files',
-  'mcp__google_drive__list_files',
-  'mcp__google_drive__get_file_metadata',
-  'mcp__google_drive__get_document_content',
-]);
-
-/** Google Calendar MCP tools that may run without a permission prompt (reads only). */
-const CALENDAR_READ_TOOLS = new Set([
-  'mcp__google_calendar__list_events',
-  'mcp__google_calendar__search_events',
-  'mcp__google_calendar__get_event',
-]);
-
-/** Shared Atlassian Rovo discovery tools exposed on both Jira and Confluence servers. */
-const ATLASSIAN_SHARED_READ_SUFFIXES = [
-  'atlassianuserinfo',
-  'getaccessibleatlassianresources',
-  'searchatlassian',
-  'fetchatlassian',
-] as const;
-
-/** Jira MCP tools that may run without a permission prompt (reads / search only). */
-const JIRA_READ_TOOLS = new Set([
-  ...ATLASSIAN_SHARED_READ_SUFFIXES.map((name) => `mcp__jira__${name}`),
-  'mcp__jira__getjiraissue',
-  'mcp__jira__getjiraissueremoteissuelinks',
-  'mcp__jira__getjiraissuetypemetawithfields',
-  'mcp__jira__getjiraprojectissuetypesmetadata',
-  'mcp__jira__getissuelinktypes',
-  'mcp__jira__gettransitionsforjiraissue',
-  'mcp__jira__getvisiblejiraprojects',
-  'mcp__jira__lookupjiraaccountid',
-  'mcp__jira__searchjiraissuesusingjql',
-]);
-
-/** Confluence MCP tools that may run without a permission prompt (reads / search only). */
-const CONFLUENCE_READ_TOOLS = new Set([
-  ...ATLASSIAN_SHARED_READ_SUFFIXES.map((name) => `mcp__confluence__${name}`),
-  'mcp__confluence__getconfluencepage',
-  'mcp__confluence__getconfluencepagedescendants',
-  'mcp__confluence__getconfluencepagefootercomments',
-  'mcp__confluence__getconfluencepageinlinecomments',
-  'mcp__confluence__getconfluencecommentchildren',
-  'mcp__confluence__getconfluencespaces',
-  'mcp__confluence__getpagesinconfluencespace',
-  'mcp__confluence__searchconfluenceusingcql',
-]);
 
 let rules: PermissionRule[] = [...DEFAULT_RULES];
 
@@ -141,6 +77,7 @@ export function getPermissionRules(): PermissionRule[] {
  * Decide how a given tool call should be handled.
  *
  * Matching order:
+ *   0. MCP write kill-switch / per-connector writeEnabled (hard deny; beats always-allow)
  *   1. Session-scoped "always allow" memory
  *   2. First rule whose `tool` matches (case-insensitive) AND whose
  *      optional `pattern` (glob-ish: `*` = any substring) matches the
@@ -167,6 +104,11 @@ export function decidePermission(
 ): 'allow' | 'deny' | 'ask' {
   const lowered = toolName.toLowerCase();
 
+  // Global / per-connector write deny beats session always-allow.
+  if (isMcpWriteAccessDenied(toolName)) {
+    return 'deny';
+  }
+
   const session = alwaysAllowBySession.get(sessionId);
   if (session?.has(lowered)) return 'allow';
 
@@ -191,12 +133,7 @@ export function decidePermission(
   if (lowered.startsWith('mcp__york_ie_hub__')) return 'allow';
   if (lowered.startsWith('mcp__hub__')) return 'allow';
   if (lowered.startsWith('mcp__gtm_pulse__')) return 'allow';
-  if (SLACK_READ_TOOLS.has(lowered)) return 'allow';
-  if (GMAIL_READ_TOOLS.has(lowered)) return 'allow';
-  if (DRIVE_READ_TOOLS.has(lowered)) return 'allow';
-  if (JIRA_READ_TOOLS.has(lowered)) return 'allow';
-  if (CONFLUENCE_READ_TOOLS.has(lowered)) return 'allow';
-  if (CALENDAR_READ_TOOLS.has(lowered)) return 'allow';
+  if (MCP_FIRST_PARTY_READ_TOOLS.has(lowered)) return 'allow';
   if (lowered === 'meeting_search') return 'allow';
   if (lowered === 'meeting_read') return 'allow';
   if (lowered === 'webfetch') return 'allow';

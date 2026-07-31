@@ -15,6 +15,8 @@ export interface MCPServerConfig {
   url?: string;
   headers?: Record<string, string>;
   enabled: boolean;
+  /** When false, mutating tools from this connector are denied. Default: true. */
+  writeEnabled?: boolean;
 }
 
 export interface MCPServerStatus {
@@ -104,5 +106,37 @@ export function SettingsContentSection({
       </div>
       <div className="space-y-3">{children}</div>
     </section>
+  );
+}
+
+export function SettingsSwitch({
+  checked,
+  onChange,
+  disabled,
+  'aria-label': ariaLabel,
+}: {
+  checked: boolean;
+  onChange: () => void;
+  disabled?: boolean;
+  'aria-label'?: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={ariaLabel}
+      disabled={disabled}
+      onClick={onChange}
+      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 disabled:opacity-50 ${
+        checked ? 'bg-accent' : 'bg-surface-muted'
+      }`}
+    >
+      <span
+        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+          checked ? 'translate-x-6' : 'translate-x-1'
+        }`}
+      />
+    </button>
   );
 }

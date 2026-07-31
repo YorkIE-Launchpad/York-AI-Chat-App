@@ -945,6 +945,11 @@ export interface AppConfig {
   theme?: AppTheme;
   sandboxEnabled?: boolean;
   memoryEnabled?: boolean;
+  /**
+   * Global kill-switch for mutating MCP connector tools.
+   * When false, all connector writes are hard-denied. Default: true.
+   */
+  mcpWriteAccessEnabled?: boolean;
   memoryRuntime?: MemoryRuntimeConfig;
   /** User OpenRouter BYOK key; required to use OpenRouter models. */
   openRouterUserApiKey?: string;

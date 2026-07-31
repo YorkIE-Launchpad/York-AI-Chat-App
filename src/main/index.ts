@@ -69,6 +69,10 @@ import { runConfigApiTest } from './config/config-test-routing';
 import { listOllamaModels } from './config/ollama-api';
 import { fetchBackendModels } from './config/backend-client';
 import { setPermissionRules, decidePermission } from './config/permission-rules-store';
+import {
+  setMcpWriteAccessEnabled,
+  setMcpWriteAccessServerSource,
+} from './config/mcp-write-access-store';
 import { mcpConfigStore } from './mcp/mcp-config-store';
 import { buildWelcomeConnectorSnapshot } from './welcome/connector-snapshot';
 import { getStaticFallbackChips, getWelcomeQuickActions } from './welcome/generate-welcome-actions';
@@ -1263,6 +1267,8 @@ app
 
       // Apply dev logs setting
       setDevLogsEnabled(configStore.get('enableDevLogs'));
+      setMcpWriteAccessServerSource(() => mcpConfigStore.getServers());
+      setMcpWriteAccessEnabled(configStore.get('mcpWriteAccessEnabled') !== false);
 
       // Start config file watcher for bidirectional sync
       startConfigFileWatcher();
@@ -1691,6 +1697,8 @@ app
     // Apply dev logs setting from config
     const enableDevLogs = configStore.get('enableDevLogs');
     setDevLogsEnabled(enableDevLogs);
+    setMcpWriteAccessServerSource(() => mcpConfigStore.getServers());
+    setMcpWriteAccessEnabled(configStore.get('mcpWriteAccessEnabled') !== false);
 
     // Start config file watcher for bidirectional sync
     startConfigFileWatcher();
@@ -2600,6 +2608,7 @@ const syncConfigAfterMutation = async (previousConfig: AppConfig) => {
   configStore.applyToEnv();
 
   const updatedConfig = configStore.getAll();
+  setMcpWriteAccessEnabled(updatedConfig.mcpWriteAccessEnabled !== false);
   const shouldReloadRunner =
     buildAgentRuntimeSignature(previousConfig) !== buildAgentRuntimeSignature(updatedConfig);
   const shouldReloadSandbox = previousConfig.sandboxEnabled !== updatedConfig.sandboxEnabled;

@@ -23,6 +23,10 @@ import {
   leanMcpToolArgs,
 } from './mcp-tool-payload';
 import { emitProjectScopeBlock } from './project-scope-violation';
+import {
+  MCP_WRITE_DISABLED_MESSAGE,
+  isMcpWriteAccessDenied,
+} from '../config/mcp-write-access-store';
 export const OPENAI_MAX_TOOLS = 128;
 export const MCP_SEARCH_TOOLS_NAME = 'mcp_search_tools';
 export const MCP_CALL_TOOL_NAME = 'mcp_call_tool';
@@ -274,6 +278,17 @@ export function buildMcpMetaTools(
             {
               type: 'text' as const,
               text: `Error: MCP tool not found: ${toolName}. Use mcp_search_tools to find available tools.`,
+            },
+          ],
+          details: undefined,
+        };
+      }
+      if (isMcpWriteAccessDenied(toolName)) {
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: `Error: ${MCP_WRITE_DISABLED_MESSAGE}`,
             },
           ],
           details: undefined,

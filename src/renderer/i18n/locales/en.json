@@ -628,7 +628,15 @@
     "connect": "Connect",
     "disconnect": "Disconnect",
     "reconnect": "Reconnect",
-    "actionFailed": "Connector action failed"
+    "actionFailed": "Connector action failed",
+    "globalWriteAccessTitle": "Allow AI to make changes via connectors",
+    "globalWriteAccessDesc": "When off, the AI can still read from connectors but cannot create, update, send, or delete anything through MCP tools.",
+    "writesAllowed": "Writes allowed",
+    "writesDenied": "Writes blocked",
+    "allowWrites": "Allow writes",
+    "serverWriteAccessDesc": "Allow the AI to use write/mutate tools from this connector",
+    "serverWriteOverriddenByGlobal": "Blocked by the global write setting above",
+    "writeAccessSaveFailed": "Failed to update connector write access"
   },
   "credentials": {
     "envVars": "Environment Variables",

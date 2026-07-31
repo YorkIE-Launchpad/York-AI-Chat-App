@@ -23,6 +23,10 @@ import {
   rememberAlwaysAllow,
   setPermissionRules,
 } from '../../main/config/permission-rules-store';
+import {
+  setMcpWriteAccessEnabled,
+  setMcpWriteAccessServerSource,
+} from '../../main/config/mcp-write-access-store';
 
 const SESSION_A = 'session-a';
 const SESSION_B = 'session-b';
@@ -33,6 +37,8 @@ function resetToDefaults(): void {
   setPermissionRules(null);
   forgetSessionPermissions(SESSION_A);
   forgetSessionPermissions(SESSION_B);
+  setMcpWriteAccessEnabled(true);
+  setMcpWriteAccessServerSource(() => []);
 }
 
 describe('permission-rules-store', () => {
@@ -213,6 +219,44 @@ describe('permission-rules-store', () => {
 
     it('returns ask for non-builtin MCP tools by default', () => {
       expect(decidePermission(SESSION_A, 'mcp__Notion__search', {})).toBe('ask');
+    });
+  });
+
+  describe('decidePermission — MCP write kill-switch', () => {
+    it('hard-denies connector writes when global write access is off', () => {
+      setMcpWriteAccessEnabled(false);
+      expect(decidePermission(SESSION_A, 'mcp__Slack__post_message', {})).toBe('deny');
+      expect(decidePermission(SESSION_A, 'mcp__Google_Calendar__create_event', {})).toBe('deny');
+      expect(decidePermission(SESSION_A, 'mcp__York_IE_HUB__create_announcement', {})).toBe('deny');
+      expect(decidePermission(SESSION_A, 'mcp__R_D_Launchpad__create_release', {})).toBe('deny');
+    });
+
+    it('still allows connector reads when global write access is off', () => {
+      setMcpWriteAccessEnabled(false);
+      expect(decidePermission(SESSION_A, 'mcp__Slack__list_channels', {})).toBe('allow');
+      expect(decidePermission(SESSION_A, 'mcp__York_IE_HUB__list_employees', {})).toBe('allow');
+      expect(decidePermission(SESSION_A, 'mcp__R_D_Launchpad__list_features', {})).toBe('allow');
+    });
+
+    it('does not change local coding tool permissions when write access is off', () => {
+      setMcpWriteAccessEnabled(false);
+      expect(decidePermission(SESSION_A, 'read', { path: '/tmp/x' })).toBe('allow');
+      expect(decidePermission(SESSION_A, 'write', { path: '/tmp/x' })).toBe('ask');
+      expect(decidePermission(SESSION_A, 'bash', { command: 'ls' })).toBe('ask');
+    });
+
+    it('hard-denies writes for a server with writeEnabled false', () => {
+      setMcpWriteAccessServerSource(() => [{ name: 'Slack', writeEnabled: false }]);
+      expect(decidePermission(SESSION_A, 'mcp__Slack__post_message', {})).toBe('deny');
+      expect(decidePermission(SESSION_A, 'mcp__Slack__list_channels', {})).toBe('allow');
+      // Other connectors still ask (not deny) for writes
+      expect(decidePermission(SESSION_A, 'mcp__Gmail__send_email', {})).toBe('ask');
+    });
+
+    it('beats session always-allow for denied MCP writes', () => {
+      rememberAlwaysAllow(SESSION_A, 'mcp__Slack__post_message');
+      setMcpWriteAccessEnabled(false);
+      expect(decidePermission(SESSION_A, 'mcp__Slack__post_message', {})).toBe('deny');
     });
   });
 

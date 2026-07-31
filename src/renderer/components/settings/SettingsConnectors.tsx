@@ -21,6 +21,7 @@ import type {
   MCPToolInfo,
   MCPPreset,
 } from './shared';
+import { SettingsSwitch } from './shared';
 import { sortMcpServersByDefaultOrder } from '../../../shared/mcp-defaults';
 
 const isElectron = typeof window !== 'undefined' && window.electronAPI !== undefined;
@@ -142,6 +143,7 @@ export function SettingsConnectors({ isActive }: { isActive: boolean }) {
   } | null>(null);
   const [presetEnvValues, setPresetEnvValues] = useState<Record<string, string>>({});
   const [connectorStatuses, setConnectorStatuses] = useState<ConnectorStatus[]>([]);
+  const [mcpWriteAccessEnabled, setMcpWriteAccessEnabled] = useState(true);
 
   // Auto-refresh
   const loadPresets = useCallback(async () => {
@@ -191,6 +193,15 @@ export function SettingsConnectors({ isActive }: { isActive: boolean }) {
     }
   }, []);
 
+  const loadWriteAccess = useCallback(async () => {
+    try {
+      const config = await window.electronAPI.config.get();
+      setMcpWriteAccessEnabled(config?.mcpWriteAccessEnabled !== false);
+    } catch (err) {
+      console.error('Failed to load MCP write access setting:', err);
+    }
+  }, []);
+
   const loadAll = useCallback(async () => {
     await Promise.all([
       loadServers(),
@@ -198,8 +209,9 @@ export function SettingsConnectors({ isActive }: { isActive: boolean }) {
       loadTools(),
       loadPresets(),
       loadConnectorStatuses(),
+      loadWriteAccess(),
     ]);
-  }, [loadConnectorStatuses, loadPresets, loadServers, loadStatuses, loadTools]);
+  }, [loadConnectorStatuses, loadPresets, loadServers, loadStatuses, loadTools, loadWriteAccess]);
 
   useEffect(() => {
     if (!isElectron || !isActive) {
@@ -383,6 +395,29 @@ export function SettingsConnectors({ isActive }: { isActive: boolean }) {
     await handleSaveServer({ ...server, enabled: !server.enabled });
   }
 
+  async function handleToggleWriteEnabled(server: MCPServerConfig) {
+    const nextWriteEnabled = server.writeEnabled === false;
+    await handleSaveServer({ ...server, writeEnabled: nextWriteEnabled });
+  }
+
+  async function handleToggleGlobalWriteAccess() {
+    setIsLoading(true);
+    setError('');
+    try {
+      const next = !mcpWriteAccessEnabled;
+      const result = await window.electronAPI.config.save({ mcpWriteAccessEnabled: next });
+      if (result?.config) {
+        setMcpWriteAccessEnabled(result.config.mcpWriteAccessEnabled !== false);
+      } else {
+        setMcpWriteAccessEnabled(next);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('mcp.writeAccessSaveFailed'));
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
   function getServerStatus(serverId: string) {
     return statuses.find((s) => s.id === serverId);
   }
@@ -416,6 +451,23 @@ export function SettingsConnectors({ isActive }: { isActive: boolean }) {
       {/* Server List */}
       {!showAddForm && !editingServer && (
         <div className="space-y-3">
+          <div className="rounded-lg border border-border bg-surface p-4">
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <h3 className="text-sm font-medium text-text-primary">
+                  {t('mcp.globalWriteAccessTitle')}
+                </h3>
+                <p className="mt-1 text-xs text-text-muted">{t('mcp.globalWriteAccessDesc')}</p>
+              </div>
+              <SettingsSwitch
+                checked={mcpWriteAccessEnabled}
+                onChange={() => void handleToggleGlobalWriteAccess()}
+                disabled={isLoading}
+                aria-label={t('mcp.globalWriteAccessTitle')}
+              />
+            </div>
+          </div>
+
           {error && (
             <div className="rounded-lg border border-error/30 bg-error/10 px-3 py-2 text-sm text-error">
               {error}
@@ -498,6 +550,8 @@ export function SettingsConnectors({ isActive }: { isActive: boolean }) {
                   onEdit={() => setEditingServer(server)}
                   onDelete={() => handleDeleteServer(server.id)}
                   onToggleEnabled={() => handleToggleEnabled(server)}
+                  onToggleWriteEnabled={() => handleToggleWriteEnabled(server)}
+                  globalWriteAccessEnabled={mcpWriteAccessEnabled}
                   isLoading={isLoading}
                   canDelete={!isBuiltinProtectedMcpServer(server)}
                   canEdit={!isNonEditableBuiltinMcpServer(server)}
@@ -674,6 +728,8 @@ function ServerCard({
   onEdit,
   onDelete,
   onToggleEnabled,
+  onToggleWriteEnabled,
+  globalWriteAccessEnabled,
   isLoading,
   canDelete = true,
   canEdit = true,
@@ -685,6 +741,8 @@ function ServerCard({
   onEdit: () => void;
   onDelete: () => void;
   onToggleEnabled: () => void;
+  onToggleWriteEnabled: () => void;
+  globalWriteAccessEnabled: boolean;
   isLoading: boolean;
   canDelete?: boolean;
   canEdit?: boolean;
@@ -693,6 +751,8 @@ function ServerCard({
   // Fall back to 'connecting' for enabled servers when status poll hasn't returned yet
   const serverStatus = status?.status ?? (server.enabled ? 'connecting' : 'disabled');
   const [showTools, setShowTools] = useState(false);
+  const serverWritesEnabled = server.writeEnabled !== false;
+  const writeToggleDisabled = isLoading || !globalWriteAccessEnabled;
 
   return (
     <div className="rounded-lg border border-border bg-surface overflow-hidden">
@@ -704,6 +764,24 @@ function ServerCard({
               <span className="px-2 py-0.5 text-xs rounded bg-surface-muted text-text-muted">
                 {server.type.toUpperCase()}
               </span>
+            </div>
+            <div
+              className={`mb-2 flex items-center justify-between gap-3 text-xs ${
+                writeToggleDisabled ? 'text-text-muted' : 'text-text-secondary'
+              }`}
+              title={
+                !globalWriteAccessEnabled
+                  ? t('mcp.serverWriteOverriddenByGlobal')
+                  : t('mcp.serverWriteAccessDesc')
+              }
+            >
+              <span>{t('mcp.allowWrites')}</span>
+              <SettingsSwitch
+                checked={serverWritesEnabled}
+                onChange={onToggleWriteEnabled}
+                disabled={writeToggleDisabled}
+                aria-label={t('mcp.allowWrites')}
+              />
             </div>
             <div className="text-sm text-text-muted space-y-1 min-w-0">
               {server.type === 'stdio' && (

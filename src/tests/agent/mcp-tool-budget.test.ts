@@ -11,6 +11,11 @@ import {
   searchMcpTools,
   selectCustomToolsForModel,
 } from '../../main/agent/mcp-tool-budget';
+import {
+  MCP_WRITE_DISABLED_MESSAGE,
+  setMcpWriteAccessEnabled,
+  setMcpWriteAccessServerSource,
+} from '../../main/config/mcp-write-access-store';
 
 function makeMcpTool(overrides: Partial<MCPTool> & Pick<MCPTool, 'name'>): MCPTool {
   return {
@@ -245,6 +250,8 @@ describe('buildMcpMetaTools', () => {
   let callTool: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
+    setMcpWriteAccessEnabled(true);
+    setMcpWriteAccessServerSource(() => []);
     const tools = [
       makeMcpTool({
         name: 'mcp__Launchpad__list_features',
@@ -257,6 +264,23 @@ describe('buildMcpMetaTools', () => {
         originalName: 'get_employee',
         serverName: 'Hub',
         description: 'Fetch an employee profile',
+      }),
+      makeMcpTool({
+        name: 'mcp__Slack__post_message',
+        originalName: 'post_message',
+        serverName: 'Slack',
+        description: 'Post a Slack message',
+        inputSchema: {
+          type: 'object',
+          properties: { channel: { type: 'string' }, text: { type: 'string' } },
+          required: ['channel', 'text'],
+        },
+      }),
+      makeMcpTool({
+        name: 'mcp__York_IE_HUB__create_announcement',
+        originalName: 'create_announcement',
+        serverName: 'York IE HUB',
+        description: 'Create an announcement',
       }),
     ];
     manager = makeMcpManager(tools);
@@ -311,6 +335,53 @@ describe('buildMcpMetaTools', () => {
     );
     expect(callTool).toHaveBeenCalledWith('mcp__Hub__get_employee', { id: '42' });
     expect((result.content[0] as { text: string }).text).toContain('called:mcp__Hub__get_employee');
+  });
+
+  it('blocks write tools via mcp_call_tool when global write access is off', async () => {
+    setMcpWriteAccessEnabled(false);
+    const tools = buildMcpMetaTools(manager);
+    const callMeta = tools.find((t) => t.name === MCP_CALL_TOOL_NAME)!;
+    const result = await callMeta.execute(
+      '1',
+      {
+        tool_name: 'mcp__Slack__post_message',
+        arguments: { channel: 'general', text: 'hi' },
+      },
+      undefined,
+      undefined,
+      emptyExtensionCtx
+    );
+    expect(callTool).not.toHaveBeenCalled();
+    expect((result.content[0] as { text: string }).text).toContain(MCP_WRITE_DISABLED_MESSAGE);
+  });
+
+  it('blocks Hub writes via mcp_call_tool when write access is off', async () => {
+    setMcpWriteAccessEnabled(false);
+    const tools = buildMcpMetaTools(manager);
+    const callMeta = tools.find((t) => t.name === MCP_CALL_TOOL_NAME)!;
+    const result = await callMeta.execute(
+      '1',
+      { tool_name: 'mcp__York_IE_HUB__create_announcement', arguments: { title: 'Hi' } },
+      undefined,
+      undefined,
+      emptyExtensionCtx
+    );
+    expect(callTool).not.toHaveBeenCalled();
+    expect((result.content[0] as { text: string }).text).toContain(MCP_WRITE_DISABLED_MESSAGE);
+  });
+
+  it('still allows read tools via mcp_call_tool when write access is off', async () => {
+    setMcpWriteAccessEnabled(false);
+    const tools = buildMcpMetaTools(manager);
+    const callMeta = tools.find((t) => t.name === MCP_CALL_TOOL_NAME)!;
+    await callMeta.execute(
+      '1',
+      { tool_name: 'mcp__Hub__get_employee', arguments: { id: '42' } },
+      undefined,
+      undefined,
+      emptyExtensionCtx
+    );
+    expect(callTool).toHaveBeenCalledWith('mcp__Hub__get_employee', { id: '42' });
   });
 
   it('injects locked project id on Hub get_project in project division', async () => {

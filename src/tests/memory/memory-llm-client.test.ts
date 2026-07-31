@@ -28,6 +28,7 @@ function makeConfig(timeoutMs: number): AppConfig {
     theme: 'light',
     sandboxEnabled: false,
     memoryEnabled: true,
+    mcpWriteAccessEnabled: true,
     memoryRuntime: {
       llm: {
         inheritFromActive: true,

@@ -135,6 +135,12 @@ export interface AppConfig {
   // Global memory toggle
   memoryEnabled: boolean;
 
+  /**
+   * Global kill-switch for mutating MCP connector tools.
+   * When false, all connector writes are hard-denied. Default: true.
+   */
+  mcpWriteAccessEnabled: boolean;
+
   // Dedicated memory runtime config
   memoryRuntime: MemoryRuntimeConfig;
 
@@ -207,6 +213,7 @@ const DIRECT_READ_KEYS = new Set<keyof AppConfig>([
   'theme',
   'sandboxEnabled',
   'memoryEnabled',
+  'mcpWriteAccessEnabled',
   'meetingsEnabled',
   'enableThinking',
   'autoModelPreference',
@@ -225,6 +232,7 @@ export const EXPORTABLE_FIELDS: (keyof AppConfig)[] = [
   'sandboxEnabled',
   'enableThinking',
   'memoryEnabled',
+  'mcpWriteAccessEnabled',
   'meetingsEnabled',
   'model',
   'autoModelPreference',
@@ -245,6 +253,7 @@ export const FIELD_VALIDATORS: Record<string, (v: unknown) => boolean> = {
   sandboxEnabled: (v) => typeof v === 'boolean',
   enableThinking: (v) => typeof v === 'boolean',
   memoryEnabled: (v) => typeof v === 'boolean',
+  mcpWriteAccessEnabled: (v) => typeof v === 'boolean',
   meetingsEnabled: (v) => typeof v === 'boolean',
   model: (v) => typeof v === 'string',
   autoModelPreference: (v) => v === 'eco' || v === 'balanced' || v === 'max',
@@ -333,6 +342,7 @@ const defaultConfig: AppConfig = {
   theme: 'light',
   sandboxEnabled: false,
   memoryEnabled: true,
+  mcpWriteAccessEnabled: true,
   openRouterUserApiKey: '',
   memoryRuntime: {
     llm: {
@@ -1117,6 +1127,10 @@ export class ConfigStore {
       theme: isAppTheme(raw.theme) ? raw.theme : defaultConfig.theme,
       sandboxEnabled: toBoolean(raw.sandboxEnabled, defaultConfig.sandboxEnabled),
       memoryEnabled: toBoolean(raw.memoryEnabled, defaultConfig.memoryEnabled),
+      mcpWriteAccessEnabled: toBoolean(
+        raw.mcpWriteAccessEnabled,
+        defaultConfig.mcpWriteAccessEnabled
+      ),
       memoryRuntime: normalizeMemoryRuntimeConfig(raw.memoryRuntime),
       openRouterUserApiKey:
         typeof raw.openRouterUserApiKey === 'string'
@@ -1268,6 +1282,7 @@ export class ConfigStore {
           (key === 'enableDevLogs' ||
             key === 'sandboxEnabled' ||
             key === 'memoryEnabled' ||
+            key === 'mcpWriteAccessEnabled' ||
             key === 'meetingsEnabled' ||
             key === 'enableThinking' ||
             key === 'isConfigured') &&
@@ -1544,6 +1559,10 @@ export class ConfigStore {
         updates.sandboxEnabled !== undefined ? updates.sandboxEnabled : current.sandboxEnabled,
       memoryEnabled:
         updates.memoryEnabled !== undefined ? updates.memoryEnabled : current.memoryEnabled,
+      mcpWriteAccessEnabled:
+        updates.mcpWriteAccessEnabled !== undefined
+          ? updates.mcpWriteAccessEnabled
+          : current.mcpWriteAccessEnabled,
       memoryRuntime:
         updates.memoryRuntime !== undefined
           ? normalizeMemoryRuntimeConfig(updates.memoryRuntime)

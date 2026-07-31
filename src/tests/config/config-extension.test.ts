@@ -51,6 +51,7 @@ function createMockConfigStore(overrides: Partial<AppConfig> = {}) {
     theme: 'dark',
     sandboxEnabled: true,
     memoryEnabled: true,
+    mcpWriteAccessEnabled: true,
     memoryRuntime: {
       llm: {
         inheritFromActive: true,
@@ -153,6 +154,7 @@ describe('config-extension', () => {
       expect(isKeyReadable('model')).toBe(true);
       expect(isKeyReadable('sandboxEnabled')).toBe(true);
       expect(isKeyReadable('memoryEnabled')).toBe(true);
+      expect(isKeyReadable('mcpWriteAccessEnabled')).toBe(true);
       expect(isKeyReadable('enableThinking')).toBe(true);
       expect(isKeyReadable('theme')).toBe(true);
       expect(isKeyReadable('enableDevLogs')).toBe(true);
@@ -370,6 +372,7 @@ describe('config-extension', () => {
       expect(isKeyWritable('sandboxEnabled')).toBe(true);
       expect(isKeyWritable('enableThinking')).toBe(true);
       expect(isKeyWritable('memoryEnabled')).toBe(true);
+      expect(isKeyWritable('mcpWriteAccessEnabled')).toBe(true);
       expect(isKeyWritable('model')).toBe(true);
       expect(isKeyWritable('contextWindow')).toBe(true);
       expect(isKeyWritable('maxTokens')).toBe(true);
