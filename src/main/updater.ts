@@ -18,6 +18,24 @@ export function shouldEnableAutoUpdater(opts: {
   return opts.isPackaged && opts.platform === 'darwin';
 }
 
+type ElectronUpdaterModule = {
+  autoUpdater?: typeof import('electron-updater').autoUpdater;
+  default?: {
+    autoUpdater?: typeof import('electron-updater').autoUpdater;
+  };
+};
+
+/**
+ * Resolve autoUpdater across CJS/ESM interop.
+ * Node's ESM import of electron-updater does not promote the lazy
+ * `autoUpdater` getter to a named export — it lives on `default`.
+ */
+export function resolveAutoUpdater(
+  mod: ElectronUpdaterModule
+): typeof import('electron-updater').autoUpdater | null {
+  return mod.autoUpdater ?? mod.default?.autoUpdater ?? null;
+}
+
 type StatusListener = (status: UpdaterStatus) => void;
 
 let currentStatus: UpdaterStatus = {
@@ -141,7 +159,11 @@ export async function startAutoUpdater(
   }
 
   try {
-    const { autoUpdater } = await import('electron-updater');
+    const updaterMod = (await import('electron-updater')) as ElectronUpdaterModule;
+    const autoUpdater = resolveAutoUpdater(updaterMod);
+    if (!autoUpdater) {
+      throw new Error('electron-updater autoUpdater export is unavailable (CJS/ESM interop)');
+    }
     autoUpdaterInstance = autoUpdater;
 
     autoUpdater.autoDownload = true;
