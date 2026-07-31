@@ -1,12 +1,16 @@
 /**
- * Helpers for electron-updater generic feed metadata (latest-mac.yml).
- * Used by upload-s3.js; exported for unit tests.
+ * Helpers for electron-updater generic feed metadata.
+ * Used by upload-s3.js / after-pack.js; exported for unit tests.
  */
 
 'use strict';
 
 const crypto = require('crypto');
 const fs = require('fs');
+
+/** Must match electron-builder.yml publish.url and src/main/updater.ts */
+const UPDATE_FEED_URL =
+  'https://york-internal-apps.s3.ap-south-1.amazonaws.com/york-workos/latest';
 
 /**
  * @param {string} filePath
@@ -25,6 +29,43 @@ function sha512Base64(filePath) {
 function fileDigest(filePath) {
   const size = fs.statSync(filePath).size;
   return { sha512: sha512Base64(filePath), size };
+}
+
+/**
+ * Cache dir name electron-builder writes into app-update.yml
+ * (`sanitizedName.toLowerCase() + "-updater"`).
+ * @param {string} packageName
+ * @returns {string}
+ */
+function updaterCacheDirName(packageName) {
+  const sanitized = String(packageName || 'app')
+    .replace(/^@/, '')
+    .replace(/[/\\?%*:|"<>]/g, '-');
+  return `${sanitized.toLowerCase()}-updater`;
+}
+
+/**
+ * Build Contents/Resources/app-update.yml for packaged apps.
+ * electron-builder skips this for mac `dir` targets (only dmg/zip).
+ *
+ * @param {{
+ *   url?: string;
+ *   packageName?: string;
+ *   updaterCacheDirName?: string;
+ * }} [opts]
+ * @returns {string}
+ */
+function buildAppUpdateYml(opts = {}) {
+  const url = opts.url || UPDATE_FEED_URL;
+  const cacheDir =
+    opts.updaterCacheDirName ||
+    updaterCacheDirName(opts.packageName || 'york-ie');
+  return [
+    'provider: generic',
+    `url: ${url}`,
+    `updaterCacheDirName: ${cacheDir}`,
+    '',
+  ].join('\n');
 }
 
 /**
@@ -67,7 +108,10 @@ function buildLatestMacYml(opts) {
 }
 
 module.exports = {
+  UPDATE_FEED_URL,
   sha512Base64,
   fileDigest,
+  updaterCacheDirName,
+  buildAppUpdateYml,
   buildLatestMacYml,
 };

@@ -12,6 +12,8 @@
 
 const fs = require('fs');
 const path = require('path');
+const { buildAppUpdateYml } = require('./update-feed');
+const pkg = require('../package.json');
 
 /**
  * Map electron-builder arch names to koffi directory names.
@@ -94,6 +96,16 @@ module.exports = async function afterPack(context) {
   // For files inside asar, electron-builder may also have app/ or node_modules/
   // We primarily work on the unpacked directory
   const nmUnpacked = path.join(appAsarUnpacked, 'node_modules');
+
+  // electron-builder only embeds app-update.yml for mac dmg/zip targets.
+  // We ship a dir + custom ditto zip, so write it ourselves for electron-updater.
+  const appUpdatePath = path.join(resourcesDir, 'app-update.yml');
+  fs.writeFileSync(
+    appUpdatePath,
+    buildAppUpdateYml({ packageName: pkg.name }),
+    'utf8'
+  );
+  console.log(`  ✓ wrote ${path.basename(appUpdatePath)} for auto-update`);
 
   // --- 1. koffi: remove non-target platform binaries ---
   const koffiKeep = getKoffiPlatformDir(platform, archName);

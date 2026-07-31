@@ -6,7 +6,14 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { sha512Base64, fileDigest, buildLatestMacYml } = require('../scripts/update-feed.js') as {
+const {
+  sha512Base64,
+  fileDigest,
+  buildLatestMacYml,
+  buildAppUpdateYml,
+  updaterCacheDirName,
+  UPDATE_FEED_URL,
+} = require('../scripts/update-feed.js') as {
   sha512Base64: (filePath: string) => string;
   fileDigest: (filePath: string) => { sha512: string; size: number };
   buildLatestMacYml: (opts: {
@@ -14,6 +21,13 @@ const { sha512Base64, fileDigest, buildLatestMacYml } = require('../scripts/upda
     files: Array<{ url: string; sha512: string; size: number }>;
     releaseDate?: string;
   }) => string;
+  buildAppUpdateYml: (opts?: {
+    url?: string;
+    packageName?: string;
+    updaterCacheDirName?: string;
+  }) => string;
+  updaterCacheDirName: (packageName: string) => string;
+  UPDATE_FEED_URL: string;
 };
 
 const tempDirs: string[] = [];
@@ -87,5 +101,13 @@ describe('update-feed helpers', () => {
         files: [],
       })
     ).toThrow(/file/i);
+  });
+
+  it('builds app-update.yml for packaged Resources', () => {
+    expect(updaterCacheDirName('york-ie')).toBe('york-ie-updater');
+    const yml = buildAppUpdateYml({ packageName: 'york-ie' });
+    expect(yml).toContain('provider: generic');
+    expect(yml).toContain(`url: ${UPDATE_FEED_URL}`);
+    expect(yml).toContain('updaterCacheDirName: york-ie-updater');
   });
 });
