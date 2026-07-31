@@ -21,7 +21,6 @@ import type {
   MCPToolInfo,
   MCPPreset,
 } from './shared';
-import { SettingsSwitch } from './shared';
 import { sortMcpServersByDefaultOrder } from '../../../shared/mcp-defaults';
 
 const isElectron = typeof window !== 'undefined' && window.electronAPI !== undefined;
@@ -452,20 +451,21 @@ export function SettingsConnectors({ isActive }: { isActive: boolean }) {
       {!showAddForm && !editingServer && (
         <div className="space-y-3">
           <div className="rounded-lg border border-border bg-surface p-4">
-            <div className="flex items-start justify-between gap-4">
+            <label className="flex cursor-pointer items-start gap-3">
+              <input
+                type="checkbox"
+                checked={mcpWriteAccessEnabled}
+                onChange={() => void handleToggleGlobalWriteAccess()}
+                disabled={isLoading}
+                className="mt-0.5 h-4 w-4 shrink-0 rounded border-border accent-accent disabled:opacity-50"
+              />
               <div className="min-w-0">
                 <h3 className="text-sm font-medium text-text-primary">
                   {t('mcp.globalWriteAccessTitle')}
                 </h3>
                 <p className="mt-1 text-xs text-text-muted">{t('mcp.globalWriteAccessDesc')}</p>
               </div>
-              <SettingsSwitch
-                checked={mcpWriteAccessEnabled}
-                onChange={() => void handleToggleGlobalWriteAccess()}
-                disabled={isLoading}
-                aria-label={t('mcp.globalWriteAccessTitle')}
-              />
-            </div>
+            </label>
           </div>
 
           {error && (
@@ -765,9 +765,11 @@ function ServerCard({
                 {server.type.toUpperCase()}
               </span>
             </div>
-            <div
-              className={`mb-2 flex items-center justify-between gap-3 text-xs ${
-                writeToggleDisabled ? 'text-text-muted' : 'text-text-secondary'
+            <label
+              className={`mb-2 inline-flex items-center gap-2 text-xs ${
+                writeToggleDisabled
+                  ? 'cursor-not-allowed text-text-muted'
+                  : 'cursor-pointer text-text-secondary'
               }`}
               title={
                 !globalWriteAccessEnabled
@@ -775,14 +777,15 @@ function ServerCard({
                   : t('mcp.serverWriteAccessDesc')
               }
             >
-              <span>{t('mcp.allowWrites')}</span>
-              <SettingsSwitch
+              <input
+                type="checkbox"
                 checked={serverWritesEnabled}
                 onChange={onToggleWriteEnabled}
                 disabled={writeToggleDisabled}
-                aria-label={t('mcp.allowWrites')}
+                className="h-3.5 w-3.5 shrink-0 rounded border-border accent-accent disabled:opacity-50"
               />
-            </div>
+              <span>{t('mcp.allowWrites')}</span>
+            </label>
             <div className="text-sm text-text-muted space-y-1 min-w-0">
               {server.type === 'stdio' && (
                 <div
