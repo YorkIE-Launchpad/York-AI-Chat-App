@@ -3,7 +3,7 @@
 /**
  * Upload macOS release artifacts (DMG + zipped .app) to S3,
  * generate release notes from the previous git tag, upload them,
- * then create an annotated v{version} tag (skip if already present).
+ * then create and push an annotated v{version} tag (skip create if already present).
  *
  * Layout:
  *   s3://york-internal-apps/york-workos/{version}/{filename}
@@ -176,22 +176,28 @@ function generateReleaseNotes(outPath) {
 }
 
 /**
- * Create annotated tag v{VERSION} if missing.
+ * Create annotated tag v{VERSION} if missing, then push to origin.
  * @returns {void}
  */
 function createReleaseTag() {
   if (tagExists(TAG_NAME)) {
-    console.log(`\n[upload-s3] Tag ${TAG_NAME} already exists — skipping.`);
-    return;
+    console.log(`\n[upload-s3] Tag ${TAG_NAME} already exists — skipping create.`);
+  } else {
+    console.log(`\n[upload-s3] Creating annotated tag ${TAG_NAME}`);
+    execFileSync(
+      'git',
+      ['tag', '-a', TAG_NAME, '-m', `York WorkOS v${VERSION}`],
+      { cwd: ROOT, stdio: 'inherit' }
+    );
+    console.log(`  ✓ Created ${TAG_NAME}`);
   }
 
-  console.log(`\n[upload-s3] Creating annotated tag ${TAG_NAME}`);
-  execFileSync(
-    'git',
-    ['tag', '-a', TAG_NAME, '-m', `York WorkOS v${VERSION}`],
-    { cwd: ROOT, stdio: 'inherit' }
-  );
-  console.log(`  ✓ Created ${TAG_NAME} (local only — push with: git push origin ${TAG_NAME})`);
+  console.log(`[upload-s3] Pushing tag ${TAG_NAME} to origin`);
+  execFileSync('git', ['push', 'origin', TAG_NAME], {
+    cwd: ROOT,
+    stdio: 'inherit',
+  });
+  console.log(`  ✓ Pushed ${TAG_NAME}`);
 }
 
 /**
