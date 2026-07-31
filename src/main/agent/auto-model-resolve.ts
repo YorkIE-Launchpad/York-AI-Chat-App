@@ -17,6 +17,10 @@ import {
   type BackendModelInfo,
 } from '../../shared/backend-config';
 import { filterModelsForOpenRouterKey } from '../../shared/openrouter-fallback';
+import {
+  filterModelsForDivision,
+  type SessionDivisionFields,
+} from '../../shared/workspace-division';
 import { fetchBackendModels } from '../config/backend-client';
 import { configStore } from '../config/config-store';
 import { log } from '../utils/logger';
@@ -32,6 +36,8 @@ export interface AutoResolveInput {
   enabledModels?: BackendModelInfo[];
   /** When omitted, reads from config store. */
   openRouterUserApiKey?: string | null;
+  /** Session workspace division — General is OpenRouter-only. */
+  division?: Partial<SessionDivisionFields> | null;
 }
 
 export interface AutoResolveResult {
@@ -97,7 +103,10 @@ export async function resolveAutoModelIfNeeded(
     input.openRouterUserApiKey !== undefined
       ? input.openRouterUserApiKey
       : configStore.getAll().openRouterUserApiKey;
-  const enabledModels = filterModelsForOpenRouterKey(rawModels, openRouterUserApiKey);
+  const enabledModels = filterModelsForOpenRouterKey(
+    filterModelsForDivision(rawModels, input.division),
+    openRouterUserApiKey
+  );
   const pick = pickAutoModel(enabledModels, score, preference, {
     requireVision: Boolean(input.hasImages),
   });

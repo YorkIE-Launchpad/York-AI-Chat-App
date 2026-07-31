@@ -3,10 +3,14 @@ import {
   buildDivisionSystemPrompt,
   divisionMemoryKey,
   filterMcpToolsForDivision,
+  filterModelsForDivision,
   isMcpToolExcludedInHubDivision,
+  isProviderAllowedInDivision,
   normalizeSessionDivision,
   sessionMatchesActiveDivision,
 } from '../../shared/workspace-division';
+import { filterModelsForOpenRouterKey } from '../../shared/openrouter-fallback';
+import type { BackendModelInfo } from '../../shared/backend-config';
 import {
   parseActiveUsersWithAllocations,
   parseClientsWithAllocations,
@@ -99,6 +103,49 @@ describe('workspace-division', () => {
     expect(buildDivisionSystemPrompt({ division: 'general' })).not.toContain(
       'OUT OF SCOPE (REFUSE)'
     );
+  });
+
+  it('restricts General workspace models to OpenRouter only', () => {
+    const catalog: BackendModelInfo[] = [
+      { id: 'openrouter/free', name: 'Free', provider: 'openrouter' },
+      { id: 'claude-haiku-4-5', name: 'Haiku', provider: 'anthropic' },
+      { id: 'gpt-5.4-mini', name: 'Mini', provider: 'openai' },
+      { id: 'gemini-2.5-flash', name: 'Flash', provider: 'gemini' },
+    ];
+
+    expect(
+      filterModelsForDivision(catalog, { division: 'general' }).map((m) => m.provider)
+    ).toEqual(['openrouter']);
+    expect(filterModelsForDivision(catalog, { division: 'hub' })).toHaveLength(4);
+    expect(
+      filterModelsForDivision(catalog, {
+        division: 'project',
+        hubProjectId: 'p1',
+        hubProjectName: 'P',
+      })
+    ).toHaveLength(4);
+
+    expect(isProviderAllowedInDivision('openrouter', { division: 'general' })).toBe(true);
+    expect(isProviderAllowedInDivision('anthropic', { division: 'general' })).toBe(false);
+    expect(isProviderAllowedInDivision('anthropic', { division: 'hub' })).toBe(true);
+    expect(isProviderAllowedInDivision('openrouter', { division: 'hub' })).toBe(true);
+
+    // Compose with missing BYOK → empty catalog in General without key
+    expect(
+      filterModelsForOpenRouterKey(filterModelsForDivision(catalog, { division: 'general' }), '')
+    ).toEqual([]);
+    expect(
+      filterModelsForOpenRouterKey(
+        filterModelsForDivision(catalog, { division: 'general' }),
+        'sk-or'
+      ).map((m) => m.provider)
+    ).toEqual(['openrouter']);
+
+    // No division context → pass-through (do not default to General)
+    expect(filterModelsForDivision(catalog, null)).toHaveLength(4);
+    expect(filterModelsForDivision(catalog, undefined)).toHaveLength(4);
+    expect(filterModelsForDivision(catalog, {})).toHaveLength(4);
+    expect(isProviderAllowedInDivision('anthropic', null)).toBe(true);
   });
 });
 

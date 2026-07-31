@@ -97,6 +97,9 @@ import { AUTO_MODEL_ID } from '../../shared/auto-model';
 import {
   buildDivisionSystemPrompt,
   filterMcpToolsForDivision,
+  filterModelsForDivision,
+  generalWorkspaceOpenRouterOnlyMessage,
+  isProviderAllowedInDivision,
 } from '../../shared/workspace-division';
 import { buildPiSessionRuntimeSignature } from './pi-session-runtime';
 import {
@@ -1767,6 +1770,7 @@ ${hints.join('\n')}
         hasImages,
         messageCount: existingMessages.length,
         contextChars,
+        division: session,
       });
 
       if (autoRoute.usedAuto && autoRoute.pick) {
@@ -1799,6 +1803,23 @@ ${hints.join('\n')}
             updates: { model: routedLabel },
           },
         });
+      }
+
+      // General workspace is OpenRouter-only (covers locked models / race before UI reconcile).
+      if (!isProviderAllowedInDivision(resolvedProvider, session)) {
+        const msg = generalWorkspaceOpenRouterOnlyMessage();
+        this.sendMessage(session.id, {
+          id: uuidv4(),
+          sessionId: session.id,
+          role: 'assistant',
+          content: [{ type: 'text', text: `**Error**: ${msg}` }],
+          timestamp: Date.now(),
+        });
+        this.sendTraceUpdate(session.id, thinkingStepId, {
+          status: 'error',
+          title: 'OpenRouter required in General',
+        });
+        return;
       }
 
       const configProtocol = resolvePiRouteProtocol(resolvedProvider, resolvedCustomProtocol);
@@ -3393,116 +3414,124 @@ ${
           terminalErrorText = undefined;
           streamedText = '';
 
-          const rawModels = await fetchBackendModels();
-          const enabledModels = filterModelsForOpenRouterKey(
-            rawModels,
-            runtimeConfig.openRouterUserApiKey
-          );
-          const fallback = resolveYorkPaidEcoFallback({
-            enabledModels,
-            promptText: promptTextForAuto,
-            preference: 'eco',
-          });
-
-          if (!fallback) {
-            emitTerminalError(openRouterLimitUserMessage(true));
+          // General workspace cannot fall back to York-paid models.
+          if (session.division === 'general') {
+            emitTerminalError(openRouterLimitUserMessage(false));
           } else {
-            log(
-              `[CoworkAgentRunner] ${OPENROUTER_LIMIT_FALLBACK_NOTE} ${fallback.provider}/${fallback.modelId}`
+            const rawModels = await fetchBackendModels();
+            const enabledModels = filterModelsForOpenRouterKey(
+              filterModelsForDivision(rawModels, session),
+              runtimeConfig.openRouterUserApiKey
             );
-            this.sendToRenderer({
-              type: 'session.autoRoute',
-              payload: {
-                sessionId: session.id,
-                provider: fallback.provider,
-                modelId: fallback.modelId,
-                tier: 'fast',
-                score: 0,
-                reason: OPENROUTER_LIMIT_FALLBACK_NOTE,
-              },
-            });
-            this.sendMessage(session.id, {
-              id: uuidv4(),
-              sessionId: session.id,
-              role: 'assistant',
-              content: [
-                {
-                  type: 'text',
-                  text: `_${OPENROUTER_LIMIT_FALLBACK_NOTE} Now using ${fallback.provider}/${fallback.modelId}._`,
-                },
-              ],
-              timestamp: Date.now(),
+            const fallback = resolveYorkPaidEcoFallback({
+              enabledModels,
+              promptText: promptTextForAuto,
+              preference: 'eco',
             });
 
-            const yorkProtocol = resolvePiRouteProtocol(fallback.provider, fallback.customProtocol);
-            let yorkModel = resolvePiRegistryModel(fallback.modelId, {
-              configProvider: yorkProtocol,
-              customBaseUrl: fallback.baseUrl,
-              rawProvider: fallback.provider,
-              customProtocol: fallback.customProtocol,
-            });
-            if (!yorkModel) {
-              const synthetic = resolveSyntheticPiModelFallback({
-                rawModel: fallback.modelId,
-                resolvedModelString: fallback.modelId,
-                rawProvider: fallback.provider,
-                routeProtocol: yorkProtocol,
-                baseUrl: fallback.baseUrl,
-              });
-              yorkModel = buildSyntheticPiModel(
-                synthetic.modelId,
-                synthetic.provider,
-                yorkProtocol,
-                fallback.baseUrl,
-                undefined,
-                undefined,
-                runtimeConfig.contextWindow,
-                runtimeConfig.maxTokens
+            if (!fallback) {
+              emitTerminalError(openRouterLimitUserMessage(true));
+            } else {
+              log(
+                `[CoworkAgentRunner] ${OPENROUTER_LIMIT_FALLBACK_NOTE} ${fallback.provider}/${fallback.modelId}`
               );
-              yorkModel = applyPiModelRuntimeOverrides(yorkModel, {
+              this.sendToRenderer({
+                type: 'session.autoRoute',
+                payload: {
+                  sessionId: session.id,
+                  provider: fallback.provider,
+                  modelId: fallback.modelId,
+                  tier: 'fast',
+                  score: 0,
+                  reason: OPENROUTER_LIMIT_FALLBACK_NOTE,
+                },
+              });
+              this.sendMessage(session.id, {
+                id: uuidv4(),
+                sessionId: session.id,
+                role: 'assistant',
+                content: [
+                  {
+                    type: 'text',
+                    text: `_${OPENROUTER_LIMIT_FALLBACK_NOTE} Now using ${fallback.provider}/${fallback.modelId}._`,
+                  },
+                ],
+                timestamp: Date.now(),
+              });
+
+              const yorkProtocol = resolvePiRouteProtocol(
+                fallback.provider,
+                fallback.customProtocol
+              );
+              let yorkModel = resolvePiRegistryModel(fallback.modelId, {
                 configProvider: yorkProtocol,
                 customBaseUrl: fallback.baseUrl,
                 rawProvider: fallback.provider,
                 customProtocol: fallback.customProtocol,
               });
-            }
+              if (!yorkModel) {
+                const synthetic = resolveSyntheticPiModelFallback({
+                  rawModel: fallback.modelId,
+                  resolvedModelString: fallback.modelId,
+                  rawProvider: fallback.provider,
+                  routeProtocol: yorkProtocol,
+                  baseUrl: fallback.baseUrl,
+                });
+                yorkModel = buildSyntheticPiModel(
+                  synthetic.modelId,
+                  synthetic.provider,
+                  yorkProtocol,
+                  fallback.baseUrl,
+                  undefined,
+                  undefined,
+                  runtimeConfig.contextWindow,
+                  runtimeConfig.maxTokens
+                );
+                yorkModel = applyPiModelRuntimeOverrides(yorkModel, {
+                  configProvider: yorkProtocol,
+                  customBaseUrl: fallback.baseUrl,
+                  rawProvider: fallback.provider,
+                  customProtocol: fallback.customProtocol,
+                });
+              }
 
-            if (!yorkModel) {
-              emitTerminalError(openRouterLimitUserMessage(true));
-            } else {
-              activePiModel = yorkModel;
-              resolvedProvider = fallback.provider;
-              await piSession.setModel(activePiModel);
+              if (!yorkModel) {
+                emitTerminalError(openRouterLimitUserMessage(true));
+              } else {
+                activePiModel = yorkModel;
+                resolvedProvider = fallback.provider;
+                await piSession.setModel(activePiModel);
 
-              const yorkApiKey = (
-                await resolveBackendClientApiKey({
-                  provider: fallback.provider,
-                  apiKey: fallback.apiKey,
-                })
-              ).trim();
-              if (yorkApiKey) {
-                const authStorage = getSharedAuthStorage();
-                authStorage.setRuntimeApiKey(fallback.provider, yorkApiKey);
-                if (activePiModel.provider !== fallback.provider) {
-                  authStorage.setRuntimeApiKey(activePiModel.provider, yorkApiKey);
+                const yorkApiKey = (
+                  await resolveBackendClientApiKey({
+                    provider: fallback.provider,
+                    apiKey: fallback.apiKey,
+                  })
+                ).trim();
+                if (yorkApiKey) {
+                  const authStorage = getSharedAuthStorage();
+                  authStorage.setRuntimeApiKey(fallback.provider, yorkApiKey);
+                  if (activePiModel.provider !== fallback.provider) {
+                    authStorage.setRuntimeApiKey(activePiModel.provider, yorkApiKey);
+                  }
                 }
-              }
 
-              // Fresh abort controller so subscribe callbacks accept events again.
-              controller = new AbortController();
-              try {
-                setMaxListeners(0, controller.signal);
-              } catch {
-                // ignore
-              }
-              this.activeControllers.set(session.id, controller);
+                // Fresh abort controller so subscribe callbacks accept events again.
+                controller = new AbortController();
+                try {
+                  setMaxListeners(0, controller.signal);
+                } catch {
+                  // ignore
+                }
+                this.activeControllers.set(session.id, controller);
 
-              resetActivityTimeout();
-              const retryResult = await piSession.prompt(contextualPrompt);
-              log(
-                '[CoworkAgentRunner] York eco fallback prompt() returned:',
-                JSON.stringify(retryResult ?? 'void').substring(0, 1000)
-              );
+                resetActivityTimeout();
+                const retryResult = await piSession.prompt(contextualPrompt);
+                log(
+                  '[CoworkAgentRunner] York eco fallback prompt() returned:',
+                  JSON.stringify(retryResult ?? 'void').substring(0, 1000)
+                );
+              }
             }
           }
         }

@@ -5,6 +5,7 @@ import { Type } from '@sinclair/typebox';
 import type { ToolDefinition } from '@mariozechner/pi-coding-agent';
 import type { MCPManager } from '../mcp/mcp-manager';
 import type { ServerEvent } from '../../renderer/types';
+import type { SessionDivisionFields } from '../../shared/workspace-division';
 import { MCP_RUN_TOOL_NAME } from './mcp-tool-budget';
 import {
   buildMcpRunChildSystemPrompt,
@@ -21,6 +22,8 @@ export interface BuildMcpRunToolOptions {
   parentSessionId?: string;
   requestPermission?: ChildPermissionHandler | null;
   getParentAbortSignal?: () => AbortSignal | null;
+  /** Parent session workspace division — General is OpenRouter-only. */
+  division?: Partial<SessionDivisionFields> | null;
 }
 
 /**
@@ -34,6 +37,7 @@ export function buildMcpRunTool(options: BuildMcpRunToolOptions): ToolDefinition
     parentSessionId,
     requestPermission,
     getParentAbortSignal,
+    division,
   } = options;
 
   return {
@@ -109,6 +113,7 @@ export function buildMcpRunTool(options: BuildMcpRunToolOptions): ToolDefinition
         getParentAbortSignal,
         concurrencyState: childAgentConcurrency,
         emitProgress: Boolean(sendEvent && parentSessionId),
+        division,
       });
 
       return {

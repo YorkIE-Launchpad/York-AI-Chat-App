@@ -45,6 +45,11 @@ import {
   hasOpenRouterUserApiKey,
   withOpenRouterUserKeyHeader,
 } from '../../shared/openrouter-user-key';
+import {
+  generalWorkspaceOpenRouterOnlyMessage,
+  isProviderAllowedInDivision,
+  type SessionDivisionFields,
+} from '../../shared/workspace-division';
 import { v4 as uuidv4 } from 'uuid';
 
 export const MAX_CHILD_TIMEOUT_MS = 300_000;
@@ -165,6 +170,7 @@ function buildFlatMcpTools(mcpManager: MCPManager): ToolDefinition[] {
 async function resolveChildPiModel(options: {
   modelMode: 'free' | 'inherit';
   promptText: string;
+  division?: Partial<SessionDivisionFields> | null;
 }): Promise<{
   piModel: NonNullable<ReturnType<typeof resolvePiRegistryModel>>;
   provider: string;
@@ -182,6 +188,7 @@ async function resolveChildPiModel(options: {
   if (options.modelMode === 'free') {
     const freeRoute = await resolveFreeModelForChild({
       promptText: options.promptText,
+      division: options.division,
       parent: {
         model: config.model,
         provider: config.provider,
@@ -203,6 +210,7 @@ async function resolveChildPiModel(options: {
       promptText: options.promptText,
       messageCount: 1,
       contextChars: options.promptText.length,
+      division: options.division,
     });
     if (autoRoute.usedAuto) {
       modelString = autoRoute.modelId;
@@ -211,6 +219,11 @@ async function resolveChildPiModel(options: {
       baseUrl = autoRoute.baseUrl;
       apiKey = autoRoute.apiKey || apiKey;
     }
+  }
+
+  if (!isProviderAllowedInDivision(provider, options.division)) {
+    log(`[ChildAgent] Provider ${provider} blocked in General workspace`);
+    return null;
   }
 
   const configProtocol = resolvePiRouteProtocol(provider, customProtocol);
@@ -307,6 +320,8 @@ export interface RunChildAgentSessionInput {
   /** When set, emit subagent.progress events under this id (generated if omitted and sendEvent set). */
   subagentId?: string;
   emitProgress?: boolean;
+  /** Parent session workspace division — General is OpenRouter-only. */
+  division?: Partial<SessionDivisionFields> | null;
 }
 
 export interface RunChildAgentSessionResult {
@@ -371,12 +386,20 @@ export async function runChildAgentSession(
       `[ChildAgent] Spawning ${subagentId} modelMode=${modelMode} task="${task.slice(0, 100)}..."`
     );
 
-    const resolved = await resolveChildPiModel({ modelMode, promptText: task });
+    const resolved = await resolveChildPiModel({
+      modelMode,
+      promptText: task,
+      division: input.division,
+    });
     if (!resolved) {
       const needsOrKey = configStore.getAll().provider === 'openrouter' || modelMode === 'free';
+      const blockedInGeneral =
+        input.division?.division === 'general' &&
+        !isProviderAllowedInDivision(configStore.getAll().provider, input.division);
       return {
-        text:
-          needsOrKey && !hasOpenRouterUserApiKey(configStore.getAll().openRouterUserApiKey)
+        text: blockedInGeneral
+          ? `Error: ${generalWorkspaceOpenRouterOnlyMessage()}`
+          : needsOrKey && !hasOpenRouterUserApiKey(configStore.getAll().openRouterUserApiKey)
             ? `Error: ${openRouterKeyRequiredMessage()}`
             : 'Error: could not resolve model for subagent. Check provider/model config.',
         subagentId,
@@ -566,6 +589,9 @@ export async function runChildAgentSession(
           !(promptErr instanceof ParentCancelledError) &&
           isOpenRouterAccountLimitError(activeProvider, promptMessage)
         ) {
+          if (input.division?.division === 'general') {
+            throw new Error(openRouterLimitUserMessage(false));
+          }
           const rawModels = await fetchBackendModels();
           const enabledModels = filterModelsForOpenRouterKey(
             rawModels,

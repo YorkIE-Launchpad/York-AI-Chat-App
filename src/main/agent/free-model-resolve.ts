@@ -11,6 +11,11 @@ import {
 } from '../../shared/backend-config';
 import { filterModelsForOpenRouterKey } from '../../shared/openrouter-fallback';
 import { hasOpenRouterUserApiKey } from '../../shared/openrouter-user-key';
+import {
+  filterModelsForDivision,
+  isProviderAllowedInDivision,
+  type SessionDivisionFields,
+} from '../../shared/workspace-division';
 import { fetchBackendModels } from '../config/backend-client';
 import { configStore } from '../config/config-store';
 import { log, logWarn } from '../utils/logger';
@@ -115,13 +120,18 @@ export async function resolveFreeModelForChild(options: {
   parent?: ParentModelFallback;
   /** When omitted, reads from config store. */
   openRouterUserApiKey?: string | null;
+  /** Session workspace division — General is OpenRouter-only. */
+  division?: Partial<SessionDivisionFields> | null;
 }): Promise<FreeModelResolveResult> {
   const openRouterUserApiKey =
     options.openRouterUserApiKey !== undefined
       ? options.openRouterUserApiKey
       : configStore.getAll().openRouterUserApiKey;
   const rawModels = await getEnabledModels(options.enabledModels);
-  const enabledModels = filterModelsForOpenRouterKey(rawModels, openRouterUserApiKey);
+  const enabledModels = filterModelsForOpenRouterKey(
+    filterModelsForDivision(rawModels, options.division),
+    openRouterUserApiKey
+  );
   const canUseOpenRouter = hasOpenRouterUserApiKey(openRouterUserApiKey);
   const freePick = canUseOpenRouter ? pickFreeOpenRouterModel(enabledModels) : null;
 
@@ -138,6 +148,8 @@ export async function resolveFreeModelForChild(options: {
     messageCount: 1,
     contextChars: (options.promptText || '').length,
     enabledModels,
+    division: options.division,
+    openRouterUserApiKey,
   });
 
   if (ecoRoute.usedAuto && ecoRoute.modelId) {
@@ -166,6 +178,8 @@ export async function resolveFreeModelForChild(options: {
       messageCount: 1,
       contextChars: (options.promptText || '').length,
       enabledModels,
+      division: options.division,
+      openRouterUserApiKey,
     });
     if (parentAuto.usedAuto && parentAuto.modelId) {
       logWarn(
@@ -203,6 +217,12 @@ export async function resolveFreeModelForChild(options: {
   }
 
   const provider = parent.provider || 'anthropic';
+  if (!isProviderAllowedInDivision(provider, options.division)) {
+    logWarn(
+      `[FreeModel] Parent provider ${provider} blocked in General; using OpenRouter free router`
+    );
+    return withOpenRouterCreds(OPENROUTER_FREE_ROUTER_ID, 'parent-fallback');
+  }
   logWarn(`[FreeModel] No catalog models; using parent config ${provider}/${parentModel}`);
   return {
     modelId: parentModel,

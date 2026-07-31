@@ -39,6 +39,11 @@ import {
   hasOpenRouterUserApiKey,
   withOpenRouterUserKeyHeader,
 } from '../../shared/openrouter-user-key';
+import {
+  generalWorkspaceOpenRouterOnlyMessage,
+  isProviderAllowedInDivision,
+  type SessionDivisionFields,
+} from '../../shared/workspace-division';
 
 const NETWORK_ERROR_RE =
   /enotfound|econnrefused|etimedout|eai_again|enetunreach|timed?\s*out|timeout|abort|network\s*error/i;
@@ -217,6 +222,8 @@ export async function runPiAiOneShot(
     temperature?: number;
     maxTokens?: number;
     signal?: AbortSignal;
+    /** Session workspace division — General is OpenRouter-only. */
+    division?: Partial<SessionDivisionFields> | null;
   }
 ): Promise<{ text: string; hasThinking: boolean; durationMs: number }> {
   let effectiveConfig = config;
@@ -226,6 +233,7 @@ export async function runPiAiOneShot(
     promptText: prompt,
     messageCount: 1,
     contextChars: prompt.length,
+    division: options?.division,
   });
   if (autoRoute.usedAuto) {
     effectiveConfig = {
@@ -236,6 +244,10 @@ export async function runPiAiOneShot(
       baseUrl: autoRoute.baseUrl,
       apiKey: autoRoute.apiKey || config.apiKey,
     };
+  }
+
+  if (!isProviderAllowedInDivision(effectiveConfig.provider, options?.division)) {
+    throw new Error(generalWorkspaceOpenRouterOnlyMessage());
   }
 
   const modelString = resolvePiModelString({
@@ -398,6 +410,9 @@ export async function runPiAiOneShot(
       ? response.errorMessage
       : '';
   if (errorMessage && isOpenRouterAccountLimitError(activeProvider, errorMessage)) {
+    if (options?.division?.division === 'general') {
+      throw new Error(openRouterLimitUserMessage(false));
+    }
     const rawModels = await fetchBackendModels();
     const enabledModels = filterModelsForOpenRouterKey(rawModels, config.openRouterUserApiKey);
     const fallback = resolveYorkPaidEcoFallback({

@@ -17,8 +17,29 @@ import {
   type AutoModelPreference,
 } from '../../shared/auto-model';
 import { hasOpenRouterUserApiKey } from '../../shared/openrouter-user-key';
+import {
+  filterModelsForDivision,
+  type ActiveDivision,
+  type SessionDivisionFields,
+} from '../../shared/workspace-division';
+import { filterModelsForOpenRouterKey } from '../../shared/openrouter-fallback';
 
 const isElectron = typeof window !== 'undefined' && window.electronAPI !== undefined;
+
+/** Map UI activeDivision to session fields for model filtering. Unset → pass-through. */
+function sessionFieldsFromActiveDivision(
+  active: ActiveDivision | null
+): Partial<SessionDivisionFields> {
+  if (!active) return { division: 'hub' };
+  if (active.kind === 'project') {
+    return {
+      division: 'project',
+      hubProjectId: active.hubProjectId,
+      hubProjectName: active.hubProjectName,
+    };
+  }
+  return { division: active.kind };
+}
 
 const PROVIDER_LABELS: Record<BackendCloudProvider, string> = {
   anthropic: 'Anthropic',
@@ -64,6 +85,7 @@ interface ModelSelectorProps {
 
 export function ModelSelector({ className = '' }: ModelSelectorProps) {
   const appConfig = useAppStore((state) => state.appConfig);
+  const activeDivision = useAppStore((state) => state.activeDivision);
   const setAppConfig = useAppStore((state) => state.setAppConfig);
   const setIsConfigured = useAppStore((state) => state.setIsConfigured);
   const setShowSettings = useAppStore((state) => state.setShowSettings);
@@ -77,9 +99,18 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
   const reconcileKeyRef = useRef<string | null>(null);
 
   const hasOpenRouterKey = hasOpenRouterUserApiKey(appConfig?.openRouterUserApiKey);
+  const isGeneralDivision = activeDivision?.kind === 'general';
+  const divisionSession = useMemo(
+    () => sessionFieldsFromActiveDivision(activeDivision),
+    [activeDivision]
+  );
   const usableModels = useMemo(
-    () => (hasOpenRouterKey ? models : models.filter((m) => m.provider !== 'openrouter')),
-    [hasOpenRouterKey, models]
+    () =>
+      filterModelsForOpenRouterKey(
+        filterModelsForDivision(models, divisionSession),
+        appConfig?.openRouterUserApiKey
+      ),
+    [appConfig?.openRouterUserApiKey, divisionSession, models]
   );
 
   const isAutoSelected = isAutoModelId(appConfig?.model);
@@ -178,7 +209,9 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
       apiKey: BACKEND_PROXY_PLACEHOLDER_KEY,
     };
     const currentProvider = appConfig?.provider;
+    // General workspace is OpenRouter-only — force OpenRouter as Auto's provider shell.
     const canKeepProvider =
+      !isGeneralDivision &&
       isBackendManagedProvider(currentProvider) &&
       !(currentProvider === 'openrouter' && !hasOpenRouterKey);
     if (canKeepProvider) {
@@ -191,23 +224,23 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
             ? 'openai'
             : 'anthropic';
     } else {
-      // Prefer a cloud provider so Auto can route via the local proxy.
-      const preferred =
-        pickFallbackModel(usableModels)?.provider ||
-        (PROVIDER_ORDER.find((p) => usableModels.some((m) => m.provider === p)) ?? 'anthropic');
-      payload.provider = preferred;
-      payload.activeProfileKey = profileKeyForProvider(preferred);
+      const resolvedPreferred: BackendCloudProvider = isGeneralDivision
+        ? 'openrouter'
+        : pickFallbackModel(usableModels)?.provider ||
+          (PROVIDER_ORDER.find((p) => usableModels.some((m) => m.provider === p)) ?? 'anthropic');
+      payload.provider = resolvedPreferred;
+      payload.activeProfileKey = profileKeyForProvider(resolvedPreferred);
       payload.customProtocol =
-        preferred === 'gemini'
+        resolvedPreferred === 'gemini'
           ? 'gemini'
-          : preferred === 'openai' || preferred === 'openrouter'
+          : resolvedPreferred === 'openai' || resolvedPreferred === 'openrouter'
             ? 'openai'
             : 'anthropic';
     }
     payload = applyBackendManagedCredentials(payload);
     await saveConfig(payload);
     setIsOpen(false);
-  }, [appConfig, autoPreference, hasOpenRouterKey, usableModels, saveConfig]);
+  }, [appConfig, autoPreference, hasOpenRouterKey, isGeneralDivision, usableModels, saveConfig]);
 
   const handleSelectPreference = useCallback(
     async (preference: AutoModelPreference) => {
@@ -216,17 +249,23 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
         autoModelPreference: preference,
         apiKey: BACKEND_PROXY_PLACEHOLDER_KEY,
       };
-      if (isBackendManagedProvider(appConfig?.provider)) {
+      if (isGeneralDivision) {
+        payload.provider = 'openrouter';
+        payload = applyBackendManagedCredentials(payload);
+      } else if (isBackendManagedProvider(appConfig?.provider)) {
         payload.provider = appConfig!.provider;
         payload = applyBackendManagedCredentials(payload);
       }
       await saveConfig(payload);
     },
-    [appConfig, saveConfig]
+    [appConfig, isGeneralDivision, saveConfig]
   );
 
   const handleSelect = useCallback(
     async (model: BackendModelInfo) => {
+      if (isGeneralDivision && model.provider !== 'openrouter') {
+        return;
+      }
       if (model.provider === 'openrouter' && !hasOpenRouterKey) {
         setShowSettings(true);
         setSettingsTab('general');
@@ -249,19 +288,35 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
       await saveConfig(payload);
       setIsOpen(false);
     },
-    [hasOpenRouterKey, saveConfig, setSettingsTab, setShowSettings]
+    [hasOpenRouterKey, isGeneralDivision, saveConfig, setSettingsTab, setShowSettings]
   );
 
-  // When the configured cloud model isn't usable (missing from catalog or OpenRouter
-  // without BYOK), fall back to the first available concrete model. Never overwrite
-  // a selection with Auto — Auto is opt-in only.
+  // When the configured cloud model isn't usable (missing from catalog, OpenRouter
+  // without BYOK, or General workspace with a York-paid model), fall back to the
+  // first available concrete model. Never overwrite a selection with Auto — Auto
+  // is opt-in only. For Auto in General, force the OpenRouter provider shell.
   useEffect(() => {
-    if (!isElectron || isLoading || isSaving || usableModels.length === 0 || !appConfig) return;
-    // Virtual Auto model is not in the backend catalog; leave it alone.
+    if (!isElectron || isLoading || isSaving || !appConfig) return;
+
     if (isAutoModelId(appConfig.model)) {
-      reconcileKeyRef.current = null;
+      if (isGeneralDivision && appConfig.provider !== 'openrouter') {
+        const reconcileKey = 'auto::openrouter';
+        if (reconcileKeyRef.current === reconcileKey) return;
+        reconcileKeyRef.current = reconcileKey;
+        void saveConfig(
+          applyBackendManagedCredentials({
+            model: AUTO_MODEL_ID,
+            autoModelPreference: autoPreference,
+            provider: 'openrouter',
+            apiKey: BACKEND_PROXY_PLACEHOLDER_KEY,
+          })
+        );
+      } else {
+        reconcileKeyRef.current = null;
+      }
       return;
     }
+    if (usableModels.length === 0) return;
     if (!isBackendManagedProvider(appConfig.provider)) return;
 
     const currentAvailable = usableModels.some(
@@ -279,7 +334,16 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
     if (reconcileKeyRef.current === reconcileKey) return;
     reconcileKeyRef.current = reconcileKey;
     void handleSelect(fallback);
-  }, [appConfig, handleSelect, isLoading, isSaving, usableModels]);
+  }, [
+    appConfig,
+    autoPreference,
+    handleSelect,
+    isGeneralDivision,
+    isLoading,
+    isSaving,
+    saveConfig,
+    usableModels,
+  ]);
 
   const pendingFallback =
     !isAutoSelected && !selectedModel && isBackendManagedProvider(appConfig?.provider)
@@ -396,6 +460,8 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
             </div>
 
             {PROVIDER_ORDER.map((provider) => {
+              // General workspace: only show OpenRouter.
+              if (isGeneralDivision && provider !== 'openrouter') return null;
               const items = groupedModels[provider];
               if (items.length === 0) return null;
               const openRouterDisabled = provider === 'openrouter' && !hasOpenRouterKey;

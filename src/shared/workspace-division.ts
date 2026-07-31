@@ -250,3 +250,39 @@ export function filterMcpToolsForDivision<T extends { name: string }>(
   }
   return tools.filter((tool) => !isMcpToolExcludedInHubDivision(tool.name));
 }
+
+/**
+ * General workspace is OpenRouter-only. Hub / Project keep the full catalog
+ * (including OpenRouter). When division is omitted (background jobs / one-shots
+ * without a session), pass through — do not default to General.
+ * Compose with filterModelsForOpenRouterKey for BYOK.
+ */
+export function isProviderAllowedInDivision(
+  provider: string | undefined | null,
+  session: Partial<SessionDivisionFields> | null | undefined
+): boolean {
+  if (!provider) return false;
+  const kind = session?.division;
+  if (kind !== 'general' && kind !== 'hub' && kind !== 'project') {
+    return true;
+  }
+  if (kind === 'general') {
+    return provider === 'openrouter';
+  }
+  return true;
+}
+
+export function filterModelsForDivision<T extends { provider: string }>(
+  models: T[],
+  session: Partial<SessionDivisionFields> | null | undefined
+): T[] {
+  const kind = session?.division;
+  if (kind !== 'general') {
+    return models;
+  }
+  return models.filter((m) => m.provider === 'openrouter');
+}
+
+export function generalWorkspaceOpenRouterOnlyMessage(): string {
+  return 'General workspace only supports OpenRouter models. Switch to Hub or a Project workspace to use York-managed providers, or pick an OpenRouter model.';
+}

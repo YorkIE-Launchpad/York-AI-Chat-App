@@ -14,6 +14,7 @@ import {
   childAgentConcurrency,
   runChildAgentSession,
 } from './child-agent-session';
+import type { SessionDivisionFields } from '../../shared/workspace-division';
 
 interface SubagentParams {
   task: string;
@@ -33,7 +34,8 @@ function createSpawnSubagentTool(
   parentSessionId: string,
   requestPermission: PermissionHandler | null,
   getParentAbortSignal: () => AbortSignal | null,
-  concurrencyState: { active: number }
+  concurrencyState: { active: number },
+  division?: Partial<SessionDivisionFields> | null
 ): AgentRuntimeCustomTool {
   return {
     name: 'spawn_subagent',
@@ -118,6 +120,7 @@ function createSpawnSubagentTool(
         getParentAbortSignal,
         concurrencyState,
         emitProgress: true,
+        division,
       });
 
       return {
@@ -148,7 +151,8 @@ export class SubagentExtension implements AgentRuntimeExtension {
           context.session.id,
           this.requestPermission,
           this.getParentAbortSignal,
-          this.concurrencyState
+          this.concurrencyState,
+          context.session
         ),
       ],
     };
