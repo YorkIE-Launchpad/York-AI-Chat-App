@@ -783,9 +783,17 @@ export function WelcomeView() {
   }, [prompt]);
 
   return (
-    <div className="flex-1 flex flex-col items-center justify-center px-5 py-10 md:px-8 md:py-14">
-      <div className="max-w-[840px] w-full space-y-7 animate-fade-in">
-        <div className="space-y-4 text-center">
+    <div
+      className={`flex-1 min-h-0 flex flex-col items-center px-5 py-10 md:px-8 md:py-14 ${
+        !activeDivision ? 'overflow-hidden' : 'overflow-y-auto'
+      }`}
+    >
+      <div
+        className={`max-w-[840px] w-full animate-fade-in ${
+          !activeDivision ? 'flex min-h-0 flex-1 flex-col space-y-7' : 'my-auto space-y-7'
+        }`}
+      >
+        <div className="shrink-0 space-y-4 text-center">
           <div className="flex items-center justify-center gap-4">
             <img
               src={welcomeLogoSrc}

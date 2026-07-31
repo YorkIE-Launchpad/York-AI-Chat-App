@@ -49,8 +49,8 @@ export function DivisionChooser() {
 
   if (pickingProject) {
     return (
-      <div className="mx-auto w-full max-w-lg">
-        <div className="mb-4 flex items-center justify-between">
+      <div className="mx-auto flex w-full max-w-lg min-h-0 flex-1 flex-col">
+        <div className="mb-4 flex shrink-0 items-center justify-between">
           <button
             type="button"
             className="text-sm text-text-muted hover:text-text-primary"
@@ -73,7 +73,7 @@ export function DivisionChooser() {
           </p>
         )}
         {!loading && projects.length > 0 && (
-          <div className="flex flex-col gap-2">
+          <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain pr-1">
             {projects.map((project) => (
               <button
                 key={project.id}
@@ -85,7 +85,7 @@ export function DivisionChooser() {
                     hubProjectName: project.name,
                   })
                 }
-                className="rounded-xl border border-border-subtle bg-bg-secondary px-4 py-3 text-left hover:border-accent/40 hover:bg-bg-tertiary transition-colors"
+                className="shrink-0 rounded-xl border border-border-subtle bg-bg-secondary px-4 py-3 text-left hover:border-accent/40 hover:bg-bg-tertiary transition-colors"
               >
                 <div className="font-medium text-text-primary">{project.name}</div>
                 {(project.title || project.hours != null) && (
