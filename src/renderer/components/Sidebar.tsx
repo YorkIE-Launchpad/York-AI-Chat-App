@@ -16,10 +16,12 @@ import {
   ListChecks,
   Check,
   LogOut,
+  RefreshCw,
 } from 'lucide-react';
 import type { Session } from '../types';
 import { DivisionSwitcher } from './DivisionSwitcher';
 import { sessionMatchesActiveDivision } from '../../shared/workspace-division';
+import { useUpdaterStatus } from '../hooks/useUpdaterStatus';
 
 import sidebarLogoSrc from '../assets/logo.png';
 
@@ -109,6 +111,43 @@ function SidebarUserAvatar({
     >
       {userInitials(name)}
     </div>
+  );
+}
+
+function SidebarUpdateButton({ compact = false }: { compact?: boolean }) {
+  const { t } = useTranslation();
+  const {
+    status: updaterStatus,
+    installing: updaterInstalling,
+    quitAndInstall,
+  } = useUpdaterStatus();
+
+  if (updaterStatus.status !== 'ready') return null;
+
+  if (compact) {
+    return (
+      <button
+        type="button"
+        onClick={() => void quitAndInstall()}
+        disabled={updaterInstalling}
+        className="w-9 h-9 rounded-2xl flex items-center justify-center bg-accent text-white hover:opacity-90 disabled:opacity-50 transition-opacity"
+        title={t('sidebar.restartToUpdate')}
+      >
+        <RefreshCw className={`w-4 h-4 ${updaterInstalling ? 'animate-spin' : ''}`} />
+      </button>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => void quitAndInstall()}
+      disabled={updaterInstalling}
+      className="mt-2 w-full inline-flex items-center justify-center gap-1.5 rounded-xl bg-accent px-3 py-2 text-[13px] font-medium text-white hover:opacity-90 disabled:opacity-50 transition-opacity"
+    >
+      <RefreshCw className={`w-3.5 h-3.5 ${updaterInstalling ? 'animate-spin' : ''}`} />
+      {t('sidebar.restartToUpdate')}
+    </button>
   );
 }
 
@@ -377,6 +416,7 @@ export function Sidebar() {
           >
             <Settings className="w-4 h-4" />
           </button>
+          <SidebarUpdateButton compact />
           <button
             type="button"
             onClick={toggleTheme}
@@ -653,6 +693,7 @@ export function Sidebar() {
               </button>
             ) : null}
           </div>
+          <SidebarUpdateButton />
         </div>
       )}
     </aside>
