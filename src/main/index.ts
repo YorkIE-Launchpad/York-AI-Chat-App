@@ -364,6 +364,22 @@ function applyAppBranding() {
 
 applyAppBranding();
 
+// Chromium's macOS Media Session / Now Playing path queries MediaPlayer and can
+// trigger an Apple Music / media-library TCC prompt even though this app never
+// uses that API. Disable before ready so Chromium never touches it.
+if (process.platform === 'darwin') {
+  const existing = app.commandLine.getSwitchValue('disable-features');
+  const required = ['MediaSessionService', 'HardwareMediaKeyHandling'];
+  const merged = [
+    ...new Set(
+      [...(existing ? existing.split(',') : []), ...required]
+        .map((feature) => feature.trim())
+        .filter(Boolean)
+    ),
+  ].join(',');
+  app.commandLine.appendSwitch('disable-features', merged);
+}
+
 // Enable Chrome DevTools Protocol in dev mode so the renderer can be inspected
 // via chrome://inspect or connected to by Puppeteer/Playwright at localhost:9223.
 // Chrome MCP uses 9222, so keep Electron on a separate port in development.
