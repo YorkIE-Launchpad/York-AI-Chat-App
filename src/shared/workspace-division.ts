@@ -214,6 +214,7 @@ export function buildDivisionSystemPrompt(
       'OUT OF SCOPE (REFUSE): personal use; general company Q&A unrelated to this project; other clients/projects; Hub-only HR (personal leave, org gossip) unless it is staffing/allocations for THIS project.',
       'On refuse: one short sentence, then tell the user to switch to General or the correct Project via the sidebar. Do not execute off-scope tools.',
       'Never query, summarize, or compare data for other clients or projects. If a tool returns data outside this project, ignore it and say you are scoped to this project only.',
+      `If the user names another project (not "${name}"), do not call Hub project tools for it — refuse and tell them to switch Project workspace in the sidebar.`,
       '</workspace_division>',
     ].join('\n');
   }

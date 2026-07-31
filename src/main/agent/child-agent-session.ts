@@ -15,7 +15,11 @@ import { configStore } from '../config/config-store';
 import { resolveBackendClientApiKey } from '../config/backend-auth';
 import type { MCPManager } from '../mcp/mcp-manager';
 import { log, logError } from '../utils/logger';
-import { leanMcpToolArgs, augmentMcpToolDescription } from './mcp-tool-payload';
+import {
+  leanMcpToolArgs,
+  augmentMcpToolDescription,
+  compressToolResultTextForModel,
+} from './mcp-tool-payload';
 import { normalizeMcpToolResultForModel } from './tool-result-utils';
 import { buildMcpMetaTools, selectCustomToolsForModel } from './mcp-tool-budget';
 import { resolveFreeModelForChild } from './free-model-resolve';
@@ -50,6 +54,10 @@ import {
   isProviderAllowedInDivision,
   type SessionDivisionFields,
 } from '../../shared/workspace-division';
+import {
+  applyProjectScopedMcpResultFilter,
+  prepareProjectScopedMcpArgs,
+} from '../../shared/project-mcp-scope';
 import { v4 as uuidv4 } from 'uuid';
 
 export const MAX_CHILD_TIMEOUT_MS = 300_000;
@@ -135,7 +143,10 @@ export function buildMcpRunChildSystemPrompt(
   return parts.join('\n');
 }
 
-function buildFlatMcpTools(mcpManager: MCPManager): ToolDefinition[] {
+function buildFlatMcpTools(
+  mcpManager: MCPManager,
+  division?: Partial<SessionDivisionFields> | null
+): ToolDefinition[] {
   return mcpManager.getTools().map((mcpTool) => {
     const parameters = Type.Unsafe<Record<string, unknown>>(
       mcpTool.inputSchema as Record<string, unknown>
@@ -153,10 +164,24 @@ function buildFlatMcpTools(mcpManager: MCPManager): ToolDefinition[] {
           p && typeof p === 'object' ? (p as Record<string, unknown>) : {},
           mcpTool.inputSchema
         );
-        const result = await mcpManager.callTool(mcpTool.name, leanArgs);
-        const normalizedResult = normalizeMcpToolResultForModel(result);
+        const prepared = prepareProjectScopedMcpArgs(mcpTool.name, leanArgs, division);
+        if (prepared.kind === 'block') {
+          return {
+            content: [{ type: 'text' as const, text: prepared.message }],
+            details: undefined,
+          };
+        }
+        const result = await mcpManager.callTool(mcpTool.name, prepared.args);
+        const normalizedResult = normalizeMcpToolResultForModel(result, {
+          compress: !prepared.filterResult,
+        });
+        const text = prepared.filterResult
+          ? compressToolResultTextForModel(
+              applyProjectScopedMcpResultFilter(mcpTool.name, normalizedResult.text, division)
+            )
+          : normalizedResult.text;
         return {
-          content: [{ type: 'text' as const, text: normalizedResult.text }],
+          content: [{ type: 'text' as const, text }],
           details:
             normalizedResult.images.length > 0
               ? { openCoworkImages: normalizedResult.images }
@@ -423,9 +448,9 @@ export async function runChildAgentSession(
       if (input.allowedTools && input.allowedTools.length > 0) {
         allowed = new Set(input.allowedTools);
       }
-      customTools = buildMcpMetaTools(input.mcpManager, allowed);
+      customTools = buildMcpMetaTools(input.mcpManager, allowed, input.division);
     } else if (mcpToolsMode === 'flat' && input.mcpManager) {
-      let mcpCustomTools = buildFlatMcpTools(input.mcpManager);
+      let mcpCustomTools = buildFlatMcpTools(input.mcpManager, input.division);
       let allowedToolNames: Set<string> | null = null;
       if (input.allowedTools && input.allowedTools.length > 0) {
         allowedToolNames = new Set(input.allowedTools);
@@ -441,6 +466,7 @@ export async function runChildAgentSession(
         // Children always get search+call meta tools, never mcp_run (avoid nested offload).
         parentMetaTools: undefined,
         useSearchCallMeta: true,
+        division: input.division,
       });
       customTools = toolSelection.customTools;
       if (toolSelection.mode === 'meta') {

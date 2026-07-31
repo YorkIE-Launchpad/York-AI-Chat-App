@@ -153,19 +153,24 @@ function finalizeText(textParts: string[], imageCount: number): string {
   return '(no output)';
 }
 
-export function normalizeMcpToolResultForModel(result: unknown): NormalizedToolTextResult {
+export function normalizeMcpToolResultForModel(
+  result: unknown,
+  options?: { compress?: boolean }
+): NormalizedToolTextResult {
+  const compress = options?.compress !== false;
   const resultObj = isRecord(result) ? result : null;
   if (resultObj?.content) {
     const { textParts, images } = extractTextAndImagesFromContent(resultObj.content);
+    const text = finalizeText(textParts, images.length);
     return {
-      text: compressToolResultTextForModel(finalizeText(textParts, images.length)),
+      text: compress ? compressToolResultTextForModel(text) : text,
       images,
     };
   }
 
   const rawText = typeof result === 'string' ? result : safeStringifyToolResult(result);
   return {
-    text: compressToolResultTextForModel(rawText),
+    text: compress ? compressToolResultTextForModel(rawText) : rawText,
     images: [],
   };
 }

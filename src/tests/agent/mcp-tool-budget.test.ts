@@ -313,6 +313,108 @@ describe('buildMcpMetaTools', () => {
     expect((result.content[0] as { text: string }).text).toContain('called:mcp__Hub__get_employee');
   });
 
+  it('injects locked project id on Hub get_project in project division', async () => {
+    const hubTools = [
+      makeMcpTool({
+        name: 'mcp__York_IE_HUB__get_project',
+        originalName: 'get_project',
+        serverName: 'York IE HUB',
+        description: 'Get one Hub project',
+        inputSchema: { type: 'object', properties: { id: { type: 'string' } } },
+      }),
+    ];
+    const hubManager = makeMcpManager(hubTools);
+    const tools = buildMcpMetaTools(hubManager, null, {
+      division: 'project',
+      hubProjectId: 'coach-uuid',
+      hubProjectName: 'Coachmetrix',
+    });
+    const callMeta = tools.find((t) => t.name === MCP_CALL_TOOL_NAME)!;
+    await callMeta.execute(
+      '1',
+      { tool_name: 'mcp__York_IE_HUB__get_project', arguments: {} },
+      undefined,
+      undefined,
+      emptyExtensionCtx
+    );
+    expect(hubManager.callTool).toHaveBeenCalledWith('mcp__York_IE_HUB__get_project', {
+      id: 'coach-uuid',
+    });
+  });
+
+  it('blocks Hub get_project for a different project id in project division', async () => {
+    const hubTools = [
+      makeMcpTool({
+        name: 'mcp__York_IE_HUB__get_project',
+        originalName: 'get_project',
+        serverName: 'York IE HUB',
+        description: 'Get one Hub project',
+        inputSchema: { type: 'object', properties: { id: { type: 'string' } } },
+      }),
+    ];
+    const hubManager = makeMcpManager(hubTools);
+    const tools = buildMcpMetaTools(hubManager, null, {
+      division: 'project',
+      hubProjectId: 'coach-uuid',
+      hubProjectName: 'Coachmetrix',
+    });
+    const callMeta = tools.find((t) => t.name === MCP_CALL_TOOL_NAME)!;
+    const result = await callMeta.execute(
+      '1',
+      { tool_name: 'mcp__York_IE_HUB__get_project', arguments: { id: 'medical-ease-uuid' } },
+      undefined,
+      undefined,
+      emptyExtensionCtx
+    );
+    expect(hubManager.callTool).not.toHaveBeenCalled();
+    expect((result.content[0] as { text: string }).text).toContain('Coachmetrix');
+  });
+
+  it('filters Hub list_projects results in project division', async () => {
+    const hubTools = [
+      makeMcpTool({
+        name: 'mcp__York_IE_HUB__list_projects',
+        originalName: 'list_projects',
+        serverName: 'York IE HUB',
+        description: 'List Hub projects',
+        inputSchema: { type: 'object', properties: {} },
+      }),
+    ];
+    const hubManager = {
+      getTools: () => hubTools,
+      getTool: (name: string) => hubTools.find((t) => t.name === name),
+      callTool: vi.fn(async () => ({
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify([
+              { id: 'medical-ease-uuid', title: 'MedicalEase' },
+              { id: 'coach-uuid', title: 'Coachmetrix' },
+            ]),
+          },
+        ],
+      })),
+    } as unknown as MCPManager;
+    const tools = buildMcpMetaTools(hubManager, null, {
+      division: 'project',
+      hubProjectId: 'coach-uuid',
+      hubProjectName: 'Coachmetrix',
+    });
+    const callMeta = tools.find((t) => t.name === MCP_CALL_TOOL_NAME)!;
+    const result = await callMeta.execute(
+      '1',
+      { tool_name: 'mcp__York_IE_HUB__list_projects', arguments: {} },
+      undefined,
+      undefined,
+      emptyExtensionCtx
+    );
+    const text = (result.content[0] as { text: string }).text;
+    expect(text).toContain('coach-uuid');
+    expect(text).toContain('Coachmetrix');
+    expect(text).not.toContain('MedicalEase');
+    expect(text).not.toContain('medical-ease-uuid');
+  });
+
   it('surfaces missing-tool errors from mcp_call_tool', async () => {
     const tools = buildMcpMetaTools(manager);
     const callMeta = tools.find((t) => t.name === MCP_CALL_TOOL_NAME)!;

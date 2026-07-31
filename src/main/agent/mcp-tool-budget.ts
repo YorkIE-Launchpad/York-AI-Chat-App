@@ -9,9 +9,18 @@
 import { Type, type TSchema } from '@sinclair/typebox';
 import type { ToolDefinition } from '@mariozechner/pi-coding-agent';
 import type { MCPManager, MCPTool } from '../mcp/mcp-manager';
+import {
+  applyProjectScopedMcpResultFilter,
+  prepareProjectScopedMcpArgs,
+} from '../../shared/project-mcp-scope';
+import type { SessionDivisionFields } from '../../shared/workspace-division';
 import { log } from '../utils/logger';
 import { normalizeMcpToolResultForModel } from './tool-result-utils';
-import { augmentMcpToolDescription, leanMcpToolArgs } from './mcp-tool-payload';
+import {
+  augmentMcpToolDescription,
+  compressToolResultTextForModel,
+  leanMcpToolArgs,
+} from './mcp-tool-payload';
 
 export const OPENAI_MAX_TOOLS = 128;
 export const MCP_SEARCH_TOOLS_NAME = 'mcp_search_tools';
@@ -168,7 +177,8 @@ function resolveAllowedMcpTools(
  */
 export function buildMcpMetaTools(
   mcpManager: MCPManager,
-  allowedToolNames?: ReadonlySet<string> | null
+  allowedToolNames?: ReadonlySet<string> | null,
+  division?: Partial<SessionDivisionFields> | null
 ): ToolDefinition[] {
   const searchTool: ToolDefinition<TSchema, unknown> = {
     name: MCP_SEARCH_TOOLS_NAME,
@@ -272,10 +282,24 @@ export function buildMcpMetaTools(
           toolArgs && typeof toolArgs === 'object' ? toolArgs : {},
           matched?.inputSchema
         );
-        const result = await mcpManager.callTool(toolName, leanArgs);
-        const normalizedResult = normalizeMcpToolResultForModel(result);
+        const prepared = prepareProjectScopedMcpArgs(toolName, leanArgs, division);
+        if (prepared.kind === 'block') {
+          return {
+            content: [{ type: 'text' as const, text: prepared.message }],
+            details: undefined,
+          };
+        }
+        const result = await mcpManager.callTool(toolName, prepared.args);
+        const normalizedResult = normalizeMcpToolResultForModel(result, {
+          compress: !prepared.filterResult,
+        });
+        const text = prepared.filterResult
+          ? compressToolResultTextForModel(
+              applyProjectScopedMcpResultFilter(toolName, normalizedResult.text, division)
+            )
+          : normalizedResult.text;
         return {
-          content: [{ type: 'text' as const, text: normalizedResult.text }],
+          content: [{ type: 'text' as const, text }],
           details:
             normalizedResult.images.length > 0
               ? { openCoworkImages: normalizedResult.images }
@@ -312,6 +336,8 @@ export function selectCustomToolsForModel(input: {
    * Parent and child sessions both prefer this path for lower latency.
    */
   useSearchCallMeta?: boolean;
+  /** Parent session workspace division — hard-scopes Hub project MCP calls. */
+  division?: Partial<SessionDivisionFields> | null;
 }): SelectCustomToolsResult {
   const {
     api,
@@ -322,6 +348,7 @@ export function selectCustomToolsForModel(input: {
     allowedToolNames,
     parentMetaTools,
     useSearchCallMeta,
+    division,
   } = input;
   const mcpNames = mcpTools.map((t) => t.name);
   const totalIfFlat = builtInToolCount + mcpTools.length + extensionTools.length;
@@ -343,7 +370,7 @@ export function selectCustomToolsForModel(input: {
   const allowSet = allowedToolNames ?? new Set(mcpNames);
   let metaTools: ToolDefinition[];
   if (useSearchCallMeta || !parentMetaTools || parentMetaTools.length === 0) {
-    metaTools = buildMcpMetaTools(mcpManager, allowSet);
+    metaTools = buildMcpMetaTools(mcpManager, allowSet, division);
   } else {
     metaTools = parentMetaTools;
   }

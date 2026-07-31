@@ -100,7 +100,12 @@ import {
   filterModelsForDivision,
   generalWorkspaceOpenRouterOnlyMessage,
   isProviderAllowedInDivision,
+  type SessionDivisionFields,
 } from '../../shared/workspace-division';
+import {
+  applyProjectScopedMcpResultFilter,
+  prepareProjectScopedMcpArgs,
+} from '../../shared/project-mcp-scope';
 import { buildPiSessionRuntimeSignature } from './pi-session-runtime';
 import {
   LoopGuard,
@@ -456,7 +461,10 @@ async function enrichProcessPathForBuild(): Promise<void> {
  * Bridge MCP tools from MCPManager into ToolDefinition[] format for the agent SDK.
  * Each MCP tool becomes a customTool whose execute() delegates to mcpManager.callTool().
  */
-function buildMcpCustomTools(mcpManager: MCPManager): ToolDefinition[] {
+function buildMcpCustomTools(
+  mcpManager: MCPManager,
+  division?: Partial<SessionDivisionFields> | null
+): ToolDefinition[] {
   const mcpTools = mcpManager.getTools();
   return mcpTools.map((mcpTool) => {
     // Wrap the raw JSON Schema inputSchema as a TypeBox TSchema
@@ -473,10 +481,24 @@ function buildMcpCustomTools(mcpManager: MCPManager): ToolDefinition[] {
       async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
         try {
           const leanArgs = leanMcpToolArgs(params as Record<string, unknown>, mcpTool.inputSchema);
-          const result = await mcpManager.callTool(mcpTool.name, leanArgs);
-          const normalizedResult = normalizeMcpToolResultForModel(result);
+          const prepared = prepareProjectScopedMcpArgs(mcpTool.name, leanArgs, division);
+          if (prepared.kind === 'block') {
+            return {
+              content: [{ type: 'text' as const, text: prepared.message }],
+              details: undefined,
+            };
+          }
+          const result = await mcpManager.callTool(mcpTool.name, prepared.args);
+          const normalizedResult = normalizeMcpToolResultForModel(result, {
+            compress: !prepared.filterResult,
+          });
+          const text = prepared.filterResult
+            ? compressToolResultTextForModel(
+                applyProjectScopedMcpResultFilter(mcpTool.name, normalizedResult.text, division)
+              )
+            : normalizedResult.text;
           return {
-            content: [{ type: 'text' as const, text: normalizedResult.text }],
+            content: [{ type: 'text' as const, text }],
             details:
               normalizedResult.images.length > 0
                 ? { openCoworkImages: normalizedResult.images }
@@ -2137,7 +2159,7 @@ ${hints.join('\n')}
       // Bridge MCP tools and apply OpenAI 128-tool budget before session reuse /
       // cold-start history injection so a toolsSignature miss recreates correctly.
       const mcpCustomTools = this.mcpManager
-        ? filterMcpToolsForDivision(buildMcpCustomTools(this.mcpManager), session)
+        ? filterMcpToolsForDivision(buildMcpCustomTools(this.mcpManager, session), session)
         : [];
       const extensionCustomTools = extensionResult.customTools || [];
       // Coding tools are read/bash/edit/write (4). Wrappers preserve length; we
@@ -2149,6 +2171,7 @@ ${hints.join('\n')}
         mcpTools: mcpCustomTools,
         extensionTools: extensionCustomTools,
         useSearchCallMeta: true,
+        division: session,
       });
       let customTools = toolSelection.customTools;
       let mcpToolMode: McpToolExposureMode = toolSelection.mode;
@@ -2551,6 +2574,7 @@ ${
           mcpTools: mcpCustomTools,
           extensionTools: extensionCustomTools,
           useSearchCallMeta: true,
+          division: session,
         });
         customTools = adjusted.customTools;
         mcpToolMode = adjusted.mode;
