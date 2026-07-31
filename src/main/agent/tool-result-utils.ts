@@ -161,10 +161,21 @@ export function normalizeMcpToolResultForModel(
   const resultObj = isRecord(result) ? result : null;
   if (resultObj?.content) {
     const { textParts, images } = extractTextAndImagesFromContent(resultObj.content);
+    if (resultObj.structuredContent !== undefined) {
+      textParts.push(safeStringifyToolResult(resultObj.structuredContent));
+    }
     const text = finalizeText(textParts, images.length);
     return {
       text: compress ? compressToolResultTextForModel(text) : text,
       images,
+    };
+  }
+
+  if (resultObj?.structuredContent !== undefined) {
+    const structuredText = safeStringifyToolResult(resultObj.structuredContent);
+    return {
+      text: compress ? compressToolResultTextForModel(structuredText) : structuredText,
+      images: [],
     };
   }
 

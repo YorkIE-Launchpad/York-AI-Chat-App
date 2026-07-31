@@ -1,6 +1,5 @@
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import { type CallToolResult, type ListToolsResult, Server } from '@modelcontextprotocol/server';
+import { serveStdio } from '@modelcontextprotocol/server/stdio';
 
 type ToolSchema = {
   name: string;
@@ -27,39 +26,52 @@ export async function startConnectorMcpServer(options: {
   tools: ToolSchema[];
   handlers: Record<string, ToolHandler>;
 }): Promise<void> {
-  const server = new Server(
-    {
-      name: options.serverName,
-      version: options.version ?? '1.0.0',
-    },
-    {
-      capabilities: {
-        tools: {},
+  const createServer = (): Server => {
+    const server = new Server(
+      {
+        name: options.serverName,
+        version: options.version ?? '1.0.0',
       },
-    }
-  );
-
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: options.tools,
-  }));
-
-  server.setRequestHandler(CallToolRequestSchema, async (request) => {
-    const toolName = request.params.name;
-    const handler = options.handlers[toolName];
-    if (!handler) {
-      throw new Error(`Unknown tool: ${toolName}`);
-    }
-    const result = await handler((request.params.arguments ?? {}) as Record<string, unknown>);
-    return {
-      content: [
-        {
-          type: 'text',
-          text: typeof result === 'string' ? result : JSON.stringify(result),
+      {
+        capabilities: {
+          tools: {},
         },
-      ],
-    };
-  });
+      }
+    );
 
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
+    server.setRequestHandler(
+      'tools/list',
+      async (): Promise<ListToolsResult> => ({
+        tools: options.tools,
+      })
+    );
+
+    server.setRequestHandler('tools/call', async (request): Promise<CallToolResult> => {
+      const toolName = request.params.name;
+      const handler = options.handlers[toolName];
+      if (!handler) {
+        throw new Error(`Unknown tool: ${toolName}`);
+      }
+      const result = await handler((request.params.arguments ?? {}) as Record<string, unknown>);
+      return {
+        content: [
+          {
+            type: 'text',
+            text: typeof result === 'string' ? result : JSON.stringify(result),
+          },
+        ],
+      };
+    });
+
+    return server;
+  };
+
+  const stdioHandle = serveStdio(() => createServer());
+
+  process.on('SIGINT', () => {
+    void stdioHandle.close().finally(() => process.exit(0));
+  });
+  process.on('SIGTERM', () => {
+    void stdioHandle.close().finally(() => process.exit(0));
+  });
 }

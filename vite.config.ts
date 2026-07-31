@@ -11,6 +11,7 @@ const nodeBuiltins = builtinModules.flatMap((m) => [m, `node:${m}`]);
 // Keep the SDK's module boundary: bundling it makes Rollup's CJS namespace
 // helper crash on inherited enumerable exports from the external `ws` package.
 const googleGenAiExternals = ['@google/genai', /^@google\/genai\//];
+const mcpExternals = [/^@modelcontextprotocol\/(?:client|core|server)(?:\/.*)?$/];
 const ignoredWatchPaths = [
   '**/release/**',
   '**/dist/**',
@@ -58,7 +59,7 @@ export default defineConfig(({ command }) => {
                   '@anthropic-ai/sdk',
                   '@larksuiteoapi/node-sdk',
                   'openai',
-                  '@modelcontextprotocol/sdk',
+                  ...mcpExternals,
                   'electron-updater',
                   'chokidar',
                   'archiver',

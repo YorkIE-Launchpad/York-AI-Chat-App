@@ -1,8 +1,5 @@
 import Store from 'electron-store';
-import type {
-  OAuthClientInformationMixed,
-  OAuthTokens,
-} from '@modelcontextprotocol/sdk/shared/auth.js';
+import type { StoredOAuthClientInformation, StoredOAuthTokens } from '@modelcontextprotocol/client';
 import { log, logWarn } from '../utils/logger';
 import {
   createEncryptedStoreWithKeyRotation,
@@ -11,8 +8,8 @@ import {
 
 export interface PersistedMcpOAuthRecord {
   serverUrl: string;
-  clientInformation?: OAuthClientInformationMixed;
-  tokens?: OAuthTokens;
+  clientInformation?: StoredOAuthClientInformation;
+  tokens?: StoredOAuthTokens;
   redirectUrl?: string;
 }
 
