@@ -1,5 +1,5 @@
 import type { MemoryService } from '../memory/memory-service';
-import { logWarn } from '../utils/logger';
+import { logStorage, logWarn } from '../utils/logger';
 import type { ConnectorId } from './connector-types';
 
 type ConnectorToolIngestContext = {
@@ -57,6 +57,9 @@ export async function maybeIngestConnectorToolResult(
   context: ConnectorToolIngestContext
 ): Promise<void> {
   if (!memoryService) {
+    return;
+  }
+  if (logStorage.getStore()?.incognito) {
     return;
   }
   const connectorId = toConnectorId(context.serverName);

@@ -18,6 +18,7 @@ import {
   Check,
   LogOut,
   RefreshCw,
+  Ghost,
 } from 'lucide-react';
 import type { Session } from '../types';
 import { DivisionSwitcher } from './DivisionSwitcher';
@@ -160,6 +161,7 @@ export function Sidebar() {
   const activeSessionId = useAppStore((s) => s.activeSessionId);
   const settings = useAppStore((s) => s.settings);
   const setActiveSession = useAppStore((s) => s.setActiveSession);
+  const setIncognitoDraft = useAppStore((s) => s.setIncognitoDraft);
   const setMessages = useAppStore((s) => s.setMessages);
   const setTraceSteps = useAppStore((s) => s.setTraceSteps);
   const updateSettings = useAppStore((s) => s.updateSettings);
@@ -279,6 +281,19 @@ export function Sidebar() {
     exitSelectMode();
   }, [selectedIds, visibleSessionIds, batchDeleteSessions, exitSelectMode]);
 
+  const discardActiveIncognitoIfLeaving = useCallback(
+    (nextSessionId: string | null) => {
+      const state = useAppStore.getState();
+      const currentId = state.activeSessionId;
+      if (!currentId || currentId === nextSessionId) return;
+      const current = state.sessions.find((s) => s.id === currentId);
+      if (current?.incognito) {
+        deleteSession(currentId);
+      }
+    },
+    [deleteSession]
+  );
+
   const handleSessionClick = useCallback(
     async (sessionId: string) => {
       setShowSettings(false);
@@ -296,6 +311,8 @@ export function Sidebar() {
       if (alreadyActive && existingMessages.length > 0) return;
 
       if (!alreadyActive) {
+        discardActiveIncognitoIfLeaving(sessionId);
+        setIncognitoDraft(false);
         setActiveSession(sessionId);
       }
 
@@ -335,10 +352,12 @@ export function Sidebar() {
       }
     },
     [
+      discardActiveIncognitoIfLeaving,
       getSessionMessages,
       getSessionTraceSteps,
       isElectron,
       setActiveSession,
+      setIncognitoDraft,
       setMessages,
       setShowSettings,
       setTraceSteps,
@@ -346,6 +365,15 @@ export function Sidebar() {
   );
 
   const handleNewSession = () => {
+    discardActiveIncognitoIfLeaving(null);
+    setIncognitoDraft(false);
+    setActiveSession(null);
+    setShowSettings(false);
+  };
+
+  const handleIncognitoSession = () => {
+    discardActiveIncognitoIfLeaving(null);
+    setIncognitoDraft(true);
     setActiveSession(null);
     setShowSettings(false);
   };
@@ -357,6 +385,7 @@ export function Sidebar() {
 
   const handleTogglePinSession = (e: React.MouseEvent, session: Session) => {
     e.stopPropagation();
+    if (session.incognito) return;
     setSessionPinned(session.id, !session.pinned);
   };
 
@@ -392,6 +421,13 @@ export function Sidebar() {
             title={t('sidebar.newTask')}
           >
             <Plus className="w-4 h-4" />
+          </button>
+          <button
+            onClick={handleIncognitoSession}
+            className="w-9 h-9 rounded-2xl flex items-center justify-center bg-background hover:bg-surface-hover transition-colors text-text-secondary border border-border-subtle border-dashed"
+            title={t('sidebar.incognitoTask')}
+          >
+            <Ghost className="w-4 h-4" />
           </button>
         </div>
 
@@ -486,6 +522,14 @@ export function Sidebar() {
           <Plus className="w-4 h-4 text-text-secondary flex-shrink-0" />
           <span className="text-[13px] font-medium">{t('sidebar.newTask')}</span>
         </button>
+        <button
+          onClick={handleIncognitoSession}
+          className="mt-1.5 w-full flex items-center gap-2 rounded-xl bg-background/60 px-3 py-2 text-left text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors border border-dashed border-border-subtle"
+          title={t('sidebar.incognitoTaskHint')}
+        >
+          <Ghost className="w-4 h-4 flex-shrink-0" />
+          <span className="text-[13px] font-medium">{t('sidebar.incognitoTask')}</span>
+        </button>
 
         {divisionSessions.length > 0 && (
           <div className="mt-2 flex items-center gap-2">
@@ -545,6 +589,7 @@ export function Sidebar() {
                   {group.sessions.map((session) => {
                     const isActive = activeSessionId === session.id;
                     const isSelected = selectedIds.has(session.id);
+                    const isIncognito = session.incognito === true;
                     return (
                       <div
                         key={session.id}
@@ -563,7 +608,7 @@ export function Sidebar() {
                             : isActive && !isSelectMode
                               ? 'bg-surface-hover/80'
                               : 'hover:bg-surface-hover/60'
-                        }`}
+                        } ${isIncognito ? 'border border-dashed border-border-subtle/80' : ''}`}
                       >
                         <div className={`flex items-center gap-2 ${!isSelectMode ? 'pr-14' : ''}`}>
                           {isSelectMode && (
@@ -576,6 +621,9 @@ export function Sidebar() {
                             >
                               {isSelected && <Check className="w-2.5 h-2.5" />}
                             </div>
+                          )}
+                          {isIncognito && !isSelectMode && (
+                            <Ghost className="w-3.5 h-3.5 text-text-muted flex-shrink-0" />
                           )}
                           <div className="min-w-0 flex-1">
                             <div className="text-[13px] font-medium leading-5 text-text-primary truncate">
@@ -595,7 +643,7 @@ export function Sidebar() {
                                 <Trash2 className="w-3 h-3" />
                               </button>
                             )}
-                            {(session.pinned || hoveredSession === session.id) && (
+                            {!isIncognito && (session.pinned || hoveredSession === session.id) && (
                               <button
                                 onClick={(e) => handleTogglePinSession(e, session)}
                                 className={`absolute right-1.5 top-1/2 -translate-y-1/2 w-6 h-6 rounded-lg flex items-center justify-center transition-colors ${

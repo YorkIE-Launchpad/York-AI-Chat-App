@@ -610,9 +610,14 @@ export function useIPC() {
 
   // Start a new session
   const startSession = useCallback(
-    async (title: string, promptOrContent: string | ContentBlock[], cwd?: string) => {
+    async (
+      title: string,
+      promptOrContent: string | ContentBlock[],
+      cwd?: string,
+      options?: { incognito?: boolean }
+    ) => {
       setLoading(true);
-      console.log('[useIPC] Starting session:', title);
+      console.log('[useIPC] Starting session:', title, options?.incognito ? '(incognito)' : '');
 
       const activeDivision = useAppStore.getState().activeDivision;
       const divisionPayload =
@@ -625,6 +630,9 @@ export function useIPC() {
           : activeDivision?.kind === 'hub'
             ? { division: 'hub' as const }
             : { division: 'general' as const };
+
+      const incognito =
+        options?.incognito === true || useAppStore.getState().incognitoDraft === true;
 
       // Normalize input to ContentBlock array
       const content: ContentBlock[] =
@@ -641,7 +649,7 @@ export function useIPC() {
         const sessionId = `mock-session-${Date.now()}`;
         const session: Session = {
           id: sessionId,
-          title: title || 'New Session',
+          title: title || (incognito ? 'Incognito' : 'New Session'),
           status: 'running',
           createdAt: Date.now(),
           updatedAt: Date.now(),
@@ -657,7 +665,8 @@ export function useIPC() {
             'glob',
             'grep',
           ],
-          memoryEnabled: true,
+          memoryEnabled: !incognito,
+          incognito: incognito || undefined,
           ...divisionPayload,
           hubProjectId: activeDivision?.kind === 'project' ? activeDivision.hubProjectId : null,
           hubProjectName: activeDivision?.kind === 'project' ? activeDivision.hubProjectName : null,
@@ -705,6 +714,8 @@ export function useIPC() {
             prompt,
             cwd,
             content, // Send full content blocks including images
+            incognito: incognito || undefined,
+            memoryEnabled: incognito ? false : undefined,
             ...divisionPayload,
           },
         });

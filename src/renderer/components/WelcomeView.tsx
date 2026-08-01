@@ -28,6 +28,7 @@ import {
   Mic,
   RefreshCw,
   Plus,
+  Ghost,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -149,6 +150,8 @@ export function WelcomeView() {
   const { startSession, changeWorkingDir, isElectron } = useIPC();
   const workingDir = useAppStore((state) => state.workingDir);
   const activeDivision = useAppStore((state) => state.activeDivision);
+  const incognitoDraft = useAppStore((state) => state.incognitoDraft);
+  const setIncognitoDraft = useAppStore((state) => state.setIncognitoDraft);
   const setGlobalNotice = useAppStore((state) => state.setGlobalNotice);
   const canSubmit =
     prompt.trim().length > 0 ||
@@ -291,7 +294,9 @@ export function WelcomeView() {
       }
       const contentBlocks: ContentBlock[] = [{ type: 'text', text: input.prompt }];
       const sessionTitle = getInitialSessionTitle(input.prompt);
-      const session = await startSession(sessionTitle, contentBlocks, workingDir || undefined);
+      const session = await startSession(sessionTitle, contentBlocks, workingDir || undefined, {
+        incognito: incognitoDraft || undefined,
+      });
       if (!session?.id) {
         throw new Error(t('loop.startFailed'));
       }
@@ -321,7 +326,7 @@ export function WelcomeView() {
       clearComposer();
       setLoopMenuOpen(false);
     },
-    [clearComposer, isElectron, setGlobalNotice, startSession, t, workingDir]
+    [clearComposer, incognitoDraft, isElectron, setGlobalNotice, startSession, t, workingDir]
   );
 
   const handleSelectFolder = async () => {
@@ -741,7 +746,9 @@ export function WelcomeView() {
         currentPrompt,
         attachedFiles[0]?.name || attachedMeetings[0]?.title
       );
-      const session = await startSession(sessionTitle, contentBlocks, workingDir || undefined);
+      const session = await startSession(sessionTitle, contentBlocks, workingDir || undefined, {
+        incognito: incognitoDraft || undefined,
+      });
       if (session) {
         clearComposer();
       }
@@ -814,6 +821,22 @@ export function WelcomeView() {
             <p className="heading-serif text-[1.15rem] md:text-[1.45rem] font-medium tracking-[-0.02em] text-text-secondary text-center">
               {displayTagline}
             </p>
+          )}
+          {incognitoDraft && (
+            <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-dashed border-border-subtle bg-background/70 px-3 py-1.5 text-xs text-text-secondary">
+              <Ghost className="w-3.5 h-3.5 text-text-muted" />
+              <span className="font-medium text-text-primary">{t('welcome.incognitoActive')}</span>
+              <span className="text-text-muted">·</span>
+              <span>{t('welcome.incognitoActiveHint')}</span>
+              <button
+                type="button"
+                onClick={() => setIncognitoDraft(false)}
+                className="ml-1 rounded-full p-0.5 text-text-muted hover:text-text-primary hover:bg-surface-hover transition-colors"
+                title={t('common.close')}
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </div>
           )}
         </div>
 

@@ -29,6 +29,7 @@ import {
   Mic,
   Paperclip,
   RefreshCw,
+  Ghost,
 } from 'lucide-react';
 import { isScrollNearBottom, resolveSessionScrollTop } from '../utils/chat-scroll-position';
 import {
@@ -1101,6 +1102,12 @@ export function ChatView() {
 
       {/* Context Usage Bar */}
       <ContextUsageBar />
+      {activeSession.incognito && (
+        <div className="px-4 py-2 text-xs text-text-secondary border-b border-border-muted bg-surface/60 flex items-center gap-2">
+          <Ghost className="w-3.5 h-3.5 text-text-muted flex-shrink-0" />
+          <span>{t('chat.incognitoBanner')}</span>
+        </div>
+      )}
       {loopNotice && (
         <div className="px-4 py-2 text-xs text-text-secondary border-b border-border-muted bg-surface/60 flex items-center justify-between gap-2">
           <span>{loopNotice}</span>

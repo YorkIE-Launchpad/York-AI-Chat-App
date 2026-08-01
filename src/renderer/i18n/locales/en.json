@@ -36,6 +36,8 @@
     "attachFiles": "Attach Files",
     "letsGo": "Let's go",
     "starting": "Starting...",
+    "incognitoActive": "Incognito mode",
+    "incognitoActiveHint": "This chat won’t be saved or used for memory",
     "logoAlt": "York GrowthOS logo",
     "pastedImageAlt": "Pasted {{index}}",
     "quickPromptDraftIcMemo": "Help me draft an investment committee memo. Ask for the company name and stage if missing, then outline thesis, market, team, traction, risks, and a clear recommendation.",
@@ -770,6 +772,8 @@
     "user": "User",
     "newTask": "New chat",
     "newTaskHint": "Start a fresh conversation",
+    "incognitoTask": "Incognito chat",
+    "incognitoTaskHint": "Chat won’t be saved or used for memory",
     "today": "Today",
     "yesterday": "Yesterday",
     "previousWeek": "Previous 7 Days",
@@ -817,7 +821,8 @@
     "noModel": "No model",
     "connectorCount_one": "{{count}} connector",
     "connectorCount_other": "{{count}} connectors",
-    "toolsNotReady": "Tools are still connecting…"
+    "toolsNotReady": "Tools are still connecting…",
+    "incognitoBanner": "Incognito — this chat won’t be saved or used for memory"
   },
   "context": {
     "progress": "Progress",

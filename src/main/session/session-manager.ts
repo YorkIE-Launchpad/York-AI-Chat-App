@@ -114,6 +114,8 @@ export class SessionManager {
   private messageCache: Map<string, Message[]> = new Map();
   private static readonly MAX_CACHE_SIZE = 100;
   private meetingService: MeetingService | null = null;
+  /** In-memory-only sessions (incognito). Never written to SQLite. */
+  private ephemeralSessions: Map<string, Session> = new Map();
 
   constructor(
     db: DatabaseInstance,
@@ -300,19 +302,35 @@ export class SessionManager {
       division?: SessionDivisionFields['division'];
       hubProjectId?: string | null;
       hubProjectName?: string | null;
+      incognito?: boolean;
     }
   ): Promise<Session> {
-    log('[SessionManager] Starting new session:', title);
+    const isIncognito = options?.incognito === true;
+    log('[SessionManager] Starting new session:', title, isIncognito ? '(incognito)' : '');
 
-    const session = this.createSession(title, cwd, allowedTools, memoryEnabled, options);
+    const session = this.createSession(
+      isIncognito ? title || 'Incognito' : title,
+      cwd,
+      allowedTools,
+      isIncognito ? false : memoryEnabled,
+      options
+    );
 
-    // Save to database
-    this.saveSession(session);
+    if (session.incognito) {
+      this.ephemeralSessions.set(session.id, session);
+      this.messageCache.set(session.id, []);
+    } else {
+      this.saveSession(session);
+    }
 
     // Start processing the prompt with content blocks
     this.enqueuePrompt(session, prompt, content);
 
     return session;
+  }
+
+  isIncognitoSession(sessionId: string): boolean {
+    return this.ephemeralSessions.has(sessionId);
   }
 
   // Create a new session object
@@ -340,14 +358,17 @@ export class SessionManager {
       division?: SessionDivisionFields['division'];
       hubProjectId?: string | null;
       hubProjectName?: string | null;
+      incognito?: boolean;
     }
   ): Session {
     const now = Date.now();
     // Prefer frontend-provided cwd; fallback to env vars if provided
     const envCwd = process.env.YORK_IE_WORKDIR || process.env.WORKDIR || process.env.DEFAULT_CWD;
     const effectiveCwd = cwd || envCwd;
-    const resolvedMemoryEnabled =
-      typeof memoryEnabled === 'boolean'
+    const isIncognito = options?.incognito === true;
+    const resolvedMemoryEnabled = isIncognito
+      ? false
+      : typeof memoryEnabled === 'boolean'
         ? memoryEnabled
         : configStore.get('memoryEnabled') !== false;
     const lockModel = options?.lockModel === true;
@@ -360,7 +381,7 @@ export class SessionManager {
     });
     return {
       id: uuidv4(),
-      title,
+      title: isIncognito && !title.trim() ? 'Incognito' : title,
       status: 'idle',
       cwd: effectiveCwd,
       mountedPaths: this.buildMountedPaths(effectiveCwd),
@@ -384,6 +405,7 @@ export class SessionManager {
       division: divisionFields.division,
       hubProjectId: divisionFields.hubProjectId,
       hubProjectName: divisionFields.hubProjectName,
+      incognito: isIncognito || undefined,
       createdAt: now,
       updatedAt: now,
     };
@@ -391,6 +413,10 @@ export class SessionManager {
 
   // Save session to database
   private saveSession(session: Session) {
+    if (session.incognito) {
+      this.ephemeralSessions.set(session.id, { ...session, updatedAt: Date.now() });
+      return;
+    }
     const divisionFields = normalizeSessionDivision({
       division: session.division,
       hubProjectId: session.hubProjectId,
@@ -476,16 +502,25 @@ export class SessionManager {
     };
   }
 
-  // Load session from database
+  // Load session from ephemeral map or database
   private loadSession(sessionId: string): Session | null {
+    const ephemeral = this.ephemeralSessions.get(sessionId);
+    if (ephemeral) {
+      return { ...ephemeral };
+    }
     const row = this.db.sessions.get(sessionId);
     if (!row) return null;
     return this.mapSessionRow(row);
   }
 
-  // List all sessions
+  // List all sessions (persisted + live ephemeral)
   listSessions(): Session[] {
-    return this.db.sessions.getAll().map((row) => this.mapSessionRow(row));
+    const persisted = this.db.sessions.getAll().map((row) => this.mapSessionRow(row));
+    const ephemeral = Array.from(this.ephemeralSessions.values()).map((session) => ({
+      ...session,
+    }));
+    // Ephemeral first so open incognito chats stay visible after session.list refresh
+    return [...ephemeral, ...persisted];
   }
 
   // Continue an existing session
@@ -737,158 +772,181 @@ export class SessionManager {
     content?: ContentBlock[]
   ): Promise<void> {
     const traceId = generateTraceId();
-    return runWithLogContext({ sessionId: session.id, traceId }, async () => {
-      logCtx('[SessionManager] Processing prompt for session:', session.id, 'traceId:', traceId);
-      logCtx(
-        '[SessionManager] Received content:',
-        content
-          ? JSON.stringify(
-              content.map((c) => ({
-                type: c.type,
-                hasData: !!(c as { source?: { data?: unknown } }).source?.data,
-              }))
-            )
-          : 'none'
-      );
-
-      // Ensure sandbox is initialized for this workspace
-      await this.ensureSandboxInitialized(session);
-
-      try {
-        // Use provided content blocks or fall back to simple text
-        let messageContent: ContentBlock[] =
-          content && content.length > 0 ? content : [{ type: 'text', text: prompt } as TextContent];
-
-        // Process file attachments - copy to .tmp directory
-        messageContent = await this.processFileAttachments(session, messageContent);
-
+    return runWithLogContext(
+      { sessionId: session.id, traceId, incognito: session.incognito === true },
+      async () => {
+        logCtx('[SessionManager] Processing prompt for session:', session.id, 'traceId:', traceId);
         logCtx(
-          '[SessionManager] Final message content types:',
-          messageContent.map((c) => c.type)
-        );
-
-        // Build enhanced prompt with file information
-        let enhancedPrompt = prompt;
-        const fileAttachments = messageContent.filter(
-          (c) => c.type === 'file_attachment'
-        ) as FileAttachmentContent[];
-        if (fileAttachments.length > 0) {
-          const fileInfo = fileAttachments
-            .map(
-              (f) => `- ${f.filename} (${(f.size / 1024).toFixed(1)} KB) at path: ${f.relativePath}`
-            )
-            .join('\n');
-          enhancedPrompt = `${enhancedPrompt}\n\n[Attached files - use Read tool to access them]:\n${fileInfo}`;
-          logCtx('[SessionManager] Enhanced prompt with file info:', enhancedPrompt);
-        }
-
-        const meetingAttachments = messageContent.filter(
-          (c) => c.type === 'meeting_attachment'
-        ) as MeetingAttachmentContent[];
-        if (meetingAttachments.length > 0 && this.meetingService?.isChatReferenceAllowed()) {
-          const meetingBlocks: string[] = [];
-          for (const attachment of meetingAttachments) {
-            const meeting = this.meetingService.get(attachment.meetingId);
-            if (!meeting) {
-              meetingBlocks.push(
-                `- Meeting "${attachment.title}" (${attachment.meetingId}) — not found`
-              );
-              continue;
-            }
-            meetingBlocks.push(
-              this.meetingService.formatMeetingForPrompt(
-                meeting,
-                Boolean(attachment.includeTranscript)
+          '[SessionManager] Received content:',
+          content
+            ? JSON.stringify(
+                content.map((c) => ({
+                  type: c.type,
+                  hasData: !!(c as { source?: { data?: unknown } }).source?.data,
+                }))
               )
-            );
-          }
-          if (meetingBlocks.length > 0) {
-            enhancedPrompt = `${enhancedPrompt}\n\n[Attached meetings — use only for this request]:\n${meetingBlocks.join('\n\n')}`;
-            logCtx('[SessionManager] Enhanced prompt with meeting attachments');
-          }
-        }
-
-        // Save user message to database for persistence
-        const existingMessages = this.getMessages(session.id);
-        const userMessage: Message = {
-          id: uuidv4(),
-          sessionId: session.id,
-          role: 'user',
-          content: messageContent, // Save full content including images and files
-          timestamp: Date.now(),
-        };
-        this.saveMessage(userMessage);
-        logCtx(
-          '[SessionManager] User message saved:',
-          userMessage.id,
-          'with',
-          messageContent.length,
-          'content blocks'
+            : 'none'
         );
-        const messagesForContext = [...existingMessages, userMessage];
 
-        // Update session model to match current config (may have changed since session creation),
-        // unless this session pinned a model (e.g. scheduled tasks).
-        if (!session.modelLocked) {
-          const currentModel = configStore.get('model');
-          if (currentModel && currentModel !== session.model) {
-            session.model = currentModel;
-            this.db.sessions.update(session.id, { model: currentModel });
-            this.sendToRenderer({
-              type: 'session.update',
-              payload: { sessionId: session.id, updates: { model: currentModel } },
-            });
+        // Ensure sandbox is initialized for this workspace
+        await this.ensureSandboxInitialized(session);
+
+        try {
+          // Use provided content blocks or fall back to simple text
+          let messageContent: ContentBlock[] =
+            content && content.length > 0
+              ? content
+              : [{ type: 'text', text: prompt } as TextContent];
+
+          // Process file attachments - copy to .tmp directory
+          messageContent = await this.processFileAttachments(session, messageContent);
+
+          logCtx(
+            '[SessionManager] Final message content types:',
+            messageContent.map((c) => c.type)
+          );
+
+          // Build enhanced prompt with file information
+          let enhancedPrompt = prompt;
+          const fileAttachments = messageContent.filter(
+            (c) => c.type === 'file_attachment'
+          ) as FileAttachmentContent[];
+          if (fileAttachments.length > 0) {
+            const fileInfo = fileAttachments
+              .map(
+                (f) =>
+                  `- ${f.filename} (${(f.size / 1024).toFixed(1)} KB) at path: ${f.relativePath}`
+              )
+              .join('\n');
+            enhancedPrompt = `${enhancedPrompt}\n\n[Attached files - use Read tool to access them]:\n${fileInfo}`;
+            logCtx('[SessionManager] Enhanced prompt with file info:', enhancedPrompt);
           }
-        }
 
-        // Run the agent
-        await this.agentRunner.run(session, enhancedPrompt, messagesForContext);
+          const meetingAttachments = messageContent.filter(
+            (c) => c.type === 'meeting_attachment'
+          ) as MeetingAttachmentContent[];
+          if (meetingAttachments.length > 0 && this.meetingService?.isChatReferenceAllowed()) {
+            const meetingBlocks: string[] = [];
+            for (const attachment of meetingAttachments) {
+              const meeting = this.meetingService.get(attachment.meetingId);
+              if (!meeting) {
+                meetingBlocks.push(
+                  `- Meeting "${attachment.title}" (${attachment.meetingId}) — not found`
+                );
+                continue;
+              }
+              meetingBlocks.push(
+                this.meetingService.formatMeetingForPrompt(
+                  meeting,
+                  Boolean(attachment.includeTranscript)
+                )
+              );
+            }
+            if (meetingBlocks.length > 0) {
+              enhancedPrompt = `${enhancedPrompt}\n\n[Attached meetings — use only for this request]:\n${meetingBlocks.join('\n\n')}`;
+              logCtx('[SessionManager] Enhanced prompt with meeting attachments');
+            }
+          }
 
-        if (this.extensionManager) {
-          const stableMessages = this.getMessages(session.id);
-          this.extensionManager
-            .afterSessionRun({
-              session,
-              prompt: enhancedPrompt,
-              messages: stableMessages,
-            })
-            .catch((error) =>
-              logCtxError('[SessionManager] Runtime extension post-run hook failed:', error)
-            );
-        }
-
-        // Title generation is no longer concurrent with the first turn, to avoid competing with the main request for the same upstream quota/channel and feeling slower.
-        this.runSessionTitleGeneration(session, prompt, existingMessages).catch((err) =>
-          logCtxError('[SessionManager] Title generation failed:', err)
-        );
-      } catch (error) {
-        logCtxError('[SessionManager] Error processing prompt:', error);
-        const errorText = error instanceof Error ? error.message : 'Unknown error';
-        const alreadyReportedToUser = Boolean(
-          error &&
-          typeof error === 'object' &&
-          (error as { alreadyReportedToUser?: boolean }).alreadyReportedToUser
-        );
-        if (!alreadyReportedToUser) {
-          const assistantMessage: Message = {
+          // Save user message to database for persistence
+          const existingMessages = this.getMessages(session.id);
+          const userMessage: Message = {
             id: uuidv4(),
             sessionId: session.id,
-            role: 'assistant',
-            content: [{ type: 'text', text: `**Error**: ${errorText}` }],
+            role: 'user',
+            content: messageContent, // Save full content including images and files
             timestamp: Date.now(),
           };
-          this.saveMessage(assistantMessage);
+          this.saveMessage(userMessage);
+          logCtx(
+            '[SessionManager] User message saved:',
+            userMessage.id,
+            'with',
+            messageContent.length,
+            'content blocks'
+          );
+          const messagesForContext = [...existingMessages, userMessage];
+
+          // Update session model to match current config (may have changed since session creation),
+          // unless this session pinned a model (e.g. scheduled tasks).
+          if (!session.modelLocked) {
+            const currentModel = configStore.get('model');
+            if (currentModel && currentModel !== session.model) {
+              session.model = currentModel;
+              if (session.incognito) {
+                const ephemeral = this.ephemeralSessions.get(session.id);
+                if (ephemeral) {
+                  ephemeral.model = currentModel;
+                  ephemeral.updatedAt = Date.now();
+                }
+              } else {
+                this.db.sessions.update(session.id, { model: currentModel });
+              }
+              this.sendToRenderer({
+                type: 'session.update',
+                payload: { sessionId: session.id, updates: { model: currentModel } },
+              });
+            }
+          }
+
+          // Run the agent
+          await this.agentRunner.run(session, enhancedPrompt, messagesForContext);
+
+          if (this.extensionManager) {
+            const stableMessages = this.getMessages(session.id);
+            this.extensionManager
+              .afterSessionRun({
+                session,
+                prompt: enhancedPrompt,
+                messages: stableMessages,
+              })
+              .catch((error) =>
+                logCtxError('[SessionManager] Runtime extension post-run hook failed:', error)
+              );
+          }
+
+          // Title generation is no longer concurrent with the first turn, to avoid competing with the main request for the same upstream quota/channel and feeling slower.
+          // Incognito: skip LLM title generation; keep local "Incognito" / first-prompt title only.
+          if (!session.incognito) {
+            this.runSessionTitleGeneration(session, prompt, existingMessages).catch((err) =>
+              logCtxError('[SessionManager] Title generation failed:', err)
+            );
+          } else if (existingMessages.length === 0) {
+            const localTitle = getDefaultTitleFromPrompt(prompt);
+            if (localTitle && localTitle !== session.title) {
+              this.updateSessionTitle(session.id, localTitle);
+              session.title = localTitle;
+            }
+          }
+        } catch (error) {
+          logCtxError('[SessionManager] Error processing prompt:', error);
+          const errorText = error instanceof Error ? error.message : 'Unknown error';
+          const alreadyReportedToUser = Boolean(
+            error &&
+            typeof error === 'object' &&
+            (error as { alreadyReportedToUser?: boolean }).alreadyReportedToUser
+          );
+          if (!alreadyReportedToUser) {
+            const assistantMessage: Message = {
+              id: uuidv4(),
+              sessionId: session.id,
+              role: 'assistant',
+              content: [{ type: 'text', text: `**Error**: ${errorText}` }],
+              timestamp: Date.now(),
+            };
+            this.saveMessage(assistantMessage);
+            this.sendToRenderer({
+              type: 'stream.message',
+              payload: { sessionId: session.id, message: assistantMessage },
+            });
+          }
           this.sendToRenderer({
-            type: 'stream.message',
-            payload: { sessionId: session.id, message: assistantMessage },
+            type: 'error',
+            payload: { message: errorText },
           });
         }
-        this.sendToRenderer({
-          type: 'error',
-          payload: { message: errorText },
-        });
       }
-    }); // end runWithLogContext
+    ); // end runWithLogContext
   }
 
   private async runSessionTitleGeneration(
@@ -1089,7 +1147,10 @@ export class SessionManager {
       controller.abort();
     }
     this.promptQueues.delete(sessionId);
-    this.messageCache.delete(sessionId);
+    // Preserve in-memory history for incognito — there is no DB to reload from.
+    if (!this.ephemeralSessions.has(sessionId)) {
+      this.messageCache.delete(sessionId);
+    }
     this.updateSessionStatus(sessionId, 'idle');
   }
 
@@ -1113,6 +1174,7 @@ export class SessionManager {
   // Delete a session
   async deleteSession(sessionId: string): Promise<void> {
     const existingSession = this.loadSession(sessionId);
+    const wasIncognito = this.ephemeralSessions.has(sessionId);
 
     // Stop if running
     this.stopSession(sessionId);
@@ -1129,11 +1191,17 @@ export class SessionManager {
       }
     }
 
-    // Delete from database (messages will be deleted automatically via CASCADE)
-    this.db.sessions.delete(sessionId);
+    this.ephemeralSessions.delete(sessionId);
+    if (!wasIncognito) {
+      // Delete from database (messages will be deleted automatically via CASCADE)
+      this.db.sessions.delete(sessionId);
+    }
     this.messageCache.delete(sessionId);
     this.sessionTitleAttempts.delete(sessionId);
     this.titleGenerationTokens.delete(sessionId);
+    if (this.agentRunner?.clearSdkSession) {
+      this.agentRunner.clearSdkSession(sessionId);
+    }
     if (this.extensionManager) {
       await this.extensionManager.onSessionDeleted({
         sessionId,
@@ -1161,16 +1229,26 @@ export class SessionManager {
       }
     }
 
-    // Perform all SQLite deletions atomically
-    this.db.raw.transaction(() => {
-      for (const sessionId of sessionIds) {
-        this.db.sessions.delete(sessionId);
-        this.messageCache.delete(sessionId);
-        this.sessionTitleAttempts.delete(sessionId);
-        this.titleGenerationTokens.delete(sessionId);
-        forgetSessionPermissions(sessionId);
+    const persistedIds = sessionIds.filter((id) => !this.ephemeralSessions.has(id));
+    for (const sessionId of sessionIds) {
+      this.ephemeralSessions.delete(sessionId);
+      this.messageCache.delete(sessionId);
+      this.sessionTitleAttempts.delete(sessionId);
+      this.titleGenerationTokens.delete(sessionId);
+      forgetSessionPermissions(sessionId);
+      if (this.agentRunner?.clearSdkSession) {
+        this.agentRunner.clearSdkSession(sessionId);
       }
-    })();
+    }
+
+    // Perform SQLite deletions atomically for persisted sessions only
+    if (persistedIds.length > 0) {
+      this.db.raw.transaction(() => {
+        for (const sessionId of persistedIds) {
+          this.db.sessions.delete(sessionId);
+        }
+      })();
+    }
 
     if (this.extensionManager) {
       for (const sessionId of sessionIds) {
@@ -1186,7 +1264,14 @@ export class SessionManager {
 
   // Update session status
   private updateSessionStatus(sessionId: string, status: Session['status']): void {
-    this.db.sessions.update(sessionId, { status, updated_at: Date.now() });
+    const now = Date.now();
+    const ephemeral = this.ephemeralSessions.get(sessionId);
+    if (ephemeral) {
+      ephemeral.status = status;
+      ephemeral.updatedAt = now;
+    } else {
+      this.db.sessions.update(sessionId, { status, updated_at: now });
+    }
 
     this.sendToRenderer({
       type: 'session.status',
@@ -1195,6 +1280,16 @@ export class SessionManager {
   }
 
   private updateSessionTitle(sessionId: string, title: string): boolean {
+    const ephemeral = this.ephemeralSessions.get(sessionId);
+    if (ephemeral) {
+      ephemeral.title = title;
+      ephemeral.updatedAt = Date.now();
+      this.sendToRenderer({
+        type: 'session.update',
+        payload: { sessionId, updates: { title } },
+      });
+      return true;
+    }
     const existing = this.db.sessions.get(sessionId);
     if (!existing) {
       log('[SessionTitle] Skip title update for deleted session:', sessionId);
@@ -1209,6 +1304,10 @@ export class SessionManager {
   }
 
   setSessionPinned(sessionId: string, pinned: boolean): boolean {
+    if (this.ephemeralSessions.has(sessionId)) {
+      log('[SessionManager] Skip pin update for incognito session:', sessionId);
+      return false;
+    }
     const existing = this.db.sessions.get(sessionId);
     if (!existing) {
       log('[SessionManager] Skip pin update for missing session:', sessionId);
@@ -1234,15 +1333,24 @@ export class SessionManager {
       this.stopSession(sessionId);
     }
     const mountedPaths = this.buildMountedPaths(cwd);
-    // Clear claude_session_id in DB so next query creates a new SDK session
-    // (Claude SDK sessions cannot change cwd mid-session)
-    this.db.sessions.update(sessionId, {
-      cwd,
-      mounted_paths: JSON.stringify(mountedPaths),
-      claude_session_id: null,
-      openai_thread_id: null,
-      updated_at: Date.now(),
-    });
+    const ephemeral = this.ephemeralSessions.get(sessionId);
+    if (ephemeral) {
+      ephemeral.cwd = cwd;
+      ephemeral.mountedPaths = mountedPaths;
+      ephemeral.claudeSessionId = undefined;
+      ephemeral.openaiThreadId = undefined;
+      ephemeral.updatedAt = Date.now();
+    } else {
+      // Clear claude_session_id in DB so next query creates a new SDK session
+      // (Claude SDK sessions cannot change cwd mid-session)
+      this.db.sessions.update(sessionId, {
+        cwd,
+        mounted_paths: JSON.stringify(mountedPaths),
+        claude_session_id: null,
+        openai_thread_id: null,
+        updated_at: Date.now(),
+      });
+    }
 
     // Also clear the in-memory SDK session cache
     if (this.agentRunner?.clearSdkSession) {
@@ -1294,17 +1402,20 @@ export class SessionManager {
     return this.agentRunner.getContextUsage(sessionId);
   }
 
-  // Save message to database
+  // Save message to database (or in-memory cache only for incognito)
   saveMessage(message: Message): void {
-    this.db.messages.create({
-      id: message.id,
-      session_id: message.sessionId,
-      role: message.role,
-      content: JSON.stringify(message.content),
-      timestamp: message.timestamp,
-      token_usage: message.tokenUsage ? JSON.stringify(message.tokenUsage) : null,
-      execution_time_ms: message.executionTimeMs ?? null,
-    });
+    const isIncognito = this.ephemeralSessions.has(message.sessionId);
+    if (!isIncognito) {
+      this.db.messages.create({
+        id: message.id,
+        session_id: message.sessionId,
+        role: message.role,
+        content: JSON.stringify(message.content),
+        timestamp: message.timestamp,
+        token_usage: message.tokenUsage ? JSON.stringify(message.tokenUsage) : null,
+        execution_time_ms: message.executionTimeMs ?? null,
+      });
+    }
     const cached = this.messageCache.get(message.sessionId);
     if (cached) {
       cached.push(message);
@@ -1317,14 +1428,18 @@ export class SessionManager {
         const firstKey = this.messageCache.keys().next().value;
         if (firstKey) this.messageCache.delete(firstKey);
       }
-      // Hydrate from DB instead of seeding with only this message. After cache
-      // eviction, a lone seed would make getMessages() return truncated history
-      // and history clicks look like the chat failed to load.
-      const messages = this.readMessagesFromDb(message.sessionId);
-      if (!messages.some((m) => m.id === message.id)) {
-        messages.push(message);
+      if (isIncognito) {
+        this.messageCache.set(message.sessionId, [message]);
+      } else {
+        // Hydrate from DB instead of seeding with only this message. After cache
+        // eviction, a lone seed would make getMessages() return truncated history
+        // and history clicks look like the chat failed to load.
+        const messages = this.readMessagesFromDb(message.sessionId);
+        if (!messages.some((m) => m.id === message.id)) {
+          messages.push(message);
+        }
+        this.messageCache.set(message.sessionId, messages);
       }
-      this.messageCache.set(message.sessionId, messages);
     }
 
     log('[SessionManager] Message saved:', message.id, 'role:', message.role);
@@ -1348,6 +1463,11 @@ export class SessionManager {
     const cached = this.messageCache.get(sessionId);
     if (cached) {
       return [...cached];
+    }
+
+    if (this.ephemeralSessions.has(sessionId)) {
+      this.messageCache.set(sessionId, []);
+      return [];
     }
 
     const messages = this.readMessagesFromDb(sessionId);
@@ -1472,6 +1592,9 @@ export class SessionManager {
   }
 
   private saveTraceStep(sessionId: string, step: TraceStep): void {
+    if (this.ephemeralSessions.has(sessionId)) {
+      return;
+    }
     this.db.traceSteps.create({
       id: step.id,
       session_id: sessionId,
@@ -1489,6 +1612,8 @@ export class SessionManager {
   }
 
   private updateTraceStep(stepId: string, updates: Partial<TraceStep>): void {
+    // Trace steps for incognito sessions are never written; skip DB updates.
+    // We don't have sessionId here — only update when the row exists.
     const rowUpdates: Partial<TraceStepRow> = {};
     if (updates.type !== undefined) rowUpdates.type = updates.type;
     if (updates.status !== undefined) rowUpdates.status = updates.status;

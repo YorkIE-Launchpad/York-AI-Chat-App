@@ -24,6 +24,8 @@ export interface Session {
   hubProjectName?: string | null;
   /** When true, session stays in the sidebar Pinned group. */
   pinned?: boolean;
+  /** When true, chat is in-memory only and does not update long-term memory. */
+  incognito?: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -565,6 +567,8 @@ export type ClientEvent =
         allowedTools?: string[];
         content?: ContentBlock[];
         memoryEnabled?: boolean;
+        /** When true, session is ephemeral (not persisted) and memory is disabled. */
+        incognito?: boolean;
         division?: WorkspaceDivisionKind;
         hubProjectId?: string | null;
         hubProjectName?: string | null;

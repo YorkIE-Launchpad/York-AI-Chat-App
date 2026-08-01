@@ -4356,11 +4356,12 @@ async function handleClientEvent(event: ClientEvent): Promise<unknown> {
         event.payload.cwd,
         event.payload.allowedTools,
         event.payload.content,
-        event.payload.memoryEnabled,
+        event.payload.incognito ? false : event.payload.memoryEnabled,
         {
           division: event.payload.division,
           hubProjectId: event.payload.hubProjectId,
           hubProjectName: event.payload.hubProjectName,
+          incognito: event.payload.incognito === true,
         }
       );
 

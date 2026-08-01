@@ -71,6 +71,9 @@ function makeDb(overrides: Partial<DatabaseInstance> = {}): DatabaseInstance {
       getBySessionId: vi.fn(() => []),
       deleteBySessionId: vi.fn(),
     },
+    raw: {
+      transaction: (fn: () => void) => fn,
+    },
     ...overrides,
   } as unknown as DatabaseInstance;
 }
@@ -488,5 +491,105 @@ describe('SessionManager.deleteSession cache eviction', () => {
     // Cache should have been evicted — DB should be hit again on next call
     manager.getMessages('s1');
     expect(db.messages.getBySessionId).toHaveBeenCalledTimes(2);
+  });
+});
+
+// ------------------------------------------------------------------
+// Incognito (ephemeral) sessions
+// ------------------------------------------------------------------
+describe('SessionManager incognito sessions', () => {
+  it('starts without persisting to SQLite and disables memory', async () => {
+    const sendToRenderer = vi.fn();
+    const db = makeDb();
+    const manager = new SessionManager(db, sendToRenderer);
+
+    const session = await manager.startSession(
+      'Secret',
+      'hello',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { incognito: true }
+    );
+
+    expect(session.incognito).toBe(true);
+    expect(session.memoryEnabled).toBe(false);
+    expect(session.title).toBe('Secret');
+    expect(db.sessions.create).not.toHaveBeenCalled();
+    expect(manager.isIncognitoSession(session.id)).toBe(true);
+    expect(manager.listSessions().some((s) => s.id === session.id)).toBe(true);
+
+    await vi.waitFor(() => {
+      expect(sendToRenderer).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'session.status',
+          payload: expect.objectContaining({ sessionId: session.id, status: 'idle' }),
+        })
+      );
+    });
+
+    expect(db.messages.create).not.toHaveBeenCalled();
+    expect(db.sessions.update).not.toHaveBeenCalled();
+    expect(manager.getMessages(session.id).length).toBeGreaterThan(0);
+  });
+
+  it('continues from the in-memory session map', async () => {
+    const sendToRenderer = vi.fn();
+    const db = makeDb();
+    const manager = new SessionManager(db, sendToRenderer);
+
+    const session = await manager.startSession(
+      'Incognito',
+      'first',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { incognito: true }
+    );
+
+    await vi.waitFor(() => {
+      expect(sendToRenderer).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'session.status',
+          payload: expect.objectContaining({ sessionId: session.id, status: 'idle' }),
+        })
+      );
+    });
+
+    await expect(manager.continueSession(session.id, 'second')).resolves.toBeUndefined();
+
+    await vi.waitFor(() => {
+      const msgs = manager.getMessages(session.id);
+      expect(msgs.filter((m) => m.role === 'user').length).toBeGreaterThanOrEqual(2);
+    });
+
+    expect(db.sessions.create).not.toHaveBeenCalled();
+    expect(db.messages.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects pin and deletes without touching SQLite', async () => {
+    const db = makeDb();
+    const manager = new SessionManager(db, vi.fn());
+
+    const session = await manager.startSession(
+      'Incognito',
+      'hi',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { incognito: true }
+    );
+
+    expect(manager.setSessionPinned(session.id, true)).toBe(false);
+    expect(db.sessions.update).not.toHaveBeenCalled();
+
+    await manager.deleteSession(session.id);
+
+    expect(db.sessions.delete).not.toHaveBeenCalled();
+    expect(manager.isIncognitoSession(session.id)).toBe(false);
+    expect(manager.listSessions().some((s) => s.id === session.id)).toBe(false);
   });
 });

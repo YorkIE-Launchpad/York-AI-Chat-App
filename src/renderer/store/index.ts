@@ -153,6 +153,9 @@ interface AppState {
   // System theme (from OS native theme)
   systemDarkMode: boolean;
 
+  /** Welcome composer is primed for an incognito (ephemeral) chat. */
+  incognitoDraft: boolean;
+
   // Actions
   setSessions: (sessions: Session[]) => void;
   addSession: (session: Session) => void;
@@ -160,6 +163,7 @@ interface AppState {
   removeSession: (sessionId: string) => void;
   removeSessions: (sessionIds: string[]) => void;
   setActiveSession: (sessionId: string | null) => void;
+  setIncognitoDraft: (enabled: boolean) => void;
   setSessionScrollPosition: (sessionId: string, scrollTop: number) => void;
 
   addMessage: (sessionId: string, message: Message) => void;
@@ -292,9 +296,18 @@ export const useAppStore = create<AppState>((set) => ({
   skillsStorageChangeEvent: null,
   chatLoopBySessionId: {},
   systemDarkMode: false,
+  incognitoDraft: false,
 
   // Session actions
-  setSessions: (sessions) => set({ sessions }),
+  setSessions: (sessions) =>
+    set((state) => {
+      // Keep live incognito chats if a list refresh races before main merges them.
+      const missingEphemeral = state.sessions.filter(
+        (session) =>
+          session.incognito === true && !sessions.some((incoming) => incoming.id === session.id)
+      );
+      return { sessions: [...missingEphemeral, ...sessions] };
+    }),
 
   addSession: (session) =>
     set((state) => ({
@@ -303,6 +316,7 @@ export const useAppStore = create<AppState>((set) => ({
         ...state.sessionStates,
         [session.id]: { ...DEFAULT_SESSION_STATE },
       },
+      incognitoDraft: false,
     })),
 
   updateSession: (sessionId, updates) =>
@@ -347,6 +361,8 @@ export const useAppStore = create<AppState>((set) => ({
     }),
 
   setActiveSession: (sessionId) => set({ activeSessionId: sessionId }),
+
+  setIncognitoDraft: (enabled) => set({ incognitoDraft: enabled }),
 
   setSessionScrollPosition: (sessionId, scrollTop) =>
     set((state) => ({

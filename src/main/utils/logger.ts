@@ -14,6 +14,8 @@ export interface LogContext {
   sessionId?: string;
   traceId?: string;
   module?: string;
+  /** When true, connector/memory side effects should skip persistence. */
+  incognito?: boolean;
 }
 
 export const logStorage = new AsyncLocalStorage<LogContext>();
