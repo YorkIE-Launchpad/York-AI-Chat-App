@@ -10,6 +10,7 @@ const mockState = vi.hoisted(() => ({
         redirectUrl?: string | URL;
         state(): string;
       };
+      skipIssuerMetadataValidation?: boolean;
     };
     url: URL;
   }>,
@@ -82,6 +83,7 @@ vi.mock('@modelcontextprotocol/client', () => ({
         redirectToAuthorization(url: URL): unknown;
         state(): string;
       };
+      skipIssuerMetadataValidation?: boolean;
     };
     url: URL;
 
@@ -93,6 +95,7 @@ vi.mock('@modelcontextprotocol/client', () => ({
           redirectToAuthorization(url: URL): unknown;
           state(): string;
         };
+        skipIssuerMetadataValidation?: boolean;
       }
     ) {
       this.url = url;
@@ -175,6 +178,11 @@ describe('MCPManager streamable HTTP OAuth', () => {
     expect(openedAuthorizationUrl.searchParams.get('state')).toBeTruthy();
     expect(mockState.mockClientConnect).toHaveBeenCalledTimes(2);
     expect(mockState.createdStreamableTransports).toHaveLength(2);
+    expect(
+      mockState.createdStreamableTransports.every(
+        (transport) => transport.options.skipIssuerMetadataValidation !== true
+      )
+    ).toBe(true);
     const callbackParams = mockState.createdStreamableTransports[0].finishAuth.mock.calls[0][0];
     expect(Object.fromEntries(callbackParams)).toMatchObject({ code: 'oauth-from-browser' });
     expect(mockState.createdStreamableTransports[0].close).toHaveBeenCalledTimes(1);
@@ -190,5 +198,25 @@ describe('MCPManager streamable HTTP OAuth', () => {
         status: 'connected',
       }),
     ]);
+  });
+
+  it('skips issuer metadata validation for Atlassian Rovo MCP', async () => {
+    const manager = new MCPManager();
+    const config: MCPServerConfig = {
+      enabled: true,
+      id: 'mcp-jira-default',
+      name: 'Jira',
+      type: 'streamable-http',
+      url: 'https://mcp.atlassian.com/v1/mcp/authv2',
+    };
+
+    await manager.initializeServers([config]);
+
+    expect(mockState.createdStreamableTransports.length).toBeGreaterThan(0);
+    expect(
+      mockState.createdStreamableTransports.every(
+        (transport) => transport.options.skipIssuerMetadataValidation === true
+      )
+    ).toBe(true);
   });
 });

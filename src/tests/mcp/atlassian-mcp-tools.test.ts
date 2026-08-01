@@ -3,6 +3,7 @@ import {
   filterAtlassianToolsByProduct,
   isShareableAtlassianRemoteMcpServer,
   normalizeAtlassianMcpShareUrl,
+  shouldSkipAtlassianOAuthIssuerValidation,
 } from '../../main/mcp/atlassian-mcp-tools';
 
 const SAMPLE_TOOLS = [
@@ -61,6 +62,22 @@ describe('normalizeAtlassianMcpShareUrl', () => {
     const a = normalizeAtlassianMcpShareUrl('https://mcp.atlassian.com/v1/mcp/authv2');
     const b = normalizeAtlassianMcpShareUrl('https://mcp.atlassian.com/v1/mcp/authv2/');
     expect(a).toBe(b);
+  });
+});
+
+describe('shouldSkipAtlassianOAuthIssuerValidation', () => {
+  it('matches Atlassian Rovo MCP hosts', () => {
+    expect(
+      shouldSkipAtlassianOAuthIssuerValidation('https://mcp.atlassian.com/v1/mcp/authv2')
+    ).toBe(true);
+    expect(shouldSkipAtlassianOAuthIssuerValidation('https://cf.mcp.atlassian.com/v1/mcp')).toBe(
+      true
+    );
+  });
+
+  it('does not match unrelated hosts', () => {
+    expect(shouldSkipAtlassianOAuthIssuerValidation('https://mcp.example.com/v1/mcp')).toBe(false);
+    expect(shouldSkipAtlassianOAuthIssuerValidation('not-a-url')).toBe(false);
   });
 });
 

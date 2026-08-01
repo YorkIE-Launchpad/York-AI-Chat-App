@@ -39,6 +39,22 @@ export function normalizeAtlassianMcpShareUrl(url: string): string {
   }
 }
 
+/**
+ * Atlassian authv2 AS metadata returns `issuer: https://auth.atlassian.com` while
+ * PRM advertises a path-scoped AS URL (`…/VCeD…`). MCP SDK v2 enforces RFC 8414 §3.3
+ * and throws IssuerMismatchError unless validation is skipped for this known server bug.
+ *
+ * @see https://github.com/atlassian/atlassian-mcp-server/issues/205
+ */
+export function shouldSkipAtlassianOAuthIssuerValidation(url: string): boolean {
+  try {
+    const host = new URL(url.trim()).hostname.toLowerCase();
+    return host === 'mcp.atlassian.com' || host.endsWith('.mcp.atlassian.com');
+  } catch {
+    return false;
+  }
+}
+
 export function isAtlassianCatalogServerName(name: string): boolean {
   const lowered = name.trim().toLowerCase();
   return lowered === 'jira' || lowered === 'confluence';

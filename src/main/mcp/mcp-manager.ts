@@ -28,6 +28,7 @@ import {
   filterAtlassianToolsByProduct,
   isShareableAtlassianRemoteMcpServer,
   normalizeAtlassianMcpShareUrl,
+  shouldSkipAtlassianOAuthIssuerValidation,
 } from './atlassian-mcp-tools';
 import { resolveGoogleCalendarConnectorId } from './google-calendar-connector';
 import {
@@ -1434,12 +1435,23 @@ export class MCPManager {
         }
       } else {
         const authProvider = this.getOrCreateStreamableHttpOAuthProvider(config);
+        const skipIssuerMetadataValidation = shouldSkipAtlassianOAuthIssuerValidation(config.url);
+        if (skipIssuerMetadataValidation) {
+          logWarn(
+            `[MCPManager] Skipping OAuth issuer metadata validation for ${config.name} ` +
+              '(Atlassian authv2 RFC 8414 §3.3 mismatch workaround)'
+          );
+        }
         transport = await connectWithOAuthRetry<StreamableHTTPClientTransport>({
           connect: async (streamableTransport: StreamableHTTPClientTransport) => {
             await this.connectClientWithTimeout(client, streamableTransport, connectTimeoutMs);
           },
           createTransport: (provider) =>
-            new StreamableHTTPClientTransport(httpUrl, { authProvider: provider, requestInit }),
+            new StreamableHTTPClientTransport(httpUrl, {
+              authProvider: provider,
+              requestInit,
+              ...(skipIssuerMetadataValidation ? { skipIssuerMetadataValidation: true } : {}),
+            }),
           provider: authProvider,
         });
       }
