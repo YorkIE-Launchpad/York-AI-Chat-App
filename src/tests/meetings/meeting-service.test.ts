@@ -80,6 +80,11 @@ vi.mock('../../main/meetings/meeting-transcription-service', () => ({
   },
 }));
 
+vi.mock('../../main/meetings/meeting-transcript-english', () => ({
+  needsEnglishTranslation: () => false,
+  normalizeTranscriptToEnglish: async (text: string) => text.trim(),
+}));
+
 vi.mock('../../main/connectors/connector-manager', () => ({
   connectorManager: {
     isConnected: () => false,

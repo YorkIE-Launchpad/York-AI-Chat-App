@@ -55,6 +55,10 @@ class TranscriptionRequestQueue {
 
 const transcriptionQueue = new TranscriptionRequestQueue(DEFAULT_TRANSCRIPTION_CONCURRENCY);
 
+/** Bias gpt-4o-transcribe toward English transcript output (translate HI/GU). */
+export const TRANSCRIPTION_ENGLISH_OUTPUT_PROMPT =
+  'Meeting is mostly English, with occasional Hindi or Gujarati. Output English only. Translate any Hindi or Gujarati speech into English.';
+
 /** Whisper often invents these on silence / noise — drop them. */
 const WHISPER_HALLUCINATION_PATTERNS: RegExp[] = [
   /^thank you for watching\.?$/i,
@@ -140,11 +144,21 @@ export class MeetingTranscriptionService {
 
     const tryModel = async (transcriptionModel: MeetingTranscriptionModel) => {
       log(`[Meetings] Transcribing chunk via backend (${transcriptionModel})`);
+      // whisper-1 translations API always returns English.
+      if (transcriptionModel === 'whisper-1') {
+        const result = await client.audio.translations.create({
+          file,
+          model: 'whisper-1',
+          temperature: 0,
+        });
+        return sanitizeTranscriptText((result.text || '').trim());
+      }
       const result = await client.audio.transcriptions.create({
         file,
         model: transcriptionModel,
         // Lower temperature reduces Whisper silence hallucinations ("Thank you for watching.").
         temperature: 0,
+        prompt: TRANSCRIPTION_ENGLISH_OUTPUT_PROMPT,
       });
       return sanitizeTranscriptText((result.text || '').trim());
     };

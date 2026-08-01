@@ -41,13 +41,24 @@ import {
   Layers,
 } from 'lucide-react';
 import type { TraceStep, MCPServerInfo, ContentBlock, ToolUseContent } from '../types';
+import type { ConnectorStatus } from './settings/shared';
 import { getMcpToolDisplayName } from './message/toolHelpers';
-import { mergeDefaultMcpServerStatuses } from '../../shared/mcp-defaults';
+import {
+  DEFAULT_GOOGLE_CALENDAR_MCP_SERVER_ID,
+  mergeDefaultMcpServerStatuses,
+} from '../../shared/mcp-defaults';
 
 const EMPTY_STEPS: TraceStep[] = [];
 
 function normalizeMcpServers(servers: MCPServerInfo[] | null | undefined): MCPServerInfo[] {
   return mergeDefaultMcpServerStatuses(servers || []);
+}
+
+function pickZoomConnectorStatus(
+  statuses: ConnectorStatus[] | null | undefined
+): ConnectorStatus | null {
+  const zoom = (statuses || []).find((s) => s.connectorId === 'zoom');
+  return zoom || { connectorId: 'zoom', connected: false };
 }
 
 export function ContextPanel() {
@@ -64,6 +75,9 @@ export function ContextPanel() {
   const [artifactsOpen, setArtifactsOpen] = useState(true);
   const [expandedConnector, setExpandedConnector] = useState<string | null>(null);
   const [mcpServers, setMcpServers] = useState<MCPServerInfo[]>(() => normalizeMcpServers([]));
+  const [zoomStatus, setZoomStatus] = useState<ConnectorStatus | null>(() =>
+    pickZoomConnectorStatus([])
+  );
   const [copiedPath, setCopiedPath] = useState(false);
   const [isChangingDir, setIsChangingDir] = useState(false);
   const [recentWorkspaceFiles, setRecentWorkspaceFiles] = useState<
@@ -272,18 +286,33 @@ export function ContextPanel() {
     if (contextPanelCollapsed) {
       return;
     }
-    const loadMCPServers = async () => {
+    const loadConnectors = async () => {
       try {
         const servers = await getMCPServers();
         setMcpServers(normalizeMcpServers(servers));
       } catch (error) {
         console.error('Failed to load MCP servers:', error);
       }
+      try {
+        const statuses = await window.electronAPI?.connectors?.getStatus();
+        setZoomStatus(pickZoomConnectorStatus(statuses));
+      } catch (error) {
+        console.error('Failed to load Zoom connector status:', error);
+      }
     };
-    loadMCPServers();
-    const interval = setInterval(loadMCPServers, 30000);
+    void loadConnectors();
+    const interval = setInterval(() => void loadConnectors(), 30000);
     return () => clearInterval(interval);
   }, [contextPanelCollapsed, getMCPServers]);
+
+  const refreshZoomStatus = async () => {
+    try {
+      const statuses = await window.electronAPI?.connectors?.getStatus();
+      setZoomStatus(pickZoomConnectorStatus(statuses));
+    } catch (error) {
+      console.error('Failed to refresh Zoom connector status:', error);
+    }
+  };
 
   if (contextPanelCollapsed) {
     return (
@@ -543,13 +572,13 @@ export function ContextPanel() {
         </div>
       </div>
 
-      {/* MCP Connectors */}
+      {/* Connectors (MCP + Zoom OAuth for meeting capture) */}
       <div className="flex-1 overflow-y-auto">
         <div className="px-4 py-2.5">
           <p className="text-xs font-medium text-text-muted uppercase tracking-wider mb-2">
             {t('context.mcpConnectors')}
           </p>
-          {mcpServers.length === 0 ? (
+          {mcpServers.length === 0 && !zoomStatus ? (
             <div className="flex items-center gap-2 text-xs text-text-muted py-1">
               <Plug className="w-3.5 h-3.5 shrink-0" />
               <span>{t('mcp.noConnectors')}</span>
@@ -557,21 +586,29 @@ export function ContextPanel() {
           ) : (
             <div className="space-y-0.5">
               {mcpServers.map((server) => (
-                <ConnectorItem
-                  key={server.id}
-                  server={server}
-                  steps={steps}
-                  mcpToolDisplayNames={mcpToolDisplayNames}
-                  expanded={expandedConnector === server.id}
-                  onToggle={() =>
-                    setExpandedConnector(expandedConnector === server.id ? null : server.id)
-                  }
-                  onStatusChange={async () => {
-                    const servers = await getMCPServers();
-                    setMcpServers(normalizeMcpServers(servers));
-                  }}
-                />
+                <div key={server.id} className="space-y-0.5">
+                  <ConnectorItem
+                    server={server}
+                    steps={steps}
+                    mcpToolDisplayNames={mcpToolDisplayNames}
+                    expanded={expandedConnector === server.id}
+                    onToggle={() =>
+                      setExpandedConnector(expandedConnector === server.id ? null : server.id)
+                    }
+                    onStatusChange={async () => {
+                      const servers = await getMCPServers();
+                      setMcpServers(normalizeMcpServers(servers));
+                    }}
+                  />
+                  {server.id === DEFAULT_GOOGLE_CALENDAR_MCP_SERVER_ID && zoomStatus && (
+                    <ZoomConnectorItem status={zoomStatus} onStatusChange={refreshZoomStatus} />
+                  )}
+                </div>
               ))}
+              {zoomStatus &&
+                !mcpServers.some((s) => s.id === DEFAULT_GOOGLE_CALENDAR_MCP_SERVER_ID) && (
+                  <ZoomConnectorItem status={zoomStatus} onStatusChange={refreshZoomStatus} />
+                )}
             </div>
           )}
         </div>
@@ -799,6 +836,128 @@ function ConnectorItem({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/** Zoom OAuth connector — meeting capture (not an MCP server). */
+function ZoomConnectorItem({
+  status,
+  onStatusChange,
+}: {
+  status: ConnectorStatus;
+  onStatusChange: () => Promise<void>;
+}) {
+  const { t } = useTranslation();
+  const setGlobalNotice = useAppStore((s) => s.setGlobalNotice);
+  const [actionInFlight, setActionInFlight] = useState<'connect' | 'disconnect' | null>(null);
+
+  const isConnected = status.connected;
+  const accountLabel = status.accountEmail || status.accountName || t('context.zoomConnectedHint');
+  const statusLabel = isConnected ? t('mcp.connected') : t('mcp.disabled');
+  const statusSubtitle = isConnected
+    ? `${statusLabel} • ${accountLabel}`
+    : t('context.zoomConnectHint');
+
+  const runAction = async (action: 'connect' | 'disconnect') => {
+    if (actionInFlight) return;
+    const api = window.electronAPI?.connectors;
+    if (!api) {
+      setGlobalNotice({
+        id: `zoom-action-failed-${Date.now()}`,
+        type: 'error',
+        message: t('mcp.actionFailed'),
+      });
+      return;
+    }
+    setActionInFlight(action);
+    try {
+      const result =
+        action === 'connect' ? await api.connect('zoom') : await api.disconnect('zoom');
+      if (!result.success) {
+        setGlobalNotice({
+          id: `zoom-action-failed-${Date.now()}`,
+          type: 'error',
+          message: result.error || t('mcp.actionFailed'),
+        });
+      }
+      await onStatusChange();
+    } catch (err) {
+      setGlobalNotice({
+        id: `zoom-action-failed-${Date.now()}`,
+        type: 'error',
+        message: err instanceof Error ? err.message : t('mcp.actionFailed'),
+      });
+      await onStatusChange();
+    } finally {
+      setActionInFlight(null);
+    }
+  };
+
+  return (
+    <div className="rounded-lg border border-border overflow-hidden">
+      <div
+        className={`w-full px-3 py-2 flex items-center gap-2 ${
+          isConnected ? 'bg-mcp/10' : 'bg-surface-muted'
+        }`}
+      >
+        <div
+          className={`w-6 h-6 rounded flex items-center justify-center ${
+            isConnected ? 'bg-mcp/20' : 'bg-surface-muted'
+          }`}
+        >
+          <Plug className={`w-3.5 h-3.5 ${isConnected ? 'text-mcp' : 'text-text-muted'}`} />
+        </div>
+        <div className="flex-1 text-left min-w-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-sm font-medium text-text-primary truncate">
+              {t('context.zoomConnector')}
+            </span>
+          </div>
+          <p className="text-xs text-text-muted truncate">{statusSubtitle}</p>
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <span
+            className={`w-2 h-2 rounded-full ${isConnected ? 'bg-success' : 'bg-text-muted'}`}
+            title={statusLabel}
+            aria-label={statusLabel}
+          />
+          <div className="flex items-center gap-0.5">
+            {!isConnected && (
+              <button
+                type="button"
+                disabled={actionInFlight !== null}
+                title={t('mcp.connect')}
+                aria-label={t('mcp.connect')}
+                onClick={() => void runAction('connect')}
+                className="p-1 rounded text-text-muted hover:text-text-primary hover:bg-surface-hover disabled:opacity-50"
+              >
+                {actionInFlight === 'connect' ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Plug className="w-3.5 h-3.5" />
+                )}
+              </button>
+            )}
+            {isConnected && (
+              <button
+                type="button"
+                disabled={actionInFlight !== null}
+                title={t('mcp.disconnect')}
+                aria-label={t('mcp.disconnect')}
+                onClick={() => void runAction('disconnect')}
+                className="p-1 rounded text-text-muted hover:text-text-primary hover:bg-surface-hover disabled:opacity-50"
+              >
+                {actionInFlight === 'disconnect' ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Unplug className="w-3.5 h-3.5" />
+                )}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

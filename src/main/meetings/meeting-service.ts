@@ -9,6 +9,7 @@ import { MeetingNotesService } from './meeting-notes-service';
 import { detectMeetingApps, detectZoomMicUsage } from './meeting-mic-detector';
 import { MeetingStore } from './meeting-store';
 import { MeetingTranscriptionService } from './meeting-transcription-service';
+import { normalizeTranscriptToEnglish } from './meeting-transcript-english';
 import { ZoomRtmsDesktopClient, type ZoomRtmsTranscriptSegment } from './zoom-rtms-client';
 import type { MemoryService } from '../memory/memory-service';
 import type {
@@ -112,6 +113,7 @@ export class MeetingService {
   /** Raw audio kept for finalize retry when live STT produced no text. */
   private pendingAudioChunks: Array<{ buffer: Buffer; mimeType: string }> = [];
   private pendingTranscriptions = new Set<Promise<unknown>>();
+  private pendingRtmsIngests = new Set<Promise<unknown>>();
   private readonly zoomRtms = new ZoomRtmsDesktopClient();
   /** When true, local Whisper chunks are accepted (RTMS timed out or unavailable). */
   private localSttFallbackActive = false;
@@ -683,7 +685,9 @@ export class MeetingService {
       }
 
       this.zoomRtms.startPolling(yorkMeetingId, (segments) => {
-        this.ingestRtmsSegments(yorkMeetingId, segments);
+        const task = this.ingestRtmsSegments(yorkMeetingId, segments);
+        this.pendingRtmsIngests.add(task);
+        void task.finally(() => this.pendingRtmsIngests.delete(task));
       });
     } catch (error) {
       logWarn('[Meetings] bootstrapZoomRtms failed — local STT fallback', error);
@@ -691,7 +695,10 @@ export class MeetingService {
     }
   }
 
-  private ingestRtmsSegments(meetingId: string, rtmsSegments: ZoomRtmsTranscriptSegment[]): void {
+  private async ingestRtmsSegments(
+    meetingId: string,
+    rtmsSegments: ZoomRtmsTranscriptSegment[]
+  ): Promise<void> {
     if (!this.activeMeetingId || this.activeMeetingId !== meetingId) {
       return;
     }
@@ -711,8 +718,27 @@ export class MeetingService {
       `withSpeaker=${withSpeaker}`
     );
 
-    for (const item of rtmsSegments) {
-      const text = item.text.trim();
+    const normalizedTexts = await Promise.all(
+      rtmsSegments.map(async (item) => {
+        const raw = item.text.trim();
+        if (!raw) return '';
+        return normalizeTranscriptToEnglish(raw);
+      })
+    );
+
+    // Re-check meeting is still active after async translate.
+    if (!this.activeMeetingId || this.activeMeetingId !== meetingId) {
+      return;
+    }
+    const current = this.store.get(meetingId);
+    if (!current || (current.status !== 'recording' && current.status !== 'finalizing')) {
+      return;
+    }
+
+    const appended: MeetingSegment[] = [];
+    for (let i = 0; i < rtmsSegments.length; i += 1) {
+      const item = rtmsSegments[i];
+      const text = normalizedTexts[i]?.trim() || '';
       if (!text) continue;
       const segment: MeetingSegment = {
         id: item.id || randomUUID(),
@@ -724,21 +750,25 @@ export class MeetingService {
         speakerUserId: item.speakerUserId,
         source: 'zoom-rtms',
       };
-      latest.segments.push(segment);
+      current.segments.push(segment);
+      appended.push(segment);
     }
 
-    latest.transcriptText = buildTranscriptText(latest.segments);
-    latest.updatedAt = Date.now();
-    this.store.save(latest);
-    this.liveTranscript = latest.transcriptText;
+    if (appended.length === 0) {
+      return;
+    }
+
+    current.transcriptText = buildTranscriptText(current.segments);
+    current.updatedAt = Date.now();
+    this.store.save(current);
+    this.liveTranscript = current.transcriptText;
     this.captureError = undefined;
 
-    const appended = latest.segments.slice(-rtmsSegments.length);
     for (const segment of appended) {
       for (const listener of this.segmentListeners) {
         try {
           listener({
-            meetingId: latest.id,
+            meetingId: current.id,
             segment,
             liveTranscript: this.liveTranscript,
           });
@@ -829,7 +859,8 @@ export class MeetingService {
     const model = (runtime.transcriptionModel || 'gpt-4o-transcribe') as MeetingTranscriptionModel;
 
     try {
-      const text = await this.transcription.transcribeChunk(buffer, mimeType, model);
+      const rawText = await this.transcription.transcribeChunk(buffer, mimeType, model);
+      const text = rawText ? await normalizeTranscriptToEnglish(rawText) : '';
       if (!text) {
         return { accepted: false };
       }
@@ -910,9 +941,9 @@ export class MeetingService {
     meeting.updatedAt = endedAt;
     this.store.save(meeting);
 
-    // Wait for in-flight live STT, then retry buffered audio if transcript is still empty.
-    if (this.pendingTranscriptions.size > 0) {
-      await Promise.allSettled([...this.pendingTranscriptions]);
+    // Wait for in-flight live STT / RTMS English-normalize, then retry buffered audio if empty.
+    if (this.pendingTranscriptions.size > 0 || this.pendingRtmsIngests.size > 0) {
+      await Promise.allSettled([...this.pendingTranscriptions, ...this.pendingRtmsIngests]);
     }
 
     let current = this.store.get(meetingId) || meeting;
@@ -927,6 +958,7 @@ export class MeetingService {
     }
     this.pendingAudioChunks = [];
     this.pendingTranscriptions.clear();
+    this.pendingRtmsIngests.clear();
 
     try {
       // Ensure transcriptText is always a string (Granola raw artifact).

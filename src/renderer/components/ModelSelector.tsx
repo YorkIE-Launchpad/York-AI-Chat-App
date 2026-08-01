@@ -367,6 +367,15 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
             ? shortModelName(appConfig.model, appConfig.model)
             : 'Select model';
 
+  const showViaOpenRouter = appConfig?.provider === 'openrouter';
+  const triggerTitle = showViaOpenRouter
+    ? isAutoSelected
+      ? `${displayName} · via Openrouter`
+      : `${displayName} via Openrouter`
+    : isAutoSelected
+      ? 'Auto picks the best model per message'
+      : displayName;
+
   // Auto is always selectable; concrete catalog needed only for non-Auto picks.
   const isDisabled = isLoading || isSaving;
 
@@ -385,11 +394,16 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
             ? 'bg-surface-hover text-text-primary'
             : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
         } disabled:cursor-not-allowed`}
-        title={isAutoSelected ? 'Auto picks the best model per message' : displayName}
+        title={triggerTitle}
       >
         {isAutoSelected && <Sparkles className="h-3.5 w-3.5 shrink-0 text-accent" />}
-        <span className="whitespace-nowrap text-[13px] font-medium tracking-[-0.01em]">
-          {displayName}
+        <span className="inline-flex items-baseline gap-1 whitespace-nowrap text-[13px] font-medium tracking-[-0.01em]">
+          <span>{displayName}</span>
+          {showViaOpenRouter && (
+            <span className="font-normal text-text-muted">
+              {t('workspace.models.viaOpenRouter', 'via Openrouter')}
+            </span>
+          )}
         </span>
         <ChevronDown
           className={`h-3.5 w-3.5 shrink-0 text-text-muted transition-transform ${

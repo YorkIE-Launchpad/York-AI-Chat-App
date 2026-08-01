@@ -23,6 +23,42 @@ function userSubFromReq(req: CognitoRequest): string | null {
 
 type RtmsJoinFn = (payload: Record<string, unknown>) => void;
 
+type RtmsClient = {
+  onTranscriptData: (
+    cb: (data: Buffer | string, size: number, timestamp: number, metadata: unknown) => void
+  ) => void;
+  setTranscriptParams?: (params: { srcLanguage: number; enableLid: boolean }) => unknown;
+  join: (payload: unknown) => void;
+};
+
+/** Zoom RTMS ENGLISH = 9. Prefer English ASR; LID still allows Hindi detection. */
+export const ZOOM_RTMS_TRANSCRIPT_PARAMS = {
+  srcLanguage: 9,
+  enableLid: true,
+} as const;
+
+/**
+ * Apply York meeting transcript language policy before join.
+ * English primary + LID so Hindi (and imperfect Gujarati) can still be recognized,
+ * then desktop translates HI/GU text to English.
+ */
+export function applyZoomRtmsTranscriptParams(client: {
+  setTranscriptParams?: (params: { srcLanguage: number; enableLid: boolean }) => unknown;
+}): void {
+  if (typeof client.setTranscriptParams !== 'function') {
+    console.warn(
+      '[york-ie-backend] RTMS client missing setTranscriptParams — skipping language hint'
+    );
+    return;
+  }
+  client.setTranscriptParams({ ...ZOOM_RTMS_TRANSCRIPT_PARAMS });
+  console.log(
+    '[york-ie-backend] RTMS transcript params applied',
+    `srcLanguage=ENGLISH(${ZOOM_RTMS_TRANSCRIPT_PARAMS.srcLanguage})`,
+    `enableLid=${ZOOM_RTMS_TRANSCRIPT_PARAMS.enableLid}`
+  );
+}
+
 let rtmsJoin: RtmsJoinFn | null = null;
 
 /** Active RTMS joins keyed by meeting UUID — avoid stacking duplicate SDK clients. */
@@ -111,22 +147,23 @@ async function tryLoadZoomRtmsSdk(): Promise<void> {
     const rtmsPackage = '@zoom/rtms';
     const mod = (await import(rtmsPackage)) as {
       default?: {
-        Client: new () => {
-          onTranscriptData: (
-            cb: (data: Buffer | string, size: number, timestamp: number, metadata: unknown) => void
-          ) => void;
-          join: (payload: unknown) => void;
-        };
+        Client: new () => RtmsClient;
+        TranscriptLanguage?: { ENGLISH?: number };
       };
-      Client?: new () => {
-        onTranscriptData: (
-          cb: (data: Buffer | string, size: number, timestamp: number, metadata: unknown) => void
-        ) => void;
-        join: (payload: unknown) => void;
-      };
+      Client?: new () => RtmsClient;
+      TranscriptLanguage?: { ENGLISH?: number };
     };
     const Client = mod.default?.Client || mod.Client;
     if (!Client) return;
+    const englishLangId =
+      mod.default?.TranscriptLanguage?.ENGLISH ?? mod.TranscriptLanguage?.ENGLISH ?? 9;
+    if (englishLangId !== ZOOM_RTMS_TRANSCRIPT_PARAMS.srcLanguage) {
+      console.warn(
+        '[york-ie-backend] RTMS TranscriptLanguage.ENGLISH mismatch',
+        `sdk=${englishLangId}`,
+        `expected=${ZOOM_RTMS_TRANSCRIPT_PARAMS.srcLanguage}`
+      );
+    }
     rtmsJoin = (eventBody) => {
       const meetingUuid = extractMeetingUuid(eventBody);
       if (!meetingUuid) {
@@ -143,6 +180,7 @@ async function tryLoadZoomRtmsSdk(): Promise<void> {
       activeRtmsJoins.add(meetingUuid);
       console.log('[york-ie-backend] RTMS join invoked', `meetingUuid=${meetingUuid}`);
       const client = new Client();
+      applyZoomRtmsTranscriptParams(client);
       client.onTranscriptData((data, _size, timestamp, metadata) => {
         const speakerMeta = extractSpeakerFromMetadata(metadata);
         const segment = mapRtmsTranscriptPacket({
