@@ -16,7 +16,6 @@ import { MessageCard } from './MessageCard';
 import { ModelSelector } from './ModelSelector';
 import { SlashCommandMenu } from './SlashCommandMenu';
 import { SubagentTracker } from './SubagentTracker';
-import { ContextUsageBar } from './ContextUsageBar';
 import type { Message, ContentBlock, Skill, ChatLoopStatus } from '../types';
 import {
   Send,
@@ -1115,8 +1114,6 @@ export function ChatView() {
         </div>
       </div>
 
-      {/* Context Usage Bar */}
-      <ContextUsageBar />
       {activeSession.incognito && (
         <div className="px-4 py-2 text-xs text-text-secondary border-b border-border-muted bg-surface/60 flex items-center gap-2">
           <Ghost className="w-3.5 h-3.5 text-text-muted flex-shrink-0" />

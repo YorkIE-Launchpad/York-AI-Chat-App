@@ -12,7 +12,6 @@ import {
   getArtifactSteps,
 } from '../utils/artifact-steps';
 import { useIPC } from '../hooks/useIPC';
-import { CompactionHistory } from './CompactionHistory';
 import {
   ChevronDown,
   ChevronUp,
@@ -120,39 +119,6 @@ export function ContextPanel() {
   const messageCount = messages.length;
   const toolCallCount = steps.filter((s) => s.type === 'tool_call').length;
   const modelName = activeSession?.model || appConfig?.model || '—';
-
-  // Token usage aggregation
-  const tokenUsage = useMemo(() => {
-    let input = 0;
-    let output = 0;
-    for (const msg of messages) {
-      if (msg.tokenUsage) {
-        input += msg.tokenUsage.input || 0;
-        output += msg.tokenUsage.output || 0;
-      }
-    }
-    return { input, output, total: input + output };
-  }, [messages]);
-
-  // Context usage: last message's input tokens ≈ current context occupation
-  const contextUsage = useMemo(() => {
-    const contextWindow = activeSessionId
-      ? sessionStates[activeSessionId]?.contextWindow
-      : undefined;
-    if (!contextWindow) return null;
-
-    let lastInput = 0;
-    for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i].tokenUsage?.input) {
-        lastInput = messages[i].tokenUsage!.input;
-        break;
-      }
-    }
-    if (lastInput === 0) return null;
-
-    const percentage = Math.min((lastInput / contextWindow) * 100, 100);
-    return { used: lastInput, total: contextWindow, percentage };
-  }, [activeSessionId, sessionStates, messages]);
 
   const completedStepCount = useMemo(
     () => steps.reduce((n, s) => n + (s.status === 'completed' ? 1 : 0), 0),
@@ -365,58 +331,9 @@ export function ContextPanel() {
               <Wrench className="w-3 h-3" />
               {toolCallCount}
             </span>
-            {tokenUsage.total > 0 && (
-              <span className="ml-auto text-text-muted/70">
-                {t('context.inputTokens')} {formatTokenCount(tokenUsage.input)} ·{' '}
-                {t('context.outputTokens')} {formatTokenCount(tokenUsage.output)}
-              </span>
-            )}
           </div>
         </div>
       )}
-
-      {/* Context Usage */}
-      {activeSession && contextUsage && (
-        <div className="px-4 py-2.5 border-b border-border-muted space-y-1.5">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-text-muted uppercase tracking-wider">
-              {t('context.contextUsage')}
-            </span>
-            <span
-              className={`text-xs font-medium ${
-                contextUsage.percentage > 95
-                  ? 'text-error'
-                  : contextUsage.percentage > 80
-                    ? 'text-warning'
-                    : 'text-text-primary'
-              }`}
-            >
-              {Math.round(contextUsage.percentage)}%
-            </span>
-          </div>
-          <div className="h-1.5 bg-surface-muted rounded-full overflow-hidden">
-            <div
-              className={`h-full rounded-full transition-all duration-500 ease-out ${
-                contextUsage.percentage > 95
-                  ? 'bg-error'
-                  : contextUsage.percentage > 80
-                    ? 'bg-warning'
-                    : 'bg-gradient-to-r from-accent to-accent-hover'
-              }`}
-              style={{ width: `${contextUsage.percentage}%` }}
-            />
-          </div>
-          <p className="text-xs text-text-muted">
-            {t('context.contextUsageLabel', {
-              used: formatTokenCount(contextUsage.used),
-              total: formatTokenCount(contextUsage.total),
-            })}
-          </p>
-        </div>
-      )}
-
-      {/* Compaction History */}
-      {activeSession && <CompactionHistory />}
 
       {/* Artifacts Section */}
       <div className="border-b border-border-muted">
@@ -989,10 +906,4 @@ function formatPath(path: string): string {
   }
 
   return path;
-}
-
-function formatTokenCount(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
-  return String(n);
 }
