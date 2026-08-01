@@ -81,7 +81,13 @@ describe('createRealtimeTranslationSession', () => {
     expect(body).toEqual({
       session: {
         model: 'gpt-realtime-translate',
-        audio: { output: { language: 'en' } },
+        audio: {
+          input: {
+            transcription: { model: 'gpt-realtime-whisper' },
+            noise_reduction: { type: 'near_field' },
+          },
+          output: { language: 'en' },
+        },
       },
     });
   });
@@ -118,5 +124,33 @@ describe('composeLivePrompt', () => {
     expect(composeLivePrompt('Hello', 'there')).toBe('Hello there');
     expect(composeLivePrompt('', 'Hello')).toBe('Hello');
     expect(composeLivePrompt('Hello ', '')).toBe('Hello ');
+  });
+});
+
+describe('resolveDictationLiveText', () => {
+  it('prefers Indian English / Latin input when no Indic script', async () => {
+    const { resolveDictationLiveText } = await import('../../renderer/hooks/useDictation');
+    expect(resolveDictationLiveText('Please do the needful', 'Please complete the task')).toBe(
+      'Please do the needful'
+    );
+  });
+
+  it('prefers English output when input has Devanagari', async () => {
+    const { resolveDictationLiveText } = await import('../../renderer/hooks/useDictation');
+    expect(resolveDictationLiveText('हम रोडमैप देखेंगे', 'We will review the roadmap')).toBe(
+      'We will review the roadmap'
+    );
+  });
+
+  it('prefers English output when input has Gujarati', async () => {
+    const { resolveDictationLiveText } = await import('../../renderer/hooks/useDictation');
+    expect(resolveDictationLiveText('આપણે રોડમેપ જોઈએ', 'Let us look at the roadmap')).toBe(
+      'Let us look at the roadmap'
+    );
+  });
+
+  it('falls back to output when input is empty', async () => {
+    const { resolveDictationLiveText } = await import('../../renderer/hooks/useDictation');
+    expect(resolveDictationLiveText('', 'Hello from output')).toBe('Hello from output');
   });
 });

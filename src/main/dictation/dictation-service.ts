@@ -81,6 +81,10 @@ export async function createRealtimeTranslationSession(
         session: {
           model: REALTIME_TRANSLATE_MODEL,
           audio: {
+            input: {
+              transcription: { model: 'gpt-realtime-whisper' },
+              noise_reduction: { type: 'near_field' },
+            },
             output: { language: targetLanguage },
           },
         },

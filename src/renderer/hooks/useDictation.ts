@@ -19,6 +19,29 @@ export function composeLivePrompt(baseline: string, live: string): string {
   return `${base} ${liveText}`;
 }
 
+const DEVANAGARI_RE = /[\u0900-\u097F]/;
+const GUJARATI_RE = /[\u0A80-\u0AFF]/;
+
+/** True when source transcript contains Hindi (Devanagari) or Gujarati script. */
+export function hasIndicScript(text: string): boolean {
+  return DEVANAGARI_RE.test(text) || GUJARATI_RE.test(text);
+}
+
+/**
+ * Prefer Indian English / English input transcript; use English output translation
+ * when the source contains Hindi or Gujarati script (or input is empty).
+ */
+export function resolveDictationLiveText(inputLive: string, outputLive: string): string {
+  const input = inputLive.trim();
+  if (input && hasIndicScript(input)) {
+    return outputLive.trim() ? outputLive : inputLive;
+  }
+  if (input) {
+    return inputLive;
+  }
+  return outputLive;
+}
+
 async function waitForIceGatheringComplete(pc: RTCPeerConnection): Promise<void> {
   if (pc.iceGatheringState === 'complete') {
     return;
@@ -68,7 +91,8 @@ export function useDictation({
   const streamRef = useRef<MediaStream | null>(null);
   const peerRef = useRef<RTCPeerConnection | null>(null);
   const baselineRef = useRef('');
-  const liveTextRef = useRef('');
+  const inputLiveRef = useRef('');
+  const outputLiveRef = useRef('');
   const onTranscriptRef = useRef(onTranscript);
   const getPromptRef = useRef(getPrompt);
   const cancelledRef = useRef(false);
@@ -113,7 +137,8 @@ export function useDictation({
   }, [cleanupSession]);
 
   const publishLivePrompt = useCallback(() => {
-    onTranscriptRef.current(composeLivePrompt(baselineRef.current, liveTextRef.current));
+    const live = resolveDictationLiveText(inputLiveRef.current, outputLiveRef.current);
+    onTranscriptRef.current(composeLivePrompt(baselineRef.current, live));
   }, []);
 
   const handleRealtimeEvent = useCallback(
@@ -124,8 +149,13 @@ export function useDictation({
       } catch {
         return;
       }
+      if (event.type === 'session.input_transcript.delta' && typeof event.delta === 'string') {
+        inputLiveRef.current += event.delta;
+        publishLivePrompt();
+        return;
+      }
       if (event.type === 'session.output_transcript.delta' && typeof event.delta === 'string') {
-        liveTextRef.current += event.delta;
+        outputLiveRef.current += event.delta;
         publishLivePrompt();
       }
     },
@@ -153,7 +183,8 @@ export function useDictation({
     setErrorKind(null);
     setStatus('connecting');
     baselineRef.current = getPromptRef.current?.() ?? '';
-    liveTextRef.current = '';
+    inputLiveRef.current = '';
+    outputLiveRef.current = '';
 
     try {
       const permissionResult = await window.electronAPI.meetings.requestMicrophoneAccess();
