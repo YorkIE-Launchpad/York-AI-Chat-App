@@ -306,6 +306,9 @@ export const useAppStore = create<AppState>((set) => ({
         (session) =>
           session.incognito === true && !sessions.some((incoming) => incoming.id === session.id)
       );
+      if (missingEphemeral.length === 0) {
+        return { sessions };
+      }
       return { sessions: [...missingEphemeral, ...sessions] };
     }),
 
@@ -360,7 +363,19 @@ export const useAppStore = create<AppState>((set) => ({
       };
     }),
 
-  setActiveSession: (sessionId) => set({ activeSessionId: sessionId }),
+  setActiveSession: (sessionId) =>
+    set((state) => {
+      if (!sessionId || state.sessionStates[sessionId]) {
+        return { activeSessionId: sessionId };
+      }
+      return {
+        activeSessionId: sessionId,
+        sessionStates: {
+          ...state.sessionStates,
+          [sessionId]: { ...DEFAULT_SESSION_STATE },
+        },
+      };
+    }),
 
   setIncognitoDraft: (enabled) => set({ incognitoDraft: enabled }),
 

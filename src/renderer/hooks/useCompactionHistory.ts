@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { useActiveCompactionHistory } from '../store/selectors';
 import type { CompactionEvent } from '../store';
 
@@ -9,6 +10,8 @@ export type { CompactionEvent };
  */
 export function useCompactionHistory(): CompactionEvent[] {
   const history = useActiveCompactionHistory();
-  // Return newest first for display
-  return [...history].reverse();
+  return useMemo(() => {
+    if (history.length === 0) return history;
+    return [...history].reverse();
+  }, [history]);
 }
