@@ -12,6 +12,8 @@
  * Dependencies: session-manager, config-store, mcp-manager, sandbox-adapter,
  *               skills-manager, scheduled-task-manager, nav-server, remote-manager
  */
+// Must be first: sets userData before configStore / DB import side effects.
+import './bootstrap-app-data';
 import {
   app,
   BrowserWindow,

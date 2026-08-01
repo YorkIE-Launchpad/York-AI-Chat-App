@@ -40,14 +40,9 @@ const execFileAsync = promisify(execFile);
 const PLATFORM = os.platform(); // 'darwin' for macOS, 'win32' for Windows
 writeMCPLog(`Platform detected: ${PLATFORM}`, 'Bootstrap');
 
-// Get York IE data directory for persistent storage
-// Use platform-appropriate paths:
-// - macOS: ~/Library/Application Support/york-ie
-// - Windows: %APPDATA%/york-ie
-const YORK_IE_DATA_DIR =
-  PLATFORM === 'win32'
-    ? path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'york-ie')
-    : path.join(os.homedir(), 'Library', 'Application Support', 'york-ie');
+// York IE userData (follows YORK_IE_APP_DATA_NAME / YORK_IE_APP_DATA_ENV from main).
+import { resolveAppDataDir } from '../../shared/app-data-env.js';
+const YORK_IE_DATA_DIR = resolveAppDataDir();
 
 // Directory for storing GUI operate files (screenshots, etc.)
 const GUI_OPERATE_DIR = path.join(YORK_IE_DATA_DIR, 'gui_operate');

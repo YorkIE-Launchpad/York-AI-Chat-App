@@ -8,7 +8,7 @@
 import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
 import * as path from 'path';
-import * as os from 'os';
+import { resolveAppDataDir } from '../../shared/app-data-env.js';
 
 // Use a session-level timestamp for the log filename
 let mcpLogFilename: string | null = null;
@@ -22,24 +22,8 @@ let logInitialized = false;
 function getLogsDirectory(): string {
   if (logsDir) return logsDir;
 
-  // Determine the app data directory based on platform
-  // This should match app.getPath('userData') in Electron
-  const platform = os.platform();
-  let appDataDir: string;
-
-  if (platform === 'darwin') {
-    // macOS: ~/Library/Application Support/york-ie
-    appDataDir = path.join(os.homedir(), 'Library', 'Application Support', 'york-ie');
-  } else if (platform === 'win32') {
-    // Windows: %APPDATA%/york-ie
-    appDataDir = path.join(
-      process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'),
-      'york-ie'
-    );
-  } else {
-    // Linux: ~/.config/york-ie
-    appDataDir = path.join(os.homedir(), '.config', 'york-ie');
-  }
+  // Matches app.getPath('userData') after bootstrap-app-data (incl. york-ie-dev).
+  const appDataDir = resolveAppDataDir();
 
   logsDir = path.join(appDataDir, 'logs');
 
