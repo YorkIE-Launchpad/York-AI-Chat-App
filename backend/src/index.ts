@@ -4,6 +4,7 @@ import express from 'express';
 import { requireCognito } from './cognito-auth.js';
 import { listEnabledModels } from './models.js';
 import { proxyToProvider, type ProviderTarget } from './proxy.js';
+import { log } from './safe-log.js';
 import { createZoomSessionRouter, createZoomWebhookRouter } from './zoom-routes.js';
 import {
   createZoomOauthCallbackRouter,
@@ -73,5 +74,5 @@ for (const target of PROVIDER_TARGETS) {
 }
 
 app.listen(PORT, HOST, () => {
-  console.log(`[york-ie-backend] listening on http://${HOST}:${PORT}`);
+  log(`[york-ie-backend] listening on http://${HOST}:${PORT}`);
 });

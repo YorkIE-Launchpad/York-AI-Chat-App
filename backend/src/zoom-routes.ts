@@ -2,6 +2,7 @@ import { createHmac } from 'crypto';
 import type { Request, Response, Router } from 'express';
 import { Router as createRouter } from 'express';
 import { requireCognito } from './cognito-auth.js';
+import { log, logWarn } from './safe-log.js';
 import {
   extractSpeakerFromMetadata,
   metadataKeysPresent,
@@ -62,13 +63,11 @@ export function applyZoomRtmsTranscriptParams(client: {
   setTranscriptParams?: (params: { srcLanguage: number; enableLid: boolean }) => unknown;
 }): void {
   if (typeof client.setTranscriptParams !== 'function') {
-    console.warn(
-      '[york-ie-backend] RTMS client missing setTranscriptParams — skipping language hint'
-    );
+    logWarn('[york-ie-backend] RTMS client missing setTranscriptParams — skipping language hint');
     return;
   }
   client.setTranscriptParams({ ...ZOOM_RTMS_TRANSCRIPT_PARAMS });
-  console.log(
+  log(
     '[york-ie-backend] RTMS transcript params applied',
     `srcLanguage=ENGLISH(${ZOOM_RTMS_TRANSCRIPT_PARAMS.srcLanguage})`,
     `enableLid=${ZOOM_RTMS_TRANSCRIPT_PARAMS.enableLid}`
@@ -117,7 +116,7 @@ function rememberParticipantName(
   if (!changed || userId == null || !name?.trim()) return;
   const backfilled = backfillSpeakerNames(meetingUuid, userId, name.trim());
   if (backfilled > 0) {
-    console.log(
+    log(
       '[york-ie-backend] RTMS speaker backfill',
       `meetingUuid=${meetingUuid}`,
       `userId=${userId}`,
@@ -152,7 +151,7 @@ async function tryLoadZoomRtmsSdk(): Promise<void> {
     const englishLangId =
       mod.default?.TranscriptLanguage?.ENGLISH ?? mod.TranscriptLanguage?.ENGLISH ?? 9;
     if (englishLangId !== ZOOM_RTMS_TRANSCRIPT_PARAMS.srcLanguage) {
-      console.warn(
+      logWarn(
         '[york-ie-backend] RTMS TranscriptLanguage.ENGLISH mismatch',
         `sdk=${englishLangId}`,
         `expected=${ZOOM_RTMS_TRANSCRIPT_PARAMS.srcLanguage}`
@@ -161,11 +160,11 @@ async function tryLoadZoomRtmsSdk(): Promise<void> {
     rtmsJoin = (eventBody) => {
       const meetingUuid = extractMeetingUuid(eventBody);
       if (!meetingUuid) {
-        console.warn('[york-ie-backend] RTMS join skipped — missing meeting_uuid');
+        logWarn('[york-ie-backend] RTMS join skipped — missing meeting_uuid');
         return;
       }
       if (activeRtmsJoins.has(meetingUuid)) {
-        console.log(
+        log(
           '[york-ie-backend] RTMS join already active — skipping duplicate',
           `meetingUuid=${meetingUuid}`
         );
@@ -173,7 +172,7 @@ async function tryLoadZoomRtmsSdk(): Promise<void> {
       }
       activeRtmsJoins.add(meetingUuid);
       missingSpeakerDiagLogged.delete(meetingUuid);
-      console.log('[york-ie-backend] RTMS join invoked', `meetingUuid=${meetingUuid}`);
+      log('[york-ie-backend] RTMS join invoked', `meetingUuid=${meetingUuid}`);
       const client = new Client();
       const roster = new RtmsSpeakerRoster();
       applyZoomRtmsTranscriptParams(client);
@@ -196,7 +195,7 @@ async function tryLoadZoomRtmsSdk(): Promise<void> {
           if (changed) {
             const backfilled = backfillSpeakerNames(meetingUuid, userId, userName);
             if (backfilled > 0) {
-              console.log(
+              log(
                 '[york-ie-backend] RTMS speaker backfill',
                 `meetingUuid=${meetingUuid}`,
                 `userId=${userId}`,
@@ -222,7 +221,7 @@ async function tryLoadZoomRtmsSdk(): Promise<void> {
         });
         if (segment) {
           appendSegmentToZoomUuid(meetingUuid, segment);
-          console.log(
+          log(
             '[york-ie-backend] RTMS transcript received',
             `meetingUuid=${meetingUuid}`,
             `speaker=${segment.speaker || 'unknown'}`,
@@ -231,7 +230,7 @@ async function tryLoadZoomRtmsSdk(): Promise<void> {
           );
           if (!segment.speaker && !missingSpeakerDiagLogged.has(meetingUuid)) {
             missingSpeakerDiagLogged.add(meetingUuid);
-            console.warn(
+            logWarn(
               '[york-ie-backend] RTMS speaker unresolved',
               `meetingUuid=${meetingUuid}`,
               `userId=${segment.speakerUserId ?? 'n/a'}`,
@@ -245,9 +244,9 @@ async function tryLoadZoomRtmsSdk(): Promise<void> {
       const joinPayload = (eventBody as { payload?: unknown }).payload;
       client.join(joinPayload || eventBody);
     };
-    console.log('[york-ie-backend] Zoom RTMS SDK joiner ready');
+    log('[york-ie-backend] Zoom RTMS SDK joiner ready');
   } catch {
-    console.warn(
+    logWarn(
       '[york-ie-backend] @zoom/rtms not available — webhook CRC/register work; install @zoom/rtms for live join'
     );
   }
@@ -289,21 +288,21 @@ function handleZoomWebhook(req: Request, res: Response): void {
   }
 
   const event = typeof body.event === 'string' ? body.event : '';
-  console.log('[york-ie-backend] Zoom webhook event', event || 'unknown');
+  log('[york-ie-backend] Zoom webhook event', event || 'unknown');
   if (event === 'meeting.rtms_started' && rtmsJoin) {
     try {
       rtmsJoin(body);
     } catch (error) {
-      console.warn('[york-ie-backend] RTMS join failed', error);
+      logWarn('[york-ie-backend] RTMS join failed', error);
     }
   } else if (event === 'meeting.rtms_started') {
-    console.warn('[york-ie-backend] meeting.rtms_started received but rtmsJoin is unavailable');
+    logWarn('[york-ie-backend] meeting.rtms_started received but rtmsJoin is unavailable');
   } else if (event === 'meeting.rtms_stopped') {
     const meetingUuid = extractMeetingUuid(body);
     if (meetingUuid) {
       activeRtmsJoins.delete(meetingUuid);
       missingSpeakerDiagLogged.delete(meetingUuid);
-      console.log('[york-ie-backend] RTMS stopped', `meetingUuid=${meetingUuid}`);
+      log('[york-ie-backend] RTMS stopped', `meetingUuid=${meetingUuid}`);
     }
   }
 

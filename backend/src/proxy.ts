@@ -3,6 +3,7 @@ import https from 'node:https';
 import type { ClientRequest, IncomingMessage, RequestOptions } from 'node:http';
 import type { Request, Response } from 'express';
 import { getProviderApiKey, type BackendProvider } from './models.js';
+import { logError } from './safe-log.js';
 
 const STRIP_REQUEST_HEADERS = new Set([
   'host',
@@ -306,7 +307,7 @@ export async function proxyToProvider(
 
       incoming.on('error', (err) => {
         if (!abortRequested) {
-          console.error(`[proxy] ${target.provider} stream error:`, err);
+          logError(`[proxy] ${target.provider} stream error:`, err);
         }
         if (!res.writableEnded) res.end();
         finish(abortRequested ? undefined : err);

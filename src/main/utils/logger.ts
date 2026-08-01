@@ -242,6 +242,88 @@ function rotateLogIfNeeded(): void {
   }
 }
 
+const REDACTED = '[REDACTED]';
+
+/**
+ * Keys that match the sensitive-name pattern but are not credentials
+ * (numeric limits, usage counters, Cognito claim names, TTL fields).
+ */
+const SAFE_LOG_KEYS = new Set([
+  'maxtokens',
+  'tokenusage',
+  'tokenuse',
+  'token_use',
+  'inputtokens',
+  'outputtokens',
+  'prompttokens',
+  'completiontokens',
+  'totaltokens',
+  'expiresin',
+  'expire',
+  'apikeyconfigured',
+]);
+
+const SENSITIVE_HEADER_KEYS = new Set([
+  'authorization',
+  'x-api-key',
+  'x-goog-api-key',
+  'x-york-openrouter-key',
+  'cookie',
+  'set-cookie',
+]);
+
+const BEARER_SECRET_RE = /\bBearer\s+[A-Za-z0-9._\-+=/]+/gi;
+const JWT_SECRET_RE = /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g;
+const SK_SECRET_RE = /\bsk-(?:ant-|or-)?[A-Za-z0-9_-]+/g;
+const XOX_SECRET_RE = /\bxox[a-z](?:\.[a-z]+)?-[A-Za-z0-9-]+/gi;
+const AIZA_SECRET_RE = /\bAIza[A-Za-z0-9_-]+/g;
+
+function compactLogKey(key: string): string {
+  return key.toLowerCase().replace(/[_-]/g, '');
+}
+
+/**
+ * Whether an object key should have its string value fully redacted.
+ */
+export function isSensitiveLogKey(key: string): boolean {
+  const lower = key.toLowerCase();
+  const compact = compactLogKey(key);
+  if (SAFE_LOG_KEYS.has(lower) || SAFE_LOG_KEYS.has(compact)) {
+    return false;
+  }
+  if (SENSITIVE_HEADER_KEYS.has(lower)) {
+    return true;
+  }
+  if (
+    compact.includes('secret') ||
+    compact.includes('password') ||
+    compact.includes('authorization') ||
+    compact === 'cookie' ||
+    compact === 'setcookie'
+  ) {
+    return true;
+  }
+  if (compact.includes('apikey') || compact.endsWith('userapikey')) {
+    return true;
+  }
+  if (compact.includes('token')) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Scrub credential-shaped substrings from free-form log text.
+ */
+export function scrubSecretStrings(text: string): string {
+  return text
+    .replace(BEARER_SECRET_RE, `Bearer ${REDACTED}`)
+    .replace(JWT_SECRET_RE, REDACTED)
+    .replace(SK_SECRET_RE, REDACTED)
+    .replace(XOX_SECRET_RE, REDACTED)
+    .replace(AIZA_SECRET_RE, REDACTED);
+}
+
 function truncateLogText(value: string, maxLength = MAX_LOG_STRING_LENGTH): string {
   if (value.length <= maxLength) {
     return value;
@@ -261,8 +343,10 @@ function normalizeLogValue(value: unknown, seen = new WeakSet<object>(), depth =
     );
     return {
       name: err.name,
-      message: truncateLogText(err.message || ''),
-      stack: err.stack ? truncateLogText(err.stack, MAX_LOG_STRING_LENGTH * 2) : undefined,
+      message: truncateLogText(scrubSecretStrings(err.message || '')),
+      stack: err.stack
+        ? truncateLogText(scrubSecretStrings(err.stack), MAX_LOG_STRING_LENGTH * 2)
+        : undefined,
       cause: err.cause !== undefined ? normalizeLogValue(err.cause, seen, depth + 1) : undefined,
       meta:
         extraEntries.length > 0
@@ -272,7 +356,7 @@ function normalizeLogValue(value: unknown, seen = new WeakSet<object>(), depth =
   }
 
   if (typeof value === 'string') {
-    return truncateLogText(value);
+    return truncateLogText(scrubSecretStrings(value));
   }
 
   if (
@@ -326,9 +410,12 @@ function normalizeLogValue(value: unknown, seen = new WeakSet<object>(), depth =
     seen.add(value);
 
     const entries = Object.entries(value as Record<string, unknown>);
-    const limitedEntries = entries
-      .slice(0, MAX_LOG_OBJECT_KEYS)
-      .map(([key, item]) => [key, normalizeLogValue(item, seen, depth + 1)]);
+    const limitedEntries = entries.slice(0, MAX_LOG_OBJECT_KEYS).map(([key, item]) => {
+      if (isSensitiveLogKey(key) && typeof item === 'string') {
+        return [key, REDACTED];
+      }
+      return [key, normalizeLogValue(item, seen, depth + 1)];
+    });
 
     if (entries.length > MAX_LOG_OBJECT_KEYS) {
       limitedEntries.push([
@@ -340,10 +427,22 @@ function normalizeLogValue(value: unknown, seen = new WeakSet<object>(), depth =
     return Object.fromEntries(limitedEntries);
   }
 
-  return String(value);
+  return scrubSecretStrings(String(value));
+}
+
+/**
+ * Normalize and redact a value for safe logging (console or file).
+ */
+export function redactForLogging(value: unknown): unknown {
+  return normalizeLogValue(value);
+}
+
+function prepareLogArgs(args: unknown[]): unknown[] {
+  return args.map((arg) => normalizeLogValue(arg));
 }
 
 function serializeLogArg(arg: unknown): string {
+  // Args may already be normalized; normalize again is cheap and idempotent for redaction.
   const normalized = normalizeLogValue(arg);
   if (typeof normalized === 'string') {
     return normalized;
@@ -397,38 +496,44 @@ function getTimestamp(): string {
 }
 
 export function log(...args: unknown[]): void {
-  safeConsoleLog(`[${getTimestamp()}]`, ...args);
-  writeToFile('INFO', ...args);
+  const prepared = prepareLogArgs(args);
+  safeConsoleLog(`[${getTimestamp()}]`, ...prepared);
+  writeToFile('INFO', ...prepared);
 }
 
 export function logWarn(...args: unknown[]): void {
-  safeConsoleWarn(`[${getTimestamp()}]`, ...args);
-  writeToFile('WARN', ...args);
+  const prepared = prepareLogArgs(args);
+  safeConsoleWarn(`[${getTimestamp()}]`, ...prepared);
+  writeToFile('WARN', ...prepared);
 }
 
 export function logError(...args: unknown[]): void {
-  safeConsoleError(`[${getTimestamp()}]`, ...args);
-  writeToFile('ERROR', ...args);
+  const prepared = prepareLogArgs(args);
+  safeConsoleError(`[${getTimestamp()}]`, ...prepared);
+  writeToFile('ERROR', ...prepared);
 }
 
 // ── Context-aware logging — reads sessionId/traceId from AsyncLocalStorage ──
 
 export function logCtx(...args: unknown[]): void {
+  const prepared = prepareLogArgs(args);
   const prefix = formatCtxPrefix();
-  safeConsoleLog(`[${getTimestamp()}]`, prefix, ...args);
-  writeToFile('INFO', ...args);
+  safeConsoleLog(`[${getTimestamp()}]`, prefix, ...prepared);
+  writeToFile('INFO', ...prepared);
 }
 
 export function logCtxWarn(...args: unknown[]): void {
+  const prepared = prepareLogArgs(args);
   const prefix = formatCtxPrefix();
-  safeConsoleWarn(`[${getTimestamp()}]`, prefix, ...args);
-  writeToFile('WARN', ...args);
+  safeConsoleWarn(`[${getTimestamp()}]`, prefix, ...prepared);
+  writeToFile('WARN', ...prepared);
 }
 
 export function logCtxError(...args: unknown[]): void {
+  const prepared = prepareLogArgs(args);
   const prefix = formatCtxPrefix();
-  safeConsoleError(`[${getTimestamp()}]`, prefix, ...args);
-  writeToFile('ERROR', ...args);
+  safeConsoleError(`[${getTimestamp()}]`, prefix, ...prepared);
+  writeToFile('ERROR', ...prepared);
 }
 
 /**

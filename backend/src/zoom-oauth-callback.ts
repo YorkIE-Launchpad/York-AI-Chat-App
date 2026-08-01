@@ -1,5 +1,6 @@
 import type { Request, Response, Router } from 'express';
 import { Router as createRouter } from 'express';
+import { logWarn } from './safe-log.js';
 
 const DEFAULT_LOCAL_CALLBACK = 'http://127.0.0.1:19891/callback';
 
@@ -46,7 +47,7 @@ export function resolveZoomOauthLocalCallbackUrl(
     parsed.protocol === 'https:';
 
   if (!isLoopbackHost || looksLikePublicBridge) {
-    console.warn(
+    logWarn(
       '[york-ie-backend] ZOOM_OAUTH_LOCAL_CALLBACK_URL must be the Electron loopback ' +
         `(e.g. ${fallback}), not the public Zoom redirect. Ignoring: ${trimmed}`
     );

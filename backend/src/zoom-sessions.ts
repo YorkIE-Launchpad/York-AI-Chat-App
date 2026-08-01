@@ -1,4 +1,5 @@
 import { createHmac, randomUUID, timingSafeEqual } from 'crypto';
+import { log } from './safe-log.js';
 
 export interface ZoomRtmsSegment {
   id: string;
@@ -150,7 +151,7 @@ export function registerZoomSession(input: {
     yorkIdByZoomUuid.set(record.zoomMeetingUuid, record.yorkMeetingId);
     const flushed = flushOrphansIntoSession(record.zoomMeetingUuid, record);
     if (flushed > 0) {
-      console.log(
+      log(
         '[york-ie-backend] Flushed orphan RTMS segments on register',
         `yorkMeetingId=${record.yorkMeetingId}`,
         `zoomMeetingUuid=${record.zoomMeetingUuid}`,
