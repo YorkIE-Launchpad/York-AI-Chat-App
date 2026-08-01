@@ -1,4 +1,10 @@
 /** @type {import('tailwindcss').Config} */
+
+/** Enable Tailwind opacity modifiers (e.g. bg-background/50) with CSS variable colors. */
+function themeColor(cssVar) {
+  return `color-mix(in srgb, var(${cssVar}) calc(<alpha-value> * 100%), transparent)`;
+}
+
 module.exports = {
   darkMode: 'class',
   content: [
@@ -10,36 +16,36 @@ module.exports = {
       colors: {
         // Use CSS variables for theme-aware colors
         background: {
-          DEFAULT: 'var(--color-background)',
-          secondary: 'var(--color-background-secondary)',
+          DEFAULT: themeColor('--color-background'),
+          secondary: themeColor('--color-background-secondary'),
         },
         surface: {
-          DEFAULT: 'var(--color-surface)',
-          hover: 'var(--color-surface-hover)',
-          active: 'var(--color-surface-active)',
-          muted: 'var(--color-surface-muted)',
+          DEFAULT: themeColor('--color-surface'),
+          hover: themeColor('--color-surface-hover'),
+          active: themeColor('--color-surface-active'),
+          muted: themeColor('--color-surface-muted'),
         },
         border: {
-          DEFAULT: 'var(--color-border)',
-          muted: 'var(--color-border-muted)',
-          subtle: 'var(--color-border-subtle)',
+          DEFAULT: themeColor('--color-border'),
+          muted: themeColor('--color-border-muted'),
+          subtle: themeColor('--color-border-subtle'),
         },
         accent: {
-          DEFAULT: 'var(--color-accent)',
-          hover: 'var(--color-accent-hover)',
-          muted: 'var(--color-accent-muted)',
+          DEFAULT: themeColor('--color-accent'),
+          hover: themeColor('--color-accent-hover'),
+          muted: themeColor('--color-accent-muted'),
         },
         mcp: {
-          DEFAULT: 'var(--color-mcp)',
+          DEFAULT: themeColor('--color-mcp'),
         },
         text: {
-          primary: 'var(--color-text-primary)',
-          secondary: 'var(--color-text-secondary)',
-          muted: 'var(--color-text-muted)',
+          primary: themeColor('--color-text-primary'),
+          secondary: themeColor('--color-text-secondary'),
+          muted: themeColor('--color-text-muted'),
         },
-        success: 'var(--color-success)',
-        warning: 'var(--color-warning)',
-        error: 'var(--color-error)',
+        success: themeColor('--color-success'),
+        warning: themeColor('--color-warning'),
+        error: themeColor('--color-error'),
       },
       fontFamily: {
         sans: ['Plus Jakarta Sans', 'system-ui', 'sans-serif'],

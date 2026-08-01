@@ -723,26 +723,40 @@ function ConnectorItem({
 
   return (
     <div className="rounded-lg border border-border overflow-hidden">
-      <button
-        onClick={onToggle}
+      <div
         className={`w-full px-3 py-2 flex items-center gap-2 transition-colors ${
-          isConnected ? 'bg-mcp/10 hover:bg-mcp/20' : 'bg-surface-muted hover:bg-surface-hover'
+          isConnected ? 'bg-mcp/10' : 'bg-surface-muted'
         }`}
       >
-        <div
-          className={`w-6 h-6 rounded flex items-center justify-center ${
-            isConnected ? 'bg-mcp/20' : 'bg-surface-muted'
+        <button
+          type="button"
+          onClick={onToggle}
+          disabled={!isConnected}
+          className={`flex-1 min-w-0 flex items-center gap-2 text-left rounded-md transition-colors disabled:cursor-default ${
+            isConnected ? 'hover:bg-mcp/10' : ''
           }`}
         >
-          <Plug className={`w-3.5 h-3.5 ${isConnected ? 'text-mcp' : 'text-text-muted'}`} />
-        </div>
-        <div className="flex-1 text-left min-w-0">
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="text-sm font-medium text-text-primary truncate">{server.name}</span>
+          <div
+            className={`w-6 h-6 rounded flex items-center justify-center shrink-0 ${
+              isConnected ? 'bg-mcp/20' : 'bg-surface-muted'
+            }`}
+          >
+            <Plug className={`w-3.5 h-3.5 ${isConnected ? 'text-mcp' : 'text-text-muted'}`} />
           </div>
-          <p className="text-xs text-text-muted truncate">{statusSubtitle}</p>
-        </div>
-        <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+          <div className="flex-1 text-left min-w-0">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="text-sm font-medium text-text-primary truncate">{server.name}</span>
+            </div>
+            <p className="text-xs text-text-muted truncate">{statusSubtitle}</p>
+          </div>
+          {isConnected &&
+            (expanded ? (
+              <ChevronDown className="w-4 h-4 text-text-muted shrink-0" />
+            ) : (
+              <ChevronRight className="w-4 h-4 text-text-muted shrink-0" />
+            ))}
+        </button>
+        <div className="flex items-center gap-1.5 shrink-0">
           <span
             className={`w-2 h-2 rounded-full ${statusDotClass}`}
             title={statusLabel}
@@ -801,13 +815,7 @@ function ConnectorItem({
             </div>
           )}
         </div>
-        {isConnected &&
-          (expanded ? (
-            <ChevronDown className="w-4 h-4 text-text-muted shrink-0" />
-          ) : (
-            <ChevronRight className="w-4 h-4 text-text-muted shrink-0" />
-          ))}
-      </button>
+      </div>
 
       {expanded && isConnected && (
         <div className="px-3 pb-2 space-y-1 bg-surface">

@@ -7,6 +7,7 @@
 @layer base {
   /* Define CSS variables for theming */
   :root {
+    color-scheme: dark;
     /* Dark theme (default) — York IE navy + teal */
     --color-background: #192530;
     --color-background-secondary: #1e2d3a;
@@ -34,6 +35,7 @@
 
   /* Light theme override — York IE clean surfaces + teal */
   .light {
+    color-scheme: light;
     --color-background: #f4f7f9;
     --color-background-secondary: #eef2f5;
     --color-surface: #ffffff;

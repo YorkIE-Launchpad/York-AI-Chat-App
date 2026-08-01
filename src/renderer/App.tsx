@@ -201,7 +201,7 @@ function AuthenticatedApp() {
     };
   }, [isElectron, setGlobalNotice, setSettingsTab, setShowSettings]);
 
-  // Apply theme to document root
+  // Apply theme to document root (class + color-scheme for native form controls)
   useEffect(() => {
     const effectiveTheme =
       settings.theme === 'system' ? (systemDarkMode ? 'dark' : 'light') : settings.theme;
@@ -211,6 +211,7 @@ function AuthenticatedApp() {
     } else {
       document.documentElement.classList.remove('light');
     }
+    document.documentElement.style.colorScheme = effectiveTheme;
   }, [settings.theme, systemDarkMode]);
 
   // Auto-collapse panels based on window width
