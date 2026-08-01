@@ -58,6 +58,8 @@ import {
   mimeForAttachedFile,
   normalizeSelectedFiles,
 } from '../utils/load-composer-image';
+import { useDictation } from '../hooks/useDictation';
+import { DictationButton } from './DictationButton';
 import {
   formatInterval,
   isLoopSlashInput,
@@ -789,6 +791,19 @@ export function WelcomeView() {
     adjustTextareaHeight();
   }, [prompt]);
 
+  const {
+    status: dictationStatus,
+    errorKind: dictationErrorKind,
+    isAvailable: dictationAvailable,
+    toggle: toggleDictation,
+  } = useDictation({
+    enabled: isElectron,
+    getPrompt: () => prompt,
+    onTranscript: (next) => {
+      setPrompt(next);
+    },
+  });
+
   return (
     <div
       className={`flex-1 min-h-0 flex flex-col items-center px-5 py-10 md:px-8 md:py-14 ${
@@ -1186,6 +1201,14 @@ export function WelcomeView() {
 
                 <div className="flex flex-shrink-0 items-center gap-2">
                   <ModelSelector />
+                  {dictationAvailable && (
+                    <DictationButton
+                      status={dictationStatus}
+                      errorKind={dictationErrorKind}
+                      disabled={isSubmitting}
+                      onToggle={toggleDictation}
+                    />
+                  )}
                   <button
                     type="submit"
                     disabled={!canSubmit || isSubmitting}

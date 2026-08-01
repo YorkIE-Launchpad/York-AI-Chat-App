@@ -50,6 +50,7 @@ import { bindConnectorMemoryService } from './connectors/connector-memory';
 import { connectorManager } from './connectors/connector-manager';
 import { MeetingService } from './meetings/meeting-service';
 import { MeetingExtension } from './meetings/meeting-extension';
+import { createRealtimeTranslationSession } from './dictation/dictation-service';
 import { ConfigExtension } from './config/config-extension';
 import { SubagentExtension } from './agent/subagent-extension';
 import { AgentRuntimeExtensionManager } from './extensions/agent-runtime-extension-manager';
@@ -4168,6 +4169,15 @@ ipcMain.handle(
       throw new Error('Meeting service not initialized');
     }
     return meetingService.appendChunk(payload);
+  }
+);
+
+ipcMain.handle(
+  'dictation.createRealtimeSession',
+  async (_event, payload?: { targetLanguage?: string }) => {
+    return createRealtimeTranslationSession({
+      targetLanguage: payload?.targetLanguage,
+    });
   }
 );
 

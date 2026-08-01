@@ -60,6 +60,8 @@ import {
   mimeForAttachedFile,
   normalizeSelectedFiles,
 } from '../utils/load-composer-image';
+import { useDictation } from '../hooks/useDictation';
+import { DictationButton } from './DictationButton';
 
 type AttachedFile = {
   name: string;
@@ -1026,6 +1028,19 @@ export function ChatView() {
     adjustTextareaHeight();
   }, [prompt]);
 
+  const {
+    status: dictationStatus,
+    errorKind: dictationErrorKind,
+    isAvailable: dictationAvailable,
+    toggle: toggleDictation,
+  } = useDictation({
+    enabled: isElectron,
+    getPrompt: () => prompt,
+    onTranscript: (next) => {
+      setPrompt(next);
+    },
+  });
+
   if (!activeSession) {
     return (
       <div className="flex-1 flex items-center justify-center text-text-muted">
@@ -1450,6 +1465,15 @@ export function ChatView() {
 
               <div className="flex items-center gap-2">
                 <ModelSelector />
+
+                {dictationAvailable && (
+                  <DictationButton
+                    status={dictationStatus}
+                    errorKind={dictationErrorKind}
+                    disabled={isSubmitting}
+                    onToggle={toggleDictation}
+                  />
+                )}
 
                 {canStop && (
                   <button

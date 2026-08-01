@@ -699,6 +699,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
       error?: string;
     }): Promise<{ success: boolean }> => ipcRenderer.invoke('meetings.autoStartResult', result),
   },
+
+  dictation: {
+    createRealtimeSession: (payload?: {
+      targetLanguage?: string;
+    }): Promise<{ clientSecret: string }> =>
+      ipcRenderer.invoke('dictation.createRealtimeSession', payload),
+  },
 });
 
 // Type declaration for the renderer process
@@ -1073,6 +1080,11 @@ declare global {
           ok: boolean;
           error?: string;
         }) => Promise<{ success: boolean }>;
+      };
+      dictation: {
+        createRealtimeSession: (payload?: {
+          targetLanguage?: string;
+        }) => Promise<{ clientSecret: string }>;
       };
     };
   }

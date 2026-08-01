@@ -822,7 +822,14 @@
     "connectorCount_one": "{{count}} connector",
     "connectorCount_other": "{{count}} connectors",
     "toolsNotReady": "Tools are still connecting…",
-    "incognitoBanner": "Incognito — this chat won’t be saved or used for memory"
+    "incognitoBanner": "Incognito — this chat won’t be saved or used for memory",
+    "dictationStart": "Dictate with microphone",
+    "dictationStop": "Stop dictation",
+    "dictationConnecting": "Starting live dictation…",
+    "dictationListening": "Listening…",
+    "dictationMicDenied": "Microphone access denied. Allow access in System Settings.",
+    "dictationSignInRequired": "Sign in to use speech-to-text.",
+    "dictationFailed": "Could not start live speech-to-text. Try again."
   },
   "context": {
     "progress": "Progress",
