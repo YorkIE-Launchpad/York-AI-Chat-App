@@ -22,6 +22,8 @@ export interface Session {
   hubProjectId?: string | null;
   /** Hub project display name when division === 'project'. */
   hubProjectName?: string | null;
+  /** When true, session stays in the sidebar Pinned group. */
+  pinned?: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -575,6 +577,7 @@ export type ClientEvent =
   | { type: 'session.stop'; payload: { sessionId: string } }
   | { type: 'session.delete'; payload: { sessionId: string } }
   | { type: 'session.batchDelete'; payload: { sessionIds: string[] } }
+  | { type: 'session.setPinned'; payload: { sessionId: string; pinned: boolean } }
   | { type: 'session.list'; payload: Record<string, never> }
   | { type: 'session.getMessages'; payload: { sessionId: string } }
   | { type: 'session.getTraceSteps'; payload: { sessionId: string } }

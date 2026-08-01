@@ -67,6 +67,7 @@ export interface SessionRow {
   division: string;
   hub_project_id: string | null;
   hub_project_name: string | null;
+  pinned: number;
   created_at: number;
   updated_at: number;
 }
@@ -255,6 +256,7 @@ function initializeSchema(database: Database.Database): void {
     ensureColumn(database, 'sessions', 'division', "division TEXT NOT NULL DEFAULT 'general'");
     ensureColumn(database, 'sessions', 'hub_project_id', 'hub_project_id TEXT');
     ensureColumn(database, 'sessions', 'hub_project_name', 'hub_project_name TEXT');
+    ensureColumn(database, 'sessions', 'pinned', 'pinned INTEGER NOT NULL DEFAULT 0');
 
     // Backfill null division for rows created before the column existed
     database.exec(
@@ -478,8 +480,8 @@ export function initDatabase(): DatabaseInstance {
   // Prepare statements for better performance
   const insertSession = rawDb.prepare(`
     INSERT OR REPLACE INTO sessions
-    (id, title, claude_session_id, openai_thread_id, status, cwd, mounted_paths, allowed_tools, memory_enabled, model, division, hub_project_id, hub_project_name, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    (id, title, claude_session_id, openai_thread_id, status, cwd, mounted_paths, allowed_tools, memory_enabled, model, division, hub_project_id, hub_project_name, pinned, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   // Note: Dynamic update queries are built in sessions.update() for flexibility
@@ -492,7 +494,7 @@ export function initDatabase(): DatabaseInstance {
   `);
 
   const getAllSessionsStmt = rawDb.prepare(`
-    SELECT * FROM sessions ORDER BY updated_at DESC
+    SELECT * FROM sessions ORDER BY pinned DESC, updated_at DESC
   `);
 
   const deleteSessionStmt = rawDb.prepare(`
@@ -573,6 +575,7 @@ export function initDatabase(): DatabaseInstance {
           session.division || 'general',
           session.hub_project_id ?? null,
           session.hub_project_name ?? null,
+          session.pinned ?? 0,
           session.created_at,
           session.updated_at
         );

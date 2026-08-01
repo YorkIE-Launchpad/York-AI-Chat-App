@@ -4384,6 +4384,9 @@ async function handleClientEvent(event: ClientEvent): Promise<unknown> {
       }
       return sm.batchDeleteSessions(event.payload.sessionIds);
 
+    case 'session.setPinned':
+      return sm.setSessionPinned(event.payload.sessionId, event.payload.pinned);
+
     case 'session.list': {
       const sessions = sm.listSessions();
       sendToRenderer({ type: 'session.list', payload: { sessions } });

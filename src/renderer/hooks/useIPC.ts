@@ -899,6 +899,16 @@ export function useIPC() {
     [send]
   );
 
+  const setSessionPinned = useCallback(
+    (sessionId: string, pinned: boolean) => {
+      useAppStore.getState().updateSession(sessionId, { pinned });
+      if (isElectron) {
+        send({ type: 'session.setPinned', payload: { sessionId, pinned } });
+      }
+    },
+    [send]
+  );
+
   const listSessions = useCallback(() => {
     if (!isElectron) return;
     send({ type: 'session.list', payload: {} });
@@ -1018,6 +1028,7 @@ export function useIPC() {
     stopSession,
     deleteSession,
     batchDeleteSessions,
+    setSessionPinned,
     listSessions,
     getSessionMessages,
     getSessionTraceSteps,

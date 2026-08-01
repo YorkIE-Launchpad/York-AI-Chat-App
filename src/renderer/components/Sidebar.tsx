@@ -7,6 +7,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Trash2,
+  Pin,
   Moon,
   Sun,
   Monitor,
@@ -168,6 +169,7 @@ export function Sidebar() {
   const {
     deleteSession,
     batchDeleteSessions,
+    setSessionPinned,
     getSessionMessages,
     getSessionTraceSteps,
     isElectron,
@@ -351,6 +353,11 @@ export function Sidebar() {
   const handleDeleteSession = (e: React.MouseEvent, sessionId: string) => {
     e.stopPropagation();
     deleteSession(sessionId);
+  };
+
+  const handleTogglePinSession = (e: React.MouseEvent, session: Session) => {
+    e.stopPropagation();
+    setSessionPinned(session.id, !session.pinned);
   };
 
   const toggleTheme = () => {
@@ -558,7 +565,7 @@ export function Sidebar() {
                               : 'hover:bg-surface-hover/60'
                         }`}
                       >
-                        <div className={`flex items-center gap-2 ${!isSelectMode ? 'pr-6' : ''}`}>
+                        <div className={`flex items-center gap-2 ${!isSelectMode ? 'pr-14' : ''}`}>
                           {isSelectMode && (
                             <div
                               className={`w-4 h-4 rounded flex items-center justify-center flex-shrink-0 transition-colors ${
@@ -577,14 +584,33 @@ export function Sidebar() {
                           </div>
                         </div>
 
-                        {!isSelectMode && hoveredSession === session.id && (
-                          <button
-                            onClick={(e) => handleDeleteSession(e, session.id)}
-                            className="absolute right-1.5 top-1/2 -translate-y-1/2 w-6 h-6 rounded-lg flex items-center justify-center text-text-muted hover:text-error hover:bg-surface-active transition-colors"
-                            title={t('common.delete')}
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </button>
+                        {!isSelectMode && (
+                          <>
+                            {hoveredSession === session.id && (
+                              <button
+                                onClick={(e) => handleDeleteSession(e, session.id)}
+                                className="absolute right-8 top-1/2 -translate-y-1/2 w-6 h-6 rounded-lg flex items-center justify-center text-text-muted hover:text-error hover:bg-surface-active transition-colors"
+                                title={t('common.delete')}
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            )}
+                            {(session.pinned || hoveredSession === session.id) && (
+                              <button
+                                onClick={(e) => handleTogglePinSession(e, session)}
+                                className={`absolute right-1.5 top-1/2 -translate-y-1/2 w-6 h-6 rounded-lg flex items-center justify-center transition-colors ${
+                                  session.pinned
+                                    ? 'text-accent hover:bg-surface-active'
+                                    : 'text-text-muted hover:text-text-primary hover:bg-surface-active'
+                                }`}
+                                title={session.pinned ? t('sidebar.unpin') : t('sidebar.pin')}
+                              >
+                                <Pin
+                                  className={`w-3 h-3 ${session.pinned ? 'fill-current' : ''}`}
+                                />
+                              </button>
+                            )}
+                          </>
                         )}
                       </div>
                     );
@@ -706,6 +732,21 @@ function groupSessionsByDate(sessions: Session[], t: (key: string) => string): S
   const startOfYesterday = startOfToday - 86_400_000;
   const startOfPreviousWeek = startOfToday - 7 * 86_400_000;
 
+  const pinnedSessions: Session[] = [];
+  const unpinnedSessions: Session[] = [];
+  for (const session of sessions) {
+    if (session.pinned) {
+      pinnedSessions.push(session);
+    } else {
+      unpinnedSessions.push(session);
+    }
+  }
+
+  const sortByUpdatedAt = (a: Session, b: Session) =>
+    (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt);
+
+  pinnedSessions.sort(sortByUpdatedAt);
+
   const buckets: SessionGroup[] = [
     { key: 'today', label: t('sidebar.today'), sessions: [] },
     { key: 'yesterday', label: t('sidebar.yesterday'), sessions: [] },
@@ -713,10 +754,8 @@ function groupSessionsByDate(sessions: Session[], t: (key: string) => string): S
     { key: 'older', label: t('sidebar.older'), sessions: [] },
   ];
 
-  const sortedSessions = [...sessions].sort(
-    (a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt)
-  );
-  for (const session of sortedSessions) {
+  const sortedUnpinned = [...unpinnedSessions].sort(sortByUpdatedAt);
+  for (const session of sortedUnpinned) {
     const timestamp = session.updatedAt || session.createdAt;
     if (timestamp >= startOfToday) {
       buckets[0].sessions.push(session);
@@ -729,5 +768,10 @@ function groupSessionsByDate(sessions: Session[], t: (key: string) => string): S
     }
   }
 
-  return buckets.filter((bucket) => bucket.sessions.length > 0);
+  const groups: SessionGroup[] = [];
+  if (pinnedSessions.length > 0) {
+    groups.push({ key: 'pinned', label: t('sidebar.pinned'), sessions: pinnedSessions });
+  }
+  groups.push(...buckets.filter((bucket) => bucket.sessions.length > 0));
+  return groups;
 }

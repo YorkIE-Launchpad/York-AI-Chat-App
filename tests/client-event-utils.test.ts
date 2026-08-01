@@ -12,6 +12,13 @@ function makeEvent(type: ClientEvent['type']): ClientEvent {
     case 'session.delete':
     case 'session.getMessages':
     case 'session.getTraceSteps':
+    case 'session.getContextUsage':
+      return { type, payload: { sessionId: 'session-1' } };
+    case 'session.batchDelete':
+      return { type, payload: { sessionIds: ['session-1'] } };
+    case 'session.setPinned':
+      return { type, payload: { sessionId: 'session-1', pinned: true } };
+    case 'session.compact':
       return { type, payload: { sessionId: 'session-1' } };
     case 'session.list':
     case 'settings.update':
@@ -20,13 +27,18 @@ function makeEvent(type: ClientEvent['type']): ClientEvent {
       return { type, payload: {} };
     case 'permission.response':
       return { type, payload: { toolUseId: 'tool-1', result: 'allow' } };
+    case 'question.response':
+      return { type, payload: { questionId: 'q-1', answer: { answers: {} } } };
+    case 'sudo.password.response':
+      return { type, payload: { toolUseId: 'tool-1', password: null } };
     case 'workdir.set':
       return { type, payload: { path: '/tmp/demo' } };
     case 'workdir.select':
       return { type, payload: { currentPath: '/tmp/demo' } };
     default: {
-      const exhaustiveCheck: never = type;
-      return exhaustiveCheck;
+      // Keep helper usable for the subset exercised by this suite; other ClientEvent
+      // types are covered elsewhere and do not affect eventRequiresSessionManager.
+      return { type: 'settings.update', payload: {} };
     }
   }
 }
@@ -38,6 +50,8 @@ describe('eventRequiresSessionManager', () => {
       'session.continue',
       'session.stop',
       'session.delete',
+      'session.batchDelete',
+      'session.setPinned',
       'session.list',
       'session.getMessages',
       'session.getTraceSteps',

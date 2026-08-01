@@ -123,8 +123,40 @@ describe('SessionManager.listSessions', () => {
     expect(s.allowedTools).toEqual(['read', 'write']);
     expect(s.memoryEnabled).toBe(false);
     expect(s.model).toBe('claude-3-5-sonnet');
+    expect(s.pinned).toBe(false);
     expect(s.createdAt).toBe(1000);
     expect(s.updatedAt).toBe(2000);
+  });
+
+  it('maps pinned sessions from database rows', () => {
+    const row = {
+      id: 's-pinned',
+      title: 'Pinned Session',
+      claude_session_id: null,
+      openai_thread_id: null,
+      status: 'idle',
+      cwd: null,
+      mounted_paths: '[]',
+      allowed_tools: '[]',
+      memory_enabled: 0,
+      model: null,
+      pinned: 1,
+      created_at: 1000,
+      updated_at: 2000,
+    };
+    const db = makeDb({
+      sessions: {
+        create: vi.fn(),
+        get: vi.fn(() => null),
+        getAll: vi.fn(() => [row]),
+        update: vi.fn(),
+        delete: vi.fn(),
+      } as unknown,
+    });
+
+    const manager = new SessionManager(db, vi.fn());
+    const [s] = manager.listSessions();
+    expect(s.pinned).toBe(true);
   });
 
   it('falls back to empty arrays when mounted_paths or allowed_tools JSON is malformed', () => {
@@ -315,6 +347,101 @@ describe('SessionManager.handleSudoPasswordResponse', () => {
     const db = makeDb();
     const manager = new SessionManager(db, vi.fn());
     expect(() => manager.handleSudoPasswordResponse('nonexistent', 'pw')).not.toThrow();
+  });
+});
+
+// ------------------------------------------------------------------
+// setSessionPinned
+// ------------------------------------------------------------------
+describe('SessionManager.setSessionPinned', () => {
+  const existingRow = {
+    id: 's1',
+    title: 'Pinned chat',
+    claude_session_id: null,
+    openai_thread_id: null,
+    status: 'idle',
+    cwd: null,
+    mounted_paths: '[]',
+    allowed_tools: '[]',
+    memory_enabled: 0,
+    model: null,
+    division: 'general',
+    hub_project_id: null,
+    hub_project_name: null,
+    pinned: 0,
+    created_at: 1000,
+    updated_at: 2000,
+  };
+
+  it('writes pinned to the database and emits session.update', () => {
+    const update = vi.fn();
+    const sendToRenderer = vi.fn();
+    const db = makeDb({
+      sessions: {
+        create: vi.fn(),
+        get: vi.fn(() => existingRow),
+        getAll: vi.fn(() => []),
+        update,
+        delete: vi.fn(),
+      } as unknown,
+    });
+
+    const manager = new SessionManager(db, sendToRenderer);
+    const ok = manager.setSessionPinned('s1', true);
+
+    expect(ok).toBe(true);
+    expect(update).toHaveBeenCalledWith('s1', { pinned: 1 });
+    expect(sendToRenderer).toHaveBeenCalledWith({
+      type: 'session.update',
+      payload: { sessionId: 's1', updates: { pinned: true } },
+    });
+  });
+
+  it('unpins by writing pinned: 0', () => {
+    const update = vi.fn();
+    const sendToRenderer = vi.fn();
+    const db = makeDb({
+      sessions: {
+        create: vi.fn(),
+        get: vi.fn(() => ({ ...existingRow, pinned: 1 })),
+        getAll: vi.fn(() => []),
+        update,
+        delete: vi.fn(),
+      } as unknown,
+    });
+
+    const manager = new SessionManager(db, sendToRenderer);
+    const ok = manager.setSessionPinned('s1', false);
+
+    expect(ok).toBe(true);
+    expect(update).toHaveBeenCalledWith('s1', { pinned: 0 });
+    expect(sendToRenderer).toHaveBeenCalledWith({
+      type: 'session.update',
+      payload: { sessionId: 's1', updates: { pinned: false } },
+    });
+  });
+
+  it('returns false and skips write when session is missing', () => {
+    const update = vi.fn();
+    const sendToRenderer = vi.fn();
+    const db = makeDb({
+      sessions: {
+        create: vi.fn(),
+        get: vi.fn(() => null),
+        getAll: vi.fn(() => []),
+        update,
+        delete: vi.fn(),
+      } as unknown,
+    });
+
+    const manager = new SessionManager(db, sendToRenderer);
+    const ok = manager.setSessionPinned('missing', true);
+
+    expect(ok).toBe(false);
+    expect(update).not.toHaveBeenCalled();
+    expect(sendToRenderer).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'session.update' })
+    );
   });
 });
 

@@ -410,6 +410,7 @@ export class SessionManager {
       division: divisionFields.division,
       hub_project_id: divisionFields.hubProjectId ?? null,
       hub_project_name: divisionFields.hubProjectName ?? null,
+      pinned: session.pinned ? 1 : 0,
       created_at: session.createdAt,
       updated_at: session.updatedAt,
     });
@@ -429,6 +430,7 @@ export class SessionManager {
     division?: string | null;
     hub_project_id?: string | null;
     hub_project_name?: string | null;
+    pinned?: number | null;
     created_at: number;
     updated_at: number;
   }): Session {
@@ -468,6 +470,7 @@ export class SessionManager {
       division: divisionFields.division,
       hubProjectId: divisionFields.hubProjectId,
       hubProjectName: divisionFields.hubProjectName,
+      pinned: row.pinned === 1,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -1202,6 +1205,21 @@ export class SessionManager {
       type: 'session.update',
       payload: { sessionId, updates: { title } },
     });
+    return true;
+  }
+
+  setSessionPinned(sessionId: string, pinned: boolean): boolean {
+    const existing = this.db.sessions.get(sessionId);
+    if (!existing) {
+      log('[SessionManager] Skip pin update for missing session:', sessionId);
+      return false;
+    }
+    this.db.sessions.update(sessionId, { pinned: pinned ? 1 : 0 });
+    this.sendToRenderer({
+      type: 'session.update',
+      payload: { sessionId, updates: { pinned } },
+    });
+    log('[SessionManager] Session pinned updated:', sessionId, '->', pinned);
     return true;
   }
 
