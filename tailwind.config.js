@@ -1,8 +1,12 @@
 /** @type {import('tailwindcss').Config} */
 
-/** Enable Tailwind opacity modifiers (e.g. bg-background/50) with CSS variable colors. */
+/**
+ * Theme colors that support Tailwind opacity modifiers (e.g. bg-mcp/10).
+ * Uses relative color syntax so alpha is applied to the color itself —
+ * color-mix(..., transparent) treats transparent as black and looks wrong in light mode.
+ */
 function themeColor(cssVar) {
-  return `color-mix(in srgb, var(${cssVar}) calc(<alpha-value> * 100%), transparent)`;
+  return `rgb(from var(${cssVar}) r g b / <alpha-value>)`;
 }
 
 module.exports = {
@@ -28,12 +32,14 @@ module.exports = {
         border: {
           DEFAULT: themeColor('--color-border'),
           muted: themeColor('--color-border-muted'),
-          subtle: themeColor('--color-border-subtle'),
+          // Already includes alpha in the CSS variable — don't wrap
+          subtle: 'var(--color-border-subtle)',
         },
         accent: {
           DEFAULT: themeColor('--color-accent'),
           hover: themeColor('--color-accent-hover'),
-          muted: themeColor('--color-accent-muted'),
+          // Already includes alpha in the CSS variable — don't wrap
+          muted: 'var(--color-accent-muted)',
         },
         mcp: {
           DEFAULT: themeColor('--color-mcp'),
