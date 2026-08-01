@@ -3,7 +3,13 @@ import type { Request, Response, Router } from 'express';
 import { Router as createRouter } from 'express';
 import { requireCognito } from './cognito-auth.js';
 import {
+  extractSpeakerFromMetadata,
+  metadataKeysPresent,
+  RtmsSpeakerRoster,
+} from './zoom-rtms-speaker.js';
+import {
   appendSegmentToZoomUuid,
+  backfillSpeakerNames,
   listSegmentsAfter,
   mapRtmsTranscriptPacket,
   registerZoomSession,
@@ -23,10 +29,20 @@ function userSubFromReq(req: CognitoRequest): string | null {
 
 type RtmsJoinFn = (payload: Record<string, unknown>) => void;
 
+type RtmsParticipantInfo = { id?: number; name?: string };
+type RtmsEventParticipant = { userId?: number; userName?: string };
+
 type RtmsClient = {
   onTranscriptData: (
     cb: (data: Buffer | string, size: number, timestamp: number, metadata: unknown) => void
   ) => void;
+  onUserUpdate?: (cb: (op: number, participant: RtmsParticipantInfo) => void) => unknown;
+  onParticipantEvent?: (
+    cb: (event: 'join' | 'leave', timestamp: number, participants: RtmsEventParticipant[]) => void
+  ) => unknown;
+  onActiveSpeakerEvent?: (
+    cb: (timestamp: number, userId: number, userName: string) => void
+  ) => unknown;
   setTranscriptParams?: (params: { srcLanguage: number; enableLid: boolean }) => unknown;
   join: (payload: unknown) => void;
 };
@@ -64,6 +80,9 @@ let rtmsJoin: RtmsJoinFn | null = null;
 /** Active RTMS joins keyed by meeting UUID — avoid stacking duplicate SDK clients. */
 const activeRtmsJoins = new Set<string>();
 
+/** Meetings that already logged a missing-speaker diagnostic (once per join). */
+const missingSpeakerDiagLogged = new Set<string>();
+
 /**
  * Optionally wire a live RTMS joiner (e.g. @zoom/rtms Client).
  * When unset, webhook events are accepted and CRC works; transcripts can still be
@@ -76,6 +95,7 @@ export function setZoomRtmsJoiner(join: RtmsJoinFn | null): void {
 /** Test helper to clear active join tracking. */
 export function clearActiveRtmsJoinsForTests(): void {
   activeRtmsJoins.clear();
+  missingSpeakerDiagLogged.clear();
 }
 
 function extractMeetingUuid(eventBody: Record<string, unknown>): string | null {
@@ -87,50 +107,24 @@ function extractMeetingUuid(eventBody: Record<string, unknown>): string | null {
   return null;
 }
 
-function extractSpeakerFromMetadata(metadata: unknown): {
-  user_name?: string;
-  user_id?: string | number;
-} {
-  if (!metadata || typeof metadata !== 'object') return {};
-  const meta = metadata as Record<string, unknown>;
-  const nested =
-    meta.user && typeof meta.user === 'object' ? (meta.user as Record<string, unknown>) : null;
-
-  const nameCandidates = [
-    meta.userName,
-    meta.user_name,
-    meta.speakerName,
-    meta.speaker_name,
-    meta.speaker,
-    nested?.userName,
-    nested?.user_name,
-    nested?.name,
-  ];
-  const idCandidates = [
-    meta.userId,
-    meta.user_id,
-    meta.speakerUserId,
-    meta.speaker_user_id,
-    nested?.userId,
-    nested?.user_id,
-    nested?.id,
-  ];
-
-  let user_name: string | undefined;
-  for (const value of nameCandidates) {
-    if (typeof value === 'string' && value.trim()) {
-      user_name = value.trim();
-      break;
-    }
+function rememberParticipantName(
+  meetingUuid: string,
+  roster: RtmsSpeakerRoster,
+  userId: string | number | null | undefined,
+  name: string | null | undefined
+): void {
+  const changed = roster.set(userId, name);
+  if (!changed || userId == null || !name?.trim()) return;
+  const backfilled = backfillSpeakerNames(meetingUuid, userId, name.trim());
+  if (backfilled > 0) {
+    console.log(
+      '[york-ie-backend] RTMS speaker backfill',
+      `meetingUuid=${meetingUuid}`,
+      `userId=${userId}`,
+      `speaker=${name.trim()}`,
+      `count=${backfilled}`
+    );
   }
-  let user_id: string | number | undefined;
-  for (const value of idCandidates) {
-    if (value != null && String(value).trim()) {
-      user_id = value as string | number;
-      break;
-    }
-  }
-  return { user_name, user_id };
 }
 
 async function tryLoadZoomRtmsSdk(): Promise<void> {
@@ -178,16 +172,53 @@ async function tryLoadZoomRtmsSdk(): Promise<void> {
         return;
       }
       activeRtmsJoins.add(meetingUuid);
+      missingSpeakerDiagLogged.delete(meetingUuid);
       console.log('[york-ie-backend] RTMS join invoked', `meetingUuid=${meetingUuid}`);
       const client = new Client();
+      const roster = new RtmsSpeakerRoster();
       applyZoomRtmsTranscriptParams(client);
+
+      if (typeof client.onUserUpdate === 'function') {
+        client.onUserUpdate((_op, participant) => {
+          rememberParticipantName(meetingUuid, roster, participant?.id, participant?.name);
+        });
+      }
+      if (typeof client.onParticipantEvent === 'function') {
+        client.onParticipantEvent((_event, _ts, participants) => {
+          for (const p of participants || []) {
+            rememberParticipantName(meetingUuid, roster, p?.userId, p?.userName);
+          }
+        });
+      }
+      if (typeof client.onActiveSpeakerEvent === 'function') {
+        client.onActiveSpeakerEvent((_ts, userId, userName) => {
+          const changed = roster.setActiveSpeaker(userId, userName);
+          if (changed) {
+            const backfilled = backfillSpeakerNames(meetingUuid, userId, userName);
+            if (backfilled > 0) {
+              console.log(
+                '[york-ie-backend] RTMS speaker backfill',
+                `meetingUuid=${meetingUuid}`,
+                `userId=${userId}`,
+                `speaker=${userName}`,
+                `count=${backfilled}`
+              );
+            }
+          }
+        });
+      }
+
       client.onTranscriptData((data, _size, timestamp, metadata) => {
         const speakerMeta = extractSpeakerFromMetadata(metadata);
+        const resolved = roster.resolveForTranscript({
+          userName: speakerMeta.user_name,
+          userId: speakerMeta.user_id,
+        });
         const segment = mapRtmsTranscriptPacket({
           data,
           timestamp,
-          user_name: speakerMeta.user_name,
-          user_id: speakerMeta.user_id,
+          user_name: resolved.user_name,
+          user_id: resolved.user_id,
         });
         if (segment) {
           appendSegmentToZoomUuid(meetingUuid, segment);
@@ -198,6 +229,17 @@ async function tryLoadZoomRtmsSdk(): Promise<void> {
             `chars=${segment.text.length}`,
             `ts=${timestamp}`
           );
+          if (!segment.speaker && !missingSpeakerDiagLogged.has(meetingUuid)) {
+            missingSpeakerDiagLogged.add(meetingUuid);
+            console.warn(
+              '[york-ie-backend] RTMS speaker unresolved',
+              `meetingUuid=${meetingUuid}`,
+              `userId=${segment.speakerUserId ?? 'n/a'}`,
+              `metadataKeys=${metadataKeysPresent(metadata).join(',') || 'none'}`,
+              `rosterSize=${roster.size}`,
+              `hasActiveSpeaker=${roster.hasActiveSpeaker}`
+            );
+          }
         }
       });
       const joinPayload = (eventBody as { payload?: unknown }).payload;
@@ -260,6 +302,7 @@ function handleZoomWebhook(req: Request, res: Response): void {
     const meetingUuid = extractMeetingUuid(body);
     if (meetingUuid) {
       activeRtmsJoins.delete(meetingUuid);
+      missingSpeakerDiagLogged.delete(meetingUuid);
       console.log('[york-ie-backend] RTMS stopped', `meetingUuid=${meetingUuid}`);
     }
   }

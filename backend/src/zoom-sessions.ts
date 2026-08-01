@@ -223,6 +223,49 @@ export function appendSegmentToZoomUuid(
   return session;
 }
 
+/**
+ * Fill speaker names on segments that arrived before the participant roster
+ * knew the display name for speakerUserId.
+ */
+export function backfillSpeakerNames(
+  zoomMeetingUuid: string,
+  speakerUserId: string | number,
+  speakerName: string
+): number {
+  const name = speakerName.trim();
+  const id = String(speakerUserId).trim();
+  if (!name || !id) return 0;
+
+  let updated = 0;
+
+  // Look up by known UUID only — do not auto-bind unbound sessions.
+  const yorkId = yorkIdByZoomUuid.get(zoomMeetingUuid);
+  const session = yorkId ? sessionsByYorkId.get(yorkId) : undefined;
+  if (session) {
+    for (const segment of session.segments) {
+      if (segment.speakerUserId === id && !segment.speaker?.trim()) {
+        segment.speaker = name;
+        updated += 1;
+      }
+    }
+    if (updated > 0) {
+      session.updatedAt = Date.now();
+    }
+  }
+
+  const orphans = orphanSegmentsByUuid.get(zoomMeetingUuid);
+  if (orphans?.length) {
+    for (const segment of orphans) {
+      if (segment.speakerUserId === id && !segment.speaker?.trim()) {
+        segment.speaker = name;
+        updated += 1;
+      }
+    }
+  }
+
+  return updated;
+}
+
 export function listSegmentsAfter(
   yorkMeetingId: string,
   userSub: string,

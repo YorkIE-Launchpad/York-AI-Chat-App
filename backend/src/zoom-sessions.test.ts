@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { describe, it, beforeEach } from 'node:test';
 import {
   appendSegmentToZoomUuid,
+  backfillSpeakerNames,
   clearZoomSessionsForTests,
   getOrphanSegmentCountForTests,
   listSegmentsAfter,
@@ -78,6 +79,62 @@ describe('zoom-sessions', () => {
     assert.equal(page.segments.length, 1);
     assert.equal(page.segments[0]?.text, 'early');
     assert.equal(page.segments[0]?.speaker, 'Ada');
+  });
+
+  it('backfills null speakers when roster later learns a name', () => {
+    registerZoomSession({ yorkMeetingId: 'y2', userSub: 'u1', zoomMeetingUuid: 'z2' });
+    appendSegmentToZoomUuid('z2', {
+      id: 's1',
+      text: 'first',
+      speaker: null,
+      speakerUserId: '7',
+      startedAt: 1,
+      endedAt: 2,
+    });
+    appendSegmentToZoomUuid('z2', {
+      id: 's2',
+      text: 'second',
+      speaker: null,
+      speakerUserId: '7',
+      startedAt: 3,
+      endedAt: 4,
+    });
+    appendSegmentToZoomUuid('z2', {
+      id: 's3',
+      text: 'other',
+      speaker: null,
+      speakerUserId: '8',
+      startedAt: 5,
+      endedAt: 6,
+    });
+
+    const updated = backfillSpeakerNames('z2', 7, 'Grace');
+    assert.equal(updated, 2);
+
+    const page = listSegmentsAfter('y2', 'u1', 0);
+    assert.equal(page.segments[0]?.speaker, 'Grace');
+    assert.equal(page.segments[1]?.speaker, 'Grace');
+    assert.equal(page.segments[2]?.speaker, null);
+  });
+
+  it('backfills orphan segments before register', () => {
+    appendSegmentToZoomUuid('orphan-bf', {
+      id: 'o1',
+      text: 'early',
+      speaker: null,
+      speakerUserId: '3',
+      startedAt: Date.now(),
+      endedAt: Date.now(),
+    });
+    assert.equal(backfillSpeakerNames('orphan-bf', '3', 'Lin'), 1);
+
+    registerZoomSession({
+      yorkMeetingId: 'york-bf',
+      userSub: 'u1',
+      zoomMeetingUuid: 'orphan-bf',
+    });
+    const page = listSegmentsAfter('york-bf', 'u1', 0);
+    assert.equal(page.segments[0]?.speaker, 'Lin');
   });
 
   it('verifies webhook signatures', () => {
