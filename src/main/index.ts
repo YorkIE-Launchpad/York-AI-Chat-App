@@ -670,38 +670,28 @@ function setupMeetingMediaCapture(): void {
 
 /** Queued when auto-start fires before the renderer is ready to receive IPC. */
 let pendingMeetingsAutoStartIpc = false;
-let pendingMeetingsAutoStartNotify = false;
 
 function flushPendingMeetingsAutoStart(): void {
   if (!pendingMeetingsAutoStartIpc) return;
   if (!mainWindow || mainWindow.isDestroyed()) return;
   if (mainWindow.webContents.isLoading()) return;
   pendingMeetingsAutoStartIpc = false;
-  const showNotify = pendingMeetingsAutoStartNotify;
-  pendingMeetingsAutoStartNotify = false;
   log('[Meetings] Flushing queued auto-start request to renderer');
-  sendMeetingsAutoStartToRenderer(showNotify);
+  sendMeetingsAutoStartToRenderer();
 }
 
-function sendMeetingsAutoStartToRenderer(showOsNotification: boolean): void {
+/**
+ * Ask the renderer to begin capture. Do not activate the window first —
+ * focusing York before the OS notification suppresses macOS banners.
+ * Notification is shown only after meetings.start succeeds.
+ */
+function sendMeetingsAutoStartToRenderer(): void {
   if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isLoading()) {
     pendingMeetingsAutoStartIpc = true;
-    pendingMeetingsAutoStartNotify = pendingMeetingsAutoStartNotify || showOsNotification;
     log('[Meetings] Renderer not ready — queuing auto-start IPC');
     return;
   }
-  if (mainWindow.isMinimized()) {
-    mainWindow.restore();
-  }
-  mainWindow.show();
-  mainWindow.focus();
   mainWindow.webContents.send('meetings:requestAutoStart');
-  if (showOsNotification) {
-    showMeetingOsNotification({
-      title: 'Live capture in progress',
-      body: 'York is capturing this Zoom call. Notes will save to History when it ends.',
-    });
-  }
 }
 
 function wireMeetingServiceEvents(service: MeetingService): void {
@@ -726,9 +716,9 @@ function wireMeetingServiceEvents(service: MeetingService): void {
       mainWindow.webContents.send('meetings:detected', payload);
     }
   });
-  service.onAutoStartRequested((options) => {
+  service.onAutoStartRequested(() => {
     log('[Meetings] Broadcasting auto-start request to renderer');
-    sendMeetingsAutoStartToRenderer(Boolean(options?.showOsNotification));
+    sendMeetingsAutoStartToRenderer();
   });
   service.onAutoStopRequested(() => {
     log('[Meetings] Broadcasting auto-stop request to renderer');
@@ -4137,7 +4127,14 @@ ipcMain.handle('meetings.start', async (_event, title?: string) => {
   if (!meetingService) {
     throw new Error('Meeting service not initialized');
   }
-  return meetingService.start(title);
+  const meeting = await meetingService.start(title);
+  showMeetingOsNotification({
+    title: 'Live capture in progress',
+    body: meeting.title
+      ? `York is capturing "${meeting.title}". Notes will save to History when it ends.`
+      : 'York is capturing this call. Notes will save to History when it ends.',
+  });
+  return meeting;
 });
 
 ipcMain.handle('meetings.stop', async () => {
