@@ -6,15 +6,22 @@
 export const YORK_OPENROUTER_USER_KEY_HEADER = 'x-york-openrouter-key';
 
 export const OPENROUTER_KEY_REQUIRED_MESSAGE =
-  'OpenRouter requires your own API key. Add one in Settings → General (get a key at openrouter.ai/keys). Free models have no per-token cost; with $10+ in credits you get higher daily limits (20 RPM / 1000 RPD vs 20 RPM / 50 RPD).';
+  'OpenRouter requires your own API key. Add one in Settings → General (get a key at openrouter.ai/keys). Free models have no per-token cost; with $10+ in credits you get higher daily limits (20 RPM / 1000 RPD vs 20 RPM / 50 RPD). In Hub or Project you can use York-managed models without this key.';
 
 export const OPENROUTER_LIMIT_USER_MESSAGE =
-  'OpenRouter rate or credit limit reached for your key (limits apply to the whole account). Add credits at openrouter.ai (≈$10 raises daily limits to 1000 requests/day), or switch to another provider.';
+  'OpenRouter rate or credit limit reached for your key (limits apply to the whole account). Add credits at openrouter.ai (≈$10 raises daily limits to 1000 requests/day), pick a free OpenRouter model, or switch to Hub / Project for York-managed models.';
 
 export const OPENROUTER_LIMIT_FALLBACK_NOTE = 'OpenRouter limit hit; switched to York eco model.';
 
 export function hasOpenRouterUserApiKey(value: string | undefined | null): boolean {
   return Boolean(value?.trim());
+}
+
+/** Free / router catalog entries shown under "Free" in the General model picker. */
+export function isOpenRouterFreeTierModel(id: string): boolean {
+  const lower = id.trim().toLowerCase();
+  if (lower === 'openrouter/free' || lower.startsWith('openrouter/auto')) return true;
+  return lower.endsWith(':free') || lower.includes(':free/');
 }
 
 /** Attach BYOK header for OpenRouter proxy calls. Cognito JWT remains Authorization. */

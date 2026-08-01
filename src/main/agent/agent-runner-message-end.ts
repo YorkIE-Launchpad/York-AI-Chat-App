@@ -173,7 +173,17 @@ export function resolveAssistantStreamErrorText(
 export function buildTerminalErrorMessage(errorText: string, partialText = ''): string {
   const normalizedPartial = partialText.trimEnd();
   let hint = '_Agent is retrying automatically, please wait..._';
-  if (isUsageLimitError(errorText)) {
+  const lower = errorText.toLowerCase();
+  // OpenRouter BYOK limits are user-owned — never tell them to contact York admin.
+  if (
+    lower.includes('openrouter') &&
+    (lower.includes('openrouter.ai') ||
+      lower.includes('your key') ||
+      lower.includes('york-managed'))
+  ) {
+    hint =
+      '_Add credits, pick a free OpenRouter model, or switch to Hub / Project for York-managed models._';
+  } else if (isUsageLimitError(errorText)) {
     hint = '_Contact your admin to restore access._';
   } else if (isRateLimitError(errorText)) {
     hint = '_Please retry later or contact your admin._';

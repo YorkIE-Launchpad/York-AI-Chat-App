@@ -122,21 +122,21 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
               <MenuItem
                 icon={Layers}
                 label="General"
-                description="Personal & general use"
+                description="Personal use · your OpenRouter key"
                 active={activeDivision?.kind === 'general'}
                 onClick={() => void selectDivision({ kind: 'general' })}
               />
               <MenuItem
                 icon={Building2}
                 label="Hub"
-                description="People, culture & HR"
+                description="People & HR · York-managed models"
                 active={activeDivision?.kind === 'hub'}
                 onClick={() => void selectDivision({ kind: 'hub' })}
               />
               <MenuItem
                 icon={Briefcase}
                 label="Project"
-                description="Allocated client project"
+                description="Client project · York-managed models"
                 active={activeDivision?.kind === 'project'}
                 onClick={() =>
                   void selectDivision({ kind: 'project', hubProjectId: '', hubProjectName: '' })

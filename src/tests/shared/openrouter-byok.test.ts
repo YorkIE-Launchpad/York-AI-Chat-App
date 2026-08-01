@@ -7,6 +7,7 @@ import {
 import { isOpenRouterAccountLimitError } from '../../shared/openrouter-limit';
 import {
   hasOpenRouterUserApiKey,
+  isOpenRouterFreeTierModel,
   withOpenRouterUserKeyHeader,
   YORK_OPENROUTER_USER_KEY_HEADER,
 } from '../../shared/openrouter-user-key';
@@ -16,6 +17,15 @@ describe('openrouter user key helpers', () => {
     expect(hasOpenRouterUserApiKey('')).toBe(false);
     expect(hasOpenRouterUserApiKey('  ')).toBe(false);
     expect(hasOpenRouterUserApiKey('sk-or-v1-abc')).toBe(true);
+  });
+
+  it('classifies free-tier catalog ids', () => {
+    expect(isOpenRouterFreeTierModel('openrouter/free')).toBe(true);
+    expect(isOpenRouterFreeTierModel('openrouter/auto')).toBe(true);
+    expect(isOpenRouterFreeTierModel('openrouter/auto-beta')).toBe(true);
+    expect(isOpenRouterFreeTierModel('meta-llama/llama-3.2-3b-instruct:free')).toBe(true);
+    expect(isOpenRouterFreeTierModel('openai/gpt-5.6-sol')).toBe(false);
+    expect(isOpenRouterFreeTierModel('anthropic/claude-sonnet-5')).toBe(false);
   });
 
   it('attaches BYOK header without touching Authorization', () => {

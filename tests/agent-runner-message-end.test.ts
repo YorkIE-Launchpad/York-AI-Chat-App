@@ -368,6 +368,17 @@ describe('buildTerminalErrorMessage', () => {
     expect(result).not.toContain('_Please check your configuration and retry._');
   });
 
+  it('uses OpenRouter BYOK actions instead of admin for OpenRouter limit messages', () => {
+    const openRouterLimit =
+      'OpenRouter rate or credit limit reached for your key (limits apply to the whole account). Add credits at openrouter.ai (≈$10 raises daily limits to 1000 requests/day), pick a free OpenRouter model, or switch to Hub / Project for York-managed models.';
+    const result = buildTerminalErrorMessage(openRouterLimit);
+    expect(result).toContain(openRouterLimit);
+    expect(result).toContain(
+      '_Add credits, pick a free OpenRouter model, or switch to Hub / Project for York-managed models._'
+    );
+    expect(result).not.toContain('contact your admin');
+  });
+
   it('uses the admin hint for rate-limit terminal errors', () => {
     const sanitized = toUserFacingErrorText(
       '429 Rate limit exceeded: free-models-per-day. Add 10 credits to unlock 1000 free model requests per day'

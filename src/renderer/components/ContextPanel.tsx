@@ -322,6 +322,11 @@ export function ContextPanel() {
             <Cpu className="w-3.5 h-3.5 text-text-muted shrink-0" />
             <span className="truncate">{modelName}</span>
           </div>
+          {appConfig?.provider === 'openrouter' && (
+            <p className="pl-5 text-[11px] leading-snug text-text-muted">
+              {t('context.openRouterBilling', 'Billed via your OpenRouter key')}
+            </p>
+          )}
           <div className="flex items-center gap-3 text-xs text-text-muted pl-5">
             <span className="flex items-center gap-1">
               <MessageSquare className="w-3 h-3" />

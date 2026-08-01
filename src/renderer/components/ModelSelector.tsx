@@ -16,13 +16,17 @@ import {
   normalizeAutoModelPreference,
   type AutoModelPreference,
 } from '../../shared/auto-model';
-import { hasOpenRouterUserApiKey } from '../../shared/openrouter-user-key';
+import {
+  hasOpenRouterUserApiKey,
+  isOpenRouterFreeTierModel,
+} from '../../shared/openrouter-user-key';
 import {
   filterModelsForDivision,
   type ActiveDivision,
   type SessionDivisionFields,
 } from '../../shared/workspace-division';
 import { filterModelsForOpenRouterKey } from '../../shared/openrouter-fallback';
+import { useTranslation } from 'react-i18next';
 
 const isElectron = typeof window !== 'undefined' && window.electronAPI !== undefined;
 
@@ -84,6 +88,7 @@ interface ModelSelectorProps {
 }
 
 export function ModelSelector({ className = '' }: ModelSelectorProps) {
+  const { t } = useTranslation();
   const appConfig = useAppStore((state) => state.appConfig);
   const activeDivision = useAppStore((state) => state.activeDivision);
   const setAppConfig = useAppStore((state) => state.setAppConfig);
@@ -465,11 +470,113 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
               const items = groupedModels[provider];
               if (items.length === 0) return null;
               const openRouterDisabled = provider === 'openrouter' && !hasOpenRouterKey;
+
+              const renderModelButton = (model: BackendModelInfo, showOpenRouterCue: boolean) => {
+                const isSelected =
+                  selectedModel?.provider === model.provider && selectedModel?.id === model.id;
+                return (
+                  <button
+                    key={`${model.provider}::${model.id}`}
+                    type="button"
+                    role="option"
+                    aria-selected={isSelected}
+                    aria-disabled={openRouterDisabled}
+                    disabled={openRouterDisabled}
+                    onClick={() => {
+                      void handleSelect(model);
+                    }}
+                    className={`flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left transition-colors ${
+                      openRouterDisabled
+                        ? 'cursor-not-allowed text-text-muted opacity-50'
+                        : isSelected
+                          ? 'bg-accent-muted text-accent'
+                          : 'text-text-primary hover:bg-surface-hover'
+                    }`}
+                  >
+                    <span className="min-w-0 flex-1 truncate whitespace-nowrap text-[13px] font-medium">
+                      {shortModelName(model.name, model.id)}
+                    </span>
+                    {showOpenRouterCue && !openRouterDisabled && (
+                      <span className="shrink-0 text-[10px] font-medium tracking-[0.02em] text-text-muted">
+                        {t('workspace.models.openRouterCue', 'OpenRouter')}
+                      </span>
+                    )}
+                    {isSelected && !openRouterDisabled && (
+                      <Check className="h-3.5 w-3.5 shrink-0" />
+                    )}
+                  </button>
+                );
+              };
+
+              if (isGeneralDivision && provider === 'openrouter') {
+                const freeItems = items.filter((m) => isOpenRouterFreeTierModel(m.id));
+                const paidItems = items.filter((m) => !isOpenRouterFreeTierModel(m.id));
+                return (
+                  <div key={provider} className="px-1.5 py-1">
+                    <div className="px-2.5 pb-1.5 pt-1.5">
+                      <div className="text-[11px] font-medium tracking-[0.04em] text-text-muted">
+                        {t(
+                          'workspace.models.generalOpenRouterTitle',
+                          'Your OpenRouter key · not York billing'
+                        )}
+                        {openRouterDisabled
+                          ? ` · ${t('workspace.models.keyRequired', 'key required')}`
+                          : ''}
+                      </div>
+                      <p className="mt-0.5 text-[11px] leading-snug text-text-muted">
+                        {t(
+                          'workspace.models.generalOpenRouterHint',
+                          'For York-managed Claude / GPT / Gemini, switch to Hub or a Project.'
+                        )}
+                      </p>
+                    </div>
+                    {openRouterDisabled && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowSettings(true);
+                          setSettingsTab('general');
+                          setIsOpen(false);
+                        }}
+                        className="mb-1 w-full rounded-xl px-2.5 py-2 text-left text-[12px] text-accent hover:bg-surface-hover"
+                      >
+                        {t(
+                          'workspace.models.addOpenRouterKey',
+                          'Add OpenRouter key for free models (Settings)'
+                        )}
+                      </button>
+                    )}
+                    {freeItems.length > 0 && (
+                      <div className="mb-1">
+                        <div className="px-2.5 pb-1 pt-1 text-[11px] font-medium tracking-[0.04em] text-text-muted">
+                          {t('workspace.models.freeGroup', 'Free')}
+                        </div>
+                        <div className="space-y-0.5">
+                          {freeItems.map((model) => renderModelButton(model, false))}
+                        </div>
+                      </div>
+                    )}
+                    {paidItems.length > 0 && (
+                      <div>
+                        <div className="px-2.5 pb-1 pt-1 text-[11px] font-medium tracking-[0.04em] text-text-muted">
+                          {t('workspace.models.viaYourKeyGroup', 'Via your key')}
+                        </div>
+                        <div className="space-y-0.5">
+                          {paidItems.map((model) => renderModelButton(model, true))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              }
+
               return (
                 <div key={provider} className="px-1.5 py-1">
                   <div className="px-2.5 pb-1 pt-1.5 text-[11px] font-medium tracking-[0.04em] text-text-muted">
                     {PROVIDER_LABELS[provider]}
-                    {openRouterDisabled ? ' · key required' : ''}
+                    {openRouterDisabled
+                      ? ` · ${t('workspace.models.keyRequired', 'key required')}`
+                      : ''}
                   </div>
                   {openRouterDisabled && (
                     <button
@@ -481,42 +588,19 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
                       }}
                       className="mb-1 w-full rounded-xl px-2.5 py-2 text-left text-[12px] text-accent hover:bg-surface-hover"
                     >
-                      Add OpenRouter key for free models (Settings)
+                      {t(
+                        'workspace.models.addOpenRouterKey',
+                        'Add OpenRouter key for free models (Settings)'
+                      )}
                     </button>
                   )}
                   <div className="space-y-0.5">
-                    {items.map((model) => {
-                      const isSelected =
-                        selectedModel?.provider === model.provider &&
-                        selectedModel?.id === model.id;
-                      return (
-                        <button
-                          key={`${model.provider}::${model.id}`}
-                          type="button"
-                          role="option"
-                          aria-selected={isSelected}
-                          aria-disabled={openRouterDisabled}
-                          disabled={openRouterDisabled}
-                          onClick={() => {
-                            void handleSelect(model);
-                          }}
-                          className={`flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left transition-colors ${
-                            openRouterDisabled
-                              ? 'cursor-not-allowed text-text-muted opacity-50'
-                              : isSelected
-                                ? 'bg-accent-muted text-accent'
-                                : 'text-text-primary hover:bg-surface-hover'
-                          }`}
-                        >
-                          <span className="whitespace-nowrap text-[13px] font-medium">
-                            {shortModelName(model.name, model.id)}
-                          </span>
-                          {isSelected && !openRouterDisabled && (
-                            <Check className="h-3.5 w-3.5 shrink-0" />
-                          )}
-                        </button>
-                      );
-                    })}
+                    {items.map((model) =>
+                      renderModelButton(
+                        model,
+                        provider === 'openrouter' && !isOpenRouterFreeTierModel(model.id)
+                      )
+                    )}
                   </div>
                 </div>
               );
@@ -524,12 +608,20 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
 
             {!isLoading && models.length === 0 && (
               <div className="px-4 py-2 text-[11px] leading-snug text-text-muted">
-                No provider keys configured
+                {t('workspace.models.noProviderKeys', 'No provider keys configured')}
               </div>
             )}
-            {!isLoading && !hasOpenRouterKey && models.some((m) => m.provider === 'openrouter') && (
+            {!isLoading && models.some((m) => m.provider === 'openrouter') && (
               <div className="border-t border-border-subtle px-4 py-2 text-[11px] leading-snug text-text-muted">
-                Free OpenRouter models need your key. Limits: &lt;$10 → 50/day; $10+ → 1000/day.
+                {hasOpenRouterKey
+                  ? t(
+                      'workspace.models.openRouterLimitsFooter',
+                      'OpenRouter limits: under $10 credits → 50/day; $10+ → 1000/day. Paid models use your credits.'
+                    )
+                  : t(
+                      'workspace.models.openRouterKeyFooter',
+                      'Free OpenRouter models need your key. Limits: <$10 → 50/day; $10+ → 1000/day.'
+                    )}
               </div>
             )}
           </div>

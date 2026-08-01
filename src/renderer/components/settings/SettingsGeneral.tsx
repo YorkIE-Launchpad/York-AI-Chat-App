@@ -104,13 +104,13 @@ export function SettingsGeneral() {
         <p className="text-sm text-text-secondary">
           {t(
             'general.openRouterKeyHelp',
-            'OpenRouter models need your own key. Free models (:free / openrouter/free) have no per-token cost — rate limits apply.'
+            'OpenRouter models use your own key (General workspace is OpenRouter-only). Free models (:free / openrouter/free) have no per-token cost — rate limits apply. Paid names like GPT Sol or Claude bill your OpenRouter credits, not York.'
           )}
         </p>
         <p className="text-xs text-text-muted">
           {t(
             'general.openRouterLimits',
-            'Limits: under $10 credits → 20 requests/min, 50/day. With $10+ credits → 20/min, 1000/day.'
+            'Limits: under $10 credits → 20 requests/min, 50/day. With $10+ credits → 20/min, 1000/day. Hit a limit? Pick a free model, add credits, or switch to Hub / Project for York-managed models.'
           )}
         </p>
         <a
@@ -171,7 +171,7 @@ export function SettingsGeneral() {
             <p className="text-xs text-amber-600 dark:text-amber-400">
               {t(
                 'general.openRouterKeyMissing',
-                'OpenRouter models are disabled until you add a key. York Anthropic / OpenAI / Gemini models still work.'
+                'OpenRouter models are disabled until you add a key. In Hub or Project, York Anthropic / OpenAI / Gemini models still work without this key.'
               )}
             </p>
           )}

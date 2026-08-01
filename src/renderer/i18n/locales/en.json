@@ -88,7 +88,19 @@
     "updateReady": "Version {{version}} is ready to install",
     "updateError": "Update check failed",
     "checkForUpdates": "Check for updates",
-    "restartToUpdate": "Restart to update"
+    "restartToUpdate": "Restart to update",
+    "openRouterKey": "OpenRouter API key",
+    "openRouterKeyHelp": "OpenRouter models use your own key (General workspace is OpenRouter-only). Free models (:free / openrouter/free) have no per-token cost — rate limits apply. Paid names like GPT Sol or Claude bill your OpenRouter credits, not York.",
+    "openRouterLimits": "Limits: under $10 credits → 20 requests/min, 50/day. With $10+ credits → 20/min, 1000/day. Hit a limit? Pick a free model, add credits, or switch to Hub / Project for York-managed models.",
+    "openRouterGetKey": "Get a key at openrouter.ai/keys",
+    "openRouterKeyConfigured": "Key configured — paste to replace",
+    "openRouterKeySaved": "OpenRouter key saved",
+    "openRouterKeyCleared": "OpenRouter key cleared",
+    "openRouterKeySaveFailed": "Failed to save OpenRouter key",
+    "saveOpenRouterKey": "Save key",
+    "clearOpenRouterKey": "Clear",
+    "saving": "Saving…",
+    "openRouterKeyMissing": "OpenRouter models are disabled until you add a key. In Hub or Project, York Anthropic / OpenAI / Gemini models still work without this key."
   },
   "memory": {
     "title": "Memory",
@@ -775,7 +787,19 @@
     "confirmDelete": "Delete"
   },
   "workspace": {
-    "projectScopeViolation": "Incorrect use. This attempt will be reported. This session is scoped to \"{{projectName}}\". Switch Project workspace (or General) in the sidebar to query another project."
+    "projectScopeViolation": "Incorrect use. This attempt will be reported. This session is scoped to \"{{projectName}}\". Switch Project workspace (or General) in the sidebar to query another project.",
+    "models": {
+      "generalOpenRouterTitle": "Your OpenRouter key · not York billing",
+      "generalOpenRouterHint": "For York-managed Claude / GPT / Gemini, switch to Hub or a Project.",
+      "freeGroup": "Free",
+      "viaYourKeyGroup": "Via your key",
+      "openRouterCue": "OpenRouter",
+      "keyRequired": "key required",
+      "addOpenRouterKey": "Add OpenRouter key for free models (Settings)",
+      "noProviderKeys": "No provider keys configured",
+      "openRouterLimitsFooter": "OpenRouter limits: under $10 credits → 50/day; $10+ → 1000/day. Paid models use your credits.",
+      "openRouterKeyFooter": "Free OpenRouter models need your key. Limits: <$10 → 50/day; $10+ → 1000/day."
+    }
   },
   "chat": {
     "sendMessage": "Send message",
@@ -821,7 +845,8 @@
     "copyPath": "Copy path",
     "openInFileManager": "Open in file manager",
     "contextUsage": "Context Usage",
-    "contextUsageLabel": "{{used}} / {{total}}"
+    "contextUsageLabel": "{{used}} / {{total}}",
+    "openRouterBilling": "Billed via your OpenRouter key"
   },
   "compaction": {
     "turnsLeft": "turns left",
