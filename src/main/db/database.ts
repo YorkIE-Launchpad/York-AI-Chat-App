@@ -46,6 +46,30 @@ export interface DatabaseInstance {
     delete: (id: string) => void;
   };
 
+  matterItems: {
+    create: (item: MatterItemRow) => void;
+    update: (id: string, updates: Partial<MatterItemRow>) => void;
+    get: (id: string) => MatterItemRow | undefined;
+    getByFingerprint: (fingerprint: string) => MatterItemRow | undefined;
+    listActive: () => MatterItemRow[];
+    listAll: (limit?: number) => MatterItemRow[];
+    delete: (id: string) => void;
+  };
+
+  matterActions: {
+    create: (action: MatterActionRow) => void;
+    listMuteRules: () => MatterActionRow[];
+    listRecent: (limit?: number) => MatterActionRow[];
+  };
+
+  matterScans: {
+    create: (scan: MatterScanRow) => void;
+    update: (id: string, updates: Partial<MatterScanRow>) => void;
+    get: (id: string) => MatterScanRow | undefined;
+    getLatest: () => MatterScanRow | undefined;
+    list: (limit?: number) => MatterScanRow[];
+  };
+
   // For compatibility with old interface
   prepare: (sql: string) => Database.Statement;
   exec: (sql: string) => void;
@@ -122,6 +146,55 @@ export interface ScheduledTaskRow {
   consecutive_unchanged: number | null;
   created_at: number;
   updated_at: number;
+}
+
+export interface MatterItemRow {
+  id: string;
+  fingerprint: string;
+  title: string;
+  summary: string;
+  why_it_matters: string;
+  severity: string;
+  orbit: string;
+  category: string;
+  source: string;
+  source_ref: string;
+  confidence: number;
+  suggested_action: string | null;
+  status: string;
+  pinned: number;
+  snooze_until: number | null;
+  expires_at: number | null;
+  rank_score: number;
+  created_at: number;
+  updated_at: number;
+  last_seen_at: number;
+  resolved_at: number | null;
+}
+
+export interface MatterActionRow {
+  id: string;
+  item_id: string | null;
+  fingerprint: string | null;
+  action: string;
+  mute_key: string | null;
+  meta: string | null;
+  created_at: number;
+}
+
+export interface MatterScanRow {
+  id: string;
+  started_at: number;
+  finished_at: number | null;
+  duration_ms: number | null;
+  status: string;
+  sources_checked: string;
+  sources_skipped: string;
+  item_count: number;
+  critical_count: number;
+  warning_count: number;
+  error: string | null;
+  brief: string | null;
 }
 
 let db: DatabaseInstance | null = null;
@@ -395,6 +468,81 @@ function initializeSchema(database: Database.Database): void {
     )
   `);
 
+    database.exec(`
+    CREATE TABLE IF NOT EXISTS matter_items (
+      id TEXT PRIMARY KEY,
+      fingerprint TEXT NOT NULL UNIQUE,
+      title TEXT NOT NULL,
+      summary TEXT NOT NULL DEFAULT '',
+      why_it_matters TEXT NOT NULL DEFAULT '',
+      severity TEXT NOT NULL DEFAULT 'signal',
+      orbit TEXT NOT NULL DEFAULT 'watching',
+      category TEXT NOT NULL DEFAULT 'comms',
+      source TEXT NOT NULL DEFAULT 'hub',
+      source_ref TEXT NOT NULL DEFAULT '{}',
+      confidence REAL NOT NULL DEFAULT 0.5,
+      suggested_action TEXT,
+      status TEXT NOT NULL DEFAULT 'active',
+      pinned INTEGER NOT NULL DEFAULT 0,
+      snooze_until INTEGER,
+      expires_at INTEGER,
+      rank_score REAL NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      last_seen_at INTEGER NOT NULL,
+      resolved_at INTEGER
+    )
+  `);
+
+    database.exec(`
+    CREATE INDEX IF NOT EXISTS idx_matter_items_status_rank
+    ON matter_items(status, rank_score DESC)
+  `);
+
+    database.exec(`
+    CREATE INDEX IF NOT EXISTS idx_matter_items_fingerprint
+    ON matter_items(fingerprint)
+  `);
+
+    database.exec(`
+    CREATE TABLE IF NOT EXISTS matter_actions (
+      id TEXT PRIMARY KEY,
+      item_id TEXT,
+      fingerprint TEXT,
+      action TEXT NOT NULL,
+      mute_key TEXT,
+      meta TEXT,
+      created_at INTEGER NOT NULL
+    )
+  `);
+
+    database.exec(`
+    CREATE INDEX IF NOT EXISTS idx_matter_actions_mute
+    ON matter_actions(action, mute_key)
+  `);
+
+    database.exec(`
+    CREATE TABLE IF NOT EXISTS matter_scans (
+      id TEXT PRIMARY KEY,
+      started_at INTEGER NOT NULL,
+      finished_at INTEGER,
+      duration_ms INTEGER,
+      status TEXT NOT NULL DEFAULT 'running',
+      sources_checked TEXT NOT NULL DEFAULT '[]',
+      sources_skipped TEXT NOT NULL DEFAULT '[]',
+      item_count INTEGER NOT NULL DEFAULT 0,
+      critical_count INTEGER NOT NULL DEFAULT 0,
+      warning_count INTEGER NOT NULL DEFAULT 0,
+      error TEXT,
+      brief TEXT
+    )
+  `);
+
+    database.exec(`
+    CREATE INDEX IF NOT EXISTS idx_matter_scans_started
+    ON matter_scans(started_at DESC)
+  `);
+
     log('[Database] Schema initialized');
   } catch (error) {
     logError('[Database] Schema initialization failed:', error);
@@ -554,6 +702,54 @@ export function initDatabase(): DatabaseInstance {
 
   const deleteScheduledTaskStmt = rawDb.prepare(`
     DELETE FROM scheduled_tasks WHERE id = ?
+  `);
+
+  const insertMatterItem = rawDb.prepare(`
+    INSERT OR REPLACE INTO matter_items (
+      id, fingerprint, title, summary, why_it_matters, severity, orbit, category, source,
+      source_ref, confidence, suggested_action, status, pinned, snooze_until, expires_at,
+      rank_score, created_at, updated_at, last_seen_at, resolved_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  const getMatterItemStmt = rawDb.prepare(`SELECT * FROM matter_items WHERE id = ?`);
+  const getMatterItemByFingerprintStmt = rawDb.prepare(
+    `SELECT * FROM matter_items WHERE fingerprint = ?`
+  );
+  const listActiveMatterItemsStmt = rawDb.prepare(`
+    SELECT * FROM matter_items
+    WHERE status IN ('active', 'snoozed', 'resurfaced')
+    ORDER BY pinned DESC, rank_score DESC, updated_at DESC
+  `);
+  const listAllMatterItemsStmt = rawDb.prepare(`
+    SELECT * FROM matter_items ORDER BY updated_at DESC LIMIT ?
+  `);
+  const deleteMatterItemStmt = rawDb.prepare(`DELETE FROM matter_items WHERE id = ?`);
+
+  const insertMatterAction = rawDb.prepare(`
+    INSERT INTO matter_actions (id, item_id, fingerprint, action, mute_key, meta, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `);
+  const listMuteMatterActionsStmt = rawDb.prepare(`
+    SELECT * FROM matter_actions WHERE action = 'mute' AND mute_key IS NOT NULL
+    ORDER BY created_at DESC
+  `);
+  const listRecentMatterActionsStmt = rawDb.prepare(`
+    SELECT * FROM matter_actions ORDER BY created_at DESC LIMIT ?
+  `);
+
+  const insertMatterScan = rawDb.prepare(`
+    INSERT INTO matter_scans (
+      id, started_at, finished_at, duration_ms, status, sources_checked, sources_skipped,
+      item_count, critical_count, warning_count, error, brief
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const getMatterScanStmt = rawDb.prepare(`SELECT * FROM matter_scans WHERE id = ?`);
+  const getLatestMatterScanStmt = rawDb.prepare(`
+    SELECT * FROM matter_scans ORDER BY started_at DESC LIMIT 1
+  `);
+  const listMatterScansStmt = rawDb.prepare(`
+    SELECT * FROM matter_scans ORDER BY started_at DESC LIMIT ?
   `);
 
   db = {
@@ -763,6 +959,143 @@ export function initDatabase(): DatabaseInstance {
 
       delete: (id: string) => {
         deleteScheduledTaskStmt.run(id);
+      },
+    },
+
+    matterItems: {
+      create: (item: MatterItemRow) => {
+        insertMatterItem.run(
+          item.id,
+          item.fingerprint,
+          item.title,
+          item.summary,
+          item.why_it_matters,
+          item.severity,
+          item.orbit,
+          item.category,
+          item.source,
+          item.source_ref,
+          item.confidence,
+          item.suggested_action,
+          item.status,
+          item.pinned,
+          item.snooze_until,
+          item.expires_at,
+          item.rank_score,
+          item.created_at,
+          item.updated_at,
+          item.last_seen_at,
+          item.resolved_at
+        );
+      },
+
+      update: (id: string, updates: Partial<MatterItemRow>) => {
+        const setClauses: string[] = [];
+        const values: unknown[] = [];
+        for (const [key, value] of Object.entries(updates)) {
+          if (value !== undefined) {
+            validateIdentifier(key);
+            setClauses.push(`${key} = ?`);
+            values.push(value);
+          }
+        }
+        if (setClauses.length === 0) return;
+        setClauses.push('updated_at = ?');
+        values.push(Date.now());
+        values.push(id);
+        rawDb
+          .prepare(`UPDATE matter_items SET ${setClauses.join(', ')} WHERE id = ?`)
+          .run(...values);
+      },
+
+      get: (id: string): MatterItemRow | undefined => {
+        return getMatterItemStmt.get(id) as MatterItemRow | undefined;
+      },
+
+      getByFingerprint: (fingerprint: string): MatterItemRow | undefined => {
+        return getMatterItemByFingerprintStmt.get(fingerprint) as MatterItemRow | undefined;
+      },
+
+      listActive: (): MatterItemRow[] => {
+        return listActiveMatterItemsStmt.all() as MatterItemRow[];
+      },
+
+      listAll: (limit = 200): MatterItemRow[] => {
+        return listAllMatterItemsStmt.all(limit) as MatterItemRow[];
+      },
+
+      delete: (id: string) => {
+        deleteMatterItemStmt.run(id);
+      },
+    },
+
+    matterActions: {
+      create: (action: MatterActionRow) => {
+        insertMatterAction.run(
+          action.id,
+          action.item_id,
+          action.fingerprint,
+          action.action,
+          action.mute_key,
+          action.meta,
+          action.created_at
+        );
+      },
+
+      listMuteRules: (): MatterActionRow[] => {
+        return listMuteMatterActionsStmt.all() as MatterActionRow[];
+      },
+
+      listRecent: (limit = 100): MatterActionRow[] => {
+        return listRecentMatterActionsStmt.all(limit) as MatterActionRow[];
+      },
+    },
+
+    matterScans: {
+      create: (scan: MatterScanRow) => {
+        insertMatterScan.run(
+          scan.id,
+          scan.started_at,
+          scan.finished_at,
+          scan.duration_ms,
+          scan.status,
+          scan.sources_checked,
+          scan.sources_skipped,
+          scan.item_count,
+          scan.critical_count,
+          scan.warning_count,
+          scan.error,
+          scan.brief
+        );
+      },
+
+      update: (id: string, updates: Partial<MatterScanRow>) => {
+        const setClauses: string[] = [];
+        const values: unknown[] = [];
+        for (const [key, value] of Object.entries(updates)) {
+          if (value !== undefined) {
+            validateIdentifier(key);
+            setClauses.push(`${key} = ?`);
+            values.push(value);
+          }
+        }
+        if (setClauses.length === 0) return;
+        values.push(id);
+        rawDb
+          .prepare(`UPDATE matter_scans SET ${setClauses.join(', ')} WHERE id = ?`)
+          .run(...values);
+      },
+
+      get: (id: string): MatterScanRow | undefined => {
+        return getMatterScanStmt.get(id) as MatterScanRow | undefined;
+      },
+
+      getLatest: (): MatterScanRow | undefined => {
+        return getLatestMatterScanStmt.get() as MatterScanRow | undefined;
+      },
+
+      list: (limit = 20): MatterScanRow[] => {
+        return listMatterScansStmt.all(limit) as MatterScanRow[];
       },
     },
 

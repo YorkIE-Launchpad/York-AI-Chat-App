@@ -19,7 +19,16 @@ import { isAuthenticated } from './auth/session';
 const PORT = 19888;
 const HOST = '127.0.0.1';
 const EXEC_TIMEOUT_MS = 3000;
-const VALID_TABS = new Set(['connectors', 'skills', 'schedule', 'logs', 'general']);
+const VALID_TABS = new Set([
+  'connectors',
+  'skills',
+  'memory',
+  'meetings',
+  'matter',
+  'schedule',
+  'logs',
+  'general',
+]);
 
 let server: http.Server | null = null;
 
@@ -75,10 +84,10 @@ export function startNavServer(getMainWindow: () => BrowserWindow | null): void 
         const tab = url.searchParams.get('tab') || undefined;
         const sessionId = url.searchParams.get('id') || undefined;
 
-        if (!page || !['welcome', 'settings', 'session'].includes(page)) {
+        if (!page || !['welcome', 'settings', 'session', 'matter'].includes(page)) {
           return json(res, 400, {
             ok: false,
-            error: 'Invalid page. Use: welcome, settings, session',
+            error: 'Invalid page. Use: welcome, settings, session, matter',
           });
         }
 

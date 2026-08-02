@@ -112,7 +112,9 @@ interface AppState {
   sidebarCollapsed: boolean;
   contextPanelCollapsed: boolean;
   showSettings: boolean;
+  showMatter: boolean;
   settingsTab: string | null;
+  matterBadgeCount: number;
 
   // Permission
   pendingPermission: PermissionRequest | null;
@@ -194,7 +196,9 @@ interface AppState {
   setSidebarCollapsed: (collapsed: boolean) => void;
   setContextPanelCollapsed: (collapsed: boolean) => void;
   setShowSettings: (show: boolean) => void;
+  setShowMatter: (show: boolean) => void;
   setSettingsTab: (tab: string | null) => void;
+  setMatterBadgeCount: (count: number) => void;
 
   setPendingPermission: (permission: PermissionRequest | null) => void;
 
@@ -278,7 +282,9 @@ export const useAppStore = create<AppState>((set) => ({
   sidebarCollapsed: false,
   contextPanelCollapsed: false,
   showSettings: false,
+  showMatter: false,
   settingsTab: null,
+  matterBadgeCount: 0,
   pendingPermission: null,
   pendingQuestionsBySessionId: {},
   pendingSudoPassword: null,
@@ -365,11 +371,14 @@ export const useAppStore = create<AppState>((set) => ({
 
   setActiveSession: (sessionId) =>
     set((state) => {
+      const base = sessionId
+        ? { activeSessionId: sessionId, showMatter: false, showSettings: false }
+        : { activeSessionId: sessionId as string | null };
       if (!sessionId || state.sessionStates[sessionId]) {
-        return { activeSessionId: sessionId };
+        return base;
       }
       return {
-        activeSessionId: sessionId,
+        ...base,
         sessionStates: {
           ...state.sessionStates,
           [sessionId]: { ...DEFAULT_SESSION_STATE },
@@ -664,8 +673,16 @@ export const useAppStore = create<AppState>((set) => ({
     set((state) => ({ contextPanelCollapsed: !state.contextPanelCollapsed })),
   setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
   setContextPanelCollapsed: (collapsed) => set({ contextPanelCollapsed: collapsed }),
-  setShowSettings: (show) => set({ showSettings: show }),
+  setShowSettings: (show) =>
+    set(show ? { showSettings: true, showMatter: false } : { showSettings: false }),
+  setShowMatter: (show) =>
+    set(
+      show
+        ? { showMatter: true, showSettings: false, activeSessionId: null }
+        : { showMatter: false }
+    ),
   setSettingsTab: (tab) => set({ settingsTab: tab }),
+  setMatterBadgeCount: (count) => set({ matterBadgeCount: Math.max(0, count) }),
 
   // Permission actions
   setPendingPermission: (permission) => set({ pendingPermission: permission }),
@@ -797,6 +814,7 @@ if (typeof window !== 'undefined') {
     const s = useAppStore.getState();
     return {
       showSettings: !!s.showSettings,
+      showMatter: !!s.showMatter,
       activeSessionId: s.activeSessionId || null,
       sessionCount: (s.sessions || []).length,
     };
@@ -806,7 +824,10 @@ if (typeof window !== 'undefined') {
     const store = useAppStore.getState();
     if (page === 'welcome') {
       store.setShowSettings(false);
+      store.setShowMatter(false);
       store.setActiveSession(null);
+    } else if (page === 'matter') {
+      store.setShowMatter(true);
     } else if (page === 'settings') {
       store.setSettingsTab(tab || 'connectors');
       store.setShowSettings(true);
@@ -815,6 +836,7 @@ if (typeof window !== 'undefined') {
       const exists = store.sessions.some((s) => s.id === sessionId);
       if (!exists) return false;
       store.setShowSettings(false);
+      store.setShowMatter(false);
       store.setActiveSession(sessionId);
     }
     return true;

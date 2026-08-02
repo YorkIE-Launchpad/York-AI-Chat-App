@@ -850,6 +850,16 @@ export interface MeetingsRuntimeConfig {
   storageRoot?: string;
 }
 
+export type {
+  MatterRuntimeConfig,
+  MatterSourcesConfig,
+  MatterSensitivity,
+  MatterSnapshot,
+  MatterItem,
+  MatterLens,
+  MatterItemActionInput,
+} from '../../shared/matter';
+
 export type MeetingStatus = 'recording' | 'finalizing' | 'ready' | 'error';
 
 export type MeetingSegmentSource = 'zoom-rtms' | 'local-stt';
@@ -962,6 +972,8 @@ export interface AppConfig {
   openRouterUserApiKey?: string;
   meetingsEnabled?: boolean;
   meetingsRuntime?: MeetingsRuntimeConfig;
+  matterEnabled?: boolean;
+  matterRuntime?: import('../../shared/matter').MatterRuntimeConfig;
   enableThinking?: boolean;
   isConfigured: boolean;
 }

@@ -10,6 +10,7 @@ import {
   BrainCircuit,
   AudioLines,
   RefreshCw,
+  Radar,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useWindowSize } from '../hooks/useWindowSize';
@@ -21,20 +22,38 @@ import { SettingsGeneral } from './settings/SettingsGeneral';
 import { SettingsLogs } from './settings/SettingsLogs';
 import { SettingsMemory } from './settings/SettingsMemory';
 import { SettingsMeetings } from './settings/SettingsMeetings';
+import { SettingsMatter } from './settings/SettingsMatter';
 import { useUpdaterStatus } from '../hooks/useUpdaterStatus';
 
 interface SettingsPanelProps {
   onClose: () => void;
-  initialTab?: 'connectors' | 'skills' | 'memory' | 'meetings' | 'schedule' | 'logs' | 'general';
+  initialTab?:
+    | 'connectors'
+    | 'skills'
+    | 'memory'
+    | 'meetings'
+    | 'matter'
+    | 'schedule'
+    | 'logs'
+    | 'general';
 }
 
-type TabId = 'connectors' | 'skills' | 'memory' | 'meetings' | 'schedule' | 'logs' | 'general';
+type TabId =
+  | 'connectors'
+  | 'skills'
+  | 'memory'
+  | 'meetings'
+  | 'matter'
+  | 'schedule'
+  | 'logs'
+  | 'general';
 
 const VALID_TABS = new Set<TabId>([
   'connectors',
   'skills',
   'memory',
   'meetings',
+  'matter',
   'schedule',
   'logs',
   'general',
@@ -109,6 +128,12 @@ export function SettingsPanel({ onClose, initialTab = 'connectors' }: SettingsPa
       label: t('settings.meetings'),
       icon: AudioLines,
       description: t('settings.meetingsDesc'),
+    },
+    {
+      id: 'matter' as TabId,
+      label: t('settings.matter'),
+      icon: Radar,
+      description: t('settings.matterDesc'),
     },
     {
       id: 'schedule' as TabId,
@@ -241,6 +266,9 @@ export function SettingsPanel({ onClose, initialTab = 'connectors' }: SettingsPa
               </div>
               <div className={activeTab === 'meetings' ? '' : 'hidden'}>
                 {viewedTabs.has('meetings') && <SettingsMeetings />}
+              </div>
+              <div className={activeTab === 'matter' ? '' : 'hidden'}>
+                {viewedTabs.has('matter') && <SettingsMatter />}
               </div>
               <div className={activeTab === 'schedule' ? '' : 'hidden'}>
                 {viewedTabs.has('schedule') && (

@@ -42,6 +42,9 @@ const ContextPanel = lazy(() =>
 const SettingsPanel = lazy(() =>
   import('./components/SettingsPanel').then((module) => ({ default: module.SettingsPanel }))
 );
+const MatterPage = lazy(() =>
+  import('./components/matter/MatterPage').then((module) => ({ default: module.MatterPage }))
+);
 
 function MainPanelFallback() {
   return (
@@ -84,7 +87,9 @@ function AuthenticatedApp() {
   const activeSessionId = useActiveSessionId();
   const settings = useSettings();
   const systemDarkMode = useSystemDarkMode();
-  const { showSettings } = useSettingsState();
+  const { showSettings, showMatter } = useSettingsState();
+  const setShowMatter = useAppStore((s) => s.setShowMatter);
+  const setMatterBadgeCount = useAppStore((s) => s.setMatterBadgeCount);
   const { sidebarCollapsed } = useLayoutState();
   const globalNotice = useGlobalNotice();
   const { progress: sandboxSetupProgress, isComplete: isSandboxSetupComplete } =
@@ -116,6 +121,25 @@ function AuthenticatedApp() {
       listSessions();
     }
   }, []); // Empty deps - run once
+
+  useEffect(() => {
+    if (!isElectron || !window.electronAPI?.matter) return;
+    let cancelled = false;
+    void window.electronAPI.matter.getSnapshot().then((snapshot) => {
+      if (cancelled) return;
+      setMatterBadgeCount(snapshot.criticalCount);
+      if (snapshot.settings.autoOpenOnLaunch) {
+        setShowMatter(true);
+      }
+    });
+    const off = window.electronAPI.matter.onUpdated((snapshot) => {
+      setMatterBadgeCount(snapshot.criticalCount);
+    });
+    return () => {
+      cancelled = true;
+      off();
+    };
+  }, [isElectron, setMatterBadgeCount, setShowMatter]);
 
   useEffect(() => {
     if (!isElectron || !window.electronAPI?.meetings) {
@@ -271,7 +295,7 @@ function AuthenticatedApp() {
 
         {/* Main Content Area */}
         <main className="flex-1 min-h-0 min-w-0 flex flex-col overflow-hidden bg-background">
-          {!showSettings && !toolsReady && (
+          {!showSettings && !showMatter && !toolsReady && (
             <div
               className="px-4 py-2 text-xs text-text-secondary border-b border-border-muted bg-surface/60 flex items-center gap-2 shrink-0"
               role="status"
@@ -295,6 +319,16 @@ function AuthenticatedApp() {
                 <SettingsPanel onClose={() => setShowSettings(false)} />
               </Suspense>
             </PanelErrorBoundary>
+          ) : showMatter ? (
+            <PanelErrorBoundary
+              name="MatterPage"
+              resetKey="matter"
+              fallback={<MainPanelFallback />}
+            >
+              <Suspense fallback={<MainPanelFallback />}>
+                <MatterPage onClose={() => setShowMatter(false)} />
+              </Suspense>
+            </PanelErrorBoundary>
           ) : activeSessionId ? (
             <PanelErrorBoundary
               name="ChatView"
@@ -311,7 +345,7 @@ function AuthenticatedApp() {
         </main>
 
         {/* Context Panel - only show when in session and not in settings */}
-        {activeSessionId && !showSettings && (
+        {activeSessionId && !showSettings && !showMatter && (
           <PanelErrorBoundary
             name="ContextPanel"
             resetKey={activeSessionId}

@@ -37,6 +37,8 @@ import {
   normalizeAutoModelPreference,
   type AutoModelPreference,
 } from '../../shared/auto-model';
+import { DEFAULT_MATTER_RUNTIME, type MatterRuntimeConfig } from '../../shared/matter';
+import { normalizeMatterRuntimeConfig } from '../matter/matter-config';
 import {
   applyBackendManagedCredentials,
   backendProviderForProfileKey,
@@ -156,6 +158,12 @@ export interface AppConfig {
   // Meeting capture runtime config
   meetingsRuntime: MeetingsRuntimeConfig;
 
+  /** Matter personal radar toggle (mirrors matterRuntime.enabled). */
+  matterEnabled: boolean;
+
+  /** Matter scan window, sources, sensitivity. */
+  matterRuntime: MatterRuntimeConfig;
+
   // Enable thinking mode (show thinking steps)
   enableThinking: boolean;
 
@@ -215,6 +223,7 @@ const DIRECT_READ_KEYS = new Set<keyof AppConfig>([
   'memoryEnabled',
   'mcpWriteAccessEnabled',
   'meetingsEnabled',
+  'matterEnabled',
   'enableThinking',
   'autoModelPreference',
   'isConfigured',
@@ -234,6 +243,7 @@ export const EXPORTABLE_FIELDS: (keyof AppConfig)[] = [
   'memoryEnabled',
   'mcpWriteAccessEnabled',
   'meetingsEnabled',
+  'matterEnabled',
   'model',
   'autoModelPreference',
   'provider',
@@ -255,6 +265,7 @@ export const FIELD_VALIDATORS: Record<string, (v: unknown) => boolean> = {
   memoryEnabled: (v) => typeof v === 'boolean',
   mcpWriteAccessEnabled: (v) => typeof v === 'boolean',
   meetingsEnabled: (v) => typeof v === 'boolean',
+  matterEnabled: (v) => typeof v === 'boolean',
   model: (v) => typeof v === 'string',
   autoModelPreference: (v) => v === 'eco' || v === 'balanced' || v === 'max',
   provider: (v) =>
@@ -382,6 +393,8 @@ const defaultConfig: AppConfig = {
     processDetectEnabled: true,
     storageRoot: '',
   },
+  matterEnabled: true,
+  matterRuntime: { ...DEFAULT_MATTER_RUNTIME, sources: { ...DEFAULT_MATTER_RUNTIME.sources } },
   enableThinking: false,
   isConfigured: false,
 };
@@ -1138,6 +1151,23 @@ export class ConfigStore {
           : defaultConfig.openRouterUserApiKey,
       meetingsEnabled: toBoolean(raw.meetingsEnabled, defaultConfig.meetingsEnabled),
       meetingsRuntime: normalizeMeetingsRuntimeConfig(raw.meetingsRuntime),
+      matterEnabled: toBoolean(
+        raw.matterEnabled ??
+          (typeof raw.matterRuntime === 'object' &&
+          raw.matterRuntime !== null &&
+          'enabled' in raw.matterRuntime
+            ? (raw.matterRuntime as { enabled?: boolean }).enabled
+            : undefined),
+        defaultConfig.matterEnabled
+      ),
+      matterRuntime: (() => {
+        const normalized = normalizeMatterRuntimeConfig(raw.matterRuntime);
+        const enabled = toBoolean(
+          raw.matterEnabled ?? normalized.enabled,
+          defaultConfig.matterEnabled
+        );
+        return { ...normalized, enabled };
+      })(),
       enableThinking: projected.enableThinking,
       autoModelPreference: normalizeAutoModelPreference(raw.autoModelPreference),
       isConfigured: toBoolean(raw.isConfigured, defaultConfig.isConfigured),
@@ -1577,6 +1607,20 @@ export class ConfigStore {
         updates.meetingsRuntime !== undefined
           ? normalizeMeetingsRuntimeConfig(updates.meetingsRuntime)
           : current.meetingsRuntime,
+      matterEnabled:
+        updates.matterEnabled !== undefined
+          ? updates.matterEnabled
+          : updates.matterRuntime !== undefined
+            ? normalizeMatterRuntimeConfig(updates.matterRuntime).enabled
+            : current.matterEnabled,
+      matterRuntime: (() => {
+        const base =
+          updates.matterRuntime !== undefined
+            ? normalizeMatterRuntimeConfig(updates.matterRuntime)
+            : current.matterRuntime;
+        const enabled = updates.matterEnabled !== undefined ? updates.matterEnabled : base.enabled;
+        return { ...base, enabled };
+      })(),
       autoModelPreference:
         updates.autoModelPreference !== undefined
           ? normalizeAutoModelPreference(updates.autoModelPreference)

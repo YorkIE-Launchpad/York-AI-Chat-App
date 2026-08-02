@@ -107,6 +107,8 @@ import {
 } from './schedule/scheduled-task-manager';
 import { createScheduledTaskStore } from './schedule/scheduled-task-store';
 import { executeScheduledTask } from './schedule/execute-scheduled-task';
+import { MatterService } from './matter/matter-service';
+import type { MatterItemActionInput, MatterRuntimeConfig, MatterSnapshot } from '../shared/matter';
 import {
   ChatLoopManager,
   extractAssistantText,
@@ -237,6 +239,7 @@ let memoryService: MemoryService | null = null;
 let meetingService: MeetingService | null = null;
 let scheduledTaskManager: ScheduledTaskManager | null = null;
 let chatLoopManager: ChatLoopManager | null = null;
+let matterService: MatterService | null = null;
 
 /**
  * Tool names that a spawned subagent may never invoke, regardless of what
@@ -1464,6 +1467,13 @@ app
         },
       });
 
+      matterService = new MatterService(
+        db,
+        sessionManager?.getMCPManager() ?? null,
+        meetingService
+      );
+      matterService.start();
+
       // Headless cleanup on exit signals
       const headlessCleanup = async () => {
         log('[Headless] Cleaning up...');
@@ -1950,6 +1960,10 @@ app
       },
     });
 
+    matterService = new MatterService(db, sessionManager?.getMCPManager() ?? null, meetingService);
+    matterService.setMainWindowGetter(() => mainWindow);
+    matterService.start();
+
     // Initialize remote manager
     remoteManager.setRendererCallback(sendToRenderer);
     const agentExecutor: AgentExecutor = {
@@ -2151,6 +2165,11 @@ app.on('before-quit', async (event) => {
   // In dev mode, exit quickly — no need for async sandbox cleanup
   if (process.env.VITE_DEV_SERVER_URL) {
     stopNavServer();
+    try {
+      matterService?.stop();
+    } catch {
+      /* best-effort */
+    }
     try {
       closeDatabase();
     } catch {
@@ -4065,6 +4084,59 @@ ipcMain.handle('schedule.runNow', async (_event, id: string) => {
   }
   return scheduledTaskManager.runNow(id);
 });
+
+ipcMain.handle('matter.getSnapshot', (): MatterSnapshot => {
+  if (!matterService) {
+    throw new Error('Matter service not initialized');
+  }
+  // Refresh MCP handle each call — manager may connect after boot
+  matterService.setMcpManager(sessionManager?.getMCPManager() ?? null);
+  matterService.setMeetingService(meetingService);
+  return matterService.getSnapshot();
+});
+
+ipcMain.handle('matter.scanNow', async (): Promise<MatterSnapshot> => {
+  if (!matterService) {
+    throw new Error('Matter service not initialized');
+  }
+  matterService.setMcpManager(sessionManager?.getMCPManager() ?? null);
+  matterService.setMeetingService(meetingService);
+  return matterService.runScan({ reason: 'manual', notify: false, force: true });
+});
+
+ipcMain.handle('matter.applyAction', (_event, input: MatterItemActionInput): MatterSnapshot => {
+  if (!matterService) {
+    throw new Error('Matter service not initialized');
+  }
+  return matterService.applyItemAction(input);
+});
+
+ipcMain.handle(
+  'matter.updateSettings',
+  (_event, partial: Partial<MatterRuntimeConfig>): MatterRuntimeConfig => {
+    if (!matterService) {
+      throw new Error('Matter service not initialized');
+    }
+    return matterService.updateRuntime(partial);
+  }
+);
+
+ipcMain.handle('matter.clearMute', (_event, key: string): MatterSnapshot => {
+  if (!matterService) {
+    throw new Error('Matter service not initialized');
+  }
+  return matterService.clearMute(key);
+});
+
+ipcMain.handle(
+  'matter.buildChatPrompt',
+  (_event, prompt: string, itemIds?: string[]): { prompt: string } => {
+    if (!matterService) {
+      throw new Error('Matter service not initialized');
+    }
+    return { prompt: matterService.buildChatPrompt(prompt, itemIds) };
+  }
+);
 
 ipcMain.handle('loop.start', (_event, payload: ChatLoopStartInput) => {
   if (!chatLoopManager) {

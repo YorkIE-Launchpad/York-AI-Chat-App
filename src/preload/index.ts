@@ -56,6 +56,7 @@ import type {
 } from '../shared/ipc-types';
 import type { AuthStatusResponse, AuthUser, AuthOAuthDebugInfo } from '../shared/auth-types';
 import type { AllocatedHubProject } from '../shared/workspace-division';
+import type { MatterItemActionInput, MatterRuntimeConfig, MatterSnapshot } from '../shared/matter';
 
 // Track registered callbacks to prevent duplicate listeners
 let registeredCallback: ((event: ServerEvent) => void) | null = null;
@@ -579,6 +580,25 @@ contextBridge.exposeInMainWorld('electronAPI', {
     runNow: (id: string): Promise<ScheduleTask | null> => ipcRenderer.invoke('schedule.runNow', id),
   },
 
+  matter: {
+    getSnapshot: (): Promise<MatterSnapshot> => ipcRenderer.invoke('matter.getSnapshot'),
+    scanNow: (): Promise<MatterSnapshot> => ipcRenderer.invoke('matter.scanNow'),
+    applyAction: (input: MatterItemActionInput): Promise<MatterSnapshot> =>
+      ipcRenderer.invoke('matter.applyAction', input),
+    updateSettings: (partial: Partial<MatterRuntimeConfig>): Promise<MatterRuntimeConfig> =>
+      ipcRenderer.invoke('matter.updateSettings', partial),
+    clearMute: (key: string): Promise<MatterSnapshot> =>
+      ipcRenderer.invoke('matter.clearMute', key),
+    buildChatPrompt: (prompt: string, itemIds?: string[]): Promise<{ prompt: string }> =>
+      ipcRenderer.invoke('matter.buildChatPrompt', prompt, itemIds),
+    onUpdated: (callback: (snapshot: MatterSnapshot) => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, snapshot: MatterSnapshot) =>
+        callback(snapshot);
+      ipcRenderer.on('matter:updated', listener);
+      return () => ipcRenderer.removeListener('matter:updated', listener);
+    },
+  },
+
   loop: {
     start: (payload: ChatLoopStartInput): Promise<ChatLoopStatus> =>
       ipcRenderer.invoke('loop.start', payload),
@@ -1020,6 +1040,15 @@ declare global {
         delete: (id: string) => Promise<{ success: boolean }>;
         toggle: (id: string, enabled: boolean) => Promise<ScheduleTask | null>;
         runNow: (id: string) => Promise<ScheduleTask | null>;
+      };
+      matter: {
+        getSnapshot: () => Promise<MatterSnapshot>;
+        scanNow: () => Promise<MatterSnapshot>;
+        applyAction: (input: MatterItemActionInput) => Promise<MatterSnapshot>;
+        updateSettings: (partial: Partial<MatterRuntimeConfig>) => Promise<MatterRuntimeConfig>;
+        clearMute: (key: string) => Promise<MatterSnapshot>;
+        buildChatPrompt: (prompt: string, itemIds?: string[]) => Promise<{ prompt: string }>;
+        onUpdated: (callback: (snapshot: MatterSnapshot) => void) => () => void;
       };
       loop: {
         start: (payload: ChatLoopStartInput) => Promise<ChatLoopStatus>;

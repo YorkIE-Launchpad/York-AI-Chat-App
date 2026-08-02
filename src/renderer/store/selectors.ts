@@ -205,10 +205,15 @@ export function useLayoutState(): { sidebarCollapsed: boolean; contextPanelColla
 }
 
 /** Returns whether the settings panel is open, plus the active tab. */
-export function useSettingsState(): { showSettings: boolean; settingsTab: string | null } {
+export function useSettingsState(): {
+  showSettings: boolean;
+  showMatter: boolean;
+  settingsTab: string | null;
+} {
   return useAppStore(
     useShallow((s) => ({
       showSettings: s.showSettings,
+      showMatter: s.showMatter,
       settingsTab: s.settingsTab,
     }))
   );
