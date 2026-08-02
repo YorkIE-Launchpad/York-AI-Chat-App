@@ -3681,6 +3681,100 @@ ipcMain.handle('logs.export', async () => {
   }
 });
 
+ipcMain.handle('session.export', async (_event, sessionId: string) => {
+  try {
+    if (!sessionManager) {
+      return { success: false, error: 'Session manager not initialized' };
+    }
+    if (!sessionId || typeof sessionId !== 'string') {
+      return { success: false, error: 'Invalid session id' };
+    }
+    const session = sessionManager.getSession(sessionId);
+    if (!session) {
+      return { success: false, error: 'Session not found' };
+    }
+    if (session.incognito) {
+      return { success: false, error: 'Incognito chats cannot be exported' };
+    }
+
+    const { exportSessionToPath, sanitizeChatExportFilename } =
+      await import('./session/session-transfer');
+    const defaultName = `${sanitizeChatExportFilename(session.title)}-chat.yorkchat`;
+    const result = await dialog.showSaveDialog(mainWindow!, {
+      title: 'Export Chat',
+      defaultPath: defaultName,
+      filters: [
+        { name: 'York Chat', extensions: ['yorkchat'] },
+        { name: 'ZIP Archive', extensions: ['zip'] },
+        { name: 'All Files', extensions: ['*'] },
+      ],
+    });
+
+    if (result.canceled || !result.filePath) {
+      return { success: false, error: 'User cancelled', cancelled: true };
+    }
+
+    let destPath = result.filePath;
+    if (!destPath.toLowerCase().endsWith('.yorkchat') && !destPath.toLowerCase().endsWith('.zip')) {
+      destPath = `${destPath}.yorkchat`;
+    }
+
+    return await exportSessionToPath(
+      {
+        getSession: (id) => sessionManager!.getSession(id),
+        getMessages: (id) => sessionManager!.getMessages(id),
+        getTraceSteps: (id) => sessionManager!.getTraceSteps(id),
+        appVersion: app.getVersion(),
+      },
+      sessionId,
+      destPath
+    );
+  } catch (error) {
+    logError('[Session] Error exporting chat:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+ipcMain.handle('session.import', async () => {
+  try {
+    if (!sessionManager) {
+      return { success: false, error: 'Session manager not initialized' };
+    }
+
+    const openResult = await dialog.showOpenDialog(mainWindow!, {
+      title: 'Import Chat',
+      properties: ['openFile'],
+      filters: [
+        { name: 'York Chat', extensions: ['yorkchat', 'zip'] },
+        { name: 'All Files', extensions: ['*'] },
+      ],
+    });
+
+    if (openResult.canceled || !openResult.filePaths[0]) {
+      return { success: false, error: 'User cancelled', cancelled: true };
+    }
+
+    const { importSessionFromPath } = await import('./session/session-transfer');
+    const importResult = await importSessionFromPath(
+      {
+        importSession: (payload, attachmentFiles, options) =>
+          sessionManager!.importSessionFromPayload(payload, attachmentFiles, options),
+      },
+      openResult.filePaths[0],
+      { cwd: currentWorkingDir || configStore.get('defaultWorkdir') || undefined }
+    );
+
+    if (!importResult.success || !importResult.session) {
+      return { success: false, error: importResult.error || 'Import failed' };
+    }
+
+    return { success: true, session: importResult.session };
+  } catch (error) {
+    logError('[Session] Error importing chat:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
 ipcMain.handle('logs.open', async () => {
   try {
     const logsDir = getLogsDirectory();

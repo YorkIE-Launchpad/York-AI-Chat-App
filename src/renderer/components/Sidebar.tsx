@@ -19,6 +19,7 @@ import {
   LogOut,
   RefreshCw,
   Ghost,
+  FileDown,
 } from 'lucide-react';
 import type { Session } from '../types';
 import { DivisionSwitcher } from './DivisionSwitcher';
@@ -174,13 +175,16 @@ export function Sidebar() {
     setSessionPinned,
     getSessionMessages,
     getSessionTraceSteps,
+    importSession,
     isElectron,
   } = useIPC();
+  const setGlobalNotice = useAppStore((s) => s.setGlobalNotice);
   const [hoveredSession, setHoveredSession] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [isSelectMode, setIsSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [importing, setImporting] = useState(false);
 
   const normalizedQuery = useMemo(() => searchQuery.trim().toLowerCase(), [searchQuery]);
   const divisionSessions = useMemo(
@@ -378,6 +382,37 @@ export function Sidebar() {
     setShowSettings(false);
   };
 
+  const handleImportChat = async () => {
+    if (!isElectron || importing) return;
+    setImporting(true);
+    try {
+      const result = await importSession();
+      if (result.cancelled) return;
+      if (result.success && result.session) {
+        setGlobalNotice({
+          id: `notice-import-${Date.now()}`,
+          type: 'success',
+          message: '',
+          messageKey: 'sidebar.importSuccess',
+        });
+      } else {
+        setGlobalNotice({
+          id: `notice-import-${Date.now()}`,
+          type: 'error',
+          message: result.error || t('sidebar.importFailed'),
+        });
+      }
+    } catch (error) {
+      setGlobalNotice({
+        id: `notice-import-${Date.now()}`,
+        type: 'error',
+        message: error instanceof Error ? error.message : t('sidebar.importFailed'),
+      });
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const handleDeleteSession = (e: React.MouseEvent, sessionId: string) => {
     e.stopPropagation();
     deleteSession(sessionId);
@@ -428,6 +463,14 @@ export function Sidebar() {
             title={t('sidebar.incognitoTask')}
           >
             <Ghost className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => void handleImportChat()}
+            disabled={!isElectron || importing}
+            className="w-9 h-9 rounded-2xl flex items-center justify-center bg-background hover:bg-surface-hover transition-colors text-text-secondary border border-border-subtle disabled:opacity-50"
+            title={t('sidebar.importChat')}
+          >
+            <FileDown className={`w-4 h-4 ${importing ? 'animate-pulse' : ''}`} />
           </button>
         </div>
 
@@ -515,21 +558,30 @@ export function Sidebar() {
           <DivisionSwitcher compact />
         </div>
 
-        <button
-          onClick={handleNewSession}
-          className="mt-3 w-full flex items-center gap-2 rounded-xl bg-background px-3 py-2 text-left text-text-primary hover:bg-surface-hover transition-colors"
-        >
-          <Plus className="w-4 h-4 text-text-secondary flex-shrink-0" />
-          <span className="text-[13px] font-medium">{t('sidebar.newTask')}</span>
-        </button>
-        <button
-          onClick={handleIncognitoSession}
-          className="mt-1.5 w-full flex items-center gap-2 rounded-xl bg-background/60 px-3 py-2 text-left text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors border border-dashed border-border-subtle"
-          title={t('sidebar.incognitoTaskHint')}
-        >
-          <Ghost className="w-4 h-4 flex-shrink-0" />
-          <span className="text-[13px] font-medium">{t('sidebar.incognitoTask')}</span>
-        </button>
+        <div className="mt-3 flex items-center gap-1.5">
+          <button
+            onClick={handleNewSession}
+            className="flex-1 h-9 rounded-xl flex items-center justify-center bg-background text-text-primary hover:bg-surface-hover transition-colors border border-border-subtle"
+            title={t('sidebar.newTask')}
+          >
+            <Plus className="w-4 h-4" />
+          </button>
+          <button
+            onClick={handleIncognitoSession}
+            className="flex-1 h-9 rounded-xl flex items-center justify-center bg-background/60 text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors border border-dashed border-border-subtle"
+            title={t('sidebar.incognitoTaskHint')}
+          >
+            <Ghost className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => void handleImportChat()}
+            disabled={!isElectron || importing}
+            className="flex-1 h-9 rounded-xl flex items-center justify-center bg-background/60 text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors border border-border-subtle disabled:opacity-50"
+            title={t('sidebar.importChatHint')}
+          >
+            <FileDown className={`w-4 h-4 ${importing ? 'animate-pulse' : ''}`} />
+          </button>
+        </div>
 
         {divisionSessions.length > 0 && (
           <div className="mt-2 flex items-center gap-2">

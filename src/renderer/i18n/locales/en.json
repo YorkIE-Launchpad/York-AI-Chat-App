@@ -774,6 +774,10 @@
     "newTaskHint": "Start a fresh conversation",
     "incognitoTask": "Incognito chat",
     "incognitoTaskHint": "Chat won’t be saved or used for memory",
+    "importChat": "Import chat",
+    "importChatHint": "Open a .yorkchat file and continue the conversation",
+    "importSuccess": "Chat imported",
+    "importFailed": "Failed to import chat",
     "today": "Today",
     "yesterday": "Yesterday",
     "previousWeek": "Previous 7 Days",
@@ -829,7 +833,11 @@
     "dictationListening": "Listening…",
     "dictationMicDenied": "Microphone access denied. Allow access in System Settings.",
     "dictationSignInRequired": "Sign in to use speech-to-text.",
-    "dictationFailed": "Could not start live speech-to-text. Try again."
+    "dictationFailed": "Could not start live speech-to-text. Try again.",
+    "exportChat": "Export chat",
+    "exportSuccess": "Chat exported to {{path}}",
+    "exportFailed": "Failed to export chat",
+    "exportIncognitoBlocked": "Incognito chats cannot be exported"
   },
   "context": {
     "progress": "Progress",

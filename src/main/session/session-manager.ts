@@ -65,6 +65,7 @@ import {
   parseDivisionKind,
   type SessionDivisionFields,
 } from '../../shared/workspace-division';
+import type { ChatExportPayload } from './session-transfer';
 
 interface AgentRunner {
   run(session: Session, prompt: string, existingMessages: Message[]): Promise<void>;
@@ -521,6 +522,193 @@ export class SessionManager {
     }));
     // Ephemeral first so open incognito chats stay visible after session.list refresh
     return [...ephemeral, ...persisted];
+  }
+
+  /** Public session lookup for export/import and other callers. */
+  getSession(sessionId: string): Session | null {
+    return this.loadSession(sessionId);
+  }
+
+  /**
+   * Import a portable chat payload as a new local session.
+   * Clears provider resume IDs so the agent cold-starts from message history.
+   */
+  importSessionFromPayload(
+    payload: ChatExportPayload,
+    attachmentFiles: Map<string, Buffer>,
+    options: { cwd?: string } = {}
+  ): Session {
+    const envCwd = process.env.YORK_IE_WORKDIR || process.env.WORKDIR || process.env.DEFAULT_CWD;
+    const effectiveCwd = options.cwd || configStore.get('defaultWorkdir') || envCwd || undefined;
+
+    const session = this.createSession(
+      payload.session.title || 'Imported chat',
+      effectiveCwd,
+      payload.session.allowedTools,
+      payload.session.memoryEnabled,
+      {
+        model: payload.session.model,
+        division: payload.session.division,
+        hubProjectId: payload.session.hubProjectId,
+        hubProjectName: payload.session.hubProjectName,
+      }
+    );
+    // Never carry exporter resume IDs; continue uses DB history preamble.
+    session.claudeSessionId = undefined;
+    session.openaiThreadId = undefined;
+    session.status = 'idle';
+    session.pinned = false;
+
+    this.saveSession(session);
+
+    const tmpDir = path.join(session.cwd || process.cwd(), '.tmp');
+    if (!fs.existsSync(tmpDir)) {
+      fs.mkdirSync(tmpDir, { recursive: true });
+    }
+
+    const importedMessages: Message[] = [];
+
+    for (const original of payload.messages) {
+      if (!original || typeof original !== 'object') continue;
+      const newMessageId = uuidv4();
+
+      const content = this.stageImportedAttachments(
+        Array.isArray(original.content) ? original.content : [],
+        attachmentFiles,
+        tmpDir
+      );
+
+      const message: Message = {
+        id: newMessageId,
+        sessionId: session.id,
+        role: original.role === 'assistant' || original.role === 'system' ? original.role : 'user',
+        content,
+        timestamp: typeof original.timestamp === 'number' ? original.timestamp : Date.now(),
+        tokenUsage: original.tokenUsage,
+        executionTimeMs: original.executionTimeMs,
+        api: original.api,
+        provider: original.provider,
+        model: original.model,
+      };
+
+      this.db.messages.create({
+        id: message.id,
+        session_id: message.sessionId,
+        role: message.role,
+        content: JSON.stringify(message.content),
+        timestamp: message.timestamp,
+        token_usage: message.tokenUsage ? JSON.stringify(message.tokenUsage) : null,
+        execution_time_ms: message.executionTimeMs ?? null,
+      });
+      importedMessages.push(message);
+    }
+
+    this.messageCache.set(session.id, importedMessages);
+
+    for (const original of payload.traceSteps) {
+      if (!original || typeof original !== 'object') continue;
+      const step: TraceStep = {
+        id: uuidv4(),
+        type:
+          original.type === 'thinking' ||
+          original.type === 'text' ||
+          original.type === 'tool_call' ||
+          original.type === 'tool_result'
+            ? original.type
+            : 'text',
+        status:
+          original.status === 'pending' ||
+          original.status === 'running' ||
+          original.status === 'completed' ||
+          original.status === 'error'
+            ? original.status
+            : 'completed',
+        title: typeof original.title === 'string' ? original.title : 'Step',
+        content: original.content,
+        toolName: original.toolName,
+        toolInput: original.toolInput,
+        toolOutput: original.toolOutput,
+        isError: original.isError,
+        timestamp: typeof original.timestamp === 'number' ? original.timestamp : Date.now(),
+        duration: original.duration,
+      };
+      this.saveTraceStep(session.id, step);
+    }
+
+    log(
+      '[SessionManager] Imported session',
+      session.id,
+      'with',
+      importedMessages.length,
+      'messages'
+    );
+    return session;
+  }
+
+  private stageImportedAttachments(
+    content: ContentBlock[],
+    attachmentFiles: Map<string, Buffer>,
+    tmpDir: string
+  ): ContentBlock[] {
+    const result: ContentBlock[] = [];
+    for (const block of content) {
+      if (block.type !== 'file_attachment') {
+        result.push(block);
+        continue;
+      }
+      const fileBlock = block as FileAttachmentContent;
+      const basename = path.basename(fileBlock.relativePath || fileBlock.filename || '');
+      const candidates = [
+        basename,
+        fileBlock.filename,
+        path.basename(fileBlock.relativePath || ''),
+      ].filter((v): v is string => Boolean(v && v.trim()));
+
+      let buffer: Buffer | undefined;
+      for (const key of candidates) {
+        const found = attachmentFiles.get(key);
+        if (found) {
+          buffer = found;
+          break;
+        }
+      }
+      if (!buffer && fileBlock.inlineDataBase64) {
+        buffer = Buffer.from(fileBlock.inlineDataBase64, 'base64');
+      }
+
+      if (!buffer) {
+        logWarn(
+          '[SessionManager] Imported message missing attachment file:',
+          fileBlock.filename || fileBlock.relativePath
+        );
+        // Keep metadata chip so the conversation still reads coherently
+        result.push({
+          ...fileBlock,
+          relativePath: fileBlock.relativePath || `.tmp/${fileBlock.filename || 'missing'}`,
+          inlineDataBase64: undefined,
+        });
+        continue;
+      }
+
+      const destFilename = basename || fileBlock.filename || `attachment-${Date.now()}`;
+      const safeName = path.basename(destFilename) || `attachment-${Date.now()}`;
+      let destPath = path.join(tmpDir, safeName);
+      if (fs.existsSync(destPath)) {
+        const ext = path.extname(safeName);
+        const stem = path.basename(safeName, ext);
+        destPath = path.join(tmpDir, `${stem}-${uuidv4().slice(0, 8)}${ext}`);
+      }
+      fs.writeFileSync(destPath, buffer);
+      const rest = { ...fileBlock };
+      delete rest.inlineDataBase64;
+      result.push({
+        ...rest,
+        filename: fileBlock.filename || path.basename(destPath),
+        relativePath: path.join('.tmp', path.basename(destPath)),
+        size: buffer.length,
+      });
+    }
+    return result;
   }
 
   // Continue an existing session

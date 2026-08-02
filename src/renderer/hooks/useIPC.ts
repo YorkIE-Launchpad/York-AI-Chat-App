@@ -955,6 +955,54 @@ export function useIPC() {
     [invoke]
   );
 
+  const exportSession = useCallback(
+    async (
+      sessionId: string
+    ): Promise<{ success: boolean; path?: string; error?: string; cancelled?: boolean }> => {
+      if (!isElectron) {
+        return { success: false, error: 'Export is only available in the desktop app' };
+      }
+      return window.electronAPI.session.export(sessionId);
+    },
+    []
+  );
+
+  const importSession = useCallback(async (): Promise<{
+    success: boolean;
+    session?: Session;
+    error?: string;
+    cancelled?: boolean;
+  }> => {
+    if (!isElectron) {
+      return { success: false, error: 'Import is only available in the desktop app' };
+    }
+    const result = await window.electronAPI.session.import();
+    if (!result.success || !result.session) {
+      return result;
+    }
+
+    const session = result.session;
+    const existing = useAppStore.getState().sessions.some((s) => s.id === session.id);
+    if (!existing) {
+      addSession(session);
+    }
+    useAppStore.getState().setActiveSession(session.id);
+    useAppStore.getState().setShowSettings(false);
+
+    try {
+      const [messages, traceSteps] = await Promise.all([
+        invoke<Message[]>({ type: 'session.getMessages', payload: { sessionId: session.id } }),
+        invoke<TraceStep[]>({ type: 'session.getTraceSteps', payload: { sessionId: session.id } }),
+      ]);
+      useAppStore.getState().setMessages(session.id, messages || []);
+      useAppStore.getState().setTraceSteps(session.id, traceSteps || []);
+    } catch (err) {
+      console.error('[useIPC] Failed to load imported session history:', err);
+    }
+
+    return result;
+  }, [addSession, invoke]);
+
   const respondToPermission = useCallback(
     (toolUseId: string, result: PermissionResult) => {
       send({
@@ -1043,6 +1091,8 @@ export function useIPC() {
     listSessions,
     getSessionMessages,
     getSessionTraceSteps,
+    exportSession,
+    importSession,
     respondToPermission,
     respondToQuestion,
     respondToSudoPassword,

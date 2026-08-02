@@ -34,6 +34,7 @@ import type {
   MeetingCaptureStatus,
   MeetingPermissionStatus,
   MeetingSegment,
+  Session,
 } from '../renderer/types';
 import type { DiagnosticInput, DiagnosticResult } from '../renderer/types';
 import type { UpdaterStatus } from '../shared/updater-types';
@@ -167,6 +168,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
         type: 'session.getContextUsage',
         payload: { sessionId },
       }),
+    export: (
+      sessionId: string
+    ): Promise<{ success: boolean; path?: string; error?: string; cancelled?: boolean }> =>
+      ipcRenderer.invoke('session.export', sessionId),
+    import: (): Promise<{
+      success: boolean;
+      session?: Session;
+      error?: string;
+      cancelled?: boolean;
+    }> => ipcRenderer.invoke('session.import'),
   },
 
   // Platform info
@@ -730,6 +741,15 @@ declare global {
           contextWindow: number;
           percent: number | null;
         } | null>;
+        export: (
+          sessionId: string
+        ) => Promise<{ success: boolean; path?: string; error?: string; cancelled?: boolean }>;
+        import: () => Promise<{
+          success: boolean;
+          session?: Session;
+          error?: string;
+          cancelled?: boolean;
+        }>;
       };
       platform: NodeJS.Platform;
       getSystemTheme: () => Promise<{ shouldUseDarkColors: boolean }>;

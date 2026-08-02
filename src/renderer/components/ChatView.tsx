@@ -29,6 +29,7 @@ import {
   Paperclip,
   RefreshCw,
   Ghost,
+  FileUp,
 } from 'lucide-react';
 import { isScrollNearBottom, resolveSessionScrollTop } from '../utils/chat-scroll-position';
 import {
@@ -86,7 +87,7 @@ export function ChatView() {
   const chatLoopStatus = useAppStore((s) =>
     activeSessionId ? (s.chatLoopBySessionId[activeSessionId] ?? null) : null
   );
-  const { continueSession, stopSession, isElectron } = useIPC();
+  const { continueSession, stopSession, exportSession, isElectron } = useIPC();
   const [prompt, setPrompt] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const {
@@ -1007,6 +1008,44 @@ export function ChatView() {
     }
   };
 
+  const handleExportChat = async () => {
+    if (!activeSessionId || !isElectron) return;
+    if (activeSession?.incognito) {
+      setGlobalNotice({
+        id: `notice-export-${Date.now()}`,
+        type: 'warning',
+        message: '',
+        messageKey: 'chat.exportIncognitoBlocked',
+      });
+      return;
+    }
+    try {
+      const result = await exportSession(activeSessionId);
+      if (result.cancelled) return;
+      if (result.success && result.path) {
+        setGlobalNotice({
+          id: `notice-export-${Date.now()}`,
+          type: 'success',
+          message: '',
+          messageKey: 'chat.exportSuccess',
+          messageValues: { path: result.path },
+        });
+      } else {
+        setGlobalNotice({
+          id: `notice-export-${Date.now()}`,
+          type: 'error',
+          message: result.error || t('chat.exportFailed'),
+        });
+      }
+    } catch (error) {
+      setGlobalNotice({
+        id: `notice-export-${Date.now()}`,
+        type: 'error',
+        message: error instanceof Error ? error.message : t('chat.exportFailed'),
+      });
+    }
+  };
+
   // Auto-adjust textarea height based on content
   const adjustTextareaHeight = () => {
     const textarea = textareaRef.current;
@@ -1065,6 +1104,15 @@ export function ChatView() {
           {activeSession.title}
         </h2>
         <div className="justify-self-end flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void handleExportChat()}
+            disabled={!isElectron || Boolean(activeSession?.incognito)}
+            className="w-8 h-8 rounded-xl flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-surface-hover transition-colors disabled:opacity-40 disabled:pointer-events-none"
+            title={t('chat.exportChat')}
+          >
+            <FileUp className="w-4 h-4" />
+          </button>
           {chatLoopStatus && (
             <button
               type="button"
