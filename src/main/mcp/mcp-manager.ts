@@ -381,6 +381,8 @@ export class MCPManager {
   private pendingInitConfigs: MCPServerConfig[] | null = null;
   // Guards against concurrent reconnect/update operations on the same server
   private reconnectingServers: Set<string> = new Set();
+  // Access token last injected into each connector MCP child process env
+  private connectorAccessTokensByServerId = new Map<string, string>();
   // Background connect retry loops (5s interval, 5min deadline)
   private connectRetryControllers = new Map<string, AbortController>();
   // Tracks per-server connection status for UI display
@@ -1220,6 +1222,7 @@ export class MCPManager {
             extraConnectorEnv.GOOGLE_ACCOUNT_EMAIL = tokenRecord.accountEmail;
           }
         }
+        this.connectorAccessTokensByServerId.set(config.id, tokenRecord.accessToken);
       }
       const env = await this.getEnhancedEnv({ ...(config.env || {}), ...extraConnectorEnv });
 
@@ -2039,6 +2042,7 @@ export class MCPManager {
     }
     this.chromeReadyServerIds.delete(serverId);
     this.chromeReadyInFlight.delete(serverId);
+    this.connectorAccessTokensByServerId.delete(serverId);
 
     log(`[MCPManager] Disconnected from server ${serverId}`);
   }
@@ -2334,6 +2338,18 @@ export class MCPManager {
           await this.ensureChromeReadyOnce(currentTool.serverId, currentTool.serverName, client);
         }
 
+        // Google/Slack MCP children freeze the access token in env at spawn time.
+        // Refresh the stored token and reconnect when it rotated so tool calls stay long-lived.
+        if (serverConfig) {
+          const reconnectedForToken = await this.reconnectConnectorServerIfTokenRotated(
+            currentTool.serverId,
+            serverConfig
+          );
+          if (reconnectedForToken) {
+            continue;
+          }
+        }
+
         const remainingMs = deadline - Date.now();
         if (remainingMs <= 0) {
           throw new Error(`Tool call timeout after ${MCP_TOOL_CALL_TIMEOUT_MS}ms`);
@@ -2395,16 +2411,29 @@ export class MCPManager {
         }
 
         const lowerErrorMsg = errorMsg.toLowerCase();
+        const authFailure = isAuthFailureErrorText(errorMsg);
         const shouldReconnect =
           lowerErrorMsg.includes('mcp server not connected') ||
           lowerErrorMsg.includes('not connected') ||
           lowerErrorMsg.includes('connection closed') ||
-          isAuthFailureErrorText(errorMsg);
+          authFailure;
 
         if (shouldReconnect) {
           log(
             `[MCPManager] Reconnectable MCP error detected for ${currentTool.serverName}; attempting reconnect...`
           );
+          const serverConfig = this.serverConfigs.get(currentTool.serverId);
+          const connectorId = serverConfig ? getConnectorIdForServer(serverConfig) : null;
+          if (connectorId && authFailure) {
+            try {
+              await connectorManager.ensureFreshAccessToken(connectorId, { forceRefresh: true });
+            } catch (refreshError) {
+              logWarn(
+                `[MCPManager] Forced connector token refresh failed for ${connectorId}:`,
+                refreshError
+              );
+            }
+          }
           const reconnected = await this.reconnectServer(currentTool.serverId);
           if (reconnected) {
             continue;
@@ -2437,6 +2466,41 @@ export class MCPManager {
     }
 
     throw lastError;
+  }
+
+  /**
+   * Connector MCP servers bake access tokens into process env at spawn.
+   * When the stored token has been refreshed, restart the child so tool calls
+   * keep working past the ~1h Google access-token lifetime.
+   */
+  private async reconnectConnectorServerIfTokenRotated(
+    serverId: string,
+    serverConfig: MCPServerConfig
+  ): Promise<boolean> {
+    const connectorId = getConnectorIdForServer(serverConfig);
+    if (!connectorId) {
+      return false;
+    }
+
+    let freshToken: string;
+    try {
+      const tokenRecord = await connectorManager.ensureFreshAccessToken(connectorId);
+      freshToken = tokenRecord.accessToken;
+    } catch (error) {
+      logWarn(`[MCPManager] Could not ensure fresh ${connectorId} token before tool call:`, error);
+      return false;
+    }
+
+    const injected = this.connectorAccessTokensByServerId.get(serverId);
+    if (!injected || injected === freshToken) {
+      this.connectorAccessTokensByServerId.set(serverId, freshToken);
+      return false;
+    }
+
+    log(
+      `[MCPManager] ${connectorId} access token rotated; reconnecting MCP server ${serverConfig.name}`
+    );
+    return this.reconnectServer(serverId);
   }
 
   async reconnectServer(
@@ -2746,7 +2810,15 @@ function isAuthFailureErrorText(text: string): boolean {
     normalized.includes('sign in again') ||
     normalized.includes('please login again') ||
     normalized.includes('invalid token') ||
-    normalized.includes('authorization bearer token is required')
+    normalized.includes('invalid_auth') ||
+    normalized.includes('invalid credentials') ||
+    normalized.includes('token expired') ||
+    normalized.includes('token has been expired') ||
+    normalized.includes('token_expired') ||
+    normalized.includes('token_revoked') ||
+    normalized.includes('authorization bearer token is required') ||
+    normalized.includes('needs to be reconnected') ||
+    normalized.includes('unauthorized')
   );
 }
 

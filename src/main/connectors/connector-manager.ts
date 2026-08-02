@@ -51,7 +51,43 @@ const ZOOM_SCOPES = [
 
 const ALL_CONNECTOR_IDS: ConnectorId[] = ['slack', 'google', 'zoom'];
 
+const ACCESS_TOKEN_EXPIRY_BUFFER_MS = 60_000;
+/** When expiresAt is missing, refresh after this age (Google access tokens last ~1h). */
+const ACCESS_TOKEN_STALE_WITHOUT_EXPIRY_MS = 50 * 60_000;
+
+function parseExpiresAtFromExpiresIn(expiresIn: unknown): number | null {
+  const seconds =
+    typeof expiresIn === 'number'
+      ? expiresIn
+      : typeof expiresIn === 'string'
+        ? Number(expiresIn)
+        : NaN;
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    return null;
+  }
+  return Date.now() + seconds * 1000;
+}
+
+export function connectorAccessTokenNeedsRefresh(
+  record: Pick<ConnectorTokenRecord, 'expiresAt' | 'updatedAt' | 'refreshToken'>,
+  now = Date.now(),
+  options?: { forceRefresh?: boolean }
+): boolean {
+  if (options?.forceRefresh) {
+    return true;
+  }
+  if (record.expiresAt != null) {
+    return record.expiresAt - now <= ACCESS_TOKEN_EXPIRY_BUFFER_MS;
+  }
+  // Missing expiry: still refresh periodically when we have a refresh token.
+  return (
+    Boolean(record.refreshToken) && now - record.updatedAt >= ACCESS_TOKEN_STALE_WITHOUT_EXPIRY_MS
+  );
+}
+
 class ConnectorManager {
+  private refreshInFlight = new Map<ConnectorId, Promise<ConnectorTokenRecord>>();
+
   constructor() {
     connectorTokenStore.clearLegacyGoogleTokens();
   }
@@ -116,7 +152,30 @@ class ConnectorManager {
     connectorTokenStore.clear(connectorId);
   }
 
-  async ensureFreshAccessToken(connectorId: ConnectorId): Promise<ConnectorTokenRecord> {
+  async ensureFreshAccessToken(
+    connectorId: ConnectorId,
+    options?: { forceRefresh?: boolean }
+  ): Promise<ConnectorTokenRecord> {
+    const inFlight = this.refreshInFlight.get(connectorId);
+    if (inFlight) {
+      return inFlight;
+    }
+
+    const run = this.ensureFreshAccessTokenUnlocked(connectorId, options);
+    this.refreshInFlight.set(connectorId, run);
+    try {
+      return await run;
+    } finally {
+      if (this.refreshInFlight.get(connectorId) === run) {
+        this.refreshInFlight.delete(connectorId);
+      }
+    }
+  }
+
+  private async ensureFreshAccessTokenUnlocked(
+    connectorId: ConnectorId,
+    options?: { forceRefresh?: boolean }
+  ): Promise<ConnectorTokenRecord> {
     const current = connectorTokenStore.load(connectorId);
     if (!current) {
       throw new Error(`${connectorId} connector is not connected`);
@@ -126,18 +185,23 @@ class ConnectorManager {
       this.assertSlackUserToken(current.accessToken, 'Stored Slack connector token');
     }
 
-    if (!current.expiresAt || current.expiresAt - Date.now() > 60_000) {
+    if (!connectorAccessTokenNeedsRefresh(current, Date.now(), options)) {
       return current;
     }
-    if (!current.refreshToken) {
+    if (!current.refreshToken?.trim()) {
       logWarn('[ConnectorManager] Connector access token expired without refresh token', {
         connectorId,
       });
-      return current;
+      throw new Error(
+        `${connectorId} access token expired. Disconnect and reconnect the connector.`
+      );
     }
 
     const oauth = this.getOauthConfig(connectorId);
     const refreshed = await this.refreshAccessToken(connectorId, oauth, current.refreshToken);
+    if (!refreshed.accessToken?.trim()) {
+      throw new Error(`${connectorId} token refresh did not return an access token`);
+    }
     const nextRecord: ConnectorTokenRecord = {
       ...current,
       accessToken: refreshed.accessToken,
@@ -149,6 +213,10 @@ class ConnectorManager {
     };
     this.enforceStoredRecordAllowed(nextRecord);
     connectorTokenStore.save(nextRecord);
+    log('[ConnectorManager] Refreshed connector access token', {
+      connectorId,
+      expiresAt: nextRecord.expiresAt,
+    });
     return nextRecord;
   }
 
@@ -273,10 +341,7 @@ class ConnectorManager {
         typeof payload.refresh_token === 'string' && payload.refresh_token.trim()
           ? payload.refresh_token
           : undefined,
-      expiresAt:
-        typeof payload.expires_in === 'number'
-          ? Date.now() + Number(payload.expires_in) * 1000
-          : null,
+      expiresAt: parseExpiresAtFromExpiresIn(payload.expires_in),
       tokenType: typeof payload.token_type === 'string' ? payload.token_type : undefined,
       scope:
         typeof payload.scope === 'string'
@@ -317,13 +382,9 @@ class ConnectorManager {
               connectorId === 'slack' ? slackTokenPayload?.refreshToken : payload.refresh_token
             )
           : undefined,
-      expiresAt:
-        typeof (connectorId === 'slack' ? slackTokenPayload?.rawExpiresIn : payload.expires_in) ===
-        'number'
-          ? Date.now() +
-            Number(connectorId === 'slack' ? slackTokenPayload?.rawExpiresIn : payload.expires_in) *
-              1000
-          : null,
+      expiresAt: parseExpiresAtFromExpiresIn(
+        connectorId === 'slack' ? slackTokenPayload?.rawExpiresIn : payload.expires_in
+      ),
       tokenType:
         connectorId === 'slack'
           ? 'user'
@@ -547,19 +608,28 @@ class ConnectorManager {
       candidatePayload && typeof candidatePayload.refresh_token === 'string'
         ? candidatePayload.refresh_token.trim()
         : '';
+    const rawExpiresInSource =
+      candidatePayload && candidatePayload.expires_in != null
+        ? candidatePayload.expires_in
+        : payload.expires_in;
+    const expiresAt = parseExpiresAtFromExpiresIn(rawExpiresInSource);
+    const rawExpiresInSeconds =
+      typeof rawExpiresInSource === 'number'
+        ? rawExpiresInSource
+        : typeof rawExpiresInSource === 'string'
+          ? Number(rawExpiresInSource)
+          : NaN;
     const rawExpiresIn =
-      candidatePayload && typeof candidatePayload.expires_in === 'number'
-        ? Number(candidatePayload.expires_in)
-        : typeof payload.expires_in === 'number'
-          ? Number(payload.expires_in)
-          : undefined;
+      Number.isFinite(rawExpiresInSeconds) && rawExpiresInSeconds > 0
+        ? rawExpiresInSeconds
+        : undefined;
 
     const scopeSource =
       candidatePayload && typeof candidatePayload.scope === 'string' ? candidatePayload : payload;
     return {
       accessToken,
       refreshToken: refreshToken || undefined,
-      expiresAt: typeof rawExpiresIn === 'number' ? Date.now() + rawExpiresIn * 1000 : null,
+      expiresAt,
       rawExpiresIn,
       scope: this.extractScopes(scopeSource),
     };

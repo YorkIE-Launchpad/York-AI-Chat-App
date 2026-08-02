@@ -16,6 +16,15 @@ function formatCalendarError(status: number, message: string, context: string): 
   const lower = message.toLowerCase();
   if (
     status === 401 ||
+    lower.includes('invalid credentials') ||
+    lower.includes('token expired') ||
+    lower.includes('token has been expired')
+  ) {
+    return new Error(
+      `${context} failed because the Google access token expired. The app will refresh it automatically.`
+    );
+  }
+  if (
     status === 403 ||
     lower.includes('insufficient') ||
     lower.includes('insufficient authentication') ||

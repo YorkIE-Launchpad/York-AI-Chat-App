@@ -922,6 +922,24 @@ describe('isReconnectableErrorText', () => {
     expect(isReconnectableErrorText('session id expired')).toBe(true);
   });
 
+  it('matches connector token expiry / reconnect phrases', () => {
+    expect(
+      isReconnectableErrorText(
+        'Gmail API request failed because the Google connector needs to be reconnected with Gmail compose/send access.'
+      )
+    ).toBe(true);
+    expect(
+      isReconnectableErrorText(
+        'Gmail API request failed because the Google access token expired. The app will refresh it automatically.'
+      )
+    ).toBe(true);
+    expect(isReconnectableErrorText('token expired')).toBe(true);
+    expect(isReconnectableErrorText('Token has been expired or revoked')).toBe(true);
+    expect(isReconnectableErrorText('invalid_auth')).toBe(true);
+    expect(isReconnectableErrorText('Invalid Credentials')).toBe(true);
+    expect(isReconnectableErrorText('unauthorized')).toBe(true);
+  });
+
   it('does not match unrelated errors', () => {
     expect(isReconnectableErrorText('listTools timeout after 300000ms')).toBe(false);
     expect(isReconnectableErrorText('')).toBe(false);
