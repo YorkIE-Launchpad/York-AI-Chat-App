@@ -79,7 +79,23 @@ describe('meeting memory cleanup', () => {
     configStore.update({
       memoryEnabled: true,
       memoryRuntime: {
-        ...(mockConfigState.config.memoryRuntime as Record<string, unknown>),
+        llm: {
+          inheritFromActive: true,
+          apiKey: '',
+          baseUrl: '',
+          model: '',
+          timeoutMs: 180000,
+        },
+        embedding: {
+          inheritFromActive: true,
+          apiKey: '',
+          baseUrl: '',
+          model: 'text-embedding-3-small',
+          timeoutMs: 180000,
+        },
+        useEmbedding: false,
+        maxNavSteps: 2,
+        ingestionConcurrency: 2,
         storageRoot: path.join(storageRoot, 'memory-root'),
       },
     });

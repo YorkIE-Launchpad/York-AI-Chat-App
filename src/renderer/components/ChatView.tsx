@@ -105,8 +105,9 @@ export function ChatView() {
   >([]);
   const [showConnectorLabel, setShowConnectorLabel] = useState(true);
   const headerRef = useRef<HTMLDivElement>(null);
-  const titleRef = useRef<HTMLHeadingElement>(null);
+  const rightActionsRef = useRef<HTMLDivElement>(null);
   const connectorMeasureRef = useRef<HTMLDivElement>(null);
+  const connectorBadgeRef = useRef<HTMLDivElement>(null);
   const [pastedImages, setPastedImages] = useState<
     Array<{ url: string; base64: string; mediaType: string }>
   >([]);
@@ -709,32 +710,39 @@ export function ChatView() {
   }, [isElectron]);
 
   useEffect(() => {
-    const titleEl = titleRef.current;
     const headerEl = headerRef.current;
+    const rightEl = rightActionsRef.current;
     const measureEl = connectorMeasureRef.current;
-    if (!titleEl || !headerEl || !measureEl) {
+    const badgeEl = connectorBadgeRef.current;
+    if (!headerEl || !rightEl || !measureEl || !badgeEl) {
       setShowConnectorLabel(true);
       return;
     }
     const updateLabelVisibility = () => {
-      const isTruncated = titleEl.scrollWidth > titleEl.clientWidth;
-      const headerStyle = window.getComputedStyle(headerEl);
-      const paddingLeft = Number.parseFloat(headerStyle.paddingLeft) || 0;
-      const paddingRight = Number.parseFloat(headerStyle.paddingRight) || 0;
-      const contentWidth = headerEl.clientWidth - paddingLeft - paddingRight;
-      const titleWidth = titleEl.getBoundingClientRect().width;
-      const rightColumnWidth = Math.max(0, (contentWidth - titleWidth) / 2);
+      const styles = window.getComputedStyle(rightEl);
+      const gap = Number.parseFloat(styles.columnGap || styles.gap) || 0;
+      let usedBySiblings = 0;
+      let siblingCount = 0;
+      for (const child of Array.from(rightEl.children)) {
+        if (child === measureEl || child === badgeEl) continue;
+        if (!(child instanceof HTMLElement)) continue;
+        if (child.getAttribute('aria-hidden') === 'true') continue;
+        usedBySiblings += child.getBoundingClientRect().width;
+        siblingCount += 1;
+      }
+      const gaps = gap * siblingCount; // gaps between siblings and the badge
+      const availableForBadge = Math.max(0, rightEl.clientWidth - usedBySiblings - gaps);
       const connectorFullWidth = measureEl.getBoundingClientRect().width;
-      setShowConnectorLabel(!isTruncated && rightColumnWidth >= connectorFullWidth);
+      setShowConnectorLabel(availableForBadge >= connectorFullWidth);
     };
     updateLabelVisibility();
     const observer = new ResizeObserver(() => {
       updateLabelVisibility();
     });
-    observer.observe(titleEl);
     observer.observe(headerEl);
+    observer.observe(rightEl);
     return () => observer.disconnect();
-  }, [activeSession?.title, activeConnectors.length]);
+  }, [activeConnectors.length, chatLoopStatus]);
 
   const handleSelectSlashSkill = useCallback(
     (skill: Skill) => {
@@ -1092,23 +1100,23 @@ export function ChatView() {
       {/* Header */}
       <div
         ref={headerRef}
-        className="relative h-12 border-b border-border-muted grid grid-cols-[1fr_auto_1fr] items-center px-4 lg:px-8 bg-background/88 backdrop-blur-md"
+        className="relative h-12 border-b border-border-muted grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 px-4 lg:px-8 bg-background/88 backdrop-blur-md"
       >
-        <div className="text-[11px] font-medium tracking-[0.08em] uppercase text-text-muted">
+        <div className="min-w-0 truncate text-[11px] font-medium tracking-[0.08em] uppercase text-text-muted">
           York GrowthOS
         </div>
-        <h2
-          ref={titleRef}
-          className="text-[15px] font-medium text-text-primary text-center truncate max-w-[40vw] lg:max-w-[32rem]"
-        >
+        <h2 className="min-w-0 max-w-[min(40vw,32rem)] text-[15px] font-medium text-text-primary text-center truncate">
           {activeSession.title}
         </h2>
-        <div className="justify-self-end flex items-center gap-2">
+        <div
+          ref={rightActionsRef}
+          className="min-w-0 justify-self-end flex items-center justify-end gap-2 overflow-hidden"
+        >
           <button
             type="button"
             onClick={() => void handleExportChat()}
             disabled={!isElectron || Boolean(activeSession?.incognito)}
-            className="w-8 h-8 rounded-xl flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-surface-hover transition-colors disabled:opacity-40 disabled:pointer-events-none"
+            className="w-8 h-8 shrink-0 rounded-xl flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-surface-hover transition-colors disabled:opacity-40 disabled:pointer-events-none"
             title={t('chat.exportChat')}
           >
             <FileUp className="w-4 h-4" />
@@ -1117,11 +1125,14 @@ export function ChatView() {
             <button
               type="button"
               onClick={() => void handleStopChatLoop()}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-accent/10 border border-accent/20 text-accent text-xs font-medium"
+              className="flex shrink-0 max-w-[9.5rem] items-center gap-1.5 px-2.5 py-1 rounded-full bg-accent/10 border border-accent/20 text-accent text-xs font-medium"
               title={t('loop.stopButton')}
             >
-              <RefreshCw className="w-3.5 h-3.5 animate-spin" style={{ animationDuration: '3s' }} />
-              <span>
+              <RefreshCw
+                className="w-3.5 h-3.5 shrink-0 animate-spin"
+                style={{ animationDuration: '3s' }}
+              />
+              <span className="truncate">
                 {chatLoopStatus.kind === 'goal'
                   ? t('loop.badgeGoal', {
                       interval: formatInterval(msToLoopInterval(chatLoopStatus.intervalMs)),
@@ -1132,7 +1143,7 @@ export function ChatView() {
                       tick: chatLoopStatus.tickCount,
                     })}
               </span>
-              <X className="w-3 h-3" />
+              <X className="w-3 h-3 shrink-0" />
             </button>
           )}
           {activeConnectors.length > 0 && (
@@ -1149,9 +1160,12 @@ export function ChatView() {
                   </span>
                 </div>
               </div>
-              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-mcp/8 border border-mcp/15">
-                <Plug className="w-3.5 h-3.5 text-mcp" />
-                <span className="text-xs text-mcp font-medium">
+              <div
+                ref={connectorBadgeRef}
+                className="flex shrink-0 items-center gap-1.5 px-2.5 py-1 rounded-full bg-mcp/8 border border-mcp/15"
+              >
+                <Plug className="w-3.5 h-3.5 text-mcp shrink-0" />
+                <span className="text-xs text-mcp font-medium whitespace-nowrap">
                   {showConnectorLabel
                     ? t('chat.connectorCount', { count: activeConnectors.length })
                     : activeConnectors.length}
