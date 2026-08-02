@@ -55,7 +55,7 @@ export function SlashCommandMenu({
       ref={rootRef}
       role="listbox"
       aria-label="Skills"
-      className="absolute bottom-[calc(100%+8px)] left-0 right-0 z-30 overflow-hidden rounded-[1.25rem] border border-border-subtle bg-background/96 shadow-elevated backdrop-blur-md"
+      className="absolute bottom-[calc(100%+8px)] left-0 right-0 z-30 overflow-hidden rounded-[1.25rem] border border-border-subtle bg-background shadow-elevated"
     >
       <div className="border-b border-border-subtle px-3 py-2 text-[11px] font-medium tracking-[0.04em] text-text-muted">
         Skills
