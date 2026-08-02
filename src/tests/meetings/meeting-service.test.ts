@@ -298,6 +298,54 @@ describe('MeetingService', () => {
     expect(ingestMeeting).not.toHaveBeenCalled();
   });
 
+  it('deletes related memories when deleting a meeting', async () => {
+    const service = new MeetingService();
+    const deleteMeetingMemories = vi.fn(async () => undefined);
+    service.setMemoryService({
+      isEnabled: () => true,
+      ingestMeeting: vi.fn(async () => undefined),
+      deleteMeetingMemories,
+      deleteAllMeetingMemories: vi.fn(async () => ({ success: true, deletedSessions: 0 })),
+    } as never);
+
+    const finalized = await captureAndFinalize(service);
+    expect(finalized).toBeTruthy();
+
+    await service.delete(finalized!.id);
+
+    expect(service.get(finalized!.id)).toBeNull();
+    expect(deleteMeetingMemories).toHaveBeenCalledTimes(1);
+    expect(deleteMeetingMemories).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: finalized!.id,
+        title: finalized!.title,
+        startedAt: finalized!.startedAt,
+        notes: expect.objectContaining({ title: 'Sync notes' }),
+      })
+    );
+  });
+
+  it('clears all meeting memories when clearing all meetings', async () => {
+    const service = new MeetingService();
+    const deleteAllMeetingMemories = vi.fn(async () => ({
+      success: true,
+      deletedSessions: 1,
+    }));
+    service.setMemoryService({
+      isEnabled: () => true,
+      ingestMeeting: vi.fn(async () => undefined),
+      deleteMeetingMemories: vi.fn(async () => undefined),
+      deleteAllMeetingMemories,
+    } as never);
+
+    await captureAndFinalize(service);
+    const result = await service.clearAll();
+
+    expect(result.deleted).toBeGreaterThanOrEqual(1);
+    expect(service.list()).toHaveLength(0);
+    expect(deleteAllMeetingMemories).toHaveBeenCalledTimes(1);
+  });
+
   it('does not request screen permission when requesting capture access', async () => {
     const { desktopCapturer, shell } = await import('electron');
     vi.mocked(desktopCapturer.getSources).mockClear();

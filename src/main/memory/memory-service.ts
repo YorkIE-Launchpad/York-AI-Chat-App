@@ -84,6 +84,18 @@ interface ExpandedSessionData {
   chunks: Array<{ chunkId: string; summary: string; keywords: string[] }>;
 }
 
+/** Core-memory key for a meeting interest entry (`meeting_{YYYY-MM-DD}_{slug}`). */
+export function meetingCoreMemoryKey(title: string, startedAt: number): string {
+  const dateKey = new Date(startedAt).toISOString().slice(0, 10);
+  const slug =
+    title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_|_$/g, '')
+      .slice(0, 40) || 'untitled';
+  return `meeting_${dateKey}_${slug}`;
+}
+
 function isFilesystemRootPath(filePath: string): boolean {
   const resolvedPath = path.resolve(filePath);
   return resolvedPath === path.parse(resolvedPath).root;
@@ -225,13 +237,8 @@ export class MemoryService {
     const actionItems = meeting.notes.actionItems || [];
     const keyTopics = meeting.notes.keyTopics || [];
     const sessionDate = formatTimestamp(meeting.startedAt);
+    const coreKey = meetingCoreMemoryKey(title, meeting.startedAt);
     const dateKey = new Date(meeting.startedAt).toISOString().slice(0, 10);
-    const slug =
-      title
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '_')
-        .replace(/^_|_$/g, '')
-        .slice(0, 40) || 'untitled';
 
     const transcriptLines = (meeting.transcriptText || '')
       .split(/\n+/)
@@ -291,13 +298,79 @@ export class MemoryService {
       {
         op: 'upsert',
         category: 'interests',
-        key: `meeting_${dateKey}_${slug}`,
+        key: coreKey,
         value: coreValue,
         reason: 'Auto-ingested from meeting capture',
       },
     ]);
 
     log(`[Memory] Ingested meeting ${meeting.id} into global memory`);
+  }
+
+  /**
+   * Remove experience + core memories created by ingestMeeting for one meeting.
+   */
+  async deleteMeetingMemories(meeting: {
+    id: string;
+    title: string;
+    startedAt: number;
+    notes?: { title?: string } | null;
+  }): Promise<void> {
+    const sessionId = `meeting:${meeting.id}`;
+    await this.deleteSession(sessionId);
+
+    const title = (meeting.notes?.title || meeting.title || 'Meeting').trim();
+    const key = meetingCoreMemoryKey(title, meeting.startedAt);
+    this.getCoreStore().applyActions([
+      {
+        op: 'delete',
+        category: 'interests',
+        key,
+        reason: 'Meeting deleted',
+      },
+    ]);
+
+    log(`[Memory] Deleted memories for meeting ${meeting.id}`);
+  }
+
+  /**
+   * Remove all meeting-sourced experience sessions and interests.meeting_* core entries.
+   */
+  async deleteAllMeetingMemories(): Promise<{ success: boolean; deletedSessions: number }> {
+    const store = this.getExperienceStore();
+    const meetingSessionIds = store.sessions
+      .filter((session) => session.sessionId.startsWith('meeting:'))
+      .map((session) => session.sessionId);
+
+    for (const sessionId of meetingSessionIds) {
+      this.deletedSessionIds.add(sessionId);
+      store.removeSession(sessionId);
+      this.getStateStore().delete(sessionId);
+    }
+    if (meetingSessionIds.length > 0) {
+      store.save();
+    }
+
+    const meetingCoreKeys = this.getCoreStore()
+      .getEntries()
+      .filter((entry) => entry.category === 'interests' && entry.key.startsWith('meeting_'))
+      .map((entry) => entry.key);
+
+    if (meetingCoreKeys.length > 0) {
+      this.getCoreStore().applyActions(
+        meetingCoreKeys.map((key) => ({
+          op: 'delete' as const,
+          category: 'interests' as const,
+          key,
+          reason: 'All meetings cleared',
+        }))
+      );
+    }
+
+    log(
+      `[Memory] Deleted all meeting memories (${meetingSessionIds.length} sessions, ${meetingCoreKeys.length} core keys)`
+    );
+    return { success: true, deletedSessions: meetingSessionIds.length };
   }
 
   async ingestConnectorArtifact(input: {

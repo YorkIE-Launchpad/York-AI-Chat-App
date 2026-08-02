@@ -484,17 +484,37 @@ export class MeetingService {
     return this.store.search(query, limit);
   }
 
-  delete(id: string): { success: boolean } {
+  async delete(id: string): Promise<{ success: boolean }> {
     if (this.activeMeetingId === id) {
       throw new Error('Cannot delete an active meeting capture');
     }
+    const meeting = this.store.get(id);
     this.store.delete(id);
+    if (meeting && this.memoryService) {
+      try {
+        await this.memoryService.deleteMeetingMemories({
+          id: meeting.id,
+          title: meeting.title,
+          startedAt: meeting.startedAt,
+          notes: meeting.notes,
+        });
+      } catch (error) {
+        logWarn('[Meetings] Failed to delete meeting memories', error);
+      }
+    }
     return { success: true };
   }
 
-  clearAll(): { success: boolean; deleted: number } {
+  async clearAll(): Promise<{ success: boolean; deleted: number }> {
     if (this.activeMeetingId) {
       throw new Error('Stop the active meeting capture before clearing meetings');
+    }
+    if (this.memoryService) {
+      try {
+        await this.memoryService.deleteAllMeetingMemories();
+      } catch (error) {
+        logWarn('[Meetings] Failed to delete meeting memories during clearAll', error);
+      }
     }
     return this.store.clearAll();
   }
