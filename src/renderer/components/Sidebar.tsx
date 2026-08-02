@@ -185,6 +185,7 @@ export function Sidebar() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [hoveredAction, setHoveredAction] = useState<'new' | 'incognito' | 'import' | null>(null);
 
   const normalizedQuery = useMemo(() => searchQuery.trim().toLowerCase(), [searchQuery]);
   const divisionSessions = useMemo(
@@ -558,29 +559,72 @@ export function Sidebar() {
           <DivisionSwitcher compact />
         </div>
 
-        <div className="mt-3 flex items-center gap-1.5">
-          <button
-            onClick={handleNewSession}
-            className="flex-1 h-9 rounded-xl flex items-center justify-center bg-background text-text-primary hover:bg-surface-hover transition-colors border border-border-subtle"
-            title={t('sidebar.newTask')}
-          >
-            <Plus className="w-4 h-4" />
-          </button>
-          <button
-            onClick={handleIncognitoSession}
-            className="flex-1 h-9 rounded-xl flex items-center justify-center bg-background/60 text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors border border-dashed border-border-subtle"
-            title={t('sidebar.incognitoTaskHint')}
-          >
-            <Ghost className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => void handleImportChat()}
-            disabled={!isElectron || importing}
-            className="flex-1 h-9 rounded-xl flex items-center justify-center bg-background/60 text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors border border-border-subtle disabled:opacity-50"
-            title={t('sidebar.importChatHint')}
-          >
-            <FileDown className={`w-4 h-4 ${importing ? 'animate-pulse' : ''}`} />
-          </button>
+        <div className="relative mt-3 h-9" onMouseLeave={() => setHoveredAction(null)}>
+          {hoveredAction && (
+            <div
+              aria-hidden
+              className={`pointer-events-none absolute inset-0 z-0 flex items-center justify-center gap-1.5 rounded-xl border bg-background text-text-primary ${
+                hoveredAction === 'incognito'
+                  ? 'border-dashed border-border-subtle'
+                  : 'border-border-subtle'
+              }`}
+            >
+              {hoveredAction === 'new' ? (
+                <Plus className="w-4 h-4 flex-shrink-0" />
+              ) : hoveredAction === 'incognito' ? (
+                <Ghost className="w-4 h-4 flex-shrink-0" />
+              ) : (
+                <FileDown className={`w-4 h-4 flex-shrink-0 ${importing ? 'animate-pulse' : ''}`} />
+              )}
+              <span className="text-xs font-medium whitespace-nowrap">
+                {hoveredAction === 'new'
+                  ? t('sidebar.newTask')
+                  : hoveredAction === 'incognito'
+                    ? t('sidebar.incognitoTask')
+                    : t('sidebar.importChat')}
+              </span>
+            </div>
+          )}
+
+          <div className="relative z-10 flex h-full gap-1.5">
+            <button
+              onClick={handleNewSession}
+              onMouseEnter={() => setHoveredAction('new')}
+              className={`flex-1 h-full rounded-xl flex items-center justify-center transition-colors ${
+                hoveredAction
+                  ? 'border border-transparent bg-transparent text-transparent'
+                  : 'bg-background text-text-primary border border-border-subtle hover:bg-surface-hover'
+              }`}
+              title={t('sidebar.newTask')}
+            >
+              <Plus className="w-4 h-4" />
+            </button>
+            <button
+              onClick={handleIncognitoSession}
+              onMouseEnter={() => setHoveredAction('incognito')}
+              className={`flex-1 h-full rounded-xl flex items-center justify-center transition-colors ${
+                hoveredAction
+                  ? 'border border-transparent bg-transparent text-transparent'
+                  : 'bg-background/60 text-text-secondary border border-dashed border-border-subtle hover:bg-surface-hover hover:text-text-primary'
+              }`}
+              title={t('sidebar.incognitoTaskHint')}
+            >
+              <Ghost className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => void handleImportChat()}
+              onMouseEnter={() => setHoveredAction('import')}
+              disabled={!isElectron || importing}
+              className={`flex-1 h-full rounded-xl flex items-center justify-center transition-colors disabled:opacity-50 ${
+                hoveredAction
+                  ? 'border border-transparent bg-transparent text-transparent'
+                  : 'bg-background/60 text-text-secondary border border-border-subtle hover:bg-surface-hover hover:text-text-primary'
+              }`}
+              title={t('sidebar.importChatHint')}
+            >
+              <FileDown className={`w-4 h-4 ${importing ? 'animate-pulse' : ''}`} />
+            </button>
+          </div>
         </div>
 
         {divisionSessions.length > 0 && (

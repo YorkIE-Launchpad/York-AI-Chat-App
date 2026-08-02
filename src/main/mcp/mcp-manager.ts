@@ -2698,11 +2698,17 @@ export function isTransientMcpRemoteStderr(message: string): boolean {
 }
 
 function logMcpServerStderr(message: string): void {
-  if (isTransientMcpRemoteStderr(message)) {
-    logWarn(`[MCPManager] MCP server stderr (transient): ${message}`);
+  // Stack frames often arrive in the same stderr chunk (or as follow-up chunks).
+  // Drop them so transient SSE disconnects stay a single line.
+  const firstLine = message.split(/\r?\n/, 1)[0]?.trim() ?? '';
+  if (!firstLine || /^\s*at\s+/.test(firstLine)) {
     return;
   }
-  logError(`[MCPManager] MCP server stderr: ${message}`);
+  if (isTransientMcpRemoteStderr(message) || isTransientMcpRemoteStderr(firstLine)) {
+    logWarn('[MCPManager] MCP SSE stream disconnected (transient)');
+    return;
+  }
+  logError(`[MCPManager] MCP server stderr: ${firstLine}`);
 }
 
 export function isReconnectableErrorText(text: string): boolean {
