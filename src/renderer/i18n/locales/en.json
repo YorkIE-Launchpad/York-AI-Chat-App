@@ -813,7 +813,7 @@
     "scanNow": "Scan now",
     "askTitle": "Ask Matter",
     "askPlaceholder": "Ask Matter — what’s blocking me, who needs a reply, prep my next meeting…",
-    "askDisclaimer": "Helper only — Matter can miss things.",
+    "askDisclaimer": "Matter can miss things — don’t rely on it alone.",
     "clearNow": "Clear Now orbit",
     "settings": "Matter settings",
     "signals": "Signals",
