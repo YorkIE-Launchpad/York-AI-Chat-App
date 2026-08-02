@@ -2510,7 +2510,7 @@ Do NOT use /workspace, /mnt/user-data, /mnt/workspace, or any other absolute vir
         session.division === 'hub' || session.division === 'project' ? session.division : 'general';
       const workspaceScopeRule =
         divisionKind === 'hub' || divisionKind === 'project'
-          ? '\n9. Workspace scope: if the request is personal, general, or outside this workspace, refuse and tell the user to switch workspace in the sidebar. Do not execute off-scope tools.'
+          ? '\n11. Workspace scope: if the request is personal, general, or outside this workspace, refuse and tell the user to switch workspace in the sidebar. Do not execute off-scope tools.'
           : '';
 
       const coworkAppendPrompt = [
@@ -2524,7 +2524,9 @@ Do NOT use /workspace, /mnt/user-data, /mnt/workspace, or any other absolute vir
 5. When given a task, START DOING IT. Do not restate the task, do not list what you will do, do not ask for confirmation. Just execute.
 6. York IE people named in the request: resolve via Hub (list_employees / search_organization) before asking. Do not ask the user for their company email when Hub can resolve the name.
 7. Never use AskUserQuestion for meta permission ("can I ask…", "may I proceed…", "should I look up…"). Ask only for a concrete missing detail that would make the next action wrong.
-8. Google Calendar create/update/delete: call the tool when available (approval UI may prompt). Do not refuse and hand the user a copy-paste invite instead.${workspaceScopeRule}`,
+8. Google Calendar create/update/delete: call the tool when available (approval UI may prompt). Do not refuse and hand the user a copy-paste invite instead.
+9. York company/work asks (meetings, agendas/prep, people, leave, client or project status, delivery, promises/follow-ups): load the york-os skill and use connected connectors as it directs. Do not answer from a single connector when the ask implies prep, brief, status, or enrich.
+10. Multi-source company asks: form a short tool-call plan (phases + cross-tool join keys such as emails, clientId, projectId, eventId), then execute; chain ids/emails from one tool into the next; never re-ask the user for values tools already returned. In mcp_search_tools meta mode, search narrowly by connector/keyword and call mcp_call_tool immediately after discovery.${workspaceScopeRule}`,
         configSummaryPrompt,
         workspaceInfoPrompt,
         `<citation_requirements>
