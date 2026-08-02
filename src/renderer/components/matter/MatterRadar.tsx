@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { MatterItem, MatterOrbit } from '../../../shared/matter';
+import { MatterSourceBlipMark, MatterSourceSymbolDefs } from './MatterSourceMarks';
 
 const ORBIT_RADIUS: Record<MatterOrbit, number> = {
   now: 52,
@@ -15,10 +16,30 @@ const SEVERITY_COLOR: Record<string, string> = {
   signal: '#00b48a',
 };
 
+/** Sweep radius — matches outer radar disc */
+const SWEEP_R = 180;
+/** Trail width behind the arm (degrees). CSS conic-gradient is clockwise. */
+const SWEEP_TRAIL_DEG = 72;
+/** Arm points east (3 o'clock); CSS conic `from 0deg` is 12 o'clock, so east = 90deg. */
+const SWEEP_ARM_CSS_FROM_DEG = 90;
+
+const SWEEP_ARM_TIP = {
+  x: 200 + SWEEP_R,
+  y: 200,
+};
+
+/** Smooth trail: transparent at the back → solid at the arm (behind a clockwise spin). */
+const SWEEP_TRAIL_CONIC = `conic-gradient(from ${SWEEP_ARM_CSS_FROM_DEG - SWEEP_TRAIL_DEG}deg, rgba(0, 180, 138, 0) 0deg, rgba(0, 180, 138, 0.38) ${SWEEP_TRAIL_DEG}deg, rgba(0, 180, 138, 0) ${SWEEP_TRAIL_DEG + 0.01}deg)`;
+
 function hashAngle(id: string): number {
   let h = 0;
   for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) % 360;
   return h;
+}
+
+function blipSize(severity: string, active: boolean): number {
+  const base = severity === 'critical' ? 20 : severity === 'warning' ? 18 : 16;
+  return active ? base + 3 : base;
 }
 
 interface MatterRadarProps {
@@ -46,7 +67,6 @@ export function MatterRadar({
         item,
         x: 200 + Math.cos(angle) * (r + jitter),
         y: 200 + Math.sin(angle) * (r + jitter),
-        r: item.severity === 'critical' ? 6 : item.severity === 'warning' ? 5 : 4,
         color: SEVERITY_COLOR[item.severity] || SEVERITY_COLOR.signal,
       };
     });
@@ -67,12 +87,29 @@ export function MatterRadar({
             <stop offset="0%" stopColor="var(--color-accent, #00b48a)" stopOpacity="0.9" />
             <stop offset="100%" stopColor="var(--color-accent, #00b48a)" stopOpacity="0.35" />
           </radialGradient>
+          <filter id="matterBlipShadow" x="-40%" y="-40%" width="180%" height="180%">
+            <feDropShadow dx="0" dy="1" stdDeviation="1.2" floodOpacity="0.35" />
+          </filter>
           <style>{`
             @keyframes matterOrbitSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+            @keyframes matterSweepSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
             @keyframes matterPulse { 0%,100% { opacity: 0.45; } 50% { opacity: 0.9; } }
-            .matter-orbit-ring { transform-origin: 200px 200px; animation: matterOrbitSpin 80s linear infinite; }
+            .matter-orbit-ring {
+              transform-origin: 200px 200px;
+              transform-box: view-box;
+              animation: matterOrbitSpin 80s linear infinite;
+            }
+            .matter-sweep-arm {
+              transform-origin: 200px 200px;
+              transform-box: view-box;
+              animation: matterSweepSpin 5.5s linear infinite;
+            }
             .matter-blip-pulse { animation: matterPulse 2.8s ease-in-out infinite; }
+            @media (prefers-reduced-motion: reduce) {
+              .matter-orbit-ring, .matter-sweep-arm { animation: none; }
+            }
           `}</style>
+          <MatterSourceSymbolDefs />
         </defs>
 
         <circle
@@ -96,6 +133,36 @@ export function MatterRadar({
               strokeDasharray="2 6"
             />
           ))}
+        </g>
+
+        <g className="matter-sweep-arm" pointerEvents="none">
+          <foreignObject x="20" y="20" width="360" height="360">
+            <div
+              style={{
+                width: '100%',
+                height: '100%',
+                borderRadius: '50%',
+                background: SWEEP_TRAIL_CONIC,
+              }}
+            />
+          </foreignObject>
+          <line
+            x1="200"
+            y1="200"
+            x2={SWEEP_ARM_TIP.x}
+            y2={SWEEP_ARM_TIP.y}
+            stroke="var(--color-accent, #00b48a)"
+            strokeWidth="2.25"
+            strokeLinecap="round"
+            opacity="0.95"
+          />
+          <circle
+            cx={SWEEP_ARM_TIP.x}
+            cy={SWEEP_ARM_TIP.y}
+            r="2.5"
+            fill="var(--color-accent, #00b48a)"
+            opacity="0.9"
+          />
         </g>
 
         <circle cx="200" cy="200" r="34" fill="url(#matterCore)" />
@@ -133,27 +200,29 @@ export function MatterRadar({
             blip.item.id === hovered ||
             highlightedIds.has(blip.item.id);
           const dimmed = highlightedIds.size > 0 && !highlightedIds.has(blip.item.id);
+          const size = blipSize(blip.item.severity, active);
+          const ringR = size / 2 + 2;
           return (
-            <g key={blip.item.id}>
+            <g
+              key={blip.item.id}
+              className="cursor-pointer"
+              opacity={dimmed ? 0.28 : 1}
+              filter="url(#matterBlipShadow)"
+              onMouseEnter={() => setHovered(blip.item.id)}
+              onMouseLeave={() => setHovered(null)}
+              onClick={() => onSelect(blip.item.id)}
+            >
               <circle
                 cx={blip.x}
                 cy={blip.y}
-                r={active ? blip.r + 4 : blip.r + 2}
-                fill={blip.color}
-                opacity={dimmed ? 0.15 : 0.2}
+                r={ringR}
+                fill="#ffffff"
+                stroke={blip.color}
+                strokeWidth={blip.item.severity === 'critical' ? 2.25 : active ? 2 : 1.5}
                 className={blip.item.severity === 'critical' ? 'matter-blip-pulse' : undefined}
               />
-              <circle
-                cx={blip.x}
-                cy={blip.y}
-                r={active ? blip.r + 1 : blip.r}
-                fill={blip.color}
-                opacity={dimmed ? 0.25 : 1}
-                className="cursor-pointer"
-                onMouseEnter={() => setHovered(blip.item.id)}
-                onMouseLeave={() => setHovered(null)}
-                onClick={() => onSelect(blip.item.id)}
-              />
+              <MatterSourceBlipMark source={blip.item.source} x={blip.x} y={blip.y} size={size} />
+              <circle cx={blip.x} cy={blip.y} r={ringR + 2} fill="transparent" />
             </g>
           );
         })}
