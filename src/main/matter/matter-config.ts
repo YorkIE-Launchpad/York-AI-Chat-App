@@ -39,7 +39,6 @@ export function normalizeMatterRuntimeConfig(raw: unknown): MatterRuntimeConfig 
       jira: sourcesIn.jira !== false,
       hub: sourcesIn.hub !== false,
       meeting: sourcesIn.meeting !== false,
-      drive: sourcesIn.drive !== false,
       launchpad: sourcesIn.launchpad !== false,
     },
   };

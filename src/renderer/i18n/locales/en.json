@@ -811,6 +811,9 @@
     "focusScore": "Focus {{score}}/100",
     "connectors": "{{count}} connected",
     "scanNow": "Scan now",
+    "askTitle": "Ask Matter",
+    "askPlaceholder": "Ask Matter — what’s blocking me, who needs a reply, prep my next meeting…",
+    "askDisclaimer": "Helper only — Matter can miss things.",
     "clearNow": "Clear Now orbit",
     "settings": "Matter settings",
     "signals": "Signals",
@@ -851,7 +854,6 @@
       "jira": "Jira",
       "hub": "York Hub",
       "meeting": "Meetings",
-      "drive": "Google Drive",
       "launchpad": "R&D Launchpad"
     },
     "detailTitle": "Signal detail",

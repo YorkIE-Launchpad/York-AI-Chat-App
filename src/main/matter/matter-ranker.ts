@@ -29,7 +29,7 @@ Return ONLY valid JSON (no markdown):
       "severity": "critical|warning|healthy|signal",
       "orbit": "now|today|week|watching",
       "category": "delivery|people|client|comms|time|admin",
-      "source": "jira|slack|gmail|calendar|hub|meeting|drive|launchpad|fused",
+      "source": "jira|slack|gmail|calendar|hub|meeting|launchpad|fused",
       "confidence": 0.0-1.0,
       "suggestedAction": "short next step for THIS item or null",
       "rankScore": 0-100,

@@ -81,7 +81,6 @@ function makeConfig(timeoutMs: number): AppConfig {
         jira: true,
         hub: true,
         meeting: true,
-        drive: true,
         launchpad: true,
       },
     },

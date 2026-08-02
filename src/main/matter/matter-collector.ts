@@ -19,7 +19,6 @@ import { log, logWarn } from '../utils/logger';
 import {
   DEFAULT_GMAIL_MCP_SERVER_ID,
   DEFAULT_GOOGLE_CALENDAR_MCP_SERVER_ID,
-  DEFAULT_GOOGLE_DRIVE_MCP_SERVER_ID,
   DEFAULT_HUB_MCP_SERVER_ID,
   DEFAULT_JIRA_MCP_SERVER_ID,
   DEFAULT_LAUNCHPAD_MCP_SERVER_ID,
@@ -64,6 +63,51 @@ function truncate(value: unknown, max = RAW_CAP): string {
           }
         })();
   return text.length > max ? `${text.slice(0, max)}…` : text;
+}
+
+/** Slack / JSON / schema noise that must never become a Matter title. */
+function looksLikeJunkTitle(text: string): boolean {
+  const t = text.trim();
+  if (!t || t.length < 2) return true;
+  if (/^[[\]{}:,;]+$/.test(t)) return true;
+  if (/^"[^"]+"\s*:/.test(t)) return true; // "expected":
+  if (/^"[^"]*"\s*,?\s*$/.test(t)) return true; // "nan",
+  if (/^(true|false|null|nan|undefined)\s*,?$/i.test(t)) return true;
+  if (
+    /^(expected|received|message|path|code|type|error|projectId|statusCode|issues)\b/i.test(t) &&
+    t.length < 48
+  ) {
+    return true;
+  }
+  // Mostly JSON punctuation / keys
+  if ((t.match(/"/g) || []).length >= 2 && /":\s*"/.test(t) && t.length < 100) return true;
+  if (/^<[CWDGU][A-Z0-9]+>/.test(t) && t.length < 24) return true;
+  return false;
+}
+
+function cleanDisplayText(text: string): string {
+  return text
+    .replace(/<@([A-Z0-9]+)>/gi, '@user')
+    .replace(/<#([A-Z0-9]+)(?:\|([^>]+))?>/gi, (_m, _id, name) => (name ? `#${name}` : '#channel'))
+    .replace(/<(https?:[^|>]+)(?:\|([^>]+))?>/gi, (_m, url, label) => label || url)
+    .replace(/\b[CDG][A-Z0-9]{9,}\b/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function humanTitle(text: string, fallback = 'Untitled item'): string {
+  const cleaned = cleanDisplayText(text).slice(0, 160);
+  if (!cleaned || looksLikeJunkTitle(cleaned)) return fallback;
+  return cleaned;
+}
+
+function pickString(obj: Record<string, unknown>, keys: string[]): string {
+  for (const key of keys) {
+    const value = obj[key];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+    if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  }
+  return '';
 }
 
 function toolResultText(result: unknown): string {
@@ -131,11 +175,13 @@ function signal(input: {
 }): RawMatterSignal {
   const rawDetails = truncate(input.raw);
   const url = input.sourceRef?.url || extractUrl(rawDetails);
+  const title = humanTitle(input.title, `${input.source} item`);
+  const summary = cleanDisplayText(input.summary).slice(0, 400) || title;
   return {
     fingerprint: input.fingerprint,
     source: input.source,
-    title: input.title.trim().slice(0, 160) || 'Untitled item',
-    summary: input.summary.trim().slice(0, 400),
+    title,
+    summary,
     rawExcerpt: rawDetails.slice(0, 800),
     rawDetails,
     severityHint: input.severityHint || 'signal',
@@ -380,8 +426,11 @@ async function collectSlack(
       signal({
         fingerprint: `slack:snippet:${hashKey(body.slice(0, 120))}`,
         source: 'slack',
-        title: truncate(body.split('\n')[0] || 'Slack message', 120),
-        summary: truncate(body, 280),
+        title: humanTitle(
+          body.split('\n').find((l) => !looksLikeJunkTitle(l)) || '',
+          'Slack message'
+        ),
+        summary: cleanDisplayText(truncate(body, 280)),
         raw: text,
         severityHint: 'warning',
         orbitHint: 'today',
@@ -399,13 +448,17 @@ async function collectSlack(
   }
 
   return messages.map((msg) => {
-    const preview = msg.text.slice(0, 100) || '(no text)';
-    const title = `${msg.user} in #${msg.channel.replace(/^#/, '')}: ${preview}`;
+    const channelLabel = /^[CGD][A-Z0-9]{8,}$/i.test(msg.channel)
+      ? 'channel'
+      : msg.channel.replace(/^#/, '');
+    const userLabel = /^[UW][A-Z0-9]{8,}$/i.test(msg.user) ? 'Someone' : msg.user;
+    const preview = cleanDisplayText(msg.text).slice(0, 100) || '(no text)';
+    const title = humanTitle(`${userLabel} in #${channelLabel}: ${preview}`, 'Slack message');
     return signal({
       fingerprint: `slack:msg:${msg.channel}:${msg.ts}`,
       source: 'slack',
       title,
-      summary: msg.text.slice(0, 280) || `Message from ${msg.user}`,
+      summary: cleanDisplayText(msg.text).slice(0, 280) || `Message from ${userLabel}`,
       raw: msg,
       severityHint: /[?]|\bplease\b|\bcan you\b|\bneed\b/i.test(msg.text) ? 'warning' : 'signal',
       orbitHint: 'today',
@@ -736,11 +789,12 @@ async function collectHub(
         .filter((l) => l.length > 8 && l.length < 160)
         .slice(0, 5);
       for (const line of lines) {
+        if (looksLikeJunkTitle(line)) continue;
         signals.push(
           signal({
             fingerprint: `hub:request:${hashKey(line)}`,
             source: 'hub',
-            title: line,
+            title: humanTitle(line, 'Hub request'),
             summary: 'Pending Hub request',
             raw: line,
             severityHint: 'warning',
@@ -760,96 +814,149 @@ async function collectHub(
   return signals.slice(0, MAX_PER_SOURCE);
 }
 
-// ── Drive: one signal per file ──────────────────────────────────────────────
+// ── Launchpad: one signal per release/feature entity ────────────────────────
 
-function parseDriveFiles(body: string): Array<{ id?: string; name: string; link?: string }> {
-  const files: Array<{ id?: string; name: string; link?: string }> = [];
-  const lines = body
-    .split('\n')
-    .map((l) => l.trim())
-    .filter(Boolean);
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const link = extractUrl(line);
-    const nameMatch = line.match(/^(?:[-*•]\s*)?(.+?)(?:\s+[—-]\s+|\s+\(|$)/);
-    const name = (nameMatch?.[1] || line).replace(link || '', '').trim();
-    if (!name || name.length < 3 || /^No |Error|Found \d/i.test(name)) continue;
-    if (/^https?:/i.test(name)) continue;
-    files.push({ name: name.slice(0, 120), link, id: link?.match(/\/d\/([^/]+)/)?.[1] });
-  }
-  // Dedupe by name
+function extractLaunchpadEntities(
+  text: string
+): Array<{ title: string; summary: string; raw: unknown; risky: boolean }> {
+  const parsed = parseJsonLoose(text);
+  const items: Array<{ title: string; summary: string; raw: unknown; risky: boolean }> = [];
   const seen = new Set<string>();
-  return files.filter((f) => {
-    const k = f.name.toLowerCase();
-    if (seen.has(k)) return false;
-    seen.add(k);
-    return true;
-  });
-}
 
-async function collectDrive(mcpManager: MCPManager): Promise<RawMatterSignal[]> {
-  const tool = findToolName(mcpManager, DEFAULT_GOOGLE_DRIVE_MCP_SERVER_ID, [
-    'list_recent_files',
-    'search_files',
-    'list_files',
-  ]);
-  if (!tool) return [];
-  const text = await safeCallTool(mcpManager, tool, { limit: 12, pageSize: 12 });
-  if (!text) return [];
-  const files = parseDriveFiles(envelopeBody(text)).slice(0, MAX_PER_SOURCE);
-  return files.map((file) =>
-    signal({
-      fingerprint: `drive:file:${file.id || hashKey(file.name)}`,
-      source: 'drive',
-      title: file.name,
-      summary: 'Recently active Drive file',
-      raw: file,
-      severityHint: 'signal',
-      orbitHint: 'week',
-      categoryHint: 'delivery',
-      whyHint: 'Recent file activity may need your review.',
-      suggestedAction: 'Open and check latest comments/edits.',
-      sourceRef: {
-        connectorId: DEFAULT_GOOGLE_DRIVE_MCP_SERVER_ID,
-        externalId: file.id,
-        label: 'Drive',
-        url: file.link,
-      },
-      muteKeys: [`drive:file:${file.id || file.name}`, 'source:drive'],
-    })
-  );
-}
+  const pushEntity = (title: string, summary: string, raw: unknown, risky: boolean) => {
+    const clean = humanTitle(title, '');
+    if (!clean || looksLikeJunkTitle(clean)) return;
+    const key = clean.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    items.push({ title: clean, summary: cleanDisplayText(summary).slice(0, 280), raw, risky });
+  };
 
-// ── Launchpad: one signal per release/feature row ───────────────────────────
+  const walk = (node: unknown, depth = 0) => {
+    if (!node || depth > 8 || items.length >= MAX_PER_SOURCE) return;
+    if (Array.isArray(node)) {
+      for (const item of node) walk(item, depth + 1);
+      return;
+    }
+    if (typeof node !== 'object') return;
+    const obj = node as Record<string, unknown>;
+
+    // Skip Zod / schema validation noise objects
+    if (
+      ('expected' in obj && 'received' in obj) ||
+      (typeof obj.message === 'string' &&
+        /expected number|received nan|invalid_type/i.test(obj.message) &&
+        !pickString(obj, ['name', 'title', 'version']))
+    ) {
+      return;
+    }
+
+    const name = pickString(obj, [
+      'name',
+      'title',
+      'label',
+      'version',
+      'releaseName',
+      'featureName',
+      'projectName',
+      'displayName',
+    ]);
+    const status = pickString(obj, ['status', 'state', 'phase', 'health']);
+    const summary = pickString(obj, ['summary', 'description', 'message', 'notes']);
+    const looksEntity =
+      !!name &&
+      ('id' in obj ||
+        'status' in obj ||
+        'state' in obj ||
+        'releaseDate' in obj ||
+        'projectId' in obj ||
+        'version' in obj ||
+        'features' in obj);
+
+    if (looksEntity) {
+      pushEntity(
+        status ? `${name} — ${status}` : name,
+        summary || status || 'Launchpad delivery item',
+        obj,
+        /risk|block|fail|crit|error|overdue|nan/i.test(`${status} ${summary} ${name}`)
+      );
+      return; // don't explode nested fields into titles
+    }
+
+    for (const value of Object.values(obj)) walk(value, depth + 1);
+  };
+
+  walk(parsed);
+  if (items.length) return items.slice(0, MAX_PER_SOURCE);
+
+  // Fallback: only human-readable lines (never JSON keys)
+  const body = envelopeBody(text);
+  for (const line of body.split('\n')) {
+    const trimmed = line.replace(/^[-*•]\s*/, '').trim();
+    if (looksLikeJunkTitle(trimmed) || trimmed.length < 8 || trimmed.length > 140) continue;
+    if (/^Error|Found \d|No /i.test(trimmed)) continue;
+    pushEntity(
+      trimmed,
+      'Launchpad delivery item',
+      trimmed,
+      /risk|block|fail|crit|overdue/i.test(trimmed)
+    );
+    if (items.length >= MAX_PER_SOURCE) break;
+  }
+  return items;
+}
 
 async function collectLaunchpad(mcpManager: MCPManager): Promise<RawMatterSignal[]> {
   const tool = findToolName(mcpManager, DEFAULT_LAUNCHPAD_MCP_SERVER_ID, [
     'list_releases',
     'get_active_release',
     'list_features',
+    'get_release',
   ]);
   if (!tool) return [];
   const text = await safeCallTool(mcpManager, tool, {});
   if (!text) return [];
 
-  const body = envelopeBody(text);
-  const lines = body
-    .split('\n')
-    .map((l) => l.trim())
-    .filter((l) => l.length > 6 && l.length < 160 && !/^Error/i.test(l))
-    .slice(0, MAX_PER_SOURCE);
+  const entities = extractLaunchpadEntities(text);
+  if (!entities.length) {
+    // Tool may have returned a validation error — don't spam JSON fields as signals
+    const parsed = parseJsonLoose(text) as Record<string, unknown> | null;
+    const errMsg =
+      parsed && typeof parsed === 'object'
+        ? pickString(parsed, ['message', 'error', 'summary'])
+        : '';
+    if (errMsg && !looksLikeJunkTitle(errMsg) && !/expected number|received nan/i.test(errMsg)) {
+      return [
+        signal({
+          fingerprint: `launchpad:error:${hashKey(errMsg)}`,
+          source: 'launchpad',
+          title: humanTitle(errMsg, 'Launchpad issue'),
+          summary: 'Launchpad returned an issue while scanning.',
+          raw: text,
+          severityHint: 'warning',
+          orbitHint: 'today',
+          categoryHint: 'delivery',
+          whyHint: 'Could not read a clean delivery signal from Launchpad.',
+          suggestedAction: 'Open Launchpad and check active release status.',
+          sourceRef: {
+            connectorId: DEFAULT_LAUNCHPAD_MCP_SERVER_ID,
+            label: 'Launchpad',
+          },
+          muteKeys: ['source:launchpad'],
+        }),
+      ];
+    }
+    return [];
+  }
 
-  if (!lines.length) return [];
-
-  return lines.map((line, idx) => {
-    const risky = /risk|blocked|failed|critical|overdue/i.test(line);
-    return signal({
-      fingerprint: `launchpad:item:${hashKey(line)}:${idx}`,
+  return entities.map((entity, idx) =>
+    signal({
+      fingerprint: `launchpad:item:${hashKey(entity.title)}:${idx}`,
       source: 'launchpad',
-      title: line,
-      summary: 'Launchpad delivery item',
-      raw: line,
-      severityHint: risky ? 'warning' : 'signal',
+      title: entity.title,
+      summary: entity.summary || 'Launchpad delivery item',
+      raw: entity.raw,
+      severityHint: entity.risky ? 'warning' : 'signal',
       orbitHint: 'today',
       categoryHint: 'delivery',
       whyHint: 'Delivery item from R&D Launchpad.',
@@ -857,11 +964,11 @@ async function collectLaunchpad(mcpManager: MCPManager): Promise<RawMatterSignal
       sourceRef: {
         connectorId: DEFAULT_LAUNCHPAD_MCP_SERVER_ID,
         label: 'Launchpad',
-        url: extractUrl(line),
+        url: extractUrl(truncate(entity.raw)),
       },
       muteKeys: ['source:launchpad'],
-    });
-  });
+    })
+  );
 }
 
 // ── Meetings: one signal per open action item ───────────────────────────────
@@ -950,7 +1057,6 @@ const SOURCE_SERVER: Record<MatterConfigurableSource, string | null> = {
   jira: DEFAULT_JIRA_MCP_SERVER_ID,
   hub: DEFAULT_HUB_MCP_SERVER_ID,
   meeting: null,
-  drive: DEFAULT_GOOGLE_DRIVE_MCP_SERVER_ID,
   launchpad: DEFAULT_LAUNCHPAD_MCP_SERVER_ID,
 };
 
@@ -1007,7 +1113,6 @@ export async function collectMatterSignals(options: {
       run('gmail', () => collectGmail(mcpManager, profile)),
       run('jira', () => collectJira(mcpManager, profile)),
       run('hub', () => collectHub(mcpManager, profile)),
-      run('drive', () => collectDrive(mcpManager)),
       run('launchpad', () => collectLaunchpad(mcpManager)),
     ]);
   }

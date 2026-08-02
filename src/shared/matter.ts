@@ -43,7 +43,6 @@ export const MATTER_SOURCE_IDS = [
   'jira',
   'hub',
   'meeting',
-  'drive',
   'launchpad',
 ] as const;
 
@@ -122,7 +121,6 @@ export interface MatterSourcesConfig {
   jira: boolean;
   hub: boolean;
   meeting: boolean;
-  drive: boolean;
   launchpad: boolean;
 }
 
@@ -146,7 +144,6 @@ export const DEFAULT_MATTER_SOURCES: MatterSourcesConfig = {
   jira: true,
   hub: true,
   meeting: true,
-  drive: true,
   launchpad: true,
 };
 
