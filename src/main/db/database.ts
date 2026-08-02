@@ -154,6 +154,7 @@ export interface MatterItemRow {
   title: string;
   summary: string;
   why_it_matters: string;
+  raw_details: string | null;
   severity: string;
   orbit: string;
   category: string;
@@ -475,6 +476,7 @@ function initializeSchema(database: Database.Database): void {
       title TEXT NOT NULL,
       summary TEXT NOT NULL DEFAULT '',
       why_it_matters TEXT NOT NULL DEFAULT '',
+      raw_details TEXT,
       severity TEXT NOT NULL DEFAULT 'signal',
       orbit TEXT NOT NULL DEFAULT 'watching',
       category TEXT NOT NULL DEFAULT 'comms',
@@ -493,6 +495,7 @@ function initializeSchema(database: Database.Database): void {
       resolved_at INTEGER
     )
   `);
+    ensureColumn(database, 'matter_items', 'raw_details', 'raw_details TEXT');
 
     database.exec(`
     CREATE INDEX IF NOT EXISTS idx_matter_items_status_rank
@@ -706,10 +709,10 @@ export function initDatabase(): DatabaseInstance {
 
   const insertMatterItem = rawDb.prepare(`
     INSERT OR REPLACE INTO matter_items (
-      id, fingerprint, title, summary, why_it_matters, severity, orbit, category, source,
+      id, fingerprint, title, summary, why_it_matters, raw_details, severity, orbit, category, source,
       source_ref, confidence, suggested_action, status, pinned, snooze_until, expires_at,
       rank_score, created_at, updated_at, last_seen_at, resolved_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const getMatterItemStmt = rawDb.prepare(`SELECT * FROM matter_items WHERE id = ?`);
@@ -970,6 +973,7 @@ export function initDatabase(): DatabaseInstance {
           item.title,
           item.summary,
           item.why_it_matters,
+          item.raw_details,
           item.severity,
           item.orbit,
           item.category,

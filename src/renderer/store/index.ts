@@ -827,6 +827,9 @@ if (typeof window !== 'undefined') {
       store.setShowMatter(false);
       store.setActiveSession(null);
     } else if (page === 'matter') {
+      const enabled =
+        store.appConfig?.matterEnabled ?? store.appConfig?.matterRuntime?.enabled ?? true;
+      if (!enabled) return false;
       store.setShowMatter(true);
     } else if (page === 'settings') {
       store.setSettingsTab(tab || 'connectors');

@@ -141,6 +141,10 @@ export class MatterService {
     };
     configStore.update({ matterRuntime: next, matterEnabled: next.enabled });
     this.scheduler.reschedule();
+    if (!next.enabled) {
+      this.lastPulse = 'Matter is disabled.';
+      this.lastBrief = null;
+    }
     this.pushSnapshot();
     return next;
   }
@@ -194,7 +198,8 @@ export class MatterService {
       return this.getSnapshot();
     }
     const runtime = this.getRuntime();
-    if (!runtime.enabled && !options?.force) {
+    // Disabled always wins — even manual Scan now / force.
+    if (!runtime.enabled) {
       return this.getSnapshot();
     }
     if (!options?.force && !this.scheduler.isInScanWindow()) {
@@ -260,6 +265,7 @@ export class MatterService {
       }
 
       this.store.upsertRankedItems(ranked.items);
+      this.store.expireAbsentItems(ranked.items.map((i) => i.fingerprint));
       this.lastPulse = ranked.pulse;
       this.lastBrief = ranked.brief;
       this.lastLenses = ranked.lenses.map((l) => ({
@@ -424,7 +430,7 @@ export class MatterService {
         : selected
             .map(
               (i, idx) =>
-                `${idx + 1}. [${i.severity}/${i.source}] ${i.title}\n   Why: ${i.whyItMatters}\n   Suggested: ${i.suggestedAction || 'n/a'}\n   Ref: ${JSON.stringify(i.sourceRef)}`
+                `${idx + 1}. [${i.severity}/${i.source}] ${i.title}\n   Why: ${i.whyItMatters}\n   Suggested: ${i.suggestedAction || 'n/a'}\n   Ref: ${JSON.stringify(i.sourceRef)}\n   Raw: ${(i.rawDetails || '').slice(0, 800)}`
             )
             .join('\n');
 

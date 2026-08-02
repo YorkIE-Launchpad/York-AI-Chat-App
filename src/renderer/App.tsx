@@ -120,21 +120,31 @@ function AuthenticatedApp() {
     if (isElectron) {
       listSessions();
     }
-  }, []); // Empty deps - run once
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional one-time boot
+  }, []);
 
   useEffect(() => {
     if (!isElectron || !window.electronAPI?.matter) return;
     let cancelled = false;
+    const applyMatterSnapshot = (snapshot: {
+      criticalCount: number;
+      settings: { enabled: boolean; autoOpenOnLaunch: boolean };
+    }) => {
+      if (!snapshot.settings.enabled) {
+        setMatterBadgeCount(0);
+        setShowMatter(false);
+        return;
+      }
+      setMatterBadgeCount(snapshot.criticalCount);
+    };
     void window.electronAPI.matter.getSnapshot().then((snapshot) => {
       if (cancelled) return;
-      setMatterBadgeCount(snapshot.criticalCount);
-      if (snapshot.settings.autoOpenOnLaunch) {
+      applyMatterSnapshot(snapshot);
+      if (snapshot.settings.enabled && snapshot.settings.autoOpenOnLaunch) {
         setShowMatter(true);
       }
     });
-    const off = window.electronAPI.matter.onUpdated((snapshot) => {
-      setMatterBadgeCount(snapshot.criticalCount);
-    });
+    const off = window.electronAPI.matter.onUpdated(applyMatterSnapshot);
     return () => {
       cancelled = true;
       off();

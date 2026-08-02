@@ -9,6 +9,7 @@ import { MatterRadar } from './MatterRadar';
 import { MatterSignalCard } from './MatterSignalCard';
 import { MatterLenses } from './MatterLenses';
 import { MatterAskBar } from './MatterAskBar';
+import { MatterItemDetail } from './MatterItemDetail';
 
 const EMPTY_SNAPSHOT: MatterSnapshot = {
   items: [],
@@ -50,10 +51,12 @@ export function MatterPage({ onClose }: MatterPageProps) {
   const applySnapshot = useCallback(
     (next: MatterSnapshot) => {
       setSnapshot(next);
-      setMatterBadgeCount(next.criticalCount);
+      setMatterBadgeCount(next.settings.enabled ? next.criticalCount : 0);
     },
     [setMatterBadgeCount]
   );
+
+  const matterEnabled = snapshot.settings.enabled !== false;
 
   const refresh = useCallback(async () => {
     if (!window.electronAPI?.matter) return;
@@ -77,6 +80,17 @@ export function MatterPage({ onClose }: MatterPageProps) {
 
   const highlightedIds = useMemo(() => new Set(filteredItems.map((i) => i.id)), [filteredItems]);
 
+  const selectedItem = useMemo(
+    () => snapshot.items.find((item) => item.id === selectedId) ?? null,
+    [snapshot.items, selectedId]
+  );
+
+  useEffect(() => {
+    if (selectedId && !selectedItem) {
+      setSelectedId(null);
+    }
+  }, [selectedId, selectedItem]);
+
   const runAction = async (
     item: MatterItem,
     action: 'done' | 'dismiss' | 'snooze' | 'pin' | 'unpin' | 'open',
@@ -96,8 +110,16 @@ export function MatterPage({ onClose }: MatterPageProps) {
         : null,
     });
     applySnapshot(next);
-    if (item.sourceRef.url && action === 'open') {
-      await window.electronAPI.openExternal(item.sourceRef.url);
+    if (action === 'done' || action === 'dismiss' || action === 'snooze') {
+      setSelectedId((current) => (current === item.id ? null : current));
+    }
+    if (action === 'open') {
+      const url =
+        item.sourceRef.url?.trim() ||
+        item.rawDetails?.match(/https?:\/\/[^\s"'<>)\\]]+/i)?.[0]?.replace(/[.,;:]+$/, '');
+      if (url) {
+        await window.electronAPI.openExternal(url);
+      }
     }
   };
 
@@ -113,7 +135,7 @@ export function MatterPage({ onClose }: MatterPageProps) {
   };
 
   const scanNow = async () => {
-    if (!window.electronAPI?.matter) return;
+    if (!window.electronAPI?.matter || !matterEnabled) return;
     setBusy(true);
     try {
       const next = await window.electronAPI.matter.scanNow();
@@ -183,7 +205,7 @@ export function MatterPage({ onClose }: MatterPageProps) {
         <button
           type="button"
           onClick={() => void scanNow()}
-          disabled={busy || snapshot.scanning}
+          disabled={!matterEnabled || busy || snapshot.scanning}
           className="h-9 px-3 rounded-xl border border-border-muted text-sm text-text-secondary hover:bg-surface-hover flex items-center gap-1.5 disabled:opacity-50"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${snapshot.scanning || busy ? 'animate-spin' : ''}`} />
@@ -215,6 +237,19 @@ export function MatterPage({ onClose }: MatterPageProps) {
           <X className="w-4 h-4" />
         </button>
       </header>
+
+      {!matterEnabled ? (
+        <div className="shrink-0 mx-4 mt-3 rounded-xl border border-border-muted bg-surface/80 px-3 py-2 text-[12px] text-text-secondary">
+          {t('matter.disabledBanner')}{' '}
+          <button
+            type="button"
+            onClick={openSettings}
+            className="text-accent underline underline-offset-2"
+          >
+            {t('matter.settings')}
+          </button>
+        </div>
+      ) : null}
 
       {snapshot.morningBrief && snapshot.items.length > 0 ? (
         <div className="shrink-0 mx-4 mt-3 rounded-xl border border-accent/20 bg-accent-muted/10 px-3 py-2 text-[12px] text-text-secondary">
@@ -263,19 +298,44 @@ export function MatterPage({ onClose }: MatterPageProps) {
           </div>
         </section>
 
-        <section className="min-h-0 flex flex-col items-center justify-center px-4 py-4 relative">
-          <MatterRadar
-            items={snapshot.items}
-            selectedId={selectedId}
-            highlightedIds={activeLens ? highlightedIds : new Set()}
-            pulse={snapshot.pulse}
-            onSelect={setSelectedId}
-          />
-          <div className="mt-4 flex items-center gap-6 text-[11px] font-semibold tracking-wide">
-            <span className="text-red-400">{snapshot.criticalCount} CRITICAL</span>
-            <span className="text-amber-400">{snapshot.warningCount} WARNING</span>
-            <span className="text-emerald-400">{snapshot.healthyCount} HEALTHY</span>
+        <section className="min-h-0 flex flex-col items-center px-4 py-4 relative overflow-y-auto">
+          <div
+            className={`w-full flex flex-col items-center ${selectedItem ? 'shrink-0' : 'flex-1 justify-center'}`}
+          >
+            <div className={selectedItem ? 'w-full max-w-[280px]' : 'w-full max-w-[420px]'}>
+              <MatterRadar
+                items={snapshot.items}
+                selectedId={selectedId}
+                highlightedIds={activeLens ? highlightedIds : new Set()}
+                pulse={snapshot.pulse}
+                onSelect={setSelectedId}
+              />
+            </div>
+            <div className="mt-3 flex items-center gap-6 text-[11px] font-semibold tracking-wide">
+              <span className="text-red-400">{snapshot.criticalCount} CRITICAL</span>
+              <span className="text-amber-400">{snapshot.warningCount} WARNING</span>
+              <span className="text-emerald-400">{snapshot.healthyCount} HEALTHY</span>
+            </div>
           </div>
+
+          {selectedItem ? (
+            <div className="mt-4 w-full flex justify-center pb-2">
+              <MatterItemDetail
+                item={selectedItem}
+                onClose={() => setSelectedId(null)}
+                onDone={() => void runAction(selectedItem, 'done')}
+                onDismiss={(mute) => void runAction(selectedItem, 'dismiss', mute)}
+                onSnooze={() => void runAction(selectedItem, 'snooze')}
+                onPin={() => void runAction(selectedItem, selectedItem.pinned ? 'unpin' : 'pin')}
+                onOpen={() => void runAction(selectedItem, 'open')}
+                onHandleChat={() =>
+                  void handleChat(`Help me resolve this Matter item: ${selectedItem.title}`, [
+                    selectedItem.id,
+                  ])
+                }
+              />
+            </div>
+          ) : null}
         </section>
 
         <section className="min-h-0 border-l border-border-muted px-3 py-3">

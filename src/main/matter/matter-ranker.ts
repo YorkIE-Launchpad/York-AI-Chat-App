@@ -9,7 +9,6 @@ import type {
   MatterOrbit,
   MatterSensitivity,
   MatterSeverity,
-  MatterSource,
 } from '../../shared/matter';
 import type { RawMatterSignal } from './matter-collector';
 
@@ -23,16 +22,16 @@ Return ONLY valid JSON (no markdown):
   "brief": "2-3 sentence morning-style narrative",
   "items": [
     {
-      "fingerprint": "stable-id from signal or derived kebab-case",
-      "title": "short actionable headline <= 90 chars",
-      "summary": "one sentence context",
-      "whyItMatters": "tie to role/title/reporting/calendar pressure",
+      "fingerprint": "MUST equal an input signal fingerprint exactly",
+      "title": "prefer the signal title; shorten only if needed (<= 90 chars)",
+      "summary": "one sentence about THIS specific item",
+      "whyItMatters": "tie this one item to role/title/reporting/calendar pressure",
       "severity": "critical|warning|healthy|signal",
       "orbit": "now|today|week|watching",
       "category": "delivery|people|client|comms|time|admin",
       "source": "jira|slack|gmail|calendar|hub|meeting|drive|launchpad|fused",
       "confidence": 0.0-1.0,
-      "suggestedAction": "short next step or null",
+      "suggestedAction": "short next step for THIS item or null",
       "rankScore": 0-100,
       "sourceRef": { "externalId": "...", "url": null, "label": "..." },
       "expiresAt": null
@@ -48,9 +47,13 @@ Return ONLY valid JSON (no markdown):
 }
 
 Rules:
+- ONE input signal = ONE output item. Never merge emails/events/messages into counts.
+- FORBIDDEN titles: "N unread…", "N calendar events…", "threads that may need a reply", "messages need triage", or any count rollup.
+- fingerprint MUST be copied exactly from an input signal. Do not invent fingerprints.
+- Keep titles specific (subject line, event name, issue key, message preview).
 - Only create items grounded in provided signals. Never invent finance drama or fake clients.
 - Prefer fewer high-signal items over noise. Max items is provided.
-- Fuse related signals (same theme) into source "fused" with higher rank.
+- You may keep an existing fused signal if present; do not invent new rollups.
 - critical = needs action before next meeting / blocker / manager escalation.
 - warning = today pressure. healthy = good news / resolved. signal = awareness.
 - Orbit: now (<2h or blocker), today, week, watching.
@@ -95,21 +98,68 @@ function asCategory(v: unknown): MatterCategory {
   return 'comms';
 }
 
-function asSource(v: unknown): MatterSource {
-  if (
-    v === 'jira' ||
-    v === 'slack' ||
-    v === 'gmail' ||
-    v === 'calendar' ||
-    v === 'hub' ||
-    v === 'meeting' ||
-    v === 'drive' ||
-    v === 'launchpad' ||
-    v === 'fused'
-  ) {
-    return v;
+function extractFirstUrl(text?: string | null): string | null {
+  if (!text) return null;
+  const match = text.match(/https?:\/\/[^\s"'<>)\\]]+/i);
+  if (!match) return null;
+  return match[0].replace(/[.,;:]+$/, '');
+}
+
+function enrichSourceRef(
+  ref: MatterItem['sourceRef'] | Record<string, unknown>,
+  rawExcerpt?: string | null
+): MatterItem['sourceRef'] {
+  const base = {
+    connectorId: typeof ref.connectorId === 'string' ? ref.connectorId : null,
+    toolName: typeof ref.toolName === 'string' ? ref.toolName : null,
+    externalId: typeof ref.externalId === 'string' ? ref.externalId : null,
+    url: typeof ref.url === 'string' ? ref.url : null,
+    label: typeof ref.label === 'string' ? ref.label : null,
+  };
+  if (!base.url) {
+    base.url = extractFirstUrl(rawExcerpt);
   }
-  return 'hub';
+  return base;
+}
+
+function isRollupTitle(title: string): boolean {
+  const t = title.trim();
+  return (
+    /^\d+\s+(unread|calendar|emails?|messages?|events?|threads?|items?)\b/i.test(t) ||
+    /\b(need|needs)\s+triage\b/i.test(t) ||
+    /\bthreads that may need\b/i.test(t) ||
+    /\bevents scheduled\b/i.test(t) ||
+    /\bmessages need\b/i.test(t) ||
+    /\bthat may need a reply\b/i.test(t)
+  );
+}
+
+function attachRawFromSignals(
+  items: RankedMatterResult['items'],
+  signals: RawMatterSignal[]
+): RankedMatterResult['items'] {
+  const byFingerprint = new Map(signals.map((s) => [s.fingerprint, s]));
+  return items.map((item) => {
+    const signal = byFingerprint.get(item.fingerprint);
+    const rawDetails = signal?.rawDetails || item.rawDetails || signal?.rawExcerpt || null;
+    const title =
+      signal && (!item.title || isRollupTitle(item.title))
+        ? signal.title.slice(0, 120)
+        : item.title;
+    const summary =
+      signal && (!item.summary || isRollupTitle(item.summary)) ? signal.summary : item.summary;
+    return {
+      ...item,
+      title,
+      summary,
+      source: signal?.source || item.source,
+      rawDetails,
+      sourceRef: enrichSourceRef(
+        { ...(signal?.sourceRef || {}), ...(item.sourceRef || {}) },
+        rawDetails
+      ),
+    };
+  });
 }
 
 export interface RankedMatterResult {
@@ -166,8 +216,9 @@ function heuristicRank(
         confidence: 0.55,
         suggestedAction: s.suggestedAction || null,
         rankScore: severityBoost[severity] + Math.max(0, 20 - index),
-        sourceRef: s.sourceRef || {},
-        expiresAt: s.expiresAt ?? null,
+        sourceRef: enrichSourceRef(s.sourceRef || {}, s.rawDetails || s.rawExcerpt),
+        rawDetails: s.rawDetails || s.rawExcerpt || null,
+        expiresAt: null,
       };
     })
     .sort((a, b) => b.rankScore - a.rankScore);
@@ -304,51 +355,70 @@ export async function rankMatterSignals(options: {
       lenses?: unknown;
     };
 
+    const known = new Map(signals.map((s) => [s.fingerprint, s]));
+    const base = heuristicRank(signals, profile, softMax);
     const itemsRaw = Array.isArray(parsed.items) ? parsed.items : [];
-    const items = itemsRaw
-      .map((raw) => {
-        const item = raw as Record<string, unknown>;
-        const fingerprint =
-          typeof item.fingerprint === 'string' && item.fingerprint.trim()
-            ? item.fingerprint.trim()
-            : null;
-        const title = typeof item.title === 'string' ? item.title.trim() : '';
-        if (!fingerprint || !title) return null;
-        const sourceRef =
-          typeof item.sourceRef === 'object' && item.sourceRef !== null
-            ? (item.sourceRef as MatterItem['sourceRef'])
-            : {};
-        return {
-          fingerprint,
-          title: title.slice(0, 120),
-          summary: typeof item.summary === 'string' ? item.summary : '',
-          whyItMatters:
-            typeof item.whyItMatters === 'string'
-              ? item.whyItMatters
-              : 'Surfaced from your connected work tools.',
-          severity: asSeverity(item.severity),
-          orbit: asOrbit(item.orbit),
-          category: asCategory(item.category),
-          source: asSource(item.source),
-          confidence:
-            typeof item.confidence === 'number' && Number.isFinite(item.confidence)
-              ? Math.max(0, Math.min(1, item.confidence))
-              : 0.6,
-          suggestedAction: typeof item.suggestedAction === 'string' ? item.suggestedAction : null,
-          rankScore:
-            typeof item.rankScore === 'number' && Number.isFinite(item.rankScore)
-              ? item.rankScore
-              : 50,
-          sourceRef,
-          expiresAt: typeof item.expiresAt === 'number' ? item.expiresAt : null,
-        };
-      })
-      .filter((v): v is NonNullable<typeof v> => !!v)
-      .slice(0, softMax);
+    const llmByFp = new Map<string, Record<string, unknown>>();
+    for (const raw of itemsRaw) {
+      if (!raw || typeof raw !== 'object') continue;
+      const item = raw as Record<string, unknown>;
+      const fingerprint =
+        typeof item.fingerprint === 'string' && item.fingerprint.trim()
+          ? item.fingerprint.trim()
+          : null;
+      if (!fingerprint || !known.has(fingerprint)) continue;
+      if (typeof item.title === 'string' && isRollupTitle(item.title)) continue;
+      llmByFp.set(fingerprint, item);
+    }
+
+    // Overlay LLM ranking/why onto concrete heuristic items (never invent rollups).
+    const items = base.items.map((baseItem) => {
+      const item = llmByFp.get(baseItem.fingerprint);
+      if (!item) return baseItem;
+      const title =
+        typeof item.title === 'string' && item.title.trim() && !isRollupTitle(item.title)
+          ? item.title.trim().slice(0, 120)
+          : baseItem.title;
+      const sourceRef =
+        typeof item.sourceRef === 'object' && item.sourceRef !== null
+          ? (item.sourceRef as MatterItem['sourceRef'])
+          : baseItem.sourceRef;
+      return {
+        ...baseItem,
+        title,
+        summary:
+          typeof item.summary === 'string' && item.summary.trim() ? item.summary : baseItem.summary,
+        whyItMatters:
+          typeof item.whyItMatters === 'string' && item.whyItMatters.trim()
+            ? item.whyItMatters
+            : baseItem.whyItMatters,
+        severity: item.severity != null ? asSeverity(item.severity) : baseItem.severity,
+        orbit: item.orbit != null ? asOrbit(item.orbit) : baseItem.orbit,
+        category: item.category != null ? asCategory(item.category) : baseItem.category,
+        confidence:
+          typeof item.confidence === 'number' && Number.isFinite(item.confidence)
+            ? Math.max(0, Math.min(1, item.confidence))
+            : baseItem.confidence,
+        suggestedAction:
+          typeof item.suggestedAction === 'string'
+            ? item.suggestedAction
+            : baseItem.suggestedAction,
+        rankScore:
+          typeof item.rankScore === 'number' && Number.isFinite(item.rankScore)
+            ? item.rankScore
+            : baseItem.rankScore,
+        sourceRef,
+      };
+    });
 
     if (items.length === 0) {
       return heuristicRank(signals, profile, softMax);
     }
+
+    const itemsWithRaw = attachRawFromSignals(
+      items.sort((a, b) => b.rankScore - a.rankScore),
+      signals
+    );
 
     const lensesRaw = Array.isArray(parsed.lenses) ? parsed.lenses : [];
     const lenses = heuristicRank(signals, profile, softMax).lenses.map((fallback) => {
@@ -375,9 +445,9 @@ export async function rankMatterSignals(options: {
       pulse:
         typeof parsed.pulse === 'string' && parsed.pulse.trim()
           ? parsed.pulse.trim()
-          : heuristicRank(items as unknown as RawMatterSignal[], profile, softMax).pulse,
+          : heuristicRank(signals, profile, softMax).pulse,
       brief: typeof parsed.brief === 'string' ? parsed.brief.trim() : null,
-      items,
+      items: itemsWithRaw,
       lenses,
     };
   } catch (error) {

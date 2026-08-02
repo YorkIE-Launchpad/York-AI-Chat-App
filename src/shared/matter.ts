@@ -63,6 +63,8 @@ export interface MatterItem {
   title: string;
   summary: string;
   whyItMatters: string;
+  /** Exact connector payload excerpt used to form this item. */
+  rawDetails: string | null;
   severity: MatterSeverity;
   orbit: MatterOrbit;
   category: MatterCategory;

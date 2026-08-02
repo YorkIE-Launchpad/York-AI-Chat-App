@@ -173,6 +173,8 @@ export function Sidebar() {
   const setShowMatter = useAppStore((s) => s.setShowMatter);
   const showMatter = useAppStore((s) => s.showMatter);
   const matterBadgeCount = useAppStore((s) => s.matterBadgeCount);
+  const matterEnabled =
+    useAppStore((s) => s.appConfig?.matterEnabled ?? s.appConfig?.matterRuntime?.enabled) !== false;
   const {
     deleteSession,
     batchDeleteSessions,
@@ -472,22 +474,24 @@ export function Sidebar() {
           >
             <Plus className="w-4 h-4" />
           </button>
-          <button
-            onClick={handleOpenMatter}
-            className={`relative w-9 h-9 rounded-2xl flex items-center justify-center transition-colors border ${
-              showMatter
-                ? 'bg-accent/15 text-accent border-accent/40'
-                : 'bg-background hover:bg-surface-hover text-text-secondary border-border-subtle'
-            }`}
-            title={t('sidebar.matter')}
-          >
-            <Radar className="w-4 h-4" />
-            {matterBadgeCount > 0 ? (
-              <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] px-0.5 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center">
-                {matterBadgeCount > 9 ? '9+' : matterBadgeCount}
-              </span>
-            ) : null}
-          </button>
+          {matterEnabled ? (
+            <button
+              onClick={handleOpenMatter}
+              className={`relative w-9 h-9 rounded-2xl flex items-center justify-center transition-colors border ${
+                showMatter
+                  ? 'bg-accent/15 text-accent border-accent/40'
+                  : 'bg-background hover:bg-surface-hover text-text-secondary border-border-subtle'
+              }`}
+              title={t('sidebar.matter')}
+            >
+              <Radar className="w-4 h-4" />
+              {matterBadgeCount > 0 ? (
+                <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] px-0.5 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center">
+                  {matterBadgeCount > 9 ? '9+' : matterBadgeCount}
+                </span>
+              ) : null}
+            </button>
+          ) : null}
           <button
             onClick={handleIncognitoSession}
             className="w-9 h-9 rounded-2xl flex items-center justify-center bg-background hover:bg-surface-hover transition-colors text-text-secondary border border-border-subtle border-dashed"
@@ -657,24 +661,26 @@ export function Sidebar() {
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={handleOpenMatter}
-          className={`mt-2 w-full h-9 rounded-xl flex items-center gap-2 px-3 text-[13px] font-medium transition-colors border ${
-            showMatter
-              ? 'bg-accent/15 text-accent border-accent/40'
-              : 'bg-background text-text-secondary border-border-subtle hover:bg-surface-hover hover:text-text-primary'
-          }`}
-          title={t('sidebar.matter')}
-        >
-          <Radar className="w-4 h-4 shrink-0" />
-          <span className="flex-1 text-left">{t('sidebar.matter')}</span>
-          {matterBadgeCount > 0 ? (
-            <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
-              {matterBadgeCount > 9 ? '9+' : matterBadgeCount}
-            </span>
-          ) : null}
-        </button>
+        {matterEnabled ? (
+          <button
+            type="button"
+            onClick={handleOpenMatter}
+            className={`mt-2 w-full h-9 rounded-xl flex items-center gap-2 px-3 text-[13px] font-medium transition-colors border ${
+              showMatter
+                ? 'bg-accent/15 text-accent border-accent/40'
+                : 'bg-background text-text-secondary border-border-subtle hover:bg-surface-hover hover:text-text-primary'
+            }`}
+            title={t('sidebar.matter')}
+          >
+            <Radar className="w-4 h-4 shrink-0" />
+            <span className="flex-1 text-left">{t('sidebar.matter')}</span>
+            {matterBadgeCount > 0 ? (
+              <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
+                {matterBadgeCount > 9 ? '9+' : matterBadgeCount}
+              </span>
+            ) : null}
+          </button>
+        ) : null}
 
         {divisionSessions.length > 0 && (
           <div className="mt-2 flex items-center gap-2">

@@ -44,6 +44,7 @@ export function mapMatterItemRow(row: MatterItemRow): MatterItem {
     title: row.title,
     summary: row.summary,
     whyItMatters: row.why_it_matters,
+    rawDetails: row.raw_details ?? null,
     severity: row.severity as MatterItem['severity'],
     orbit: row.orbit as MatterItem['orbit'],
     category: row.category as MatterItem['category'],
@@ -110,6 +111,8 @@ export interface MatterStore {
       }
     >
   ) => MatterItem[];
+  /** Mark active items not in keepFingerprints as expired (keeps pinned/snoozed). */
+  expireAbsentItems: (keepFingerprints: string[], now?: number) => number;
   updateItem: (id: string, updates: Partial<MatterItem>) => MatterItem | null;
   recordAction: (input: {
     itemId?: string | null;
@@ -233,6 +236,7 @@ export function createMatterStore(db: DatabaseInstance): MatterStore {
             title: incoming.title,
             summary: incoming.summary,
             why_it_matters: incoming.whyItMatters,
+            raw_details: incoming.rawDetails,
             severity: incoming.severity,
             orbit: incoming.pinned || existing.pinned === 1 ? 'now' : incoming.orbit,
             category: incoming.category,
@@ -256,6 +260,7 @@ export function createMatterStore(db: DatabaseInstance): MatterStore {
             title: incoming.title,
             summary: incoming.summary,
             why_it_matters: incoming.whyItMatters,
+            raw_details: incoming.rawDetails,
             severity: incoming.severity,
             orbit: incoming.orbit,
             category: incoming.category,
@@ -280,11 +285,30 @@ export function createMatterStore(db: DatabaseInstance): MatterStore {
       return result;
     },
 
+    expireAbsentItems: (keepFingerprints, now = Date.now()) => {
+      const keep = new Set(keepFingerprints);
+      let expired = 0;
+      for (const row of db.matterItems.listActive()) {
+        if (row.pinned === 1) continue;
+        if (row.status === 'snoozed' && row.snooze_until && row.snooze_until > now) continue;
+        if (keep.has(row.fingerprint)) continue;
+        if (row.status !== 'active' && row.status !== 'resurfaced') continue;
+        db.matterItems.update(row.id, {
+          status: 'expired',
+          resolved_at: now,
+          expires_at: now,
+        });
+        expired += 1;
+      }
+      return expired;
+    },
+
     updateItem: (id, updates) => {
       const mapped: Partial<MatterItemRow> = {};
       if (updates.title !== undefined) mapped.title = updates.title;
       if (updates.summary !== undefined) mapped.summary = updates.summary;
       if (updates.whyItMatters !== undefined) mapped.why_it_matters = updates.whyItMatters;
+      if (updates.rawDetails !== undefined) mapped.raw_details = updates.rawDetails;
       if (updates.severity !== undefined) mapped.severity = updates.severity;
       if (updates.orbit !== undefined) mapped.orbit = updates.orbit;
       if (updates.category !== undefined) mapped.category = updates.category;

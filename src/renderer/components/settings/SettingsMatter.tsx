@@ -6,6 +6,7 @@ import {
   type MatterRuntimeConfig,
   type MatterSensitivity,
 } from '../../../shared/matter';
+import { useAppStore } from '../../store';
 import { SettingsContentSection } from './shared';
 
 function ToggleField({
@@ -37,6 +38,9 @@ function ToggleField({
 
 export function SettingsMatter() {
   const { t } = useTranslation();
+  const setAppConfig = useAppStore((s) => s.setAppConfig);
+  const setShowMatter = useAppStore((s) => s.setShowMatter);
+  const setMatterBadgeCount = useAppStore((s) => s.setMatterBadgeCount);
   const [draft, setDraft] = useState<MatterRuntimeConfig>({
     ...DEFAULT_MATTER_RUNTIME,
     sources: { ...DEFAULT_MATTER_RUNTIME.sources },
@@ -61,6 +65,24 @@ export function SettingsMatter() {
     try {
       const saved = await window.electronAPI.matter.updateSettings(next);
       setDraft({ ...saved, sources: { ...saved.sources } });
+      // Keep renderer config in sync so sidebar / nav react immediately.
+      if (window.electronAPI.config?.get) {
+        const config = await window.electronAPI.config.get();
+        setAppConfig(config);
+      } else {
+        const prev = useAppStore.getState().appConfig;
+        if (prev) {
+          setAppConfig({
+            ...prev,
+            matterEnabled: saved.enabled,
+            matterRuntime: saved,
+          });
+        }
+      }
+      if (!saved.enabled) {
+        setShowMatter(false);
+        setMatterBadgeCount(0);
+      }
       setStatus(t('matter.settingsSaved'));
     } catch (error) {
       setStatus(error instanceof Error ? error.message : t('matter.settingsSaveFailed'));
