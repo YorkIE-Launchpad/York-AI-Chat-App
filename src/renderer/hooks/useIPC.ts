@@ -527,6 +527,21 @@ export function useIPC() {
         store.setSystemDarkMode(Boolean(systemTheme?.shouldUseDarkColors));
         applyConfigSnapshot(config, Boolean(isConfigured));
 
+        // Hydrate active chat loops/goals so sidebar can show type icons.
+        try {
+          const loops = await window.electronAPI.loop.list();
+          if (!disposed && Array.isArray(loops)) {
+            const storeAfter = useAppStore.getState();
+            for (const status of loops) {
+              if (status?.sessionId && !status.stopReason) {
+                storeAfter.setChatLoopStatus(status.sessionId, status);
+              }
+            }
+          }
+        } catch (loopErr) {
+          console.warn('[useIPC] Failed to hydrate chat loops:', loopErr);
+        }
+
         // Hydrate main-process permission rules from the renderer's (possibly
         // persisted) settings so the agent has them before the first tool call.
         // Re-read the store after applyConfigSnapshot so we send the latest

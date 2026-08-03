@@ -21,6 +21,7 @@ import {
   Ghost,
   FileDown,
   Radar,
+  Target,
 } from 'lucide-react';
 import type { Session } from '../types';
 import { DivisionSwitcher } from './DivisionSwitcher';
@@ -175,6 +176,7 @@ export function Sidebar() {
   const matterBadgeCount = useAppStore((s) => s.matterBadgeCount);
   const matterEnabled =
     useAppStore((s) => s.appConfig?.matterEnabled ?? s.appConfig?.matterRuntime?.enabled) !== false;
+  const chatLoopBySessionId = useAppStore((s) => s.chatLoopBySessionId);
   const {
     deleteSession,
     batchDeleteSessions,
@@ -721,6 +723,8 @@ export function Sidebar() {
                     const isActive = activeSessionId === session.id;
                     const isSelected = selectedIds.has(session.id);
                     const isIncognito = session.incognito === true;
+                    const loopStatus = chatLoopBySessionId[session.id];
+                    const isActiveLoop = Boolean(loopStatus && !loopStatus.stopReason);
                     return (
                       <div
                         key={session.id}
@@ -755,6 +759,25 @@ export function Sidebar() {
                           )}
                           {isIncognito && !isSelectMode && (
                             <Ghost className="w-3.5 h-3.5 text-text-muted flex-shrink-0" />
+                          )}
+                          {isActiveLoop && !isSelectMode && (
+                            <span
+                              className="flex-shrink-0 text-accent"
+                              title={
+                                loopStatus?.kind === 'goal'
+                                  ? t('loop.modeGoal')
+                                  : t('loop.modeLoop')
+                              }
+                            >
+                              {loopStatus?.kind === 'goal' ? (
+                                <Target className="w-3.5 h-3.5" />
+                              ) : (
+                                <RefreshCw
+                                  className="w-3.5 h-3.5 animate-spin"
+                                  style={{ animationDuration: '3s' }}
+                                />
+                              )}
+                            </span>
                           )}
                           <div className="min-w-0 flex-1">
                             <div className="text-[13px] font-medium leading-5 text-text-primary truncate">

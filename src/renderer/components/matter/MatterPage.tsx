@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { RefreshCw, Settings, X, Radio, Activity, Gauge, Plug, Eraser } from 'lucide-react';
+import { RefreshCw, Settings, X, Radio, Activity, Gauge, Plug, Clock3 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { MatterItem, MatterLensId, MatterSnapshot } from '../../../shared/matter';
 import { DEFAULT_MATTER_RUNTIME } from '../../../shared/matter';
@@ -146,13 +146,16 @@ export function MatterPage({ onClose }: MatterPageProps) {
   };
 
   const clearNowOrbit = async () => {
-    const nowItems = snapshot.items.filter((i) => i.orbit === 'now');
-    if (nowItems.length === 0) return;
+    if (!window.electronAPI?.matter) return;
+    if (!snapshot.items.some((i) => i.orbit === 'now')) return;
     setClearingNow(true);
     try {
-      for (const item of nowItems) {
-        await runAction(item, 'snooze');
-      }
+      const next = await window.electronAPI.matter.clearNowOrbit();
+      applySnapshot(next);
+      setSelectedId((current) => {
+        if (!current) return null;
+        return next.items.some((i) => i.id === current) ? current : null;
+      });
     } finally {
       setClearingNow(false);
     }
@@ -215,10 +218,10 @@ export function MatterPage({ onClose }: MatterPageProps) {
           type="button"
           onClick={() => void clearNowOrbit()}
           disabled={clearingNow || !snapshot.items.some((i) => i.orbit === 'now')}
-          className="h-9 px-3 rounded-xl border border-border-muted text-sm text-text-secondary hover:bg-surface-hover flex items-center gap-1.5 disabled:opacity-50"
+          className="h-9 w-9 rounded-xl border border-border-muted flex items-center justify-center text-text-secondary hover:bg-surface-hover disabled:opacity-50"
           title={t('matter.clearNow')}
         >
-          <Eraser className="w-3.5 h-3.5" />
+          <Clock3 className={`w-4 h-4 ${clearingNow ? 'animate-pulse' : ''}`} />
         </button>
         <button
           type="button"

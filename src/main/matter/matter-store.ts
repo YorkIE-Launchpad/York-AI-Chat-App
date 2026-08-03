@@ -223,15 +223,13 @@ export function createMatterStore(db: DatabaseInstance): MatterStore {
         const existing = db.matterItems.getByFingerprint(incoming.fingerprint);
         if (existing) {
           const wasDoneOrDismissed = existing.status === 'done' || existing.status === 'dismissed';
-          const nextStatus =
-            wasDoneOrDismissed && incoming.status !== 'dismissed'
+          const stillSnoozed =
+            existing.status === 'snoozed' && !!existing.snooze_until && existing.snooze_until > now;
+          const nextStatus = stillSnoozed
+            ? 'snoozed'
+            : wasDoneOrDismissed && incoming.status !== 'dismissed'
               ? 'resurfaced'
-              : incoming.status ||
-                (existing.status === 'snoozed' &&
-                existing.snooze_until &&
-                existing.snooze_until > now
-                  ? 'snoozed'
-                  : 'active');
+              : incoming.status || 'active';
           db.matterItems.update(existing.id, {
             title: incoming.title,
             summary: incoming.summary,
@@ -248,6 +246,8 @@ export function createMatterStore(db: DatabaseInstance): MatterStore {
             expires_at: incoming.expiresAt,
             rank_score: incoming.rankScore,
             last_seen_at: now,
+            // Keep snooze window intact while still snoozed
+            ...(stillSnoozed ? { snooze_until: existing.snooze_until } : {}),
             resolved_at:
               nextStatus === 'active' || nextStatus === 'resurfaced' ? null : existing.resolved_at,
           });

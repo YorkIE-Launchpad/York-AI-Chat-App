@@ -437,6 +437,7 @@ export class MatterService {
       this.store.updateItem(item.id, {
         status: 'snoozed',
         snoozeUntil: until,
+        pinned: false,
       });
       this.store.recordAction({
         itemId: item.id,
@@ -466,6 +467,34 @@ export class MatterService {
       });
     }
 
+    this.pushSnapshot();
+    return this.getSnapshot();
+  }
+
+  /**
+   * Snooze every item currently in the Now orbit (including pinned) in one pass.
+   * Unpins so items do not immediately snap back into Now after refresh.
+   */
+  clearNowOrbit(snoozeMs = 60 * 60 * 1000): MatterSnapshot {
+    const snapshot = this.getSnapshot();
+    const nowItems = snapshot.items.filter((i) => i.orbit === 'now');
+    if (nowItems.length === 0) {
+      return snapshot;
+    }
+    const until = Date.now() + Math.max(60_000, snoozeMs);
+    for (const item of nowItems) {
+      this.store.updateItem(item.id, {
+        status: 'snoozed',
+        snoozeUntil: until,
+        pinned: false,
+      });
+      this.store.recordAction({
+        itemId: item.id,
+        fingerprint: item.fingerprint,
+        action: 'snooze',
+        meta: { snoozeUntil: until, clearNow: true },
+      });
+    }
     this.pushSnapshot();
     return this.getSnapshot();
   }

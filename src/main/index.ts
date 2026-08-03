@@ -4111,6 +4111,13 @@ ipcMain.handle('matter.applyAction', (_event, input: MatterItemActionInput): Mat
   return matterService.applyItemAction(input);
 });
 
+ipcMain.handle('matter.clearNowOrbit', (): MatterSnapshot => {
+  if (!matterService) {
+    throw new Error('Matter service not initialized');
+  }
+  return matterService.clearNowOrbit();
+});
+
 ipcMain.handle(
   'matter.updateSettings',
   (_event, partial: Partial<MatterRuntimeConfig>): MatterRuntimeConfig => {

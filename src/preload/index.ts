@@ -585,6 +585,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     scanNow: (): Promise<MatterSnapshot> => ipcRenderer.invoke('matter.scanNow'),
     applyAction: (input: MatterItemActionInput): Promise<MatterSnapshot> =>
       ipcRenderer.invoke('matter.applyAction', input),
+    clearNowOrbit: (): Promise<MatterSnapshot> => ipcRenderer.invoke('matter.clearNowOrbit'),
     updateSettings: (partial: Partial<MatterRuntimeConfig>): Promise<MatterRuntimeConfig> =>
       ipcRenderer.invoke('matter.updateSettings', partial),
     clearMute: (key: string): Promise<MatterSnapshot> =>
@@ -1045,6 +1046,7 @@ declare global {
         getSnapshot: () => Promise<MatterSnapshot>;
         scanNow: () => Promise<MatterSnapshot>;
         applyAction: (input: MatterItemActionInput) => Promise<MatterSnapshot>;
+        clearNowOrbit: () => Promise<MatterSnapshot>;
         updateSettings: (partial: Partial<MatterRuntimeConfig>) => Promise<MatterRuntimeConfig>;
         clearMute: (key: string) => Promise<MatterSnapshot>;
         buildChatPrompt: (prompt: string, itemIds?: string[]) => Promise<{ prompt: string }>;
