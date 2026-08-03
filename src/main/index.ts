@@ -172,6 +172,7 @@ import {
   isDevLogsEnabled,
 } from './utils/logger';
 import { listRecentWorkspaceFiles } from './utils/recent-workspace-files';
+import { isPathWithinRoot } from './tools/path-containment';
 import { buildDiagnosticsSummary } from './utils/diagnostics-summary';
 import {
   parseHeadlessArgs,
@@ -2561,6 +2562,102 @@ ipcMain.handle(
     return listRecentWorkspaceFiles(cwd, sinceMs, limit);
   }
 );
+
+const MAX_HTML_PREVIEW_BYTES = 2 * 1024 * 1024; // 2MB cap for srcDoc previews
+
+ipcMain.handle(
+  'artifacts.readTextFile',
+  async (
+    _event,
+    filePath: string,
+    cwd?: string
+  ): Promise<{ success: boolean; content?: string; error?: string }> => {
+    try {
+      if (typeof filePath !== 'string' || !filePath.trim()) {
+        return { success: false, error: 'Invalid path' };
+      }
+
+      const baseDir =
+        cwd && typeof cwd === 'string' && isAbsolute(cwd) ? cwd : getWorkingDir() || '';
+      if (!baseDir) {
+        return { success: false, error: 'No workspace directory' };
+      }
+
+      let normalizedPath = resolvePathAgainstWorkspace(filePath.trim(), baseDir);
+      if (
+        !isAbsolute(normalizedPath) &&
+        !isWindowsDrivePath(normalizedPath) &&
+        !isUncPath(normalizedPath)
+      ) {
+        normalizedPath = resolve(baseDir, normalizedPath);
+      }
+      if (!isUncPath(normalizedPath)) {
+        normalizedPath = resolve(normalizedPath);
+      }
+
+      const caseInsensitive = process.platform === 'win32';
+      if (!isPathWithinRoot(normalizedPath, resolve(baseDir), caseInsensitive)) {
+        return { success: false, error: 'Path outside workspace' };
+      }
+
+      const ext = extname(normalizedPath).toLowerCase();
+      if (ext !== '.html' && ext !== '.htm') {
+        return { success: false, error: 'Only HTML files can be previewed' };
+      }
+
+      const stat = fs.statSync(normalizedPath);
+      if (!stat.isFile()) {
+        return { success: false, error: 'Not a file' };
+      }
+      if (stat.size > MAX_HTML_PREVIEW_BYTES) {
+        return { success: false, error: 'File too large to preview' };
+      }
+
+      const content = fs.readFileSync(normalizedPath, 'utf8');
+      return { success: true, content };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logError('[artifacts.readTextFile] failed:', error);
+      return { success: false, error: message };
+    }
+  }
+);
+
+ipcMain.handle('shell.openPath', async (_event, filePath: string, cwd?: string) => {
+  try {
+    if (typeof filePath !== 'string' || !filePath.trim()) {
+      return { success: false, error: 'Invalid path' };
+    }
+    const baseDir = cwd && typeof cwd === 'string' && isAbsolute(cwd) ? cwd : getWorkingDir() || '';
+    let normalizedPath = resolvePathAgainstWorkspace(filePath.trim(), baseDir || undefined);
+    if (
+      baseDir &&
+      !isAbsolute(normalizedPath) &&
+      !isWindowsDrivePath(normalizedPath) &&
+      !isUncPath(normalizedPath)
+    ) {
+      normalizedPath = resolve(baseDir, normalizedPath);
+    }
+    if (!isUncPath(normalizedPath)) {
+      normalizedPath = resolve(normalizedPath);
+    }
+    if (baseDir) {
+      const caseInsensitive = process.platform === 'win32';
+      if (!isPathWithinRoot(normalizedPath, resolve(baseDir), caseInsensitive)) {
+        return { success: false, error: 'Path outside workspace' };
+      }
+    }
+    const openResult = await shell.openPath(normalizedPath);
+    if (openResult) {
+      return { success: false, error: openResult };
+    }
+    return { success: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logError('[shell.openPath] failed:', error);
+    return { success: false, error: message };
+  }
+});
 
 const MAX_FILE_DATA_URL_BYTES = 8 * 1024 * 1024; // 8MB cap for renderer previews
 

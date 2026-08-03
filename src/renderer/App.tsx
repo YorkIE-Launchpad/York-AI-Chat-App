@@ -32,12 +32,16 @@ import {
 import { PanelErrorBoundary } from './components/PanelErrorBoundary';
 import { useAuth } from './auth/AuthContext';
 import { LoginPage } from './components/LoginPage';
+import { findLatestHtmlPreviewCandidate, htmlPreviewSignature } from './utils/html-preview';
 
 const ChatView = lazy(() =>
   import('./components/ChatView').then((module) => ({ default: module.ChatView }))
 );
 const ContextPanel = lazy(() =>
   import('./components/ContextPanel').then((module) => ({ default: module.ContextPanel }))
+);
+const HtmlPreviewPanel = lazy(() =>
+  import('./components/HtmlPreviewPanel').then((module) => ({ default: module.HtmlPreviewPanel }))
 );
 const SettingsPanel = lazy(() =>
   import('./components/SettingsPanel').then((module) => ({ default: module.SettingsPanel }))
@@ -57,7 +61,16 @@ function MainPanelFallback() {
 function ContextPanelFallback() {
   return (
     <div
-      className="hidden xl:block w-[340px] shrink-0 border-l border-border-subtle bg-background/60"
+      className="w-72 shrink-0 border-l border-border-subtle bg-background/60"
+      aria-hidden="true"
+    />
+  );
+}
+
+function HtmlPreviewPanelFallback() {
+  return (
+    <div
+      className="w-[min(50vw,720px)] min-w-[280px] shrink-0 border-l border-border-subtle bg-background/60"
       aria-hidden="true"
     />
   );
@@ -92,6 +105,10 @@ function AuthenticatedApp() {
   const setMatterBadgeCount = useAppStore((s) => s.setMatterBadgeCount);
   const { sidebarCollapsed } = useLayoutState();
   const globalNotice = useGlobalNotice();
+  const activeHtmlPreview = useAppStore((s) => s.activeHtmlPreview);
+  const sessionStates = useAppStore((s) => s.sessionStates);
+  const sessions = useAppStore((s) => s.sessions);
+  const workingDir = useAppStore((s) => s.workingDir);
   const { progress: sandboxSetupProgress, isComplete: isSandboxSetupComplete } =
     useSandboxSetupState();
   const sandboxSyncStatus = useSandboxSyncStatus();
@@ -105,12 +122,14 @@ function AuthenticatedApp() {
   const setSettingsTab = useAppStore((s) => s.setSettingsTab);
   const setSidebarCollapsed = useAppStore((s) => s.setSidebarCollapsed);
   const setContextPanelCollapsed = useAppStore((s) => s.setContextPanelCollapsed);
+  const openHtmlPreview = useAppStore((s) => s.openHtmlPreview);
 
   const { listSessions, isElectron } = useIPC();
   const { ready: toolsReady } = useToolsReady(isElectron);
   const { width } = useWindowSize();
   const initialized = useRef(false);
   const sidebarBeforeSettings = useRef(false);
+  const lastHtmlPreviewSig = useRef<string | null>(null);
 
   useEffect(() => {
     // Only run once on mount
@@ -248,11 +267,40 @@ function AuthenticatedApp() {
     document.documentElement.style.colorScheme = effectiveTheme;
   }, [settings.theme, systemDarkMode]);
 
-  // Auto-collapse panels based on window width
+  // Auto-collapse panels based on window width (keep open while HTML preview is active)
   useEffect(() => {
-    setContextPanelCollapsed(width < 1100);
+    if (activeHtmlPreview) {
+      setContextPanelCollapsed(false);
+    } else {
+      setContextPanelCollapsed(width < 1100);
+    }
     setSidebarCollapsed(width < 800);
-  }, [width, setContextPanelCollapsed, setSidebarCollapsed]);
+  }, [width, activeHtmlPreview, setContextPanelCollapsed, setSidebarCollapsed]);
+
+  // Auto-open / refresh right-side preview when the agent writes HTML artifacts.
+  // Signature-gated so closing the panel does not immediately reopen the same write.
+  useEffect(() => {
+    if (!activeSessionId) {
+      lastHtmlPreviewSig.current = null;
+      return;
+    }
+    const steps = sessionStates[activeSessionId]?.traceSteps;
+    if (!steps?.length) {
+      return;
+    }
+    const activeSession = sessions.find((s) => s.id === activeSessionId);
+    const cwd = activeSession?.cwd || workingDir;
+    const candidate = findLatestHtmlPreviewCandidate(steps, cwd);
+    if (!candidate) {
+      return;
+    }
+    const sig = htmlPreviewSignature(candidate);
+    if (lastHtmlPreviewSig.current === sig) {
+      return;
+    }
+    lastHtmlPreviewSig.current = sig;
+    openHtmlPreview(candidate.path, candidate.title);
+  }, [activeSessionId, sessionStates, sessions, workingDir, openHtmlPreview]);
 
   // Auto-collapse sidebar when Settings is open, restore on close
   useEffect(() => {
@@ -354,8 +402,19 @@ function AuthenticatedApp() {
           )}
         </main>
 
-        {/* Context Panel - only show when in session and not in settings */}
-        {activeSessionId && !showSettings && !showMatter && (
+        {/* Right rail: HTML preview (when active) or Context Panel */}
+        {activeSessionId && !showSettings && !showMatter && activeHtmlPreview && (
+          <PanelErrorBoundary
+            name="HtmlPreviewPanel"
+            resetKey={`${activeSessionId}:${activeHtmlPreview.path}`}
+            fallback={<HtmlPreviewPanelFallback />}
+          >
+            <Suspense fallback={<HtmlPreviewPanelFallback />}>
+              <HtmlPreviewPanel />
+            </Suspense>
+          </PanelErrorBoundary>
+        )}
+        {activeSessionId && !showSettings && !showMatter && !activeHtmlPreview && (
           <PanelErrorBoundary
             name="ContextPanel"
             resetKey={activeSessionId}

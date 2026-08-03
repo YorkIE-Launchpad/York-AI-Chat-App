@@ -92,7 +92,7 @@ export function getStaticFallbackChips(
       id: 'client-deck',
       label: 'Build client deck',
       prompt:
-        'Help me create a short client update deck (PPTX). Ask for audience and goal if needed, then outline slides and generate the presentation.',
+        'Help me create a short client update deck as a self-contained HTML presentation (previewable in-app). Ask for audience and goal if needed, then outline slides and generate the HTML under outputs/.',
       icon: 'Presentation',
     },
   ];

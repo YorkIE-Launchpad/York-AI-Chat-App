@@ -11,6 +11,7 @@ import {
   getArtifactIconComponent,
   getArtifactSteps,
 } from '../utils/artifact-steps';
+import { isHtmlPath } from '../utils/html-preview';
 import { useIPC } from '../hooks/useIPC';
 import {
   ChevronDown,
@@ -38,6 +39,7 @@ import {
   Cpu,
   Copy,
   Layers,
+  Eye,
 } from 'lucide-react';
 import type { TraceStep, MCPServerInfo, ContentBlock, ToolUseContent } from '../types';
 import type { ConnectorStatus } from './settings/shared';
@@ -68,6 +70,7 @@ export function ContextPanel() {
   const appConfig = useAppStore((s) => s.appConfig);
   const contextPanelCollapsed = useAppStore((s) => s.contextPanelCollapsed);
   const toggleContextPanel = useAppStore((s) => s.toggleContextPanel);
+  const openHtmlPreview = useAppStore((s) => s.openHtmlPreview);
   const workingDir = useAppStore((s) => s.workingDir);
   const setGlobalNotice = useAppStore((s) => s.setGlobalNotice);
   const { getMCPServers, changeWorkingDir } = useIPC();
@@ -363,7 +366,10 @@ export function ContextPanel() {
                 {displayArtifacts.map((artifact, index) => {
                   const label = artifact.label || t('context.fileCreated');
                   const artifactPath = artifact.path;
-                  const canClick = Boolean(artifactPath && canShowItemInFolder);
+                  const isHtml = isHtmlPath(artifactPath);
+                  const canPreviewHtml = Boolean(artifactPath && isHtml);
+                  const canReveal = Boolean(artifactPath && canShowItemInFolder);
+                  const canClick = canPreviewHtml || canReveal;
                   const iconComponent = getArtifactIconComponent(label);
                   const IconComponent =
                     iconComponent === 'presentation'
@@ -392,6 +398,10 @@ export function ContextPanel() {
                       className={`flex items-center gap-2 px-4 py-1.5 transition-colors ${canClick ? 'cursor-pointer hover:bg-surface-hover' : ''}`}
                       onClick={async () => {
                         if (!canClick) return;
+                        if (canPreviewHtml) {
+                          openHtmlPreview(artifactPath, label);
+                          return;
+                        }
                         const revealed = await window.electronAPI.showItemInFolder(
                           artifactPath,
                           currentWorkingDir ?? undefined
@@ -404,10 +414,13 @@ export function ContextPanel() {
                           });
                         }
                       }}
-                      title={artifactPath || undefined}
+                      title={canPreviewHtml ? t('context.previewHtml') : artifactPath || undefined}
                     >
                       <IconComponent className="w-3.5 h-3.5 text-text-muted shrink-0" />
-                      <span className="text-xs text-text-primary truncate">{label}</span>
+                      <span className="text-xs text-text-primary truncate flex-1">{label}</span>
+                      {canPreviewHtml && (
+                        <Eye className="w-3 h-3 text-text-muted shrink-0" aria-hidden="true" />
+                      )}
                     </div>
                   );
                 })}

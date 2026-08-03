@@ -111,6 +111,12 @@ interface AppState {
   isLoading: boolean;
   sidebarCollapsed: boolean;
   contextPanelCollapsed: boolean;
+  /** Live HTML artifact preview in the right rail (Claude Desktop–style). */
+  activeHtmlPreview: {
+    path: string;
+    title?: string;
+    revision: number;
+  } | null;
   showSettings: boolean;
   showMatter: boolean;
   settingsTab: string | null;
@@ -195,6 +201,8 @@ interface AppState {
   toggleContextPanel: () => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
   setContextPanelCollapsed: (collapsed: boolean) => void;
+  openHtmlPreview: (path: string, title?: string) => void;
+  closeHtmlPreview: () => void;
   setShowSettings: (show: boolean) => void;
   setShowMatter: (show: boolean) => void;
   setSettingsTab: (tab: string | null) => void;
@@ -281,6 +289,7 @@ export const useAppStore = create<AppState>((set) => ({
   isLoading: false,
   sidebarCollapsed: false,
   contextPanelCollapsed: false,
+  activeHtmlPreview: null,
   showSettings: false,
   showMatter: false,
   settingsTab: null,
@@ -371,9 +380,18 @@ export const useAppStore = create<AppState>((set) => ({
 
   setActiveSession: (sessionId) =>
     set((state) => {
+      const switching = sessionId !== state.activeSessionId;
       const base = sessionId
-        ? { activeSessionId: sessionId, showMatter: false, showSettings: false }
-        : { activeSessionId: sessionId as string | null };
+        ? {
+            activeSessionId: sessionId,
+            showMatter: false,
+            showSettings: false,
+            ...(switching ? { activeHtmlPreview: null } : {}),
+          }
+        : {
+            activeSessionId: sessionId as string | null,
+            activeHtmlPreview: null,
+          };
       if (!sessionId || state.sessionStates[sessionId]) {
         return base;
       }
@@ -673,6 +691,24 @@ export const useAppStore = create<AppState>((set) => ({
     set((state) => ({ contextPanelCollapsed: !state.contextPanelCollapsed })),
   setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
   setContextPanelCollapsed: (collapsed) => set({ contextPanelCollapsed: collapsed }),
+  openHtmlPreview: (path, title) =>
+    set((state) => {
+      const trimmed = path.trim();
+      if (!trimmed) {
+        return state;
+      }
+      const prev = state.activeHtmlPreview;
+      const samePath = prev?.path === trimmed;
+      return {
+        activeHtmlPreview: {
+          path: trimmed,
+          title: title?.trim() || (samePath ? prev?.title : undefined) || undefined,
+          revision: samePath ? (prev?.revision ?? 0) + 1 : 1,
+        },
+        contextPanelCollapsed: false,
+      };
+    }),
+  closeHtmlPreview: () => set({ activeHtmlPreview: null }),
   setShowSettings: (show) =>
     set(show ? { showSettings: true, showMatter: false } : { showSettings: false }),
   setShowMatter: (show) =>

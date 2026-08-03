@@ -265,6 +265,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   showItemInFolder: (filePath: string, cwd?: string) =>
     ipcRenderer.invoke('shell.showItemInFolder', filePath, cwd),
 
+  openPath: (filePath: string, cwd?: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('shell.openPath', filePath, cwd),
+
   // Select files using native dialog
   selectFiles: (): Promise<
     Array<{
@@ -290,6 +293,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
       limit = 50
     ): Promise<Array<{ path: string; modifiedAt: number; size: number }>> =>
       ipcRenderer.invoke('artifacts.listRecentFiles', cwd, sinceMs, Math.min(limit, 500)),
+    readTextFile: (
+      filePath: string,
+      cwd?: string
+    ): Promise<{ success: boolean; content?: string; error?: string }> =>
+      ipcRenderer.invoke('artifacts.readTextFile', filePath, cwd),
   },
 
   // Config methods
@@ -809,6 +817,7 @@ declare global {
       };
       openExternal: (url: string) => Promise<boolean>;
       showItemInFolder: (filePath: string, cwd?: string) => Promise<boolean>;
+      openPath: (filePath: string, cwd?: string) => Promise<{ success: boolean; error?: string }>;
       selectFiles: () => Promise<
         Array<{
           path: string;
@@ -829,6 +838,10 @@ declare global {
           sinceMs: number,
           limit?: number
         ) => Promise<Array<{ path: string; modifiedAt: number; size: number }>>;
+        readTextFile: (
+          filePath: string,
+          cwd?: string
+        ) => Promise<{ success: boolean; content?: string; error?: string }>;
       };
       config: {
         get: () => Promise<AppConfig>;

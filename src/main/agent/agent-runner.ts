@@ -2514,7 +2514,7 @@ Do NOT use /workspace, /mnt/user-data, /mnt/workspace, or any other absolute vir
         session.division === 'hub' || session.division === 'project' ? session.division : 'general';
       const workspaceScopeRule =
         divisionKind === 'hub' || divisionKind === 'project'
-          ? '\n11. Workspace scope: if the request is personal, general, or outside this workspace, refuse and tell the user to switch workspace in the sidebar. Do not execute off-scope tools.'
+          ? '\n12. Workspace scope: if the request is personal, general, or outside this workspace, refuse and tell the user to switch workspace in the sidebar. Do not execute off-scope tools.'
           : '';
 
       const profileInstructionsPrompt = buildProfileInstructionsBlock(runtimeConfig);
@@ -2532,7 +2532,8 @@ Do NOT use /workspace, /mnt/user-data, /mnt/workspace, or any other absolute vir
 7. Never use AskUserQuestion for meta permission ("can I ask…", "may I proceed…", "should I look up…"). Ask only for a concrete missing detail that would make the next action wrong.
 8. Google Calendar create/update/delete: call the tool when available (approval UI may prompt). Do not refuse and hand the user a copy-paste invite instead.
 9. York company/work asks (meetings, agendas/prep, people, leave, client or project status, delivery, promises/follow-ups): load the york-os skill and use connected connectors as it directs. Do not answer from a single connector when the ask implies prep, brief, status, or enrich.
-10. Multi-source company asks: form a short tool-call plan (phases + cross-tool join keys such as emails, clientId, projectId, eventId), then execute; chain ids/emails from one tool into the next; never re-ask the user for values tools already returned. In mcp_search_tools meta mode, search narrowly by connector/keyword and call mcp_call_tool immediately after discovery.${workspaceScopeRule}`,
+10. Multi-source company asks: form a short tool-call plan (phases + cross-tool join keys such as emails, clientId, projectId, eventId), then execute; chain ids/emails from one tool into the next; never re-ask the user for values tools already returned. In mcp_search_tools meta mode, search narrowly by connector/keyword and call mcp_call_tool immediately after discovery.
+11. HTML-FIRST CREATIONS: When the user asks to create a presentation, deck, one-pager, report page, dashboard mock, landing page, interactive handout, or similar visual deliverable — and they have NOT explicitly requested an Office/PDF format (pptx, docx, xlsx, pdf, PowerPoint, Word, Excel) — write a self-contained HTML file under outputs/ (e.g. outputs/client-update.html). Load the html-artifact skill. After writing, emit a compact \`\`\`artifact block with JSON {"path":"outputs/...html","name":"...","type":"html"} so the in-app preview can open. Do not default to pptx/docx/xlsx/pdf skills unless the user named those formats.${workspaceScopeRule}`,
         profileInstructionsPrompt,
         configSummaryPrompt,
         workspaceInfoPrompt,

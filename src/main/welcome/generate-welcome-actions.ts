@@ -58,7 +58,7 @@ Chip rules (5 or 6 items):
 - Tailor actions to the user's title / function / squad when provided.
 - Prefer actions that use ENABLED connectors; set requiresConnectorId only to an id from the provided list.
 - Do not invent connectors that are not listed.
-- Cover York IE domains where relevant: Hub (timesheets, leave, people), LaunchPad (releases/SDLC), GTM Pulse, deal flow / diligence / portfolio memos, client decks (pptx/docx/xlsx/pdf).
+- Cover York IE domains where relevant: Hub (timesheets, leave, people), LaunchPad (releases/SDLC), GTM Pulse, deal flow / diligence / portfolio memos, client decks (prefer HTML previewable pages; pptx/docx/xlsx/pdf only when the user would explicitly want Office/PDF).
 - Prompts must be concrete and ready to run (not placeholders like [topic]).
 - Labels should be title-case short phrases.`;
 
