@@ -167,6 +167,14 @@ export interface AppConfig {
   // Enable thinking mode (show thinking steps)
   enableThinking: boolean;
 
+  /**
+   * User profile instructions injected as MUST rules into main chat and
+   * child/subagent system prompts. Empty string = unset.
+   */
+  profileDosPrompt: string;
+  profileDontsPrompt: string;
+  profileCustomPrompt: string;
+
   // First run flag
   isConfigured: boolean;
 }
@@ -226,6 +234,9 @@ const DIRECT_READ_KEYS = new Set<keyof AppConfig>([
   'matterEnabled',
   'enableThinking',
   'autoModelPreference',
+  'profileDosPrompt',
+  'profileDontsPrompt',
+  'profileCustomPrompt',
   'isConfigured',
 ]);
 
@@ -249,6 +260,9 @@ export const EXPORTABLE_FIELDS: (keyof AppConfig)[] = [
   'provider',
   'contextWindow',
   'maxTokens',
+  'profileDosPrompt',
+  'profileDontsPrompt',
+  'profileCustomPrompt',
 ];
 
 /**
@@ -273,6 +287,9 @@ export const FIELD_VALIDATORS: Record<string, (v: unknown) => boolean> = {
     ['openrouter', 'anthropic', 'custom', 'openai', 'gemini', 'ollama'].includes(v),
   contextWindow: (v) => typeof v === 'number' && v > 0,
   maxTokens: (v) => typeof v === 'number' && v > 0,
+  profileDosPrompt: (v) => typeof v === 'string',
+  profileDontsPrompt: (v) => typeof v === 'string',
+  profileCustomPrompt: (v) => typeof v === 'string',
 };
 
 const defaultProfiles: Record<ProviderProfileKey, ProviderProfile> = {
@@ -396,6 +413,9 @@ const defaultConfig: AppConfig = {
   matterEnabled: true,
   matterRuntime: { ...DEFAULT_MATTER_RUNTIME, sources: { ...DEFAULT_MATTER_RUNTIME.sources } },
   enableThinking: false,
+  profileDosPrompt: '',
+  profileDontsPrompt: '',
+  profileCustomPrompt: '',
   isConfigured: false,
 };
 
@@ -1170,6 +1190,18 @@ export class ConfigStore {
       })(),
       enableThinking: projected.enableThinking,
       autoModelPreference: normalizeAutoModelPreference(raw.autoModelPreference),
+      profileDosPrompt:
+        typeof raw.profileDosPrompt === 'string'
+          ? raw.profileDosPrompt
+          : defaultConfig.profileDosPrompt,
+      profileDontsPrompt:
+        typeof raw.profileDontsPrompt === 'string'
+          ? raw.profileDontsPrompt
+          : defaultConfig.profileDontsPrompt,
+      profileCustomPrompt:
+        typeof raw.profileCustomPrompt === 'string'
+          ? raw.profileCustomPrompt
+          : defaultConfig.profileCustomPrompt,
       isConfigured: toBoolean(raw.isConfigured, defaultConfig.isConfigured),
     };
     this.normalizeModelIds(result);
@@ -1625,6 +1657,24 @@ export class ConfigStore {
         updates.autoModelPreference !== undefined
           ? normalizeAutoModelPreference(updates.autoModelPreference)
           : current.autoModelPreference,
+      profileDosPrompt:
+        updates.profileDosPrompt !== undefined
+          ? typeof updates.profileDosPrompt === 'string'
+            ? updates.profileDosPrompt
+            : current.profileDosPrompt
+          : current.profileDosPrompt,
+      profileDontsPrompt:
+        updates.profileDontsPrompt !== undefined
+          ? typeof updates.profileDontsPrompt === 'string'
+            ? updates.profileDontsPrompt
+            : current.profileDontsPrompt
+          : current.profileDontsPrompt,
+      profileCustomPrompt:
+        updates.profileCustomPrompt !== undefined
+          ? typeof updates.profileCustomPrompt === 'string'
+            ? updates.profileCustomPrompt
+            : current.profileCustomPrompt
+          : current.profileCustomPrompt,
       isConfigured:
         updates.isConfigured !== undefined ? updates.isConfigured : current.isConfigured,
     });

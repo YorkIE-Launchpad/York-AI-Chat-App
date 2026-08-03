@@ -116,6 +116,7 @@ import {
   emitProjectScopeBlock,
 } from './project-scope-violation';
 import { buildPiSessionRuntimeSignature } from './pi-session-runtime';
+import { buildProfileInstructionsBlock } from './profile-instructions';
 import {
   LoopGuard,
   buildAbortUserMessage,
@@ -2134,6 +2135,9 @@ ${hints.join('\n')}
         modelBaseUrl: activePiModel.baseUrl,
         effectiveCwd,
         apiKey,
+        profileDosPrompt: runtimeConfig.profileDosPrompt,
+        profileDontsPrompt: runtimeConfig.profileDontsPrompt,
+        profileCustomPrompt: runtimeConfig.profileCustomPrompt,
       });
       const skillPaths = await this.resolveSkillPaths(session.id);
       const skillsSignature = JSON.stringify(skillPaths);
@@ -2513,6 +2517,8 @@ Do NOT use /workspace, /mnt/user-data, /mnt/workspace, or any other absolute vir
           ? '\n11. Workspace scope: if the request is personal, general, or outside this workspace, refuse and tell the user to switch workspace in the sidebar. Do not execute off-scope tools.'
           : '';
 
+      const profileInstructionsPrompt = buildProfileInstructionsBlock(runtimeConfig);
+
       const coworkAppendPrompt = [
         'You are a York IE VECOS assistant. Be concise, accurate, and tool-capable.',
         buildDivisionSystemPrompt(session),
@@ -2527,6 +2533,7 @@ Do NOT use /workspace, /mnt/user-data, /mnt/workspace, or any other absolute vir
 8. Google Calendar create/update/delete: call the tool when available (approval UI may prompt). Do not refuse and hand the user a copy-paste invite instead.
 9. York company/work asks (meetings, agendas/prep, people, leave, client or project status, delivery, promises/follow-ups): load the york-os skill and use connected connectors as it directs. Do not answer from a single connector when the ask implies prep, brief, status, or enrich.
 10. Multi-source company asks: form a short tool-call plan (phases + cross-tool join keys such as emails, clientId, projectId, eventId), then execute; chain ids/emails from one tool into the next; never re-ask the user for values tools already returned. In mcp_search_tools meta mode, search narrowly by connector/keyword and call mcp_call_tool immediately after discovery.${workspaceScopeRule}`,
+        profileInstructionsPrompt,
         configSummaryPrompt,
         workspaceInfoPrompt,
         `<citation_requirements>

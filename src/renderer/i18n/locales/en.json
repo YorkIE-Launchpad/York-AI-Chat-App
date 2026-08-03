@@ -74,8 +74,28 @@
     "logs": "Logs",
     "logsDesc": "View and export application logs",
     "panelDesc": "Configure your workspace, tools, and account behavior.",
+    "profile": "Profile",
+    "profileDesc": "Account and AI instruction prompts",
     "general": "General",
     "generalDesc": "Appearance, language & preferences"
+  },
+  "profile": {
+    "account": "Account",
+    "promptsTitle": "AI instructions",
+    "promptsHelp": "These rules are injected as mandatory instructions into every chat and subagent run.",
+    "dos": "Dos",
+    "dosHint": "Things the assistant should always do.",
+    "dosPlaceholder": "e.g. Prefer concise bullet answers…",
+    "donts": "Don'ts",
+    "dontsHint": "Things the assistant should never do.",
+    "dontsPlaceholder": "e.g. Do not create files unless asked…",
+    "custom": "Custom prompts",
+    "customHint": "Any other freeform instructions that must always apply.",
+    "customPlaceholder": "e.g. Always address me as Kalrav; default timezone IST…",
+    "savePrompts": "Save prompts",
+    "saving": "Saving…",
+    "promptsSaved": "Profile prompts saved",
+    "promptsSaveFailed": "Failed to save profile prompts"
   },
   "general": {
     "appearance": "Appearance",

@@ -64,6 +64,9 @@ const SAFE_TOP_LEVEL_KEYS = new Set<keyof AppConfig>([
   'defaultWorkdir',
   'activeProfileKey',
   'activeConfigSetId',
+  'profileDosPrompt',
+  'profileDontsPrompt',
+  'profileCustomPrompt',
   'isConfigured',
 ]);
 

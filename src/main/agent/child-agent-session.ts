@@ -64,6 +64,7 @@ import {
   createProjectScopeViolationReporter,
   emitProjectScopeBlock,
 } from './project-scope-violation';
+import { buildProfileInstructionsBlock } from './profile-instructions';
 
 export const MAX_CHILD_TIMEOUT_MS = 300_000;
 export const DEFAULT_CHILD_TIMEOUT_MS = 120_000;
@@ -508,8 +509,12 @@ export async function runChildAgentSession(
       }
     }
 
-    const childSystemPrompt =
+    const baseChildSystemPrompt =
       input.systemPrompt || buildChildSystemPrompt(task, input.resultFormat);
+    const profileInstructions = buildProfileInstructionsBlock(configStore.getAll());
+    const childSystemPrompt = [baseChildSystemPrompt, profileInstructions]
+      .filter((section) => Boolean(section && section.trim()))
+      .join('\n\n');
     const resourceLoader = new DefaultResourceLoader({
       cwd,
       appendSystemPrompt: childSystemPrompt,

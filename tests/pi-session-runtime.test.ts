@@ -63,4 +63,14 @@ describe('pi session runtime signature', () => {
 
     expect(normalized).toBe(original);
   });
+
+  it('changes when profile instruction prompts change', () => {
+    const original = buildPiSessionRuntimeSignature(baseInput);
+    const withDos = buildPiSessionRuntimeSignature({
+      ...baseInput,
+      profileDosPrompt: 'Be concise',
+    });
+
+    expect(withDos).not.toBe(original);
+  });
 });

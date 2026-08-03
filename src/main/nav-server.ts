@@ -27,6 +27,7 @@ const VALID_TABS = new Set([
   'matter',
   'schedule',
   'logs',
+  'profile',
   'general',
 ]);
 

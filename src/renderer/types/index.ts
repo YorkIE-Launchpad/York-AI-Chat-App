@@ -975,6 +975,10 @@ export interface AppConfig {
   matterEnabled?: boolean;
   matterRuntime?: import('../../shared/matter').MatterRuntimeConfig;
   enableThinking?: boolean;
+  /** User profile MUST instructions for chat + subagents. */
+  profileDosPrompt?: string;
+  profileDontsPrompt?: string;
+  profileCustomPrompt?: string;
   isConfigured: boolean;
 }
 

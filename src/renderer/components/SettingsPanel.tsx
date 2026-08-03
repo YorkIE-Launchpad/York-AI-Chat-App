@@ -11,6 +11,7 @@ import {
   AudioLines,
   RefreshCw,
   Radar,
+  User,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useWindowSize } from '../hooks/useWindowSize';
@@ -19,6 +20,7 @@ import { SettingsConnectors } from './settings/SettingsConnectors';
 import { SettingsSkills } from './settings/SettingsSkills';
 import { SettingsSchedule } from './settings/SettingsSchedule';
 import { SettingsGeneral } from './settings/SettingsGeneral';
+import { SettingsProfile } from './settings/SettingsProfile';
 import { SettingsLogs } from './settings/SettingsLogs';
 import { SettingsMemory } from './settings/SettingsMemory';
 import { SettingsMeetings } from './settings/SettingsMeetings';
@@ -35,6 +37,7 @@ interface SettingsPanelProps {
     | 'matter'
     | 'schedule'
     | 'logs'
+    | 'profile'
     | 'general';
 }
 
@@ -46,6 +49,7 @@ type TabId =
   | 'matter'
   | 'schedule'
   | 'logs'
+  | 'profile'
   | 'general';
 
 const VALID_TABS = new Set<TabId>([
@@ -56,6 +60,7 @@ const VALID_TABS = new Set<TabId>([
   'matter',
   'schedule',
   'logs',
+  'profile',
   'general',
 ]);
 
@@ -146,6 +151,12 @@ export function SettingsPanel({ onClose, initialTab = 'connectors' }: SettingsPa
       label: t('settings.logs'),
       icon: AlertCircle,
       description: t('settings.logsDesc'),
+    },
+    {
+      id: 'profile' as TabId,
+      label: t('settings.profile'),
+      icon: User,
+      description: t('settings.profileDesc'),
     },
     {
       id: 'general' as TabId,
@@ -277,6 +288,9 @@ export function SettingsPanel({ onClose, initialTab = 'connectors' }: SettingsPa
               </div>
               <div className={activeTab === 'logs' ? '' : 'hidden'}>
                 {viewedTabs.has('logs') && <SettingsLogs isActive={activeTab === 'logs'} />}
+              </div>
+              <div className={activeTab === 'profile' ? '' : 'hidden'}>
+                {viewedTabs.has('profile') && <SettingsProfile />}
               </div>
               <div className={activeTab === 'general' ? '' : 'hidden'}>
                 {viewedTabs.has('general') && <SettingsGeneral />}

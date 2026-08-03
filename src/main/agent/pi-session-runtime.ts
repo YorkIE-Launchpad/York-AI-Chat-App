@@ -8,6 +8,10 @@ export interface PiSessionRuntimeSignatureInput {
   modelBaseUrl?: string;
   effectiveCwd?: string;
   apiKey?: string;
+  /** Profile MUST prompts — included so session recreates when they change. */
+  profileDosPrompt?: string;
+  profileDontsPrompt?: string;
+  profileCustomPrompt?: string;
 }
 
 function normalizeText(value: string | undefined): string {
@@ -31,5 +35,8 @@ export function buildPiSessionRuntimeSignature(input: PiSessionRuntimeSignatureI
     modelBaseUrl: normalizeText(input.modelBaseUrl).replace(/\/+$/, ''),
     effectiveCwd: normalizeText(input.effectiveCwd),
     apiKeyFingerprint: fingerprintSecret(input.apiKey),
+    profileDosPrompt: normalizeText(input.profileDosPrompt),
+    profileDontsPrompt: normalizeText(input.profileDontsPrompt),
+    profileCustomPrompt: normalizeText(input.profileCustomPrompt),
   });
 }
