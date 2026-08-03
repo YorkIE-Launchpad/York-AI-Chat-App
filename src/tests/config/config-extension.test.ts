@@ -103,6 +103,9 @@ function createMockConfigStore(overrides: Partial<AppConfig> = {}) {
       },
     },
     enableThinking: true,
+    profileDosPrompt: '',
+    profileDontsPrompt: '',
+    profileCustomPrompt: '',
     isConfigured: true,
     ...overrides,
   };

@@ -85,6 +85,9 @@ function makeConfig(timeoutMs: number): AppConfig {
       },
     },
     enableThinking: false,
+    profileDosPrompt: '',
+    profileDontsPrompt: '',
+    profileCustomPrompt: '',
     isConfigured: true,
   };
 }
