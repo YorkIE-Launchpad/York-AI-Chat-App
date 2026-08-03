@@ -6,7 +6,7 @@ import { createRequire } from 'module';
 
 // Import the runChecks function from the CommonJS script using createRequire
 const require = createRequire(import.meta.url);
-const { runChecks } = require('../../scripts/pre-build-check.js');
+const { runChecks, checkNotarizationEnv } = require('../../scripts/pre-build-check.js');
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -25,6 +25,13 @@ function makeDir(dirPath: string): void {
   fs.mkdirSync(dirPath, { recursive: true });
 }
 
+/** Env with notarization credentials for darwin packaging checks. */
+const NOTARIZE_ENV = {
+  APPLE_ID: 'dev@example.com',
+  APPLE_ID_PASSWORD: 'app-specific-password',
+  APPLE_TEAM_ID: 'ABCD123456',
+};
+
 /**
  * Creates all artifacts that are required for a successful darwin/arm64 check.
  */
@@ -32,6 +39,7 @@ function populateDarwinArtifacts(root: string, arch: string = 'arm64'): void {
   // Common FATAL resources
   makeFile(path.join(root, '.bundle-resources/mcp/gui-operate-server.js'));
   makeFile(path.join(root, '.bundle-resources/mcp/software-dev-server-example.js'));
+  makeFile(path.join(root, '.bundle-resources/env/env.prod'));
   makeDir(path.join(root, 'dist-electron'));
   makeDir(path.join(root, 'dist'));
   makeDir(path.join(root, '.claude/skills'));
@@ -47,6 +55,7 @@ function populateDarwinArtifacts(root: string, arch: string = 'arm64'): void {
 function populateWin32Artifacts(root: string): void {
   makeFile(path.join(root, '.bundle-resources/mcp/gui-operate-server.js'));
   makeFile(path.join(root, '.bundle-resources/mcp/software-dev-server-example.js'));
+  makeFile(path.join(root, '.bundle-resources/env/env.prod'));
   makeDir(path.join(root, 'dist-electron'));
   makeDir(path.join(root, 'dist'));
   makeDir(path.join(root, '.claude/skills'));
@@ -76,12 +85,12 @@ describe('pre-build-check: runChecks', () => {
   it('passes all FATAL checks on darwin when required artifacts exist', () => {
     populateDarwinArtifacts(tmpDir, 'arm64');
 
-    const result = runChecks(tmpDir, 'darwin', 'arm64');
+    const result = runChecks(tmpDir, 'darwin', 'arm64', NOTARIZE_ENV);
 
     expect(result.failed).toBe(0);
     expect(result.hasFatal).toBe(false);
-    // 5 common + 2 darwin FATAL = 7 FATAL checks should pass
-    expect(result.passed).toBeGreaterThanOrEqual(7);
+    // 6 common + 2 darwin FATAL + hashed-chunk + notarize env = 10
+    expect(result.passed).toBeGreaterThanOrEqual(10);
   });
 
   it('passes all FATAL checks on win32 when required artifacts exist', () => {
@@ -98,7 +107,7 @@ describe('pre-build-check: runChecks', () => {
     // Only populate FATAL items; leave warn items absent
     populateDarwinArtifacts(tmpDir, 'x64');
 
-    const result = runChecks(tmpDir, 'darwin', 'x64');
+    const result = runChecks(tmpDir, 'darwin', 'x64', NOTARIZE_ENV);
 
     expect(result.failed).toBe(0);
     expect(result.hasFatal).toBe(false);
@@ -111,7 +120,7 @@ describe('pre-build-check: runChecks', () => {
     makeDir(path.join(tmpDir, 'resources/python/darwin-x64'));
     makeDir(path.join(tmpDir, 'resources/tools/darwin-x64'));
 
-    const result = runChecks(tmpDir, 'darwin', 'x64');
+    const result = runChecks(tmpDir, 'darwin', 'x64', NOTARIZE_ENV);
 
     expect(result.failed).toBe(0);
     expect(result.warnings).toBe(0);
@@ -127,7 +136,7 @@ describe('pre-build-check: runChecks', () => {
     // Remove a required common file
     fs.rmSync(path.join(tmpDir, '.bundle-resources/mcp/gui-operate-server.js'));
 
-    const result = runChecks(tmpDir, 'darwin', 'arm64');
+    const result = runChecks(tmpDir, 'darwin', 'arm64', NOTARIZE_ENV);
 
     expect(result.failed).toBeGreaterThan(0);
     expect(result.hasFatal).toBe(true);
@@ -137,7 +146,7 @@ describe('pre-build-check: runChecks', () => {
     populateDarwinArtifacts(tmpDir, 'arm64');
     fs.rmSync(path.join(tmpDir, 'dist-electron'), { recursive: true });
 
-    const result = runChecks(tmpDir, 'darwin', 'arm64');
+    const result = runChecks(tmpDir, 'darwin', 'arm64', NOTARIZE_ENV);
 
     expect(result.failed).toBeGreaterThan(0);
     expect(result.hasFatal).toBe(true);
@@ -147,7 +156,7 @@ describe('pre-build-check: runChecks', () => {
     populateDarwinArtifacts(tmpDir, 'arm64');
     fs.rmSync(path.join(tmpDir, 'resources/node/darwin-arm64/bin/node'));
 
-    const result = runChecks(tmpDir, 'darwin', 'arm64');
+    const result = runChecks(tmpDir, 'darwin', 'arm64', NOTARIZE_ENV);
 
     expect(result.failed).toBeGreaterThan(0);
     expect(result.hasFatal).toBe(true);
@@ -177,18 +186,41 @@ describe('pre-build-check: runChecks', () => {
     populateDarwinArtifacts(tmpDir, 'arm64');
     fs.rmSync(path.join(tmpDir, 'dist-lima-agent/index.js'));
 
-    const result = runChecks(tmpDir, 'darwin', 'arm64');
+    const result = runChecks(tmpDir, 'darwin', 'arm64', NOTARIZE_ENV);
 
     expect(result.failed).toBeGreaterThan(0);
     expect(result.hasFatal).toBe(true);
   });
 
   it('fails all checks when root directory is completely empty', () => {
-    const result = runChecks(tmpDir, 'darwin', 'arm64');
+    const result = runChecks(tmpDir, 'darwin', 'arm64', {});
 
-    // All checks should fail or warn; none should pass
-    expect(result.passed).toBe(0);
+    // Artifact checks fail/warn; hashed-chunk guard may still pass (0 chunks).
+    expect(result.failed).toBeGreaterThan(0);
     expect(result.hasFatal).toBe(true);
+  });
+
+  it('reports hasFatal on darwin when notarization env vars are missing', () => {
+    populateDarwinArtifacts(tmpDir, 'arm64');
+
+    const result = runChecks(tmpDir, 'darwin', 'arm64', {});
+
+    expect(result.hasFatal).toBe(true);
+    const notarizeResult = result.results.find((r: { relPath: string }) =>
+      r.relPath.startsWith('env:APPLE_ID')
+    );
+    expect(notarizeResult?.passed).toBe(false);
+  });
+
+  it('allows darwin packaging without notarization env when unsigned is explicit', () => {
+    populateDarwinArtifacts(tmpDir, 'arm64');
+
+    const result = runChecks(tmpDir, 'darwin', 'arm64', {
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false',
+    });
+
+    expect(result.failed).toBe(0);
+    expect(result.hasFatal).toBe(false);
   });
 
   // -------------------------------------------------------------------------
@@ -198,7 +230,7 @@ describe('pre-build-check: runChecks', () => {
   it('returns a results array with one entry per check', () => {
     populateDarwinArtifacts(tmpDir, 'arm64');
 
-    const result = runChecks(tmpDir, 'darwin', 'arm64');
+    const result = runChecks(tmpDir, 'darwin', 'arm64', NOTARIZE_ENV);
 
     expect(Array.isArray(result.results)).toBe(true);
     // Each result must have required fields
@@ -213,7 +245,7 @@ describe('pre-build-check: runChecks', () => {
   it('passed + warnings + failed sums equal total checks', () => {
     populateDarwinArtifacts(tmpDir, 'arm64');
 
-    const result = runChecks(tmpDir, 'darwin', 'arm64');
+    const result = runChecks(tmpDir, 'darwin', 'arm64', NOTARIZE_ENV);
 
     expect(result.passed + result.warnings + result.failed).toBe(result.results.length);
   });
@@ -230,5 +262,31 @@ describe('pre-build-check: runChecks', () => {
     );
     expect(linuxCheck).toBeDefined();
     expect(linuxCheck?.severity).toBe('fatal');
+  });
+});
+
+describe('pre-build-check: checkNotarizationEnv', () => {
+  it('passes when all APPLE_* vars are set', () => {
+    expect(checkNotarizationEnv(NOTARIZE_ENV)).toEqual({
+      ok: true,
+      missing: [],
+      unsigned: false,
+    });
+  });
+
+  it('fails when any APPLE_* var is missing', () => {
+    expect(checkNotarizationEnv({ APPLE_ID: 'x' })).toEqual({
+      ok: false,
+      missing: ['APPLE_ID_PASSWORD', 'APPLE_TEAM_ID'],
+      unsigned: false,
+    });
+  });
+
+  it('passes when CSC_IDENTITY_AUTO_DISCOVERY=false even without APPLE_*', () => {
+    expect(checkNotarizationEnv({ CSC_IDENTITY_AUTO_DISCOVERY: 'false' })).toEqual({
+      ok: true,
+      missing: ['APPLE_ID', 'APPLE_ID_PASSWORD', 'APPLE_TEAM_ID'],
+      unsigned: true,
+    });
   });
 });

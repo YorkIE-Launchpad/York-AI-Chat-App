@@ -130,6 +130,9 @@ function buildCheckList(platform, arch) {
 /** Max hashed main-process chunks allowed before packaging (stale rebuilds). */
 const MAX_HASHED_MAIN_CHUNKS = 5;
 
+/** Env vars required for macOS notarization (scripts/notarize.js). */
+const NOTARIZE_ENV_VARS = ['APPLE_ID', 'APPLE_ID_PASSWORD', 'APPLE_TEAM_ID'];
+
 /**
  * Count Vite hashed main chunks (`index-<hash>.js`) in dist-electron/main.
  * A clean build should leave only the current chunk(s); hundreds means emptyOutDir failed.
@@ -148,14 +151,28 @@ function countHashedMainChunks(rootDir) {
 }
 
 /**
+ * Whether notarization credentials are present (or unsigned packaging is explicit).
+ *
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {{ ok: boolean; missing: string[]; unsigned: boolean }}
+ */
+function checkNotarizationEnv(env) {
+  const resolved = env || process.env;
+  const unsigned = resolved.CSC_IDENTITY_AUTO_DISCOVERY === 'false';
+  const missing = NOTARIZE_ENV_VARS.filter((name) => !resolved[name]);
+  return { ok: unsigned || missing.length === 0, missing, unsigned };
+}
+
+/**
  * Run all pre-build checks and return results.
  *
  * @param {string} rootDir - Absolute path to the project root to check against
  * @param {string} platform - Node.js platform string (e.g. 'darwin', 'win32', 'linux')
  * @param {string} [arch] - Node.js arch string (e.g. 'x64', 'arm64'); defaults to process.arch
+ * @param {NodeJS.ProcessEnv} [env] - Env to inspect for notarization (defaults to process.env)
  * @returns {{ results: CheckResult[]; passed: number; warnings: number; failed: number; hasFatal: boolean }}
  */
-function runChecks(rootDir, platform, arch) {
+function runChecks(rootDir, platform, arch, env) {
   const resolvedArch = arch || process.arch;
   const checks = buildCheckList(platform, resolvedArch);
 
@@ -227,6 +244,39 @@ function runChecks(rootDir, platform, arch) {
     });
   }
 
+  // macOS packaging requires notarization credentials unless unsigned is explicit.
+  if (platform === 'darwin') {
+    const notarizeLabel = 'macOS notarization env (APPLE_ID, APPLE_ID_PASSWORD, APPLE_TEAM_ID)';
+    const notarizePath = 'env:APPLE_ID|APPLE_ID_PASSWORD|APPLE_TEAM_ID';
+    const notarizeCheck = checkNotarizationEnv(env);
+    if (notarizeCheck.ok) {
+      passed += 1;
+      const detail = notarizeCheck.unsigned
+        ? 'unsigned build allowed (CSC_IDENTITY_AUTO_DISCOVERY=false)'
+        : 'credentials present';
+      console.log(`${GREEN}[pass]${RESET} ${notarizeLabel}`);
+      console.log(`       ${detail}`);
+      results.push({
+        label: notarizeLabel,
+        relPath: notarizePath,
+        passed: true,
+        severity: 'fatal',
+      });
+    } else {
+      failed += 1;
+      console.log(`${RED}[fail]${RESET} ${notarizeLabel}`);
+      console.log(
+        `       missing: ${notarizeCheck.missing.join(', ')} — set credentials or CSC_IDENTITY_AUTO_DISCOVERY=false`
+      );
+      results.push({
+        label: notarizeLabel,
+        relPath: notarizePath,
+        passed: false,
+        severity: 'fatal',
+      });
+    }
+  }
+
   const hasFatal = failed > 0;
   return { results, passed, warnings, failed, hasFatal };
 }
@@ -256,7 +306,14 @@ function main() {
   process.exit(0);
 }
 
-module.exports = { runChecks, buildCheckList, countHashedMainChunks, MAX_HASHED_MAIN_CHUNKS };
+module.exports = {
+  runChecks,
+  buildCheckList,
+  countHashedMainChunks,
+  checkNotarizationEnv,
+  MAX_HASHED_MAIN_CHUNKS,
+  NOTARIZE_ENV_VARS,
+};
 
 if (require.main === module) {
   main();
