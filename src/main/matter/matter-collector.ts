@@ -110,6 +110,31 @@ function pickString(obj: Record<string, unknown>, keys: string[]): string {
   return '';
 }
 
+/** True when copy clearly asks the person to do something (not FYI / unread triage). */
+function looksLikeActionNeeded(text: string): boolean {
+  const t = text.trim();
+  if (!t) return false;
+  if (
+    /\b(fyi|for your information|no action|nntr|circle back later|just sharing)\b/i.test(t) &&
+    !/\b(please|can you|need you|action required)\b/i.test(t)
+  ) {
+    return false;
+  }
+  return (
+    /\?/.test(t) ||
+    /\b(please|pls|kindly)\b/i.test(t) ||
+    /\b(can you|could you|would you|will you)\b/i.test(t) ||
+    /\b(need you|needs you|need your|waiting on you|blocked on you)\b/i.test(t) ||
+    /\b(action required|please review|please approve|please confirm|sign off|respond by|due by)\b/i.test(
+      t
+    ) ||
+    /\b(asap|urgent|blocker|blocked|overdue|escalat)/i.test(t) ||
+    /\b(approve|reject|review|confirm|reply|respond|schedule|reschedule|send me|update the)\b/i.test(
+      t
+    )
+  );
+}
+
 function toolResultText(result: unknown): string {
   if (result == null) return '';
   if (typeof result === 'string') return result;
@@ -296,7 +321,8 @@ async function collectCalendar(
   if (!text) return [];
 
   const body = envelopeBody(text);
-  const events = parseCalendarLines(body).slice(0, MAX_PER_SOURCE);
+  // Only near-term events that need prep / attendance decision — not the whole week dump.
+  const events = parseCalendarLines(body).slice(0, 20);
   if (!events.length) return [];
 
   const getTool = findToolName(mcpManager, DEFAULT_GOOGLE_CALENDAR_MCP_SERVER_ID, ['get_event']);
@@ -312,7 +338,6 @@ async function collectCalendar(
           const nested = parsed && typeof parsed === 'object' ? parsed : null;
           htmlLink = extractUrl(detailText);
           const bodyStr = typeof nested?.body === 'string' ? nested.body : detailText;
-          // summarizeEvent line: id: Title (start → end)
           const whenMatch = bodyStr.match(/\(([^)]+→[^)]+)\)/);
           startIso = whenMatch?.[1]?.split('→')[0]?.trim() || ev.when.split('→')[0]?.trim();
           if (typeof nested?.title === 'string' && nested.title.trim()) {
@@ -322,10 +347,13 @@ async function collectCalendar(
         }
       }
       const startMs = parseIsoMs(startIso) ?? parseIsoMs(ev.when.split('→')[0]?.trim());
-      const hoursUntil = startMs != null ? (startMs - Date.now()) / 36e5 : 48;
-      const orbit: MatterOrbit = hoursUntil <= 4 ? 'now' : hoursUntil <= 36 ? 'today' : 'week';
+      const hoursUntil = startMs != null ? (startMs - Date.now()) / 36e5 : 999;
+      // Action bar: only meetings starting within ~6h (prep / show up), not passive week list
+      if (hoursUntil < 0 || hoursUntil > 6) return null;
+
+      const orbit: MatterOrbit = hoursUntil <= 2 ? 'now' : 'today';
       const severity: MatterSeverity =
-        hoursUntil <= 2 ? 'critical' : hoursUntil <= 24 ? 'warning' : 'signal';
+        hoursUntil <= 1 ? 'critical' : hoursUntil <= 3 ? 'warning' : 'signal';
 
       return signal({
         fingerprint: `calendar:event:${ev.id}`,
@@ -336,11 +364,8 @@ async function collectCalendar(
         severityHint: severity,
         orbitHint: orbit,
         categoryHint: 'time',
-        whyHint:
-          hoursUntil <= 4
-            ? 'Starts soon — prep or confirm attendance.'
-            : 'On your calendar this week.',
-        suggestedAction: 'Open the event and confirm agenda / prep.',
+        whyHint: 'Starts soon — prep or confirm you still need to attend.',
+        suggestedAction: 'Open the event and prep or decline.',
         sourceRef: {
           connectorId: DEFAULT_GOOGLE_CALENDAR_MCP_SERVER_ID,
           externalId: ev.id,
@@ -353,7 +378,7 @@ async function collectCalendar(
     })
   );
 
-  return detailed;
+  return detailed.filter((s): s is RawMatterSignal => !!s).slice(0, MAX_PER_SOURCE);
 }
 
 // ── Slack: one signal per matching message ──────────────────────────────────
@@ -407,9 +432,9 @@ async function collectSlack(
   if (!tool) return [];
 
   const me = profile?.name?.split(/\s+/)[0] || '';
-  const query = me
-    ? `${me} after:${new Date(Date.now() - 2 * 864e5).toISOString().slice(0, 10)}`
-    : 'is:dm';
+  const after = new Date(Date.now() - 2 * 864e5).toISOString().slice(0, 10);
+  // Prefer DMs / asks — not every mention. Further filtered for action language below.
+  const query = me ? `(is:dm OR to:@me OR ${me}) after:${after}` : `is:dm after:${after}`;
   const text = await safeCallTool(mcpManager, tool, {
     query,
     limit: 15,
@@ -417,35 +442,10 @@ async function collectSlack(
   if (!text) return [];
 
   const body = envelopeBody(text);
-  const messages = parseSlackMessages(body).slice(0, MAX_PER_SOURCE);
-  if (!messages.length) {
-    // Fallback: if API returned unstructured text with a link, still emit one concrete row
-    const url = extractUrl(body);
-    if (!url && body.length < 40) return [];
-    return [
-      signal({
-        fingerprint: `slack:snippet:${hashKey(body.slice(0, 120))}`,
-        source: 'slack',
-        title: humanTitle(
-          body.split('\n').find((l) => !looksLikeJunkTitle(l)) || '',
-          'Slack message'
-        ),
-        summary: cleanDisplayText(truncate(body, 280)),
-        raw: text,
-        severityHint: 'warning',
-        orbitHint: 'today',
-        categoryHint: 'comms',
-        whyHint: 'This Slack item may need a reply.',
-        suggestedAction: 'Open in Slack and reply or snooze.',
-        sourceRef: {
-          connectorId: DEFAULT_SLACK_MCP_SERVER_ID,
-          label: 'Slack',
-          url,
-        },
-        muteKeys: ['source:slack'],
-      }),
-    ];
-  }
+  const messages = parseSlackMessages(body)
+    .filter((msg) => looksLikeActionNeeded(msg.text))
+    .slice(0, MAX_PER_SOURCE);
+  if (!messages.length) return [];
 
   return messages.map((msg) => {
     const channelLabel = /^[CGD][A-Z0-9]{8,}$/i.test(msg.channel)
@@ -453,18 +453,18 @@ async function collectSlack(
       : msg.channel.replace(/^#/, '');
     const userLabel = /^[UW][A-Z0-9]{8,}$/i.test(msg.user) ? 'Someone' : msg.user;
     const preview = cleanDisplayText(msg.text).slice(0, 100) || '(no text)';
-    const title = humanTitle(`${userLabel} in #${channelLabel}: ${preview}`, 'Slack message');
+    const title = humanTitle(`${userLabel} in #${channelLabel}: ${preview}`, 'Slack ask');
     return signal({
       fingerprint: `slack:msg:${msg.channel}:${msg.ts}`,
       source: 'slack',
       title,
-      summary: cleanDisplayText(msg.text).slice(0, 280) || `Message from ${userLabel}`,
+      summary: cleanDisplayText(msg.text).slice(0, 280) || `Ask from ${userLabel}`,
       raw: msg,
-      severityHint: /[?]|\bplease\b|\bcan you\b|\bneed\b/i.test(msg.text) ? 'warning' : 'signal',
+      severityHint: 'warning',
       orbitHint: 'today',
       categoryHint: 'comms',
-      whyHint: 'Specific Slack message that may need your reply.',
-      suggestedAction: 'Reply in thread or mark handled.',
+      whyHint: 'Someone is asking you to reply or take action in Slack.',
+      suggestedAction: 'Reply in Slack or mark handled.',
       sourceRef: {
         connectorId: DEFAULT_SLACK_MCP_SERVER_ID,
         externalId: `${msg.channel}:${msg.ts}`,
@@ -477,7 +477,7 @@ async function collectSlack(
   });
 }
 
-// ── Gmail: one signal per unread email ──────────────────────────────────────
+// ── Gmail: only emails that clearly need action (not inbox unread triage) ───
 
 async function collectGmail(
   mcpManager: MCPManager,
@@ -489,9 +489,11 @@ async function collectGmail(
   ]);
   if (!searchTool) return [];
 
+  // Unreads alone are not Matter — person will triage in Gmail. Pull action-shaped mail only.
   const searchText = await safeCallTool(mcpManager, searchTool, {
-    query: 'is:unread newer_than:7d',
-    limit: 12,
+    query:
+      'newer_than:14d (subject:(action required OR approval OR urgent OR invoice OR blocked OR "please review" OR "please approve") OR ("can you" OR "could you" OR "need your" OR "waiting on you" OR "please reply" OR "please confirm")) -category:promotions -category:social',
+    limit: 10,
   });
   if (!searchText) return [];
 
@@ -502,7 +504,6 @@ async function collectGmail(
     .filter((l) => /^[a-zA-Z0-9_-]{6,}$/.test(l))
     .slice(0, MAX_PER_SOURCE);
 
-  // Also try JSON arrays of ids
   if (!ids.length) {
     const parsed = parseJsonLoose(searchText);
     if (Array.isArray(parsed)) {
@@ -557,6 +558,9 @@ async function collectGmail(
       }
     }
 
+    const blob = `${subject}\n${snippet}\n${from}`;
+    if (!looksLikeActionNeeded(blob)) continue;
+
     signals.push(
       signal({
         fingerprint: `gmail:msg:${id}`,
@@ -566,15 +570,15 @@ async function collectGmail(
           [from && `From ${from}`, snippet && snippet !== subject ? snippet : '']
             .filter(Boolean)
             .join(' — ')
-            .slice(0, 400) || 'Unread email',
+            .slice(0, 400) || 'Email needs your action',
         raw,
-        severityHint: /urgent|asap|action required|invoice|blocked/i.test(`${subject} ${snippet}`)
+        severityHint: /urgent|asap|action required|blocked|overdue/i.test(blob)
           ? 'warning'
           : 'signal',
         orbitHint: 'today',
         categoryHint: 'comms',
-        whyHint: 'Unread email that may need a reply or triage.',
-        suggestedAction: 'Open in Gmail and reply or archive.',
+        whyHint: 'This email asks you to reply, approve, or take an action.',
+        suggestedAction: 'Open in Gmail and complete the ask.',
         sourceRef: {
           connectorId: DEFAULT_GMAIL_MCP_SERVER_ID,
           externalId: id,
@@ -633,154 +637,82 @@ async function collectJira(
   if (!tool) return [];
 
   const email = profile?.email || '';
+  // Only work that still needs the assignee's action — not a full backlog dump.
   const jql = email
-    ? `assignee = "${email}" AND statusCategory != Done ORDER BY updated DESC`
-    : 'assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC';
+    ? `assignee = "${email}" AND statusCategory != Done AND (statusCategory = "To Do" OR status ~ "Block" OR priority in (Highest, High) OR updated >= -3d) ORDER BY priority DESC, updated DESC`
+    : 'assignee = currentUser() AND statusCategory != Done AND (statusCategory = "To Do" OR status ~ "Block" OR priority in (Highest, High) OR updated >= -3d) ORDER BY priority DESC, updated DESC';
 
   const text = await safeCallTool(mcpManager, tool, {
     jql,
-    maxResults: 12,
+    maxResults: 10,
     fields: ['summary', 'status', 'priority', 'updated', 'issuetype'],
   });
   if (!text) return [];
 
   const issues = extractJiraIssues(text).slice(0, MAX_PER_SOURCE);
-  return issues.map((issue) => {
-    const key = String(issue.key || '');
-    const fields =
-      issue.fields && typeof issue.fields === 'object'
-        ? (issue.fields as Record<string, unknown>)
-        : issue;
-    const summary =
-      (typeof fields.summary === 'string' && fields.summary) ||
-      (typeof issue.summary === 'string' && issue.summary) ||
-      key;
-    const statusObj = fields.status as { name?: string } | string | undefined;
-    const status =
-      typeof statusObj === 'string' ? statusObj : statusObj?.name || String(fields.status || '');
-    const priorityObj = fields.priority as { name?: string } | string | undefined;
-    const priority =
-      typeof priorityObj === 'string'
-        ? priorityObj
-        : priorityObj?.name || String(fields.priority || '');
-    const critical = /highest|blocker|critical|p0|p1/i.test(priority);
-    const browse =
-      extractUrl(truncate(issue)) ||
-      (key ? `https://yorkblack.atlassian.net/browse/${key}` : undefined);
+  return issues
+    .map((issue) => {
+      const key = String(issue.key || '');
+      const fields =
+        issue.fields && typeof issue.fields === 'object'
+          ? (issue.fields as Record<string, unknown>)
+          : issue;
+      const summary =
+        (typeof fields.summary === 'string' && fields.summary) ||
+        (typeof issue.summary === 'string' && issue.summary) ||
+        key;
+      const statusObj = fields.status as { name?: string } | string | undefined;
+      const status =
+        typeof statusObj === 'string' ? statusObj : statusObj?.name || String(fields.status || '');
+      const priorityObj = fields.priority as { name?: string } | string | undefined;
+      const priority =
+        typeof priorityObj === 'string'
+          ? priorityObj
+          : priorityObj?.name || String(fields.priority || '');
+      const critical = /highest|blocker|critical|p0|p1/i.test(priority) || /block/i.test(status);
+      // Skip parked / waiting-on-others if language is clear
+      if (/waiting for|deferred|icebox|backlog/i.test(status) && !critical) return null;
+      const browse =
+        extractUrl(truncate(issue)) ||
+        (key ? `https://yorkblack.atlassian.net/browse/${key}` : undefined);
 
-    return signal({
-      fingerprint: `jira:issue:${key}`,
-      source: 'jira',
-      title: `${key}: ${summary}`,
-      summary: [status && `Status: ${status}`, priority && `Priority: ${priority}`]
-        .filter(Boolean)
-        .join(' · '),
-      raw: issue,
-      severityHint: critical
-        ? 'critical'
-        : /in progress|selected/i.test(status)
-          ? 'warning'
-          : 'signal',
-      orbitHint: critical ? 'now' : 'today',
-      categoryHint: 'delivery',
-      whyHint: 'Assigned Jira issue still open.',
-      suggestedAction: 'Update status or unblock the next step.',
-      sourceRef: {
-        connectorId: DEFAULT_JIRA_MCP_SERVER_ID,
-        externalId: key,
-        label: 'Jira',
-        url: browse,
-      },
-      muteKeys: [`jira:${key}`, 'source:jira'],
-    });
-  });
+      return signal({
+        fingerprint: `jira:issue:${key}`,
+        source: 'jira',
+        title: `${key}: ${summary}`,
+        summary: [status && `Status: ${status}`, priority && `Priority: ${priority}`]
+          .filter(Boolean)
+          .join(' · '),
+        raw: issue,
+        severityHint: critical ? 'critical' : 'warning',
+        orbitHint: critical ? 'now' : 'today',
+        categoryHint: 'delivery',
+        whyHint: 'Assigned to you and still needs your next move.',
+        suggestedAction: 'Update status, unblock, or complete the next step.',
+        sourceRef: {
+          connectorId: DEFAULT_JIRA_MCP_SERVER_ID,
+          externalId: key,
+          label: 'Jira',
+          url: browse,
+        },
+        muteKeys: [`jira:${key}`, 'source:jira'],
+      });
+    })
+    .filter((s): s is RawMatterSignal => !!s);
 }
 
-// ── Hub: one signal per leave / allocation row when parseable ───────────────
-
-function parseHubPeople(text: string): string[] {
-  const names: string[] = [];
-  for (const line of text.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.length > 80) continue;
-    if (/^(No |Error|Here |Found|Result)/i.test(trimmed)) continue;
-    // "Name — Leave" / "Name (WFH)" patterns
-    const m = trimmed.match(/^[-*•]?\s*([A-Z][A-Za-z .'-]{2,40})(?:\s*[—\-:|(].*)?$/);
-    if (m) names.push(m[1].trim());
-  }
-  return [...new Set(names)].slice(0, MAX_PER_SOURCE);
-}
+// ── Hub: only pending requests that need the user (not OOO awareness) ───────
 
 async function collectHub(
   mcpManager: MCPManager,
   profile: WelcomeProfile | null
 ): Promise<RawMatterSignal[]> {
   const signals: RawMatterSignal[] = [];
-  const leaveTool = findToolName(mcpManager, DEFAULT_HUB_MCP_SERVER_ID, [
-    'get_team_leave_calendar',
-    'get_leave_balance',
-    'list_pending_hub_requests',
-  ]);
-  if (leaveTool) {
-    const text = await safeCallTool(mcpManager, leaveTool, {
-      start_date: new Date().toISOString().slice(0, 10),
-      end_date: new Date(Date.now() + 7 * 864e5).toISOString().slice(0, 10),
-    });
-    if (text) {
-      const people = parseHubPeople(envelopeBody(text));
-      if (people.length) {
-        for (const name of people) {
-          signals.push(
-            signal({
-              fingerprint: `hub:leave:${name.toLowerCase().replace(/\s+/g, '-')}:${new Date().toISOString().slice(0, 10)}`,
-              source: 'hub',
-              title: `${name} is OOO / on leave`,
-              summary: 'Appears on the team leave calendar this week.',
-              raw: { name, excerpt: truncate(text, 800) },
-              severityHint: 'signal',
-              orbitHint: 'week',
-              categoryHint: 'people',
-              whyHint: 'Plan around coverage if you depend on them.',
-              suggestedAction: 'Check handoff or reschedule shared work.',
-              sourceRef: {
-                connectorId: DEFAULT_HUB_MCP_SERVER_ID,
-                label: 'Hub',
-              },
-              muteKeys: [`hub:person:${name.toLowerCase()}`, 'source:hub'],
-            })
-          );
-        }
-      } else if (/leave|wfh|ooo|pto|vacation/i.test(text)) {
-        // Last resort: still avoid a giant rollup — one short digest with raw for drill-in
-        signals.push(
-          signal({
-            fingerprint: `hub:leave-digest:${new Date().toISOString().slice(0, 10)}`,
-            source: 'hub',
-            title: 'Team leave to review',
-            summary: truncate(
-              envelopeBody(text).split('\n').filter(Boolean)[0] || 'Leave calendar update',
-              200
-            ),
-            raw: text,
-            severityHint: 'signal',
-            orbitHint: 'week',
-            categoryHint: 'people',
-            whyHint: 'Coverage may shift this week.',
-            suggestedAction: 'Open Hub leave calendar.',
-            sourceRef: { connectorId: DEFAULT_HUB_MCP_SERVER_ID, label: 'Hub' },
-            muteKeys: ['source:hub'],
-          })
-        );
-      }
-    }
-  }
-
-  // Pending hub requests as discrete items if tool returns a list
   const reqTool = findToolName(mcpManager, DEFAULT_HUB_MCP_SERVER_ID, [
     'list_pending_hub_requests',
     'list_hub_requests',
   ]);
-  if (reqTool && reqTool !== leaveTool) {
+  if (reqTool) {
     const text = await safeCallTool(mcpManager, reqTool, {});
     if (text) {
       const lines = envelopeBody(text)
@@ -790,18 +722,19 @@ async function collectHub(
         .slice(0, 5);
       for (const line of lines) {
         if (looksLikeJunkTitle(line)) continue;
+        if (/^No pending|none|0 request/i.test(line)) continue;
         signals.push(
           signal({
             fingerprint: `hub:request:${hashKey(line)}`,
             source: 'hub',
             title: humanTitle(line, 'Hub request'),
-            summary: 'Pending Hub request',
+            summary: 'Pending Hub request waiting on you',
             raw: line,
             severityHint: 'warning',
             orbitHint: 'today',
             categoryHint: 'people',
-            whyHint: 'A Hub request may be waiting on you.',
-            suggestedAction: 'Approve, reject, or follow up in Hub.',
+            whyHint: 'A Hub request needs your approve / reject / follow-up.',
+            suggestedAction: 'Open Hub and act on the request.',
             sourceRef: { connectorId: DEFAULT_HUB_MCP_SERVER_ID, label: 'Hub' },
             muteKeys: ['source:hub'],
           })
@@ -917,35 +850,8 @@ async function collectLaunchpad(mcpManager: MCPManager): Promise<RawMatterSignal
   const text = await safeCallTool(mcpManager, tool, {});
   if (!text) return [];
 
-  const entities = extractLaunchpadEntities(text);
+  const entities = extractLaunchpadEntities(text).filter((e) => e.risky);
   if (!entities.length) {
-    // Tool may have returned a validation error — don't spam JSON fields as signals
-    const parsed = parseJsonLoose(text) as Record<string, unknown> | null;
-    const errMsg =
-      parsed && typeof parsed === 'object'
-        ? pickString(parsed, ['message', 'error', 'summary'])
-        : '';
-    if (errMsg && !looksLikeJunkTitle(errMsg) && !/expected number|received nan/i.test(errMsg)) {
-      return [
-        signal({
-          fingerprint: `launchpad:error:${hashKey(errMsg)}`,
-          source: 'launchpad',
-          title: humanTitle(errMsg, 'Launchpad issue'),
-          summary: 'Launchpad returned an issue while scanning.',
-          raw: text,
-          severityHint: 'warning',
-          orbitHint: 'today',
-          categoryHint: 'delivery',
-          whyHint: 'Could not read a clean delivery signal from Launchpad.',
-          suggestedAction: 'Open Launchpad and check active release status.',
-          sourceRef: {
-            connectorId: DEFAULT_LAUNCHPAD_MCP_SERVER_ID,
-            label: 'Launchpad',
-          },
-          muteKeys: ['source:launchpad'],
-        }),
-      ];
-    }
     return [];
   }
 
@@ -1059,6 +965,17 @@ const SOURCE_SERVER: Record<MatterConfigurableSource, string | null> = {
   meeting: null,
   launchpad: DEFAULT_LAUNCHPAD_MCP_SERVER_ID,
 };
+
+/** MCP server ids required by currently enabled Matter sources (excludes meetings). */
+export function getEnabledMatterServerIds(sources: MatterSourcesConfig): string[] {
+  const ids: string[] = [];
+  for (const key of Object.keys(sources) as MatterConfigurableSource[]) {
+    if (!sources[key]) continue;
+    const serverId = SOURCE_SERVER[key];
+    if (serverId) ids.push(serverId);
+  }
+  return ids;
+}
 
 export async function collectMatterSignals(options: {
   mcpManager: MCPManager | null;

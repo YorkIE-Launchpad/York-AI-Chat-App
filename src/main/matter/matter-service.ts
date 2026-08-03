@@ -16,10 +16,17 @@ import {
 // DEFAULT_MATTER_RUNTIME kept for getRuntime fallback
 import { log, logError, logWarn } from '../utils/logger';
 import { createMatterStore, type MatterStore } from './matter-store';
-import { collectMatterSignals } from './matter-collector';
+import { collectMatterSignals, getEnabledMatterServerIds } from './matter-collector';
 import { rankMatterSignals } from './matter-ranker';
 import { MatterScheduler } from './matter-scheduler';
 import { notifyMatterBrief } from './matter-notifications';
+
+const STARTUP_CONNECTOR_WAIT_MS = 120_000;
+const STARTUP_CONNECTOR_POLL_MS = 750;
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function computeFocusScore(items: MatterItem[], clearedToday: number): number {
   const critical = items.filter((i) => i.severity === 'critical').length;
@@ -114,14 +121,73 @@ export class MatterService {
 
   start(): void {
     this.scheduler.start();
-    const runtime = this.getRuntime();
-    if (runtime.enabled && this.scheduler.isInScanWindow()) {
-      void this.runScan({ reason: 'startup', notify: false });
-    }
+    void this.runStartupScan();
   }
 
   stop(): void {
     this.scheduler.stop();
+  }
+
+  /** First scan after boot: wait for enabled Matter connectors to finish connecting. */
+  private async runStartupScan(): Promise<void> {
+    const runtime = this.getRuntime();
+    if (!runtime.enabled || !this.scheduler.isInScanWindow()) return;
+    await this.waitForEnabledConnectors();
+    await this.runScan({ reason: 'startup', notify: false });
+  }
+
+  private async waitForEnabledConnectors(): Promise<void> {
+    const runtime = this.getRuntime();
+    const needed = getEnabledMatterServerIds(runtime.sources);
+    if (needed.length === 0) return;
+
+    const started = Date.now();
+    /** After bootstrap, allow a short grace for connectors that have not started connecting yet. */
+    const lateStartGraceMs = 20_000;
+    let bootstrapReadyAt: number | null = null;
+    log(
+      `[Matter] Waiting for enabled connectors before startup scan (${needed.join(', ') || 'none'})…`
+    );
+
+    while (Date.now() - started < STARTUP_CONNECTOR_WAIT_MS) {
+      const mcp = this.mcpManager;
+      if (!mcp) {
+        await delay(STARTUP_CONNECTOR_POLL_MS);
+        continue;
+      }
+
+      const { bootstrapComplete } = mcp.getToolsReadyState();
+      if (!bootstrapComplete) {
+        await delay(STARTUP_CONNECTOR_POLL_MS);
+        continue;
+      }
+      if (bootstrapReadyAt == null) bootstrapReadyAt = Date.now();
+
+      const statuses = mcp.getServerStatus();
+      const byId = new Map(statuses.map((s) => [s.id, s]));
+      const pending = needed.filter((id) => {
+        const status = byId.get(id);
+        if (!status || status.status === 'disabled') return false;
+        if (status.connected) return false;
+        if (status.status === 'connecting') return true;
+        // Not connected yet — wait through grace in case connect starts late
+        return Date.now() - (bootstrapReadyAt ?? started) < lateStartGraceMs;
+      });
+
+      if (pending.length === 0) {
+        const connected = needed.filter((id) => byId.get(id)?.connected).length;
+        log(
+          `[Matter] Startup connectors settled in ${Date.now() - started}ms (connected ${connected}/${needed.length})`
+        );
+        return;
+      }
+
+      await delay(STARTUP_CONNECTOR_POLL_MS);
+    }
+
+    logWarn(
+      `[Matter] Timed out after ${STARTUP_CONNECTOR_WAIT_MS}ms waiting for connectors; scanning with current set`
+    );
   }
 
   getRuntime(): MatterRuntimeConfig {

@@ -1,6 +1,6 @@
 import type { AppConfig } from '../config/config-store';
-import { resolveFreeModelForChild } from '../agent/free-model-resolve';
 import { runPiAiOneShot } from '../agent/sdk-one-shot';
+import { applyBackendManagedCredentials } from '../../shared/backend-config';
 import { logWarn } from '../utils/logger';
 import type { WelcomeProfile } from '../../shared/welcome-actions';
 import type {
@@ -12,26 +12,30 @@ import type {
 } from '../../shared/matter';
 import type { RawMatterSignal } from './matter-collector';
 
-const SYSTEM_PROMPT = `You are Matter Ranker for York IE VECOS — a personal operational intelligence engine.
+/** Fixed model for Matter ranking (OpenAI via backend proxy). */
+const MATTER_RANKER_MODEL = 'gpt-5.6-luna';
 
-Given the employee's Hub profile and raw signals from connected workplace tools, produce a ranked JSON list of what matters NOW.
+const SYSTEM_PROMPT = `You are Matter Ranker for York IE VECOS — personal ACTION radar only.
+
+Given the employee's Hub profile and raw signals, keep ONLY items that need THIS person's action now.
+People triage their own unreads / feeds in Slack, Gmail, Calendar — Matter is not an unread inbox.
 
 Return ONLY valid JSON (no markdown):
 {
-  "pulse": "one short line about what needs attention",
-  "brief": "2-3 sentence morning-style narrative",
+  "pulse": "one short line about what needs THEIR action",
+  "brief": "2-3 sentence narrative of actions only",
   "items": [
     {
       "fingerprint": "MUST equal an input signal fingerprint exactly",
       "title": "prefer the signal title; shorten only if needed (<= 90 chars)",
-      "summary": "one sentence about THIS specific item",
-      "whyItMatters": "tie this one item to role/title/reporting/calendar pressure",
+      "summary": "one sentence about the action required",
+      "whyItMatters": "why THIS person must act, tied to role/title when possible",
       "severity": "critical|warning|healthy|signal",
       "orbit": "now|today|week|watching",
       "category": "delivery|people|client|comms|time|admin",
       "source": "jira|slack|gmail|calendar|hub|meeting|launchpad|fused",
       "confidence": 0.0-1.0,
-      "suggestedAction": "short next step for THIS item or null",
+      "suggestedAction": "concrete next step THEY should take",
       "rankScore": 0-100,
       "sourceRef": { "externalId": "...", "url": null, "label": "..." },
       "expiresAt": null
@@ -41,24 +45,23 @@ Return ONLY valid JSON (no markdown):
     {
       "id": "delivery|people|clients|comms|time|team",
       "status": "ACTIVE|MONITORING|CLEAR|COORDINATING",
-      "summary": "1-2 sentences on this lens"
+      "summary": "1-2 sentences on action pressure in this lens"
     }
   ]
 }
 
 Rules:
-- ONE input signal = ONE output item. Never merge emails/events/messages into counts.
-- FORBIDDEN titles: "N unread…", "N calendar events…", "threads that may need a reply", "messages need triage", or any count rollup.
-- fingerprint MUST be copied exactly from an input signal. Do not invent fingerprints.
-- Keep titles specific (subject line, event name, issue key, message preview).
-- Only create items grounded in provided signals. Never invent finance drama or fake clients.
-- Prefer fewer high-signal items over noise. Max items is provided.
-- You may keep an existing fused signal if present; do not invent new rollups.
-- critical = needs action before next meeting / blocker / manager escalation.
-- warning = today pressure. healthy = good news / resolved. signal = awareness.
-- Orbit: now (<2h or blocker), today, week, watching.
-- whyItMatters must reference profile when possible (title, squad, manager/reports).
-- If signals are empty, return empty items and a pulse explaining connectors are quiet or disconnected.`;
+- KEEP only action-needed items: reply/approve/unblock/prep-for-imminent-meeting/complete assigned work.
+- DROP awareness-only: unread counts, FYI, OOO lists, "on your calendar this week", generic triage.
+- DROP anything the person can casually discover in the native app with no ask on them.
+- Prefer role relevance (title/squad/department): if an item is not for them, omit it.
+- ONE input signal = ONE output item. Never merge into counts.
+- FORBIDDEN titles: unread rollups, "threads that may need a reply", calendar count titles.
+- fingerprint MUST be copied exactly from an input signal.
+- Prefer fewer high-action items. Max items is provided.
+- critical = blocker / manager escalation / meeting in <2h needing prep.
+- warning = action due today. signal = lighter but still an action.
+- If nothing needs action, return empty items and a calm pulse.`;
 
 function extractJsonObject(text: string): unknown {
   const trimmed = text.trim();
@@ -196,7 +199,19 @@ function heuristicRank(
     healthy: 5,
     signal: 10,
   };
-  const items = signals
+  // Collectors already bias to action; still drop pure awareness leftovers.
+  const actionable = signals.filter((s) => {
+    if (s.source === 'meeting' || s.source === 'fused' || s.source === 'jira') return true;
+    if (s.severityHint === 'critical' || s.severityHint === 'warning') return true;
+    const blob = `${s.title} ${s.summary} ${s.suggestedAction || ''} ${s.whyHint || ''}`;
+    return (
+      /\b(reply|approve|confirm|prep|unblock|complete|update status|act on|ask|need)\b/i.test(
+        blob
+      ) || /\?/.test(blob)
+    );
+  });
+
+  const items = actionable
     .slice(0, maxItems)
     .map((s, index) => {
       const severity = s.severityHint || 'signal';
@@ -207,8 +222,8 @@ function heuristicRank(
         whyItMatters:
           s.whyHint ||
           (profile?.title
-            ? `Relevant to your role as ${profile.title}.`
-            : 'Surfaced from your connected work tools.'),
+            ? `Needs your action as ${profile.title}.`
+            : 'Needs your action from connected work tools.'),
         severity,
         orbit: s.orbitHint || (severity === 'critical' ? 'now' : 'today'),
         category: s.categoryHint || 'comms',
@@ -227,10 +242,10 @@ function heuristicRank(
   const warning = items.filter((i) => i.severity === 'warning').length;
   const pulse =
     items.length === 0
-      ? 'Radar is clear — connectors quiet or still warming up.'
+      ? 'Nothing needs your action right now.'
       : critical > 0
-        ? `${critical} need you now${warning ? `, ${warning} warning` : ''}.`
-        : `${items.length} signals on your radar.`;
+        ? `${critical} need you now${warning ? `, ${warning} more today` : ''}.`
+        : `${items.length} action${items.length === 1 ? '' : 's'} on your radar.`;
 
   const byCat = (cat: string) =>
     items.filter((i) => i.category === cat || (cat === 'clients' && i.category === 'client'));
@@ -295,23 +310,18 @@ export async function rankMatterSignals(options: {
         : Math.min(maxItems, 18);
 
   try {
-    const free = await resolveFreeModelForChild({
-      parent: {
-        model: config.model,
-        provider: config.provider,
-        customProtocol: config.customProtocol,
-        baseUrl: config.baseUrl,
-        apiKey: config.apiKey,
-        autoModelPreference: config.autoModelPreference,
-      },
+    const creds = applyBackendManagedCredentials({
+      provider: 'openai',
+      apiKey: '',
+      baseUrl: '',
     });
     const oneShotConfig: AppConfig = {
       ...config,
-      model: free.modelId,
-      provider: free.provider as AppConfig['provider'],
-      customProtocol: free.customProtocol,
-      baseUrl: free.baseUrl || config.baseUrl,
-      apiKey: free.apiKey || config.apiKey,
+      model: MATTER_RANKER_MODEL,
+      provider: 'openai',
+      customProtocol: 'openai',
+      baseUrl: creds.baseUrl || config.baseUrl,
+      apiKey: creds.apiKey || config.apiKey,
     };
     const userPrompt = JSON.stringify(
       {
@@ -343,10 +353,8 @@ export async function rankMatterSignals(options: {
       2
     );
 
-    const result = await runPiAiOneShot(userPrompt, SYSTEM_PROMPT, oneShotConfig, {
-      temperature: 0.2,
-      maxTokens: 2500,
-    });
+    // No temperature / maxTokens — model defaults only.
+    const result = await runPiAiOneShot(userPrompt, SYSTEM_PROMPT, oneShotConfig);
 
     const parsed = extractJsonObject(result.text) as {
       pulse?: unknown;
