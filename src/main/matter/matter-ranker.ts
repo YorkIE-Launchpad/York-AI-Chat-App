@@ -11,6 +11,11 @@ import type {
   MatterSeverity,
 } from '../../shared/matter';
 import type { RawMatterSignal } from './matter-collector';
+import {
+  isDailySeriesMeeting,
+  isPersonalCalendarHold,
+  looksLikeJunkTitle,
+} from './matter-collector';
 
 /** Fixed model for Matter ranking (OpenAI via backend proxy). */
 const MATTER_RANKER_MODEL = 'gpt-5.6-luna';
@@ -53,6 +58,8 @@ Return ONLY valid JSON (no markdown):
 Rules:
 - KEEP only action-needed items: reply/approve/unblock/prep-for-imminent-meeting/complete assigned work.
 - DROP awareness-only: unread counts, FYI, OOO lists, "on your calendar this week", generic triage.
+- DROP personal calendar holds: Break, block, focus/OOO/lunch/PTO and similar solo holds — Matter is not a calendar reminder for free time.
+- DROP daily recurring series (daily standup/sync, RRULE FREQ=DAILY) — not one-off action items.
 - DROP anything the person can casually discover in the native app with no ask on them.
 - Prefer role relevance (title/squad/department): if an item is not for them, omit it.
 - ONE input signal = ONE output item. Never merge into counts.
@@ -61,20 +68,97 @@ Rules:
 - Prefer fewer high-action items. Max items is provided.
 - critical = blocker / manager escalation / meeting in <2h needing prep.
 - warning = action due today. signal = lighter but still an action.
+- rankScore and confidence MUST be JSON numbers (e.g. 60, 0.7), never words like "sixty".
+- Never use JSON keys, schema fragments, or path arrays as titles.
 - If nothing needs action, return empty items and a calm pulse.`;
+
+const WORD_NUMBERS: Record<string, number> = {
+  zero: 0,
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  nine: 9,
+  ten: 10,
+  eleven: 11,
+  twelve: 12,
+  thirteen: 13,
+  fourteen: 14,
+  fifteen: 15,
+  sixteen: 16,
+  seventeen: 17,
+  eighteen: 18,
+  nineteen: 19,
+  twenty: 20,
+  thirty: 30,
+  forty: 40,
+  fifty: 50,
+  sixty: 60,
+  seventy: 70,
+  eighty: 80,
+  ninety: 90,
+  hundred: 100,
+};
+
+/** Repair common LLM JSON mistakes before parse (word numbers, trailing commas). */
+export function repairMatterRankerJson(text: string): string {
+  let out = text.trim();
+  // Strip markdown fences if present
+  const fenced = out.match(/^```(?:json)?\s*([\s\S]*?)```$/i);
+  if (fenced) out = fenced[1].trim();
+
+  // "rankScore": sixty  / "confidence": point-seven-ish → numbers
+  out = out.replace(
+    /"(rankScore|confidence)"\s*:\s*([A-Za-z][A-Za-z-]*)\b/g,
+    (_m, key: string, word: string) => {
+      const normalized = word.toLowerCase().replace(/-/g, '');
+      const n = WORD_NUMBERS[word.toLowerCase()] ?? WORD_NUMBERS[normalized];
+      if (n != null) return `"${key}": ${n}`;
+      // Unknown word — fall back to safe defaults
+      return key === 'confidence' ? `"${key}": 0.5` : `"${key}": 50`;
+    }
+  );
+
+  // "rankScore": "60" → number
+  out = out.replace(
+    /"(rankScore|confidence)"\s*:\s*"(-?\d+(?:\.\d+)?)"/g,
+    (_m, key: string, num: string) => `"${key}": ${num}`
+  );
+
+  // Trailing commas before } or ]
+  out = out.replace(/,\s*([}\]])/g, '$1');
+  return out;
+}
 
 function extractJsonObject(text: string): unknown {
   const trimmed = text.trim();
-  try {
-    return JSON.parse(trimmed);
-  } catch {
-    const start = trimmed.indexOf('{');
-    const end = trimmed.lastIndexOf('}');
-    if (start >= 0 && end > start) {
-      return JSON.parse(trimmed.slice(start, end + 1));
-    }
-    throw new Error('No JSON object in ranker response');
+  const candidates = [trimmed, repairMatterRankerJson(trimmed)];
+  // Also try substring object extraction on repaired text
+  const repaired = repairMatterRankerJson(trimmed);
+  const start = repaired.indexOf('{');
+  const end = repaired.lastIndexOf('}');
+  if (start >= 0 && end > start) {
+    candidates.push(repaired.slice(start, end + 1));
   }
+  const startRaw = trimmed.indexOf('{');
+  const endRaw = trimmed.lastIndexOf('}');
+  if (startRaw >= 0 && endRaw > startRaw) {
+    candidates.push(repairMatterRankerJson(trimmed.slice(startRaw, endRaw + 1)));
+  }
+
+  let lastError: unknown;
+  for (const candidate of candidates) {
+    try {
+      return JSON.parse(candidate);
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error('No JSON object in ranker response');
 }
 
 function asSeverity(v: unknown): MatterSeverity {
@@ -146,11 +230,19 @@ function attachRawFromSignals(
     const signal = byFingerprint.get(item.fingerprint);
     const rawDetails = signal?.rawDetails || item.rawDetails || signal?.rawExcerpt || null;
     const title =
-      signal && (!item.title || isRollupTitle(item.title))
+      signal &&
+      (!item.title || isRollupTitle(item.title) || looksLikeJunkTitle(item.title)) &&
+      !looksLikeJunkTitle(signal.title)
         ? signal.title.slice(0, 120)
-        : item.title;
+        : looksLikeJunkTitle(item.title) && signal && !looksLikeJunkTitle(signal.title)
+          ? signal.title.slice(0, 120)
+          : item.title;
     const summary =
-      signal && (!item.summary || isRollupTitle(item.summary)) ? signal.summary : item.summary;
+      signal &&
+      (!item.summary || isRollupTitle(item.summary) || looksLikeJunkTitle(item.summary)) &&
+      !looksLikeJunkTitle(signal.summary)
+        ? signal.summary
+        : item.summary;
     return {
       ...item,
       title,
@@ -201,6 +293,14 @@ function heuristicRank(
   };
   // Collectors already bias to action; still drop pure awareness leftovers.
   const actionable = signals.filter((s) => {
+    if (looksLikeJunkTitle(s.title)) return false;
+    if (s.source === 'calendar' && isPersonalCalendarHold(s.title)) return false;
+    if (
+      s.source === 'calendar' &&
+      isDailySeriesMeeting(s.title, s.rawDetails || s.rawExcerpt || '')
+    ) {
+      return false;
+    }
     if (s.source === 'meeting' || s.source === 'fused' || s.source === 'jira') return true;
     if (s.severityHint === 'critical' || s.severityHint === 'warning') return true;
     const blob = `${s.title} ${s.summary} ${s.suggestedAction || ''} ${s.whyHint || ''}`;
@@ -376,6 +476,7 @@ export async function rankMatterSignals(options: {
           : null;
       if (!fingerprint || !known.has(fingerprint)) continue;
       if (typeof item.title === 'string' && isRollupTitle(item.title)) continue;
+      if (typeof item.title === 'string' && looksLikeJunkTitle(item.title)) continue;
       llmByFp.set(fingerprint, item);
     }
 
@@ -384,7 +485,10 @@ export async function rankMatterSignals(options: {
       const item = llmByFp.get(baseItem.fingerprint);
       if (!item) return baseItem;
       const title =
-        typeof item.title === 'string' && item.title.trim() && !isRollupTitle(item.title)
+        typeof item.title === 'string' &&
+        item.title.trim() &&
+        !isRollupTitle(item.title) &&
+        !looksLikeJunkTitle(item.title)
           ? item.title.trim().slice(0, 120)
           : baseItem.title;
       const sourceRef =
@@ -395,7 +499,11 @@ export async function rankMatterSignals(options: {
         ...baseItem,
         title,
         summary:
-          typeof item.summary === 'string' && item.summary.trim() ? item.summary : baseItem.summary,
+          typeof item.summary === 'string' &&
+          item.summary.trim() &&
+          !looksLikeJunkTitle(item.summary)
+            ? item.summary
+            : baseItem.summary,
         whyItMatters:
           typeof item.whyItMatters === 'string' && item.whyItMatters.trim()
             ? item.whyItMatters

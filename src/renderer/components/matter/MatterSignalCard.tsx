@@ -95,84 +95,95 @@ export function MatterSignalCard({
           className={`mt-1.5 h-2 w-2 rounded-full shrink-0 ${SEVERITY_DOT[item.severity] || SEVERITY_DOT.signal}`}
         />
         <div className="min-w-0 flex-1">
-          <div className="flex items-start gap-2">
+          <div className="flex items-start gap-1.5">
             <h3 className="min-w-0 flex-1 text-[13px] font-semibold text-text-primary leading-snug">
               {item.title}
             </h3>
             {item.pinned ? <Pin className="w-3 h-3 text-accent shrink-0 mt-1" /> : null}
-            <div ref={menuRef} className="relative shrink-0" onClick={(e) => e.stopPropagation()}>
+            <div
+              className="flex items-center gap-0.5 shrink-0"
+              onClick={(e) => e.stopPropagation()}
+            >
               <button
                 type="button"
-                aria-label={t('matter.action.menu')}
-                aria-haspopup="menu"
-                aria-expanded={menuOpen}
-                aria-controls={menuId}
-                title={t('matter.action.menu')}
-                onClick={() => setMenuOpen((open) => !open)}
+                aria-label={t('matter.action.done')}
+                title={t('matter.action.doneHint')}
+                onClick={onDone}
+                className="h-7 w-7 rounded-lg flex items-center justify-center text-emerald-600 hover:text-emerald-500 hover:bg-emerald-500/10 transition-colors"
+              >
+                <Check className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                aria-label={t('matter.action.dismiss')}
+                title={t('matter.action.dismissHint')}
+                onClick={() => onDismiss(false)}
                 className="h-7 w-7 rounded-lg flex items-center justify-center text-text-muted hover:text-text-primary hover:bg-surface-hover transition-colors"
               >
-                <MoreHorizontal className="w-4 h-4" />
+                <X className="w-4 h-4" />
               </button>
-              {menuOpen ? (
-                <div
-                  id={menuId}
-                  role="menu"
-                  className="absolute right-0 top-8 z-30 w-52 rounded-xl border border-border-muted bg-surface shadow-lg py-1"
+              <div ref={menuRef} className="relative">
+                <button
+                  type="button"
+                  aria-label={t('matter.action.menu')}
+                  aria-haspopup="menu"
+                  aria-expanded={menuOpen}
+                  aria-controls={menuId}
+                  title={t('matter.action.menu')}
+                  onClick={() => setMenuOpen((open) => !open)}
+                  className="h-7 w-7 rounded-lg flex items-center justify-center text-text-muted hover:text-text-primary hover:bg-surface-hover transition-colors"
                 >
-                  <MenuItem
-                    icon={<Check className="w-3.5 h-3.5" />}
-                    label={t('matter.action.done')}
-                    hint={t('matter.action.doneHint')}
-                    onClick={() => run(onDone)}
-                  />
-                  <MenuItem
-                    icon={<Clock3 className="w-3.5 h-3.5" />}
-                    label={t('matter.action.snooze')}
-                    hint={t('matter.action.snoozeHint')}
-                    onClick={() => run(onSnooze)}
-                  />
-                  <MenuItem
-                    icon={
-                      item.pinned ? (
-                        <PinOff className="w-3.5 h-3.5" />
-                      ) : (
-                        <Pin className="w-3.5 h-3.5" />
-                      )
-                    }
-                    label={item.pinned ? t('matter.action.unpin') : t('matter.action.pin')}
-                    hint={item.pinned ? t('matter.action.unpinHint') : t('matter.action.pinHint')}
-                    onClick={() => run(onPin)}
-                  />
-                  <MenuItem
-                    icon={<MessageSquare className="w-3.5 h-3.5" />}
-                    label={t('matter.action.chat')}
-                    hint={t('matter.action.chatHint')}
-                    onClick={() => run(onHandleChat)}
-                  />
-                  {item.sourceRef.url ? (
+                  <MoreHorizontal className="w-4 h-4" />
+                </button>
+                {menuOpen ? (
+                  <div
+                    id={menuId}
+                    role="menu"
+                    className="absolute right-0 top-8 z-30 w-52 rounded-xl border border-border-muted bg-surface shadow-lg py-1"
+                  >
                     <MenuItem
-                      icon={<ExternalLink className="w-3.5 h-3.5" />}
-                      label={t('matter.action.open')}
-                      hint={t('matter.action.openHint')}
-                      onClick={() => run(onOpen)}
+                      icon={<Clock3 className="w-3.5 h-3.5" />}
+                      label={t('matter.action.snooze')}
+                      hint={t('matter.action.snoozeHint')}
+                      onClick={() => run(onSnooze)}
                     />
-                  ) : null}
-                  <div className="my-1 border-t border-border-subtle" />
-                  <MenuItem
-                    icon={<X className="w-3.5 h-3.5" />}
-                    label={t('matter.action.dismiss')}
-                    hint={t('matter.action.dismissHint')}
-                    onClick={() => run(() => onDismiss(false))}
-                  />
-                  <MenuItem
-                    icon={<Ban className="w-3.5 h-3.5" />}
-                    label={t('matter.action.mute')}
-                    hint={t('matter.action.muteHint')}
-                    onClick={() => run(() => onDismiss(true))}
-                    danger
-                  />
-                </div>
-              ) : null}
+                    <MenuItem
+                      icon={
+                        item.pinned ? (
+                          <PinOff className="w-3.5 h-3.5" />
+                        ) : (
+                          <Pin className="w-3.5 h-3.5" />
+                        )
+                      }
+                      label={item.pinned ? t('matter.action.unpin') : t('matter.action.pin')}
+                      hint={item.pinned ? t('matter.action.unpinHint') : t('matter.action.pinHint')}
+                      onClick={() => run(onPin)}
+                    />
+                    <MenuItem
+                      icon={<MessageSquare className="w-3.5 h-3.5" />}
+                      label={t('matter.action.chat')}
+                      hint={t('matter.action.chatHint')}
+                      onClick={() => run(onHandleChat)}
+                    />
+                    {item.sourceRef.url ? (
+                      <MenuItem
+                        icon={<ExternalLink className="w-3.5 h-3.5" />}
+                        label={t('matter.action.open')}
+                        hint={t('matter.action.openHint')}
+                        onClick={() => run(onOpen)}
+                      />
+                    ) : null}
+                    <div className="my-1 border-t border-border-subtle" />
+                    <MenuItem
+                      icon={<Ban className="w-3.5 h-3.5" />}
+                      label={t('matter.action.mute')}
+                      hint={t('matter.action.muteHint')}
+                      onClick={() => run(() => onDismiss(true))}
+                      danger
+                    />
+                  </div>
+                ) : null}
+              </div>
             </div>
           </div>
           <p className="mt-1 text-[11px] text-text-secondary line-clamp-2">{item.whyItMatters}</p>

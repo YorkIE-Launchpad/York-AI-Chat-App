@@ -376,11 +376,35 @@ async function main() {
           typeof payload.description === 'string' ? payload.description : summarizeEvent(payload);
         const location = typeof payload.location === 'string' ? payload.location : '';
         const htmlLink = typeof payload.htmlLink === 'string' ? payload.htmlLink : '';
+
+        // Resolve RRULE for series instances (instances only expose recurringEventId).
+        let recurrenceLines: string[] = Array.isArray(payload.recurrence)
+          ? (payload.recurrence as unknown[]).filter((r): r is string => typeof r === 'string')
+          : [];
+        const recurringEventId =
+          typeof payload.recurringEventId === 'string' ? payload.recurringEventId.trim() : '';
+        if (!recurrenceLines.length && recurringEventId) {
+          try {
+            const master = await fetchJson(
+              `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(recurringEventId)}`
+            );
+            if (Array.isArray(master.recurrence)) {
+              recurrenceLines = (master.recurrence as unknown[]).filter(
+                (r): r is string => typeof r === 'string'
+              );
+            }
+          } catch {
+            // Master may be inaccessible; still mark as recurring below.
+          }
+        }
+
         const body = [
           summarizeEvent(payload),
           location ? `Location: ${location}` : '',
           htmlLink ? `Link: ${htmlLink}` : '',
           description && description !== title ? description : '',
+          recurringEventId ? `RecurringEventId: ${recurringEventId}` : '',
+          recurrenceLines.length ? `Recurrence:\n${recurrenceLines.join('\n')}` : '',
         ]
           .filter(Boolean)
           .join('\n\n');
@@ -390,7 +414,13 @@ async function main() {
           summary: summarizeEvent(payload),
           body,
           occurredAt: eventStartMs(payload) ?? Date.now(),
-          keywords: ['calendar', 'event', title],
+          keywords: [
+            'calendar',
+            'event',
+            title,
+            ...(recurringEventId || recurrenceLines.length ? ['recurring'] : []),
+            ...(recurrenceLines.some((r) => /FREQ=DAILY/i.test(r)) ? ['daily'] : []),
+          ],
         });
       },
       create_event: async (args) => {

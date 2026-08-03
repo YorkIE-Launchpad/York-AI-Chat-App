@@ -28,6 +28,76 @@ import {
 const MAX_PER_SOURCE = 8;
 const RAW_CAP = 4000;
 
+/** Exact / near-exact titles that are personal holds, not collaborative meetings. */
+const PERSONAL_HOLD_EXACT = new Set([
+  'break',
+  'block',
+  'blocked',
+  'hold',
+  'focus',
+  'focus time',
+  'focus block',
+  'deep work',
+  'heads down',
+  'lunch',
+  'coffee',
+  'gym',
+  'commute',
+  'personal',
+  'ooo',
+  'o.o.o',
+  'o.o.o.',
+  'out of office',
+  'pto',
+  'vacation',
+  'busy',
+  'dnd',
+  'do not disturb',
+  'no meeting',
+  'no meetings',
+  'unavailable',
+  'wfh',
+  'working from home',
+]);
+
+/**
+ * True for personal calendar holds (Break, block, focus, OOO, …).
+ * Keeps real meetings like "1:1 with Ada" or "Unblock checkout".
+ */
+export function isPersonalCalendarHold(title: string): boolean {
+  const t = title.trim().toLowerCase().replace(/[–—]/g, '-').replace(/\s+/g, ' ');
+  if (!t) return true;
+  if (PERSONAL_HOLD_EXACT.has(t)) return true;
+  // Short phrase holds: "Focus until 3", "OOO half day", "Blocked 2-4"
+  if (t.length <= 40) {
+    if (/^(focus|ooo|out of office|blocked?|hold|break|lunch|pto)\b/.test(t)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * True for daily recurring series (standup/sync/etc.) that should not clutter Matter.
+ * Detects Google RRULE FREQ=DAILY from event detail text, or common daily title patterns.
+ */
+export function isDailySeriesMeeting(title: string, rawText?: string | null): boolean {
+  const blob = `${rawText || ''}`;
+  if (/FREQ=DAILY\b/i.test(blob)) return true;
+
+  const t = title.trim().toLowerCase().replace(/[–—]/g, '-').replace(/\s+/g, ' ');
+  if (!t) return false;
+  if (/^daily(\s+series)?$/.test(t)) return true;
+  if (
+    /\bdaily\s+(stand[\s-]?up|sync|scrum|check[\s-]?in|huddle|call|meeting|series|status)\b/.test(t)
+  ) {
+    return true;
+  }
+  // Short titles that are clearly a daily cadence ritual
+  if (t.length <= 48 && /^(daily)\b/.test(t)) return true;
+  return false;
+}
+
 export interface RawMatterSignal {
   fingerprint: string;
   source: MatterSource;
@@ -66,11 +136,14 @@ function truncate(value: unknown, max = RAW_CAP): string {
 }
 
 /** Slack / JSON / schema noise that must never become a Matter title. */
-function looksLikeJunkTitle(text: string): boolean {
+export function looksLikeJunkTitle(text: string): boolean {
   const t = text.trim();
   if (!t || t.length < 2) return true;
   if (/^[[\]{}:,;]+$/.test(t)) return true;
   if (/^"[^"]+"\s*:/.test(t)) return true; // "expected":
+  if (/^'[^']+'\s*:/.test(t)) return true;
+  // JSON key fragments: "path": [  or path: {
+  if (/^["']?\w+["']?\s*:\s*[[{]/.test(t)) return true;
   if (/^"[^"]*"\s*,?\s*$/.test(t)) return true; // "nan",
   if (/^(true|false|null|nan|undefined)\s*,?$/i.test(t)) return true;
   if (
@@ -80,7 +153,7 @@ function looksLikeJunkTitle(text: string): boolean {
     return true;
   }
   // Mostly JSON punctuation / keys
-  if ((t.match(/"/g) || []).length >= 2 && /":\s*"/.test(t) && t.length < 100) return true;
+  if ((t.match(/"/g) || []).length >= 2 && /":\s*[[{"']/.test(t) && t.length < 100) return true;
   if (/^<[CWDGU][A-Z0-9]+>/.test(t) && t.length < 24) return true;
   return false;
 }
@@ -350,6 +423,11 @@ async function collectCalendar(
       const hoursUntil = startMs != null ? (startMs - Date.now()) / 36e5 : 999;
       // Action bar: only meetings starting within ~6h (prep / show up), not passive week list
       if (hoursUntil < 0 || hoursUntil > 6) return null;
+      // Drop personal holds (Break, block, focus, OOO, …) — not action radar material
+      if (isPersonalCalendarHold(ev.title)) return null;
+      // Drop daily recurring series (standup / FREQ=DAILY) — too noisy for Matter
+      const rawText = typeof raw === 'string' ? raw : truncate(raw);
+      if (isDailySeriesMeeting(ev.title, rawText)) return null;
 
       const orbit: MatterOrbit = hoursUntil <= 2 ? 'now' : 'today';
       const severity: MatterSeverity =
