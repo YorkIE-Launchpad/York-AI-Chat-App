@@ -1178,7 +1178,7 @@
     "watchChanged": "change detected"
   },
   "loop": {
-    "usage": "Interval is required. Examples: /loop 5m check deploy · /goal 2m make tests pass · /loop stop or /goal stop",
+    "usage": "Loop needs an interval. Examples: /loop 5m check deploy · /goal make tests pass (defaults to 2m) · /goal 5m make tests pass · /loop stop or /goal stop",
     "started": "Looping every {{interval}}. First run started; will repeat until stopped.",
     "goalStarted": "Goal loop every {{interval}} (max {{max}} ticks). Working until GOAL_STATUS: complete.",
     "stopped": "Chat loop stopped.",
@@ -1198,13 +1198,14 @@
     "goalPlaceholder": "What done looks like…",
     "intervalLabel": "Interval",
     "intervalHint": "Choose how often to run. No default — pick a chip or enter a custom value (e.g. 5m).",
+    "intervalHintGoal": "Optional — defaults to 2m if you skip. Pick a chip or enter a custom value.",
     "intervalRequired": "Choose an interval before starting",
     "intervalCustom": "Custom (e.g. 5m)",
     "startLoop": "Start loop",
     "startGoal": "Start goal",
     "stopActive": "Stop active automation",
     "promptRequired": "Enter a prompt or goal to start",
-    "slashHint": "Power users can also type /loop 5m … or /goal 2m … in the composer."
+    "slashHint": "Power users can also type /loop 5m … or /goal … (optional interval, default 2m) in the composer."
   },
   "remote": {
     "title": "Remote Control",

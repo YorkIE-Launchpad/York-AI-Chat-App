@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { RefreshCw, Target, X } from 'lucide-react';
 import type { ChatLoopStatus } from '../types';
 import { parseIntervalToken } from '../../shared/loop/parse';
+import { DEFAULT_GOAL_INTERVAL_MS } from '../../shared/loop/types';
 
 export type ChatLoopPanelMode = 'interval' | 'goal';
 
@@ -82,10 +83,14 @@ export function ChatLoopPanel({
       setError(t('loop.promptRequired'));
       return;
     }
-    const intervalMs = resolveIntervalMs();
+    let intervalMs = resolveIntervalMs();
     if (intervalMs === null) {
-      setError(t('loop.intervalRequired'));
-      return;
+      if (mode === 'goal') {
+        intervalMs = DEFAULT_GOAL_INTERVAL_MS;
+      } else {
+        setError(t('loop.intervalRequired'));
+        return;
+      }
     }
     setSubmitting(true);
     setError(null);
@@ -105,6 +110,7 @@ export function ChatLoopPanel({
   };
 
   const hasInterval = Boolean(customInterval.trim() || selectedChip);
+  const canStart = Boolean(text.trim()) && (mode === 'goal' || hasInterval);
 
   return (
     <div
@@ -184,7 +190,9 @@ export function ChatLoopPanel({
           <div className="text-[11px] font-medium uppercase tracking-[0.04em] text-text-muted">
             {t('loop.intervalLabel')}
           </div>
-          <p className="text-[11px] text-text-muted">{t('loop.intervalHint')}</p>
+          <p className="text-[11px] text-text-muted">
+            {mode === 'goal' ? t('loop.intervalHintGoal') : t('loop.intervalHint')}
+          </p>
           <div className="flex flex-wrap gap-1.5">
             {INTERVAL_CHIPS.map((chip) => (
               <button
@@ -219,7 +227,7 @@ export function ChatLoopPanel({
 
         <button
           type="button"
-          disabled={submitting || !hasInterval || !text.trim()}
+          disabled={submitting || !canStart}
           onClick={() => void handleStart()}
           className="flex w-full items-center justify-center rounded-xl bg-accent px-3 py-2 text-[13px] font-medium text-background transition-opacity disabled:opacity-50"
         >

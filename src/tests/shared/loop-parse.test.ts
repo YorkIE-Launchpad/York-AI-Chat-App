@@ -67,9 +67,21 @@ describe('parseLoopCommand', () => {
     }
   });
 
-  it('requires an interval — no silent default', () => {
+  it('requires an interval for /loop — no silent default', () => {
     expect(parseLoopCommand('/loop check status')).toEqual({ type: 'usage' });
-    expect(parseLoopCommand('/goal make tests pass')).toEqual({ type: 'usage' });
+  });
+
+  it('defaults /goal interval to 2m when omitted', () => {
+    const result = parseLoopCommand('/goal make tests pass');
+    expect(result).toMatchObject({
+      type: 'goal',
+      kind: 'goal',
+      goal: 'make tests pass',
+    });
+    if (result.type === 'goal') {
+      expect(result.interval.ms).toBe(2 * 60_000);
+      expect(result.maxIterations).toBe(20);
+    }
   });
 
   it('parses /goal with interval', () => {

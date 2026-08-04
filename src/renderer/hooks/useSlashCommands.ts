@@ -33,11 +33,11 @@ export const LOOP_SLASH_SKILL: Skill = {
 export const GOAL_SLASH_SKILL: Skill = {
   id: GOAL_SLASH_SKILL_ID,
   name: 'goal',
-  description: 'Keep working until a goal is met on a set interval (/goal 2m …)',
+  description: 'Keep working until a goal is met (/goal …; interval optional, default 2m)',
   type: 'builtin',
   enabled: true,
   userInvocable: true,
-  argumentHint: '<interval> <goal>',
+  argumentHint: '[interval] <goal>',
   createdAt: 0,
 };
 

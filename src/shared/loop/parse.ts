@@ -1,4 +1,5 @@
 import {
+  DEFAULT_GOAL_INTERVAL_MS,
   DEFAULT_GOAL_MAX_ITERATIONS,
   MIN_LOOP_INTERVAL_MS,
   type LoopInterval,
@@ -71,7 +72,8 @@ function stripEveryClause(text: string): { rest: string; interval: LoopInterval 
 
 /**
  * Parse a chat slash command for loops.
- * Interval is required — e.g. `/loop 5m check deploy` or `/goal 2m make tests pass`.
+ * Loop interval is required — e.g. `/loop 5m check deploy`.
+ * Goal interval is optional and defaults to 2m — e.g. `/goal make tests pass` or `/goal 5m make tests pass`.
  */
 export function parseLoopCommand(raw: string): ParsedLoopCommand {
   const trimmed = raw.trim();
@@ -135,7 +137,7 @@ export function parseLoopCommand(raw: string): ParsedLoopCommand {
     }
   }
 
-  if (!interval || !promptOrGoal) {
+  if (!promptOrGoal) {
     return { type: 'usage' };
   }
 
@@ -144,9 +146,13 @@ export function parseLoopCommand(raw: string): ParsedLoopCommand {
       type: 'goal',
       kind: 'goal',
       goal: promptOrGoal,
-      interval,
+      interval: interval ?? msToLoopInterval(DEFAULT_GOAL_INTERVAL_MS),
       maxIterations: DEFAULT_GOAL_MAX_ITERATIONS,
     };
+  }
+
+  if (!interval) {
+    return { type: 'usage' };
   }
 
   return {

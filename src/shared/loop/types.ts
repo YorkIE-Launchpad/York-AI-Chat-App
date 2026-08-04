@@ -20,6 +20,9 @@ export interface LoopInterval {
 /** Minimum interval for any automated loop/schedule fire. */
 export const MIN_LOOP_INTERVAL_MS = 30_000;
 
+/** Default tick interval when a goal is started without an explicit interval. */
+export const DEFAULT_GOAL_INTERVAL_MS = 2 * 60_000;
+
 /** Max goal iterations before auto-stop. */
 export const DEFAULT_GOAL_MAX_ITERATIONS = 20;
 
