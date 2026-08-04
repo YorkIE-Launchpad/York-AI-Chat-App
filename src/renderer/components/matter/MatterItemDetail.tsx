@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { Check, Clock3, MessageSquare, Pin, PinOff, X, ExternalLink, Ban } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { MatterItem } from '../../../shared/matter';
+import { formatDueRelative, isDueUrgent } from '../../../shared/matter-time';
 
 const SEVERITY_CLASS: Record<string, string> = {
   critical: 'text-red-400 border-red-400/30 bg-red-400/10',
@@ -80,6 +81,17 @@ export function MatterItemDetail({
             <MetaChip label={item.source} />
           )}
           {item.pinned ? <MetaChip label={t('matter.action.pin')} /> : null}
+          {item.dueAt != null ? (
+            <span
+              className={`rounded-md border px-1.5 py-0.5 text-[10px] font-semibold normal-case tracking-normal ${
+                isDueUrgent(item.dueAt)
+                  ? 'text-red-400 border-red-400/30 bg-red-400/10'
+                  : 'text-text-secondary border-border-subtle bg-surface'
+              }`}
+            >
+              {formatDueRelative(item.dueAt)}
+            </span>
+          ) : null}
         </div>
 
         <DetailBlock label={t('matter.detailSummary')}>

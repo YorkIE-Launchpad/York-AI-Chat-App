@@ -6,6 +6,8 @@ export interface MatterSchedulerOptions {
   onTick: (reason: 'interval' | 'startup' | 'manual') => void;
   onMorningBrief: () => void;
   onEndOfDay: () => void;
+  /** Fired every minute while Matter is enabled (reminders / expiry). */
+  onTimeTick?: () => void;
   now?: () => number;
 }
 
@@ -72,6 +74,10 @@ export class MatterScheduler {
   private onMinute(): void {
     const runtime = this.options.getRuntime();
     if (!runtime.enabled) return;
+
+    // Time-sensitive deadlines run regardless of scan window.
+    this.options.onTimeTick?.();
+
     const date = new Date(this.now());
     const hour = date.getHours();
     const minute = date.getMinutes();

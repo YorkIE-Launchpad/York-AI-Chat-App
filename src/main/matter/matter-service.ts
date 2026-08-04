@@ -19,7 +19,8 @@ import { createMatterStore, type MatterStore } from './matter-store';
 import { collectMatterSignals, getEnabledMatterServerIds } from './matter-collector';
 import { rankMatterSignals } from './matter-ranker';
 import { MatterScheduler } from './matter-scheduler';
-import { notifyMatterBrief } from './matter-notifications';
+import { notifyMatterBrief, notifyMatterItem } from './matter-notifications';
+import { shouldFireExpiry, shouldFireReminder, urgencyFromDueAt } from '../../shared/matter-time';
 
 const STARTUP_CONNECTOR_WAIT_MS = 120_000;
 const STARTUP_CONNECTOR_POLL_MS = 750;
@@ -104,6 +105,7 @@ export class MatterService {
       },
       onMorningBrief: () => this.maybeMorningBrief(),
       onEndOfDay: () => this.maybeEndOfDay(),
+      onTimeTick: () => this.processTimeEvents(),
     });
   }
 
@@ -121,6 +123,8 @@ export class MatterService {
 
   start(): void {
     this.scheduler.start();
+    // Catch any due reminders / expiry immediately after boot.
+    this.processTimeEvents();
     void this.runStartupScan();
   }
 
@@ -566,6 +570,110 @@ export class MatterService {
       title: 'Matter — end of day',
       body: `${snapshot.criticalCount} critical · ${snapshot.warningCount} warning still open. Focus score ${snapshot.focusScore}.`,
     });
+  }
+
+  /**
+   * Minute ticker: OS reminders, temporal expiry (+ notify), urgency refresh between scans.
+   * Runs outside the scan window when Matter is enabled.
+   */
+  processTimeEvents(now = Date.now()): void {
+    const runtime = this.getRuntime();
+    if (!runtime.enabled) return;
+
+    let changed = false;
+    const items = this.store.listActiveItems();
+
+    for (const item of items) {
+      // Snooze wake → active + optional notify
+      if (item.status === 'snoozed' && item.snoozeUntil != null && item.snoozeUntil <= now) {
+        this.store.updateItem(item.id, { status: 'active', snoozeUntil: null });
+        notifyMatterItem({
+          kind: 'snooze_wake',
+          title: item.title,
+          body: item.summary || item.whyItMatters || 'Back on your radar.',
+          itemId: item.id,
+        });
+        changed = true;
+        continue;
+      }
+
+      if (item.status !== 'active' && item.status !== 'resurfaced') continue;
+      if (item.snoozeUntil && item.snoozeUntil > now) continue;
+
+      // Reminder (before expiry check so a due-ish item can still remind once)
+      if (
+        shouldFireReminder(
+          {
+            remindAt: item.remindAt,
+            reminderNotifiedAt: item.reminderNotifiedAt,
+            status: item.status,
+            snoozeUntil: item.snoozeUntil,
+          },
+          now
+        )
+      ) {
+        notifyMatterItem({
+          kind: 'reminder',
+          title: item.title,
+          body: item.summary || item.whyItMatters || 'Action coming up soon.',
+          itemId: item.id,
+        });
+        this.store.updateItem(item.id, { reminderNotifiedAt: now });
+        changed = true;
+      }
+
+      // Temporal expiry + notify (scan-absence expiry stays silent)
+      if (
+        shouldFireExpiry(
+          {
+            expiresAt: item.expiresAt,
+            expiredNotifiedAt: item.expiredNotifiedAt,
+            status: item.status,
+            snoozeUntil: item.snoozeUntil,
+            pinned: item.pinned,
+          },
+          now
+        )
+      ) {
+        this.store.updateItem(item.id, {
+          status: 'expired',
+          resolvedAt: now,
+          expiredNotifiedAt: now,
+        });
+        notifyMatterItem({
+          kind: 'expired',
+          title: item.title,
+          body: item.summary || 'This item passed its deadline.',
+          itemId: item.id,
+        });
+        changed = true;
+        continue;
+      }
+
+      // Urgency refresh as dueAt approaches between scans
+      if (item.dueAt != null && !item.pinned) {
+        const urgency = urgencyFromDueAt(item.dueAt, now);
+        if (urgency) {
+          const rankFloor = Math.max(item.rankScore, urgency.rankBoost);
+          if (
+            item.orbit !== urgency.orbit ||
+            item.severity !== urgency.severity ||
+            item.rankScore < rankFloor
+          ) {
+            this.store.updateItem(item.id, {
+              orbit: urgency.orbit,
+              severity: urgency.severity,
+              rankScore: rankFloor,
+            });
+            changed = true;
+          }
+        }
+      }
+    }
+
+    if (changed) {
+      this.pushSnapshot();
+    }
   }
 
   private pushSnapshot(): void {

@@ -61,7 +61,11 @@ export function mapMatterItemRow(row: MatterItemRow): MatterItem {
     status: row.status as MatterItemStatus,
     pinned: row.pinned === 1,
     snoozeUntil: row.snooze_until,
+    dueAt: row.due_at ?? null,
+    remindAt: row.remind_at ?? null,
     expiresAt: row.expires_at,
+    reminderNotifiedAt: row.reminder_notified_at ?? null,
+    expiredNotifiedAt: row.expired_notified_at ?? null,
     rankScore: row.rank_score,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -104,6 +108,8 @@ export interface MatterStore {
         | 'status'
         | 'pinned'
         | 'snoozeUntil'
+        | 'reminderNotifiedAt'
+        | 'expiredNotifiedAt'
       > & {
         status?: MatterItemStatus;
         pinned?: boolean;
@@ -113,6 +119,8 @@ export interface MatterStore {
   ) => MatterItem[];
   /** Mark active items not in keepFingerprints as expired (keeps pinned/snoozed). */
   expireAbsentItems: (keepFingerprints: string[], now?: number) => number;
+  /** Persist temporal expiry for items whose expiresAt has passed (no OS notify). */
+  expireTimedItems: (now?: number) => MatterItem[];
   updateItem: (id: string, updates: Partial<MatterItem>) => MatterItem | null;
   recordAction: (input: {
     itemId?: string | null;
@@ -183,7 +191,8 @@ export function createMatterStore(db: DatabaseInstance): MatterStore {
           if (item.status === 'snoozed' && item.snoozeUntil && item.snoozeUntil > now) {
             return false;
           }
-          if (item.expiresAt && item.expiresAt < now) {
+          // Hide past deadline; processTimeEvents transitions status + notifies.
+          if (item.expiresAt && item.expiresAt <= now) {
             return false;
           }
           return (
@@ -230,6 +239,11 @@ export function createMatterStore(db: DatabaseInstance): MatterStore {
             : wasDoneOrDismissed && incoming.status !== 'dismissed'
               ? 'resurfaced'
               : incoming.status || 'active';
+
+          const dueChanged = (existing.due_at ?? null) !== (incoming.dueAt ?? null);
+          const remindChanged = (existing.remind_at ?? null) !== (incoming.remindAt ?? null);
+          const expiresChanged = (existing.expires_at ?? null) !== (incoming.expiresAt ?? null);
+
           db.matterItems.update(existing.id, {
             title: incoming.title,
             summary: incoming.summary,
@@ -243,7 +257,12 @@ export function createMatterStore(db: DatabaseInstance): MatterStore {
             confidence: incoming.confidence,
             suggested_action: incoming.suggestedAction,
             status: nextStatus,
+            due_at: incoming.dueAt ?? null,
+            remind_at: incoming.remindAt ?? null,
             expires_at: incoming.expiresAt,
+            // Reset notification stamps when schedule changes so rescheduled items remount.
+            ...(dueChanged || remindChanged ? { reminder_notified_at: null } : {}),
+            ...(dueChanged || expiresChanged ? { expired_notified_at: null } : {}),
             rank_score: incoming.rankScore,
             last_seen_at: now,
             // Keep snooze window intact while still snoozed
@@ -271,7 +290,11 @@ export function createMatterStore(db: DatabaseInstance): MatterStore {
             status: incoming.status || 'active',
             pinned: incoming.pinned ? 1 : 0,
             snooze_until: incoming.snoozeUntil ?? null,
+            due_at: incoming.dueAt ?? null,
+            remind_at: incoming.remindAt ?? null,
             expires_at: incoming.expiresAt,
+            reminder_notified_at: null,
+            expired_notified_at: null,
             rank_score: incoming.rankScore,
             created_at: now,
             updated_at: now,
@@ -303,6 +326,24 @@ export function createMatterStore(db: DatabaseInstance): MatterStore {
       return expired;
     },
 
+    expireTimedItems: (now = Date.now()) => {
+      const expired: MatterItem[] = [];
+      for (const row of db.matterItems.listActive()) {
+        const item = mapMatterItemRow(row);
+        if (item.pinned) continue;
+        if (item.status === 'snoozed' && item.snoozeUntil && item.snoozeUntil > now) continue;
+        if (item.status !== 'active' && item.status !== 'resurfaced') continue;
+        if (item.expiresAt == null || item.expiresAt > now) continue;
+        db.matterItems.update(item.id, {
+          status: 'expired',
+          resolved_at: now,
+        });
+        const updated = db.matterItems.get(item.id);
+        if (updated) expired.push(mapMatterItemRow(updated));
+      }
+      return expired;
+    },
+
     updateItem: (id, updates) => {
       const mapped: Partial<MatterItemRow> = {};
       if (updates.title !== undefined) mapped.title = updates.title;
@@ -319,7 +360,15 @@ export function createMatterStore(db: DatabaseInstance): MatterStore {
       if (updates.status !== undefined) mapped.status = updates.status;
       if (updates.pinned !== undefined) mapped.pinned = updates.pinned ? 1 : 0;
       if (updates.snoozeUntil !== undefined) mapped.snooze_until = updates.snoozeUntil;
+      if (updates.dueAt !== undefined) mapped.due_at = updates.dueAt;
+      if (updates.remindAt !== undefined) mapped.remind_at = updates.remindAt;
       if (updates.expiresAt !== undefined) mapped.expires_at = updates.expiresAt;
+      if (updates.reminderNotifiedAt !== undefined) {
+        mapped.reminder_notified_at = updates.reminderNotifiedAt;
+      }
+      if (updates.expiredNotifiedAt !== undefined) {
+        mapped.expired_notified_at = updates.expiredNotifiedAt;
+      }
       if (updates.rankScore !== undefined) mapped.rank_score = updates.rankScore;
       if (updates.lastSeenAt !== undefined) mapped.last_seen_at = updates.lastSeenAt;
       if (updates.resolvedAt !== undefined) mapped.resolved_at = updates.resolvedAt;

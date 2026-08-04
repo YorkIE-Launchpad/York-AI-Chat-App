@@ -10,6 +10,7 @@ import type {
   MatterSensitivity,
   MatterSeverity,
 } from '../../shared/matter';
+import { deriveMatterTimeFields, urgencyFromDueAt } from '../../shared/matter-time';
 import type { RawMatterSignal } from './matter-collector';
 import {
   isDailySeriesMeeting,
@@ -42,8 +43,7 @@ Return ONLY valid JSON (no markdown):
       "confidence": 0.0-1.0,
       "suggestedAction": "concrete next step THEY should take",
       "rankScore": 0-100,
-      "sourceRef": { "externalId": "...", "url": null, "label": "..." },
-      "expiresAt": null
+      "sourceRef": { "externalId": "...", "url": null, "label": "..." }
     }
   ],
   "lenses": [
@@ -271,6 +271,8 @@ export interface RankedMatterResult {
       | 'status'
       | 'pinned'
       | 'snoozeUntil'
+      | 'reminderNotifiedAt'
+      | 'expiredNotifiedAt'
     >
   >;
   lenses: Array<{
@@ -314,7 +316,16 @@ function heuristicRank(
   const items = actionable
     .slice(0, maxItems)
     .map((s, index) => {
-      const severity = s.severityHint || 'signal';
+      const dueAt = s.dueAt ?? s.occurredAt ?? null;
+      const times = deriveMatterTimeFields({
+        dueAt,
+        expiresAt: s.expiresAt ?? null,
+        source: s.source,
+      });
+      const urgency = urgencyFromDueAt(times.dueAt);
+      const severity = urgency?.severity || s.severityHint || 'signal';
+      const orbit = urgency?.orbit || s.orbitHint || (severity === 'critical' ? 'now' : 'today');
+      const rankBoost = urgency?.rankBoost ?? 0;
       return {
         fingerprint: s.fingerprint,
         title: s.title.slice(0, 90),
@@ -325,15 +336,17 @@ function heuristicRank(
             ? `Needs your action as ${profile.title}.`
             : 'Needs your action from connected work tools.'),
         severity,
-        orbit: s.orbitHint || (severity === 'critical' ? 'now' : 'today'),
+        orbit,
         category: s.categoryHint || 'comms',
         source: s.source,
         confidence: 0.55,
         suggestedAction: s.suggestedAction || null,
-        rankScore: severityBoost[severity] + Math.max(0, 20 - index),
+        rankScore: (severityBoost[severity] ?? 10) + Math.max(0, 20 - index) + rankBoost * 0.25,
         sourceRef: enrichSourceRef(s.sourceRef || {}, s.rawDetails || s.rawExcerpt),
         rawDetails: s.rawDetails || s.rawExcerpt || null,
-        expiresAt: null,
+        dueAt: times.dueAt,
+        remindAt: times.remindAt,
+        expiresAt: times.expiresAt,
       };
     })
     .sort((a, b) => b.rankScore - a.rankScore);
@@ -447,6 +460,8 @@ export async function rankMatterSignals(options: {
           orbitHint: s.orbitHint,
           categoryHint: s.categoryHint,
           sourceRef: s.sourceRef,
+          dueAt: s.dueAt ?? s.occurredAt ?? null,
+          expiresAt: s.expiresAt ?? null,
         })),
       },
       null,
@@ -524,6 +539,10 @@ export async function rankMatterSignals(options: {
             ? item.rankScore
             : baseItem.rankScore,
         sourceRef,
+        // Preserve collector-derived times; never let LLM override deadlines.
+        dueAt: baseItem.dueAt,
+        remindAt: baseItem.remindAt,
+        expiresAt: baseItem.expiresAt,
       };
     });
 

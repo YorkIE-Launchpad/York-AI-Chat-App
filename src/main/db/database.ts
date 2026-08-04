@@ -165,7 +165,11 @@ export interface MatterItemRow {
   status: string;
   pinned: number;
   snooze_until: number | null;
+  due_at: number | null;
+  remind_at: number | null;
   expires_at: number | null;
+  reminder_notified_at: number | null;
+  expired_notified_at: number | null;
   rank_score: number;
   created_at: number;
   updated_at: number;
@@ -496,6 +500,10 @@ function initializeSchema(database: Database.Database): void {
     )
   `);
     ensureColumn(database, 'matter_items', 'raw_details', 'raw_details TEXT');
+    ensureColumn(database, 'matter_items', 'due_at', 'due_at INTEGER');
+    ensureColumn(database, 'matter_items', 'remind_at', 'remind_at INTEGER');
+    ensureColumn(database, 'matter_items', 'reminder_notified_at', 'reminder_notified_at INTEGER');
+    ensureColumn(database, 'matter_items', 'expired_notified_at', 'expired_notified_at INTEGER');
 
     database.exec(`
     CREATE INDEX IF NOT EXISTS idx_matter_items_status_rank
@@ -710,9 +718,10 @@ export function initDatabase(): DatabaseInstance {
   const insertMatterItem = rawDb.prepare(`
     INSERT OR REPLACE INTO matter_items (
       id, fingerprint, title, summary, why_it_matters, raw_details, severity, orbit, category, source,
-      source_ref, confidence, suggested_action, status, pinned, snooze_until, expires_at,
+      source_ref, confidence, suggested_action, status, pinned, snooze_until, due_at, remind_at,
+      expires_at, reminder_notified_at, expired_notified_at,
       rank_score, created_at, updated_at, last_seen_at, resolved_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const getMatterItemStmt = rawDb.prepare(`SELECT * FROM matter_items WHERE id = ?`);
@@ -984,7 +993,11 @@ export function initDatabase(): DatabaseInstance {
           item.status,
           item.pinned,
           item.snooze_until,
+          item.due_at ?? null,
+          item.remind_at ?? null,
           item.expires_at,
+          item.reminder_notified_at ?? null,
+          item.expired_notified_at ?? null,
           item.rank_score,
           item.created_at,
           item.updated_at,

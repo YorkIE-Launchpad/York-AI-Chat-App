@@ -74,7 +74,15 @@ export interface MatterItem {
   status: MatterItemStatus;
   pinned: boolean;
   snoozeUntil: number | null;
+  /** When the action is due (e.g. meeting start). */
+  dueAt: number | null;
+  /** When to fire the pre-due OS reminder. */
+  remindAt: number | null;
   expiresAt: number | null;
+  /** Set after the reminder OS notification was shown (dedupe). */
+  reminderNotifiedAt: number | null;
+  /** Set after the expiry OS notification was shown (dedupe). */
+  expiredNotifiedAt: number | null;
   rankScore: number;
   createdAt: number;
   updatedAt: number;

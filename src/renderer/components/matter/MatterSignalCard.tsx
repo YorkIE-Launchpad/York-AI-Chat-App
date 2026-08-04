@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { MatterItem } from '../../../shared/matter';
+import { formatDueRelative, isDueUrgent } from '../../../shared/matter-time';
 
 const SEVERITY_DOT: Record<string, string> = {
   critical: 'bg-red-500',
@@ -197,9 +198,19 @@ export function MatterSignalCard({
             <span className="rounded-md bg-surface px-1.5 py-0.5 text-text-muted border border-border-subtle">
               {item.source}
             </span>
-            <span className="text-text-muted normal-case tracking-normal">
-              {relativeTime(item.lastSeenAt)}
-            </span>
+            {item.dueAt != null ? (
+              <span
+                className={`normal-case tracking-normal font-medium ${
+                  isDueUrgent(item.dueAt) ? 'text-red-500' : 'text-text-secondary'
+                }`}
+              >
+                {formatDueRelative(item.dueAt)}
+              </span>
+            ) : (
+              <span className="text-text-muted normal-case tracking-normal">
+                {relativeTime(item.lastSeenAt)}
+              </span>
+            )}
           </div>
         </div>
       </div>

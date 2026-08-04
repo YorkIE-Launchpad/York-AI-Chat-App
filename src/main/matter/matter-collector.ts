@@ -112,6 +112,11 @@ export interface RawMatterSignal {
   suggestedAction?: string;
   sourceRef?: MatterSourceRef;
   muteKeys: string[];
+  /** When the action is due (e.g. event start). */
+  dueAt?: number;
+  /** When the item should expire / drop (e.g. event end). */
+  expiresAt?: number;
+  /** @deprecated Use dueAt — kept for call sites during migration. */
   occurredAt?: number;
 }
 
@@ -269,12 +274,16 @@ function signal(input: {
   suggestedAction?: string;
   sourceRef?: MatterSourceRef;
   muteKeys?: string[];
+  dueAt?: number;
+  expiresAt?: number;
+  /** @deprecated Use dueAt */
   occurredAt?: number;
 }): RawMatterSignal {
   const rawDetails = truncate(input.raw);
   const url = input.sourceRef?.url || extractUrl(rawDetails);
   const title = humanTitle(input.title, `${input.source} item`);
   const summary = cleanDisplayText(input.summary).slice(0, 400) || title;
+  const dueAt = input.dueAt ?? input.occurredAt;
   return {
     fingerprint: input.fingerprint,
     source: input.source,
@@ -292,7 +301,9 @@ function signal(input: {
       ...(url ? { url } : {}),
     },
     muteKeys: input.muteKeys || [`source:${input.source}`],
-    occurredAt: input.occurredAt,
+    dueAt,
+    expiresAt: input.expiresAt,
+    occurredAt: dueAt,
   };
 }
 
@@ -420,6 +431,13 @@ async function collectCalendar(
         }
       }
       const startMs = parseIsoMs(startIso) ?? parseIsoMs(ev.when.split('→')[0]?.trim());
+      // Prefer event end from "start → end" range when present.
+      const endFromWhen = (() => {
+        const range = startIso && startIso.includes('→') ? startIso : ev.when;
+        const parts = range.split('→');
+        if (parts.length >= 2) return parseIsoMs(parts[1]?.trim());
+        return null;
+      })();
       const hoursUntil = startMs != null ? (startMs - Date.now()) / 36e5 : 999;
       // Action bar: only meetings starting within ~6h (prep / show up), not passive week list
       if (hoursUntil < 0 || hoursUntil > 6) return null;
@@ -451,7 +469,8 @@ async function collectCalendar(
           url: htmlLink,
         },
         muteKeys: [`calendar:event:${ev.id}`, 'source:calendar'],
-        occurredAt: startMs,
+        dueAt: startMs ?? undefined,
+        expiresAt: endFromWhen ?? startMs ?? undefined,
       });
     })
   );
