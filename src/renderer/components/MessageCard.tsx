@@ -2,7 +2,7 @@
 // Delegates block rendering to ContentBlockView and its sub-components.
 import { useState, memo, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Copy, Check, Clock, XCircle } from 'lucide-react';
+import { Copy, Check, Ban } from 'lucide-react';
 import type { Message, ContentBlock, ToolUseContent, ToolResultContent } from '../types';
 import { ContentBlockView } from './message/ContentBlockView';
 import { McpSourcesFooter } from './message/McpSourcesFooter';
@@ -22,7 +22,6 @@ export const MessageCard = memo(function MessageCard({
 }: MessageCardProps) {
   const { t } = useTranslation();
   const isUser = message.role === 'user';
-  const isQueued = message.localStatus === 'queued';
   const isCancelled = message.localStatus === 'cancelled';
   const rawContent = message.content as unknown;
   const contentBlocks = Array.isArray(rawContent)
@@ -80,52 +79,53 @@ export const MessageCard = memo(function MessageCard({
     <div className="animate-fade-in">
       {isUser ? (
         // User message - compact styling with smaller padding and radius
-        <div className="flex items-start gap-2 justify-end group">
-          <div
-            className={`message-user px-4 py-3 rounded-[1.65rem] max-w-[80%] min-w-0 break-words ${
-              isQueued ? 'opacity-70 border-dashed' : ''
-            } ${isCancelled ? 'opacity-60' : ''}`}
-          >
-            {isQueued && (
-              <div className="mb-1 flex items-center gap-1 text-[11px] text-text-muted">
-                <Clock className="w-3 h-3" />
-                <span>{t('messageCard.queued')}</span>
-              </div>
-            )}
-            {isCancelled && (
-              <div className="mb-1 flex items-center gap-1 text-[11px] text-text-muted">
-                <XCircle className="w-3 h-3" />
-                <span>{t('messageCard.cancelled')}</span>
-              </div>
-            )}
-            {contentBlocks.length === 0 ? (
-              <span className="text-text-muted italic">{t('messageCard.emptyMessage')}</span>
-            ) : (
-              <div className="space-y-2">
-                {contentBlocks.map((block, index) => (
-                  <ContentBlockView
-                    key={
-                      'id' in block ? (block as { id: string }).id : `block-${block.type}-${index}`
-                    }
-                    block={block}
-                    isUser={isUser}
-                    isStreaming={isStreaming}
-                  />
-                ))}
-              </div>
-            )}
+        <div className="flex flex-col items-end gap-1.5">
+          {isCancelled && (
+            <div className="inline-flex items-center gap-1.5 rounded-full bg-surface-muted px-2.5 py-1 text-[11px] font-medium text-text-muted">
+              <Ban className="w-3 h-3 shrink-0" aria-hidden />
+              <span>{t('messageCard.cancelledNotSent')}</span>
+            </div>
+          )}
+          <div className="flex items-start gap-2 justify-end group">
+            <div
+              className={`message-user px-4 py-3 rounded-[1.65rem] max-w-[80%] min-w-0 break-words ${
+                isCancelled ? 'opacity-55' : ''
+              }`}
+              aria-label={isCancelled ? t('messageCard.cancelledAria') : undefined}
+            >
+              {contentBlocks.length === 0 ? (
+                <span className="text-text-muted italic">{t('messageCard.emptyMessage')}</span>
+              ) : (
+                <div
+                  className={`space-y-2 ${isCancelled ? 'line-through decoration-text-muted/50' : ''}`}
+                >
+                  {contentBlocks.map((block, index) => (
+                    <ContentBlockView
+                      key={
+                        'id' in block
+                          ? (block as { id: string }).id
+                          : `block-${block.type}-${index}`
+                      }
+                      block={block}
+                      isUser={isUser}
+                      isStreaming={isStreaming}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+            <button
+              onClick={handleCopy}
+              className="mt-1 w-6 h-6 flex items-center justify-center rounded-md bg-surface-muted hover:bg-surface-active transition-all opacity-0 group-hover:opacity-100 flex-shrink-0"
+              title={t('messageCard.copyMessage')}
+            >
+              {copied ? (
+                <Check className="w-3 h-3 text-success" />
+              ) : (
+                <Copy className="w-3 h-3 text-text-muted" />
+              )}
+            </button>
           </div>
-          <button
-            onClick={handleCopy}
-            className="mt-1 w-6 h-6 flex items-center justify-center rounded-md bg-surface-muted hover:bg-surface-active transition-all opacity-0 group-hover:opacity-100 flex-shrink-0"
-            title={t('messageCard.copyMessage')}
-          >
-            {copied ? (
-              <Check className="w-3 h-3 text-success" />
-            ) : (
-              <Copy className="w-3 h-3 text-text-muted" />
-            )}
-          </button>
         </div>
       ) : (
         // Assistant message — no bubble, direct content (Claude style)

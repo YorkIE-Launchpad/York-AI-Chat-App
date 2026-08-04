@@ -5,6 +5,7 @@ export function eventRequiresSessionManager(event: ClientEvent): boolean {
     case 'session.start':
     case 'session.continue':
     case 'session.stop':
+    case 'session.dequeue':
     case 'session.delete':
     case 'session.batchDelete':
     case 'session.setPinned':

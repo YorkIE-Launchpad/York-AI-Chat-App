@@ -593,6 +593,7 @@ export type ClientEvent =
       payload: { sessionId: string; prompt: string; content?: ContentBlock[] };
     }
   | { type: 'session.stop'; payload: { sessionId: string } }
+  | { type: 'session.dequeue'; payload: { sessionId: string; queueIndex: number } }
   | { type: 'session.delete'; payload: { sessionId: string } }
   | { type: 'session.batchDelete'; payload: { sessionIds: string[] } }
   | { type: 'session.setPinned'; payload: { sessionId: string; pinned: boolean } }

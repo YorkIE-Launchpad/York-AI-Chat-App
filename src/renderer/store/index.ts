@@ -196,6 +196,8 @@ interface AppState {
   clearPendingTurns: (sessionId: string) => void;
   clearQueuedMessages: (sessionId: string) => void;
   cancelQueuedMessages: (sessionId: string) => void;
+  /** Remove a single queued message from the transcript queue and pending turns. */
+  removeQueuedMessage: (sessionId: string, messageId: string) => number | null;
 
   addTraceStep: (sessionId: string, step: TraceStep) => void;
   updateTraceStep: (sessionId: string, stepId: string, updates: Partial<TraceStep>) => void;
@@ -286,7 +288,7 @@ const defaultSettings: Settings = {
   maxContextTokens: 180000,
 };
 
-export const useAppStore = create<AppState>((set) => ({
+export const useAppStore = create<AppState>((set, get) => ({
   // Initial state
   sessions: [],
   activeSessionId: null,
@@ -667,6 +669,30 @@ export const useAppStore = create<AppState>((set) => ({
         }),
       };
     }),
+
+  removeQueuedMessage: (sessionId, messageId) => {
+    const ss = getSession(get().sessionStates, sessionId);
+    const target = ss.messages.find(
+      (message) => message.id === messageId && message.localStatus === 'queued'
+    );
+    if (!target) return null;
+
+    const queueIndex = ss.messages
+      .filter((message) => message.localStatus === 'queued')
+      .findIndex((message) => message.id === messageId);
+    if (queueIndex < 0) return null;
+
+    set((state) => {
+      const current = getSession(state.sessionStates, sessionId);
+      return {
+        sessionStates: patchSession(state.sessionStates, sessionId, {
+          messages: current.messages.filter((message) => message.id !== messageId),
+          pendingTurns: current.pendingTurns.filter((id) => id !== messageId),
+        }),
+      };
+    });
+    return queueIndex;
+  },
 
   // Trace actions
   addTraceStep: (sessionId, step) =>

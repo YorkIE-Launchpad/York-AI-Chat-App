@@ -389,6 +389,42 @@ describe('SessionState unified store', () => {
       useAppStore.getState().cancelQueuedMessages('s1');
       expect(useAppStore.getState().sessionStates['s1'].messages[0].localStatus).toBe('cancelled');
     });
+
+    it('should remove a single queued message and return its queue index', () => {
+      useAppStore.getState().addSession(makeSession('s1'));
+      useAppStore.getState().setMessages('s1', [
+        {
+          id: 'msg1',
+          sessionId: 's1',
+          role: 'user',
+          content: [{ type: 'text', text: 'a' }],
+          timestamp: 1,
+          localStatus: 'queued',
+        },
+        {
+          id: 'msg2',
+          sessionId: 's1',
+          role: 'user',
+          content: [{ type: 'text', text: 'b' }],
+          timestamp: 2,
+          localStatus: 'queued',
+        },
+      ]);
+      // Seed pending turns that clearQueued style tests don't set
+      const ss = useAppStore.getState().sessionStates['s1'];
+      useAppStore.setState({
+        sessionStates: {
+          s1: { ...ss, pendingTurns: ['msg1', 'msg2'] },
+        },
+      });
+
+      const index = useAppStore.getState().removeQueuedMessage('s1', 'msg1');
+      expect(index).toBe(0);
+      const next = useAppStore.getState().sessionStates['s1'];
+      expect(next.messages.map((m) => m.id)).toEqual(['msg2']);
+      expect(next.pendingTurns).toEqual(['msg2']);
+      expect(useAppStore.getState().removeQueuedMessage('s1', 'missing')).toBeNull();
+    });
   });
 
   describe('trace steps', () => {

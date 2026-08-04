@@ -607,6 +607,7 @@ export function useIPC() {
   const activateNextTurn = useAppStore((s) => s.activateNextTurn);
   const clearPendingTurns = useAppStore((s) => s.clearPendingTurns);
   const cancelQueuedMessages = useAppStore((s) => s.cancelQueuedMessages);
+  const removeQueuedMessageFromStore = useAppStore((s) => s.removeQueuedMessage);
   const startExecutionClock = useAppStore((s) => s.startExecutionClock);
   const finishExecutionClock = useAppStore((s) => s.finishExecutionClock);
 
@@ -934,6 +935,19 @@ export function useIPC() {
     ]
   );
 
+  const removeQueuedMessage = useCallback(
+    (sessionId: string, messageId: string) => {
+      const queueIndex = removeQueuedMessageFromStore(sessionId, messageId);
+      if (queueIndex === null) return;
+      if (!isElectron) return;
+      send({
+        type: 'session.dequeue',
+        payload: { sessionId, queueIndex },
+      });
+    },
+    [isElectron, removeQueuedMessageFromStore, send]
+  );
+
   const deleteSession = useCallback(
     (sessionId: string) => {
       useAppStore.getState().removeSession(sessionId);
@@ -1129,6 +1143,7 @@ export function useIPC() {
     startSession,
     continueSession,
     stopSession,
+    removeQueuedMessage,
     deleteSession,
     batchDeleteSessions,
     setSessionPinned,

@@ -13,6 +13,7 @@ import {
 import { useAppStore } from '../store';
 import { useIPC } from '../hooks/useIPC';
 import { MessageCard } from './MessageCard';
+import { MessageQueueList } from './MessageQueueList';
 import { ModelSelector } from './ModelSelector';
 import { SlashCommandMenu } from './SlashCommandMenu';
 import { SubagentTracker } from './SubagentTracker';
@@ -87,7 +88,7 @@ export function ChatView() {
   const chatLoopStatus = useAppStore((s) =>
     activeSessionId ? (s.chatLoopBySessionId[activeSessionId] ?? null) : null
   );
-  const { continueSession, stopSession, exportSession, isElectron } = useIPC();
+  const { continueSession, stopSession, removeQueuedMessage, exportSession, isElectron } = useIPC();
   const [prompt, setPrompt] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const {
@@ -136,6 +137,11 @@ export function ChatView() {
 
   const hasActiveTurn = Boolean(activeTurn);
   const pendingCount = pendingTurns.length;
+  const queuedMessages = useMemo(
+    () => messages.filter((m) => m.localStatus === 'queued'),
+    [messages]
+  );
+  const queuedCount = queuedMessages.length;
   const hasTextResponseForTurn = hasAssistantTextResponseForTurn(
     messages,
     activeTurn?.userMessageId
@@ -150,16 +156,20 @@ export function ChatView() {
   const canStop = isSessionRunning || hasActiveTurn || pendingCount > 0;
 
   const displayedMessages = useMemo(() => {
-    if (!activeSessionId) return messages;
+    // Queued follow-ups live in the bottom queue list, not the transcript.
+    const transcriptMessages = messages.filter((message) => message.localStatus !== 'queued');
+    if (!activeSessionId) return transcriptMessages;
     // Show streaming message if we have partial text OR partial thinking
     const hasStreamingContent = partialMessage || partialThinking;
-    if (!hasStreamingContent || !activeTurn?.userMessageId) return messages;
-    const anchorIndex = messages.findIndex((message) => message.id === activeTurn.userMessageId);
-    if (anchorIndex === -1) return messages;
+    if (!hasStreamingContent || !activeTurn?.userMessageId) return transcriptMessages;
+    const anchorIndex = transcriptMessages.findIndex(
+      (message) => message.id === activeTurn.userMessageId
+    );
+    if (anchorIndex === -1) return transcriptMessages;
 
     let insertIndex = anchorIndex + 1;
-    while (insertIndex < messages.length) {
-      if (messages[insertIndex].role === 'user') break;
+    while (insertIndex < transcriptMessages.length) {
+      if (transcriptMessages[insertIndex].role === 'user') break;
       insertIndex += 1;
     }
 
@@ -179,7 +189,11 @@ export function ChatView() {
       timestamp: Date.now(),
     };
 
-    return [...messages.slice(0, insertIndex), streamingMessage, ...messages.slice(insertIndex)];
+    return [
+      ...transcriptMessages.slice(0, insertIndex),
+      streamingMessage,
+      ...transcriptMessages.slice(insertIndex),
+    ];
   }, [activeSessionId, activeTurn?.userMessageId, messages, partialMessage, partialThinking]);
 
   // Format execution time for display
@@ -1016,6 +1030,23 @@ export function ChatView() {
     }
   };
 
+  const handleRemoveQueuedMessage = useCallback(
+    (messageId: string) => {
+      if (!activeSessionId) return;
+      removeQueuedMessage(activeSessionId, messageId);
+    },
+    [activeSessionId, removeQueuedMessage]
+  );
+
+  const handleClearQueuedMessages = useCallback(() => {
+    if (!activeSessionId) return;
+    // Remove each so backend queue indices stay correct (front-to-back).
+    const ids = [...queuedMessages].map((m) => m.id);
+    for (const id of ids) {
+      removeQueuedMessage(activeSessionId, id);
+    }
+  }, [activeSessionId, queuedMessages, removeQueuedMessage]);
+
   const handleExportChat = async () => {
     if (!activeSessionId || !isElectron) return;
     if (activeSession?.incognito) {
@@ -1253,7 +1284,14 @@ export function ChatView() {
 
       {/* Input */}
       <div className="border-t border-border-muted bg-background/92 backdrop-blur-md">
-        <div className="max-w-[920px] mx-auto px-5 lg:px-8 py-5">
+        <div className="max-w-[920px] mx-auto px-5 lg:px-8 pt-4 pb-5 space-y-3">
+          {queuedCount > 0 && (
+            <MessageQueueList
+              messages={queuedMessages}
+              onRemove={handleRemoveQueuedMessage}
+              onClearAll={handleClearQueuedMessages}
+            />
+          )}
           <form
             onSubmit={handleSubmit}
             onDragOver={handleDragOver}

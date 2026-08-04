@@ -4782,6 +4782,9 @@ async function handleClientEvent(event: ClientEvent): Promise<unknown> {
     case 'session.stop':
       return sm.stopSession(event.payload.sessionId);
 
+    case 'session.dequeue':
+      return sm.removeQueuedPrompt(event.payload.sessionId, event.payload.queueIndex);
+
     case 'session.delete':
       chatLoopManager?.stop(event.payload.sessionId, 'session_deleted');
       return sm.deleteSession(event.payload.sessionId);

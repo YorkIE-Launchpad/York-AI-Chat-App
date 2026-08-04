@@ -14,6 +14,8 @@ function makeEvent(type: ClientEvent['type']): ClientEvent {
     case 'session.getTraceSteps':
     case 'session.getContextUsage':
       return { type, payload: { sessionId: 'session-1' } };
+    case 'session.dequeue':
+      return { type, payload: { sessionId: 'session-1', queueIndex: 0 } };
     case 'session.batchDelete':
       return { type, payload: { sessionIds: ['session-1'] } };
     case 'session.setPinned':
@@ -49,6 +51,7 @@ describe('eventRequiresSessionManager', () => {
       'session.start',
       'session.continue',
       'session.stop',
+      'session.dequeue',
       'session.delete',
       'session.batchDelete',
       'session.setPinned',

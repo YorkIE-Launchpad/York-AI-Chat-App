@@ -1392,6 +1392,32 @@ export class SessionManager {
     this.updateSessionStatus(sessionId, 'idle');
   }
 
+  /**
+   * Remove a still-queued (not-yet-running) prompt by FIFO index.
+   * Index 0 is the next prompt that will run when the current turn finishes.
+   */
+  removeQueuedPrompt(sessionId: string, queueIndex: number): boolean {
+    const queue = this.promptQueues.get(sessionId);
+    if (!queue || queueIndex < 0 || queueIndex >= queue.length) {
+      log('[SessionManager] removeQueuedPrompt: index out of range', {
+        sessionId,
+        queueIndex,
+        length: queue?.length ?? 0,
+      });
+      return false;
+    }
+    queue.splice(queueIndex, 1);
+    if (queue.length === 0) {
+      this.promptQueues.delete(sessionId);
+    }
+    log('[SessionManager] Removed queued prompt:', {
+      sessionId,
+      queueIndex,
+      remaining: queue.length,
+    });
+    return true;
+  }
+
   /** Resolve a pending AskUserQuestion from the renderer / remote channel. */
   handleQuestionResponse(questionId: string, answer: string): boolean {
     if (!this.askUserQuestionExtension) {
