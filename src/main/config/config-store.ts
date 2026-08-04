@@ -306,7 +306,7 @@ const defaultProfiles: Record<ProviderProfileKey, ProviderProfile> = {
   openai: {
     apiKey: '',
     baseUrl: 'https://api.openai.com/v1',
-    model: 'gpt-5.6-sol',
+    model: 'gpt-5.4',
   },
   ollama: {
     apiKey: '',
@@ -326,7 +326,7 @@ const defaultProfiles: Record<ProviderProfileKey, ProviderProfile> = {
   'custom:openai': {
     apiKey: '',
     baseUrl: 'https://api.openai.com/v1',
-    model: 'gpt-5.6-sol',
+    model: 'gpt-5.4',
   },
   'custom:gemini': {
     apiKey: '',
