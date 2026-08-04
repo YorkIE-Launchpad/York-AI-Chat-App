@@ -134,8 +134,10 @@ describe('CoworkAgentRunner York IE SDK integration', () => {
   it('chat-first behavioral rules are present', () => {
     expect(agentRunnerContent).toContain('CHAT FIRST');
     expect(agentRunnerContent).toContain(
-      'Do NOT create, write, or edit files unless the user explicitly asks'
+      'Do NOT create, write, or edit local files unless the user explicitly asks'
     );
+    expect(agentRunnerContent).toContain('CHAT FIRST does NOT block MCP tool calls');
+    expect(agentRunnerContent).toContain('LAUNCHPAD DELIVERY');
     expect(agentRunnerContent).toContain('START DOING IT');
   });
 });

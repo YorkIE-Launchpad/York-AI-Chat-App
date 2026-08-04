@@ -16,6 +16,12 @@ describe('isActionableUserPrompt', () => {
     expect(isActionableUserPrompt('update the calendar event')).toBe(true);
   });
 
+  it('detects implement / preview / delivery verbs', () => {
+    expect(isActionableUserPrompt('Implement NFL games with FC4 format on preview')).toBe(true);
+    expect(isActionableUserPrompt('implement the feature on the release')).toBe(true);
+    expect(isActionableUserPrompt('seed the empty release')).toBe(true);
+  });
+
   it('does not flag pure Q&A', () => {
     expect(isActionableUserPrompt('what slack tools do you have?')).toBe(false);
     expect(isActionableUserPrompt('how does leave policy work?')).toBe(false);
@@ -122,6 +128,39 @@ describe('detectIncompleteTurn', () => {
     });
     expect(decision.reason).toBe('search_without_call');
   });
+
+  it('flags LaunchPad implement/preview chat-only refuse with no tools', () => {
+    const decision = detectIncompleteTurn({
+      userPrompt:
+        'Implement NFL games with FC4 format on preview. Show all the team logos on the card',
+      toolsInvoked: [],
+      finalAssistant: {
+        hasText: true,
+        hasThinking: false,
+        hasToolUse: false,
+      },
+    });
+    expect(decision).toEqual({ incomplete: true, reason: 'actionable_without_tools' });
+  });
+
+  it('does not flag LaunchPad ask when tools already ran', () => {
+    const decision = detectIncompleteTurn({
+      userPrompt: 'Implement NFL games with FC4 format on preview',
+      toolsInvoked: ['mcp_call_tool'],
+      finalAssistant: { hasText: true, hasThinking: false, hasToolUse: false },
+    });
+    expect(decision.incomplete).toBe(false);
+  });
+
+  it('does not flag non-LaunchPad chat answers without tools', () => {
+    const decision = detectIncompleteTurn({
+      userPrompt: 'send a slack message to jay',
+      toolsInvoked: [],
+      finalAssistant: { hasText: true, hasThinking: false, hasToolUse: false },
+    });
+    // Text-only without tools is not auto-steered for general actions (only LaunchPad).
+    expect(decision.incomplete).toBe(false);
+  });
 });
 
 describe('buildIncompleteTurnSteerMessage', () => {
@@ -134,6 +173,13 @@ describe('buildIncompleteTurnSteerMessage', () => {
   it('mentions execute for thinking_only_actionable', () => {
     const text = buildIncompleteTurnSteerMessage('thinking_only_actionable');
     expect(text.toLowerCase()).toContain('execute');
+  });
+
+  it('steers LaunchPad MCP for actionable_without_tools', () => {
+    const text = buildIncompleteTurnSteerMessage('actionable_without_tools');
+    expect(text.toLowerCase()).toContain('launchpad');
+    expect(text).toContain('rnd-launchpad-mcp-sdlc');
+    expect(text.toLowerCase()).toContain('implementation workspace');
   });
 });
 

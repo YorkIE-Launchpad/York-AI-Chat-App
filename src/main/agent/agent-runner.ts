@@ -55,6 +55,7 @@ import { extractArtifactsFromText, buildArtifactTraceSteps } from '../utils/arti
 import { getDefaultShell } from '../utils/shell-resolver';
 import { PluginRuntimeService } from '../skills/plugin-runtime-service';
 import type { SkillsAdapter } from '../skills/skills-adapter';
+import { expandLaunchPadSkillIntent } from '../skills/skill-intent-expand';
 import { discoverSkillsFromPaths, expandSlashSkillPrompt } from '../skills/slash-skill-expand';
 import { AgentRuntimeExtensionManager } from '../extensions/agent-runtime-extension-manager';
 import { configStore } from '../config/config-store';
@@ -2243,7 +2244,8 @@ ${hints.join('\n')}
 
       // Expand /skill-name or /skill:name on the raw user prompt BEFORE history /
       // promptPrefix are prepended — pi only expands when the full string starts
-      // with `/skill:`.
+      // with `/skill:`. Also auto-inject LaunchPad skill on NL delivery intent so
+      // weaker models cannot skip loading the playbook.
       let expandedUserPrompt = prompt;
       try {
         const expandableSkills = discoverSkillsFromPaths(skillPaths);
@@ -2251,9 +2253,17 @@ ${hints.join('\n')}
         if (expansion.expanded) {
           expandedUserPrompt = expansion.text;
           log(`[CoworkAgentRunner] Expanded slash skill /${expansion.skillName} before preamble`);
+        } else {
+          const launchpadExpansion = expandLaunchPadSkillIntent(prompt, expandableSkills);
+          if (launchpadExpansion.expanded) {
+            expandedUserPrompt = launchpadExpansion.text;
+            log(
+              `[CoworkAgentRunner] Auto-injected LaunchPad skill /${launchpadExpansion.skillName} for delivery intent`
+            );
+          }
         }
       } catch (error) {
-        logWarn('[CoworkAgentRunner] Failed to expand slash skill prompt:', error);
+        logWarn('[CoworkAgentRunner] Failed to expand skill prompt:', error);
       }
 
       let contextualPrompt = expandedUserPrompt;
@@ -2486,15 +2496,17 @@ ${hints.join('\n')}
         useSandboxIsolation && sandboxPath
           ? `<workspace_info>
 Your current workspace is located at: ${VIRTUAL_WORKSPACE_PATH}
-This is an isolated sandbox environment. Use ${VIRTUAL_WORKSPACE_PATH} as the root path for file operations.
+This is an isolated sandbox environment. Use ${VIRTUAL_WORKSPACE_PATH} as the root path for local file operations.
 Prefer relative paths under this workspace (e.g. outputs/my-file.md). Do not invent other absolute roots outside ${VIRTUAL_WORKSPACE_PATH}.
 Do not write to /mnt/user-data or other absolute mount paths — save generated documents under this workspace (e.g. outputs/).
+This folder is for local files only. LaunchPad implement/preview and other remote connector work use MCP tools — not this folder — and do not require a separate "implementation workspace".
 </workspace_info>`
           : workingDir
             ? `<workspace_info>
 Your current workspace is: ${workingDir}
-Use this folder (or relative paths under it) for all file reads and writes. Prefer relative paths like outputs/my-file.md.
+Use this folder (or relative paths under it) for local file reads and writes. Prefer relative paths like outputs/my-file.md.
 Do NOT use /workspace, /mnt/user-data, /mnt/workspace, or any other absolute virtual roots — they are not the workspace. Do not invent absolute directories outside this folder.
+This folder is for local files only. LaunchPad implement/preview and other remote connector work use MCP tools — not this folder — and do not require a separate "implementation workspace".
 </workspace_info>`
             : '';
 
@@ -2514,7 +2526,7 @@ Do NOT use /workspace, /mnt/user-data, /mnt/workspace, or any other absolute vir
         session.division === 'hub' || session.division === 'project' ? session.division : 'general';
       const workspaceScopeRule =
         divisionKind === 'hub' || divisionKind === 'project'
-          ? '\n12. Workspace scope: if the request is personal, general, or outside this workspace, refuse and tell the user to switch workspace in the sidebar. Do not execute off-scope tools.'
+          ? '\n13. Workspace scope: if the request is personal, general, or outside this workspace, refuse and tell the user to switch workspace in the sidebar. Do not execute off-scope tools.'
           : '';
 
       const profileInstructionsPrompt = buildProfileInstructionsBlock(runtimeConfig);
@@ -2523,7 +2535,7 @@ Do NOT use /workspace, /mnt/user-data, /mnt/workspace, or any other absolute vir
         'You are a York IE VECOS assistant. Be concise, accurate, and tool-capable.',
         buildDivisionSystemPrompt(session),
         `CRITICAL BEHAVIORAL RULES:
-1. CHAT FIRST: By default, respond to the user in plain text within the conversation. Do NOT create, write, or edit files unless the user explicitly asks you to (e.g., "create a file", "write this to...", "edit the code", "save as...", mentions a specific file path, or describes code changes they want applied). For questions, summaries, explanations, analysis, and general conversation — always reply directly in chat text.
+1. CHAT FIRST: By default, respond to the user in plain text within the conversation. Do NOT create, write, or edit local files unless the user explicitly asks you to (e.g., "create a file", "write this to...", "edit the code", "save as...", mentions a specific file path, or describes code changes they want applied locally). For questions, summaries, explanations, analysis, and general conversation — always reply directly in chat text. CHAT FIRST does NOT block MCP tool calls (Hub, LaunchPad, Slack, Gmail, Calendar, etc.). When the user asks to implement, build, fix, or preview via LaunchPad, use LaunchPad MCP tools immediately.
 2. NEVER ask clarification questions in plain text. When a request is actionable, proceed immediately with reasonable assumptions. If you truly cannot proceed without user input, you MUST use the AskUserQuestion tool — never write questions as regular assistant text.
 3. For relative time windows like "within two days" in browsing or research tasks, assume the most recent two relevant publication days unless the user explicitly defines another date range.
 4. For bracketed placeholders like [Agent], [Topic], etc., treat the word inside brackets as the literal search keyword unless the user says otherwise.
@@ -2533,7 +2545,8 @@ Do NOT use /workspace, /mnt/user-data, /mnt/workspace, or any other absolute vir
 8. Google Calendar create/update/delete: call the tool when available (approval UI may prompt). Do not refuse and hand the user a copy-paste invite instead.
 9. York company/work asks (meetings, agendas/prep, people, leave, client or project status, delivery, promises/follow-ups): load the york-os skill and use connected connectors as it directs. Do not answer from a single connector when the ask implies prep, brief, status, or enrich.
 10. Multi-source company asks: form a short tool-call plan (phases + cross-tool join keys such as emails, clientId, projectId, eventId), then execute; chain ids/emails from one tool into the next; never re-ask the user for values tools already returned. In mcp_search_tools meta mode, search narrowly by connector/keyword and call mcp_call_tool immediately after discovery.
-11. HTML-FIRST CREATIONS: When the user asks to create a presentation, deck, one-pager, report page, dashboard mock, landing page, interactive handout, or similar visual deliverable — and they have NOT explicitly requested an Office/PDF format (pptx, docx, xlsx, pdf, PowerPoint, Word, Excel) — write a self-contained HTML file under outputs/ (e.g. outputs/client-update.html). Load the html-artifact skill. After writing, emit a compact \`\`\`artifact block with JSON {"path":"outputs/...html","name":"...","type":"html"} so the in-app preview can open. Do not default to pptx/docx/xlsx/pdf skills unless the user named those formats.${workspaceScopeRule}`,
+11. HTML-FIRST CREATIONS: When the user asks to create a presentation, deck, one-pager, report page, dashboard mock, landing page, interactive handout, or similar visual deliverable — and they have NOT explicitly requested an Office/PDF format (pptx, docx, xlsx, pdf, PowerPoint, Word, Excel) — write a self-contained HTML file under outputs/ (e.g. outputs/client-update.html). Load the html-artifact skill. After writing, emit a compact \`\`\`artifact block with JSON {"path":"outputs/...html","name":"...","type":"html"} so the in-app preview can open. Do not default to pptx/docx/xlsx/pdf skills unless the user named those formats.
+12. LAUNCHPAD DELIVERY: On LaunchPad implement / preview / release / feature / bug / QA asks, follow the rnd-launchpad-mcp-sdlc skill and use LaunchPad MCP tools. Default implement target is platform (remote frontend/preview). Never claim a local "implementation workspace" is missing or unavailable — LaunchPad code and preview apply via MCP on platform, not VECOS local files. Do not stop after a plan; call tools (mcp_call_tool immediately after mcp_search_tools in meta mode).${workspaceScopeRule}`,
         profileInstructionsPrompt,
         configSummaryPrompt,
         workspaceInfoPrompt,

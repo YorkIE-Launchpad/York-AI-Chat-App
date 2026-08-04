@@ -7,13 +7,18 @@
  * and/or surface a clear failure message instead of silently going idle.
  */
 
+import { isLaunchPadDeliveryIntent } from '../skills/skill-intent-expand';
 import { MCP_CALL_TOOL_NAME, MCP_RUN_TOOL_NAME, MCP_SEARCH_TOOLS_NAME } from './mcp-tool-budget';
 
 /** Imperative / write-oriented cues that imply the user expects an action. */
 const ACTIONABLE_PROMPT_RE =
-  /\b(send|post|message|dm|email|mail|create|update|edit|write|delete|remove|schedule|book|invite|share|upload|download|reply|forward|assign|comment|transition|publish|deploy|run|execute|call|invoke|set|add|attach|move|rename|copy|paste|open|close|start|stop|cancel|approve|reject|submit|fill|click|navigate|screenshot|search\s+and\s+(send|post|create|update)|tell\s+\w+\s+that)\b/i;
+  /\b(send|post|message|dm|email|mail|create|update|edit|write|delete|remove|schedule|book|invite|share|upload|download|reply|forward|assign|comment|transition|publish|deploy|run|execute|call|invoke|set|add|attach|move|rename|copy|paste|open|close|start|stop|cancel|approve|reject|submit|fill|click|navigate|screenshot|implement|feature|preview|build|fix|qa|release|scope|seed|lock|search\s+and\s+(send|post|create|update)|tell\s+\w+\s+that)\b/i;
 
-export type IncompleteTurnReason = 'search_without_call' | 'thinking_only_actionable' | 'none';
+export type IncompleteTurnReason =
+  | 'search_without_call'
+  | 'thinking_only_actionable'
+  | 'actionable_without_tools'
+  | 'none';
 
 export interface TurnContentSummary {
   hasText: boolean;
@@ -43,6 +48,7 @@ const NOOP: IncompleteTurnDecision = { incomplete: false, reason: 'none' };
 export function isActionableUserPrompt(prompt: string): boolean {
   const trimmed = (prompt || '').trim();
   if (!trimmed) return false;
+  if (isLaunchPadDeliveryIntent(trimmed)) return true;
   return ACTIONABLE_PROMPT_RE.test(trimmed);
 }
 
@@ -104,6 +110,17 @@ export function detectIncompleteTurn(input: IncompleteTurnInput): IncompleteTurn
     return { incomplete: true, reason: 'thinking_only_actionable' };
   }
 
+  // LaunchPad-style delivery ask answered with chat-only refuse / plan and no tools.
+  // Typical failure on weaker models: invent "implementation workspace unavailable".
+  if (
+    isLaunchPadDeliveryIntent(input.userPrompt) &&
+    input.toolsInvoked.length === 0 &&
+    hasText &&
+    !hasToolUse
+  ) {
+    return { incomplete: true, reason: 'actionable_without_tools' };
+  }
+
   return NOOP;
 }
 
@@ -122,6 +139,15 @@ export function buildIncompleteTurnSteerMessage(reason: IncompleteTurnReason): s
       '[Incomplete turn · Continue] Your last response was thinking only and the user asked for an action.\n' +
       '**Execute the next tool call now** (for MCP: mcp_call_tool with the exact name/args). ' +
       'Do not end the turn with only a plan.'
+    );
+  }
+  if (reason === 'actionable_without_tools') {
+    return (
+      '[Incomplete turn · Continue] The user asked for LaunchPad delivery (implement/preview/release) ' +
+      'but you ended with chat-only text and no tools.\n' +
+      '**Immediately use LaunchPad MCP tools** (via mcp_call_tool in meta mode, or direct tools when flat). ' +
+      'Follow the rnd-launchpad-mcp-sdlc skill: default implement target is platform; use start_scope_implement / start_preview as appropriate. ' +
+      'Do **not** refuse because a local implementation workspace is missing — that work runs on platform via MCP, not local files.'
     );
   }
   return (
