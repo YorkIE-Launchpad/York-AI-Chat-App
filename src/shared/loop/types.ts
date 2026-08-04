@@ -85,8 +85,13 @@ export const GOAL_STATUS_IN_PROGRESS = 'GOAL_STATUS: in_progress';
 
 export function buildGoalTickPrompt(goal: string): string {
   return [
-    'Continue working toward this goal:',
+    'Continue working toward this goal until it is fully done (use the goal-runner skill when available):',
     goal,
+    '',
+    'On this tick:',
+    '1. Auto-detect (or keep) the goal type — e.g. fix, tests-ci, implement, refactor, research, ops-status, content-docs, verify, or multi.',
+    '2. Take the highest-leverage next step for that type using tools as needed; prefer concrete progress over plans.',
+    '3. Only report complete when success criteria are met with evidence (re-run failed checks when relevant).',
     '',
     'When the goal is fully achieved, end your reply with a line containing exactly:',
     GOAL_STATUS_COMPLETE,

@@ -107,10 +107,12 @@ describe('isLoopSlashInput', () => {
 });
 
 describe('goal status helpers', () => {
-  it('builds tick prompt with markers', () => {
+  it('builds tick prompt with markers and type guidance', () => {
     const prompt = buildGoalTickPrompt('ship the feature');
     expect(prompt).toContain('ship the feature');
     expect(prompt).toContain('GOAL_STATUS: complete');
+    expect(prompt).toContain('goal-runner');
+    expect(prompt).toContain('Auto-detect');
   });
 
   it('detects complete marker', () => {
