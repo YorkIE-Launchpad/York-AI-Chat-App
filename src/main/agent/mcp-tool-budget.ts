@@ -27,6 +27,7 @@ import {
   MCP_WRITE_DISABLED_MESSAGE,
   isMcpWriteAccessDenied,
 } from '../config/mcp-write-access-store';
+import type { OnLaunchPadProgressRecord } from './launchpad-turn-progress';
 export const OPENAI_MAX_TOOLS = 128;
 export const MCP_SEARCH_TOOLS_NAME = 'mcp_search_tools';
 export const MCP_CALL_TOOL_NAME = 'mcp_call_tool';
@@ -185,7 +186,8 @@ export function buildMcpMetaTools(
   allowedToolNames?: ReadonlySet<string> | null,
   division?: Partial<SessionDivisionFields> | null,
   onProjectScopeViolation?: OnProjectScopeViolation | null,
-  sessionId?: string | null
+  sessionId?: string | null,
+  onLaunchPadProgress?: OnLaunchPadProgressRecord | null
 ): ToolDefinition[] {
   const searchTool: ToolDefinition<TSchema, unknown> = {
     name: MCP_SEARCH_TOOLS_NAME,
@@ -303,6 +305,12 @@ export function buildMcpMetaTools(
         const prepared = prepareProjectScopedMcpArgs(toolName, leanArgs, division);
         if (prepared.kind === 'block') {
           emitProjectScopeBlock(onProjectScopeViolation, prepared, toolName, division, sessionId);
+          onLaunchPadProgress?.({
+            toolName,
+            args: leanArgs,
+            resultText: prepared.message,
+            isError: true,
+          });
           return {
             content: [{ type: 'text' as const, text: prepared.message }],
             details: undefined,
@@ -317,6 +325,12 @@ export function buildMcpMetaTools(
               applyProjectScopedMcpResultFilter(toolName, normalizedResult.text, division)
             )
           : normalizedResult.text;
+        onLaunchPadProgress?.({
+          toolName,
+          args: prepared.args,
+          resultText: text,
+          isError: false,
+        });
         return {
           content: [{ type: 'text' as const, text }],
           details:
@@ -326,6 +340,12 @@ export function buildMcpMetaTools(
         };
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
+        onLaunchPadProgress?.({
+          toolName,
+          args: toolArgs && typeof toolArgs === 'object' ? toolArgs : {},
+          resultText: `Error calling ${toolName}: ${message}`,
+          isError: true,
+        });
         return {
           content: [{ type: 'text' as const, text: `Error calling ${toolName}: ${message}` }],
           details: undefined,
@@ -360,6 +380,8 @@ export function selectCustomToolsForModel(input: {
   /** Fired when a Hub project tool is blocked for out-of-scope project access. */
   onProjectScopeViolation?: OnProjectScopeViolation | null;
   sessionId?: string | null;
+  /** Records LaunchPad start/poll MCP calls for incomplete-turn wait/continue. */
+  onLaunchPadProgress?: OnLaunchPadProgressRecord | null;
 }): SelectCustomToolsResult {
   const {
     api,
@@ -373,6 +395,7 @@ export function selectCustomToolsForModel(input: {
     division,
     onProjectScopeViolation,
     sessionId,
+    onLaunchPadProgress,
   } = input;
   const mcpNames = mcpTools.map((t) => t.name);
   const totalIfFlat = builtInToolCount + mcpTools.length + extensionTools.length;
@@ -399,7 +422,8 @@ export function selectCustomToolsForModel(input: {
       allowSet,
       division,
       onProjectScopeViolation,
-      sessionId
+      sessionId,
+      onLaunchPadProgress
     );
   } else {
     metaTools = parentMetaTools;

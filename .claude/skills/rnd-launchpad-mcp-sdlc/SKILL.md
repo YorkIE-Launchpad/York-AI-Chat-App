@@ -30,6 +30,18 @@ Others stay **draft** (or locked/skip). Do **not** call raw REST unless MCP is u
 
 If active has **zero** revisions → seed before Build/Validate (see loop step 2).
 
+## Preview surface = platform (critical)
+
+When the user says **on preview**, **LaunchPad preview**, **through launchpad**, or asks to show UI/cards/logo on preview:
+
+| Do                                                    | Don't                                              |
+| ----------------------------------------------------- | -------------------------------------------------- |
+| `start_scope_implement` with **`target: "platform"`** | `target: "development"`                            |
+| Then poll implement to terminal → **`start_preview`** | Backend Code chat                                  |
+| Keep polling status tools until terminal              | `backend_code_chat_send_message` / dev-repo agents |
+
+Use **`development`** / Backend Code **only** when the user explicitly names the development repo or Backend Code tab.
+
 ## Release loop (primary operating model)
 
 ```
@@ -43,13 +55,14 @@ If active has **zero** revisions → seed before Build/Validate (see loop step 2
 7. Goto 2 on the NEW active id — never implement/seed on the locked id
 ```
 
-| Rule             | Detail                                                                                                                                 |
-| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| One active       | Keep one `active`; leave others `draft` until lock                                                                                     |
-| Empty active     | Always `seed_release_from_prior` with `mode: "baseline_copy"` (last tag) unless user wants `mode: "agent"` + `promptText`              |
-| Implement target | Default **`platform`** (LaunchPad frontend/preview). Use **`development`** only when user asks for the linked development repo         |
-| Lock wait        | Platform: poll `get_release_lock_status` (~30 min). Development implement: **`skipLockAgentOperations: true`** — no backend agent poll |
-| Next cycle       | After lock settles, seed the **new** active before more work                                                                           |
+| Rule             | Detail                                                                                                                                              |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| One active       | Keep one `active`; leave others `draft` until lock                                                                                                  |
+| Empty active     | Always `seed_release_from_prior` with `mode: "baseline_copy"` (last tag) unless user wants `mode: "agent"` + `promptText`                           |
+| Implement target | Default **`platform`** (LaunchPad frontend/preview). Use **`development`** only when user asks for the linked development repo                      |
+| Wait after start | **Always poll** until terminal (`completed` / `failed` / `locked && !agentActive` / done≥total). Never stop after start; never ask the user to wait |
+| Next cycle       | After lock settles, seed the **new** active. After implement terminal for a preview ask → `start_preview` without asking                            |
+| Lock wait        | Platform: poll `get_release_lock_status` (~30 min). Development implement: **`skipLockAgentOperations: true`** — no backend agent poll              |
 
 Full model: [platform-model.md](references/platform-model.md). Sequences: [workflows.md](references/workflows.md).
 
@@ -88,8 +101,9 @@ Tools: [tool-map.md](references/tool-map.md).
 
 ### Backend code fixes (development repo)
 
-1. `backend_code_chat_get_session` → `backend_code_chat_send_message` with **`prompt`** + `mode: "agent"` (creates/resumes; later sends = follow-ups)
-2. Poll `backend_code_chat_get_session` — never `spawn_dev_agent` for Backend Code tab work
+1. Only when user explicitly asks for Backend Code / development repo
+2. `backend_code_chat_get_session` → `backend_code_chat_send_message` with **`prompt`** + `mode: "agent"` (creates/resumes; later sends = follow-ups)
+3. Poll `backend_code_chat_get_session` — never `spawn_dev_agent` for Backend Code tab work
 
 ### Ship (end of cycle)
 
@@ -102,7 +116,8 @@ Tools: [tool-map.md](references/tool-map.md).
 ## MCP golden rules
 
 - Destructive: `confirm: true`
-- Long-running: start → poll (never SSE). Scope implement can take **hours**; lock up to **~30 min**
+- Long-running: start → poll (never SSE). Scope implement can take **hours**; lock up to **~30 min**. **Do not end the turn mid-poll.**
+- Ask the user only for real forks (platform vs development when ambiguous **and** no preview cue; seed `agent` vs `baseline_copy` when unspecified). Otherwise auto-continue next SDLC step.
 - `create_release`: `startDate` + `releaseDate`
 - `start_scope_implement`: prefer **`execution: "sequential"`** (separate PR per story); default **`target: "platform"`**; all-in-one via **`batchMode`**: `sequential_agents_shared_pr` | `parallel_agents_separate_prs` | `single_agent_shared_pr`; always pass **`items[].sortOrder`**
 - Development implement → lock with **`skipLockAgentOperations: true`** (bypass backend agent)

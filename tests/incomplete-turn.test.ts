@@ -2,11 +2,15 @@ import { describe, expect, it } from 'vitest';
 
 import {
   INCOMPLETE_TURN_FAILURE_MESSAGE,
+  INCOMPLETE_TURN_WAIT_FAILURE_MESSAGE,
+  MULTI_STEER_INCOMPLETE_REASONS,
   buildIncompleteTurnSteerMessage,
   detectIncompleteTurn,
+  incompleteTurnFailureMessage,
   isActionableUserPrompt,
   summarizeContentBlocks,
 } from '../src/main/agent/incomplete-turn';
+import { LaunchPadTurnProgress } from '../src/main/agent/launchpad-turn-progress';
 
 describe('isActionableUserPrompt', () => {
   it('detects send / post / create style requests', () => {
@@ -143,13 +147,68 @@ describe('detectIncompleteTurn', () => {
     expect(decision).toEqual({ incomplete: true, reason: 'actionable_without_tools' });
   });
 
-  it('does not flag LaunchPad ask when tools already ran', () => {
+  it('does not flag LaunchPad ask when tools already ran and no LP progress gap', () => {
     const decision = detectIncompleteTurn({
       userPrompt: 'Implement NFL games with FC4 format on preview',
       toolsInvoked: ['mcp_call_tool'],
       finalAssistant: { hasText: true, hasThinking: false, hasToolUse: false },
     });
     expect(decision.incomplete).toBe(false);
+  });
+
+  it('flags wrong_implement_target from LaunchPad progress', () => {
+    const progress = new LaunchPadTurnProgress();
+    progress.record({
+      toolName: 'start_scope_implement',
+      args: { target: 'development' },
+      resultText: 'started',
+    });
+    const decision = detectIncompleteTurn({
+      userPrompt: 'Implement NFL games with FC4 format on preview',
+      toolsInvoked: ['mcp_call_tool'],
+      finalAssistant: { hasText: true, hasThinking: false, hasToolUse: false },
+      launchPadProgress: progress.snapshot('Implement NFL games with FC4 format on preview'),
+    });
+    expect(decision).toEqual({ incomplete: true, reason: 'wrong_implement_target' });
+  });
+
+  it('flags async_job_in_progress when start ran without terminal poll', () => {
+    const progress = new LaunchPadTurnProgress();
+    progress.record({
+      toolName: 'start_scope_implement',
+      args: { target: 'platform' },
+      resultText: 'run started',
+    });
+    const prompt = 'Implement NFL games with FC4 format on preview';
+    const decision = detectIncompleteTurn({
+      userPrompt: prompt,
+      toolsInvoked: ['mcp_call_tool'],
+      finalAssistant: { hasText: true, hasThinking: false, hasToolUse: false },
+      launchPadProgress: progress.snapshot(prompt),
+    });
+    expect(decision).toEqual({ incomplete: true, reason: 'async_job_in_progress' });
+  });
+
+  it('flags sdlc_next_step for missing start_preview after implement', () => {
+    const progress = new LaunchPadTurnProgress();
+    progress.record({
+      toolName: 'start_scope_implement',
+      args: { target: 'platform' },
+      resultText: 'started',
+    });
+    progress.record({
+      toolName: 'get_scope_implement_active',
+      args: {},
+      resultText: 'status: completed',
+    });
+    const prompt = 'Implement NFL games with FC4 format on preview';
+    const decision = detectIncompleteTurn({
+      userPrompt: prompt,
+      toolsInvoked: ['mcp_call_tool'],
+      finalAssistant: { hasText: true, hasThinking: false, hasToolUse: false },
+      launchPadProgress: progress.snapshot(prompt),
+    });
+    expect(decision).toEqual({ incomplete: true, reason: 'sdlc_next_step' });
   });
 
   it('does not flag non-LaunchPad chat answers without tools', () => {
@@ -181,10 +240,51 @@ describe('buildIncompleteTurnSteerMessage', () => {
     expect(text).toContain('rnd-launchpad-mcp-sdlc');
     expect(text.toLowerCase()).toContain('implementation workspace');
   });
+
+  it('steers platform target for wrong_implement_target', () => {
+    const text = buildIncompleteTurnSteerMessage('wrong_implement_target');
+    expect(text).toContain('platform');
+    expect(text.toLowerCase()).toContain('development');
+  });
+
+  it('steers poll for async_job_in_progress', () => {
+    const text = buildIncompleteTurnSteerMessage('async_job_in_progress', {
+      calls: [],
+      hasWrongImplementTarget: false,
+      asyncJobsInProgress: ['start_scope_implement'],
+      needsPreviewAfterImplement: false,
+      needsSeedAfterLock: false,
+      lastImplementTerminal: false,
+      lastLockReady: false,
+    });
+    expect(text).toContain('get_scope_implement_active');
+    expect(text.toLowerCase()).toContain('poll');
+  });
+
+  it('steers start_preview for sdlc_next_step', () => {
+    const text = buildIncompleteTurnSteerMessage('sdlc_next_step', {
+      calls: [],
+      hasWrongImplementTarget: false,
+      asyncJobsInProgress: [],
+      needsPreviewAfterImplement: true,
+      needsSeedAfterLock: false,
+      lastImplementTerminal: true,
+      lastLockReady: false,
+    });
+    expect(text).toContain('start_preview');
+  });
 });
 
 describe('INCOMPLETE_TURN_FAILURE_MESSAGE', () => {
   it('tells the user to continue', () => {
     expect(INCOMPLETE_TURN_FAILURE_MESSAGE.toLowerCase()).toContain('continue');
+  });
+
+  it('uses wait failure for async/job reasons', () => {
+    expect(incompleteTurnFailureMessage('async_job_in_progress')).toBe(
+      INCOMPLETE_TURN_WAIT_FAILURE_MESSAGE
+    );
+    expect(MULTI_STEER_INCOMPLETE_REASONS.has('async_job_in_progress')).toBe(true);
+    expect(MULTI_STEER_INCOMPLETE_REASONS.has('search_without_call')).toBe(false);
   });
 });

@@ -165,6 +165,28 @@ describe('LoopGuard layer 1 — hash-based group detection (streak semantics)', 
     expect(guard.recordAssistantMessage([]).action).toBe('none');
   });
 
+  it('ignores LaunchPad poll-only messages (no hash streak)', () => {
+    const guard = new LoopGuard();
+    const poll = [buildCall('get_preview_status', { releaseId: 1 })];
+    const actions = Array.from({ length: 12 }, () => guard.recordAssistantMessage(poll).action);
+    for (const action of actions) {
+      expect(action).toBe('none');
+    }
+  });
+
+  it('ignores meta mcp_call_tool poll messages', () => {
+    const guard = new LoopGuard();
+    const poll = [
+      buildCall('mcp_call_tool', {
+        tool_name: 'mcp__LP__get_scope_implement_active',
+        arguments: {},
+      }),
+    ];
+    for (let i = 0; i < 10; i++) {
+      expect(guard.recordAssistantMessage(poll).action).toBe('none');
+    }
+  });
+
   it('streak resets when a different hash arrives, allowing fresh warn/halt cycles', () => {
     const guard = new LoopGuard();
     const A = [buildCall('a', { x: 1 })];
@@ -237,6 +259,35 @@ describe('LoopGuard layer 2 — per-tool frequency detection', () => {
     expect(guard.recordToolInvocation('x').action).toBe('freq_warn');
     expect(guard.recordToolInvocation('x').action).toBe('freq_halt');
     expect(guard.recordToolInvocation('x').action).toBe('freq_abort');
+  });
+
+  it('does not frequency-count LaunchPad poll tools', () => {
+    const guard = new LoopGuard({
+      toolFrequencyWarnThreshold: 2,
+      toolFrequencyHaltThreshold: 3,
+      toolFrequencyAbortThreshold: 4,
+    });
+    for (let i = 0; i < 20; i++) {
+      expect(guard.recordToolInvocation('get_preview_status').action).toBe('none');
+      expect(
+        guard.recordToolInvocation('mcp_call_tool', {
+          nestedToolName: 'get_scope_implement_active',
+        }).action
+      ).toBe('none');
+    }
+  });
+
+  it('skipFrequency short-circuits counting', () => {
+    const guard = new LoopGuard({
+      toolFrequencyWarnThreshold: 2,
+      toolFrequencyHaltThreshold: 3,
+      toolFrequencyAbortThreshold: 4,
+    });
+    for (let i = 0; i < 10; i++) {
+      expect(guard.recordToolInvocation('mcp_call_tool', { skipFrequency: true }).action).toBe(
+        'none'
+      );
+    }
   });
 });
 

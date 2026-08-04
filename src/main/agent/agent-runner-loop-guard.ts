@@ -36,6 +36,10 @@
  */
 
 import { createHash } from 'node:crypto';
+import {
+  isLaunchPadPollToolForLoopGuard,
+  normalizeLaunchPadToolBaseName,
+} from './launchpad-turn-progress';
 
 /** Configuration knobs. All fields are required once normalised. */
 export interface LoopGuardConfig {
@@ -195,6 +199,20 @@ export function messageCallsHash(
   return md5(keys);
 }
 
+function nestedMcpToolName(input: Record<string, unknown> | undefined): string | null {
+  if (!input) return null;
+  const name = input.tool_name ?? input.toolName ?? input.name;
+  return typeof name === 'string' && name.trim() ? name.trim() : null;
+}
+
+/** True when every tool call is a LaunchPad status poll (safe to repeat for hours). */
+export function isLaunchPadPollOnlyMessage(toolCalls: ToolCallDescriptor[]): boolean {
+  if (!toolCalls || toolCalls.length === 0) return false;
+  return toolCalls.every((tc) =>
+    isLaunchPadPollToolForLoopGuard(tc.name, nestedMcpToolName(tc.input))
+  );
+}
+
 // ─── LoopGuard class ────────────────────────────────────────────────────────
 
 export class LoopGuard {
@@ -223,9 +241,12 @@ export class LoopGuard {
    *
    * Decision is based on the *current consecutive streak* of identical hashes,
    * not the cumulative count over the window. Patterns like A/B/A/B never fire.
+   *
+   * LaunchPad-only poll messages are ignored (status polling may run for hours).
    */
   recordAssistantMessage(toolCalls: ToolCallDescriptor[]): LoopGuardDecision {
     if (!toolCalls || toolCalls.length === 0) return NOOP_DECISION;
+    if (isLaunchPadPollOnlyMessage(toolCalls)) return NOOP_DECISION;
 
     const hash = messageCallsHash(toolCalls, this.config);
     this.pushHash(hash);
@@ -273,32 +294,64 @@ export class LoopGuard {
   /**
    * Record a single tool invocation start and decide whether the per-tool
    * frequency limit is tripped. Call once per `tool_execution_start`.
+   *
+   * Pass `nestedToolName` for meta tools (mcp_call_tool) so LaunchPad polls
+   * can be exempted. Host may also pass `skipFrequency: true`.
    */
-  recordToolInvocation(toolName: string): LoopGuardDecision {
+  recordToolInvocation(
+    toolName: string,
+    opts?: { nestedToolName?: string | null; skipFrequency?: boolean }
+  ): LoopGuardDecision {
+    if (opts?.skipFrequency) return NOOP_DECISION;
     const name = toolName || 'unknown';
-    const count = (this.toolFrequency.get(name) ?? 0) + 1;
-    this.toolFrequency.set(name, count);
+    if (isLaunchPadPollToolForLoopGuard(name, opts?.nestedToolName)) {
+      return NOOP_DECISION;
+    }
 
-    if (count >= this.config.toolFrequencyAbortThreshold && !this.toolAbortIssued.has(name)) {
-      this.toolAbortIssued.add(name);
-      return this.mkDecision('freq_abort', `tool "${name}" invoked ${count} times in this turn`, {
-        count,
-        toolName: name,
-      });
+    // Frequency key: nested LaunchPad name when present so meta polls don't count as mcp_call_tool
+    const frequencyKey =
+      opts?.nestedToolName && normalizeLaunchPadToolBaseName(opts.nestedToolName)
+        ? `${name}->${normalizeLaunchPadToolBaseName(opts.nestedToolName)}`
+        : name;
+
+    const count = (this.toolFrequency.get(frequencyKey) ?? 0) + 1;
+    this.toolFrequency.set(frequencyKey, count);
+
+    if (
+      count >= this.config.toolFrequencyAbortThreshold &&
+      !this.toolAbortIssued.has(frequencyKey)
+    ) {
+      this.toolAbortIssued.add(frequencyKey);
+      return this.mkDecision(
+        'freq_abort',
+        `tool "${frequencyKey}" invoked ${count} times in this turn`,
+        {
+          count,
+          toolName: frequencyKey,
+        }
+      );
     }
-    if (count >= this.config.toolFrequencyHaltThreshold && !this.toolHaltIssued.has(name)) {
-      this.toolHaltIssued.add(name);
-      return this.mkDecision('freq_halt', `tool "${name}" invoked ${count} times in this turn`, {
-        count,
-        toolName: name,
-      });
+    if (count >= this.config.toolFrequencyHaltThreshold && !this.toolHaltIssued.has(frequencyKey)) {
+      this.toolHaltIssued.add(frequencyKey);
+      return this.mkDecision(
+        'freq_halt',
+        `tool "${frequencyKey}" invoked ${count} times in this turn`,
+        {
+          count,
+          toolName: frequencyKey,
+        }
+      );
     }
-    if (count >= this.config.toolFrequencyWarnThreshold && !this.toolWarnIssued.has(name)) {
-      this.toolWarnIssued.add(name);
-      return this.mkDecision('freq_warn', `tool "${name}" invoked ${count} times in this turn`, {
-        count,
-        toolName: name,
-      });
+    if (count >= this.config.toolFrequencyWarnThreshold && !this.toolWarnIssued.has(frequencyKey)) {
+      this.toolWarnIssued.add(frequencyKey);
+      return this.mkDecision(
+        'freq_warn',
+        `tool "${frequencyKey}" invoked ${count} times in this turn`,
+        {
+          count,
+          toolName: frequencyKey,
+        }
+      );
     }
     return NOOP_DECISION;
   }

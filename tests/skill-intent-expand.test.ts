@@ -42,6 +42,10 @@ describe('isLaunchPadDeliveryIntent', () => {
     expect(isLaunchPadDeliveryIntent('how does leave policy work?')).toBe(false);
     expect(isLaunchPadDeliveryIntent('send a slack message to jay')).toBe(false);
   });
+
+  it('treats implement on preview as delivery (not backend opt-in)', () => {
+    expect(isLaunchPadDeliveryIntent('Implement NFL games with FC4 format on preview')).toBe(true);
+  });
 });
 
 describe('expandLaunchPadSkillIntent', () => {

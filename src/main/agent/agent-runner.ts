@@ -142,12 +142,19 @@ import {
   type McpToolExposureMode,
 } from './mcp-tool-budget';
 import {
-  INCOMPLETE_TURN_FAILURE_MESSAGE,
+  MULTI_STEER_INCOMPLETE_REASONS,
+  INCOMPLETE_TURN_MULTI_STEER_MAX,
   buildIncompleteTurnSteerMessage,
   detectIncompleteTurn,
+  incompleteTurnFailureMessage,
   summarizeContentBlocks,
   type TurnContentSummary,
 } from './incomplete-turn';
+import {
+  LaunchPadTurnProgress,
+  isLaunchPadPollToolForLoopGuard,
+  type OnLaunchPadProgressRecord,
+} from './launchpad-turn-progress';
 import { fetchOllamaModelInfo } from '../config/ollama-api';
 import { createWindowsBashOperations } from './windows-bash-operations';
 import { createCompactionExtensionFactory } from './compaction-extension';
@@ -476,7 +483,8 @@ function buildMcpCustomTools(
   mcpManager: MCPManager,
   division?: Partial<SessionDivisionFields> | null,
   onProjectScopeViolation?: OnProjectScopeViolation | null,
-  sessionId?: string | null
+  sessionId?: string | null,
+  onLaunchPadProgress?: OnLaunchPadProgressRecord | null
 ): ToolDefinition[] {
   const mcpTools = mcpManager.getTools();
   return mcpTools.map((mcpTool) => {
@@ -503,6 +511,12 @@ function buildMcpCustomTools(
               division,
               sessionId
             );
+            onLaunchPadProgress?.({
+              toolName: mcpTool.name,
+              args: leanArgs,
+              resultText: prepared.message,
+              isError: true,
+            });
             return {
               content: [{ type: 'text' as const, text: prepared.message }],
               details: undefined,
@@ -517,6 +531,12 @@ function buildMcpCustomTools(
                 applyProjectScopedMcpResultFilter(mcpTool.name, normalizedResult.text, division)
               )
             : normalizedResult.text;
+          onLaunchPadProgress?.({
+            toolName: mcpTool.name,
+            args: prepared.args,
+            resultText: text,
+            isError: false,
+          });
           return {
             content: [{ type: 'text' as const, text }],
             details:
@@ -526,6 +546,12 @@ function buildMcpCustomTools(
           };
         } catch (err: unknown) {
           logError(`[CoworkAgentRunner] MCP tool ${mcpTool.name} failed:`, err);
+          onLaunchPadProgress?.({
+            toolName: mcpTool.name,
+            args: params as Record<string, unknown>,
+            resultText: err instanceof Error ? err.message : String(err),
+            isError: true,
+          });
           throw err instanceof Error ? err : new Error(String(err));
         }
       },
@@ -679,11 +705,28 @@ export class CoworkAgentRunner {
   private activeControllers: Map<string, AbortController> = new Map();
   private piSessions: Map<string, CachedPiSession> = new Map();
   private toolDisplayNameCache: Map<string, string> = new Map();
+  /** Per-session LaunchPad MCP progress for the active prompt turn (wait/continue). */
+  private launchPadProgressBySession: Map<string, LaunchPadTurnProgress> = new Map();
   private static readonly MAX_CACHED_SESSIONS = 50;
 
   // Per-instance caches — invalidated when the underlying config changes.
   private _mcpServersCache: { fingerprint: string; servers: Record<string, unknown> } | null = null;
   private _skillsSetupDone = false;
+
+  /**
+   * Start a fresh LaunchPad progress tracker for this session turn.
+   * Tool wrappers call the returned recorder; it always targets the current progress instance.
+   */
+  private beginLaunchPadProgress(sessionId: string): OnLaunchPadProgressRecord {
+    this.launchPadProgressBySession.set(sessionId, new LaunchPadTurnProgress());
+    return (record) => {
+      this.launchPadProgressBySession.get(sessionId)?.record(record);
+    };
+  }
+
+  private getLaunchPadProgressSnapshot(sessionId: string, userPrompt: string) {
+    return this.launchPadProgressBySession.get(sessionId)?.snapshot(userPrompt) ?? null;
+  }
 
   /**
    * Clear SDK session cache for a session
@@ -700,6 +743,7 @@ export class CoworkAgentRunner {
       this.piSessions.delete(sessionId);
       log('[CoworkAgentRunner] Disposed pi session for:', sessionId);
     }
+    this.launchPadProgressBySession.delete(sessionId);
   }
 
   clearAllSdkSessions(): void {
@@ -2189,9 +2233,17 @@ ${hints.join('\n')}
         division: session,
         sendToRenderer: this.sendToRenderer,
       });
+      // Fresh progress each prompt; tool execute closures look up by session id.
+      const onLaunchPadProgress = this.beginLaunchPadProgress(session.id);
       const mcpCustomTools = this.mcpManager
         ? filterMcpToolsForDivision(
-            buildMcpCustomTools(this.mcpManager, session, onProjectScopeViolation, session.id),
+            buildMcpCustomTools(
+              this.mcpManager,
+              session,
+              onProjectScopeViolation,
+              session.id,
+              onLaunchPadProgress
+            ),
             session
           )
         : [];
@@ -2208,6 +2260,7 @@ ${hints.join('\n')}
         division: session,
         onProjectScopeViolation,
         sessionId: session.id,
+        onLaunchPadProgress,
       });
       let customTools = toolSelection.customTools;
       let mcpToolMode: McpToolExposureMode = toolSelection.mode;
@@ -2546,7 +2599,7 @@ This folder is for local files only. LaunchPad implement/preview and other remot
 9. York company/work asks (meetings, agendas/prep, people, leave, client or project status, delivery, promises/follow-ups): load the york-os skill and use connected connectors as it directs. Do not answer from a single connector when the ask implies prep, brief, status, or enrich.
 10. Multi-source company asks: form a short tool-call plan (phases + cross-tool join keys such as emails, clientId, projectId, eventId), then execute; chain ids/emails from one tool into the next; never re-ask the user for values tools already returned. In mcp_search_tools meta mode, search narrowly by connector/keyword and call mcp_call_tool immediately after discovery.
 11. HTML-FIRST CREATIONS: When the user asks to create a presentation, deck, one-pager, report page, dashboard mock, landing page, interactive handout, or similar visual deliverable — and they have NOT explicitly requested an Office/PDF format (pptx, docx, xlsx, pdf, PowerPoint, Word, Excel) — write a self-contained HTML file under outputs/ (e.g. outputs/client-update.html). Load the html-artifact skill. After writing, emit a compact \`\`\`artifact block with JSON {"path":"outputs/...html","name":"...","type":"html"} so the in-app preview can open. Do not default to pptx/docx/xlsx/pdf skills unless the user named those formats.
-12. LAUNCHPAD DELIVERY: On LaunchPad implement / preview / release / feature / bug / QA asks, follow the rnd-launchpad-mcp-sdlc skill and use LaunchPad MCP tools. Default implement target is platform (remote frontend/preview). Never claim a local "implementation workspace" is missing or unavailable — LaunchPad code and preview apply via MCP on platform, not VECOS local files. Do not stop after a plan; call tools (mcp_call_tool immediately after mcp_search_tools in meta mode).${workspaceScopeRule}`,
+12. LAUNCHPAD DELIVERY: On LaunchPad implement / preview / release / feature / bug / QA asks, follow the rnd-launchpad-mcp-sdlc skill and use LaunchPad MCP tools. "On preview" / LaunchPad preview ⇒ start_scope_implement with target platform (never development or Backend Code unless the user explicitly names that surface). After any start tool, keep polling status tools until terminal — do not stop mid-job or ask the user to wait. On terminal implement for a preview ask, call start_preview next; after lock settles, seed the new active. Never claim a local "implementation workspace" is missing — platform work is MCP-remote. Call tools (mcp_call_tool immediately after mcp_search_tools in meta mode).${workspaceScopeRule}`,
         profileInstructionsPrompt,
         configSummaryPrompt,
         workspaceInfoPrompt,
@@ -2631,6 +2684,7 @@ ${
           division: session,
           onProjectScopeViolation,
           sessionId: session.id,
+          onLaunchPadProgress,
         });
         customTools = adjusted.customTools;
         mcpToolMode = adjusted.mode;
@@ -3298,8 +3352,20 @@ ${
                 toolsInvokedThisTurn.push(event.toolName);
               }
               // ── Loop guard layer 2: per-tool cumulative frequency ──
+              // LaunchPad status polls (incl. meta mcp_call_tool during LP delivery)
+              // may run for hours — do not frequency-abort them.
+              const toolNameForGuard =
+                typeof event.toolName === 'string' ? event.toolName : 'unknown';
+              const lpProgress = this.launchPadProgressBySession.get(session.id);
+              const hasLaunchPadActivity = (lpProgress?.getCalls().length ?? 0) > 0;
+              const skipLaunchPadPollFreq =
+                isLaunchPadPollToolForLoopGuard(toolNameForGuard) ||
+                (hasLaunchPadActivity &&
+                  toolNameForGuard.toLowerCase() === MCP_CALL_TOOL_NAME.toLowerCase());
               handleLoopGuardDecision(
-                loopGuard.recordToolInvocation(event.toolName),
+                loopGuard.recordToolInvocation(toolNameForGuard, {
+                  skipFrequency: skipLaunchPadPollFreq,
+                }),
                 'tool_execution_start'
               );
               break;
@@ -3616,9 +3682,10 @@ ${
           }
         }
 
-        // ── Incomplete-turn recovery: search-then-stop / thinking-only on actionable asks ──
-        // Models in meta MCP mode often end after mcp_search_tools without mcp_call_tool.
-        // Steer once, then surface a clear failure if still incomplete.
+        // ── Incomplete-turn recovery ──
+        // search-then-stop / thinking-only / LaunchPad chat-only refuse,
+        // wrong implement target, async job still running, next SDLC step.
+        // Wait/next-step reasons may multi-steer; discovery reasons steer once.
         const canAttemptIncompleteRecovery =
           !controller.signal.aborted &&
           !abortedByTimeout &&
@@ -3628,65 +3695,87 @@ ${
           !openRouterLimitRetry.pending;
 
         if (canAttemptIncompleteRecovery) {
-          const incomplete = detectIncompleteTurn({
-            userPrompt: prompt,
-            toolsInvoked: toolsInvokedThisTurn,
-            finalAssistant: finalAssistantSummary,
-          });
-          if (incomplete.incomplete) {
-            logWarn(
-              `[IncompleteTurn] Detected ${incomplete.reason}; steering once to finish the action`
-            );
-            const steerText = buildIncompleteTurnSteerMessage(incomplete.reason);
-            finalAssistantSummary = {
-              hasText: false,
-              hasThinking: false,
-              hasToolUse: false,
-            };
-            this.sendTraceUpdate(session.id, thinkingStepId, {
-              title: 'Continuing incomplete action...',
+          const evaluateIncomplete = () =>
+            detectIncompleteTurn({
+              userPrompt: prompt,
+              toolsInvoked: toolsInvokedThisTurn,
+              finalAssistant: finalAssistantSummary,
+              launchPadProgress: this.getLaunchPadProgressSnapshot(session.id, prompt),
             });
-            resetActivityTimeout();
-            try {
-              const continueResult = await piSession.prompt(steerText);
-              log(
-                '[IncompleteTurn] continuation prompt() returned:',
-                JSON.stringify(continueResult ?? 'void').substring(0, 500)
+
+          let incomplete = evaluateIncomplete();
+          if (incomplete.incomplete) {
+            const multiSteer = MULTI_STEER_INCOMPLETE_REASONS.has(incomplete.reason);
+            const maxSteers = multiSteer ? INCOMPLETE_TURN_MULTI_STEER_MAX : 1;
+            let steers = 0;
+            while (incomplete.incomplete && steers < maxSteers) {
+              steers += 1;
+              logWarn(
+                `[IncompleteTurn] Detected ${incomplete.reason}; steer ${steers}/${maxSteers}`
               );
-            } catch (continueErr) {
-              if (continueErr instanceof Error && continueErr.name === 'AbortError') {
-                // Timeout / loop-guard / user abort — outer handlers use abort flags.
-              } else {
+              const lpSnap = this.getLaunchPadProgressSnapshot(session.id, prompt);
+              const steerText = buildIncompleteTurnSteerMessage(incomplete.reason, lpSnap);
+              finalAssistantSummary = {
+                hasText: false,
+                hasThinking: false,
+                hasToolUse: false,
+              };
+              this.sendTraceUpdate(session.id, thinkingStepId, {
+                title:
+                  incomplete.reason === 'async_job_in_progress'
+                    ? 'Waiting for LaunchPad job...'
+                    : incomplete.reason === 'sdlc_next_step'
+                      ? 'Continuing LaunchPad next step...'
+                      : 'Continuing incomplete action...',
+              });
+              resetActivityTimeout();
+              try {
+                const continueResult = await piSession.prompt(steerText);
+                log(
+                  '[IncompleteTurn] continuation prompt() returned:',
+                  JSON.stringify(continueResult ?? 'void').substring(0, 500)
+                );
+              } catch (continueErr) {
+                if (continueErr instanceof Error && continueErr.name === 'AbortError') {
+                  break;
+                }
                 throw continueErr;
               }
+
+              if (
+                controller.signal.aborted ||
+                abortedByTimeout ||
+                abortedByLoopGuard ||
+                abortedByStreamError ||
+                hasEmittedError
+              ) {
+                break;
+              }
+              incomplete = evaluateIncomplete();
+              if (!multiSteer) break;
             }
 
             if (
+              incomplete.incomplete &&
               !controller.signal.aborted &&
               !abortedByTimeout &&
               !abortedByLoopGuard &&
               !abortedByStreamError &&
               !hasEmittedError
             ) {
-              const stillIncomplete = detectIncompleteTurn({
-                userPrompt: prompt,
-                toolsInvoked: toolsInvokedThisTurn,
-                finalAssistant: finalAssistantSummary,
+              const failureText = incompleteTurnFailureMessage(incomplete.reason);
+              logWarn(
+                `[IncompleteTurn] Still incomplete after ${steers} steer(s) (${incomplete.reason}); surfacing failure`
+              );
+              this.sendMessage(session.id, {
+                id: uuidv4(),
+                sessionId: session.id,
+                role: 'assistant',
+                content: [{ type: 'text', text: failureText }],
+                timestamp: Date.now(),
               });
-              if (stillIncomplete.incomplete) {
-                logWarn(
-                  `[IncompleteTurn] Still incomplete after steer (${stillIncomplete.reason}); surfacing failure`
-                );
-                this.sendMessage(session.id, {
-                  id: uuidv4(),
-                  sessionId: session.id,
-                  role: 'assistant',
-                  content: [{ type: 'text', text: INCOMPLETE_TURN_FAILURE_MESSAGE }],
-                  timestamp: Date.now(),
-                });
-                hasEmittedError = true;
-                terminalErrorText = INCOMPLETE_TURN_FAILURE_MESSAGE;
-              }
+              hasEmittedError = true;
+              terminalErrorText = failureText;
             }
           }
         }
