@@ -963,10 +963,10 @@ function createWindow() {
       },
     });
 
-    // Send current working directory to renderer
+    // Send app default working directory to renderer
     sendToRenderer({
       type: 'workdir.changed',
-      payload: { path: currentWorkingDir || '' },
+      payload: { path: currentWorkingDir || '', isDefault: true },
     });
 
     // Start sandbox bootstrap after window is loaded
@@ -1043,20 +1043,27 @@ async function setWorkingDir(
     SandboxSync.clearSession(sessionId);
     const { LimaSync } = await import('./sandbox/lima-sync');
     LimaSync.clearSession(sessionId);
+
+    // Session UI gets path via session.update. Also refresh pending new-chat workdir
+    // so "New chat" within the same workspace inherits this folder — division switch
+    // resets pending path back to the app default so cross-project leakage does not stick.
+    sendToRenderer({
+      type: 'workdir.changed',
+      payload: { path: newDir },
+    });
+
+    log('[App] Session working directory updated:', sessionId, '->', newDir);
+    return { success: true, path: newDir };
   }
 
-  // Notify renderer of workdir change (for UI display)
-  // This updates what the user sees, and will be passed to startSession for new sessions
+  // No sessionId: pending path for WelcomeView / next new session only.
+  // The main-process global default (currentWorkingDir) is NEVER changed after init.
   sendToRenderer({
     type: 'workdir.changed',
     payload: { path: newDir },
   });
 
-  log(
-    '[App] Working directory for UI updated:',
-    newDir,
-    sessionId ? `(session: ${sessionId})` : '(pending new session)'
-  );
+  log('[App] Working directory for UI updated:', newDir, '(pending new session)');
 
   return { success: true, path: newDir };
 }

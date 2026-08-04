@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
+  buildDivisionActiveProjectContext,
   buildDivisionSystemPrompt,
   divisionMemoryKey,
   filterMcpToolsForDivision,
@@ -157,11 +158,74 @@ describe('workspace-division', () => {
     expect(projectPrompt).toContain('p1');
     expect(projectPrompt).toContain('OUT OF SCOPE (REFUSE)');
     expect(projectPrompt).toContain('switch to General');
+    expect(projectPrompt).toContain('DEFAULT SUBJECT');
+    expect(projectPrompt).toContain('Do not ask which project');
+
+    const dualPrompt = buildDivisionSystemPrompt({
+      division: 'project',
+      hubProjectId: 'p1',
+      hubProjectName: 'Acme',
+      launchpadProjectId: 42,
+      launchpadProjectName: 'Acme LP',
+    });
+    expect(dualPrompt).toContain('DEFAULT SUBJECT');
+    expect(dualPrompt).toContain('launchpad project id: 42');
+
+    const lpOnlyPrompt = buildDivisionSystemPrompt({
+      division: 'project',
+      launchpadProjectId: 7,
+      launchpadProjectName: 'Solo LP',
+    });
+    expect(lpOnlyPrompt).toContain('DEFAULT SUBJECT');
+    expect(lpOnlyPrompt).toContain('Solo LP');
+
+    const folderPrompt = buildDivisionSystemPrompt(
+      { division: 'folder', folderId: 'f1', folderName: 'Notes' },
+      { folderInstructions: 'Always write drafts under drafts/' }
+    );
+    expect(folderPrompt).toContain('Notes');
+    expect(folderPrompt).toContain('Always write drafts under drafts/');
+    expect(folderPrompt).toContain('Folder instructions from the user');
 
     expect(buildDivisionSystemPrompt({ division: 'general' })).toContain('General mode');
     expect(buildDivisionSystemPrompt({ division: 'general' })).not.toContain(
       'OUT OF SCOPE (REFUSE)'
     );
+  });
+
+  it('builds active project context only for project sessions', () => {
+    expect(buildDivisionActiveProjectContext({ division: 'hub' })).toBe('');
+    expect(buildDivisionActiveProjectContext({ division: 'general' })).toBe('');
+
+    const hubCtx = buildDivisionActiveProjectContext({
+      division: 'project',
+      hubProjectId: 'hub-1',
+      hubProjectName: 'Orion',
+    });
+    expect(hubCtx).toContain('<active_project_context>');
+    expect(hubCtx).toContain('Orion');
+    expect(hubCtx).toContain('hub-1');
+    expect(hubCtx).toContain('do not need to repeat the project name');
+    expect(hubCtx).toContain('Never ask which project');
+
+    const lpCtx = buildDivisionActiveProjectContext({
+      division: 'project',
+      launchpadProjectId: 99,
+      launchpadProjectName: 'LP Only',
+    });
+    expect(lpCtx).toContain('LP Only');
+    expect(lpCtx).toContain('LaunchPad project id: 99');
+    expect(lpCtx).not.toContain('Hub project id:');
+
+    const dualCtx = buildDivisionActiveProjectContext({
+      division: 'project',
+      hubProjectId: 'h1',
+      hubProjectName: 'Both',
+      launchpadProjectId: 3,
+      launchpadProjectName: 'Both LP',
+    });
+    expect(dualCtx).toContain('h1');
+    expect(dualCtx).toContain('LaunchPad project id: 3');
   });
 
   it('restricts General workspace models to OpenRouter only', () => {

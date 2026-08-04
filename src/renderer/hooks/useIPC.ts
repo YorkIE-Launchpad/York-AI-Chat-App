@@ -348,7 +348,14 @@ export function useIPC() {
 
           case 'workdir.changed':
             console.log('[useIPC] workdir.changed received:', event.payload.path);
-            store.setWorkingDir(event.payload.path || null);
+            {
+              const nextPath = event.payload.path || null;
+              store.setWorkingDir(nextPath);
+              // Pin the app default from main initialization (userData/default_working_dir).
+              if (event.payload.isDefault && nextPath) {
+                store.setDefaultWorkingDir(nextPath);
+              }
+            }
             break;
 
           case 'session.contextInfo':

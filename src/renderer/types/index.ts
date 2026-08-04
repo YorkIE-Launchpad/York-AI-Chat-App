@@ -685,7 +685,7 @@ export type ServerEvent =
       type: 'plugins.runtimeApplied';
       payload: { sessionId: string; plugins: Array<{ name: string; path: string }> };
     }
-  | { type: 'workdir.changed'; payload: { path: string } }
+  | { type: 'workdir.changed'; payload: { path: string; isDefault?: boolean } }
   | { type: 'session.contextInfo'; payload: { sessionId: string; contextWindow: number } }
   | {
       type: 'session.autoRoute';

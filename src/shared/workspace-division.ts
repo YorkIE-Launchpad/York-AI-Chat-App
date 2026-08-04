@@ -460,9 +460,60 @@ export function saveActiveDivisionToStorage(
   storage.setItem(DIVISION_STORAGE_KEY, JSON.stringify(active));
 }
 
+/**
+ * Per-turn user-prompt block so the model treats project-scoped chats as
+ * already bound to the selected Hub/LaunchPad project — even when the user
+ * omits the project name ("status?", "open bugs", "who's on the team?").
+ * Empty outside project division.
+ */
+export function buildDivisionActiveProjectContext(
+  session: Partial<SessionDivisionFields> | null | undefined
+): string {
+  const normalized = normalizeSessionDivision(session);
+  if (normalized.division !== 'project') {
+    return '';
+  }
+
+  const name = projectDisplayName(normalized);
+  const lines = [
+    '<active_project_context>',
+    `SELECTED PROJECT (default subject of this chat): "${name}".`,
+    'The user already chose this project in the workspace switcher. They do not need to repeat the project name.',
+    'Treat every project-related question and tool call as about THIS project only, unless they clearly name a different project (then refuse / switch workspace).',
+    'Never ask which project they mean. Never list all company projects to guess.',
+  ];
+  if (normalized.hubProjectId) {
+    lines.push(`- Hub project id: ${normalized.hubProjectId}`);
+    lines.push(`- Hub project name: ${normalized.hubProjectName || name}`);
+  }
+  if (normalized.launchpadProjectId != null) {
+    lines.push(`- LaunchPad project id: ${normalized.launchpadProjectId}`);
+    lines.push(`- LaunchPad project name: ${normalized.launchpadProjectName || name}`);
+  }
+  lines.push(
+    'When tools accept project id filters, pass the ids above. When tools take free-text search (Slack, Gmail, meetings, Drive, Jira, Confluence), include this project name in the query.',
+    'Skip Hub/LaunchPad list-then-match steps when the relevant id is present above.',
+    '</active_project_context>'
+  );
+  return lines.join('\n');
+}
+
+function projectDivisionHardRules(name: string): string[] {
+  return [
+    'DEFAULT SUBJECT: when the user does not name a project, assume they mean this project. Use its name and ids in tool calls/searches. Do not ask which project.',
+    'HARD RULES — these override general "start doing it" behavior when the request is out of scope:',
+    `IN SCOPE: delivery, Hub data, Launchpad/Pulse/Jira/comms for "${name}" only. Pass hub and/or launchpad project ids to tools that accept them.`,
+    'OUT OF SCOPE (REFUSE): personal use; general company Q&A unrelated to this project; other clients/projects; Hub-only HR unless staffing/allocations for THIS project.',
+    'On refuse: say "Incorrect use. This will be reported." then tell the user to switch to General or the correct Project via the sidebar. Do not execute off-scope tools.',
+    'Never query, summarize, or compare data for other clients or projects. If a tool returns data outside this project, ignore it and say you are scoped to this project only.',
+    `If the user names another project (not "${name}"), refuse with "Incorrect use. This will be reported." and tell them to switch Project workspace in the sidebar.`,
+  ];
+}
+
 /** Build system-prompt block for the active session division. */
 export function buildDivisionSystemPrompt(
-  session: Partial<SessionDivisionFields> | null | undefined
+  session: Partial<SessionDivisionFields> | null | undefined,
+  options?: { folderInstructions?: string | null }
 ): string {
   const normalized = normalizeSessionDivision(session);
   if (normalized.division === 'hub') {
@@ -480,13 +531,21 @@ export function buildDivisionSystemPrompt(
 
   if (normalized.division === 'folder' && normalized.folderId) {
     const name = normalized.folderName || normalized.folderId;
-    return [
+    const instructions = options?.folderInstructions?.trim();
+    const lines = [
       '<workspace_division>',
       `You are in personal folder "${name}" under General (user-created project folder).`,
       'This is a personal workspace with OpenRouter / user-provided keys only — not a York Hub or LaunchPad company project.',
-      'Keep work relevant to this folder when the user sets instructions; otherwise behave like General.',
-      '</workspace_division>',
-    ].join('\n');
+    ];
+    if (instructions) {
+      lines.push('Folder instructions from the user (follow these for this chat):', instructions);
+    } else {
+      lines.push(
+        'Keep work relevant to this folder when the user sets instructions; otherwise behave like General.'
+      );
+    }
+    lines.push('</workspace_division>');
+    return lines.join('\n');
   }
 
   if (normalized.division === 'project') {
@@ -499,17 +558,13 @@ export function buildDivisionSystemPrompt(
       idBits.push(`launchpad project id: ${normalized.launchpadProjectId}`);
     }
     const idLine = idBits.length ? ` (${idBits.join(', ')})` : '';
+    const hardRules = projectDivisionHardRules(name);
 
     if (normalized.hubProjectId && normalized.launchpadProjectId != null) {
       return [
         '<workspace_division>',
         `You are locked to project "${name}"${idLine}.`,
-        'HARD RULES — these override general "start doing it" behavior when the request is out of scope:',
-        `IN SCOPE: delivery, Hub data, Launchpad/Pulse/Jira/comms for "${name}" only. Pass hub + launchpad project ids to tools that accept them.`,
-        'OUT OF SCOPE (REFUSE): personal use; general company Q&A unrelated to this project; other clients/projects; Hub-only HR unless staffing/allocations for THIS project.',
-        'On refuse: say "Incorrect use. This will be reported." then tell the user to switch to General or the correct Project via the sidebar. Do not execute off-scope tools.',
-        'Never query, summarize, or compare data for other clients or projects. If a tool returns data outside this project, ignore it and say you are scoped to this project only.',
-        `If the user names another project (not "${name}"), refuse with "Incorrect use. This will be reported." and tell them to switch Project workspace in the sidebar.`,
+        ...hardRules,
         '</workspace_division>',
       ].join('\n');
     }
@@ -518,6 +573,7 @@ export function buildDivisionSystemPrompt(
       return [
         '<workspace_division>',
         `You are locked to project "${name}" (hub project id: ${normalized.hubProjectId}).`,
+        hardRules[0],
         'HARD RULES — these override general "start doing it" behavior when the request is out of scope:',
         `IN SCOPE: delivery, Hub data, Launchpad/Pulse/Jira/comms for "${name}" only. Pass this project id/name to tools that accept a project filter.`,
         'OUT OF SCOPE (REFUSE): personal use; general company Q&A unrelated to this project; other clients/projects; Hub-only HR (personal leave, org gossip) unless it is staffing/allocations for THIS project.',
@@ -532,6 +588,7 @@ export function buildDivisionSystemPrompt(
     return [
       '<workspace_division>',
       `You are locked to LaunchPad project "${name}"${idLine}.`,
+      hardRules[0],
       'HARD RULES — these override general "start doing it" behavior when the request is out of scope:',
       `IN SCOPE: LaunchPad delivery (features, bugs, releases, implement/preview) for "${name}" only. Pass launchpad project id ${normalized.launchpadProjectId} to LaunchPad tools.`,
       'No Hub project id is linked — do not invent one. Hub org tools are not project-locked; still avoid unrelated company Q&A.',

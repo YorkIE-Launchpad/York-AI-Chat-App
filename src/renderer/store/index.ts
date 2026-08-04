@@ -140,8 +140,13 @@ interface AppState {
   hasSeenInitialConfigStatus: boolean;
   globalNotice: GlobalNotice | null;
 
-  // Working directory
+  // Working directory (pending path for new chats / WelcomeView)
   workingDir: string | null;
+  /**
+   * App default workspace folder (userData/default_working_dir).
+   * Captured on first workdir.changed from main; used to reset after project switches.
+   */
+  defaultWorkingDir: string | null;
 
   /** Active workspace division (General / Hub / Project). Null = show chooser. */
   activeDivision: ActiveDivision | null;
@@ -227,6 +232,7 @@ interface AppState {
 
   // Working directory actions
   setWorkingDir: (path: string | null) => void;
+  setDefaultWorkingDir: (path: string | null) => void;
 
   // Workspace division
   setActiveDivision: (division: ActiveDivision | null) => void;
@@ -303,6 +309,7 @@ export const useAppStore = create<AppState>((set) => ({
   hasSeenInitialConfigStatus: false,
   globalNotice: null,
   workingDir: null,
+  defaultWorkingDir: null,
   activeDivision: loadActiveDivisionFromStorage(),
   sandboxSetupProgress: null,
   isSandboxSetupComplete: false,
@@ -381,12 +388,17 @@ export const useAppStore = create<AppState>((set) => ({
   setActiveSession: (sessionId) =>
     set((state) => {
       const switching = sessionId !== state.activeSessionId;
+      // When opening a chat, inherit its workspace path for next "new chat" in this workspace.
+      const sessionCwd = sessionId
+        ? state.sessions.find((s) => s.id === sessionId)?.cwd
+        : undefined;
       const base = sessionId
         ? {
             activeSessionId: sessionId,
             showMatter: false,
             showSettings: false,
             ...(switching ? { activeHtmlPreview: null } : {}),
+            ...(sessionCwd ? { workingDir: sessionCwd } : {}),
           }
         : {
             activeSessionId: sessionId as string | null,
@@ -774,6 +786,7 @@ export const useAppStore = create<AppState>((set) => ({
 
   // Working directory actions
   setWorkingDir: (path) => set({ workingDir: path }),
+  setDefaultWorkingDir: (path) => set({ defaultWorkingDir: path }),
 
   setActiveDivision: (division) =>
     set((state) => {
@@ -786,9 +799,13 @@ export const useAppStore = create<AppState>((set) => ({
         activeSession && sessionMatchesActiveDivision(activeSession, division)
           ? state.activeSessionId
           : null;
+      const divisionChanged = JSON.stringify(state.activeDivision) !== JSON.stringify(division);
+      // Drop cross-project pending workdir so WelcomeView / new chats don't keep the old path.
+      const shouldResetWorkdir = divisionChanged && !keepActive && Boolean(state.defaultWorkingDir);
       return {
         activeDivision: division,
         activeSessionId: keepActive,
+        ...(shouldResetWorkdir ? { workingDir: state.defaultWorkingDir } : {}),
       };
     }),
 

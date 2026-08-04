@@ -100,6 +100,7 @@ import {
 import { formatAutoRouteLabel, resolveAutoModelIfNeeded } from './auto-model-resolve';
 import { AUTO_MODEL_ID } from '../../shared/auto-model';
 import {
+  buildDivisionActiveProjectContext,
   buildDivisionSystemPrompt,
   filterMcpToolsForDivision,
   filterModelsForDivision,
@@ -116,6 +117,9 @@ import {
 } from './project-scope-violation';
 import { buildPiSessionRuntimeSignature } from './pi-session-runtime';
 import { buildProfileInstructionsBlock } from './profile-instructions';
+import { buildWorkspaceTopLevelListing } from '../utils/workspace-snapshot';
+import { createFolderManager } from '../folders/folder-manager';
+import { initDatabase } from '../db/database';
 import {
   LoopGuard,
   buildAbortUserMessage,
@@ -2317,6 +2321,13 @@ ${hints.join('\n')}
         logWarn('[CoworkAgentRunner] Failed to expand skill prompt:', error);
       }
 
+      // Stamp selected Hub/LaunchPad project onto every user turn (after skill
+      // expansion so leading /skill: still expands). Not shown in saved chat UI.
+      const activeProjectContext = buildDivisionActiveProjectContext(session);
+      if (activeProjectContext) {
+        expandedUserPrompt = `${expandedUserPrompt}\n\n${activeProjectContext}`;
+      }
+
       let contextualPrompt = expandedUserPrompt;
       if (!cachedSession) {
         // Cold start: inject recent history into prompt if available
@@ -2543,6 +2554,13 @@ ${hints.join('\n')}
       }
       logTiming('after building MCP servers config', runStartTime);
 
+      const workspaceListing =
+        workingDir && !(useSandboxIsolation && sandboxPath)
+          ? buildWorkspaceTopLevelListing(workingDir)
+          : useSandboxIsolation && sandboxPath
+            ? buildWorkspaceTopLevelListing(sandboxPath)
+            : '';
+
       const workspaceInfoPrompt =
         useSandboxIsolation && sandboxPath
           ? `<workspace_info>
@@ -2551,6 +2569,7 @@ This is an isolated sandbox environment. Use ${VIRTUAL_WORKSPACE_PATH} as the ro
 Prefer relative paths under this workspace (e.g. outputs/my-file.md). Do not invent other absolute roots outside ${VIRTUAL_WORKSPACE_PATH}.
 Do not write to /mnt/user-data or other absolute mount paths — save generated documents under this workspace (e.g. outputs/).
 This folder is for local files only. LaunchPad implement/preview and other remote connector work use MCP tools — not this folder — and do not require a separate "implementation workspace".
+${workspaceListing ? `\nTop-level entries in the workspace:\n${workspaceListing}\nUse this listing when deciding relative paths for read/write/edit/bash. If you need deeper structure, list or read paths under this root.` : ''}
 </workspace_info>`
           : workingDir
             ? `<workspace_info>
@@ -2558,6 +2577,7 @@ Your current workspace is: ${workingDir}
 Use this folder (or relative paths under it) for local file reads and writes. Prefer relative paths like outputs/my-file.md.
 Do NOT use /workspace, /mnt/user-data, /mnt/workspace, or any other absolute virtual roots — they are not the workspace. Do not invent absolute directories outside this folder.
 This folder is for local files only. LaunchPad implement/preview and other remote connector work use MCP tools — not this folder — and do not require a separate "implementation workspace".
+${workspaceListing ? `\nTop-level entries in the workspace:\n${workspaceListing}\nUse this listing when deciding relative paths for read/write/edit/bash. If you need deeper structure, list or read paths under this root.` : ''}
 </workspace_info>`
             : '';
 
@@ -2586,9 +2606,19 @@ This folder is for local files only. LaunchPad implement/preview and other remot
 
       const profileInstructionsPrompt = buildProfileInstructionsBlock(runtimeConfig);
 
+      let folderInstructions: string | null = null;
+      if (session.division === 'folder' && session.folderId) {
+        try {
+          folderInstructions =
+            createFolderManager(initDatabase()).get(session.folderId)?.instructions ?? null;
+        } catch (error) {
+          logWarn('[CoworkAgentRunner] Failed to load folder instructions:', error);
+        }
+      }
+
       const coworkAppendPrompt = [
         'You are a York IE VECOS assistant. Be concise, accurate, and tool-capable.',
-        buildDivisionSystemPrompt(session),
+        buildDivisionSystemPrompt(session, { folderInstructions }),
         `CRITICAL BEHAVIORAL RULES:
 1. CHAT FIRST: By default, respond to the user in plain text within the conversation. Do NOT create, write, or edit local files unless the user explicitly asks you to (e.g., "create a file", "write this to...", "edit the code", "save as...", mentions a specific file path, or describes code changes they want applied locally). For questions, summaries, explanations, analysis, and general conversation — always reply directly in chat text. CHAT FIRST does NOT block MCP tool calls (Hub, LaunchPad, Slack, Gmail, Calendar, etc.). When the user asks to implement, build, fix, or preview via LaunchPad, use LaunchPad MCP tools immediately.
 2. NEVER ask clarification questions in plain text. When a request is actionable, proceed immediately with reasonable assumptions. If you truly cannot proceed without user input, you MUST use the AskUserQuestion tool — never write questions as regular assistant text.

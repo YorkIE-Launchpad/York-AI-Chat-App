@@ -9,14 +9,30 @@ stop at a single silo.
 
 Load `hub-mcp` for Hub; `rnd-launchpad-mcp-sdlc` for release/QA/build depth.
 
+## Active Project workspace (IMPORTANT)
+
+If the system/user message includes `<active_project_context>` or
+`<workspace_division>` locking a project (Hub and/or LaunchPad ids/names):
+
+- That project **is** the subject even when the user only says "status",
+  "update me", "open bugs", etc. without a name.
+- **Skip** list-then-match phases for systems that already have an id.
+- Pass Hub `project id` / LaunchPad `projectId` directly to tools.
+- For free-text connectors (Slack, Gmail, meetings, Drive, Jira, …), search
+  using the locked project name from context.
+
 ## Tool-call plan
 
 ```text
-Phase 1: Hub list_projects / list_project_summaries → match → projectId, title,
-         client, status (get_project if more detail needed)
+Phase 1: Hub project id
+         - IF active_project / workspace has hub project id → use it (get_project)
+         - ELSE list_projects / list_project_summaries → match → projectId, title,
+           client, status
 Phase 2: Hub list_project_allocations → staff emails
          + list_project_release_notes
-Phase 3: Launchpad list_projects / list_project_names → match by name
+Phase 3: Launchpad project
+         - IF active_project has launchpad project id → use it
+         - ELSE list_projects / list_project_names → match by name
          → list_releases / get_release_lock_status / list_versions as needed
          (load launchpad skill for deep Build/Validate)
 Phase 4 (parallel — project title + client name):
