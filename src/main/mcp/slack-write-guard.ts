@@ -7,6 +7,7 @@ export const SLACK_WRITE_BLOCKED_CHANNELS = new Set([
   'virtual-water-cooler',
   // Common misspelling seen in requests / channel refs
   'virtaul-water-cooler',
+  'team-india-general',
 ]);
 
 export function normalizeSlackChannelName(input: string): string {
