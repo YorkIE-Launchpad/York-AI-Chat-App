@@ -24,6 +24,8 @@ import { Titlebar } from './components/Titlebar';
 import { SandboxSetupDialog } from './components/SandboxSetupDialog';
 import { SandboxSyncToast } from './components/SandboxSyncToast';
 import { GlobalNoticeToast } from './components/GlobalNoticeToast';
+import { WhatsNewModal } from './components/WhatsNewModal';
+import { useWhatsNew } from './hooks/useWhatsNew';
 import {
   isMeetingAudioActive,
   startMeetingCapture,
@@ -127,6 +129,7 @@ function AuthenticatedApp() {
   const { listSessions, isElectron } = useIPC();
   const { ready: toolsReady } = useToolsReady(isElectron);
   const { width } = useWindowSize();
+  const { payload: whatsNewPayload, dismiss: dismissWhatsNew } = useWhatsNew();
   const initialized = useRef(false);
   const sidebarBeforeSettings = useRef(false);
   const lastHtmlPreviewSig = useRef<string | null>(null);
@@ -440,6 +443,9 @@ function AuthenticatedApp() {
           onComplete={handleSandboxSetupComplete}
         />
       )}
+
+      {/* What's New after upgrade */}
+      {whatsNewPayload && <WhatsNewModal payload={whatsNewPayload} onDismiss={dismissWhatsNew} />}
 
       {/* Sandbox Sync Toast */}
       <SandboxSyncToast status={sandboxSyncStatus} />

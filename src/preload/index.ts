@@ -38,6 +38,7 @@ import type {
 } from '../renderer/types';
 import type { DiagnosticInput, DiagnosticResult } from '../renderer/types';
 import type { UpdaterStatus } from '../shared/updater-types';
+import type { WhatsNewPayload } from '../shared/whats-new-types';
 import type {
   McpServerConfig,
   McpTool,
@@ -202,6 +203,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on('updater:status', listener);
       return () => ipcRenderer.removeListener('updater:status', listener);
     },
+  },
+
+  whatsNew: {
+    getPending: (): Promise<WhatsNewPayload | null> => ipcRenderer.invoke('whatsNew.getPending'),
+    markSeen: (): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('whatsNew.markSeen'),
   },
 
   auth: {
@@ -788,6 +795,10 @@ declare global {
         check: () => Promise<UpdaterStatus>;
         quitAndInstall: () => Promise<{ success: boolean; error?: string }>;
         onStatus: (callback: (status: UpdaterStatus) => void) => () => void;
+      };
+      whatsNew: {
+        getPending: () => Promise<WhatsNewPayload | null>;
+        markSeen: () => Promise<{ success: boolean; error?: string }>;
       };
       auth: {
         getStatus: () => Promise<AuthStatusResponse>;

@@ -1322,6 +1322,11 @@
       "grep": "Search file contents"
     }
   },
+  "whatsNew": {
+    "title": "What's new in {{version}}",
+    "subtitle": "Updates since {{fromVersion}}",
+    "gotIt": "Got it"
+  },
   "sudo": {
     "title": "Administrator Permission Required",
     "description": "The following command requires administrator privileges:",

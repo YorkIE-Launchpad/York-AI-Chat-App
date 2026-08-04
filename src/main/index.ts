@@ -124,6 +124,7 @@ import {
   checkForAppUpdates,
   quitAndInstallUpdate,
 } from './updater';
+import { getPendingWhatsNew, markWhatsNewSeen } from './whats-new/whats-new-service';
 import { warmupJwksCache } from './auth/cognito';
 import { submitViteOAuthCode, getOAuthDebugInfo, initHubOAuthRelay } from './auth/hub-oauth';
 import { authConfig } from '../shared/auth-config';
@@ -2366,6 +2367,28 @@ ipcMain.handle('updater.quitAndInstall', () => {
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Failed to install update',
+    };
+  }
+});
+
+ipcMain.handle('whatsNew.getPending', async () => {
+  try {
+    return await getPendingWhatsNew(app.getVersion());
+  } catch (error) {
+    logError('[IPC] whatsNew.getPending failed:', error);
+    return null;
+  }
+});
+
+ipcMain.handle('whatsNew.markSeen', () => {
+  try {
+    markWhatsNewSeen(app.getVersion());
+    return { success: true };
+  } catch (error) {
+    logError('[IPC] whatsNew.markSeen failed:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to mark version as seen',
     };
   }
 });
