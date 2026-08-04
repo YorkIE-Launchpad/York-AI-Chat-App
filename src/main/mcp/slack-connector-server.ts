@@ -1,6 +1,7 @@
 import { WebClient } from '@slack/web-api';
 import { startConnectorMcpServer } from './connector-mcp-utils';
 import { resolveSlackPermalink } from './slack-permalink';
+import { assertSlackWriteAllowed } from './slack-write-guard';
 
 const accessToken = process.env.SLACK_USER_TOKEN?.trim();
 if (!accessToken) {
@@ -286,13 +287,14 @@ async function main() {
       {
         name: 'post_message',
         description:
-          'Post a message to a Slack channel or reply in a thread. Requires user approval.',
+          'Post a message to a Slack channel or reply in a thread. Requires user approval. Never posts to #general or #virtual-water-cooler (hard-blocked even if the user asks).',
         inputSchema: {
           type: 'object',
           properties: {
             channel: {
               type: 'string',
-              description: 'Channel name (e.g. general) or ID (e.g. C0123…).',
+              description:
+                'Channel name (e.g. eng-team) or ID (e.g. C0123…). #general and #virtual-water-cooler are blocked.',
             },
             text: { type: 'string', description: 'Message text to post.' },
             thread_ts: {
@@ -473,7 +475,12 @@ async function main() {
           throw new Error('Slack message text is required.');
         }
         const threadTs = typeof args.thread_ts === 'string' ? args.thread_ts.trim() : '';
-        const channel = await resolveChannel(String(args.channel || ''));
+        const requestedChannel = String(args.channel || '');
+        // Reject by name before any Slack API calls when the user/agent passes a banned name.
+        assertSlackWriteAllowed(requestedChannel);
+        const channel = await resolveChannel(requestedChannel);
+        // Also block when the ref was a channel ID that resolves to a banned name.
+        assertSlackWriteAllowed(channel.name, channel.id);
         const channelLabel = formatChannelLabel({
           id: channel.id,
           name: channel.name,

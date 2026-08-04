@@ -42,12 +42,12 @@ tool names.
 
 ## Slack
 
-| Tools                                    | Join keys out                    | Typical next                |
-| ---------------------------------------- | -------------------------------- | --------------------------- |
-| `search_messages`, `get_channel_history` | channel, `thread_ts`, permalink  | `get_thread`; Sources       |
-| `get_thread`                             | full thread text                 | synthesize                  |
-| `get_user`                               | Slack profile / email if present | Hub cross-check             |
-| `post_message`                           | (write — ask)                    | only when user wants a send |
+| Tools                                    | Join keys out                    | Typical next                                                                                |
+| ---------------------------------------- | -------------------------------- | ------------------------------------------------------------------------------------------- |
+| `search_messages`, `get_channel_history` | channel, `thread_ts`, permalink  | `get_thread`; Sources                                                                       |
+| `get_thread`                             | full thread text                 | synthesize                                                                                  |
+| `get_user`                               | Slack profile / email if present | Hub cross-check                                                                             |
+| `post_message`                           | (write — ask)                    | only when user wants a send; **never** `#general` or `#virtual-water-cooler` (hard-blocked) |
 
 ## Gmail
 
