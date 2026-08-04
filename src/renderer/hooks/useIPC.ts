@@ -639,12 +639,21 @@ export function useIPC() {
         activeDivision?.kind === 'project'
           ? {
               division: 'project' as const,
-              hubProjectId: activeDivision.hubProjectId,
-              hubProjectName: activeDivision.hubProjectName,
+              hubProjectId: activeDivision.hubProjectId ?? null,
+              hubProjectName: activeDivision.hubProjectName ?? activeDivision.name,
+              launchpadProjectId: activeDivision.launchpadProjectId ?? null,
+              launchpadProjectName: activeDivision.launchpadProjectName ?? null,
+              canonicalKey: activeDivision.canonicalKey,
             }
-          : activeDivision?.kind === 'hub'
-            ? { division: 'hub' as const }
-            : { division: 'general' as const };
+          : activeDivision?.kind === 'folder'
+            ? {
+                division: 'folder' as const,
+                folderId: activeDivision.folderId,
+                folderName: activeDivision.folderName,
+              }
+            : activeDivision?.kind === 'hub'
+              ? { division: 'hub' as const }
+              : { division: 'general' as const };
 
       const incognito =
         options?.incognito === true || useAppStore.getState().incognitoDraft === true;
@@ -683,8 +692,21 @@ export function useIPC() {
           memoryEnabled: !incognito,
           incognito: incognito || undefined,
           ...divisionPayload,
-          hubProjectId: activeDivision?.kind === 'project' ? activeDivision.hubProjectId : null,
-          hubProjectName: activeDivision?.kind === 'project' ? activeDivision.hubProjectName : null,
+          hubProjectId:
+            activeDivision?.kind === 'project' ? (activeDivision.hubProjectId ?? null) : null,
+          hubProjectName:
+            activeDivision?.kind === 'project'
+              ? (activeDivision.hubProjectName ?? activeDivision.name)
+              : null,
+          launchpadProjectId:
+            activeDivision?.kind === 'project' ? (activeDivision.launchpadProjectId ?? null) : null,
+          launchpadProjectName:
+            activeDivision?.kind === 'project'
+              ? (activeDivision.launchpadProjectName ?? null)
+              : null,
+          folderId: activeDivision?.kind === 'folder' ? activeDivision.folderId : null,
+          folderName: activeDivision?.kind === 'folder' ? activeDivision.folderName : null,
+          canonicalKey: activeDivision?.kind === 'project' ? activeDivision.canonicalKey : null,
         };
 
         addSession(session);

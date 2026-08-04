@@ -1,9 +1,17 @@
 /**
- * Workspace divisions: General / Hub / Project.
+ * Workspace divisions: General / Hub / Project / Folder.
  * Chats + experience memory are isolated per division; core memory stays global.
  */
 
-export type WorkspaceDivisionKind = 'general' | 'hub' | 'project';
+import {
+  canonicalKeyForUnified,
+  hubCanonicalKey,
+  launchpadCanonicalKey,
+  type CompanyProjectSources,
+  type UnifiedCompanyProject,
+} from './unified-company-projects';
+
+export type WorkspaceDivisionKind = 'general' | 'hub' | 'project' | 'folder';
 
 export interface ActiveDivisionGeneral {
   kind: 'general';
@@ -13,18 +21,38 @@ export interface ActiveDivisionHub {
   kind: 'hub';
 }
 
-export interface ActiveDivisionProject {
-  kind: 'project';
-  hubProjectId: string;
-  hubProjectName: string;
+export interface ActiveDivisionFolder {
+  kind: 'folder';
+  folderId: string;
+  folderName: string;
 }
 
-export type ActiveDivision = ActiveDivisionGeneral | ActiveDivisionHub | ActiveDivisionProject;
+export interface ActiveDivisionProject {
+  kind: 'project';
+  canonicalKey: string;
+  name: string;
+  hubProjectId?: string;
+  hubProjectName?: string;
+  launchpadProjectId?: number;
+  launchpadProjectName?: string;
+  sources: CompanyProjectSources;
+}
+
+export type ActiveDivision =
+  | ActiveDivisionGeneral
+  | ActiveDivisionHub
+  | ActiveDivisionProject
+  | ActiveDivisionFolder;
 
 export interface SessionDivisionFields {
   division: WorkspaceDivisionKind;
   hubProjectId?: string | null;
   hubProjectName?: string | null;
+  launchpadProjectId?: number | null;
+  launchpadProjectName?: string | null;
+  folderId?: string | null;
+  folderName?: string | null;
+  canonicalKey?: string | null;
 }
 
 export interface AllocatedHubProject {
@@ -34,38 +62,164 @@ export interface AllocatedHubProject {
   title?: string;
 }
 
+export interface PersonalFolder {
+  id: string;
+  name: string;
+  instructions?: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export const DIVISION_STORAGE_KEY = 'yorkie.activeDivision';
 
 export function parseDivisionKind(value: unknown): WorkspaceDivisionKind {
-  if (value === 'hub' || value === 'project' || value === 'general') {
+  if (value === 'hub' || value === 'project' || value === 'general' || value === 'folder') {
     return value;
   }
   return 'general';
+}
+
+function parseOptionalNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim() && !Number.isNaN(Number(value))) {
+    return Number(value);
+  }
+  return null;
+}
+
+function parseOptionalString(value: unknown): string | null {
+  if (typeof value === 'string' && value.trim()) return value.trim();
+  return null;
+}
+
+export function projectDisplayName(fields: {
+  name?: string | null;
+  hubProjectName?: string | null;
+  launchpadProjectName?: string | null;
+  hubProjectId?: string | null;
+  launchpadProjectId?: number | null;
+}): string {
+  return (
+    parseOptionalString(fields.name) ||
+    parseOptionalString(fields.hubProjectName) ||
+    parseOptionalString(fields.launchpadProjectName) ||
+    parseOptionalString(fields.hubProjectId) ||
+    (fields.launchpadProjectId != null ? `LP ${fields.launchpadProjectId}` : 'Project')
+  );
+}
+
+export function activeDivisionFromUnifiedProject(
+  project: UnifiedCompanyProject
+): ActiveDivisionProject {
+  const sources: CompanyProjectSources = {
+    ...(project.sources.hub ? { hub: true } : {}),
+    ...(project.sources.launchpad ? { launchpad: true } : {}),
+  };
+  return {
+    kind: 'project',
+    canonicalKey: canonicalKeyForUnified(project),
+    name: project.name,
+    hubProjectId: project.hubProjectId,
+    hubProjectName: project.hubProjectName ?? project.name,
+    launchpadProjectId: project.launchpadProjectId,
+    launchpadProjectName: project.launchpadProjectName,
+    sources,
+  };
 }
 
 export function normalizeSessionDivision(
   input?: Partial<SessionDivisionFields> | null
 ): SessionDivisionFields {
   const division = parseDivisionKind(input?.division);
-  if (division === 'project') {
-    const hubProjectId =
-      typeof input?.hubProjectId === 'string' && input.hubProjectId.trim()
-        ? input.hubProjectId.trim()
-        : null;
-    const hubProjectName =
-      typeof input?.hubProjectName === 'string' && input.hubProjectName.trim()
-        ? input.hubProjectName.trim()
-        : null;
-    if (!hubProjectId) {
-      return { division: 'general', hubProjectId: null, hubProjectName: null };
+
+  if (division === 'folder') {
+    const folderId = parseOptionalString(input?.folderId);
+    const folderName = parseOptionalString(input?.folderName);
+    if (!folderId) {
+      return {
+        division: 'general',
+        hubProjectId: null,
+        hubProjectName: null,
+        launchpadProjectId: null,
+        launchpadProjectName: null,
+        folderId: null,
+        folderName: null,
+        canonicalKey: null,
+      };
     }
+    return {
+      division: 'folder',
+      hubProjectId: null,
+      hubProjectName: null,
+      launchpadProjectId: null,
+      launchpadProjectName: null,
+      folderId,
+      folderName: folderName || folderId,
+      canonicalKey: null,
+    };
+  }
+
+  if (division === 'project') {
+    const hubProjectId = parseOptionalString(input?.hubProjectId);
+    const hubProjectName = parseOptionalString(input?.hubProjectName);
+    const launchpadProjectId = parseOptionalNumber(input?.launchpadProjectId);
+    const launchpadProjectName = parseOptionalString(input?.launchpadProjectName);
+
+    if (!hubProjectId && launchpadProjectId == null) {
+      return {
+        division: 'general',
+        hubProjectId: null,
+        hubProjectName: null,
+        launchpadProjectId: null,
+        launchpadProjectName: null,
+        folderId: null,
+        folderName: null,
+        canonicalKey: null,
+      };
+    }
+
+    const canonicalKey =
+      parseOptionalString(input?.canonicalKey) ||
+      (hubProjectId
+        ? hubCanonicalKey(hubProjectId)
+        : launchpadCanonicalKey(launchpadProjectId as number));
+
     return {
       division: 'project',
       hubProjectId,
       hubProjectName: hubProjectName || hubProjectId,
+      launchpadProjectId,
+      launchpadProjectName:
+        launchpadProjectName || (launchpadProjectId != null ? String(launchpadProjectId) : null),
+      folderId: null,
+      folderName: null,
+      canonicalKey,
     };
   }
-  return { division, hubProjectId: null, hubProjectName: null };
+
+  if (division === 'hub') {
+    return {
+      division: 'hub',
+      hubProjectId: null,
+      hubProjectName: null,
+      launchpadProjectId: null,
+      launchpadProjectName: null,
+      folderId: null,
+      folderName: null,
+      canonicalKey: null,
+    };
+  }
+
+  return {
+    division: 'general',
+    hubProjectId: null,
+    hubProjectName: null,
+    launchpadProjectId: null,
+    launchpadProjectName: null,
+    folderId: null,
+    folderName: null,
+    canonicalKey: null,
+  };
 }
 
 /** Experience-memory workspace key for a session's division. */
@@ -76,8 +230,17 @@ export function divisionMemoryKey(
   if (normalized.division === 'hub') {
     return 'vecos://hub';
   }
-  if (normalized.division === 'project' && normalized.hubProjectId) {
-    return `vecos://project/${normalized.hubProjectId}`;
+  if (normalized.division === 'folder' && normalized.folderId) {
+    return `vecos://folder/${normalized.folderId}`;
+  }
+  if (normalized.division === 'project') {
+    // Keep hub-backed key shape for backward-compatible experience memory.
+    if (normalized.hubProjectId) {
+      return `vecos://project/${normalized.hubProjectId}`;
+    }
+    if (normalized.launchpadProjectId != null) {
+      return `vecos://project/lp/${normalized.launchpadProjectId}`;
+    }
   }
   return 'vecos://general';
 }
@@ -89,11 +252,31 @@ export function activeDivisionFromSession(
   if (normalized.division === 'hub') {
     return { kind: 'hub' };
   }
-  if (normalized.division === 'project' && normalized.hubProjectId) {
+  if (normalized.division === 'folder' && normalized.folderId) {
+    return {
+      kind: 'folder',
+      folderId: normalized.folderId,
+      folderName: normalized.folderName || normalized.folderId,
+    };
+  }
+  if (normalized.division === 'project') {
+    const sources: CompanyProjectSources = {
+      ...(normalized.hubProjectId ? { hub: true } : {}),
+      ...(normalized.launchpadProjectId != null ? { launchpad: true } : {}),
+    };
     return {
       kind: 'project',
-      hubProjectId: normalized.hubProjectId,
-      hubProjectName: normalized.hubProjectName || normalized.hubProjectId,
+      canonicalKey:
+        normalized.canonicalKey ||
+        (normalized.hubProjectId
+          ? hubCanonicalKey(normalized.hubProjectId)
+          : launchpadCanonicalKey(normalized.launchpadProjectId as number)),
+      name: projectDisplayName(normalized),
+      hubProjectId: normalized.hubProjectId || undefined,
+      hubProjectName: normalized.hubProjectName || undefined,
+      launchpadProjectId: normalized.launchpadProjectId ?? undefined,
+      launchpadProjectName: normalized.launchpadProjectName || undefined,
+      sources,
     };
   }
   return { kind: 'general' };
@@ -113,7 +296,35 @@ export function sessionMatchesActiveDivision(
   if (active.kind === 'hub') {
     return normalized.division === 'hub';
   }
-  return normalized.division === 'project' && normalized.hubProjectId === active.hubProjectId;
+  if (active.kind === 'folder') {
+    return normalized.division === 'folder' && normalized.folderId === active.folderId;
+  }
+  // Project: match hub id, launchpad id, or canonical key (legacy hub-only sessions included).
+  if (normalized.division !== 'project') {
+    return false;
+  }
+  if (
+    active.canonicalKey &&
+    normalized.canonicalKey &&
+    active.canonicalKey === normalized.canonicalKey
+  ) {
+    return true;
+  }
+  if (
+    active.hubProjectId &&
+    normalized.hubProjectId &&
+    active.hubProjectId === normalized.hubProjectId
+  ) {
+    return true;
+  }
+  if (
+    active.launchpadProjectId != null &&
+    normalized.launchpadProjectId != null &&
+    active.launchpadProjectId === normalized.launchpadProjectId
+  ) {
+    return true;
+  }
+  return false;
 }
 
 export function divisionLabel(active: ActiveDivision | null | undefined): string {
@@ -126,7 +337,90 @@ export function divisionLabel(active: ActiveDivision | null | undefined): string
   if (active.kind === 'hub') {
     return 'Hub';
   }
-  return active.hubProjectName || active.hubProjectId;
+  if (active.kind === 'folder') {
+    return active.folderName || 'Folder';
+  }
+  return active.name || projectDisplayName(active);
+}
+
+export function companyProjectSourceLabel(sources: CompanyProjectSources | undefined): string {
+  if (!sources) return '';
+  const hub = Boolean(sources.hub);
+  const lp = Boolean(sources.launchpad);
+  if (hub && lp) return 'Hub · LaunchPad';
+  if (hub) return 'Hub';
+  if (lp) return 'LaunchPad';
+  return '';
+}
+
+/** Coerce stored/legacy ActiveDivision JSON into the current shape. */
+export function coerceActiveDivision(parsed: unknown): ActiveDivision | null {
+  if (!parsed || typeof parsed !== 'object') {
+    return null;
+  }
+  const kind = (parsed as { kind?: unknown }).kind;
+  if (kind === 'general' || kind === 'hub') {
+    return { kind };
+  }
+  if (kind === 'folder') {
+    const folderId = parseOptionalString((parsed as { folderId?: unknown }).folderId);
+    const folderName = parseOptionalString((parsed as { folderName?: unknown }).folderName);
+    if (folderId) {
+      return { kind: 'folder', folderId, folderName: folderName || folderId };
+    }
+    return null;
+  }
+  if (kind === 'project') {
+    const p = parsed as {
+      hubProjectId?: unknown;
+      hubProjectName?: unknown;
+      launchpadProjectId?: unknown;
+      launchpadProjectName?: unknown;
+      canonicalKey?: unknown;
+      name?: unknown;
+      sources?: unknown;
+    };
+    const hubProjectId = parseOptionalString(p.hubProjectId);
+    const launchpadProjectId = parseOptionalNumber(p.launchpadProjectId);
+    if (!hubProjectId && launchpadProjectId == null) {
+      return null;
+    }
+    const hubProjectName = parseOptionalString(p.hubProjectName);
+    const launchpadProjectName = parseOptionalString(p.launchpadProjectName);
+    const name =
+      parseOptionalString(p.name) ||
+      hubProjectName ||
+      launchpadProjectName ||
+      hubProjectId ||
+      (launchpadProjectId != null ? `LP ${launchpadProjectId}` : 'Project');
+    const sourcesRaw =
+      p.sources && typeof p.sources === 'object' ? (p.sources as CompanyProjectSources) : null;
+    const sources: CompanyProjectSources = sourcesRaw
+      ? {
+          ...(sourcesRaw.hub ? { hub: true } : {}),
+          ...(sourcesRaw.launchpad ? { launchpad: true } : {}),
+        }
+      : {
+          ...(hubProjectId ? { hub: true } : {}),
+          ...(launchpadProjectId != null ? { launchpad: true } : {}),
+        };
+    const canonicalKey =
+      parseOptionalString(p.canonicalKey) ||
+      (hubProjectId
+        ? hubCanonicalKey(hubProjectId)
+        : launchpadCanonicalKey(launchpadProjectId as number));
+    return {
+      kind: 'project',
+      canonicalKey,
+      name,
+      hubProjectId: hubProjectId || undefined,
+      hubProjectName: hubProjectName || undefined,
+      launchpadProjectId: launchpadProjectId ?? undefined,
+      launchpadProjectName: launchpadProjectName || undefined,
+      sources,
+    };
+  }
+  return null;
 }
 
 export function loadActiveDivisionFromStorage(
@@ -142,28 +436,7 @@ export function loadActiveDivisionFromStorage(
     if (!raw) {
       return null;
     }
-    const parsed = JSON.parse(raw) as unknown;
-    if (!parsed || typeof parsed !== 'object') {
-      return null;
-    }
-    const kind = (parsed as { kind?: unknown }).kind;
-    if (kind === 'general' || kind === 'hub') {
-      return { kind };
-    }
-    if (kind === 'project') {
-      const hubProjectId = (parsed as { hubProjectId?: unknown }).hubProjectId;
-      const hubProjectName = (parsed as { hubProjectName?: unknown }).hubProjectName;
-      if (typeof hubProjectId === 'string' && hubProjectId.trim()) {
-        return {
-          kind: 'project',
-          hubProjectId: hubProjectId.trim(),
-          hubProjectName:
-            typeof hubProjectName === 'string' && hubProjectName.trim()
-              ? hubProjectName.trim()
-              : hubProjectId.trim(),
-        };
-      }
-    }
+    return coerceActiveDivision(JSON.parse(raw) as unknown);
   } catch {
     // ignore corrupt storage
   }
@@ -204,20 +477,70 @@ export function buildDivisionSystemPrompt(
       '</workspace_division>',
     ].join('\n');
   }
-  if (normalized.division === 'project' && normalized.hubProjectId) {
-    const name = normalized.hubProjectName || normalized.hubProjectId;
+
+  if (normalized.division === 'folder' && normalized.folderId) {
+    const name = normalized.folderName || normalized.folderId;
     return [
       '<workspace_division>',
-      `You are locked to project "${name}" (hub project id: ${normalized.hubProjectId}).`,
-      'HARD RULES — these override general "start doing it" behavior when the request is out of scope:',
-      `IN SCOPE: delivery, Hub data, Launchpad/Pulse/Jira/comms for "${name}" only. Pass this project id/name to tools that accept a project filter.`,
-      'OUT OF SCOPE (REFUSE): personal use; general company Q&A unrelated to this project; other clients/projects; Hub-only HR (personal leave, org gossip) unless it is staffing/allocations for THIS project.',
-      'On refuse: say "Incorrect use. This will be reported." then tell the user to switch to General or the correct Project via the sidebar. Do not execute off-scope tools.',
-      'Never query, summarize, or compare data for other clients or projects. If a tool returns data outside this project, ignore it and say you are scoped to this project only.',
-      `If the user names another project (not "${name}"), do not call Hub project tools for it — refuse with "Incorrect use. This will be reported." and tell them to switch Project workspace in the sidebar.`,
+      `You are in personal folder "${name}" under General (user-created project folder).`,
+      'This is a personal workspace with OpenRouter / user-provided keys only — not a York Hub or LaunchPad company project.',
+      'Keep work relevant to this folder when the user sets instructions; otherwise behave like General.',
       '</workspace_division>',
     ].join('\n');
   }
+
+  if (normalized.division === 'project') {
+    const name = projectDisplayName(normalized);
+    const idBits: string[] = [];
+    if (normalized.hubProjectId) {
+      idBits.push(`hub project id: ${normalized.hubProjectId}`);
+    }
+    if (normalized.launchpadProjectId != null) {
+      idBits.push(`launchpad project id: ${normalized.launchpadProjectId}`);
+    }
+    const idLine = idBits.length ? ` (${idBits.join(', ')})` : '';
+
+    if (normalized.hubProjectId && normalized.launchpadProjectId != null) {
+      return [
+        '<workspace_division>',
+        `You are locked to project "${name}"${idLine}.`,
+        'HARD RULES — these override general "start doing it" behavior when the request is out of scope:',
+        `IN SCOPE: delivery, Hub data, Launchpad/Pulse/Jira/comms for "${name}" only. Pass hub + launchpad project ids to tools that accept them.`,
+        'OUT OF SCOPE (REFUSE): personal use; general company Q&A unrelated to this project; other clients/projects; Hub-only HR unless staffing/allocations for THIS project.',
+        'On refuse: say "Incorrect use. This will be reported." then tell the user to switch to General or the correct Project via the sidebar. Do not execute off-scope tools.',
+        'Never query, summarize, or compare data for other clients or projects. If a tool returns data outside this project, ignore it and say you are scoped to this project only.',
+        `If the user names another project (not "${name}"), refuse with "Incorrect use. This will be reported." and tell them to switch Project workspace in the sidebar.`,
+        '</workspace_division>',
+      ].join('\n');
+    }
+
+    if (normalized.hubProjectId) {
+      return [
+        '<workspace_division>',
+        `You are locked to project "${name}" (hub project id: ${normalized.hubProjectId}).`,
+        'HARD RULES — these override general "start doing it" behavior when the request is out of scope:',
+        `IN SCOPE: delivery, Hub data, Launchpad/Pulse/Jira/comms for "${name}" only. Pass this project id/name to tools that accept a project filter.`,
+        'OUT OF SCOPE (REFUSE): personal use; general company Q&A unrelated to this project; other clients/projects; Hub-only HR (personal leave, org gossip) unless it is staffing/allocations for THIS project.',
+        'On refuse: say "Incorrect use. This will be reported." then tell the user to switch to General or the correct Project via the sidebar. Do not execute off-scope tools.',
+        'Never query, summarize, or compare data for other clients or projects. If a tool returns data outside this project, ignore it and say you are scoped to this project only.',
+        `If the user names another project (not "${name}"), do not call Hub project tools for it — refuse with "Incorrect use. This will be reported." and tell them to switch Project workspace in the sidebar.`,
+        '</workspace_division>',
+      ].join('\n');
+    }
+
+    // LaunchPad-only: no Hub hard lock
+    return [
+      '<workspace_division>',
+      `You are locked to LaunchPad project "${name}"${idLine}.`,
+      'HARD RULES — these override general "start doing it" behavior when the request is out of scope:',
+      `IN SCOPE: LaunchPad delivery (features, bugs, releases, implement/preview) for "${name}" only. Pass launchpad project id ${normalized.launchpadProjectId} to LaunchPad tools.`,
+      'No Hub project id is linked — do not invent one. Hub org tools are not project-locked; still avoid unrelated company Q&A.',
+      'OUT OF SCOPE (REFUSE): other LaunchPad/Hub projects; personal use; general company HR.',
+      'On refuse: say "Incorrect use. This will be reported." then tell the user to switch Project workspace in the sidebar.',
+      '</workspace_division>',
+    ].join('\n');
+  }
+
   return [
     '<workspace_division>',
     'You are in General mode (personal and general company use).',
@@ -253,10 +576,8 @@ export function filterMcpToolsForDivision<T extends { name: string }>(
 }
 
 /**
- * General workspace is OpenRouter-only. Hub / Project keep the full catalog
- * (including OpenRouter). When division is omitted (background jobs / one-shots
- * without a session), pass through — do not default to General.
- * Compose with filterModelsForOpenRouterKey for BYOK.
+ * General + personal folders are OpenRouter-only. Hub / Project keep the full catalog.
+ * When division is omitted (background jobs / one-shots without a session), pass through.
  */
 export function isProviderAllowedInDivision(
   provider: string | undefined | null,
@@ -264,10 +585,10 @@ export function isProviderAllowedInDivision(
 ): boolean {
   if (!provider) return false;
   const kind = session?.division;
-  if (kind !== 'general' && kind !== 'hub' && kind !== 'project') {
+  if (kind !== 'general' && kind !== 'hub' && kind !== 'project' && kind !== 'folder') {
     return true;
   }
-  if (kind === 'general') {
+  if (kind === 'general' || kind === 'folder') {
     return provider === 'openrouter';
   }
   return true;
@@ -278,7 +599,7 @@ export function filterModelsForDivision<T extends { provider: string }>(
   session: Partial<SessionDivisionFields> | null | undefined
 ): T[] {
   const kind = session?.division;
-  if (kind !== 'general') {
+  if (kind !== 'general' && kind !== 'folder') {
     return models;
   }
   return models.filter((m) => m.provider === 'openrouter');
@@ -286,4 +607,28 @@ export function filterModelsForDivision<T extends { provider: string }>(
 
 export function generalWorkspaceOpenRouterOnlyMessage(): string {
   return 'General workspace only supports OpenRouter models. Switch to Hub or a Project workspace to use York-managed providers, or pick an OpenRouter model.';
+}
+
+export function sessionFieldsFromActiveDivision(
+  active: ActiveDivision | null
+): Partial<SessionDivisionFields> {
+  if (!active) return { division: 'hub' };
+  if (active.kind === 'project') {
+    return {
+      division: 'project',
+      hubProjectId: active.hubProjectId ?? null,
+      hubProjectName: active.hubProjectName ?? active.name ?? null,
+      launchpadProjectId: active.launchpadProjectId ?? null,
+      launchpadProjectName: active.launchpadProjectName ?? null,
+      canonicalKey: active.canonicalKey,
+    };
+  }
+  if (active.kind === 'folder') {
+    return {
+      division: 'folder',
+      folderId: active.folderId,
+      folderName: active.folderName,
+    };
+  }
+  return { division: active.kind };
 }

@@ -190,6 +190,13 @@ function createDatabaseInstance(db: Database.Database): DatabaseInstance {
       ),
       delete: vi.fn(),
     },
+    folders: {
+      create: vi.fn(),
+      update: vi.fn(),
+      get: vi.fn(),
+      list: vi.fn(() => []),
+      delete: vi.fn(),
+    },
     messages: {
       create: vi.fn(),
       update: vi.fn(),

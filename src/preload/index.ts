@@ -56,7 +56,8 @@ import type {
   WelcomeQuickActionsResponse,
 } from '../shared/ipc-types';
 import type { AuthStatusResponse, AuthUser, AuthOAuthDebugInfo } from '../shared/auth-types';
-import type { AllocatedHubProject } from '../shared/workspace-division';
+import type { AllocatedHubProject, PersonalFolder } from '../shared/workspace-division';
+import type { UnifiedCompanyProject } from '../shared/unified-company-projects';
 import type { MatterItemActionInput, MatterRuntimeConfig, MatterSnapshot } from '../shared/matter';
 
 // Track registered callbacks to prevent duplicate listeners
@@ -250,6 +251,39 @@ contextBridge.exposeInMainWorld('electronAPI', {
       error?: string;
       code?: string;
     }> => ipcRenderer.invoke('hub.listAllocatedProjects', forceRefresh),
+  },
+
+  projects: {
+    listUnified: (
+      forceRefresh?: boolean
+    ): Promise<{
+      success: boolean;
+      projects: UnifiedCompanyProject[];
+      hubError?: string;
+      launchpadError?: string;
+      error?: string;
+      code?: string;
+    }> => ipcRenderer.invoke('projects.listUnified', forceRefresh),
+  },
+
+  folders: {
+    list: (): Promise<{
+      success: boolean;
+      folders: PersonalFolder[];
+      error?: string;
+    }> => ipcRenderer.invoke('folders.list'),
+    create: (
+      name: string,
+      instructions?: string | null
+    ): Promise<{ success: boolean; folder?: PersonalFolder; error?: string }> =>
+      ipcRenderer.invoke('folders.create', name, instructions),
+    rename: (
+      id: string,
+      name: string
+    ): Promise<{ success: boolean; folder?: PersonalFolder; error?: string }> =>
+      ipcRenderer.invoke('folders.rename', id, name),
+    delete: (id: string): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('folders.delete', id),
   },
 
   // Open links in default browser
@@ -825,6 +859,28 @@ declare global {
           error?: string;
           code?: string;
         }>;
+      };
+      projects: {
+        listUnified: (forceRefresh?: boolean) => Promise<{
+          success: boolean;
+          projects: UnifiedCompanyProject[];
+          hubError?: string;
+          launchpadError?: string;
+          error?: string;
+          code?: string;
+        }>;
+      };
+      folders: {
+        list: () => Promise<{ success: boolean; folders: PersonalFolder[]; error?: string }>;
+        create: (
+          name: string,
+          instructions?: string | null
+        ) => Promise<{ success: boolean; folder?: PersonalFolder; error?: string }>;
+        rename: (
+          id: string,
+          name: string
+        ) => Promise<{ success: boolean; folder?: PersonalFolder; error?: string }>;
+        delete: (id: string) => Promise<{ success: boolean; error?: string }>;
       };
       openExternal: (url: string) => Promise<boolean>;
       showItemInFolder: (filePath: string, cwd?: string) => Promise<boolean>;

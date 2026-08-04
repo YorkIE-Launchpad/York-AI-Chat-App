@@ -705,9 +705,11 @@ export function Sidebar() {
                 ? 'No chats in Hub yet'
                 : activeDivision?.kind === 'project'
                   ? 'No chats in this project yet'
-                  : activeDivision?.kind === 'general'
-                    ? 'No chats in General yet'
-                    : t('sidebar.noTasks')}
+                  : activeDivision?.kind === 'folder'
+                    ? 'No chats in this folder yet'
+                    : activeDivision?.kind === 'general'
+                      ? 'No chats in General yet'
+                      : t('sidebar.noTasks')}
             </p>
             <p className="mt-1 text-xs leading-5 text-text-muted">{t('sidebar.noTasksHint')}</p>
           </div>

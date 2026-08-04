@@ -303,6 +303,11 @@ export class SessionManager {
       division?: SessionDivisionFields['division'];
       hubProjectId?: string | null;
       hubProjectName?: string | null;
+      launchpadProjectId?: number | null;
+      launchpadProjectName?: string | null;
+      folderId?: string | null;
+      folderName?: string | null;
+      canonicalKey?: string | null;
       incognito?: boolean;
     }
   ): Promise<Session> {
@@ -359,6 +364,11 @@ export class SessionManager {
       division?: SessionDivisionFields['division'];
       hubProjectId?: string | null;
       hubProjectName?: string | null;
+      launchpadProjectId?: number | null;
+      launchpadProjectName?: string | null;
+      folderId?: string | null;
+      folderName?: string | null;
+      canonicalKey?: string | null;
       incognito?: boolean;
     }
   ): Session {
@@ -379,6 +389,11 @@ export class SessionManager {
       division: options?.division,
       hubProjectId: options?.hubProjectId,
       hubProjectName: options?.hubProjectName,
+      launchpadProjectId: options?.launchpadProjectId,
+      launchpadProjectName: options?.launchpadProjectName,
+      folderId: options?.folderId,
+      folderName: options?.folderName,
+      canonicalKey: options?.canonicalKey,
     });
     return {
       id: uuidv4(),
@@ -406,6 +421,11 @@ export class SessionManager {
       division: divisionFields.division,
       hubProjectId: divisionFields.hubProjectId,
       hubProjectName: divisionFields.hubProjectName,
+      launchpadProjectId: divisionFields.launchpadProjectId,
+      launchpadProjectName: divisionFields.launchpadProjectName,
+      folderId: divisionFields.folderId,
+      folderName: divisionFields.folderName,
+      canonicalKey: divisionFields.canonicalKey,
       incognito: isIncognito || undefined,
       createdAt: now,
       updatedAt: now,
@@ -422,6 +442,11 @@ export class SessionManager {
       division: session.division,
       hubProjectId: session.hubProjectId,
       hubProjectName: session.hubProjectName,
+      launchpadProjectId: session.launchpadProjectId,
+      launchpadProjectName: session.launchpadProjectName,
+      folderId: session.folderId,
+      folderName: session.folderName,
+      canonicalKey: session.canonicalKey,
     });
     this.db.sessions.create({
       id: session.id,
@@ -437,6 +462,11 @@ export class SessionManager {
       division: divisionFields.division,
       hub_project_id: divisionFields.hubProjectId ?? null,
       hub_project_name: divisionFields.hubProjectName ?? null,
+      launchpad_project_id: divisionFields.launchpadProjectId ?? null,
+      launchpad_project_name: divisionFields.launchpadProjectName ?? null,
+      folder_id: divisionFields.folderId ?? null,
+      folder_name: divisionFields.folderName ?? null,
+      project_canonical_key: divisionFields.canonicalKey ?? null,
       pinned: session.pinned ? 1 : 0,
       created_at: session.createdAt,
       updated_at: session.updatedAt,
@@ -457,6 +487,11 @@ export class SessionManager {
     division?: string | null;
     hub_project_id?: string | null;
     hub_project_name?: string | null;
+    launchpad_project_id?: number | null;
+    launchpad_project_name?: string | null;
+    folder_id?: string | null;
+    folder_name?: string | null;
+    project_canonical_key?: string | null;
     pinned?: number | null;
     created_at: number;
     updated_at: number;
@@ -481,6 +516,11 @@ export class SessionManager {
       division: parseDivisionKind(row.division),
       hubProjectId: row.hub_project_id,
       hubProjectName: row.hub_project_name,
+      launchpadProjectId: row.launchpad_project_id,
+      launchpadProjectName: row.launchpad_project_name,
+      folderId: row.folder_id,
+      folderName: row.folder_name,
+      canonicalKey: row.project_canonical_key,
     });
 
     return {
@@ -497,6 +537,11 @@ export class SessionManager {
       division: divisionFields.division,
       hubProjectId: divisionFields.hubProjectId,
       hubProjectName: divisionFields.hubProjectName,
+      launchpadProjectId: divisionFields.launchpadProjectId,
+      launchpadProjectName: divisionFields.launchpadProjectName,
+      folderId: divisionFields.folderId,
+      folderName: divisionFields.folderName,
+      canonicalKey: divisionFields.canonicalKey,
       pinned: row.pinned === 1,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -551,6 +596,11 @@ export class SessionManager {
         division: payload.session.division,
         hubProjectId: payload.session.hubProjectId,
         hubProjectName: payload.session.hubProjectName,
+        launchpadProjectId: payload.session.launchpadProjectId,
+        launchpadProjectName: payload.session.launchpadProjectName,
+        folderId: payload.session.folderId,
+        folderName: payload.session.folderName,
+        canonicalKey: payload.session.canonicalKey,
       }
     );
     // Never carry exporter resume IDs; continue uses DB history preamble.

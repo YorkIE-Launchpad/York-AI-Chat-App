@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Briefcase, Building2, Layers, Loader2 } from 'lucide-react';
 import { useAppStore } from '../store';
-import type { AllocatedHubProject } from '../../shared/workspace-division';
+import type { UnifiedCompanyProject } from '../../shared/unified-company-projects';
+import {
+  activeDivisionFromUnifiedProject,
+  companyProjectSourceLabel,
+} from '../../shared/workspace-division';
 
 /**
  * Full chooser shown on Welcome when no active division is selected.
@@ -9,7 +13,7 @@ import type { AllocatedHubProject } from '../../shared/workspace-division';
 export function DivisionChooser() {
   const setActiveDivision = useAppStore((s) => s.setActiveDivision);
   const [pickingProject, setPickingProject] = useState(false);
-  const [projects, setProjects] = useState<AllocatedHubProject[]>([]);
+  const [projects, setProjects] = useState<UnifiedCompanyProject[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -17,21 +21,49 @@ export function DivisionChooser() {
     setLoading(true);
     setError(null);
     try {
-      const api = window.electronAPI?.hub;
-      if (!api?.listAllocatedProjects) {
-        setProjects([]);
-        setError('Hub allocations unavailable in this environment');
+      const api = window.electronAPI?.projects;
+      if (!api?.listUnified) {
+        // Fallback: Hub-only list when unified IPC missing
+        const hubApi = window.electronAPI?.hub;
+        if (!hubApi?.listAllocatedProjects) {
+          setProjects([]);
+          setError('Projects unavailable in this environment');
+          return;
+        }
+        const result = await hubApi.listAllocatedProjects();
+        if (!result.success) {
+          setProjects([]);
+          setError(result.error || 'Failed to load projects');
+          return;
+        }
+        setProjects(
+          (result.projects || []).map((p) => ({
+            canonicalKey: `hub:${p.id}`,
+            name: p.name,
+            sources: { hub: true },
+            hubProjectId: p.id,
+            hubProjectName: p.name,
+          }))
+        );
+        if (!(result.projects || []).length) {
+          setError('No projects found for your account');
+        }
         return;
       }
-      const result = await api.listAllocatedProjects();
-      if (!result.success) {
+      const result = await api.listUnified();
+      if (!result.success && !(result.projects || []).length) {
         setProjects([]);
         setError(result.error || 'Failed to load projects');
         return;
       }
       setProjects(result.projects || []);
+      const partial: string[] = [];
+      if (result.hubError) partial.push(`Hub: ${result.hubError}`);
+      if (result.launchpadError) partial.push(`LaunchPad: ${result.launchpadError}`);
       if (!(result.projects || []).length) {
-        setError('No project allocations found for your account');
+        setError(partial.join(' · ') || 'No projects found for your account');
+      } else if (partial.length) {
+        setError(partial.join(' · '));
       }
     } catch (err) {
       setProjects([]);
@@ -64,7 +96,7 @@ export function DivisionChooser() {
         {loading && (
           <div className="flex items-center justify-center gap-2 py-10 text-sm text-text-muted">
             <Loader2 className="h-4 w-4 animate-spin" />
-            Loading allocations…
+            Loading projects…
           </div>
         )}
         {!loading && error && projects.length === 0 && (
@@ -72,29 +104,22 @@ export function DivisionChooser() {
             {error}
           </p>
         )}
+        {!loading && error && projects.length > 0 && (
+          <p className="mb-2 text-center text-xs text-text-muted">{error}</p>
+        )}
         {!loading && projects.length > 0 && (
           <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain pr-1">
             {projects.map((project) => (
               <button
-                key={project.id}
+                key={project.canonicalKey}
                 type="button"
-                onClick={() =>
-                  setActiveDivision({
-                    kind: 'project',
-                    hubProjectId: project.id,
-                    hubProjectName: project.name,
-                  })
-                }
+                onClick={() => setActiveDivision(activeDivisionFromUnifiedProject(project))}
                 className="shrink-0 rounded-xl border border-border-subtle bg-bg-secondary px-4 py-3 text-left hover:border-accent/40 hover:bg-bg-tertiary transition-colors"
               >
                 <div className="font-medium text-text-primary">{project.name}</div>
-                {(project.title || project.hours != null) && (
-                  <div className="mt-0.5 text-xs text-text-muted">
-                    {[project.title, project.hours != null ? `${project.hours}h` : null]
-                      .filter(Boolean)
-                      .join(' · ')}
-                  </div>
-                )}
+                <div className="mt-0.5 text-xs text-text-muted">
+                  {companyProjectSourceLabel(project.sources)}
+                </div>
               </button>
             ))}
           </div>
@@ -115,7 +140,7 @@ export function DivisionChooser() {
         <ChooserCard
           icon={Layers}
           title="General"
-          description="Personal and general company use"
+          description="Personal use, folders, and your OpenRouter key"
           onClick={() => setActiveDivision({ kind: 'general' })}
         />
         <ChooserCard
@@ -127,7 +152,7 @@ export function DivisionChooser() {
         <ChooserCard
           icon={Briefcase}
           title="Project"
-          description="Scoped to one allocated project"
+          description="Hub and LaunchPad delivery projects"
           onClick={() => setPickingProject(true)}
         />
       </div>

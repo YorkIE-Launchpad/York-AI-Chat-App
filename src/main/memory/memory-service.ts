@@ -595,6 +595,11 @@ export class MemoryService {
       division?: string;
       hubProjectId?: string | null;
       hubProjectName?: string | null;
+      launchpadProjectId?: number | null;
+      launchpadProjectName?: string | null;
+      folderId?: string | null;
+      folderName?: string | null;
+      canonicalKey?: string | null;
     },
     prompt: string
   ): Promise<string> {
@@ -614,6 +619,11 @@ export class MemoryService {
         division: parseDivisionKind(session.division),
         hubProjectId: session.hubProjectId,
         hubProjectName: session.hubProjectName,
+        launchpadProjectId: session.launchpadProjectId,
+        launchpadProjectName: session.launchpadProjectName,
+        folderId: session.folderId,
+        folderName: session.folderName,
+        canonicalKey: session.canonicalKey,
       })
     );
     if (experienceContext.trim()) {
@@ -744,6 +754,11 @@ export class MemoryService {
       division: parseDivisionKind(session.division),
       hubProjectId: session.hubProjectId,
       hubProjectName: session.hubProjectName,
+      launchpadProjectId: session.launchpadProjectId,
+      launchpadProjectName: session.launchpadProjectName,
+      folderId: session.folderId,
+      folderName: session.folderName,
+      canonicalKey: session.canonicalKey,
     });
     const stateStore = this.getStateStore();
     const previousState = stateStore.get(session.id);
@@ -844,6 +859,11 @@ export class MemoryService {
         division: parseDivisionKind(session.division),
         hubProjectId: session.hubProjectId,
         hubProjectName: session.hubProjectName,
+        launchpadProjectId: session.launchpadProjectId,
+        launchpadProjectName: session.launchpadProjectName,
+        folderId: session.folderId,
+        folderName: session.folderName,
+        canonicalKey: session.canonicalKey,
       });
       const extracted = fullTurns.length
         ? await this.experienceExtractor.extractSession({
@@ -1174,6 +1194,11 @@ export class MemoryService {
       division: parseDivisionKind(row.division),
       hubProjectId: row.hub_project_id,
       hubProjectName: row.hub_project_name,
+      launchpadProjectId: row.launchpad_project_id,
+      launchpadProjectName: row.launchpad_project_name,
+      folderId: row.folder_id,
+      folderName: row.folder_name,
+      canonicalKey: row.project_canonical_key,
     });
     return {
       id: row.id,
@@ -1187,6 +1212,11 @@ export class MemoryService {
       division: divisionFields.division,
       hubProjectId: divisionFields.hubProjectId,
       hubProjectName: divisionFields.hubProjectName,
+      launchpadProjectId: divisionFields.launchpadProjectId,
+      launchpadProjectName: divisionFields.launchpadProjectName,
+      folderId: divisionFields.folderId,
+      folderName: divisionFields.folderName,
+      canonicalKey: divisionFields.canonicalKey,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       claudeSessionId: row.claude_session_id || undefined,

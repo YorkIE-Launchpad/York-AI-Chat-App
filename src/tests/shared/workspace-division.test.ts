@@ -24,7 +24,24 @@ describe('workspace-division', () => {
       division: 'general',
       hubProjectId: null,
       hubProjectName: null,
+      launchpadProjectId: null,
+      launchpadProjectName: null,
+      folderId: null,
+      folderName: null,
+      canonicalKey: null,
     });
+  });
+
+  it('keeps launchpad-only project sessions', () => {
+    const n = normalizeSessionDivision({
+      division: 'project',
+      launchpadProjectId: 9,
+      launchpadProjectName: 'Solo',
+    });
+    expect(n.division).toBe('project');
+    expect(n.launchpadProjectId).toBe(9);
+    expect(n.hubProjectId).toBeNull();
+    expect(n.canonicalKey).toBe('lp:9');
   });
 
   it('builds division memory keys', () => {
@@ -37,6 +54,16 @@ describe('workspace-division', () => {
         hubProjectName: 'Acme',
       })
     ).toBe('vecos://project/proj-1');
+    expect(
+      divisionMemoryKey({
+        division: 'project',
+        launchpadProjectId: 42,
+        launchpadProjectName: 'LP',
+      })
+    ).toBe('vecos://project/lp/42');
+    expect(divisionMemoryKey({ division: 'folder', folderId: 'f1', folderName: 'Notes' })).toBe(
+      'vecos://folder/f1'
+    );
   });
 
   it('matches sessions to active division', () => {
@@ -46,15 +73,47 @@ describe('workspace-division', () => {
     expect(
       sessionMatchesActiveDivision(
         { division: 'project', hubProjectId: 'a', hubProjectName: 'A' },
-        { kind: 'project', hubProjectId: 'a', hubProjectName: 'A' }
+        {
+          kind: 'project',
+          canonicalKey: 'hub:a',
+          name: 'A',
+          hubProjectId: 'a',
+          hubProjectName: 'A',
+          sources: { hub: true },
+        }
       )
     ).toBe(true);
     expect(
       sessionMatchesActiveDivision(
         { division: 'project', hubProjectId: 'a', hubProjectName: 'A' },
-        { kind: 'project', hubProjectId: 'b', hubProjectName: 'B' }
+        {
+          kind: 'project',
+          canonicalKey: 'hub:b',
+          name: 'B',
+          hubProjectId: 'b',
+          hubProjectName: 'B',
+          sources: { hub: true },
+        }
       )
     ).toBe(false);
+    expect(
+      sessionMatchesActiveDivision(
+        { division: 'project', launchpadProjectId: 5 },
+        {
+          kind: 'project',
+          canonicalKey: 'lp:5',
+          name: 'LP',
+          launchpadProjectId: 5,
+          sources: { launchpad: true },
+        }
+      )
+    ).toBe(true);
+    expect(
+      sessionMatchesActiveDivision(
+        { division: 'folder', folderId: 'f1' },
+        { kind: 'folder', folderId: 'f1', folderName: 'Notes' }
+      )
+    ).toBe(true);
   });
 
   it('excludes Launchpad and Pulse MCP tools in Hub division', () => {
@@ -116,6 +175,13 @@ describe('workspace-division', () => {
     expect(
       filterModelsForDivision(catalog, { division: 'general' }).map((m) => m.provider)
     ).toEqual(['openrouter']);
+    expect(
+      filterModelsForDivision(catalog, {
+        division: 'folder',
+        folderId: 'f1',
+        folderName: 'Notes',
+      }).map((m) => m.provider)
+    ).toEqual(['openrouter']);
     expect(filterModelsForDivision(catalog, { division: 'hub' })).toHaveLength(4);
     expect(
       filterModelsForDivision(catalog, {
@@ -127,6 +193,7 @@ describe('workspace-division', () => {
 
     expect(isProviderAllowedInDivision('openrouter', { division: 'general' })).toBe(true);
     expect(isProviderAllowedInDivision('anthropic', { division: 'general' })).toBe(false);
+    expect(isProviderAllowedInDivision('anthropic', { division: 'folder' })).toBe(false);
     expect(isProviderAllowedInDivision('anthropic', { division: 'hub' })).toBe(true);
     expect(isProviderAllowedInDivision('openrouter', { division: 'hub' })).toBe(true);
 

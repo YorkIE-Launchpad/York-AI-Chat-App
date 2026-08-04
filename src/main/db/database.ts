@@ -22,6 +22,14 @@ export interface DatabaseInstance {
     delete: (id: string) => void;
   };
 
+  folders: {
+    create: (folder: FolderRow) => void;
+    update: (id: string, updates: Partial<FolderRow>) => void;
+    get: (id: string) => FolderRow | undefined;
+    list: () => FolderRow[];
+    delete: (id: string) => void;
+  };
+
   // Message operations
   messages: {
     create: (message: MessageRow) => void;
@@ -91,7 +99,20 @@ export interface SessionRow {
   division: string;
   hub_project_id: string | null;
   hub_project_name: string | null;
+  launchpad_project_id: number | null;
+  launchpad_project_name: string | null;
+  folder_id: string | null;
+  folder_name: string | null;
+  project_canonical_key: string | null;
   pinned: number;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface FolderRow {
+  id: string;
+  name: string;
+  instructions: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -334,7 +355,22 @@ function initializeSchema(database: Database.Database): void {
     ensureColumn(database, 'sessions', 'division', "division TEXT NOT NULL DEFAULT 'general'");
     ensureColumn(database, 'sessions', 'hub_project_id', 'hub_project_id TEXT');
     ensureColumn(database, 'sessions', 'hub_project_name', 'hub_project_name TEXT');
+    ensureColumn(database, 'sessions', 'launchpad_project_id', 'launchpad_project_id INTEGER');
+    ensureColumn(database, 'sessions', 'launchpad_project_name', 'launchpad_project_name TEXT');
+    ensureColumn(database, 'sessions', 'folder_id', 'folder_id TEXT');
+    ensureColumn(database, 'sessions', 'folder_name', 'folder_name TEXT');
+    ensureColumn(database, 'sessions', 'project_canonical_key', 'project_canonical_key TEXT');
     ensureColumn(database, 'sessions', 'pinned', 'pinned INTEGER NOT NULL DEFAULT 0');
+
+    database.exec(`
+    CREATE TABLE IF NOT EXISTS folders (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      instructions TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
 
     // Backfill null division for rows created before the column existed
     database.exec(
@@ -639,8 +675,8 @@ export function initDatabase(): DatabaseInstance {
   // Prepare statements for better performance
   const insertSession = rawDb.prepare(`
     INSERT OR REPLACE INTO sessions
-    (id, title, claude_session_id, openai_thread_id, status, cwd, mounted_paths, allowed_tools, memory_enabled, model, division, hub_project_id, hub_project_name, pinned, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    (id, title, claude_session_id, openai_thread_id, status, cwd, mounted_paths, allowed_tools, memory_enabled, model, division, hub_project_id, hub_project_name, launchpad_project_id, launchpad_project_name, folder_id, folder_name, project_canonical_key, pinned, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   // Note: Dynamic update queries are built in sessions.update() for flexibility
@@ -764,6 +800,14 @@ export function initDatabase(): DatabaseInstance {
     SELECT * FROM matter_scans ORDER BY started_at DESC LIMIT ?
   `);
 
+  const insertFolder = rawDb.prepare(`
+    INSERT OR REPLACE INTO folders (id, name, instructions, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?)
+  `);
+  const getFolderStmt = rawDb.prepare(`SELECT * FROM folders WHERE id = ?`);
+  const listFoldersStmt = rawDb.prepare(`SELECT * FROM folders ORDER BY updated_at DESC`);
+  const deleteFolderStmt = rawDb.prepare(`DELETE FROM folders WHERE id = ?`);
+
   db = {
     raw: rawDb,
 
@@ -783,6 +827,11 @@ export function initDatabase(): DatabaseInstance {
           session.division || 'general',
           session.hub_project_id ?? null,
           session.hub_project_name ?? null,
+          session.launchpad_project_id ?? null,
+          session.launchpad_project_name ?? null,
+          session.folder_id ?? null,
+          session.folder_name ?? null,
+          session.project_canonical_key ?? null,
           session.pinned ?? 0,
           session.created_at,
           session.updated_at
@@ -828,6 +877,41 @@ export function initDatabase(): DatabaseInstance {
       delete: (id: string) => {
         // Messages will be deleted automatically due to ON DELETE CASCADE
         deleteSessionStmt.run(id);
+      },
+    },
+
+    folders: {
+      create: (folder: FolderRow) => {
+        insertFolder.run(
+          folder.id,
+          folder.name,
+          folder.instructions ?? null,
+          folder.created_at,
+          folder.updated_at
+        );
+      },
+      update: (id: string, updates: Partial<FolderRow>) => {
+        const setClauses: string[] = [];
+        const values: unknown[] = [];
+        for (const [key, value] of Object.entries(updates)) {
+          if (value !== undefined && key !== 'id') {
+            validateIdentifier(key);
+            setClauses.push(`${key} = ?`);
+            values.push(value);
+          }
+        }
+        if (setClauses.length === 0) return;
+        values.push(id);
+        rawDb.prepare(`UPDATE folders SET ${setClauses.join(', ')} WHERE id = ?`).run(...values);
+      },
+      get: (id: string): FolderRow | undefined => {
+        return getFolderStmt.get(id) as FolderRow | undefined;
+      },
+      list: (): FolderRow[] => {
+        return listFoldersStmt.all() as FolderRow[];
+      },
+      delete: (id: string) => {
+        deleteFolderStmt.run(id);
       },
     },
 

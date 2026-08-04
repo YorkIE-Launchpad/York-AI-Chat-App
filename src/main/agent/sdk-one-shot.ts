@@ -410,7 +410,7 @@ export async function runPiAiOneShot(
       ? response.errorMessage
       : '';
   if (errorMessage && isOpenRouterAccountLimitError(activeProvider, errorMessage)) {
-    if (options?.division?.division === 'general') {
+    if (options?.division?.division === 'general' || options?.division?.division === 'folder') {
       throw new Error(openRouterLimitUserMessage(false));
     }
     const rawModels = await fetchBackendModels();

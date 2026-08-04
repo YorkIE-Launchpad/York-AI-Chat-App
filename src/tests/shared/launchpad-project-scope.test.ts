@@ -1,0 +1,49 @@
+import { describe, expect, it } from 'vitest';
+import {
+  prepareLaunchpadScopedMcpArgs,
+  isLaunchpadMcpToolName,
+} from '../../shared/launchpad-project-scope';
+
+const lpSession = {
+  division: 'project' as const,
+  launchpadProjectId: 42,
+  launchpadProjectName: 'Acme LP',
+};
+
+describe('launchpad-project-scope', () => {
+  it('detects launchpad MCP tool names', () => {
+    expect(isLaunchpadMcpToolName('mcp__R_D_Launchpad__get_project')).toBe(true);
+    expect(isLaunchpadMcpToolName('mcp__Launchpad__list_features')).toBe(true);
+    expect(isLaunchpadMcpToolName('mcp__York_IE_HUB__get_project')).toBe(false);
+  });
+
+  it('passes through when no launchpad project on session', () => {
+    const prepared = prepareLaunchpadScopedMcpArgs(
+      'mcp__R_D_Launchpad__get_project',
+      { projectId: 1 },
+      { division: 'project', hubProjectId: 'h1', hubProjectName: 'H' }
+    );
+    expect(prepared).toEqual({ kind: 'allow', args: { projectId: 1 } });
+  });
+
+  it('injects locked launchpad project id', () => {
+    const prepared = prepareLaunchpadScopedMcpArgs(
+      'mcp__R_D_Launchpad__get_project',
+      {},
+      lpSession
+    );
+    expect(prepared.kind).toBe('allow');
+    if (prepared.kind === 'allow') {
+      expect(prepared.args.projectId).toBe(42);
+    }
+  });
+
+  it('blocks mismatched launchpad project id', () => {
+    const prepared = prepareLaunchpadScopedMcpArgs(
+      'mcp__R_D_Launchpad__get_project',
+      { projectId: 99 },
+      lpSession
+    );
+    expect(prepared.kind).toBe('block');
+  });
+});

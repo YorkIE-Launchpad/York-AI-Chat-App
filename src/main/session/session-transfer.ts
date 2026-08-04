@@ -39,6 +39,11 @@ export interface PortableSessionMeta {
   division?: WorkspaceDivisionKind;
   hubProjectId?: string | null;
   hubProjectName?: string | null;
+  launchpadProjectId?: number | null;
+  launchpadProjectName?: string | null;
+  folderId?: string | null;
+  folderName?: string | null;
+  canonicalKey?: string | null;
 }
 
 export interface ChatExportPayload {
@@ -108,6 +113,11 @@ export function buildPortablePayload(
       division: session.division,
       hubProjectId: session.hubProjectId ?? null,
       hubProjectName: session.hubProjectName ?? null,
+      launchpadProjectId: session.launchpadProjectId ?? null,
+      launchpadProjectName: session.launchpadProjectName ?? null,
+      folderId: session.folderId ?? null,
+      folderName: session.folderName ?? null,
+      canonicalKey: session.canonicalKey ?? null,
     },
     // Deep-clone content so export path rewrites never mutate live session cache
     messages: messages.map((m) => ({

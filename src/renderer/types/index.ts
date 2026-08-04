@@ -16,12 +16,21 @@ export interface Session {
   provider?: string;
   /** When true, session model/provider stay pinned and are not overwritten from config. */
   modelLocked?: boolean;
-  /** Workspace division: general / hub / project. Defaults to general. */
+  /** Workspace division: general / hub / project / folder. Defaults to general. */
   division?: WorkspaceDivisionKind;
   /** Hub project id when division === 'project'. */
   hubProjectId?: string | null;
   /** Hub project display name when division === 'project'. */
   hubProjectName?: string | null;
+  /** LaunchPad numeric project id when division === 'project'. */
+  launchpadProjectId?: number | null;
+  /** LaunchPad project display name. */
+  launchpadProjectName?: string | null;
+  /** Personal folder id when division === 'folder'. */
+  folderId?: string | null;
+  folderName?: string | null;
+  /** Company project canonical key (hub:… or lp:…). */
+  canonicalKey?: string | null;
   /** When true, session stays in the sidebar Pinned group. */
   pinned?: boolean;
   /** When true, chat is in-memory only and does not update long-term memory. */
@@ -572,6 +581,11 @@ export type ClientEvent =
         division?: WorkspaceDivisionKind;
         hubProjectId?: string | null;
         hubProjectName?: string | null;
+        launchpadProjectId?: number | null;
+        launchpadProjectName?: string | null;
+        folderId?: string | null;
+        folderName?: string | null;
+        canonicalKey?: string | null;
       };
     }
   | {

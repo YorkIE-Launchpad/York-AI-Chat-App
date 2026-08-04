@@ -9,11 +9,9 @@
 import { Type, type TSchema } from '@sinclair/typebox';
 import type { ToolDefinition } from '@mariozechner/pi-coding-agent';
 import type { MCPManager, MCPTool } from '../mcp/mcp-manager';
-import {
-  applyProjectScopedMcpResultFilter,
-  prepareProjectScopedMcpArgs,
-  type OnProjectScopeViolation,
-} from '../../shared/project-mcp-scope';
+import { applyProjectScopedMcpResultFilter } from '../../shared/project-mcp-scope';
+import { prepareCompanyProjectScopedMcpArgs as prepareProjectScopedMcpArgs } from '../../shared/company-project-mcp-scope';
+import type { OnProjectScopeViolation } from '../../shared/project-mcp-scope';
 import type { SessionDivisionFields } from '../../shared/workspace-division';
 import { log } from '../utils/logger';
 import { normalizeMcpToolResultForModel } from './tool-result-utils';

@@ -107,11 +107,9 @@ import {
   isProviderAllowedInDivision,
   type SessionDivisionFields,
 } from '../../shared/workspace-division';
-import {
-  applyProjectScopedMcpResultFilter,
-  prepareProjectScopedMcpArgs,
-  type OnProjectScopeViolation,
-} from '../../shared/project-mcp-scope';
+import { applyProjectScopedMcpResultFilter } from '../../shared/project-mcp-scope';
+import { prepareCompanyProjectScopedMcpArgs as prepareProjectScopedMcpArgs } from '../../shared/company-project-mcp-scope';
+import type { OnProjectScopeViolation } from '../../shared/project-mcp-scope';
 import {
   createProjectScopeViolationReporter,
   emitProjectScopeBlock,
@@ -2576,7 +2574,11 @@ This folder is for local files only. LaunchPad implement/preview and other remot
 </your_configuration>`;
 
       const divisionKind =
-        session.division === 'hub' || session.division === 'project' ? session.division : 'general';
+        session.division === 'hub' ||
+        session.division === 'project' ||
+        session.division === 'folder'
+          ? session.division
+          : 'general';
       const workspaceScopeRule =
         divisionKind === 'hub' || divisionKind === 'project'
           ? '\n13. Workspace scope: if the request is personal, general, or outside this workspace, refuse and tell the user to switch workspace in the sidebar. Do not execute off-scope tools.'
@@ -3561,8 +3563,8 @@ ${
           terminalErrorText = undefined;
           streamedText = '';
 
-          // General workspace cannot fall back to York-paid models.
-          if (session.division === 'general') {
+          // General / personal folders cannot fall back to York-paid models.
+          if (session.division === 'general' || session.division === 'folder') {
             emitTerminalError(openRouterLimitUserMessage(false));
           } else {
             const rawModels = await fetchBackendModels();

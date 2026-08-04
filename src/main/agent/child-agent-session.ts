@@ -54,11 +54,9 @@ import {
   isProviderAllowedInDivision,
   type SessionDivisionFields,
 } from '../../shared/workspace-division';
-import {
-  applyProjectScopedMcpResultFilter,
-  prepareProjectScopedMcpArgs,
-  type OnProjectScopeViolation,
-} from '../../shared/project-mcp-scope';
+import { applyProjectScopedMcpResultFilter } from '../../shared/project-mcp-scope';
+import { prepareCompanyProjectScopedMcpArgs as prepareProjectScopedMcpArgs } from '../../shared/company-project-mcp-scope';
+import type { OnProjectScopeViolation } from '../../shared/project-mcp-scope';
 import { v4 as uuidv4 } from 'uuid';
 import {
   createProjectScopeViolationReporter,
@@ -434,7 +432,7 @@ export async function runChildAgentSession(
     if (!resolved) {
       const needsOrKey = configStore.getAll().provider === 'openrouter' || modelMode === 'free';
       const blockedInGeneral =
-        input.division?.division === 'general' &&
+        (input.division?.division === 'general' || input.division?.division === 'folder') &&
         !isProviderAllowedInDivision(configStore.getAll().provider, input.division);
       return {
         text: blockedInGeneral
@@ -652,7 +650,7 @@ export async function runChildAgentSession(
           !(promptErr instanceof ParentCancelledError) &&
           isOpenRouterAccountLimitError(activeProvider, promptMessage)
         ) {
-          if (input.division?.division === 'general') {
+          if (input.division?.division === 'general' || input.division?.division === 'folder') {
             throw new Error(openRouterLimitUserMessage(false));
           }
           const rawModels = await fetchBackendModels();

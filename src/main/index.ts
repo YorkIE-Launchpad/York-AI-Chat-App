@@ -42,6 +42,8 @@ import {
   HubAllocationsError,
   listAllocatedProjects,
 } from './hub/hub-allocations';
+import { listUnifiedCompanyProjects } from './launchpad/unified-projects';
+import { createFolderManager, type FolderManager } from './folders/folder-manager';
 import { PluginCatalogService } from './skills/plugin-catalog-service';
 import { PluginRuntimeService } from './skills/plugin-runtime-service';
 import { MemoryService } from './memory/memory-service';
@@ -242,6 +244,14 @@ let meetingService: MeetingService | null = null;
 let scheduledTaskManager: ScheduledTaskManager | null = null;
 let chatLoopManager: ChatLoopManager | null = null;
 let matterService: MatterService | null = null;
+let folderManager: FolderManager | null = null;
+
+function getFolderManager(): FolderManager {
+  if (!folderManager) {
+    folderManager = createFolderManager(initDatabase());
+  }
+  return folderManager;
+}
 
 /**
  * Tool names that a spawned subagent may never invoke, regardless of what
@@ -2313,6 +2323,88 @@ ipcMain.handle('hub.listAllocatedProjects', async (_event, forceRefresh?: boolea
       success: false,
       projects: [],
       error: error instanceof Error ? error.message : 'Failed to load allocations',
+    };
+  }
+});
+
+ipcMain.handle('projects.listUnified', async (_event, forceRefresh?: boolean) => {
+  try {
+    await ensureAuthenticatedSession();
+    const result = await listUnifiedCompanyProjects({ forceRefresh: Boolean(forceRefresh) });
+    return {
+      success: true,
+      projects: result.projects,
+      hubError: result.hubError,
+      launchpadError: result.launchpadError,
+    };
+  } catch (error) {
+    if (error instanceof AuthRequiredError) {
+      return { success: false, projects: [], error: error.message, code: error.code };
+    }
+    logError('[UnifiedProjects] listUnified failed:', error);
+    return {
+      success: false,
+      projects: [],
+      error: error instanceof Error ? error.message : 'Failed to load projects',
+    };
+  }
+});
+
+ipcMain.handle('folders.list', async () => {
+  try {
+    const manager = getFolderManager();
+    return { success: true, folders: manager.list() };
+  } catch (error) {
+    logError('[Folders] list failed:', error);
+    return {
+      success: false,
+      folders: [],
+      error: error instanceof Error ? error.message : 'Failed to list folders',
+    };
+  }
+});
+
+ipcMain.handle('folders.create', async (_event, name: string, instructions?: string | null) => {
+  try {
+    const manager = getFolderManager();
+    const folder = manager.create(name, instructions);
+    return { success: true, folder };
+  } catch (error) {
+    logError('[Folders] create failed:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to create folder',
+    };
+  }
+});
+
+ipcMain.handle('folders.rename', async (_event, id: string, name: string) => {
+  try {
+    const manager = getFolderManager();
+    const folder = manager.rename(id, name);
+    if (!folder) {
+      return { success: false, error: 'Folder not found' };
+    }
+    return { success: true, folder };
+  } catch (error) {
+    logError('[Folders] rename failed:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to rename folder',
+    };
+  }
+});
+
+ipcMain.handle('folders.delete', async (_event, id: string) => {
+  try {
+    const manager = getFolderManager();
+    const deleted = manager.delete(id);
+    return { success: deleted, error: deleted ? undefined : 'Folder not found' };
+  } catch (error) {
+    logError('[Folders] delete failed:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to delete folder',
     };
   }
 });
@@ -4664,6 +4756,11 @@ async function handleClientEvent(event: ClientEvent): Promise<unknown> {
           division: event.payload.division,
           hubProjectId: event.payload.hubProjectId,
           hubProjectName: event.payload.hubProjectName,
+          launchpadProjectId: event.payload.launchpadProjectId,
+          launchpadProjectName: event.payload.launchpadProjectName,
+          folderId: event.payload.folderId,
+          folderName: event.payload.folderName,
+          canonicalKey: event.payload.canonicalKey,
           incognito: event.payload.incognito === true,
         }
       );

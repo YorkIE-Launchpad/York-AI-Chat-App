@@ -22,28 +22,12 @@ import {
 } from '../../shared/openrouter-user-key';
 import {
   filterModelsForDivision,
-  type ActiveDivision,
-  type SessionDivisionFields,
+  sessionFieldsFromActiveDivision,
 } from '../../shared/workspace-division';
 import { filterModelsForOpenRouterKey } from '../../shared/openrouter-fallback';
 import { useTranslation } from 'react-i18next';
 
 const isElectron = typeof window !== 'undefined' && window.electronAPI !== undefined;
-
-/** Map UI activeDivision to session fields for model filtering. Unset → pass-through. */
-function sessionFieldsFromActiveDivision(
-  active: ActiveDivision | null
-): Partial<SessionDivisionFields> {
-  if (!active) return { division: 'hub' };
-  if (active.kind === 'project') {
-    return {
-      division: 'project',
-      hubProjectId: active.hubProjectId,
-      hubProjectName: active.hubProjectName,
-    };
-  }
-  return { division: active.kind };
-}
 
 const PROVIDER_LABELS: Record<BackendCloudProvider, string> = {
   anthropic: 'Anthropic',
@@ -104,7 +88,7 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
   const reconcileKeyRef = useRef<string | null>(null);
 
   const hasOpenRouterKey = hasOpenRouterUserApiKey(appConfig?.openRouterUserApiKey);
-  const isGeneralDivision = activeDivision?.kind === 'general';
+  const isGeneralDivision = activeDivision?.kind === 'general' || activeDivision?.kind === 'folder';
   const divisionSession = useMemo(
     () => sessionFieldsFromActiveDivision(activeDivision),
     [activeDivision]

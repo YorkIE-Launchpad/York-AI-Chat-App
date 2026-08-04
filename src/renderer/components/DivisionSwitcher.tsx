@@ -1,8 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Briefcase, Building2, ChevronDown, Layers, Loader2 } from 'lucide-react';
+import {
+  Briefcase,
+  Building2,
+  ChevronDown,
+  FolderPlus,
+  Layers,
+  Loader2,
+  Folder,
+} from 'lucide-react';
 import { useAppStore } from '../store';
-import type { ActiveDivision, AllocatedHubProject } from '../../shared/workspace-division';
-import { divisionLabel } from '../../shared/workspace-division';
+import type { ActiveDivision, PersonalFolder } from '../../shared/workspace-division';
+import {
+  activeDivisionFromUnifiedProject,
+  companyProjectSourceLabel,
+  divisionLabel,
+} from '../../shared/workspace-division';
+import type { UnifiedCompanyProject } from '../../shared/unified-company-projects';
 
 interface DivisionSwitcherProps {
   compact?: boolean;
@@ -15,9 +28,13 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
   const setActiveDivision = useAppStore((s) => s.setActiveDivision);
   const [menuOpen, setMenuOpen] = useState(false);
   const [pickingProject, setPickingProject] = useState(false);
-  const [projects, setProjects] = useState<AllocatedHubProject[]>([]);
+  const [pickingFolder, setPickingFolder] = useState(false);
+  const [projects, setProjects] = useState<UnifiedCompanyProject[]>([]);
+  const [folders, setFolders] = useState<PersonalFolder[]>([]);
   const [loadingProjects, setLoadingProjects] = useState(false);
+  const [loadingFolders, setLoadingFolders] = useState(false);
   const [projectsError, setProjectsError] = useState<string | null>(null);
+  const [newFolderName, setNewFolderName] = useState('');
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -26,6 +43,7 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setMenuOpen(false);
         setPickingProject(false);
+        setPickingFolder(false);
       }
     };
     document.addEventListener('mousedown', onDocClick);
@@ -36,21 +54,43 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
     setLoadingProjects(true);
     setProjectsError(null);
     try {
-      const api = window.electronAPI?.hub;
-      if (!api?.listAllocatedProjects) {
-        setProjects([]);
-        setProjectsError('Hub allocations unavailable');
+      const api = window.electronAPI?.projects;
+      if (!api?.listUnified) {
+        const hubApi = window.electronAPI?.hub;
+        if (!hubApi?.listAllocatedProjects) {
+          setProjects([]);
+          setProjectsError('Projects unavailable');
+          return;
+        }
+        const result = await hubApi.listAllocatedProjects();
+        if (!result.success) {
+          setProjects([]);
+          setProjectsError(result.error || 'Failed to load projects');
+          return;
+        }
+        setProjects(
+          (result.projects || []).map((p) => ({
+            canonicalKey: `hub:${p.id}`,
+            name: p.name,
+            sources: { hub: true as const },
+            hubProjectId: p.id,
+            hubProjectName: p.name,
+          }))
+        );
+        if (!(result.projects || []).length) {
+          setProjectsError('No projects');
+        }
         return;
       }
-      const result = await api.listAllocatedProjects();
-      if (!result.success) {
-        setProjects([]);
-        setProjectsError(result.error || 'Failed to load projects');
-        return;
-      }
+      const result = await api.listUnified();
       setProjects(result.projects || []);
+      const partial: string[] = [];
+      if (result.hubError) partial.push(`Hub: ${result.hubError}`);
+      if (result.launchpadError) partial.push(`LaunchPad: ${result.launchpadError}`);
       if (!(result.projects || []).length) {
-        setProjectsError('No project allocations');
+        setProjectsError(partial.join(' · ') || result.error || 'No projects');
+      } else if (partial.length) {
+        setProjectsError(partial.join(' · '));
       }
     } catch (error) {
       setProjects([]);
@@ -60,9 +100,27 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
     }
   }, []);
 
+  const loadFolders = useCallback(async () => {
+    setLoadingFolders(true);
+    try {
+      const api = window.electronAPI?.folders;
+      if (!api?.list) {
+        setFolders([]);
+        return;
+      }
+      const result = await api.list();
+      setFolders(result.folders || []);
+    } catch {
+      setFolders([]);
+    } finally {
+      setLoadingFolders(false);
+    }
+  }, []);
+
   const selectDivision = useCallback(
     async (division: ActiveDivision) => {
       if (division.kind === 'project') {
+        setPickingFolder(false);
         setPickingProject(true);
         await loadProjects();
         return;
@@ -70,22 +128,44 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
       setActiveDivision(division);
       setMenuOpen(false);
       setPickingProject(false);
+      setPickingFolder(false);
     },
     [loadProjects, setActiveDivision]
   );
 
   const selectProject = useCallback(
-    (project: AllocatedHubProject) => {
-      setActiveDivision({
-        kind: 'project',
-        hubProjectId: project.id,
-        hubProjectName: project.name,
-      });
+    (project: UnifiedCompanyProject) => {
+      setActiveDivision(activeDivisionFromUnifiedProject(project));
       setMenuOpen(false);
       setPickingProject(false);
     },
     [setActiveDivision]
   );
+
+  const selectFolder = useCallback(
+    (folder: PersonalFolder) => {
+      setActiveDivision({
+        kind: 'folder',
+        folderId: folder.id,
+        folderName: folder.name,
+      });
+      setMenuOpen(false);
+      setPickingFolder(false);
+    },
+    [setActiveDivision]
+  );
+
+  const createFolder = useCallback(async () => {
+    const name = newFolderName.trim();
+    if (!name) return;
+    const api = window.electronAPI?.folders;
+    if (!api?.create) return;
+    const result = await api.create(name);
+    if (result.success && result.folder) {
+      setNewFolderName('');
+      selectFolder(result.folder);
+    }
+  }, [newFolderName, selectFolder]);
 
   const label = divisionLabel(activeDivision);
   const Icon =
@@ -93,7 +173,9 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
       ? Building2
       : activeDivision?.kind === 'project'
         ? Briefcase
-        : Layers;
+        : activeDivision?.kind === 'folder'
+          ? Folder
+          : Layers;
 
   return (
     <div className="relative" ref={menuRef}>
@@ -102,6 +184,7 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
         onClick={() => {
           setMenuOpen((open) => !open);
           setPickingProject(false);
+          setPickingFolder(false);
         }}
         className={`flex w-full items-center gap-2 rounded-lg border border-border bg-background text-left text-text-primary hover:bg-surface-hover transition-colors ${
           compact ? 'px-2 py-1.5 text-xs' : 'px-3 py-2 text-sm'
@@ -117,7 +200,7 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
 
       {menuOpen && (
         <div className="absolute left-0 right-0 z-40 mt-1 overflow-hidden rounded-lg border border-border bg-background shadow-lg">
-          {!pickingProject ? (
+          {!pickingProject && !pickingFolder ? (
             <div className="py-1">
               <MenuItem
                 icon={Layers}
@@ -125,6 +208,17 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
                 description="Personal use · your OpenRouter key"
                 active={activeDivision?.kind === 'general'}
                 onClick={() => void selectDivision({ kind: 'general' })}
+              />
+              <MenuItem
+                icon={Folder}
+                label="Folders"
+                description="Personal project folders · BYOK"
+                active={activeDivision?.kind === 'folder'}
+                onClick={() => {
+                  setPickingProject(false);
+                  setPickingFolder(true);
+                  void loadFolders();
+                }}
               />
               <MenuItem
                 icon={Building2}
@@ -136,10 +230,15 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
               <MenuItem
                 icon={Briefcase}
                 label="Project"
-                description="Client project · York-managed models"
+                description="Hub + LaunchPad · York-managed models"
                 active={activeDivision?.kind === 'project'}
                 onClick={() =>
-                  void selectDivision({ kind: 'project', hubProjectId: '', hubProjectName: '' })
+                  void selectDivision({
+                    kind: 'project',
+                    canonicalKey: '',
+                    name: '',
+                    sources: {},
+                  })
                 }
               />
               {allowClear && activeDivision && (
@@ -155,6 +254,66 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
                 </button>
               )}
             </div>
+          ) : pickingFolder ? (
+            <div className="max-h-72 overflow-y-auto py-1">
+              <div className="flex items-center justify-between px-3 py-2 text-xs text-text-muted">
+                <button
+                  type="button"
+                  className="hover:text-text-primary"
+                  onClick={() => setPickingFolder(false)}
+                >
+                  ← Back
+                </button>
+                <span>Personal folders</span>
+              </div>
+              <div className="flex gap-1 px-3 pb-2">
+                <input
+                  type="text"
+                  value={newFolderName}
+                  onChange={(e) => setNewFolderName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') void createFolder();
+                  }}
+                  placeholder="New folder name"
+                  className="min-w-0 flex-1 rounded border border-border bg-bg-secondary px-2 py-1 text-xs text-text-primary"
+                />
+                <button
+                  type="button"
+                  onClick={() => void createFolder()}
+                  className="shrink-0 rounded border border-border px-2 py-1 text-xs text-text-primary hover:bg-bg-secondary"
+                  title="Create folder"
+                >
+                  <FolderPlus className="h-3.5 w-3.5" />
+                </button>
+              </div>
+              {loadingFolders && (
+                <div className="flex items-center gap-2 px-3 py-3 text-xs text-text-muted">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Loading…
+                </div>
+              )}
+              {!loadingFolders &&
+                folders.map((folder) => (
+                  <button
+                    key={folder.id}
+                    type="button"
+                    className={`w-full px-3 py-2 text-left hover:bg-bg-secondary ${
+                      activeDivision?.kind === 'folder' && activeDivision.folderId === folder.id
+                        ? 'bg-bg-secondary'
+                        : ''
+                    }`}
+                    onClick={() => selectFolder(folder)}
+                  >
+                    <div className="truncate text-sm font-medium text-text-primary">
+                      {folder.name}
+                    </div>
+                    <div className="truncate text-xs text-text-muted">OpenRouter / your keys</div>
+                  </button>
+                ))}
+              {!loadingFolders && folders.length === 0 && (
+                <p className="px-3 py-3 text-xs text-text-muted">No folders yet</p>
+              )}
+            </div>
           ) : (
             <div className="max-h-64 overflow-y-auto py-1">
               <div className="flex items-center justify-between px-3 py-2 text-xs text-text-muted">
@@ -165,7 +324,7 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
                 >
                   ← Back
                 </button>
-                <span>Allocated projects</span>
+                <span>Company projects</span>
               </div>
               {loadingProjects && (
                 <div className="flex items-center gap-2 px-3 py-3 text-xs text-text-muted">
@@ -176,14 +335,17 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
               {!loadingProjects && projectsError && projects.length === 0 && (
                 <p className="px-3 py-3 text-xs text-text-muted">{projectsError}</p>
               )}
+              {!loadingProjects && projectsError && projects.length > 0 && (
+                <p className="px-3 py-1 text-xs text-text-muted">{projectsError}</p>
+              )}
               {!loadingProjects &&
                 projects.map((project) => (
                   <button
-                    key={project.id}
+                    key={project.canonicalKey}
                     type="button"
                     className={`w-full px-3 py-2 text-left hover:bg-bg-secondary ${
                       activeDivision?.kind === 'project' &&
-                      activeDivision.hubProjectId === project.id
+                      activeDivision.canonicalKey === project.canonicalKey
                         ? 'bg-bg-secondary'
                         : ''
                     }`}
@@ -192,13 +354,9 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
                     <div className="truncate text-sm font-medium text-text-primary">
                       {project.name}
                     </div>
-                    {project.title || project.hours != null ? (
-                      <div className="truncate text-xs text-text-muted">
-                        {[project.title, project.hours != null ? `${project.hours}h` : null]
-                          .filter(Boolean)
-                          .join(' · ')}
-                      </div>
-                    ) : null}
+                    <div className="truncate text-xs text-text-muted">
+                      {companyProjectSourceLabel(project.sources)}
+                    </div>
                   </button>
                 ))}
             </div>
