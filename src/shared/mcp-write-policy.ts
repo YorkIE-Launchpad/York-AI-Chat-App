@@ -36,6 +36,7 @@ export const MCP_FIRST_PARTY_READ_TOOLS: ReadonlySet<string> = new Set([
   'mcp__google_drive__list_files',
   'mcp__google_drive__get_file_metadata',
   'mcp__google_drive__get_document_content',
+  'mcp__google_drive__get_spreadsheet_values',
   // Google Calendar
   'mcp__google_calendar__list_events',
   'mcp__google_calendar__search_events',
@@ -82,6 +83,8 @@ const KNOWN_WRITE_LEAVES: ReadonlySet<string> = new Set([
   'create_document',
   'update_document_content',
   'create_folder',
+  'create_spreadsheet',
+  'update_spreadsheet_values',
   'create_event',
   'update_event',
   'delete_event',

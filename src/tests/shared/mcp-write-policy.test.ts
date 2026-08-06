@@ -39,6 +39,9 @@ describe('mcp-write-policy', () => {
       expect(classifyMcpToolAccess('mcp__Slack__post_message')).toBe('write');
       expect(classifyMcpToolAccess('mcp__Gmail__send_email')).toBe('write');
       expect(classifyMcpToolAccess('mcp__Google_Calendar__create_event')).toBe('write');
+      expect(classifyMcpToolAccess('mcp__Google_Drive__create_spreadsheet')).toBe('write');
+      expect(classifyMcpToolAccess('mcp__Google_Drive__update_spreadsheet_values')).toBe('write');
+      expect(classifyMcpToolAccess('mcp__Google_Drive__get_spreadsheet_values')).toBe('read');
       expect(classifyMcpToolAccess('mcp__Jira__createJiraIssue')).toBe('write');
       expect(classifyMcpToolAccess('mcp__Confluence__updateConfluencePage')).toBe('write');
     });

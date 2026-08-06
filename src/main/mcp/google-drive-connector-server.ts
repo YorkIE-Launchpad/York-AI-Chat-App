@@ -6,6 +6,7 @@ if (!accessToken) {
 }
 
 const DOCS_MIME = 'application/vnd.google-apps.document';
+const SHEETS_MIME = 'application/vnd.google-apps.spreadsheet';
 const FOLDER_MIME = 'application/vnd.google-apps.folder';
 
 type DriveFetchOptions = {
@@ -33,7 +34,7 @@ function formatDriveError(status: number, message: string, context: string): Err
     lower.includes('request had insufficient authentication scopes')
   ) {
     return new Error(
-      `${context} failed because the Google connector needs to be reconnected with Drive/Docs write access.`
+      `${context} failed because the Google connector needs to be reconnected with Drive/Docs/Sheets write access.`
     );
   }
   return new Error(`${context} failed: ${message || 'unknown_error'}`);
@@ -192,6 +193,71 @@ async function replaceDocumentText(documentId: string, text: string): Promise<vo
   );
 }
 
+/** Parse a 2D array of cell values from tool args (numbers/booleans accepted as strings). */
+function parseSheetValues(value: unknown): string[][] {
+  if (!Array.isArray(value)) {
+    throw new Error('values must be a 2D array of cell values (rows of columns).');
+  }
+  return value.map((row, rowIndex) => {
+    if (!Array.isArray(row)) {
+      throw new Error(`values[${rowIndex}] must be an array of cell values.`);
+    }
+    return row.map((cell) => {
+      if (cell === null || cell === undefined) return '';
+      if (typeof cell === 'string') return cell;
+      if (typeof cell === 'number' || typeof cell === 'boolean') return String(cell);
+      throw new Error(`values[${rowIndex}] contains a non-scalar cell value.`);
+    });
+  });
+}
+
+async function updateSpreadsheetValues(
+  spreadsheetId: string,
+  range: string,
+  values: string[][],
+  valueInputOption: string
+): Promise<Record<string, unknown>> {
+  const url = new URL(
+    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}/values/${encodeURIComponent(range)}`
+  );
+  url.searchParams.set('valueInputOption', valueInputOption);
+  return fetchJson(url.toString(), {
+    method: 'PUT',
+    body: {
+      range,
+      majorDimension: 'ROWS',
+      values,
+    },
+  });
+}
+
+async function getSpreadsheetValues(
+  spreadsheetId: string,
+  range: string
+): Promise<Record<string, unknown>> {
+  const url = new URL(
+    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}/values/${encodeURIComponent(range)}`
+  );
+  return fetchJson(url.toString());
+}
+
+async function firstSheetTitle(spreadsheetId: string): Promise<string> {
+  const payload = await fetchJson(
+    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}?fields=sheets.properties.title`
+  );
+  const sheets = Array.isArray(payload.sheets) ? payload.sheets : [];
+  for (const sheet of sheets) {
+    if (!sheet || typeof sheet !== 'object') continue;
+    const properties = (sheet as { properties?: unknown }).properties;
+    if (!properties || typeof properties !== 'object') continue;
+    const title = (properties as { title?: unknown }).title;
+    if (typeof title === 'string' && title.trim()) {
+      return title.trim();
+    }
+  }
+  return 'Sheet1';
+}
+
 async function main() {
   await startConnectorMcpServer({
     serverName: 'google-drive-connector-server',
@@ -231,7 +297,8 @@ async function main() {
       },
       {
         name: 'get_document_content',
-        description: 'Fetch a Google Doc or Drive file textual content.',
+        description:
+          'Fetch textual content for a Google Doc (plain text), Google Sheet (CSV), or other Drive file.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -267,6 +334,75 @@ async function main() {
             body: { type: 'string', description: 'New plain-text document body.' },
           },
           required: ['file_id', 'body'],
+        },
+      },
+      {
+        name: 'create_spreadsheet',
+        description:
+          'Create a Google Sheet. Optional initial 2D values written to the first sheet. Requires user approval. Prefer this over local xlsx when the user wants a Google Sheet.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            title: { type: 'string', description: 'Spreadsheet title.' },
+            values: {
+              type: 'array',
+              description:
+                'Optional initial rows of cell values (2D array). Written starting at A1 on the first sheet.',
+              items: {
+                type: 'array',
+                items: { type: 'string' },
+              },
+            },
+            parent_folder_id: {
+              type: 'string',
+              description: 'Optional parent folder id.',
+            },
+          },
+          required: ['title'],
+        },
+      },
+      {
+        name: 'get_spreadsheet_values',
+        description: 'Read cell values from a Google Sheet by file id and A1 range.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            file_id: { type: 'string', description: 'Google Sheet file id.' },
+            range: {
+              type: 'string',
+              description:
+                'A1 notation range (e.g. "Sheet1!A1:D10" or "A1:D10"). Defaults to the first sheet.',
+            },
+          },
+          required: ['file_id'],
+        },
+      },
+      {
+        name: 'update_spreadsheet_values',
+        description:
+          'Write cell values to a Google Sheet range (overwrites). Requires user approval.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            file_id: { type: 'string', description: 'Google Sheet file id.' },
+            range: {
+              type: 'string',
+              description: 'A1 notation range to write (e.g. "Sheet1!A1" or "A1").',
+            },
+            values: {
+              type: 'array',
+              description: 'Rows of cell values (2D array).',
+              items: {
+                type: 'array',
+                items: { type: 'string' },
+              },
+            },
+            value_input_option: {
+              type: 'string',
+              description: 'USER_ENTERED (default) or RAW.',
+            },
+          },
+          required: ['file_id', 'range', 'values'],
         },
       },
       {
@@ -378,6 +514,10 @@ async function main() {
           body = await fetchText(
             `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}/export?mimeType=text/plain`
           );
+        } else if (mimeType === SHEETS_MIME) {
+          body = await fetchText(
+            `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}/export?mimeType=text/csv`
+          );
         } else {
           body = await fetchText(
             `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`
@@ -447,6 +587,110 @@ async function main() {
           file_id: fileId,
           name: typeof metadata.name === 'string' ? metadata.name : null,
           web_view_link: typeof metadata.webViewLink === 'string' ? metadata.webViewLink : null,
+        };
+      },
+      create_spreadsheet: async (args) => {
+        const title = optionalString(args.title);
+        if (!title) {
+          throw new Error('Spreadsheet title is required.');
+        }
+        const parentFolderId = optionalString(args.parent_folder_id);
+        const createBody: Record<string, unknown> = {
+          name: title,
+          mimeType: SHEETS_MIME,
+        };
+        if (parentFolderId) {
+          createBody.parents = [parentFolderId];
+        }
+        const created = await fetchJson(
+          'https://www.googleapis.com/drive/v3/files?fields=id,name,webViewLink,mimeType',
+          {
+            method: 'POST',
+            body: createBody,
+          }
+        );
+        const fileId = typeof created.id === 'string' ? created.id : '';
+        if (!fileId) {
+          throw new Error('Drive API did not return a file id for the new spreadsheet.');
+        }
+        let updatedRange: string | null = null;
+        if (args.values !== undefined && args.values !== null) {
+          const values = parseSheetValues(args.values);
+          if (values.length > 0) {
+            const result = await updateSpreadsheetValues(fileId, 'A1', values, 'USER_ENTERED');
+            updatedRange = typeof result.updatedRange === 'string' ? result.updatedRange : 'A1';
+          }
+        }
+        return {
+          ok: true,
+          file_id: fileId,
+          name: typeof created.name === 'string' ? created.name : title,
+          web_view_link: typeof created.webViewLink === 'string' ? created.webViewLink : null,
+          updated_range: updatedRange,
+        };
+      },
+      get_spreadsheet_values: async (args) => {
+        const fileId = optionalString(args.file_id);
+        if (!fileId) {
+          throw new Error('file_id is required.');
+        }
+        const metadata = await fetchJson(
+          `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?fields=id,name,mimeType,webViewLink`
+        );
+        if (String(metadata.mimeType || '') !== SHEETS_MIME) {
+          throw new Error('get_spreadsheet_values only supports Google Sheets files.');
+        }
+        const range = optionalString(args.range) || (await firstSheetTitle(fileId));
+        const payload = await getSpreadsheetValues(fileId, range);
+        const values = Array.isArray(payload.values) ? payload.values : [];
+        return buildEnvelope({
+          externalId: `drive:sheet:${fileId}:${range}`,
+          title: String(metadata.name || fileId),
+          summary: `Fetched spreadsheet values for ${String(metadata.name || fileId)} (${range})`,
+          body: JSON.stringify(
+            {
+              range: typeof payload.range === 'string' ? payload.range : range,
+              values,
+              web_view_link: typeof metadata.webViewLink === 'string' ? metadata.webViewLink : null,
+            },
+            null,
+            2
+          ),
+          occurredAt: Date.now(),
+          keywords: ['drive', 'spreadsheet', String(metadata.name || fileId)],
+        });
+      },
+      update_spreadsheet_values: async (args) => {
+        const fileId = optionalString(args.file_id);
+        if (!fileId) {
+          throw new Error('file_id is required.');
+        }
+        const range = optionalString(args.range);
+        if (!range) {
+          throw new Error('range is required.');
+        }
+        const values = parseSheetValues(args.values);
+        const valueInputOption =
+          optionalString(args.value_input_option).toUpperCase() || 'USER_ENTERED';
+        if (valueInputOption !== 'USER_ENTERED' && valueInputOption !== 'RAW') {
+          throw new Error('value_input_option must be USER_ENTERED or RAW.');
+        }
+        const metadata = await fetchJson(
+          `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?fields=id,name,mimeType,webViewLink`
+        );
+        if (String(metadata.mimeType || '') !== SHEETS_MIME) {
+          throw new Error('update_spreadsheet_values only supports Google Sheets files.');
+        }
+        const result = await updateSpreadsheetValues(fileId, range, values, valueInputOption);
+        return {
+          ok: true,
+          file_id: fileId,
+          name: typeof metadata.name === 'string' ? metadata.name : null,
+          web_view_link: typeof metadata.webViewLink === 'string' ? metadata.webViewLink : null,
+          updated_range: typeof result.updatedRange === 'string' ? result.updatedRange : range,
+          updated_rows: typeof result.updatedRows === 'number' ? result.updatedRows : values.length,
+          updated_columns: typeof result.updatedColumns === 'number' ? result.updatedColumns : null,
+          updated_cells: typeof result.updatedCells === 'number' ? result.updatedCells : null,
         };
       },
       create_folder: async (args) => {

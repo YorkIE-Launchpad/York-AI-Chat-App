@@ -118,6 +118,9 @@ describe('permission-rules-store', () => {
       expect(decidePermission(SESSION_A, 'mcp__Google_Drive__get_document_content', {})).toBe(
         'allow'
       );
+      expect(decidePermission(SESSION_A, 'mcp__Google_Drive__get_spreadsheet_values', {})).toBe(
+        'allow'
+      );
       expect(decidePermission(SESSION_A, 'mcp__Jira__getJiraIssue', {})).toBe('allow');
       expect(decidePermission(SESSION_A, 'mcp__Jira__searchJiraIssuesUsingJql', {})).toBe('allow');
       expect(decidePermission(SESSION_A, 'mcp__Jira__atlassianUserInfo', {})).toBe('allow');
@@ -157,6 +160,18 @@ describe('permission-rules-store', () => {
       ).toBe('ask');
       expect(
         decidePermission(SESSION_A, 'mcp__Google_Drive__create_folder', { name: 'Folder' })
+      ).toBe('ask');
+      expect(
+        decidePermission(SESSION_A, 'mcp__Google_Drive__create_spreadsheet', {
+          title: 'Budget',
+        })
+      ).toBe('ask');
+      expect(
+        decidePermission(SESSION_A, 'mcp__Google_Drive__update_spreadsheet_values', {
+          file_id: 'sheet1',
+          range: 'A1',
+          values: [['a']],
+        })
       ).toBe('ask');
       expect(
         decidePermission(SESSION_A, 'mcp__Google_Calendar__create_event', {

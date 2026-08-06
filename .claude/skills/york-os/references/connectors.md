@@ -59,11 +59,14 @@ tool names.
 
 ## Google Drive
 
-| Tools                                             | Join keys out                | Typical next           |
-| ------------------------------------------------- | ---------------------------- | ---------------------- |
-| `search_files`, `list_files`, `get_file_metadata` | **file_id**, `web_view_link` | `get_document_content` |
-| `get_document_content`                            | doc text                     | synthesize             |
-| create/update/folder                              | (write — ask)                | only when user asks    |
+| Tools                                             | Join keys out                | Typical next        |
+| ------------------------------------------------- | ---------------------------- | ------------------- |
+| `search_files`, `list_files`, `get_file_metadata` | **file_id**, `web_view_link` | content tools       |
+| `get_document_content`                            | doc text / sheet CSV         | synthesize          |
+| `get_spreadsheet_values`                          | cell `values` (2D)           | synthesize / update |
+| create/update doc, create/update sheet, folder    | (write — ask)                | only when user asks |
+
+Prefer `create_spreadsheet` / `update_spreadsheet_values` when the user wants a **Google Sheet**. Use the local xlsx skill only for a local `.xlsx` file.
 
 ## Google Calendar
 

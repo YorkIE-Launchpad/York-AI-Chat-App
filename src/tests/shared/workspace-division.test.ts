@@ -148,6 +148,13 @@ describe('workspace-division', () => {
     expect(hubPrompt).toContain('OUT OF SCOPE (REFUSE)');
     expect(hubPrompt).toContain('switch to General');
     expect(hubPrompt).toContain('Hub client/project records and allocations ARE in scope');
+    expect(hubPrompt).toContain('export or save Hub analysis/results to local files');
+    expect(hubPrompt).toContain('CSV');
+    expect(hubPrompt).toContain('outputs/');
+    expect(hubPrompt).toContain(
+      'Do not refuse file exports that contain Hub data the user requested'
+    );
+    expect(hubPrompt).not.toContain('unrelated file work');
 
     const projectPrompt = buildDivisionSystemPrompt({
       division: 'project',
