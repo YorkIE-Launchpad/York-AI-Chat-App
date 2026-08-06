@@ -135,6 +135,8 @@ describe('permission-rules-store', () => {
       expect(decidePermission(SESSION_A, 'mcp__Google_Calendar__list_events', {})).toBe('allow');
       expect(decidePermission(SESSION_A, 'mcp__Google_Calendar__search_events', {})).toBe('allow');
       expect(decidePermission(SESSION_A, 'mcp__Google_Calendar__get_event', {})).toBe('allow');
+      expect(decidePermission(SESSION_A, 'mcp__Google_Calendar__list_calendars', {})).toBe('allow');
+      expect(decidePermission(SESSION_A, 'mcp__Google_Calendar__query_freebusy', {})).toBe('allow');
     });
 
     it('returns ask for Slack and Gmail write tools by default', () => {
@@ -146,6 +148,16 @@ describe('permission-rules-store', () => {
       expect(
         decidePermission(SESSION_A, 'mcp__Gmail__update_draft', { draft_id: 'r1', body: 'hi' })
       ).toBe('ask');
+      expect(decidePermission(SESSION_A, 'mcp__Gmail__send_draft', { draft_id: 'd1' })).toBe('ask');
+      expect(
+        decidePermission(SESSION_A, 'mcp__Gmail__modify_email_labels', {
+          message_id: 'm1',
+          remove_label_ids: ['INBOX'],
+        })
+      ).toBe('ask');
+      expect(decidePermission(SESSION_A, 'mcp__Gmail__trash_email', { message_id: 'm1' })).toBe(
+        'ask'
+      );
     });
 
     it('returns ask for Drive and Calendar write tools by default', () => {
@@ -174,6 +186,58 @@ describe('permission-rules-store', () => {
         })
       ).toBe('ask');
       expect(
+        decidePermission(SESSION_A, 'mcp__Google_Drive__append_spreadsheet_values', {
+          file_id: 'sheet1',
+          range: 'A1',
+          values: [['b']],
+        })
+      ).toBe('ask');
+      expect(
+        decidePermission(SESSION_A, 'mcp__Google_Drive__clear_spreadsheet_values', {
+          file_id: 'sheet1',
+          range: 'A1:B2',
+        })
+      ).toBe('ask');
+      expect(
+        decidePermission(SESSION_A, 'mcp__Google_Drive__add_sheet', {
+          file_id: 'sheet1',
+          title: 'Q2',
+        })
+      ).toBe('ask');
+      expect(
+        decidePermission(SESSION_A, 'mcp__Google_Drive__append_document_content', {
+          file_id: 'doc1',
+          body: 'more',
+        })
+      ).toBe('ask');
+      expect(
+        decidePermission(SESSION_A, 'mcp__Google_Drive__rename_file', {
+          file_id: 'f1',
+          name: 'New',
+        })
+      ).toBe('ask');
+      expect(
+        decidePermission(SESSION_A, 'mcp__Google_Drive__move_file', {
+          file_id: 'f1',
+          parent_folder_id: 'folder1',
+        })
+      ).toBe('ask');
+      expect(decidePermission(SESSION_A, 'mcp__Google_Drive__trash_file', { file_id: 'f1' })).toBe(
+        'ask'
+      );
+      expect(
+        decidePermission(SESSION_A, 'mcp__Google_Drive__share_file', {
+          file_id: 'f1',
+          email: 'a@york.ie',
+        })
+      ).toBe('ask');
+      expect(
+        decidePermission(SESSION_A, 'mcp__Google_Drive__upload_file', {
+          name: 'notes.txt',
+          content: 'hi',
+        })
+      ).toBe('ask');
+      expect(
         decidePermission(SESSION_A, 'mcp__Google_Calendar__create_event', {
           summary: 'Sync',
           start: '2026-08-01T10:00:00Z',
@@ -185,6 +249,12 @@ describe('permission-rules-store', () => {
       ).toBe('ask');
       expect(
         decidePermission(SESSION_A, 'mcp__Google_Calendar__delete_event', { event_id: 'evt1' })
+      ).toBe('ask');
+      expect(
+        decidePermission(SESSION_A, 'mcp__Google_Calendar__respond_to_event', {
+          event_id: 'evt1',
+          response_status: 'accepted',
+        })
       ).toBe('ask');
     });
 

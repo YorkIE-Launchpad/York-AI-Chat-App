@@ -38,9 +38,24 @@ describe('mcp-write-policy', () => {
     it('classifies first-party writes as write', () => {
       expect(classifyMcpToolAccess('mcp__Slack__post_message')).toBe('write');
       expect(classifyMcpToolAccess('mcp__Gmail__send_email')).toBe('write');
+      expect(classifyMcpToolAccess('mcp__Gmail__send_draft')).toBe('write');
+      expect(classifyMcpToolAccess('mcp__Gmail__modify_email_labels')).toBe('write');
+      expect(classifyMcpToolAccess('mcp__Gmail__trash_email')).toBe('write');
       expect(classifyMcpToolAccess('mcp__Google_Calendar__create_event')).toBe('write');
+      expect(classifyMcpToolAccess('mcp__Google_Calendar__respond_to_event')).toBe('write');
+      expect(classifyMcpToolAccess('mcp__Google_Calendar__list_calendars')).toBe('read');
+      expect(classifyMcpToolAccess('mcp__Google_Calendar__query_freebusy')).toBe('read');
       expect(classifyMcpToolAccess('mcp__Google_Drive__create_spreadsheet')).toBe('write');
       expect(classifyMcpToolAccess('mcp__Google_Drive__update_spreadsheet_values')).toBe('write');
+      expect(classifyMcpToolAccess('mcp__Google_Drive__append_spreadsheet_values')).toBe('write');
+      expect(classifyMcpToolAccess('mcp__Google_Drive__clear_spreadsheet_values')).toBe('write');
+      expect(classifyMcpToolAccess('mcp__Google_Drive__add_sheet')).toBe('write');
+      expect(classifyMcpToolAccess('mcp__Google_Drive__append_document_content')).toBe('write');
+      expect(classifyMcpToolAccess('mcp__Google_Drive__rename_file')).toBe('write');
+      expect(classifyMcpToolAccess('mcp__Google_Drive__move_file')).toBe('write');
+      expect(classifyMcpToolAccess('mcp__Google_Drive__trash_file')).toBe('write');
+      expect(classifyMcpToolAccess('mcp__Google_Drive__share_file')).toBe('write');
+      expect(classifyMcpToolAccess('mcp__Google_Drive__upload_file')).toBe('write');
       expect(classifyMcpToolAccess('mcp__Google_Drive__get_spreadsheet_values')).toBe('read');
       expect(classifyMcpToolAccess('mcp__Jira__createJiraIssue')).toBe('write');
       expect(classifyMcpToolAccess('mcp__Confluence__updateConfluencePage')).toBe('write');

@@ -10,7 +10,7 @@ const SHEETS_MIME = 'application/vnd.google-apps.spreadsheet';
 const FOLDER_MIME = 'application/vnd.google-apps.folder';
 
 type DriveFetchOptions = {
-  method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
+  method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
   body?: unknown;
 };
 
@@ -231,6 +231,40 @@ async function updateSpreadsheetValues(
   });
 }
 
+async function appendSpreadsheetValues(
+  spreadsheetId: string,
+  range: string,
+  values: string[][],
+  valueInputOption: string
+): Promise<Record<string, unknown>> {
+  const url = new URL(
+    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}/values/${encodeURIComponent(range)}:append`
+  );
+  url.searchParams.set('valueInputOption', valueInputOption);
+  url.searchParams.set('insertDataOption', 'INSERT_ROWS');
+  return fetchJson(url.toString(), {
+    method: 'POST',
+    body: {
+      range,
+      majorDimension: 'ROWS',
+      values,
+    },
+  });
+}
+
+async function clearSpreadsheetValues(
+  spreadsheetId: string,
+  range: string
+): Promise<Record<string, unknown>> {
+  return fetchJson(
+    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}/values/${encodeURIComponent(range)}:clear`,
+    {
+      method: 'POST',
+      body: {},
+    }
+  );
+}
+
 async function getSpreadsheetValues(
   spreadsheetId: string,
   range: string
@@ -256,6 +290,124 @@ async function firstSheetTitle(spreadsheetId: string): Promise<string> {
     }
   }
   return 'Sheet1';
+}
+
+async function appendDocumentText(documentId: string, text: string): Promise<void> {
+  const doc = await fetchJson(
+    `https://docs.googleapis.com/v1/documents/${encodeURIComponent(documentId)}`
+  );
+  // Insert before the trailing newline so content stays inside the body.
+  const endIndex = Math.max(1, endIndexOfDocument(doc) - 1);
+  await fetchJson(
+    `https://docs.googleapis.com/v1/documents/${encodeURIComponent(documentId)}:batchUpdate`,
+    {
+      method: 'POST',
+      body: {
+        requests: [
+          {
+            insertText: {
+              location: { index: endIndex },
+              text,
+            },
+          },
+        ],
+      },
+    }
+  );
+}
+
+function resolveValueInputOption(value: unknown): string {
+  const option = optionalString(value).toUpperCase() || 'USER_ENTERED';
+  if (option !== 'USER_ENTERED' && option !== 'RAW') {
+    throw new Error('value_input_option must be USER_ENTERED or RAW.');
+  }
+  return option;
+}
+
+async function assertSpreadsheet(
+  fileId: string
+): Promise<{ name: string | null; webViewLink: string | null }> {
+  const metadata = await fetchJson(
+    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?fields=id,name,mimeType,webViewLink`
+  );
+  if (String(metadata.mimeType || '') !== SHEETS_MIME) {
+    throw new Error('This tool only supports Google Sheets files.');
+  }
+  return {
+    name: typeof metadata.name === 'string' ? metadata.name : null,
+    webViewLink: typeof metadata.webViewLink === 'string' ? metadata.webViewLink : null,
+  };
+}
+
+async function assertDocument(
+  fileId: string
+): Promise<{ name: string | null; webViewLink: string | null }> {
+  const metadata = await fetchJson(
+    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?fields=id,name,mimeType,webViewLink`
+  );
+  if (String(metadata.mimeType || '') !== DOCS_MIME) {
+    throw new Error('This tool only supports Google Docs files.');
+  }
+  return {
+    name: typeof metadata.name === 'string' ? metadata.name : null,
+    webViewLink: typeof metadata.webViewLink === 'string' ? metadata.webViewLink : null,
+  };
+}
+
+async function uploadDriveFile(input: {
+  name: string;
+  mimeType: string;
+  parentFolderId?: string;
+  contentBytes: Buffer;
+}): Promise<Record<string, unknown>> {
+  const metadata: Record<string, unknown> = {
+    name: input.name,
+  };
+  if (input.parentFolderId) {
+    metadata.parents = [input.parentFolderId];
+  }
+  const boundary = `york_drive_${Date.now().toString(36)}`;
+  const metaPart = Buffer.from(
+    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n`,
+    'utf8'
+  );
+  const bodyHeader = Buffer.from(
+    `--${boundary}\r\nContent-Type: ${input.mimeType}\r\n\r\n`,
+    'utf8'
+  );
+  const bodyFooter = Buffer.from(`\r\n--${boundary}--`, 'utf8');
+  const body = Buffer.concat([metaPart, bodyHeader, input.contentBytes, bodyFooter]);
+
+  const response = await fetch(
+    'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink,mimeType',
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': `multipart/related; boundary=${boundary}`,
+      },
+      body,
+    }
+  );
+  const rawText = await response.text();
+  let payload: Record<string, unknown> = {};
+  if (rawText.trim()) {
+    try {
+      payload = JSON.parse(rawText) as Record<string, unknown>;
+    } catch {
+      throw formatDriveError(
+        response.status,
+        rawText || response.statusText || 'Drive upload failed',
+        'Drive API request'
+      );
+    }
+  }
+  if (!response.ok) {
+    const error = payload.error as { message?: string } | undefined;
+    const message = error?.message || response.statusText || 'Drive upload failed';
+    throw formatDriveError(response.status, message, 'Drive API request');
+  }
+  return payload;
 }
 
 async function main() {
@@ -412,6 +564,170 @@ async function main() {
           type: 'object',
           properties: {
             name: { type: 'string', description: 'Folder name.' },
+            parent_folder_id: {
+              type: 'string',
+              description: 'Optional parent folder id.',
+            },
+          },
+          required: ['name'],
+        },
+      },
+      {
+        name: 'append_spreadsheet_values',
+        description:
+          'Append rows to a Google Sheet (inserts after existing data). Requires user approval.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            file_id: { type: 'string', description: 'Google Sheet file id.' },
+            range: {
+              type: 'string',
+              description:
+                'A1 notation range indicating the sheet/area to append into (e.g. "Sheet1!A:D" or "A1").',
+            },
+            values: {
+              type: 'array',
+              description: 'Rows of cell values (2D array) to append.',
+              items: {
+                type: 'array',
+                items: { type: 'string' },
+              },
+            },
+            value_input_option: {
+              type: 'string',
+              description: 'USER_ENTERED (default) or RAW.',
+            },
+          },
+          required: ['file_id', 'range', 'values'],
+        },
+      },
+      {
+        name: 'clear_spreadsheet_values',
+        description: 'Clear cell values in a Google Sheet range. Requires user approval.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            file_id: { type: 'string', description: 'Google Sheet file id.' },
+            range: {
+              type: 'string',
+              description: 'A1 notation range to clear (e.g. "Sheet1!A1:D10").',
+            },
+          },
+          required: ['file_id', 'range'],
+        },
+      },
+      {
+        name: 'add_sheet',
+        description:
+          'Add a new tab (sheet) to an existing Google Spreadsheet. Requires user approval.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            file_id: { type: 'string', description: 'Google Sheet file id.' },
+            title: { type: 'string', description: 'Title for the new sheet tab.' },
+          },
+          required: ['file_id', 'title'],
+        },
+      },
+      {
+        name: 'append_document_content',
+        description:
+          'Append plain text to the end of a Google Doc body (does not replace existing content). Requires user approval.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            file_id: { type: 'string', description: 'Google Doc file id.' },
+            body: { type: 'string', description: 'Plain text to append.' },
+          },
+          required: ['file_id', 'body'],
+        },
+      },
+      {
+        name: 'rename_file',
+        description:
+          'Rename a Google Drive file. May fail for files not created/opened by this app (drive.file scope). Requires user approval.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            file_id: { type: 'string' },
+            name: { type: 'string', description: 'New file name.' },
+          },
+          required: ['file_id', 'name'],
+        },
+      },
+      {
+        name: 'move_file',
+        description:
+          'Move a Google Drive file into a folder. May fail for files not created/opened by this app. Requires user approval.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            file_id: { type: 'string' },
+            parent_folder_id: {
+              type: 'string',
+              description: 'Destination folder id.',
+            },
+            remove_from_current_parents: {
+              type: 'boolean',
+              description: 'When true (default), remove existing parent folders.',
+            },
+          },
+          required: ['file_id', 'parent_folder_id'],
+        },
+      },
+      {
+        name: 'trash_file',
+        description:
+          'Move a Google Drive file to trash. May fail for files not created/opened by this app. Requires user approval.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            file_id: { type: 'string' },
+          },
+          required: ['file_id'],
+        },
+      },
+      {
+        name: 'share_file',
+        description:
+          'Share a Google Drive file with a user email. May fail for files not created/opened by this app. Requires user approval.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            file_id: { type: 'string' },
+            email: { type: 'string', description: 'Recipient email address.' },
+            role: {
+              type: 'string',
+              description: 'Permission role: reader (default), writer, or commenter.',
+            },
+            send_notification: {
+              type: 'boolean',
+              description: 'Send Google notification email (default true).',
+            },
+          },
+          required: ['file_id', 'email'],
+        },
+      },
+      {
+        name: 'upload_file',
+        description:
+          'Upload a new file to Google Drive from text or base64 content. Requires user approval.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', description: 'File name including extension.' },
+            mime_type: {
+              type: 'string',
+              description: 'MIME type (default text/plain).',
+            },
+            content: {
+              type: 'string',
+              description: 'UTF-8 text content (use this OR content_base64).',
+            },
+            content_base64: {
+              type: 'string',
+              description: 'Base64-encoded binary content (use this OR content).',
+            },
             parent_folder_id: {
               type: 'string',
               description: 'Optional parent folder id.',
@@ -670,11 +986,7 @@ async function main() {
           throw new Error('range is required.');
         }
         const values = parseSheetValues(args.values);
-        const valueInputOption =
-          optionalString(args.value_input_option).toUpperCase() || 'USER_ENTERED';
-        if (valueInputOption !== 'USER_ENTERED' && valueInputOption !== 'RAW') {
-          throw new Error('value_input_option must be USER_ENTERED or RAW.');
-        }
+        const valueInputOption = resolveValueInputOption(args.value_input_option);
         const metadata = await fetchJson(
           `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?fields=id,name,mimeType,webViewLink`
         );
@@ -717,6 +1029,273 @@ async function main() {
           ok: true,
           file_id: typeof created.id === 'string' ? created.id : null,
           name: typeof created.name === 'string' ? created.name : name,
+          web_view_link: typeof created.webViewLink === 'string' ? created.webViewLink : null,
+        };
+      },
+      append_spreadsheet_values: async (args) => {
+        const fileId = optionalString(args.file_id);
+        if (!fileId) {
+          throw new Error('file_id is required.');
+        }
+        const range = optionalString(args.range);
+        if (!range) {
+          throw new Error('range is required.');
+        }
+        const values = parseSheetValues(args.values);
+        const valueInputOption = resolveValueInputOption(args.value_input_option);
+        const meta = await assertSpreadsheet(fileId);
+        const result = await appendSpreadsheetValues(fileId, range, values, valueInputOption);
+        const updates =
+          result.updates && typeof result.updates === 'object'
+            ? (result.updates as Record<string, unknown>)
+            : {};
+        return {
+          ok: true,
+          file_id: fileId,
+          name: meta.name,
+          web_view_link: meta.webViewLink,
+          updated_range:
+            typeof updates.updatedRange === 'string'
+              ? updates.updatedRange
+              : typeof result.tableRange === 'string'
+                ? result.tableRange
+                : range,
+          updated_rows:
+            typeof updates.updatedRows === 'number' ? updates.updatedRows : values.length,
+          updated_cells: typeof updates.updatedCells === 'number' ? updates.updatedCells : null,
+        };
+      },
+      clear_spreadsheet_values: async (args) => {
+        const fileId = optionalString(args.file_id);
+        if (!fileId) {
+          throw new Error('file_id is required.');
+        }
+        const range = optionalString(args.range);
+        if (!range) {
+          throw new Error('range is required.');
+        }
+        const meta = await assertSpreadsheet(fileId);
+        const result = await clearSpreadsheetValues(fileId, range);
+        return {
+          ok: true,
+          file_id: fileId,
+          name: meta.name,
+          web_view_link: meta.webViewLink,
+          cleared_range: typeof result.clearedRange === 'string' ? result.clearedRange : range,
+        };
+      },
+      add_sheet: async (args) => {
+        const fileId = optionalString(args.file_id);
+        if (!fileId) {
+          throw new Error('file_id is required.');
+        }
+        const title = optionalString(args.title);
+        if (!title) {
+          throw new Error('title is required.');
+        }
+        const meta = await assertSpreadsheet(fileId);
+        const payload = await fetchJson(
+          `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(fileId)}:batchUpdate`,
+          {
+            method: 'POST',
+            body: {
+              requests: [
+                {
+                  addSheet: {
+                    properties: { title },
+                  },
+                },
+              ],
+            },
+          }
+        );
+        const replies = Array.isArray(payload.replies) ? payload.replies : [];
+        let sheetId: number | null = null;
+        let sheetTitle = title;
+        for (const reply of replies) {
+          if (!reply || typeof reply !== 'object') continue;
+          const addSheet = (reply as { addSheet?: unknown }).addSheet;
+          if (!addSheet || typeof addSheet !== 'object') continue;
+          const properties = (addSheet as { properties?: unknown }).properties;
+          if (!properties || typeof properties !== 'object') continue;
+          const props = properties as { sheetId?: unknown; title?: unknown };
+          if (typeof props.sheetId === 'number') sheetId = props.sheetId;
+          if (typeof props.title === 'string' && props.title.trim())
+            sheetTitle = props.title.trim();
+        }
+        return {
+          ok: true,
+          file_id: fileId,
+          name: meta.name,
+          web_view_link: meta.webViewLink,
+          sheet_id: sheetId,
+          sheet_title: sheetTitle,
+        };
+      },
+      append_document_content: async (args) => {
+        const fileId = optionalString(args.file_id);
+        if (!fileId) {
+          throw new Error('file_id is required.');
+        }
+        if (typeof args.body !== 'string') {
+          throw new Error('Document body is required.');
+        }
+        const meta = await assertDocument(fileId);
+        await appendDocumentText(fileId, args.body);
+        return {
+          ok: true,
+          file_id: fileId,
+          name: meta.name,
+          web_view_link: meta.webViewLink,
+        };
+      },
+      rename_file: async (args) => {
+        const fileId = optionalString(args.file_id);
+        if (!fileId) {
+          throw new Error('file_id is required.');
+        }
+        const name = optionalString(args.name);
+        if (!name) {
+          throw new Error('name is required.');
+        }
+        const updated = await fetchJson(
+          `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?fields=id,name,webViewLink,mimeType`,
+          {
+            method: 'PATCH',
+            body: { name },
+          }
+        );
+        return {
+          ok: true,
+          file_id: typeof updated.id === 'string' ? updated.id : fileId,
+          name: typeof updated.name === 'string' ? updated.name : name,
+          web_view_link: typeof updated.webViewLink === 'string' ? updated.webViewLink : null,
+        };
+      },
+      move_file: async (args) => {
+        const fileId = optionalString(args.file_id);
+        if (!fileId) {
+          throw new Error('file_id is required.');
+        }
+        const parentFolderId = optionalString(args.parent_folder_id);
+        if (!parentFolderId) {
+          throw new Error('parent_folder_id is required.');
+        }
+        const removeFromCurrent = args.remove_from_current_parents !== false;
+        let removeParents = '';
+        if (removeFromCurrent) {
+          const current = await fetchJson(
+            `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?fields=parents`
+          );
+          const parents = Array.isArray(current.parents)
+            ? current.parents.filter((p): p is string => typeof p === 'string')
+            : [];
+          removeParents = parents.join(',');
+        }
+        const url = new URL(
+          `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}`
+        );
+        url.searchParams.set('addParents', parentFolderId);
+        if (removeParents) {
+          url.searchParams.set('removeParents', removeParents);
+        }
+        url.searchParams.set('fields', 'id,name,webViewLink,parents');
+        const updated = await fetchJson(url.toString(), {
+          method: 'PATCH',
+          body: {},
+        });
+        return {
+          ok: true,
+          file_id: typeof updated.id === 'string' ? updated.id : fileId,
+          name: typeof updated.name === 'string' ? updated.name : null,
+          web_view_link: typeof updated.webViewLink === 'string' ? updated.webViewLink : null,
+          parents: Array.isArray(updated.parents) ? updated.parents : [parentFolderId],
+        };
+      },
+      trash_file: async (args) => {
+        const fileId = optionalString(args.file_id);
+        if (!fileId) {
+          throw new Error('file_id is required.');
+        }
+        const updated = await fetchJson(
+          `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?fields=id,name,trashed,webViewLink`,
+          {
+            method: 'PATCH',
+            body: { trashed: true },
+          }
+        );
+        return {
+          ok: true,
+          file_id: typeof updated.id === 'string' ? updated.id : fileId,
+          name: typeof updated.name === 'string' ? updated.name : null,
+          trashed: true,
+          web_view_link: typeof updated.webViewLink === 'string' ? updated.webViewLink : null,
+        };
+      },
+      share_file: async (args) => {
+        const fileId = optionalString(args.file_id);
+        if (!fileId) {
+          throw new Error('file_id is required.');
+        }
+        const email = optionalString(args.email);
+        if (!email) {
+          throw new Error('email is required.');
+        }
+        const roleRaw = optionalString(args.role).toLowerCase() || 'reader';
+        if (roleRaw !== 'reader' && roleRaw !== 'writer' && roleRaw !== 'commenter') {
+          throw new Error('role must be reader, writer, or commenter.');
+        }
+        const sendNotification = args.send_notification !== false;
+        const url = new URL(
+          `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}/permissions`
+        );
+        url.searchParams.set('sendNotificationEmail', sendNotification ? 'true' : 'false');
+        url.searchParams.set('fields', 'id,type,role,emailAddress');
+        const created = await fetchJson(url.toString(), {
+          method: 'POST',
+          body: {
+            type: 'user',
+            role: roleRaw,
+            emailAddress: email,
+          },
+        });
+        return {
+          ok: true,
+          file_id: fileId,
+          permission_id: typeof created.id === 'string' ? created.id : null,
+          email: typeof created.emailAddress === 'string' ? created.emailAddress : email,
+          role: typeof created.role === 'string' ? created.role : roleRaw,
+        };
+      },
+      upload_file: async (args) => {
+        const name = optionalString(args.name);
+        if (!name) {
+          throw new Error('name is required.');
+        }
+        const mimeType = optionalString(args.mime_type) || 'text/plain';
+        const parentFolderId = optionalString(args.parent_folder_id) || undefined;
+        const textContent = typeof args.content === 'string' ? args.content : undefined;
+        const base64Content = optionalString(args.content_base64);
+        if (textContent === undefined && !base64Content) {
+          throw new Error('Provide content (UTF-8 text) or content_base64.');
+        }
+        if (textContent !== undefined && base64Content) {
+          throw new Error('Provide only one of content or content_base64.');
+        }
+        const contentBytes = base64Content
+          ? Buffer.from(base64Content, 'base64')
+          : Buffer.from(textContent ?? '', 'utf8');
+        const created = await uploadDriveFile({
+          name,
+          mimeType,
+          parentFolderId,
+          contentBytes,
+        });
+        return {
+          ok: true,
+          file_id: typeof created.id === 'string' ? created.id : null,
+          name: typeof created.name === 'string' ? created.name : name,
+          mime_type: typeof created.mimeType === 'string' ? created.mimeType : mimeType,
           web_view_link: typeof created.webViewLink === 'string' ? created.webViewLink : null,
         };
       },

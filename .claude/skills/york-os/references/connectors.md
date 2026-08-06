@@ -51,30 +51,35 @@ tool names.
 
 ## Gmail
 
-| Tools                 | Join keys out              | Typical next                    |
-| --------------------- | -------------------------- | ------------------------------- |
-| `search_emails`       | message id, subject, links | `get_email`                     |
-| `get_email`           | body, Drive/doc URLs       | Drive `get_document_content`    |
-| `send_email` / drafts | (write — ask)              | only when user wants send/draft |
+| Tools                                                                 | Join keys out              | Typical next                    |
+| --------------------------------------------------------------------- | -------------------------- | ------------------------------- |
+| `search_emails`                                                       | message id, subject, links | `get_email`                     |
+| `get_email`                                                           | body, Drive/doc URLs       | Drive `get_document_content`    |
+| `list_labels`                                                         | label id + name            | `modify_email_labels`           |
+| `send_email` / drafts / `send_draft` / labels / trash (optional HTML) | (write — ask)              | only when user wants send/draft |
 
 ## Google Drive
 
-| Tools                                             | Join keys out                | Typical next        |
-| ------------------------------------------------- | ---------------------------- | ------------------- |
-| `search_files`, `list_files`, `get_file_metadata` | **file_id**, `web_view_link` | content tools       |
-| `get_document_content`                            | doc text / sheet CSV         | synthesize          |
-| `get_spreadsheet_values`                          | cell `values` (2D)           | synthesize / update |
-| create/update doc, create/update sheet, folder    | (write — ask)                | only when user asks |
+| Tools                                                                                                           | Join keys out                | Typical next        |
+| --------------------------------------------------------------------------------------------------------------- | ---------------------------- | ------------------- |
+| `search_files`, `list_files`, `get_file_metadata`                                                               | **file_id**, `web_view_link` | content tools       |
+| `get_document_content`                                                                                          | doc text / sheet CSV         | synthesize          |
+| `get_spreadsheet_values`                                                                                        | cell `values` (2D)           | synthesize / update |
+| create/update/append doc, create/update/append/clear sheet, add sheet, folder, upload, share, rename/move/trash | (write — ask)                | only when user asks |
 
-Prefer `create_spreadsheet` / `update_spreadsheet_values` when the user wants a **Google Sheet**. Use the local xlsx skill only for a local `.xlsx` file.
+Prefer `create_spreadsheet` / `update_spreadsheet_values` / `append_spreadsheet_values` when the user wants a **Google Sheet**. Use the local xlsx skill only for a local `.xlsx` file. Drive mutations use `drive.file` and may fail (403) on files the app did not create or open.
 
 ## Google Calendar
 
-| Tools                            | Join keys out                                       | Typical next                      |
-| -------------------------------- | --------------------------------------------------- | --------------------------------- |
-| `list_events`, `search_events`   | event ids, titles, times                            | `get_event`                       |
-| `get_event`                      | attendee **emails**, description links, `html_link` | Hub; Slack/Gmail; Drive; meetings |
-| `create_event` / update / delete | (write — ask)                                       | Hub-resolved emails first         |
+| Tools                                                                 | Join keys out                                       | Typical next                      |
+| --------------------------------------------------------------------- | --------------------------------------------------- | --------------------------------- |
+| `list_calendars`                                                      | **calendar_id**, summary, primary                   | event tools with `calendar_id`    |
+| `list_events`, `search_events`                                        | event ids, titles, times                            | `get_event`                       |
+| `get_event`                                                           | attendee **emails**, description links, `html_link` | Hub; Slack/Gmail; Drive; meetings |
+| `query_freebusy`                                                      | busy intervals                                      | `create_event` scheduling         |
+| `create_event` (optional Meet) / update / delete / `respond_to_event` | (write — ask)                                       | Hub-resolved emails first         |
+
+Pass `calendar_id` on event tools when not using the primary calendar (from `list_calendars`).
 
 ## Meetings (first-party)
 

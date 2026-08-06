@@ -146,23 +146,42 @@ function buildRawMessage(input: {
   to: string;
   subject: string;
   body: string;
+  bodyHtml?: string;
   cc?: string;
   bcc?: string;
   inReplyTo?: string;
   references?: string;
 }): string {
-  const lines = [
+  const headerLines = [
     `To: ${input.to}`,
     ...(input.cc ? [`Cc: ${input.cc}`] : []),
     ...(input.bcc ? [`Bcc: ${input.bcc}`] : []),
     `Subject: ${input.subject}`,
     'MIME-Version: 1.0',
-    'Content-Type: text/plain; charset="UTF-8"',
     ...(input.inReplyTo ? [`In-Reply-To: ${input.inReplyTo}`] : []),
     ...(input.references ? [`References: ${input.references}`] : []),
-    '',
-    input.body,
   ];
+
+  if (input.bodyHtml) {
+    const boundary = `york_alt_${Date.now().toString(36)}`;
+    const lines = [
+      ...headerLines,
+      `Content-Type: multipart/alternative; boundary="${boundary}"`,
+      '',
+      `--${boundary}`,
+      'Content-Type: text/plain; charset="UTF-8"',
+      '',
+      input.body,
+      `--${boundary}`,
+      'Content-Type: text/html; charset="UTF-8"',
+      '',
+      input.bodyHtml,
+      `--${boundary}--`,
+    ];
+    return encodeBase64Url(lines.join('\r\n'));
+  }
+
+  const lines = [...headerLines, 'Content-Type: text/plain; charset="UTF-8"', '', input.body];
   return encodeBase64Url(lines.join('\r\n'));
 }
 
@@ -201,6 +220,7 @@ async function buildOutboundRaw(args: Record<string, unknown>): Promise<{
   const to = parseAddressList(args.to) || replyContext?.to || '';
   const subject = optionalString(args.subject) || replyContext?.subject || '';
   const body = optionalString(args.body);
+  const bodyHtml = optionalString(args.body_html);
   const cc = parseAddressList(args.cc);
   const bcc = parseAddressList(args.bcc);
 
@@ -219,6 +239,7 @@ async function buildOutboundRaw(args: Record<string, unknown>): Promise<{
       to,
       subject,
       body,
+      bodyHtml: bodyHtml || undefined,
       cc: cc || undefined,
       bcc: bcc || undefined,
       inReplyTo: replyContext?.inReplyTo,
@@ -281,6 +302,11 @@ async function main() {
               description: 'Email subject. Optional when replying (defaults to Re: …).',
             },
             body: { type: 'string', description: 'Plain-text email body.' },
+            body_html: {
+              type: 'string',
+              description:
+                'Optional HTML body. When set, sends multipart/alternative (plain + HTML).',
+            },
             cc: { type: 'string', description: 'Optional Cc recipients, comma-separated.' },
             bcc: { type: 'string', description: 'Optional Bcc recipients, comma-separated.' },
             reply_to_message_id: {
@@ -306,6 +332,11 @@ async function main() {
               description: 'Email subject. Optional when replying (defaults to Re: …).',
             },
             body: { type: 'string', description: 'Plain-text email body.' },
+            body_html: {
+              type: 'string',
+              description:
+                'Optional HTML body. When set, stores multipart/alternative (plain + HTML).',
+            },
             cc: { type: 'string', description: 'Optional Cc recipients, comma-separated.' },
             bcc: { type: 'string', description: 'Optional Bcc recipients, comma-separated.' },
             reply_to_message_id: {
@@ -326,10 +357,59 @@ async function main() {
             to: { type: 'string', description: 'Recipient email(s), comma-separated.' },
             subject: { type: 'string', description: 'Email subject.' },
             body: { type: 'string', description: 'Plain-text email body.' },
+            body_html: {
+              type: 'string',
+              description:
+                'Optional HTML body. When set, stores multipart/alternative (plain + HTML).',
+            },
             cc: { type: 'string', description: 'Optional Cc recipients, comma-separated.' },
             bcc: { type: 'string', description: 'Optional Bcc recipients, comma-separated.' },
           },
           required: ['draft_id', 'to', 'subject', 'body'],
+        },
+      },
+      {
+        name: 'send_draft',
+        description: 'Send an existing Gmail draft by draft id. Requires user approval.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            draft_id: { type: 'string', description: 'Gmail draft id to send.' },
+          },
+          required: ['draft_id'],
+        },
+      },
+      {
+        name: 'modify_email_labels',
+        description:
+          'Add and/or remove Gmail labels on a message (e.g. archive by removing INBOX). Requires user approval.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            message_id: { type: 'string', description: 'Gmail message id.' },
+            add_label_ids: {
+              type: 'array',
+              description: 'Label ids to add (e.g. STARRED, or custom label ids from list_labels).',
+              items: { type: 'string' },
+            },
+            remove_label_ids: {
+              type: 'array',
+              description: 'Label ids to remove (e.g. INBOX to archive).',
+              items: { type: 'string' },
+            },
+          },
+          required: ['message_id'],
+        },
+      },
+      {
+        name: 'trash_email',
+        description: 'Move a Gmail message to trash. Requires user approval.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            message_id: { type: 'string', description: 'Gmail message id to trash.' },
+          },
+          required: ['message_id'],
         },
       },
     ],
@@ -390,20 +470,26 @@ async function main() {
         const payload = await fetchJson('https://gmail.googleapis.com/gmail/v1/users/me/labels');
         const labels = Array.isArray(payload.labels)
           ? payload.labels
-              .map((item) =>
-                item &&
-                typeof item === 'object' &&
-                typeof (item as { name?: unknown }).name === 'string'
-                  ? String((item as { name: string }).name)
-                  : ''
-              )
+              .map((item) => {
+                if (!item || typeof item !== 'object') return null;
+                const id =
+                  typeof (item as { id?: unknown }).id === 'string'
+                    ? (item as { id: string }).id
+                    : '';
+                const name =
+                  typeof (item as { name?: unknown }).name === 'string'
+                    ? (item as { name: string }).name
+                    : '';
+                if (!id && !name) return null;
+                return { id, name };
+              })
               .filter(Boolean)
           : [];
         return buildEnvelope({
           externalId: `gmail:labels:${Date.now()}`,
           title: 'Gmail labels',
           summary: `Fetched ${labels.length} Gmail labels`,
-          body: labels.join('\n'),
+          body: labels.map((label) => `${label!.id}\t${label!.name}`).join('\n'),
           occurredAt: Date.now(),
           keywords: ['gmail', 'labels'],
         });
@@ -481,6 +567,79 @@ async function main() {
           thread_id: typeof message.threadId === 'string' ? message.threadId : null,
           to: outbound.to,
           subject: outbound.subject,
+        };
+      },
+      send_draft: async (args) => {
+        const draftId = optionalString(args.draft_id);
+        if (!draftId) {
+          throw new Error('Gmail draft_id is required.');
+        }
+        const payload = await fetchJson(
+          'https://gmail.googleapis.com/gmail/v1/users/me/drafts/send',
+          {
+            method: 'POST',
+            body: { id: draftId },
+          }
+        );
+        return {
+          ok: true,
+          draft_id: draftId,
+          message_id: typeof payload.id === 'string' ? payload.id : null,
+          thread_id: typeof payload.threadId === 'string' ? payload.threadId : null,
+        };
+      },
+      modify_email_labels: async (args) => {
+        const messageId = optionalString(args.message_id);
+        if (!messageId) {
+          throw new Error('Gmail message_id is required.');
+        }
+        const addLabelIds = Array.isArray(args.add_label_ids)
+          ? args.add_label_ids
+              .map((id) => (typeof id === 'string' ? id.trim() : ''))
+              .filter(Boolean)
+          : [];
+        const removeLabelIds = Array.isArray(args.remove_label_ids)
+          ? args.remove_label_ids
+              .map((id) => (typeof id === 'string' ? id.trim() : ''))
+              .filter(Boolean)
+          : [];
+        if (addLabelIds.length === 0 && removeLabelIds.length === 0) {
+          throw new Error('Provide at least one of add_label_ids or remove_label_ids.');
+        }
+        const payload = await fetchJson(
+          `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(messageId)}/modify`,
+          {
+            method: 'POST',
+            body: {
+              ...(addLabelIds.length ? { addLabelIds } : {}),
+              ...(removeLabelIds.length ? { removeLabelIds } : {}),
+            },
+          }
+        );
+        const labelIds = Array.isArray(payload.labelIds)
+          ? payload.labelIds.filter((id): id is string => typeof id === 'string')
+          : [];
+        return {
+          ok: true,
+          message_id: typeof payload.id === 'string' ? payload.id : messageId,
+          label_ids: labelIds,
+          added: addLabelIds,
+          removed: removeLabelIds,
+        };
+      },
+      trash_email: async (args) => {
+        const messageId = optionalString(args.message_id);
+        if (!messageId) {
+          throw new Error('Gmail message_id is required.');
+        }
+        const payload = await fetchJson(
+          `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(messageId)}/trash`,
+          { method: 'POST' }
+        );
+        return {
+          ok: true,
+          message_id: typeof payload.id === 'string' ? payload.id : messageId,
+          trashed: true,
         };
       },
     },
