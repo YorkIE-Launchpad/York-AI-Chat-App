@@ -985,7 +985,7 @@ export interface AppConfig {
    */
   mcpWriteAccessEnabled?: boolean;
   memoryRuntime?: MemoryRuntimeConfig;
-  /** User OpenRouter BYOK key; required to use OpenRouter models. */
+  /** User OpenRouter API key for General/Folders; required before those workspaces chat. */
   openRouterUserApiKey?: string;
   meetingsEnabled?: boolean;
   meetingsRuntime?: MeetingsRuntimeConfig;

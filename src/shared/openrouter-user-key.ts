@@ -1,20 +1,41 @@
 /**
- * User OpenRouter BYOK: key is stored locally and sent to the local proxy
+ * User OpenRouter key (bring-your-own): stored locally and sent to the local proxy
  * as a dedicated header (Cognito JWT stays in Authorization).
+ *
+ * Product rule: General workspace and personal Folders only use OpenRouter with
+ * this key — not York-billed Anthropic/OpenAI/Gemini. Hub and Project workspaces
+ * use York-managed models without it.
  */
 
 export const YORK_OPENROUTER_USER_KEY_HEADER = 'x-york-openrouter-key';
 
 export const OPENROUTER_KEY_REQUIRED_MESSAGE =
-  'OpenRouter requires your own API key. Add one in Settings → General (get a key at openrouter.ai/keys). Free models have no per-token cost; with $10+ in credits you get higher daily limits (20 RPM / 1000 RPD vs 20 RPM / 50 RPD). In Hub or Project you can use York-managed models without this key.';
+  'General and personal Folders run on OpenRouter with your own API key — York does not pay for those models. Add your key in Settings → General (get one free at openrouter.ai/keys). Free OpenRouter models have no per-token cost (rate limits apply). For York-managed Claude, GPT, or Gemini, switch to Hub or a Project workspace.';
 
 export const OPENROUTER_LIMIT_USER_MESSAGE =
-  'OpenRouter rate or credit limit reached for your key (limits apply to the whole account). Add credits at openrouter.ai (≈$10 raises daily limits to 1000 requests/day), pick a free OpenRouter model, or switch to Hub / Project for York-managed models.';
+  'Your OpenRouter account hit a rate or credit limit (limits apply to the whole key). Add credits at openrouter.ai (about $10 raises daily limits to 1000 requests/day), pick a free OpenRouter model, or switch to Hub / Project for York-managed company models.';
 
-export const OPENROUTER_LIMIT_FALLBACK_NOTE = 'OpenRouter limit hit; switched to York eco model.';
+export const OPENROUTER_LIMIT_FALLBACK_NOTE =
+  'OpenRouter limit hit on your key; switched to a York eco model.';
 
 export function hasOpenRouterUserApiKey(value: string | undefined | null): boolean {
   return Boolean(value?.trim());
+}
+
+/** True when this workspace only supports OpenRouter + the user’s own key. */
+export function isOpenRouterUserKeyWorkspace(
+  division: { kind?: string | null } | null | undefined
+): boolean {
+  const kind = division?.kind;
+  return kind === 'general' || kind === 'folder';
+}
+
+/** True when chat would need an OpenRouter key but none is saved. */
+export function needsOpenRouterUserKey(
+  division: { kind?: string | null } | null | undefined,
+  openRouterUserApiKey: string | undefined | null
+): boolean {
+  return isOpenRouterUserKeyWorkspace(division) && !hasOpenRouterUserApiKey(openRouterUserApiKey);
 }
 
 /** Free / router catalog entries shown under "Free" in the General model picker. */
@@ -24,7 +45,7 @@ export function isOpenRouterFreeTierModel(id: string): boolean {
   return lower.endsWith(':free') || lower.includes(':free/');
 }
 
-/** Attach BYOK header for OpenRouter proxy calls. Cognito JWT remains Authorization. */
+/** Attach user OpenRouter key header for proxy calls. Cognito JWT remains Authorization. */
 export function withOpenRouterUserKeyHeader<T extends { headers?: Record<string, string> }>(
   model: T,
   userKey: string | undefined | null

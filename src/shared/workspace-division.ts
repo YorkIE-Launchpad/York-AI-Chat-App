@@ -663,7 +663,7 @@ export function filterModelsForDivision<T extends { provider: string }>(
 }
 
 export function generalWorkspaceOpenRouterOnlyMessage(): string {
-  return 'General workspace only supports OpenRouter models. Switch to Hub or a Project workspace to use York-managed providers, or pick an OpenRouter model.';
+  return 'General and personal Folders only use OpenRouter with your own API key (not York billing). Switch to Hub or a Project for York-managed Claude, GPT, or Gemini — or pick an OpenRouter model after adding your key in Settings → General.';
 }
 
 export function sessionFieldsFromActiveDivision(

@@ -1,17 +1,27 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Briefcase, Building2, Layers, Loader2 } from 'lucide-react';
+import { Briefcase, Building2, KeyRound, Layers, Loader2, Lock } from 'lucide-react';
 import { useAppStore } from '../store';
 import type { UnifiedCompanyProject } from '../../shared/unified-company-projects';
 import {
   activeDivisionFromUnifiedProject,
   companyProjectSourceLabel,
 } from '../../shared/workspace-division';
+import { hasOpenRouterUserApiKey } from '../../shared/openrouter-user-key';
 
 /**
  * Full chooser shown on Welcome when no active division is selected.
  */
 export function DivisionChooser() {
   const setActiveDivision = useAppStore((s) => s.setActiveDivision);
+  const appConfig = useAppStore((s) => s.appConfig);
+  const setShowSettings = useAppStore((s) => s.setShowSettings);
+  const setSettingsTab = useAppStore((s) => s.setSettingsTab);
+  const hasOpenRouterKey = hasOpenRouterUserApiKey(appConfig?.openRouterUserApiKey);
+
+  const openOpenRouterKeySettings = useCallback(() => {
+    setSettingsTab('general');
+    setShowSettings(true);
+  }, [setSettingsTab, setShowSettings]);
   const [pickingProject, setPickingProject] = useState(false);
   const [projects, setProjects] = useState<UnifiedCompanyProject[]>([]);
   const [loading, setLoading] = useState(false);
@@ -134,28 +144,50 @@ export function DivisionChooser() {
         Choose a workspace
       </h2>
       <p className="mb-6 text-center text-sm text-text-muted">
-        Each workspace has its own chats and experience memory.
+        Each workspace has its own chats and experience memory. General needs your own OpenRouter
+        API key; Hub and Project use York-managed models.
       </p>
       <div className="grid gap-3 sm:grid-cols-3">
         <ChooserCard
           icon={Layers}
           title="General"
-          description="Personal use, folders, and your OpenRouter key"
-          onClick={() => setActiveDivision({ kind: 'general' })}
+          description="Personal chats on OpenRouter. Requires your OpenRouter API key (not York billing)."
+          locked={!hasOpenRouterKey}
+          lockHint="Add your OpenRouter key in Settings first"
+          onClick={() => {
+            if (!hasOpenRouterKey) {
+              openOpenRouterKeySettings();
+              return;
+            }
+            setActiveDivision({ kind: 'general' });
+          }}
+          secondaryAction={
+            !hasOpenRouterKey
+              ? {
+                  label: 'Add OpenRouter key',
+                  onClick: openOpenRouterKeySettings,
+                }
+              : undefined
+          }
         />
         <ChooserCard
           icon={Building2}
           title="Hub"
-          description="People, culture, and HRMS"
+          description="People, culture, and HRMS — York-managed models, no OpenRouter key needed"
           onClick={() => setActiveDivision({ kind: 'hub' })}
         />
         <ChooserCard
           icon={Briefcase}
           title="Project"
-          description="Hub and LaunchPad delivery projects"
+          description="Hub and LaunchPad delivery — York-managed models, no OpenRouter key needed"
           onClick={() => setPickingProject(true)}
         />
       </div>
+      {!hasOpenRouterKey && (
+        <p className="mt-4 text-center text-xs text-text-muted">
+          Prefer company models without your own key? Start with Hub or Project.
+        </p>
+      )}
     </div>
   );
 }
@@ -165,23 +197,65 @@ function ChooserCard({
   title,
   description,
   onClick,
+  locked = false,
+  lockHint,
+  secondaryAction,
 }: {
   icon: typeof Layers;
   title: string;
   description: string;
   onClick: () => void;
+  locked?: boolean;
+  lockHint?: string;
+  secondaryAction?: { label: string; onClick: () => void };
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex flex-col items-start gap-3 rounded-xl border border-border-subtle bg-bg-secondary p-4 text-left transition-colors hover:border-accent/40 hover:bg-bg-tertiary"
+    <div
+      className={`flex flex-col items-start gap-3 rounded-xl border p-4 text-left transition-colors ${
+        locked
+          ? 'border-amber-500/30 bg-amber-500/5'
+          : 'border-border-subtle bg-bg-secondary hover:border-accent/40 hover:bg-bg-tertiary'
+      }`}
     >
-      <Icon className="h-5 w-5 text-text-muted" />
-      <div>
-        <div className="font-semibold text-text-primary">{title}</div>
-        <div className="mt-1 text-xs leading-relaxed text-text-muted">{description}</div>
-      </div>
-    </button>
+      <button
+        type="button"
+        onClick={onClick}
+        className="flex w-full flex-col items-start gap-3 text-left"
+      >
+        <div className="flex w-full items-center justify-between gap-2">
+          <Icon
+            className={`h-5 w-5 ${locked ? 'text-amber-700 dark:text-amber-400' : 'text-text-muted'}`}
+          />
+          {locked ? (
+            <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-800 dark:text-amber-300">
+              <Lock className="h-3 w-3" />
+              Key required
+            </span>
+          ) : null}
+        </div>
+        <div>
+          <div className="font-semibold text-text-primary">{title}</div>
+          <div className="mt-1 text-xs leading-relaxed text-text-muted">{description}</div>
+          {locked && lockHint ? (
+            <div className="mt-2 text-xs font-medium text-amber-800 dark:text-amber-300">
+              {lockHint}
+            </div>
+          ) : null}
+        </div>
+      </button>
+      {secondaryAction ? (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            secondaryAction.onClick();
+          }}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-2.5 py-1.5 text-xs font-medium text-white hover:opacity-90"
+        >
+          <KeyRound className="h-3.5 w-3.5" />
+          {secondaryAction.label}
+        </button>
+      ) : null}
+    </div>
   );
 }

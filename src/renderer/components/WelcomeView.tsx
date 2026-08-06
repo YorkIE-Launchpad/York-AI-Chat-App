@@ -44,6 +44,7 @@ type AttachedFile = {
 import welcomeLogoSrc from '../assets/logo.png';
 import { ModelSelector } from './ModelSelector';
 import { ThinkingModeToggle } from './ThinkingModeToggle';
+import { OpenRouterKeyGateBanner } from './OpenRouterKeyGateBanner';
 import { SlashCommandMenu } from './SlashCommandMenu';
 import {
   useSlashCommands,
@@ -70,6 +71,7 @@ import {
   parseLoopCommand,
 } from '../../shared/loop/parse';
 import { DEFAULT_GOAL_MAX_ITERATIONS } from '../../shared/loop/types';
+import { needsOpenRouterUserKey } from '../../shared/openrouter-user-key';
 
 const WELCOME_ICON_MAP: Record<WelcomeActionIcon, LucideIcon> = {
   FileText,
@@ -156,14 +158,20 @@ export function WelcomeView() {
   const { startSession, changeWorkingDir, isElectron } = useIPC();
   const workingDir = useAppStore((state) => state.workingDir);
   const activeDivision = useAppStore((state) => state.activeDivision);
+  const appConfig = useAppStore((state) => state.appConfig);
   const incognitoDraft = useAppStore((state) => state.incognitoDraft);
   const setIncognitoDraft = useAppStore((state) => state.setIncognitoDraft);
   const setGlobalNotice = useAppStore((state) => state.setGlobalNotice);
+  const openRouterKeyRequired = needsOpenRouterUserKey(
+    activeDivision,
+    appConfig?.openRouterUserApiKey
+  );
   const canSubmit =
-    prompt.trim().length > 0 ||
-    pastedImages.length > 0 ||
-    attachedFiles.length > 0 ||
-    attachedMeetings.length > 0;
+    !openRouterKeyRequired &&
+    (prompt.trim().length > 0 ||
+      pastedImages.length > 0 ||
+      attachedFiles.length > 0 ||
+      attachedMeetings.length > 0);
   const {
     isOpen: isSlashMenuOpen,
     filteredSkills: slashSkills,
@@ -631,7 +639,8 @@ export function WelcomeView() {
         pastedImages.length === 0 &&
         attachedFiles.length === 0 &&
         attachedMeetings.length === 0) ||
-      isSubmitting
+      isSubmitting ||
+      openRouterKeyRequired
     )
       return;
 
@@ -875,6 +884,7 @@ export function WelcomeView() {
           <DivisionChooser />
         ) : (
           <>
+            <OpenRouterKeyGateBanner />
             {/* Quick Action Tags */}
             <div className="flex flex-wrap gap-2 justify-center items-center px-3">
               {displayChips.map((tag) => {

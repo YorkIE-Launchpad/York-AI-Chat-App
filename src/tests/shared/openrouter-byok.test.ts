@@ -8,6 +8,7 @@ import { isOpenRouterAccountLimitError } from '../../shared/openrouter-limit';
 import {
   hasOpenRouterUserApiKey,
   isOpenRouterFreeTierModel,
+  needsOpenRouterUserKey,
   withOpenRouterUserKeyHeader,
   YORK_OPENROUTER_USER_KEY_HEADER,
 } from '../../shared/openrouter-user-key';
@@ -17,6 +18,14 @@ describe('openrouter user key helpers', () => {
     expect(hasOpenRouterUserApiKey('')).toBe(false);
     expect(hasOpenRouterUserApiKey('  ')).toBe(false);
     expect(hasOpenRouterUserApiKey('sk-or-v1-abc')).toBe(true);
+  });
+
+  it('gates General and Folders when key is missing', () => {
+    expect(needsOpenRouterUserKey({ kind: 'general' }, '')).toBe(true);
+    expect(needsOpenRouterUserKey({ kind: 'folder' }, undefined)).toBe(true);
+    expect(needsOpenRouterUserKey({ kind: 'general' }, 'sk-or-v1-x')).toBe(false);
+    expect(needsOpenRouterUserKey({ kind: 'hub' }, '')).toBe(false);
+    expect(needsOpenRouterUserKey({ kind: 'project' }, null)).toBe(false);
   });
 
   it('classifies free-tier catalog ids', () => {

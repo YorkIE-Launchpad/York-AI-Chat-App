@@ -540,7 +540,7 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
                       >
                         {t(
                           'workspace.models.addOpenRouterKey',
-                          'Add OpenRouter key for free models (Settings)'
+                          'Add your OpenRouter API key (Settings → General)'
                         )}
                       </button>
                     )}
@@ -588,7 +588,7 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
                     >
                       {t(
                         'workspace.models.addOpenRouterKey',
-                        'Add OpenRouter key for free models (Settings)'
+                        'Add your OpenRouter API key (Settings → General)'
                       )}
                     </button>
                   )}

@@ -7,6 +7,7 @@ import {
   Layers,
   Loader2,
   Folder,
+  Lock,
 } from 'lucide-react';
 import { useAppStore } from '../store';
 import type { ActiveDivision, PersonalFolder } from '../../shared/workspace-division';
@@ -16,6 +17,7 @@ import {
   divisionLabel,
 } from '../../shared/workspace-division';
 import type { UnifiedCompanyProject } from '../../shared/unified-company-projects';
+import { hasOpenRouterUserApiKey } from '../../shared/openrouter-user-key';
 
 interface DivisionSwitcherProps {
   compact?: boolean;
@@ -26,6 +28,10 @@ interface DivisionSwitcherProps {
 export function DivisionSwitcher({ compact = false, allowClear = false }: DivisionSwitcherProps) {
   const activeDivision = useAppStore((s) => s.activeDivision);
   const setActiveDivision = useAppStore((s) => s.setActiveDivision);
+  const appConfig = useAppStore((s) => s.appConfig);
+  const setShowSettings = useAppStore((s) => s.setShowSettings);
+  const setSettingsTab = useAppStore((s) => s.setSettingsTab);
+  const hasOpenRouterKey = hasOpenRouterUserApiKey(appConfig?.openRouterUserApiKey);
   const [menuOpen, setMenuOpen] = useState(false);
   const [pickingProject, setPickingProject] = useState(false);
   const [pickingFolder, setPickingFolder] = useState(false);
@@ -119,6 +125,15 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
 
   const selectDivision = useCallback(
     async (division: ActiveDivision) => {
+      if (
+        (division.kind === 'general' || division.kind === 'folder') &&
+        !hasOpenRouterUserApiKey(appConfig?.openRouterUserApiKey)
+      ) {
+        setSettingsTab('general');
+        setShowSettings(true);
+        setMenuOpen(false);
+        return;
+      }
       if (division.kind === 'project') {
         setPickingFolder(false);
         setPickingProject(true);
@@ -130,7 +145,13 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
       setPickingProject(false);
       setPickingFolder(false);
     },
-    [loadProjects, setActiveDivision]
+    [
+      appConfig?.openRouterUserApiKey,
+      loadProjects,
+      setActiveDivision,
+      setSettingsTab,
+      setShowSettings,
+    ]
   );
 
   const selectProject = useCallback(
@@ -144,6 +165,12 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
 
   const selectFolder = useCallback(
     (folder: PersonalFolder) => {
+      if (!hasOpenRouterUserApiKey(appConfig?.openRouterUserApiKey)) {
+        setSettingsTab('general');
+        setShowSettings(true);
+        setMenuOpen(false);
+        return;
+      }
       setActiveDivision({
         kind: 'folder',
         folderId: folder.id,
@@ -152,7 +179,7 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
       setMenuOpen(false);
       setPickingFolder(false);
     },
-    [setActiveDivision]
+    [appConfig?.openRouterUserApiKey, setActiveDivision, setSettingsTab, setShowSettings]
   );
 
   const createFolder = useCallback(async () => {
@@ -205,16 +232,32 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
               <MenuItem
                 icon={Layers}
                 label="General"
-                description="Personal use · your OpenRouter key"
+                description={
+                  hasOpenRouterKey
+                    ? 'Personal · your OpenRouter API key (not York billing)'
+                    : 'Requires your OpenRouter API key — tap to add it'
+                }
                 active={activeDivision?.kind === 'general'}
+                locked={!hasOpenRouterKey}
                 onClick={() => void selectDivision({ kind: 'general' })}
               />
               <MenuItem
                 icon={Folder}
                 label="Folders"
-                description="Personal project folders · BYOK"
+                description={
+                  hasOpenRouterKey
+                    ? 'Personal folders · your OpenRouter API key'
+                    : 'Requires your OpenRouter API key — tap to add it'
+                }
                 active={activeDivision?.kind === 'folder'}
+                locked={!hasOpenRouterKey}
                 onClick={() => {
+                  if (!hasOpenRouterKey) {
+                    setSettingsTab('general');
+                    setShowSettings(true);
+                    setMenuOpen(false);
+                    return;
+                  }
                   setPickingProject(false);
                   setPickingFolder(true);
                   void loadFolders();
@@ -223,14 +266,14 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
               <MenuItem
                 icon={Building2}
                 label="Hub"
-                description="People & HR · York-managed models"
+                description="People & HR · York-managed models (no OpenRouter key)"
                 active={activeDivision?.kind === 'hub'}
                 onClick={() => void selectDivision({ kind: 'hub' })}
               />
               <MenuItem
                 icon={Briefcase}
                 label="Project"
-                description="Hub + LaunchPad · York-managed models"
+                description="Hub + LaunchPad · York-managed models (no OpenRouter key)"
                 active={activeDivision?.kind === 'project'}
                 onClick={() =>
                   void selectDivision({
@@ -307,7 +350,7 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
                     <div className="truncate text-sm font-medium text-text-primary">
                       {folder.name}
                     </div>
-                    <div className="truncate text-xs text-text-muted">OpenRouter / your keys</div>
+                    <div className="truncate text-xs text-text-muted">Your OpenRouter API key</div>
                   </button>
                 ))}
               {!loadingFolders && folders.length === 0 && (
@@ -372,12 +415,14 @@ function MenuItem({
   label,
   description,
   active,
+  locked = false,
   onClick,
 }: {
   icon: typeof Layers;
   label: string;
   description: string;
   active: boolean;
+  locked?: boolean;
   onClick: () => void;
 }) {
   return (
@@ -386,11 +431,19 @@ function MenuItem({
       onClick={onClick}
       className={`flex w-full items-start gap-2.5 px-3 py-2 text-left hover:bg-bg-secondary ${
         active ? 'bg-bg-secondary' : ''
-      }`}
+      } ${locked ? 'opacity-90' : ''}`}
     >
       <Icon className="mt-0.5 h-4 w-4 shrink-0 text-text-muted" />
-      <span className="min-w-0">
-        <span className="block text-sm font-medium text-text-primary">{label}</span>
+      <span className="min-w-0 flex-1">
+        <span className="flex items-center gap-1.5">
+          <span className="block text-sm font-medium text-text-primary">{label}</span>
+          {locked ? (
+            <span className="inline-flex items-center gap-0.5 rounded border border-amber-500/30 bg-amber-500/10 px-1 py-px text-[10px] font-medium text-amber-800 dark:text-amber-300">
+              <Lock className="h-2.5 w-2.5" />
+              Key
+            </span>
+          ) : null}
+        </span>
         <span className="block text-xs text-text-muted">{description}</span>
       </span>
     </button>

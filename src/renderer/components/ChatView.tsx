@@ -16,6 +16,7 @@ import { MessageCard } from './MessageCard';
 import { MessageQueueList } from './MessageQueueList';
 import { ModelSelector } from './ModelSelector';
 import { ThinkingModeToggle } from './ThinkingModeToggle';
+import { OpenRouterKeyGateBanner } from './OpenRouterKeyGateBanner';
 import { SlashCommandMenu } from './SlashCommandMenu';
 import { SubagentTracker } from './SubagentTracker';
 import type { Message, ContentBlock, Skill, ChatLoopStatus } from '../types';
@@ -66,6 +67,7 @@ import {
 } from '../utils/load-composer-image';
 import { useDictation } from '../hooks/useDictation';
 import { DictationButton } from './DictationButton';
+import { needsOpenRouterUserKey } from '../../shared/openrouter-user-key';
 
 type AttachedFile = {
   name: string;
@@ -88,6 +90,12 @@ export function ChatView() {
   const traceSteps = useActiveTraceSteps();
   const setGlobalNotice = useAppStore((s) => s.setGlobalNotice);
   const setStoreChatLoopStatus = useAppStore((s) => s.setChatLoopStatus);
+  const activeDivision = useAppStore((s) => s.activeDivision);
+  const appConfig = useAppStore((s) => s.appConfig);
+  const openRouterKeyRequired = needsOpenRouterUserKey(
+    activeDivision,
+    appConfig?.openRouterUserApiKey
+  );
   const chatLoopStatus = useAppStore((s) =>
     activeSessionId ? (s.chatLoopBySessionId[activeSessionId] ?? null) : null
   );
@@ -900,7 +908,8 @@ export function ChatView() {
         attachedFiles.length === 0 &&
         attachedMeetings.length === 0) ||
       !activeSessionId ||
-      isSubmitting
+      isSubmitting ||
+      openRouterKeyRequired
     )
       return;
 
@@ -1318,6 +1327,7 @@ export function ChatView() {
             onDrop={handleDrop}
             className="relative w-full"
           >
+            <OpenRouterKeyGateBanner compact className="mb-2.5" />
             {/* Image previews */}
             {pastedImages.length > 0 && (
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2 mb-3">
@@ -1599,7 +1609,7 @@ export function ChatView() {
                   }
                 }}
                 placeholder={t('chat.typeMessageSkillHint')}
-                disabled={isSubmitting}
+                disabled={isSubmitting || openRouterKeyRequired}
                 rows={1}
                 className="flex-1 min-w-0 resize-none bg-transparent border-none outline-none text-text-primary placeholder:text-text-muted text-[15px] leading-5 py-1.5 overflow-hidden"
               />
@@ -1612,7 +1622,7 @@ export function ChatView() {
                   <DictationButton
                     status={dictationStatus}
                     errorKind={dictationErrorKind}
-                    disabled={isSubmitting}
+                    disabled={isSubmitting || openRouterKeyRequired}
                     onToggle={toggleDictation}
                   />
                 )}
@@ -1630,6 +1640,7 @@ export function ChatView() {
                 <button
                   type="submit"
                   disabled={
+                    openRouterKeyRequired ||
                     (!prompt.trim() &&
                       !textareaRef.current?.value.trim() &&
                       pastedImages.length === 0 &&

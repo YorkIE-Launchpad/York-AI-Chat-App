@@ -129,7 +129,7 @@ export function SettingsGeneral() {
         </button>
       </div>
 
-      {/* OpenRouter BYOK */}
+      {/* OpenRouter key for General / Folders (user-owned, not York billing) */}
       <div className="space-y-3 pt-2 border-t border-border">
         <h4 className="text-sm font-medium text-text-primary">
           {t('general.openRouterKey', 'OpenRouter API key')}
