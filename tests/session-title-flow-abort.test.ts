@@ -131,4 +131,15 @@ describe('maybeGenerateSessionTitle — happy path', () => {
     await maybeGenerateSessionTitle(deps);
     expect(deps.updateTitle).toHaveBeenCalledWith('Quoted Title');
   });
+
+  it('does not update title when the model returns a Chinese title for an English prompt', async () => {
+    const deps = makeDeps({
+      prompt: 'Help me plan the product launch',
+      currentTitle: getDefaultTitleFromPrompt('Help me plan the product launch'),
+      generateTitle: vi.fn(async () => '产品发布计划'),
+    });
+    await maybeGenerateSessionTitle(deps);
+    expect(deps.updateTitle).not.toHaveBeenCalled();
+    expect(deps.markAttempt).not.toHaveBeenCalled();
+  });
 });

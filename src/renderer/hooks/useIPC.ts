@@ -637,10 +637,21 @@ export function useIPC() {
       title: string,
       promptOrContent: string | ContentBlock[],
       cwd?: string,
-      options?: { incognito?: boolean }
+      options?: {
+        incognito?: boolean;
+        /**
+         * Force workspace division for this session (e.g. Matter → Hub).
+         * Also switches the UI active division so the chat shows in that workspace.
+         */
+        division?: 'general' | 'hub';
+      }
     ) => {
       setLoading(true);
       console.log('[useIPC] Starting session:', title, options?.incognito ? '(incognito)' : '');
+
+      if (options?.division === 'hub' || options?.division === 'general') {
+        useAppStore.getState().setActiveDivision({ kind: options.division });
+      }
 
       const activeDivision = useAppStore.getState().activeDivision;
       const divisionPayload =
@@ -945,7 +956,7 @@ export function useIPC() {
         payload: { sessionId, queueIndex },
       });
     },
-    [isElectron, removeQueuedMessageFromStore, send]
+    [removeQueuedMessageFromStore, send]
   );
 
   const deleteSession = useCallback(

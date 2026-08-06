@@ -48,7 +48,7 @@ export function DictationButton({
       type="button"
       onClick={onToggle}
       disabled={disabled || isConnecting}
-      className={`w-9 h-9 rounded-2xl flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+      className={`w-8 h-8 rounded-xl flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
         isRecording
           ? 'text-accent bg-accent/10 hover:bg-accent/15'
           : status === 'error'
@@ -60,9 +60,9 @@ export function DictationButton({
       aria-pressed={isRecording}
     >
       {isConnecting ? (
-        <Loader2 className="w-4 h-4 animate-spin" />
+        <Loader2 className="w-3.5 h-3.5 animate-spin" />
       ) : (
-        <AudioLines className={`w-4 h-4 ${isRecording ? 'animate-pulse' : ''}`} />
+        <AudioLines className={`w-3.5 h-3.5 ${isRecording ? 'animate-pulse' : ''}`} />
       )}
     </button>
   );

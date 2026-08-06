@@ -161,6 +161,13 @@ import {
   decodePathSafely,
 } from '../shared/local-file-path';
 import { resolvePathAgainstWorkspace } from '../shared/workspace-path';
+import {
+  buildRevealSearchRoots,
+  findFileByNameInRoots,
+  isBareFilenameReference,
+  shouldOpenMissingFileParent,
+} from './utils/find-workspace-file';
+
 import { eventRequiresSessionManager } from './client-event-utils';
 import { getUnsupportedWorkspacePathReason } from './workspace-path-constraints';
 import {
@@ -2541,7 +2548,12 @@ async function revealFileInFolder(filePath: string, cwd?: string): Promise<boole
     normalizedPath = localPath;
   }
 
-  const baseDir = cwd && isAbsolute(cwd) ? cwd : getWorkingDir() || app.getPath('home');
+  const defaultWorkingDir = getWorkingDir() || '';
+  const userDataDefaultWorkingDir = join(app.getPath('userData'), 'default_working_dir');
+  const baseDir =
+    cwd && isAbsolute(cwd)
+      ? cwd
+      : defaultWorkingDir || userDataDefaultWorkingDir || app.getPath('home');
   normalizedPath = resolvePathAgainstWorkspace(normalizedPath, baseDir);
   if (
     !isAbsolute(normalizedPath) &&
@@ -2556,105 +2568,70 @@ async function revealFileInFolder(filePath: string, cwd?: string): Promise<boole
   }
   log('[shell.showItemInFolder] request:', { filePath, cwd, resolved: normalizedPath });
 
-  const findFileByName = (fileName: string, roots: string[]): string | null => {
-    if (!fileName) {
-      return null;
+  const revealExisting = async (targetPath: string): Promise<boolean> => {
+    if (!fs.existsSync(targetPath)) {
+      return false;
     }
-
-    const visited = new Set<string>();
-    const queue = roots
-      .map((root) => resolve(root))
-      .filter((root) => !!root && fs.existsSync(root) && fs.statSync(root).isDirectory());
-
-    let scannedDirs = 0;
-    const MAX_DIRS = 2000;
-
-    while (queue.length > 0 && scannedDirs < MAX_DIRS) {
-      const dir = queue.shift()!;
-      if (visited.has(dir)) {
-        continue;
-      }
-      visited.add(dir);
-      scannedDirs += 1;
-
-      let entries: fs.Dirent[] = [];
-      try {
-        entries = fs.readdirSync(dir, { withFileTypes: true });
-      } catch {
-        continue;
-      }
-
-      for (const entry of entries) {
-        const fullPath = join(dir, entry.name);
-        if (entry.isFile() && entry.name === fileName) {
-          return fullPath;
-        }
-        if (entry.isDirectory()) {
-          queue.push(fullPath);
-        }
-      }
-    }
-
-    return null;
-  };
-
-  try {
-    if (fs.existsSync(normalizedPath)) {
-      const stat = fs.statSync(normalizedPath);
-      if (stat.isDirectory()) {
-        const openDirResult = await shell.openPath(normalizedPath);
-        if (openDirResult) {
-          logWarn('[shell.showItemInFolder] openPath returned warning:', openDirResult);
-        }
-      } else {
-        if (process.platform === 'darwin') {
-          try {
-            execFileSync('open', ['-R', normalizedPath]);
-          } catch (error) {
-            logWarn(
-              '[shell.showItemInFolder] open -R failed, fallback to shell.showItemInFolder:',
-              error
-            );
-            shell.showItemInFolder(normalizedPath);
-          }
-        } else {
-          shell.showItemInFolder(normalizedPath);
-        }
+    const stat = fs.statSync(targetPath);
+    if (stat.isDirectory()) {
+      const openDirResult = await shell.openPath(targetPath);
+      if (openDirResult) {
+        logWarn('[shell.showItemInFolder] openPath returned warning:', openDirResult);
       }
       return true;
     }
+    if (process.platform === 'darwin') {
+      try {
+        execFileSync('open', ['-R', targetPath]);
+      } catch (error) {
+        logWarn(
+          '[shell.showItemInFolder] open -R failed, fallback to shell.showItemInFolder:',
+          error
+        );
+        shell.showItemInFolder(targetPath);
+      }
+    } else {
+      shell.showItemInFolder(targetPath);
+    }
+    return true;
+  };
+
+  try {
+    if (await revealExisting(normalizedPath)) {
+      return true;
+    }
+
+    // Preferred roots: session cwd (and its outputs/), then app workspace defaults.
+    const searchRoots = buildRevealSearchRoots({
+      cwd,
+      defaultWorkingDir,
+      userDataDefaultWorkingDir,
+    });
+    // Also try parent of resolved path when it looks like a nested location
+    if (!isBareFilenameReference(trimInput)) {
+      searchRoots.unshift(dirname(normalizedPath));
+    }
 
     const fileName = basename(normalizedPath);
-    const defaultWorkingDir = getWorkingDir() || '';
-    const discoveredPath = findFileByName(fileName, [
-      cwd || '',
-      defaultWorkingDir,
-      join(app.getPath('userData'), 'default_working_dir'),
-    ]);
+    const discoveredPath = findFileByNameInRoots(fileName, searchRoots);
 
-    if (discoveredPath) {
+    if (discoveredPath && (await revealExisting(discoveredPath))) {
       logWarn('[shell.showItemInFolder] resolved path not found, discovered by filename:', {
         requested: normalizedPath,
         discoveredPath,
       });
-      if (process.platform === 'darwin') {
-        try {
-          execFileSync('open', ['-R', discoveredPath]);
-        } catch (error) {
-          logWarn(
-            '[shell.showItemInFolder] open -R discovered file failed, fallback to shell.showItemInFolder:',
-            error
-          );
-          shell.showItemInFolder(discoveredPath);
-        }
-      } else {
-        shell.showItemInFolder(discoveredPath);
-      }
       return true;
     }
 
     const parentDir = dirname(normalizedPath);
-    if (parentDir && fs.existsSync(parentDir)) {
+    if (
+      shouldOpenMissingFileParent({
+        originalPath: trimInput,
+        resolvedPath: normalizedPath,
+        parentDir,
+        workspaceRoots: [cwd, defaultWorkingDir, userDataDefaultWorkingDir, baseDir],
+      })
+    ) {
       logWarn('[shell.showItemInFolder] file not found, opening parent directory:', parentDir);
       const openParentResult = await shell.openPath(parentDir);
       if (openParentResult) {
@@ -2663,7 +2640,9 @@ async function revealFileInFolder(filePath: string, cwd?: string): Promise<boole
       return true;
     }
 
-    logWarn('[shell.showItemInFolder] path and parent directory do not exist:', normalizedPath);
+    logWarn('[shell.showItemInFolder] file not found (not opening empty parent):', normalizedPath, {
+      bare: isBareFilenameReference(trimInput),
+    });
     return false;
   } catch (error) {
     logError('[shell.showItemInFolder] failed:', error);
@@ -3253,7 +3232,7 @@ ipcMain.handle('mcp.reconnectServer', async (_event, serverId: string) => {
       return { success: false, error: 'Session manager not available' };
     }
     const mcpManager = sessionManager.getMCPManager();
-    const ok = await mcpManager.reconnectServer(serverId);
+    const ok = await mcpManager.reconnectServer(serverId, { interactiveOAuth: true });
     sessionManager.invalidateMcpServersCache();
     if (!ok) {
       return { success: false, error: `Failed to reconnect MCP server: ${serverId}` };

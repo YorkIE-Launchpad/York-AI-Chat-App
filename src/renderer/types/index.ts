@@ -284,6 +284,8 @@ export interface Skill {
   disableModelInvocation?: boolean;
   /** Optional hint shown in the slash menu for arguments. */
   argumentHint?: string;
+  /** Hub AI skills library id when installed from York Hub. */
+  hubSkillId?: string;
 }
 
 export type SkillType = 'builtin' | 'mcp' | 'custom';

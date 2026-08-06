@@ -66,7 +66,33 @@ interface ConnectWithOAuthOptions<TTransport extends OAuthTransport> {
   callbackTimeoutMs?: number;
   connect: (transport: TTransport) => Promise<void>;
   createTransport: (provider: OpenCoworkMcpOAuthProvider) => TTransport;
+  /**
+   * When true, open the system browser and wait for the OAuth callback.
+   * When false (default), never open a browser — only try persisted tokens and fail
+   * with McpOAuthInteractionRequiredError if sign-in is needed.
+   */
+  interactiveOAuth?: boolean;
   provider: OpenCoworkMcpOAuthProvider;
+}
+
+/** Thrown when MCP OAuth would need a browser login but interactive auth is disabled. */
+export class McpOAuthInteractionRequiredError extends Error {
+  constructor(message = 'MCP server requires sign-in before it can connect') {
+    super(message);
+    this.name = 'McpOAuthInteractionRequiredError';
+  }
+}
+
+export function isMcpOAuthInteractionRequiredError(error: unknown): boolean {
+  if (error instanceof McpOAuthInteractionRequiredError) {
+    return true;
+  }
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'name' in error &&
+    (error as { name: unknown }).name === 'McpOAuthInteractionRequiredError'
+  );
 }
 
 function buildClientMetadata(redirectUrl: string): OAuthClientMetadata {
@@ -367,6 +393,7 @@ export async function connectWithOAuthRetry<TTransport extends OAuthTransport>({
   callbackTimeoutMs = MCP_OAUTH_CALLBACK_TIMEOUT_MS,
   connect,
   createTransport,
+  interactiveOAuth = false,
   provider,
 }: ConnectWithOAuthOptions<TTransport>): Promise<TTransport> {
   if (hasPersistedOAuthTokens(provider)) {
@@ -380,7 +407,17 @@ export async function connectWithOAuthRetry<TTransport extends OAuthTransport>({
       if (!(error instanceof UnauthorizedError)) {
         throw error;
       }
+      // Persisted tokens were rejected. Only start browser OAuth when the user asked.
+      if (!interactiveOAuth) {
+        throw new McpOAuthInteractionRequiredError(
+          'MCP OAuth tokens are invalid or expired. Connect this server from Settings when you need it.'
+        );
+      }
     }
+  } else if (!interactiveOAuth) {
+    throw new McpOAuthInteractionRequiredError(
+      'MCP server requires sign-in. Connect this server from Settings when you need it.'
+    );
   }
 
   const listener = await createOAuthCallbackListener(callbackTimeoutMs);

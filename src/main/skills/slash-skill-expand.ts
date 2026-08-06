@@ -1,12 +1,15 @@
 /**
  * Expand Claude-style `/skill-name` (and pi `/skill:name`) prompts into a full
- * `<skill>` block before history/preamble is prepended.
+ * `<skill>` block before history/preamble is prepended. Also expands `@skill-name`
+ * mentions anywhere in the prompt (prepends skill body, keeps the user text).
  */
 import * as fs from 'fs';
 import * as path from 'path';
 import { stripFrontmatter } from '@mariozechner/pi-coding-agent';
 
 const SLASH_SKILL_RE = /^\/(?:skill:)?([a-z0-9][a-z0-9-]*)(?:\s+([\s\S]*))?$/i;
+/** `@skill-name` mentions (not email-like: requires a word boundary after). */
+const AT_SKILL_MENTION_RE = /(^|[\s([{])@([a-z0-9][a-z0-9-]*)\b/gi;
 
 export interface ExpandableSkillRef {
   name: string;
@@ -72,6 +75,16 @@ export function discoverSkillsFromPaths(skillPaths: string[]): ExpandableSkillRe
   return Array.from(byName.values());
 }
 
+function buildSkillBlock(skill: ExpandableSkillRef): string | null {
+  try {
+    const content = fs.readFileSync(skill.filePath, 'utf-8');
+    const body = stripFrontmatter(content).trim();
+    return `<skill name="${skill.name}" location="${skill.filePath}">\nReferences are relative to ${skill.baseDir}.\n\n${body}\n</skill>`;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * If `prompt` is a slash skill invoke that matches a known skill, expand it to
  * a `<skill>` block (plus optional args). Otherwise return the original prompt.
@@ -93,13 +106,55 @@ export function expandSlashSkillPrompt(
     return { expanded: false, text: prompt };
   }
 
-  try {
-    const content = fs.readFileSync(skill.filePath, 'utf-8');
-    const body = stripFrontmatter(content).trim();
-    const skillBlock = `<skill name="${skill.name}" location="${skill.filePath}">\nReferences are relative to ${skill.baseDir}.\n\n${body}\n</skill>`;
-    const text = args ? `${skillBlock}\n\n${args}` : skillBlock;
-    return { expanded: true, text, skillName: skill.name };
-  } catch {
+  const skillBlock = buildSkillBlock(skill);
+  if (!skillBlock) {
     return { expanded: false, text: prompt };
   }
+  const text = args ? `${skillBlock}\n\n${args}` : skillBlock;
+  return { expanded: true, text, skillName: skill.name };
+}
+
+/**
+ * Expand `@skill-name` mentions: prepend full skill body blocks for each unique
+ * matching mention so mid-sentence skill references load reliably.
+ */
+export function expandAtSkillMentions(
+  prompt: string,
+  skills: ExpandableSkillRef[]
+): { expanded: boolean; text: string; skillNames: string[] } {
+  if (!prompt || skills.length === 0) {
+    return { expanded: false, text: prompt, skillNames: [] };
+  }
+
+  const names = new Set<string>();
+  AT_SKILL_MENTION_RE.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = AT_SKILL_MENTION_RE.exec(prompt)) !== null) {
+    names.add(match[2].toLowerCase());
+  }
+  if (names.size === 0) {
+    return { expanded: false, text: prompt, skillNames: [] };
+  }
+
+  const blocks: string[] = [];
+  const skillNames: string[] = [];
+  for (const name of names) {
+    const skill = skills.find((s) => s.name.toLowerCase() === name);
+    if (!skill) continue;
+    const block = buildSkillBlock(skill);
+    if (!block) continue;
+    if (prompt.includes(`<skill name="${skill.name}"`)) continue;
+    blocks.push(block);
+    skillNames.push(skill.name);
+  }
+
+  if (blocks.length === 0) {
+    return { expanded: false, text: prompt, skillNames: [] };
+  }
+
+  return {
+    expanded: true,
+    text: `${blocks.join('\n\n')}\n\n${prompt}`,
+    skillNames,
+  };
 }

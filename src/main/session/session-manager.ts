@@ -788,7 +788,7 @@ export class SessionManager {
       TITLE_GENERATION_TIMEOUT_MS,
       'session-title-preview'
     );
-    const normalizedGenerated = normalizeGeneratedTitle(generated);
+    const normalizedGenerated = normalizeGeneratedTitle(generated, normalizedPrompt);
     return normalizedGenerated ?? getDefaultTitleFromPrompt(normalizedPrompt);
   }
 

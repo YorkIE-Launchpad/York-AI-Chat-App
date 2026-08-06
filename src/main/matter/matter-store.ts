@@ -13,6 +13,7 @@ import type {
   MatterScan,
   MatterSourceRef,
 } from '../../shared/matter';
+import { MATTER_DEFAULT_SNOOZE_MS } from '../../shared/matter';
 
 function parseJsonObject(raw: string | null | undefined): Record<string, unknown> {
   if (!raw) return {};
@@ -200,13 +201,24 @@ export function createMatterStore(db: DatabaseInstance): MatterStore {
           );
         })
         .map((item) => {
-          if (item.status === 'snoozed' && (!item.snoozeUntil || item.snoozeUntil <= now)) {
+          if (item.status !== 'snoozed') return item;
+          // Legacy / incomplete rows: snooze status without a deadline — re-seed duration
+          // instead of immediately reactivating (that made the queue feel "stuck").
+          if (!item.snoozeUntil) {
+            const until = now + MATTER_DEFAULT_SNOOZE_MS;
+            db.matterItems.update(item.id, { status: 'snoozed', snooze_until: until });
+            return { ...item, status: 'snoozed' as const, snoozeUntil: until };
+          }
+          if (item.snoozeUntil <= now) {
             db.matterItems.update(item.id, { status: 'active', snooze_until: null });
             return { ...item, status: 'active' as const, snoozeUntil: null };
           }
           return item;
         })
-        .filter((item) => item.status === 'active' || item.status === 'resurfaced')
+        .filter((item) => {
+          if (item.status === 'snoozed') return false;
+          return item.status === 'active' || item.status === 'resurfaced';
+        })
         .sort((a, b) => {
           if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
           return b.rankScore - a.rankScore;
@@ -233,7 +245,13 @@ export function createMatterStore(db: DatabaseInstance): MatterStore {
         if (existing) {
           const wasDoneOrDismissed = existing.status === 'done' || existing.status === 'dismissed';
           const stillSnoozed =
-            existing.status === 'snoozed' && !!existing.snooze_until && existing.snooze_until > now;
+            existing.status === 'snoozed' &&
+            (existing.snooze_until ? existing.snooze_until > now : true);
+          // If snooze_until is missing but status is snoozed, keep hidden and re-seed deadline.
+          const repairedSnoozeUntil =
+            stillSnoozed && !existing.snooze_until
+              ? now + MATTER_DEFAULT_SNOOZE_MS
+              : existing.snooze_until;
           const nextStatus = stillSnoozed
             ? 'snoozed'
             : wasDoneOrDismissed && incoming.status !== 'dismissed'
@@ -265,8 +283,8 @@ export function createMatterStore(db: DatabaseInstance): MatterStore {
             ...(dueChanged || expiresChanged ? { expired_notified_at: null } : {}),
             rank_score: incoming.rankScore,
             last_seen_at: now,
-            // Keep snooze window intact while still snoozed
-            ...(stillSnoozed ? { snooze_until: existing.snooze_until } : {}),
+            // Keep / repair snooze window while still snoozed
+            ...(stillSnoozed ? { snooze_until: repairedSnoozeUntil } : {}),
             resolved_at:
               nextStatus === 'active' || nextStatus === 'resurfaced' ? null : existing.resolved_at,
           });

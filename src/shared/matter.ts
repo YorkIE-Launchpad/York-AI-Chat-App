@@ -46,6 +46,13 @@ export const MATTER_SOURCE_IDS = [
   'launchpad',
 ] as const;
 
+/**
+ * Default snooze window for Matter signals (and "clear Now" bulk snooze).
+ * Long enough that the focus queue stays clear across a workday; not permanent.
+ */
+export const MATTER_DEFAULT_SNOOZE_MS = 24 * 60 * 60 * 1000;
+export const MATTER_MIN_SNOOZE_MS = 60 * 60 * 1000;
+
 export type MatterConfigurableSource = (typeof MATTER_SOURCE_IDS)[number];
 
 export interface MatterSourceRef {

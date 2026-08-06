@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Skill } from '../types';
 import { useAppStore } from '../store';
+import {
+  getSkillComposerTrigger,
+  type SkillComposerTrigger,
+  type SkillTriggerMode,
+} from '../../shared/skill-composer-trigger';
 
 const isElectron = typeof window !== 'undefined' && window.electronAPI !== undefined;
 
@@ -92,19 +97,23 @@ export function getSlashQuery(value: string): string {
   return value.slice(1).trim().toLowerCase();
 }
 
-export function useSlashCommands(prompt: string) {
+export type { SkillComposerTrigger, SkillTriggerMode };
+
+export function useSlashCommands(prompt: string, cursorIndex: number = prompt.length) {
   const [skills, setSkills] = useState<Skill[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [dismissed, setDismissed] = useState(false);
+  const [manualOpen, setManualOpen] = useState(false);
   const [meetingsReferenceAllowed, setMeetingsReferenceAllowed] = useState(false);
   const skillsStorageChangedAt = useAppStore((state) => state.skillsStorageChangedAt);
   const appConfig = useAppStore((state) => state.appConfig);
 
-  const matchesSlash = isSlashCommandInput(prompt);
-  // Once the user has a completed `/name ` (trailing space), keep the menu closed
-  // so they can add args or send without the picker staying open.
-  const hasCompletedCommand = /^\/\S+\s/.test(prompt);
-  const isOpen = matchesSlash && !dismissed && !hasCompletedCommand;
+  const trigger = useMemo(
+    () => getSkillComposerTrigger(prompt, cursorIndex),
+    [prompt, cursorIndex]
+  );
+
+  const isOpen = (manualOpen || Boolean(trigger)) && !dismissed;
 
   const reloadSkills = useCallback(() => {
     if (!isElectron) {
@@ -148,29 +157,41 @@ export function useSlashCommands(prompt: string) {
     };
   }, [appConfig?.meetingsEnabled, appConfig?.meetingsRuntime?.allowChatReference]);
 
+  // Reset dismiss when the trigger goes away; clear manual open when user clears @/
   useEffect(() => {
-    if (!matchesSlash) {
+    if (!trigger && !manualOpen) {
       setDismissed(false);
     }
-  }, [matchesSlash]);
+    if (trigger) {
+      setManualOpen(false);
+    }
+  }, [trigger, manualOpen]);
 
   const filteredSkills = useMemo(() => {
-    if (!matchesSlash) return [];
-    const query = getSlashQuery(prompt);
-    const builtin = [
-      ...(meetingsReferenceAllowed
-        ? [
-            {
-              ...MEETING_SLASH_SKILL,
-              description: MEETING_SLASH_SKILL.description,
-            },
-          ]
-        : []),
-      LOOP_SLASH_SKILL,
-      GOAL_SLASH_SKILL,
-      LOOP_STOP_SLASH_SKILL,
-      GOAL_STOP_SLASH_SKILL,
-    ];
+    if (!isOpen) return [];
+
+    const mode: SkillTriggerMode | 'manual' = trigger?.mode ?? (manualOpen ? 'manual' : 'slash');
+    const query = (trigger?.query ?? '').trim().toLowerCase();
+
+    // Built-ins only apply to `/` (not pure @ mentions or + picker)
+    const includeBuiltins = mode === 'slash';
+    const builtin = includeBuiltins
+      ? [
+          ...(meetingsReferenceAllowed
+            ? [
+                {
+                  ...MEETING_SLASH_SKILL,
+                  description: MEETING_SLASH_SKILL.description,
+                },
+              ]
+            : []),
+          LOOP_SLASH_SKILL,
+          GOAL_SLASH_SKILL,
+          LOOP_STOP_SLASH_SKILL,
+          GOAL_STOP_SLASH_SKILL,
+        ]
+      : [];
+
     const combined = [...builtin, ...skills];
     if (!query) return combined;
     return combined.filter((skill) => {
@@ -178,11 +199,11 @@ export function useSlashCommands(prompt: string) {
       const description = (skill.description ?? '').toLowerCase();
       return name.includes(query) || description.includes(query);
     });
-  }, [matchesSlash, prompt, skills, meetingsReferenceAllowed]);
+  }, [isOpen, trigger, manualOpen, skills, meetingsReferenceAllowed]);
 
   useEffect(() => {
     setSelectedIndex(0);
-  }, [prompt, filteredSkills.length]);
+  }, [prompt, filteredSkills.length, trigger?.start, manualOpen]);
 
   useEffect(() => {
     if (selectedIndex >= filteredSkills.length) {
@@ -203,6 +224,13 @@ export function useSlashCommands(prompt: string) {
 
   const close = useCallback(() => {
     setDismissed(true);
+    setManualOpen(false);
+  }, []);
+
+  /** Open the skill picker from the + menu (or shortcut). */
+  const openSkillPicker = useCallback(() => {
+    setManualOpen(true);
+    setDismissed(false);
   }, []);
 
   const selectedSkill = filteredSkills[selectedIndex] ?? null;
@@ -215,6 +243,9 @@ export function useSlashCommands(prompt: string) {
     setSelectedIndex,
     moveSelection,
     close,
+    openSkillPicker,
     meetingsReferenceAllowed,
+    trigger,
+    triggerMode: trigger?.mode ?? (manualOpen ? ('at' as const) : null),
   };
 }

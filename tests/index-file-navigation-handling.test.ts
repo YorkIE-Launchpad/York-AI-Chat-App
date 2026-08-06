@@ -13,4 +13,11 @@ describe('Main process file navigation handling', () => {
     expect(source).toContain('void revealNavigationTarget(url);');
     expect(source).toContain('return revealFileInFolder(localPath);');
   });
+
+  it('searches workspace outputs and avoids empty default_working_dir fallback', () => {
+    const source = fs.readFileSync(indexPath, 'utf8');
+    expect(source).toContain('findFileByNameInRoots');
+    expect(source).toContain('shouldOpenMissingFileParent');
+    expect(source).toContain('file not found (not opening empty parent)');
+  });
 });

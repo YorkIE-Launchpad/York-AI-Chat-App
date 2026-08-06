@@ -53,8 +53,13 @@ export const ContentBlockView = memo(function ContentBlockView({
   const sessions = useAppStore((s) => s.sessions);
   const workingDir = useAppStore((s) => s.workingDir);
   const setGlobalNotice = useAppStore((s) => s.setGlobalNotice);
+  const messageSession = message?.sessionId
+    ? sessions.find((s) => s.id === message.sessionId)
+    : null;
   const activeSession = activeSessionId ? sessions.find((s) => s.id === activeSessionId) : null;
-  const currentWorkingDir = activeSession?.cwd || workingDir;
+  // Prefer the message's own session cwd so file links open the chat workspace,
+  // not a stale/global default_working_dir.
+  const currentWorkingDir = messageSession?.cwd || activeSession?.cwd || workingDir;
 
   const resolveFilePath = (value: string) => resolvePathAgainstWorkspace(value, currentWorkingDir);
 

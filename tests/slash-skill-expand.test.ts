@@ -4,6 +4,7 @@ import * as os from 'os';
 import * as path from 'path';
 import {
   discoverSkillsFromPaths,
+  expandAtSkillMentions,
   expandSlashSkillPrompt,
 } from '../src/main/skills/slash-skill-expand';
 
@@ -37,6 +38,22 @@ describe('slash-skill-expand', () => {
       expect(withArgs.expanded).toBe(true);
       expect(withArgs.text).toContain('# PDF instructions');
       expect(withArgs.text).toContain('extract tables');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('expands @skill mentions in freeform text', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'york-at-skills-'));
+    try {
+      writeSkill(root, 'pdf', '# PDF skill body');
+      const skills = discoverSkillsFromPaths([root]);
+      const result = expandAtSkillMentions('Please run @pdf on the invoice', skills);
+      expect(result.expanded).toBe(true);
+      expect(result.skillNames).toEqual(['pdf']);
+      expect(result.text).toContain('<skill name="pdf"');
+      expect(result.text).toContain('# PDF skill body');
+      expect(result.text).toContain('Please run @pdf on the invoice');
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }

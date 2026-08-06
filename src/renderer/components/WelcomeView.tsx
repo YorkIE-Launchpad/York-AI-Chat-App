@@ -29,6 +29,7 @@ import {
   RefreshCw,
   Plus,
   Ghost,
+  Package,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -42,12 +43,14 @@ type AttachedFile = {
 
 import welcomeLogoSrc from '../assets/logo.png';
 import { ModelSelector } from './ModelSelector';
+import { ThinkingModeToggle } from './ThinkingModeToggle';
 import { SlashCommandMenu } from './SlashCommandMenu';
 import {
   useSlashCommands,
   isMeetingSlashSkill,
   isLoopStopBuiltinSkill,
 } from '../hooks/useSlashCommands';
+import { applySkillTriggerSelection } from '../../shared/skill-composer-trigger';
 import { MeetingPicker, type AttachedMeeting } from './MeetingPicker';
 import { ChatLoopPanel } from './ChatLoopPanel';
 import { AttachmentImageThumb, FileAttachmentChip } from './attachments';
@@ -132,6 +135,7 @@ function buildI18nFallbackChips(t: (key: string) => string): WelcomeQuickAction[
 export function WelcomeView() {
   const { t } = useTranslation();
   const [prompt, setPrompt] = useState('');
+  const [cursorIndex, setCursorIndex] = useState(0);
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const isComposingRef = useRef(false);
@@ -168,8 +172,10 @@ export function WelcomeView() {
     setSelectedIndex: setSlashSelectedIndex,
     moveSelection: moveSlashSelection,
     close: closeSlashMenu,
+    openSkillPicker,
     meetingsReferenceAllowed,
-  } = useSlashCommands(prompt);
+    trigger: skillTrigger,
+  } = useSlashCommands(prompt, cursorIndex);
 
   const fallbackChips = useMemo(() => buildI18nFallbackChips(t), [t]);
   const displayChips = quickActions ?? fallbackChips;
@@ -227,26 +233,36 @@ export function WelcomeView() {
     (skill: Skill) => {
       if (isMeetingSlashSkill(skill)) {
         setPrompt('');
+        setCursorIndex(0);
         closeSlashMenu();
         setMeetingPickerOpen(true);
         return;
       }
       if (isLoopStopBuiltinSkill(skill)) {
-        setPrompt(skill.name === 'goal stop' ? '/goal stop' : '/loop stop');
+        const next = skill.name === 'goal stop' ? '/goal stop' : '/loop stop';
+        setPrompt(next);
+        setCursorIndex(next.length);
         closeSlashMenu();
         return;
       }
-      const next = `/${skill.name} `;
+      const insertText = skillTrigger?.mode === 'slash' ? `/${skill.name} ` : `@${skill.name} `;
+      const { next, cursor } = applySkillTriggerSelection(
+        prompt,
+        skillTrigger,
+        insertText,
+        cursorIndex
+      );
       setPrompt(next);
+      setCursorIndex(cursor);
+      closeSlashMenu();
       requestAnimationFrame(() => {
         if (textareaRef.current) {
           textareaRef.current.focus();
-          const cursor = next.length;
           textareaRef.current.setSelectionRange(cursor, cursor);
         }
       });
     },
-    [closeSlashMenu]
+    [closeSlashMenu, cursorIndex, prompt, skillTrigger]
   );
 
   useEffect(() => {
@@ -1016,7 +1032,20 @@ export function WelcomeView() {
                 value={prompt}
                 onChange={(e) => {
                   setPrompt(e.target.value);
+                  setCursorIndex(e.target.selectionStart ?? e.target.value.length);
                   adjustTextareaHeight();
+                }}
+                onSelect={(e) => {
+                  const target = e.target as HTMLTextAreaElement;
+                  setCursorIndex(target.selectionStart ?? target.value.length);
+                }}
+                onKeyUp={(e) => {
+                  const target = e.target as HTMLTextAreaElement;
+                  setCursorIndex(target.selectionStart ?? target.value.length);
+                }}
+                onClick={(e) => {
+                  const target = e.target as HTMLTextAreaElement;
+                  setCursorIndex(target.selectionStart ?? target.value.length);
                 }}
                 onCompositionStart={() => {
                   isComposingRef.current = true;
@@ -1025,7 +1054,7 @@ export function WelcomeView() {
                   isComposingRef.current = false;
                 }}
                 onPaste={handlePaste}
-                placeholder={t('welcome.placeholder')}
+                placeholder={t('welcome.placeholderSkillHint')}
                 rows={1}
                 style={{ minHeight: '72px', maxHeight: '200px' }}
                 className="w-full resize-none bg-transparent border-none outline-none text-text-primary placeholder:text-text-muted text-base leading-relaxed overflow-hidden"
@@ -1135,6 +1164,23 @@ export function WelcomeView() {
                               </span>
                             </button>
                           )}
+                          {isElectron && (
+                            <button
+                              type="button"
+                              role="menuitem"
+                              onClick={() => {
+                                setActionsMenuOpen(false);
+                                openSkillPicker();
+                                requestAnimationFrame(() => textareaRef.current?.focus());
+                              }}
+                              className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
+                            >
+                              <Package className="h-4 w-4 text-accent" />
+                              <span className="text-[13px] font-medium">
+                                {t('skills.mentionFromMenu')}
+                              </span>
+                            </button>
+                          )}
                           {isElectron && meetingsReferenceAllowed && (
                             <button
                               type="button"
@@ -1200,6 +1246,7 @@ export function WelcomeView() {
                 </div>
 
                 <div className="flex flex-shrink-0 items-center gap-2">
+                  <ThinkingModeToggle />
                   <ModelSelector />
                   {dictationAvailable && (
                     <DictationButton

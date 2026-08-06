@@ -20,6 +20,9 @@ import type { DatabaseInstance } from '../db/database';
 import { log, logError, logWarn } from '../utils/logger';
 import { isPathWithinRoot } from '../tools/path-containment';
 
+/** Written next to SKILL.md when installing from the Hub skills library. */
+export const HUB_SKILL_ORIGIN_FILENAME = '.york-hub-origin.json';
+
 /**
  * Validate that a skill name is safe for use as a directory name.
  * Rejects names containing path separators or parent directory references.
@@ -47,6 +50,20 @@ function isDanglingSymlink(filePath: string): boolean {
   } catch {
     return false; // path itself doesn't exist
   }
+}
+
+function readHubSkillOriginId(skillDir: string): string | undefined {
+  const originPath = path.join(skillDir, HUB_SKILL_ORIGIN_FILENAME);
+  if (!fs.existsSync(originPath)) return undefined;
+  try {
+    const raw = JSON.parse(fs.readFileSync(originPath, 'utf-8')) as { hubSkillId?: unknown };
+    if (typeof raw.hubSkillId === 'string' && raw.hubSkillId.trim()) {
+      return raw.hubSkillId.trim();
+    }
+  } catch (error) {
+    logWarn(`[Skills] Failed to read Hub origin marker in ${skillDir}:`, error);
+  }
+  return undefined;
 }
 
 interface McpServerConfig {
@@ -603,6 +620,7 @@ export class SkillsManager {
             const metadata = this.getSkillMetadata(entryPath);
             if (!metadata) continue;
 
+            const hubSkillId = readHubSkillOriginId(entryPath);
             const skill: Skill = {
               id: `${source}-${entry}`,
               name: metadata.name,
@@ -613,6 +631,12 @@ export class SkillsManager {
               userInvocable: metadata.userInvocable,
               disableModelInvocation: metadata.disableModelInvocation,
               argumentHint: metadata.argumentHint,
+              ...(hubSkillId
+                ? {
+                    hubSkillId,
+                    config: { hubSkillId },
+                  }
+                : {}),
             };
 
             skills.push(skill);
@@ -1074,6 +1098,39 @@ export class SkillsManager {
 
     log(`Installed skill: ${installedSkill.name} (${installedSkill.id})`);
     return installedSkill;
+  }
+
+  /**
+   * Record that a global skill came from the Hub AI skills library so the UI can
+   * mark that catalog entry as installed even when titles/slugs differ from SKILL.md name.
+   */
+  recordHubSkillOrigin(skill: Skill, hubSkillId: string): Skill {
+    const id = typeof hubSkillId === 'string' ? hubSkillId.trim() : '';
+    if (!id) {
+      throw new Error('Hub skill id is required');
+    }
+
+    const globalSkillsPath = this.getGlobalSkillsPath();
+    const skillDir = path.join(globalSkillsPath, skill.name);
+    if (!fs.existsSync(skillDir)) {
+      throw new Error(`Installed skill directory not found: ${skill.name}`);
+    }
+
+    const originPath = path.join(skillDir, HUB_SKILL_ORIGIN_FILENAME);
+    fs.writeFileSync(originPath, `${JSON.stringify({ hubSkillId: id }, null, 2)}\n`, 'utf-8');
+
+    const updated: Skill = {
+      ...skill,
+      hubSkillId: id,
+      config: {
+        ...(skill.config || {}),
+        hubSkillId: id,
+      },
+    };
+    this.loadedSkills.set(updated.id, updated);
+    this.saveSkill(updated);
+    log(`Recorded Hub origin for skill ${updated.name}: ${id}`);
+    return updated;
   }
 
   private deduplicateSkills(skills: Skill[]): Skill[] {

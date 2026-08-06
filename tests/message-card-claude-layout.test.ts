@@ -23,6 +23,15 @@ describe('MessageCard Claude-style layout', () => {
   it('uses quieter rounded shells for tool and thinking cards', () => {
     const source = readAllMessageContent();
     expect(source).toContain('rounded-2xl border overflow-hidden');
-    expect(source).toContain('rounded-2xl border border-border-subtle bg-background/40 overflow-hidden');
+    expect(source).toContain(
+      'rounded-2xl border border-border-subtle bg-background/40 overflow-hidden'
+    );
+  });
+
+  it('exposes a copy action for completed assistant messages', () => {
+    const source = fs.readFileSync(messageCardPath, 'utf8');
+    expect(source).toContain('messageCard.copyMessage');
+    expect(source).toContain('textToCopy && !isStreaming');
+    expect(source).toContain('navigator.clipboard.writeText');
   });
 });

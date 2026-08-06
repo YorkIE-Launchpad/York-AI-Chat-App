@@ -308,7 +308,8 @@ export class HubSkillsLibraryService {
       id,
       async (extractDir) => {
         const packRoot = await resolveExtractedSkillRoot(extractDir);
-        return this.skillsManager.installSkill(packRoot);
+        const skill = await this.skillsManager.installSkill(packRoot);
+        return this.skillsManager.recordHubSkillOrigin(skill, id);
       },
       this.fetchFn
     );

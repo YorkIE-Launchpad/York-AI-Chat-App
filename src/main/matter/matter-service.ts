@@ -7,6 +7,8 @@ import { resolveWelcomeProfile } from '../welcome/resolve-welcome-profile';
 import { formatWelcomeProfileSummary } from '../../shared/welcome-actions';
 import {
   DEFAULT_MATTER_RUNTIME,
+  MATTER_DEFAULT_SNOOZE_MS,
+  MATTER_MIN_SNOOZE_MS,
   type MatterItem,
   type MatterItemActionInput,
   type MatterLens,
@@ -437,7 +439,11 @@ export class MatterService {
         });
       }
     } else if (input.action === 'snooze') {
-      const until = input.snoozeUntil ?? now + 60 * 60 * 1000;
+      const requested =
+        typeof input.snoozeUntil === 'number' && Number.isFinite(input.snoozeUntil)
+          ? input.snoozeUntil
+          : now + MATTER_DEFAULT_SNOOZE_MS;
+      const until = Math.max(requested, now + MATTER_MIN_SNOOZE_MS);
       this.store.updateItem(item.id, {
         status: 'snoozed',
         snoozeUntil: until,
@@ -479,13 +485,13 @@ export class MatterService {
    * Snooze every item currently in the Now orbit (including pinned) in one pass.
    * Unpins so items do not immediately snap back into Now after refresh.
    */
-  clearNowOrbit(snoozeMs = 60 * 60 * 1000): MatterSnapshot {
+  clearNowOrbit(snoozeMs = MATTER_DEFAULT_SNOOZE_MS): MatterSnapshot {
     const snapshot = this.getSnapshot();
     const nowItems = snapshot.items.filter((i) => i.orbit === 'now');
     if (nowItems.length === 0) {
       return snapshot;
     }
-    const until = Date.now() + Math.max(60_000, snoozeMs);
+    const until = Date.now() + Math.max(MATTER_MIN_SNOOZE_MS, snoozeMs);
     for (const item of nowItems) {
       this.store.updateItem(item.id, {
         status: 'snoozed',
@@ -585,15 +591,26 @@ export class MatterService {
 
     for (const item of items) {
       // Snooze wake → active + optional notify
-      if (item.status === 'snoozed' && item.snoozeUntil != null && item.snoozeUntil <= now) {
-        this.store.updateItem(item.id, { status: 'active', snoozeUntil: null });
-        notifyMatterItem({
-          kind: 'snooze_wake',
-          title: item.title,
-          body: item.summary || item.whyItMatters || 'Back on your radar.',
-          itemId: item.id,
-        });
-        changed = true;
+      if (item.status === 'snoozed') {
+        if (item.snoozeUntil == null) {
+          // Incomplete snooze row: re-seed instead of treating as expired
+          this.store.updateItem(item.id, {
+            status: 'snoozed',
+            snoozeUntil: now + MATTER_DEFAULT_SNOOZE_MS,
+          });
+          changed = true;
+          continue;
+        }
+        if (item.snoozeUntil <= now) {
+          this.store.updateItem(item.id, { status: 'active', snoozeUntil: null });
+          notifyMatterItem({
+            kind: 'snooze_wake',
+            title: item.title,
+            body: item.summary || item.whyItMatters || 'Back on your radar.',
+            itemId: item.id,
+          });
+          changed = true;
+        }
         continue;
       }
 

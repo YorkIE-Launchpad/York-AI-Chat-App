@@ -583,7 +583,12 @@ export async function generateTitleWithSdk(
   try {
     const result = await runPiAiOneShot(
       titlePrompt,
-      'Generate a concise title. Reply with only the title text and no extra markup.',
+      [
+        'Generate a concise conversation title.',
+        'Match the language rules in the user message exactly.',
+        'If the user request is English or any non-CJK language, the title must be English only — never Chinese.',
+        'Reply with only the title text and no extra markup.',
+      ].join(' '),
       config
     );
     const title = normalizeGeneratedTitle(result.text);

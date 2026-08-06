@@ -18,6 +18,7 @@ export function SettingsGeneral() {
   const [keyDirty, setKeyDirty] = useState(false);
   const [savingKey, setSavingKey] = useState(false);
   const [keySaveMessage, setKeySaveMessage] = useState<string | null>(null);
+  const [savingThinking, setSavingThinking] = useState(false);
   const {
     status: updaterStatus,
     checking: updaterChecking,
@@ -49,6 +50,7 @@ export function SettingsGeneral() {
   ];
 
   const hasKey = hasOpenRouterUserApiKey(appConfig?.openRouterUserApiKey);
+  const thinkingEnabled = Boolean(appConfig?.enableThinking);
 
   const saveOpenRouterKey = async () => {
     if (!isElectron || savingKey) return;
@@ -72,6 +74,21 @@ export function SettingsGeneral() {
     }
   };
 
+  const toggleThinkingMode = async () => {
+    if (!isElectron || savingThinking || !appConfig) return;
+    setSavingThinking(true);
+    try {
+      const result = await window.electronAPI.config.save({
+        enableThinking: !thinkingEnabled,
+      });
+      setAppConfig(result.config);
+    } catch {
+      /* ignore */
+    } finally {
+      setSavingThinking(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Theme */}
@@ -92,6 +109,24 @@ export function SettingsGeneral() {
             </button>
           ))}
         </div>
+      </div>
+
+      {/* Thinking mode */}
+      <div className="space-y-3 pt-2 border-t border-border">
+        <h4 className="text-sm font-medium text-text-primary">{t('general.thinkingMode')}</h4>
+        <p className="text-sm text-text-secondary">{t('general.thinkingModeHelp')}</p>
+        <button
+          type="button"
+          disabled={savingThinking || !appConfig}
+          onClick={() => void toggleThinkingMode()}
+          className={`px-4 py-2.5 rounded-lg border-2 text-sm font-medium transition-all disabled:opacity-50 ${
+            thinkingEnabled
+              ? 'border-accent bg-accent/5 text-text-primary'
+              : 'border-border bg-surface hover:border-accent/50 text-text-secondary'
+          }`}
+        >
+          {thinkingEnabled ? t('memory.enabled') : t('memory.disabled')}
+        </button>
       </div>
 
       {/* OpenRouter BYOK */}

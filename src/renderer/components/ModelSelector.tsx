@@ -373,7 +373,7 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
         disabled={isDisabled}
         aria-haspopup="listbox"
         aria-expanded={isOpen}
-        className={`inline-flex items-center gap-1.5 rounded-2xl px-2.5 py-1.5 text-left transition-colors ${
+        className={`inline-flex h-8 max-w-[11rem] items-center gap-1 rounded-xl px-2 py-0 text-left transition-colors ${
           isOpen
             ? 'bg-surface-hover text-text-primary'
             : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
@@ -381,16 +381,16 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
         title={triggerTitle}
       >
         {isAutoSelected && <Sparkles className="h-3.5 w-3.5 shrink-0 text-accent" />}
-        <span className="inline-flex items-baseline gap-1 whitespace-nowrap text-[13px] font-medium tracking-[-0.01em]">
-          <span>{displayName}</span>
+        <span className="inline-flex min-w-0 items-baseline gap-1 text-[12px] font-medium tracking-[-0.01em]">
+          <span className="truncate">{displayName}</span>
           {showViaOpenRouter && (
-            <span className="font-normal text-text-muted">
+            <span className="hidden lg:inline shrink-0 font-normal text-text-muted">
               {t('workspace.models.viaOpenRouter', 'via Openrouter')}
             </span>
           )}
         </span>
         <ChevronDown
-          className={`h-3.5 w-3.5 shrink-0 text-text-muted transition-transform ${
+          className={`h-3 w-3 shrink-0 text-text-muted transition-transform ${
             isOpen ? 'rotate-180' : ''
           }`}
         />

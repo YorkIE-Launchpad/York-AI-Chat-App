@@ -21,19 +21,12 @@ import type {
   PluginComponentKind,
   HubSkillCatalogEntry,
 } from '../../types';
+import { isHubSkillInstalled } from '../../../shared/hub-skill-install-state';
 import { useAppStore } from '../../store';
 import { SettingsContentSection } from './shared';
 import type { LocalizedBanner } from './shared';
 
 const isElectron = typeof window !== 'undefined' && window.electronAPI !== undefined;
-
-function isHubSkillInstalled(hubSkill: HubSkillCatalogEntry, localSkills: Skill[]): boolean {
-  const candidates = [hubSkill.title, hubSkill.slug]
-    .filter((value): value is string => Boolean(value?.trim()))
-    .map((value) => value.trim().toLowerCase());
-  if (candidates.length === 0) return false;
-  return localSkills.some((skill) => candidates.includes(skill.name.toLowerCase()));
-}
 
 export function SettingsSkills({ isActive }: { isActive: boolean }) {
   const { t } = useTranslation();
@@ -58,6 +51,7 @@ export function SettingsSkills({ isActive }: { isActive: boolean }) {
   const [isHubSkillsModalOpen, setIsHubSkillsModalOpen] = useState(false);
   const [pluginActionKey, setPluginActionKey] = useState<string | null>(null);
   const [hubSkillActionId, setHubSkillActionId] = useState<string | null>(null);
+  const [installedHubSkillIds, setInstalledHubSkillIds] = useState<string[]>([]);
   const [pluginToastMessage, setPluginToastMessage] = useState('');
   const [error, setError] = useState<LocalizedBanner | null>(null);
   const [success, setSuccess] = useState<LocalizedBanner | null>(null);
@@ -138,7 +132,15 @@ export function SettingsSkills({ isActive }: { isActive: boolean }) {
       const errors: string[] = [];
 
       if (skillsResult.status === 'fulfilled') {
-        setSkills(skillsResult.value || []);
+        const nextSkills = skillsResult.value || [];
+        setSkills(nextSkills);
+        setInstalledHubSkillIds((prev) => {
+          const fromSkills = nextSkills
+            .map((skill) => skill.hubSkillId)
+            .filter((id): id is string => Boolean(id?.trim()));
+          if (fromSkills.length === 0) return prev;
+          return [...new Set([...prev, ...fromSkills])];
+        });
       } else {
         errors.push(
           skillsResult.reason instanceof Error
@@ -274,6 +276,9 @@ export function SettingsSkills({ isActive }: { isActive: boolean }) {
     setSuccess(null);
     try {
       const result = await window.electronAPI.hubSkills.install(hubSkill.id);
+      setInstalledHubSkillIds((prev) =>
+        prev.includes(hubSkill.id) ? prev : [...prev, hubSkill.id]
+      );
       await loadSkills();
       const message = t('skills.hubSkillInstallSuccess', {
         name: result.skill?.name || hubSkill.title,
@@ -866,7 +871,7 @@ export function SettingsSkills({ isActive }: { isActive: boolean }) {
                 </div>
               ) : (
                 filteredHubSkills.map((hubSkill) => {
-                  const installed = isHubSkillInstalled(hubSkill, skills);
+                  const installed = isHubSkillInstalled(hubSkill, skills, installedHubSkillIds);
                   const isInstalling = hubSkillActionId === hubSkill.id;
                   return (
                     <div

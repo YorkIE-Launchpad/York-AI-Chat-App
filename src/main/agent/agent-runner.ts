@@ -56,11 +56,16 @@ import { getDefaultShell } from '../utils/shell-resolver';
 import { PluginRuntimeService } from '../skills/plugin-runtime-service';
 import type { SkillsAdapter } from '../skills/skills-adapter';
 import { expandLaunchPadSkillIntent } from '../skills/skill-intent-expand';
-import { discoverSkillsFromPaths, expandSlashSkillPrompt } from '../skills/slash-skill-expand';
+import {
+  discoverSkillsFromPaths,
+  expandAtSkillMentions,
+  expandSlashSkillPrompt,
+} from '../skills/slash-skill-expand';
 import { AgentRuntimeExtensionManager } from '../extensions/agent-runtime-extension-manager';
 import { configStore } from '../config/config-store';
 import { resolveBackendClientApiKey } from '../config/backend-auth';
 import { normalizeOpenAICompatibleBaseUrl } from '../config/auth-utils';
+import { buildThinkingModePromptSection, resolveThinkingLevel } from '../../shared/thinking-mode';
 import {
   applyBackendManagedCredentials,
   isBackendManagedProvider,
@@ -2172,8 +2177,8 @@ ${hints.join('\n')}
       // Resolve thinking level early — needed for session reuse check below
       const enableThinking = configStore.get('enableThinking') ?? false;
       logCtx('[CoworkAgentRunner] Enable thinking mode:', enableThinking);
-      type PiThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
-      const thinkingLevel: PiThinkingLevel = enableThinking ? 'medium' : 'off';
+      const thinkingLevel = resolveThinkingLevel(enableThinking);
+      const thinkingModePrompt = buildThinkingModePromptSection(enableThinking);
       const sessionRuntimeSignature = buildPiSessionRuntimeSignature({
         configProvider: runtimeConfig.provider,
         customProtocol: runtimeConfig.customProtocol,
@@ -2297,7 +2302,7 @@ ${hints.join('\n')}
         );
       }
 
-      // Expand /skill-name or /skill:name on the raw user prompt BEFORE history /
+      // Expand /skill-name, /skill:name, or @skill-name mentions BEFORE history /
       // promptPrefix are prepended — pi only expands when the full string starts
       // with `/skill:`. Also auto-inject LaunchPad skill on NL delivery intent so
       // weaker models cannot skip loading the playbook.
@@ -2309,12 +2314,20 @@ ${hints.join('\n')}
           expandedUserPrompt = expansion.text;
           log(`[CoworkAgentRunner] Expanded slash skill /${expansion.skillName} before preamble`);
         } else {
-          const launchpadExpansion = expandLaunchPadSkillIntent(prompt, expandableSkills);
-          if (launchpadExpansion.expanded) {
-            expandedUserPrompt = launchpadExpansion.text;
+          const atExpansion = expandAtSkillMentions(prompt, expandableSkills);
+          if (atExpansion.expanded) {
+            expandedUserPrompt = atExpansion.text;
             log(
-              `[CoworkAgentRunner] Auto-injected LaunchPad skill /${launchpadExpansion.skillName} for delivery intent`
+              `[CoworkAgentRunner] Expanded @skill mentions (${atExpansion.skillNames.join(', ')}) before preamble`
             );
+          } else {
+            const launchpadExpansion = expandLaunchPadSkillIntent(prompt, expandableSkills);
+            if (launchpadExpansion.expanded) {
+              expandedUserPrompt = launchpadExpansion.text;
+              log(
+                `[CoworkAgentRunner] Auto-injected LaunchPad skill /${launchpadExpansion.skillName} for delivery intent`
+              );
+            }
           }
         }
       } catch (error) {
@@ -2588,7 +2601,7 @@ ${workspaceListing ? `\nTop-level entries in the workspace:\n${workspaceListing}
 - Provider: ${provider}
 - Context Window: ${activePiModel.contextWindow || 'unknown'} tokens
 - Max Output Tokens: ${activePiModel.maxTokens || 'default'}
-- Thinking: ${enableThinking ? 'enabled' : 'disabled'}
+- Thinking: ${enableThinking ? `enabled (${thinkingLevel})` : 'disabled'}
 - Sandbox: ${runtimeConfig.sandboxEnabled ? 'enabled' : 'disabled'}
 - Memory: ${runtimeConfig.memoryEnabled ? 'enabled' : 'disabled'}
 </your_configuration>`;
@@ -2619,6 +2632,7 @@ ${workspaceListing ? `\nTop-level entries in the workspace:\n${workspaceListing}
       const coworkAppendPrompt = [
         'You are a York IE VECOS assistant. Be concise, accurate, and tool-capable.',
         buildDivisionSystemPrompt(session, { folderInstructions }),
+        thinkingModePrompt,
         `CRITICAL BEHAVIORAL RULES:
 1. CHAT FIRST: By default, respond to the user in plain text within the conversation. Do NOT create, write, or edit local files unless the user explicitly asks you to (e.g., "create a file", "write this to...", "edit the code", "save as...", mentions a specific file path, or describes code changes they want applied locally). For questions, summaries, explanations, analysis, and general conversation — always reply directly in chat text. CHAT FIRST does NOT block MCP tool calls (Hub, LaunchPad, Slack, Gmail, Calendar, etc.). When the user asks to implement, build, fix, or preview via LaunchPad, use LaunchPad MCP tools immediately.
 2. NEVER ask clarification questions in plain text. When a request is actionable, proceed immediately with reasonable assumptions. If you truly cannot proceed without user input, you MUST use the AskUserQuestion tool — never write questions as regular assistant text.

@@ -34,9 +34,11 @@ export function MatterLenses({ lenses, activeLens, onSelect }: MatterLensesProps
               key={lens.id}
               type="button"
               onClick={() => onSelect(selected ? null : lens.id)}
-              className={`w-full text-left rounded-xl border px-3 py-2.5 transition-colors ${
+              aria-pressed={selected}
+              data-selected={selected ? 'true' : 'false'}
+              className={`matter-focus-lens w-full text-left rounded-xl border px-3 py-2.5 transition-colors ${
                 selected
-                  ? 'border-accent/50 bg-accent-muted/15'
+                  ? 'matter-focus-lens-selected is-selected border-accent/50 bg-accent-muted/15'
                   : 'border-border-muted bg-background/50 hover:bg-surface-hover/40'
               }`}
             >

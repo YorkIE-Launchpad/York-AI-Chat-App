@@ -22,7 +22,11 @@ import { createHash } from 'crypto';
 import { app, BrowserWindow, shell } from 'electron';
 
 import path from 'path';
-import { connectWithOAuthRetry, OpenCoworkMcpOAuthProvider } from './mcp-oauth';
+import {
+  connectWithOAuthRetry,
+  isMcpOAuthInteractionRequiredError,
+  OpenCoworkMcpOAuthProvider,
+} from './mcp-oauth';
 import { mcpOAuthStore } from './mcp-oauth-store';
 import {
   filterAtlassianToolsByProduct,
@@ -385,6 +389,8 @@ export class MCPManager {
   private connectorAccessTokensByServerId = new Map<string, string>();
   // Background connect retry loops (5s interval, 5min deadline)
   private connectRetryControllers = new Map<string, AbortController>();
+  // Server IDs allowed to open a browser for OAuth during the current connect
+  private pendingInteractiveOAuth = new Set<string>();
   // Tracks per-server connection status for UI display
   private connectionStatus = new Map<string, 'connecting' | 'connected' | 'failed'>();
   // False until the first initializeServers pass finishes (and any queued replay)
@@ -716,10 +722,13 @@ export class MCPManager {
       await Promise.allSettled(
         enabledConfigs.map(async (config) => {
           try {
-            await this.connectServer(config);
+            await this.connectServer(config, { interactiveOAuth: false });
           } catch (error) {
             logError(`[MCPManager] Failed to connect to server ${config.name}:`, error);
-            this.startConnectRetryLoop(config);
+            // Do not spam OAuth browser / retries when the user has not signed in yet
+            if (!isMcpOAuthInteractionRequiredError(error)) {
+              this.startConnectRetryLoop(config);
+            }
           }
         })
       );
@@ -766,13 +775,15 @@ export class MCPManager {
     const isConnected = this.clients.has(config.id);
 
     if (config.enabled && !isConnected) {
-      // Need to connect
+      // Need to connect (user enabled in UI — allow OAuth browser if required)
       try {
-        await this.connectServer(config);
+        await this.connectServer(config, { interactiveOAuth: true });
         await this.refreshTools();
       } catch (error) {
         logError(`[MCPManager] Failed to connect to server ${config.name}:`, error);
-        this.startConnectRetryLoop(config);
+        if (!isMcpOAuthInteractionRequiredError(error)) {
+          this.startConnectRetryLoop(config);
+        }
         throw error;
       }
     } else if (!config.enabled && isConnected) {
@@ -781,14 +792,16 @@ export class MCPManager {
       await this.disconnectServer(config.id);
       await this.refreshTools();
     } else if (config.enabled && isConnected) {
-      // Config changed, reconnect
+      // Config changed, reconnect — allow OAuth when user toggles/updates settings
       await this.disconnectServer(config.id);
       try {
-        await this.connectServer(config);
+        await this.connectServer(config, { interactiveOAuth: true });
         await this.refreshTools();
       } catch (error) {
         logError(`[MCPManager] Failed to reconnect server ${config.name}:`, error);
-        this.startConnectRetryLoop(config);
+        if (!isMcpOAuthInteractionRequiredError(error)) {
+          this.startConnectRetryLoop(config);
+        }
         throw error;
       }
     } else if (!config.enabled) {
@@ -1007,12 +1020,20 @@ export class MCPManager {
   /**
    * Connect to a single MCP server.
    * Leaves status as 'connecting' until refreshTools confirms tools were discovered.
+   * @param options.interactiveOAuth — open browser for OAuth only when the user initiated connect/reconnect
    */
-  private async connectServer(config: MCPServerConfig): Promise<void> {
+  private async connectServer(
+    config: MCPServerConfig,
+    options?: { interactiveOAuth?: boolean }
+  ): Promise<void> {
     log(`[MCPManager] Connecting to MCP server: ${config.name} (${config.type})`);
 
     // Mark status as connecting at the very start, before any transport creation
     this.connectionStatus.set(config.id, 'connecting');
+    const interactive = options?.interactiveOAuth === true;
+    if (interactive) {
+      this.pendingInteractiveOAuth.add(config.id);
+    }
 
     try {
       if (isShareableAtlassianRemoteMcpServer(config) && config.url) {
@@ -1025,6 +1046,8 @@ export class MCPManager {
     } catch (error) {
       this.connectionStatus.set(config.id, 'failed');
       throw error;
+    } finally {
+      this.pendingInteractiveOAuth.delete(config.id);
     }
   }
 
@@ -1455,6 +1478,7 @@ export class MCPManager {
               requestInit,
               ...(skipIssuerMetadataValidation ? { skipIssuerMetadataValidation: true } : {}),
             }),
+          interactiveOAuth: this.pendingInteractiveOAuth.has(config.id),
           provider: authProvider,
         });
       }
@@ -1615,6 +1639,19 @@ export class MCPManager {
 
     const provider = new OpenCoworkMcpOAuthProvider({
       openExternal: async (url) => {
+        // Defense in depth: only open the browser for user-initiated connects.
+        // Shared Atlassian providers may be keyed under a sibling id.
+        // `provider` is closed over and only read after construction finishes.
+        const interactiveAllowed =
+          this.pendingInteractiveOAuth.has(config.id) ||
+          [...this.oauthProviders.entries()].some(
+            ([id, entry]) => entry.provider === provider && this.pendingInteractiveOAuth.has(id)
+          );
+        if (!interactiveAllowed) {
+          throw new Error(
+            `MCP OAuth authorization for ${config.name} requires user action. Connect this server from Settings.`
+          );
+        }
         await this.openMcpAuthorizationUrl(config.name, url);
       },
       onPersist: (record) => {
@@ -2505,7 +2542,12 @@ export class MCPManager {
 
   async reconnectServer(
     serverId: string,
-    options?: { skipRefresh?: boolean; preserveConnectRetry?: boolean }
+    options?: {
+      skipRefresh?: boolean;
+      preserveConnectRetry?: boolean;
+      /** Open browser OAuth when tokens are missing/invalid (Settings reconnect). Default false. */
+      interactiveOAuth?: boolean;
+    }
   ): Promise<boolean> {
     // Prevent concurrent reconnect operations for the same server
     if (this.reconnectingServers.has(serverId)) {
@@ -2537,14 +2579,16 @@ export class MCPManager {
         preserveStatus: true,
         forceCloseShared: Boolean(shareKey),
       });
-      await this.connectServer(config);
+      const interactiveOAuth = options?.interactiveOAuth === true;
+      await this.connectServer(config, { interactiveOAuth });
 
       for (const siblingId of siblingIds) {
         const sibling = this.serverConfigs.get(siblingId);
         if (!sibling?.enabled || this.clients.has(siblingId)) continue;
         this.connectionStatus.set(siblingId, 'connecting');
         try {
-          await this.connectServer(sibling);
+          // Sibling re-alias: share tokens already obtained; no new browser OAuth
+          await this.connectServer(sibling, { interactiveOAuth: false });
         } catch (siblingError) {
           logError(
             `[MCPManager] Failed to re-alias Atlassian sibling ${siblingId} after reconnect:`,

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import { RefreshCw, Settings, X, Radio, Activity, Gauge, Plug, Clock3 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { MatterItem, MatterLensId, MatterSnapshot } from '../../../shared/matter';
-import { DEFAULT_MATTER_RUNTIME } from '../../../shared/matter';
+import { DEFAULT_MATTER_RUNTIME, MATTER_DEFAULT_SNOOZE_MS } from '../../../shared/matter';
 import { useAppStore } from '../../store';
 import { useIPC } from '../../hooks/useIPC';
 import { MatterRadar } from './MatterRadar';
@@ -100,7 +100,7 @@ export function MatterPage({ onClose }: MatterPageProps) {
     const next = await window.electronAPI.matter.applyAction({
       itemId: item.id,
       action: action === 'pin' && item.pinned ? 'unpin' : action === 'unpin' ? 'unpin' : action,
-      snoozeUntil: action === 'snooze' ? Date.now() + 60 * 60 * 1000 : undefined,
+      snoozeUntil: action === 'snooze' ? Date.now() + MATTER_DEFAULT_SNOOZE_MS : undefined,
       mute: mute
         ? {
             kind: 'fingerprint',
@@ -128,7 +128,8 @@ export function MatterPage({ onClose }: MatterPageProps) {
     setBusy(true);
     try {
       const built = await window.electronAPI.matter.buildChatPrompt(prompt, itemIds);
-      await startSession('Matter', built.prompt, workingDir || undefined);
+      // Matter is org/context radar — always open chats in Hub, not General.
+      await startSession('Matter', built.prompt, workingDir || undefined, { division: 'hub' });
     } finally {
       setBusy(false);
     }

@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   connectWithOAuthRetry,
   createOAuthCallbackListener,
+  McpOAuthInteractionRequiredError,
   OpenCoworkMcpOAuthProvider,
 } from '../src/main/mcp/mcp-oauth';
 
@@ -201,6 +202,7 @@ describe('connectWithOAuthRetry', () => {
         }
       },
       createTransport: () => transports[createCount++],
+      interactiveOAuth: true,
       provider,
     });
 
@@ -268,6 +270,7 @@ describe('connectWithOAuthRetry', () => {
         }
       },
       createTransport: () => transports[createCount++],
+      interactiveOAuth: true,
       provider,
     });
 
@@ -301,10 +304,59 @@ describe('connectWithOAuthRetry', () => {
           throw new UnauthorizedError('Authorization required');
         },
         createTransport: () => transport,
+        interactiveOAuth: true,
         provider,
       })
     ).rejects.toThrow('invalid state parameter');
 
     expect(transport.finishAuth).not.toHaveBeenCalled();
+  });
+
+  it('does not open the browser when interactive OAuth is disabled and no tokens exist', async () => {
+    const openExternal = vi.fn();
+    const createTransport = vi.fn();
+    const provider = new OpenCoworkMcpOAuthProvider({ openExternal });
+
+    await expect(
+      connectWithOAuthRetry({
+        connect: vi.fn(),
+        createTransport,
+        interactiveOAuth: false,
+        provider,
+      })
+    ).rejects.toBeInstanceOf(McpOAuthInteractionRequiredError);
+
+    expect(openExternal).not.toHaveBeenCalled();
+    expect(createTransport).not.toHaveBeenCalled();
+  });
+
+  it('does not open the browser when interactive OAuth is disabled and stored tokens are rejected', async () => {
+    const openExternal = vi.fn();
+    const transport = {
+      close: vi.fn().mockResolvedValue(undefined),
+      finishAuth: vi.fn().mockResolvedValue(undefined),
+    };
+    const provider = new OpenCoworkMcpOAuthProvider({
+      openExternal,
+      persisted: {
+        serverUrl: 'https://gtm-pulse.example.com/mcp',
+        tokens: { access_token: 'expired-token', token_type: 'Bearer' },
+      },
+      serverUrl: 'https://gtm-pulse.example.com/mcp',
+    });
+
+    await expect(
+      connectWithOAuthRetry({
+        connect: async () => {
+          throw new UnauthorizedError('Authorization required');
+        },
+        createTransport: () => transport,
+        interactiveOAuth: false,
+        provider,
+      })
+    ).rejects.toBeInstanceOf(McpOAuthInteractionRequiredError);
+
+    expect(openExternal).not.toHaveBeenCalled();
+    expect(transport.close).toHaveBeenCalled();
   });
 });
