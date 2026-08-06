@@ -10,7 +10,11 @@ import { detectMeetingApps, detectZoomMicUsage } from './meeting-mic-detector';
 import { MeetingStore } from './meeting-store';
 import { MeetingTranscriptionService } from './meeting-transcription-service';
 import { normalizeTranscriptToEnglish } from './meeting-transcript-english';
-import { ZoomRtmsDesktopClient, type ZoomRtmsTranscriptSegment } from './zoom-rtms-client';
+import {
+  ZoomRtmsDesktopClient,
+  type ZoomRtmsTranscriptSegment,
+  type ZoomSpeakerUpdate,
+} from './zoom-rtms-client';
 import type { MemoryService } from '../memory/memory-service';
 import type {
   MeetingCaptureStatus,
@@ -704,8 +708,14 @@ export class MeetingService {
         );
       }
 
-      this.zoomRtms.startPolling(yorkMeetingId, (segments) => {
-        const task = this.ingestRtmsSegments(yorkMeetingId, segments);
+      this.zoomRtms.startPolling(yorkMeetingId, (batch) => {
+        if (batch.speakerUpdates.length > 0) {
+          this.applyRtmsSpeakerUpdates(yorkMeetingId, batch.speakerUpdates);
+        }
+        if (batch.segments.length === 0) {
+          return;
+        }
+        const task = this.ingestRtmsSegments(yorkMeetingId, batch.segments);
         this.pendingRtmsIngests.add(task);
         void task.finally(() => this.pendingRtmsIngests.delete(task));
       });
@@ -713,6 +723,117 @@ export class MeetingService {
       logWarn('[Meetings] bootstrapZoomRtms failed — local STT fallback', error);
       this.localSttFallbackActive = true;
     }
+  }
+
+  /** Patch speaker labels on already-ingested RTMS segments and rebuild transcriptText. */
+  private applyRtmsSpeakerUpdates(meetingId: string, updates: ZoomSpeakerUpdate[]): void {
+    if (!this.activeMeetingId || this.activeMeetingId !== meetingId) {
+      return;
+    }
+    const current = this.store.get(meetingId);
+    if (!current || (current.status !== 'recording' && current.status !== 'finalizing')) {
+      return;
+    }
+
+    const byId = new Map(current.segments.map((segment) => [segment.id, segment]));
+    let patched = 0;
+    for (const update of updates) {
+      const segment = byId.get(update.id);
+      if (!segment) continue;
+      const name = update.speaker.trim();
+      if (!name) continue;
+      if (segment.speaker?.trim() === name) continue;
+      segment.speaker = name;
+      if (update.speakerUserId) {
+        segment.speakerUserId = update.speakerUserId;
+      }
+      patched += 1;
+    }
+
+    if (patched === 0) {
+      return;
+    }
+
+    current.transcriptText = buildTranscriptText(current.segments);
+    current.updatedAt = Date.now();
+    this.store.save(current);
+    this.liveTranscript = current.transcriptText;
+    log(
+      '[Meetings] applyRtmsSpeakerUpdates',
+      `meetingId=${meetingId}`,
+      `patched=${patched}`,
+      `updates=${updates.length}`
+    );
+    this.emitStatus();
+  }
+
+  /**
+   * Rebuild/update local segments from the full server snapshot so late speaker
+   * backfills are present in the raw transcript before the session is deleted.
+   */
+  private async resyncRtmsFromServer(meetingId: string): Promise<void> {
+    const serverSegments = await this.zoomRtms.fetchAllSegments();
+    if (serverSegments.length === 0) {
+      return;
+    }
+
+    const current = this.store.get(meetingId);
+    if (!current) {
+      return;
+    }
+
+    const byId = new Map(current.segments.map((segment) => [segment.id, segment]));
+    let patched = 0;
+    let appended = 0;
+
+    for (const remote of serverSegments) {
+      const local = byId.get(remote.id);
+      if (local) {
+        const name = remote.speaker?.trim();
+        if (name && local.speaker?.trim() !== name) {
+          local.speaker = name;
+          local.speakerUserId = remote.speakerUserId;
+          patched += 1;
+        } else if (!local.speakerUserId && remote.speakerUserId) {
+          local.speakerUserId = remote.speakerUserId;
+        }
+        continue;
+      }
+
+      const text = remote.text?.trim();
+      if (!text) continue;
+      const normalized = (await normalizeTranscriptToEnglish(text)).trim() || text;
+      const segment: MeetingSegment = {
+        id: remote.id || randomUUID(),
+        text: normalized,
+        startedAt: remote.startedAt || Date.now(),
+        endedAt: remote.endedAt || Date.now(),
+        createdAt: Date.now(),
+        speaker: remote.speaker,
+        speakerUserId: remote.speakerUserId,
+        source: 'zoom-rtms',
+      };
+      current.segments.push(segment);
+      byId.set(segment.id, segment);
+      appended += 1;
+    }
+
+    if (patched === 0 && appended === 0) {
+      return;
+    }
+
+    current.transcriptText = buildTranscriptText(current.segments);
+    current.updatedAt = Date.now();
+    this.store.save(current);
+    this.liveTranscript = current.transcriptText;
+    log(
+      '[Meetings] resyncRtmsFromServer',
+      `meetingId=${meetingId}`,
+      `server=${serverSegments.length}`,
+      `patched=${patched}`,
+      `appended=${appended}`
+    );
+    this.emitStatus();
   }
 
   private async ingestRtmsSegments(
@@ -936,7 +1057,9 @@ export class MeetingService {
 
     this.clearRtmsFallbackTimer();
     this.clearRtmsStartRetryTimer();
-    void this.zoomRtms.unregister();
+
+    // Stop polling but keep the session so we can resync labeled speakers before unlink.
+    this.zoomRtms.stopPolling();
 
     const meeting = this.store.get(meetingId);
     this.activeMeetingId = null;
@@ -951,6 +1074,7 @@ export class MeetingService {
 
     if (!meeting) {
       this.pendingAudioChunks = [];
+      void this.zoomRtms.unregister();
       return null;
     }
 
@@ -961,10 +1085,18 @@ export class MeetingService {
     meeting.updatedAt = endedAt;
     this.store.save(meeting);
 
-    // Wait for in-flight live STT / RTMS English-normalize, then retry buffered audio if empty.
+    // Wait for in-flight live STT / RTMS English-normalize, then pull final speaker labels.
     if (this.pendingTranscriptions.size > 0 || this.pendingRtmsIngests.size > 0) {
       await Promise.allSettled([...this.pendingTranscriptions, ...this.pendingRtmsIngests]);
     }
+
+    try {
+      await this.resyncRtmsFromServer(meetingId);
+    } catch (error) {
+      logWarn('[Meetings] RTMS final resync failed', error);
+    }
+
+    void this.zoomRtms.unregister();
 
     let current = this.store.get(meetingId) || meeting;
     if (!current.transcriptText.trim() && this.pendingAudioChunks.length > 0) {

@@ -112,7 +112,8 @@ export class RtmsSpeakerRoster {
 
   /**
    * Resolve display name for a transcript packet.
-   * Order: metadata name → roster by userId → active speaker for that userId.
+   * Order: metadata name → roster by userId → active speaker for that userId
+   * → last active speaker (when packet has no resolvable name).
    */
   resolveForTranscript(input: { userName?: string | null; userId?: string | number | null }): {
     user_name?: string;
@@ -135,6 +136,15 @@ export class RtmsSpeakerRoster {
       if (this.activeSpeakerUserId === idKey && this.activeSpeakerName) {
         return { user_name: this.activeSpeakerName, user_id: userId ?? undefined };
       }
+    }
+
+    // Last resort: Zoom often emits transcript packets with empty metadata while
+    // active-speaker events still carry the current speaker display name.
+    if (this.activeSpeakerName) {
+      return {
+        user_name: this.activeSpeakerName,
+        user_id: userId ?? this.activeSpeakerUserId ?? undefined,
+      };
     }
 
     return {

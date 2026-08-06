@@ -732,6 +732,8 @@ export type ServerEvent =
     }
   | { type: 'native-theme.changed'; payload: { shouldUseDarkColors: boolean } }
   | { type: 'new-session' }
+  | { type: 'open-ask-growthos' }
+  | { type: 'open-ask-growthos-toggle' }
   | { type: 'navigate'; payload: string }
   | { type: 'scheduled-task.error'; payload: { taskId: string; error: string } }
   | {

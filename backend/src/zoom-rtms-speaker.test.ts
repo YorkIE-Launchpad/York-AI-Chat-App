@@ -57,14 +57,29 @@ describe('RtmsSpeakerRoster', () => {
     assert.equal(resolved.user_id, 9);
   });
 
-  it('returns no name when roster and active speaker miss', () => {
+  it('uses last active speaker when metadata name and userId are empty', () => {
+    const roster = new RtmsSpeakerRoster();
+    roster.setActiveSpeaker(3, 'Ada');
+    const resolved = roster.resolveForTranscript({ userName: '', userId: null });
+    assert.equal(resolved.user_name, 'Ada');
+    assert.equal(String(resolved.user_id), '3');
+  });
+
+  it('uses last active speaker when userId is unknown', () => {
     const roster = new RtmsSpeakerRoster();
     roster.setActiveSpeaker(1, 'Other');
     const resolved = roster.resolveForTranscript({ userName: '', userId: 99 });
-    assert.equal(resolved.user_name, undefined);
+    assert.equal(resolved.user_name, 'Other');
     assert.equal(resolved.user_id, 99);
     assert.equal(roster.size, 1);
     assert.equal(roster.hasActiveSpeaker, true);
+  });
+
+  it('returns no name when roster and active speaker are empty', () => {
+    const roster = new RtmsSpeakerRoster();
+    const resolved = roster.resolveForTranscript({ userName: '', userId: 99 });
+    assert.equal(resolved.user_name, undefined);
+    assert.equal(resolved.user_id, 99);
   });
 
   it('set returns false when name unchanged', () => {

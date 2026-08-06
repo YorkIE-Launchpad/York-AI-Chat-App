@@ -28,6 +28,7 @@ import {
   session,
   Notification,
   systemPreferences,
+  globalShortcut,
 } from 'electron';
 import { join, resolve, dirname, isAbsolute, basename, extname } from 'path';
 import * as fs from 'fs';
@@ -461,6 +462,55 @@ if (!hasSingleInstanceLock) {
 let tray: Tray | null = null;
 const DARK_BG = '#171614';
 const LIGHT_BG = '#f5f3ee';
+const ASK_GROWTHOS_SHORTCUT = 'CommandOrControl+Shift+Space';
+
+/** Focus the main window and open the Ask Growth OS popup in the renderer. */
+function openAskGrowthOSFromMain() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    createWindow();
+  }
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return;
+  }
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore();
+  }
+  mainWindow.show();
+  mainWindow.focus();
+  mainWindow.webContents.send('server-event', { type: 'open-ask-growthos' });
+}
+
+/**
+ * Global hotkey when the app is in the background (or window not focused).
+ * When focused, the renderer in-window listener handles toggle so we do not
+ * double-fire open+close on the same keypress.
+ */
+function registerAskGrowthOSShortcut() {
+  try {
+    const ok = globalShortcut.register(ASK_GROWTHOS_SHORTCUT, () => {
+      if (
+        mainWindow &&
+        !mainWindow.isDestroyed() &&
+        mainWindow.isVisible() &&
+        mainWindow.isFocused()
+      ) {
+        // In-window shortcut handler in the renderer owns toggle while focused.
+        mainWindow.webContents.send('server-event', { type: 'open-ask-growthos-toggle' });
+        return;
+      }
+      openAskGrowthOSFromMain();
+    });
+    if (!ok) {
+      log(
+        '[Hotkey] Failed to register',
+        ASK_GROWTHOS_SHORTCUT,
+        '— in-window shortcut still available'
+      );
+    }
+  } catch (error) {
+    logError('[Hotkey] Error registering Ask Growth OS shortcut:', error);
+  }
+}
 
 function buildMacMenu() {
   if (process.platform !== 'darwin') return;
@@ -476,6 +526,11 @@ function buildMacMenu() {
           accelerator: 'CmdOrCtrl+,',
           click: () =>
             mainWindow?.webContents.send('server-event', { type: 'navigate', payload: 'settings' }),
+        },
+        {
+          label: 'Ask Growth OS',
+          accelerator: 'CmdOrCtrl+Shift+Space',
+          click: () => openAskGrowthOSFromMain(),
         },
         { type: 'separator' },
         { role: 'services' },
@@ -585,6 +640,11 @@ function setupTray() {
           mainWindow.focus();
         }
       },
+    },
+    {
+      label: 'Ask Growth OS',
+      accelerator: 'CmdOrCtrl+Shift+Space',
+      click: () => openAskGrowthOSFromMain(),
     },
     {
       label: 'New Session',
@@ -1854,6 +1914,7 @@ app
     // macOS: application menu, dock menu, tray icon
     buildMacMenu();
     setupTray();
+    registerAskGrowthOSShortcut();
 
     // Show window after core managers are ready so first-load actions can be handled.
     setupMeetingMediaCapture();
@@ -1862,6 +1923,10 @@ app
     // macOS: dock menu
     if (process.platform === 'darwin') {
       const dockMenu = Menu.buildFromTemplate([
+        {
+          label: 'Ask Growth OS',
+          click: () => openAskGrowthOSFromMain(),
+        },
         {
           label: 'New Session',
           click: () => mainWindow?.webContents.send('server-event', { type: 'new-session' }),
@@ -2177,6 +2242,11 @@ app.on('before-quit', async (event) => {
     isQuitting = true;
     stopAutoUpdater();
     stopNavServer();
+    try {
+      globalShortcut.unregisterAll();
+    } catch {
+      /* best-effort */
+    }
     tray?.destroy();
     tray = null;
     try {
@@ -2191,6 +2261,11 @@ app.on('before-quit', async (event) => {
   // In dev mode, exit quickly — no need for async sandbox cleanup
   if (process.env.VITE_DEV_SERVER_URL) {
     stopNavServer();
+    try {
+      globalShortcut.unregisterAll();
+    } catch {
+      /* best-effort */
+    }
     try {
       matterService?.stop();
     } catch {
@@ -2214,6 +2289,11 @@ app.on('before-quit', async (event) => {
   isQuitting = true;
   event.preventDefault();
   try {
+    try {
+      globalShortcut.unregisterAll();
+    } catch {
+      /* best-effort */
+    }
     await cleanupSandboxResources();
   } catch (error) {
     logError('[App] before-quit cleanup failed, forcing quit:', error);

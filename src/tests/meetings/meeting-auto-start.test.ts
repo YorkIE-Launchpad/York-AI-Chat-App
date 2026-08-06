@@ -113,6 +113,9 @@ vi.mock('../../main/meetings/zoom-rtms-client', () => ({
     }
     startPolling() {}
     stopPolling() {}
+    async fetchAllSegments() {
+      return [];
+    }
     async unregister() {}
   },
 }));

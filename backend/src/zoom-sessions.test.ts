@@ -55,6 +55,7 @@ describe('zoom-sessions', () => {
     const page = listSegmentsAfter('y1', 'u1', 0);
     assert.equal(page.segments.length, 1);
     assert.equal(page.nextCursor, 1);
+    assert.deepEqual(page.speakerUpdates, []);
   });
 
   it('buffers orphan segments and flushes them on register', () => {
@@ -115,6 +116,56 @@ describe('zoom-sessions', () => {
     assert.equal(page.segments[0]?.speaker, 'Grace');
     assert.equal(page.segments[1]?.speaker, 'Grace');
     assert.equal(page.segments[2]?.speaker, null);
+    assert.equal(page.speakerUpdates.length, 2);
+    assert.equal(page.speakerUpdates[0]?.speaker, 'Grace');
+  });
+
+  it('delivers speakerUpdates after client cursor advanced past unlabeled segments', () => {
+    registerZoomSession({ yorkMeetingId: 'y-late', userSub: 'u1', zoomMeetingUuid: 'z-late' });
+    appendSegmentToZoomUuid('z-late', {
+      id: 'early-1',
+      text: 'hello',
+      speaker: null,
+      speakerUserId: '11',
+      startedAt: 1,
+      endedAt: 2,
+    });
+    appendSegmentToZoomUuid('z-late', {
+      id: 'early-2',
+      text: 'world',
+      speaker: null,
+      speakerUserId: '11',
+      startedAt: 3,
+      endedAt: 4,
+    });
+
+    // Desktop polls and advances cursor past both segments.
+    const first = listSegmentsAfter('y-late', 'u1', 0);
+    assert.equal(first.segments.length, 2);
+    assert.equal(first.nextCursor, 2);
+    assert.equal(first.speakerUpdates.length, 0);
+
+    // Roster learns the name after segments were already delivered.
+    assert.equal(backfillSpeakerNames('z-late', 11, 'Grace'), 2);
+
+    // No new segments, but speakerUpdates must still surface the labels.
+    const second = listSegmentsAfter('y-late', 'u1', first.nextCursor);
+    assert.equal(second.segments.length, 0);
+    assert.equal(second.nextCursor, 2);
+    assert.equal(second.speakerUpdates.length, 2);
+    assert.deepEqual(
+      second.speakerUpdates
+        .map((u) => ({ id: u.id, speaker: u.speaker }))
+        .sort((a, b) => a.id.localeCompare(b.id)),
+      [
+        { id: 'early-1', speaker: 'Grace' },
+        { id: 'early-2', speaker: 'Grace' },
+      ]
+    );
+
+    // Updates drain; subsequent poll is empty.
+    const third = listSegmentsAfter('y-late', 'u1', second.nextCursor);
+    assert.equal(third.speakerUpdates.length, 0);
   });
 
   it('backfills orphan segments before register', () => {

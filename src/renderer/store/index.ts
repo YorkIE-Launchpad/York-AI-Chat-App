@@ -121,6 +121,10 @@ interface AppState {
   showMatter: boolean;
   settingsTab: string | null;
   matterBadgeCount: number;
+  /** Global “Ask Growth OS” overlay open state. */
+  askGrowthOSOpen: boolean;
+  /** Session id bound to the Ask Growth OS popup (multi-turn while open). */
+  askGrowthOSSessionId: string | null;
 
   // Permission
   pendingPermission: PermissionRequest | null;
@@ -214,6 +218,9 @@ interface AppState {
   setShowMatter: (show: boolean) => void;
   setSettingsTab: (tab: string | null) => void;
   setMatterBadgeCount: (count: number) => void;
+  setAskGrowthOSOpen: (open: boolean) => void;
+  toggleAskGrowthOS: () => void;
+  setAskGrowthOSSessionId: (sessionId: string | null) => void;
 
   setPendingPermission: (permission: PermissionRequest | null) => void;
 
@@ -302,6 +309,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   showMatter: false,
   settingsTab: null,
   matterBadgeCount: 0,
+  askGrowthOSOpen: false,
+  askGrowthOSSessionId: null,
   pendingPermission: null,
   pendingQuestionsBySessionId: {},
   pendingSudoPassword: null,
@@ -757,6 +766,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     ),
   setSettingsTab: (tab) => set({ settingsTab: tab }),
   setMatterBadgeCount: (count) => set({ matterBadgeCount: Math.max(0, count) }),
+  setAskGrowthOSOpen: (open) =>
+    set((state) =>
+      open
+        ? { askGrowthOSOpen: true }
+        : { askGrowthOSOpen: false, askGrowthOSSessionId: state.askGrowthOSSessionId }
+    ),
+  toggleAskGrowthOS: () =>
+    set((state) =>
+      state.askGrowthOSOpen ? { askGrowthOSOpen: false } : { askGrowthOSOpen: true }
+    ),
+  setAskGrowthOSSessionId: (sessionId) => set({ askGrowthOSSessionId: sessionId }),
 
   // Permission actions
   setPendingPermission: (permission) => set({ pendingPermission: permission }),
@@ -894,6 +914,7 @@ if (typeof window !== 'undefined') {
     return {
       showSettings: !!s.showSettings,
       showMatter: !!s.showMatter,
+      askGrowthOSOpen: !!s.askGrowthOSOpen,
       activeSessionId: s.activeSessionId || null,
       sessionCount: (s.sessions || []).length,
     };
@@ -904,6 +925,7 @@ if (typeof window !== 'undefined') {
     if (page === 'welcome') {
       store.setShowSettings(false);
       store.setShowMatter(false);
+      store.setAskGrowthOSOpen(false);
       store.setActiveSession(null);
     } else if (page === 'matter') {
       const enabled =
@@ -913,12 +935,15 @@ if (typeof window !== 'undefined') {
     } else if (page === 'settings') {
       store.setSettingsTab(tab || 'connectors');
       store.setShowSettings(true);
+    } else if (page === 'ask') {
+      store.setAskGrowthOSOpen(true);
     } else if (page === 'session') {
       if (!sessionId || typeof sessionId !== 'string') return false;
       const exists = store.sessions.some((s) => s.id === sessionId);
       if (!exists) return false;
       store.setShowSettings(false);
       store.setShowMatter(false);
+      store.setAskGrowthOSOpen(false);
       store.setActiveSession(sessionId);
     }
     return true;

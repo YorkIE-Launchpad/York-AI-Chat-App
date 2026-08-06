@@ -25,7 +25,9 @@ import { SandboxSetupDialog } from './components/SandboxSetupDialog';
 import { SandboxSyncToast } from './components/SandboxSyncToast';
 import { GlobalNoticeToast } from './components/GlobalNoticeToast';
 import { WhatsNewModal } from './components/WhatsNewModal';
+import { AskGrowthOSPopup } from './components/AskGrowthOSPopup';
 import { useWhatsNew } from './hooks/useWhatsNew';
+import { useAskGrowthOSHotkey } from './hooks/useAskGrowthOSHotkey';
 import {
   isMeetingAudioActive,
   startMeetingCapture,
@@ -130,6 +132,7 @@ function AuthenticatedApp() {
   const { ready: toolsReady } = useToolsReady(isElectron);
   const { width } = useWindowSize();
   const { payload: whatsNewPayload, dismiss: dismissWhatsNew } = useWhatsNew();
+  useAskGrowthOSHotkey(true);
   const initialized = useRef(false);
   const sidebarBeforeSettings = useRef(false);
   const lastHtmlPreviewSig = useRef<string | null>(null);
@@ -430,7 +433,10 @@ function AuthenticatedApp() {
         )}
       </div>
 
-      {/* Permission Dialog */}
+      {/* Ask Growth OS global popup */}
+      <AskGrowthOSPopup />
+
+      {/* Permission Dialog — above Ask popup */}
       {pendingPermission && <PermissionDialog permission={pendingPermission} />}
 
       {/* Sudo Password Dialog */}

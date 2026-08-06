@@ -204,7 +204,7 @@ export function useLayoutState(): { sidebarCollapsed: boolean; contextPanelColla
   );
 }
 
-/** Returns whether the settings panel is open, plus the active tab. */
+/** Returns whether settings or Matter panels are open. */
 export function useSettingsState(): {
   showSettings: boolean;
   showMatter: boolean;
@@ -215,6 +215,19 @@ export function useSettingsState(): {
       showSettings: s.showSettings,
       showMatter: s.showMatter,
       settingsTab: s.settingsTab,
+    }))
+  );
+}
+
+/** Global Ask Growth OS popup open state and bound session. */
+export function useAskGrowthOSState(): {
+  open: boolean;
+  sessionId: string | null;
+} {
+  return useAppStore(
+    useShallow((s) => ({
+      open: s.askGrowthOSOpen,
+      sessionId: s.askGrowthOSSessionId,
     }))
   );
 }

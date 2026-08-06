@@ -1355,6 +1355,18 @@
     "subtitle": "Updates since {{fromVersion}}",
     "gotIt": "Got it"
   },
+  "askGrowthOS": {
+    "title": "Ask Growth OS",
+    "subtitle": "Speak or type — {{shortcut}} to open anytime",
+    "placeholder": "Ask a question or request a task…",
+    "empty": "Try a quick task or start speaking.",
+    "hintTimesheet": "Fill my timesheet for this week",
+    "hintSchedule": "Schedule a 30-minute meeting with…",
+    "hintCatchUp": "Brief me on what's coming up today",
+    "openInChat": "Open in chat",
+    "close": "Close",
+    "working": "Working on it…"
+  },
   "sudo": {
     "title": "Administrator Permission Required",
     "description": "The following command requires administrator privileges:",

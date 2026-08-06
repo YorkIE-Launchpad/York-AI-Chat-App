@@ -13,6 +13,18 @@ export interface ZoomRtmsTranscriptSegment {
   meetingUuid?: string | null;
 }
 
+/** Speaker name filled in after the segment was already delivered. */
+export interface ZoomSpeakerUpdate {
+  id: string;
+  speaker: string;
+  speakerUserId: string | null;
+}
+
+export interface ZoomPollBatch {
+  segments: ZoomRtmsTranscriptSegment[];
+  speakerUpdates: ZoomSpeakerUpdate[];
+}
+
 export interface ZoomLiveMeeting {
   id: string;
   uuid: string;
@@ -52,6 +64,24 @@ function isRtmsAlreadyActiveError(status: number, body: string): boolean {
   return /already\s*(started|active|running|in\s*progress)|rtms.*(started|active)/i.test(body);
 }
 
+function parseSpeakerUpdates(raw: unknown): ZoomSpeakerUpdate[] {
+  if (!Array.isArray(raw)) return [];
+  const updates: ZoomSpeakerUpdate[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const rec = item as Record<string, unknown>;
+    const id = typeof rec.id === 'string' ? rec.id.trim() : '';
+    const speaker = typeof rec.speaker === 'string' ? rec.speaker.trim() : '';
+    if (!id || !speaker) continue;
+    const speakerUserId =
+      rec.speakerUserId != null && String(rec.speakerUserId).trim()
+        ? String(rec.speakerUserId)
+        : null;
+    updates.push({ id, speaker, speakerUserId });
+  }
+  return updates;
+}
+
 /**
  * Desktop client for Zoom RTMS: register with York backend, start RTMS via Zoom REST,
  * and poll for named transcript segments.
@@ -60,7 +90,7 @@ export class ZoomRtmsDesktopClient {
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private cursor = 0;
   private yorkMeetingId: string | null = null;
-  private onSegments: ((segments: ZoomRtmsTranscriptSegment[]) => void) | null = null;
+  private onBatch: ((batch: ZoomPollBatch) => void) | null = null;
   private receivedCount = 0;
 
   get hasReceivedSegments(): boolean {
@@ -206,12 +236,12 @@ export class ZoomRtmsDesktopClient {
 
   startPolling(
     yorkMeetingId: string,
-    onSegments: (segments: ZoomRtmsTranscriptSegment[]) => void,
+    onBatch: (batch: ZoomPollBatch) => void,
     intervalMs = 2_000
   ): void {
     this.stopPolling();
     this.yorkMeetingId = yorkMeetingId;
-    this.onSegments = onSegments;
+    this.onBatch = onBatch;
     log('[ZoomRTMS] Start polling', `yorkMeetingId=${yorkMeetingId}`, `intervalMs=${intervalMs}`);
     this.pollTimer = setInterval(() => {
       void this.pollOnce();
@@ -225,7 +255,36 @@ export class ZoomRtmsDesktopClient {
       this.pollTimer = null;
       log('[ZoomRTMS] Polling stopped');
     }
-    this.onSegments = null;
+    this.onBatch = null;
+  }
+
+  /**
+   * Fetch all segments currently held server-side (does not change the poll cursor).
+   * Used on stop to rebuild labeled transcriptText from backend truth.
+   */
+  async fetchAllSegments(): Promise<ZoomRtmsTranscriptSegment[]> {
+    const meetingId = this.yorkMeetingId;
+    if (!meetingId) return [];
+    try {
+      const headers = await getBackendAuthHeaders();
+      const url = new URL(
+        `${backendBase()}/zoom/sessions/${encodeURIComponent(meetingId)}/segments`
+      );
+      url.searchParams.set('after', '0');
+      const response = await fetch(url.toString(), { headers });
+      if (!response.ok) {
+        const body = await response.text();
+        logZoomSessionAuthFailure('fetchAllSegments', response.status, body);
+        return [];
+      }
+      const payload = (await response.json()) as {
+        segments?: ZoomRtmsTranscriptSegment[];
+      };
+      return Array.isArray(payload.segments) ? payload.segments : [];
+    } catch (error) {
+      logWarn('[ZoomRTMS] fetchAllSegments error', error);
+      return [];
+    }
   }
 
   async unregister(): Promise<void> {
@@ -246,8 +305,8 @@ export class ZoomRtmsDesktopClient {
 
   private async pollOnce(): Promise<void> {
     const meetingId = this.yorkMeetingId;
-    const onSegments = this.onSegments;
-    if (!meetingId || !onSegments) return;
+    const onBatch = this.onBatch;
+    if (!meetingId || !onBatch) return;
     try {
       const headers = await getBackendAuthHeaders();
       const url = new URL(
@@ -263,20 +322,32 @@ export class ZoomRtmsDesktopClient {
       const payload = (await response.json()) as {
         segments?: ZoomRtmsTranscriptSegment[];
         nextCursor?: number;
+        speakerUpdates?: unknown;
       };
       const segments = Array.isArray(payload.segments) ? payload.segments : [];
+      const speakerUpdates = parseSpeakerUpdates(payload.speakerUpdates);
       if (typeof payload.nextCursor === 'number') {
         this.cursor = payload.nextCursor;
+      }
+      if (segments.length === 0 && speakerUpdates.length === 0) {
+        return;
       }
       if (segments.length > 0) {
         this.receivedCount += segments.length;
         log(
           '[ZoomRTMS] Received transcript segments',
           `count=${segments.length}`,
+          `speakerUpdates=${speakerUpdates.length}`,
           `nextCursor=${this.cursor}`
         );
-        onSegments(segments);
+      } else if (speakerUpdates.length > 0) {
+        log(
+          '[ZoomRTMS] Received speaker updates',
+          `count=${speakerUpdates.length}`,
+          `nextCursor=${this.cursor}`
+        );
       }
+      onBatch({ segments, speakerUpdates });
     } catch (error) {
       logWarn('[ZoomRTMS] pollOnce error', error);
     }

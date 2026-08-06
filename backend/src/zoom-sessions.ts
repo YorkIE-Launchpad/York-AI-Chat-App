@@ -11,6 +11,13 @@ export interface ZoomRtmsSegment {
   meetingUuid?: string | null;
 }
 
+/** Speaker name resolution delivered after a segment was already polled. */
+export interface ZoomSpeakerUpdate {
+  id: string;
+  speaker: string;
+  speakerUserId: string | null;
+}
+
 export interface ZoomSessionRecord {
   yorkMeetingId: string;
   userSub: string;
@@ -18,6 +25,8 @@ export interface ZoomSessionRecord {
   zoomMeetingId: string | null;
   zoomUserId: string | null;
   segments: ZoomRtmsSegment[];
+  /** Pending speaker backfills not yet drained by listSegmentsAfter. */
+  pendingSpeakerUpdates: ZoomSpeakerUpdate[];
   createdAt: number;
   updatedAt: number;
 }
@@ -28,8 +37,25 @@ const yorkIdByZoomUuid = new Map<string, string>();
 
 /** Segments received before any York desktop session registered for this UUID. */
 const orphanSegmentsByUuid = new Map<string, ZoomRtmsSegment[]>();
+/** Speaker backfills on orphans (drained into session on flush/register). */
+const orphanSpeakerUpdatesByUuid = new Map<string, ZoomSpeakerUpdate[]>();
 const ORPHAN_MAX_SEGMENTS = 500;
 const ORPHAN_MAX_AGE_MS = 30 * 60_000;
+
+function queueSpeakerUpdate(target: ZoomSpeakerUpdate[], segment: ZoomRtmsSegment): void {
+  if (!segment.speaker?.trim()) return;
+  const existing = target.findIndex((u) => u.id === segment.id);
+  const update: ZoomSpeakerUpdate = {
+    id: segment.id,
+    speaker: segment.speaker.trim(),
+    speakerUserId: segment.speakerUserId,
+  };
+  if (existing >= 0) {
+    target[existing] = update;
+  } else {
+    target.push(update);
+  }
+}
 
 function trimOrphans(segments: ZoomRtmsSegment[]): ZoomRtmsSegment[] {
   const cutoff = Date.now() - ORPHAN_MAX_AGE_MS;
@@ -48,6 +74,7 @@ function bufferOrphanSegment(zoomMeetingUuid: string, segment: ZoomRtmsSegment):
 
 function flushOrphansIntoSession(zoomMeetingUuid: string, session: ZoomSessionRecord): number {
   const orphans = orphanSegmentsByUuid.get(zoomMeetingUuid);
+  orphanSpeakerUpdatesByUuid.delete(zoomMeetingUuid);
   if (!orphans?.length) return 0;
   orphanSegmentsByUuid.delete(zoomMeetingUuid);
   for (const segment of orphans) {
@@ -143,6 +170,7 @@ export function registerZoomSession(input: {
     zoomMeetingId: input.zoomMeetingId ?? existing?.zoomMeetingId ?? null,
     zoomUserId: input.zoomUserId ?? existing?.zoomUserId ?? null,
     segments: existing?.segments ?? [],
+    pendingSpeakerUpdates: existing?.pendingSpeakerUpdates ?? [],
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
   };
@@ -227,6 +255,8 @@ export function appendSegmentToZoomUuid(
 /**
  * Fill speaker names on segments that arrived before the participant roster
  * knew the display name for speakerUserId.
+ * Queues speakerUpdates so desktop clients that already polled past those
+ * segments still receive the labels on the next poll.
  */
 export function backfillSpeakerNames(
   zoomMeetingUuid: string,
@@ -246,6 +276,7 @@ export function backfillSpeakerNames(
     for (const segment of session.segments) {
       if (segment.speakerUserId === id && !segment.speaker?.trim()) {
         segment.speaker = name;
+        queueSpeakerUpdate(session.pendingSpeakerUpdates, segment);
         updated += 1;
       }
     }
@@ -256,9 +287,15 @@ export function backfillSpeakerNames(
 
   const orphans = orphanSegmentsByUuid.get(zoomMeetingUuid);
   if (orphans?.length) {
+    let orphanQueue = orphanSpeakerUpdatesByUuid.get(zoomMeetingUuid);
+    if (!orphanQueue) {
+      orphanQueue = [];
+      orphanSpeakerUpdatesByUuid.set(zoomMeetingUuid, orphanQueue);
+    }
     for (const segment of orphans) {
       if (segment.speakerUserId === id && !segment.speaker?.trim()) {
         segment.speaker = name;
+        queueSpeakerUpdate(orphanQueue, segment);
         updated += 1;
       }
     }
@@ -271,14 +308,19 @@ export function listSegmentsAfter(
   yorkMeetingId: string,
   userSub: string,
   after: number
-): { segments: ZoomRtmsSegment[]; nextCursor: number } {
+): {
+  segments: ZoomRtmsSegment[];
+  nextCursor: number;
+  speakerUpdates: ZoomSpeakerUpdate[];
+} {
   const session = getZoomSession(yorkMeetingId, userSub);
   if (!session) {
-    return { segments: [], nextCursor: after };
+    return { segments: [], nextCursor: after, speakerUpdates: [] };
   }
   const start = Math.max(0, after);
   const segments = session.segments.slice(start);
-  return { segments, nextCursor: start + segments.length };
+  const speakerUpdates = session.pendingSpeakerUpdates.splice(0);
+  return { segments, nextCursor: start + segments.length, speakerUpdates };
 }
 
 /** Zoom webhook signature: v0:{timestamp}:{body} HMAC-SHA256 hex. */
@@ -302,6 +344,7 @@ export function clearZoomSessionsForTests(): void {
   sessionsByYorkId.clear();
   yorkIdByZoomUuid.clear();
   orphanSegmentsByUuid.clear();
+  orphanSpeakerUpdatesByUuid.clear();
 }
 
 /** Test helper: peek orphan buffer size for a UUID. */

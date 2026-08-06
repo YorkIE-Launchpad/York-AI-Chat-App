@@ -431,6 +431,15 @@ export function useIPC() {
           case 'new-session':
             store.setActiveSession(null);
             store.setShowSettings(false);
+            store.setAskGrowthOSOpen(false);
+            break;
+
+          case 'open-ask-growthos':
+            store.setAskGrowthOSOpen(true);
+            break;
+
+          case 'open-ask-growthos-toggle':
+            store.toggleAskGrowthOS();
             break;
 
           case 'navigate':
