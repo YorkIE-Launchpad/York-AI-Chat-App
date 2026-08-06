@@ -3,7 +3,8 @@
  * Maps the user-facing enableThinking flag onto pi-ai thinking levels.
  */
 
-export type PiThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+/** Matches @mariozechner/pi-agent-core ThinkingLevel (no "max"). */
+export type PiThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
 
 /** When thinking is on, use high effort (not just medium) for harder tasks. */
 export function resolveThinkingLevel(enableThinking: boolean): PiThinkingLevel {
