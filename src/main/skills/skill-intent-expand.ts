@@ -2,6 +2,9 @@
  * Natural-language skill injection: when the user asks for LaunchPad delivery
  * work without a `/skill:…` slash, inject the full skill body so weaker models
  * cannot skip loading it.
+ *
+ * In Project workspace division, injection is mandatory on every turn (not only
+ * when NL delivery intent matches).
  */
 import * as fs from 'fs';
 import { stripFrontmatter } from '@mariozechner/pi-coding-agent';
@@ -10,6 +13,14 @@ import type { ExpandableSkillRef } from './slash-skill-expand';
 export const LAUNCHPAD_SKILL_NAME = 'rnd-launchpad-mcp-sdlc';
 
 const LAUNCHPAD_SKILL_BLOCK_RE = new RegExp(`<skill\\s+name=["']${LAUNCHPAD_SKILL_NAME}["']`, 'i');
+
+export type LaunchPadSkillExpandOptions = {
+  /**
+   * When true (Project workspace), always inject the skill body if available,
+   * regardless of natural-language delivery intent.
+   */
+  force?: boolean;
+};
 
 /**
  * LaunchPad implement / preview / release delivery intent.
@@ -75,17 +86,23 @@ function buildSkillBlock(skill: ExpandableSkillRef): string | null {
 }
 
 /**
- * If the prompt looks like LaunchPad delivery work and the skill is available,
- * prepend the full skill block and keep the original user text.
+ * Prepend the full LaunchPad skill block when appropriate.
+ *
+ * - Always (if skill available) when `options.force` is true — Project workspace.
+ * - Otherwise when the prompt looks like LaunchPad delivery work.
+ * No-ops when the skill block is already present or the skill is unavailable.
  */
 export function expandLaunchPadSkillIntent(
   prompt: string,
-  skills: ExpandableSkillRef[]
-): { expanded: boolean; text: string; skillName?: string } {
+  skills: ExpandableSkillRef[],
+  options?: LaunchPadSkillExpandOptions
+): { expanded: boolean; text: string; skillName?: string; reason?: 'force' | 'intent' } {
   if (hasLaunchPadSkillBlock(prompt)) {
     return { expanded: false, text: prompt };
   }
-  if (!isLaunchPadDeliveryIntent(prompt)) {
+
+  const force = options?.force === true;
+  if (!force && !isLaunchPadDeliveryIntent(prompt)) {
     return { expanded: false, text: prompt };
   }
 
@@ -103,5 +120,6 @@ export function expandLaunchPadSkillIntent(
     expanded: true,
     text: `${skillBlock}\n\n${prompt}`,
     skillName: skill.name,
+    reason: force ? 'force' : 'intent',
   };
 }

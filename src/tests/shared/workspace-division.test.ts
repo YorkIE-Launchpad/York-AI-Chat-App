@@ -176,6 +176,7 @@ describe('workspace-division', () => {
       launchpadProjectName: 'Acme LP',
     });
     expect(dualPrompt).toContain('DEFAULT SUBJECT');
+    expect(dualPrompt).toContain('MANDATORY SKILL: rnd-launchpad-mcp-sdlc');
     expect(dualPrompt).toContain('launchpad project id: 42');
 
     const lpOnlyPrompt = buildDivisionSystemPrompt({

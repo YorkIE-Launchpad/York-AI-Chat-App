@@ -80,6 +80,23 @@ describe('expandLaunchPadSkillIntent', () => {
     }
   });
 
+  it('force-injects in Project workspace even without delivery intent', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'york-lp-skill-'));
+    try {
+      writeSkill(root, LAUNCHPAD_SKILL_NAME, '# LaunchPad release loop');
+      const skills = discoverSkillsFromPaths([root]);
+      const user = 'status of staffing this week?';
+      const result = expandLaunchPadSkillIntent(user, skills, { force: true });
+      expect(result.expanded).toBe(true);
+      expect(result.reason).toBe('force');
+      expect(result.skillName).toBe(LAUNCHPAD_SKILL_NAME);
+      expect(result.text).toContain(`<skill name="${LAUNCHPAD_SKILL_NAME}"`);
+      expect(result.text).toContain(user);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('does not double-inject when skill block already present', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'york-lp-skill-'));
     try {

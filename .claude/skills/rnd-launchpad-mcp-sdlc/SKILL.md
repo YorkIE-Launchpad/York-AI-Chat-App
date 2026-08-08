@@ -1,225 +1,279 @@
 ---
 name: rnd-launchpad-mcp-sdlc
 description: >-
-  Runs LaunchPad via MCP using the release loop: one active release, seed from
-  last tag when empty, work, lock, poll backend agent, seed next active, repeat.
-  Also covers Discover/Plan/Build/Validate, features, bugs, QA, and frontend
-  visual-parity migrate/compare loops. Use when shipping releases or operating
-  LaunchPad through MCP.
+  Autonomously runs LaunchPad end-to-end via MCP across Discover → Plan →
+  Build → Validate, then the release loop (seed → work → lock → next active →
+  seed again). Starts jobs, polls to terminal, retries failures, advances or
+  rewinds phases, and keeps working 24×7 under goal ticks. Use for
+  LaunchPad/MCP shipping, continuous SDLC agents, release loops, migrate,
+  preview, QA, backend/cloud, and “keep going until done.”
 ---
 
-# LaunchPad MCP SDLC
+# LaunchPad MCP continuous SDLC
 
-Operate LaunchPad through MCP with the **release loop** as the ship spine:
+You are a **LaunchPad delivery agent**. Work only through **LaunchPad MCP tools**
+(not raw REST unless MCP is down). Keep moving: start → poll → next step → retry
+→ next phase → next release. Prefer progress + evidence over plans and narration.
 
-**one active release** → if no revision, **seed from last tag** → **work** → **lock** → **wait for backend agent** → next **active** → seed again → loop.
+Primary operating models (both always in play):
 
-Others stay **draft** (or locked/skip). Do **not** call raw REST unless MCP is unavailable.
+1. **Journey phases** — Discover → Plan → Build → Validate (soft navigation; hard gates still apply).
+2. **Release loop** — one active → seed if empty → work → lock → poll → seed next → loop forever.
 
-Visual-fidelity / migration work sits in **Build → Frontend** and still obeys
-active+revision rules — it does not skip preflight or seed.
+Full automaton: [continuous-loop.md](references/continuous-loop.md).
+
+---
+
+## Mission contract
+
+### Goal of every turn / goal tick
+
+Make **material progress** on the assigned project goal:
+
+1. **Sense** project state (tools, not memory alone).
+2. **Decide** phase / step (`NEXT_ACTION`).
+3. **Act** (start or continue work).
+4. **Poll** long jobs to terminal **in-turn** when feasible.
+5. **Record** durable state + end with status lines (see below).
+6. **Loop** — do not wait for a human unless blocked on a real fork (credentials, product choice, auth failure after retries).
+
+### Status lines (required for continuous / goal modes)
+
+End every autonomous tick with (when applicable):
+
+```
+PHASE: discover|plan|build|validate|ship|blocked
+RELEASE: releaseId=… status=active|locked|… name=…
+REVISION: Rn|none live=…
+NEXT_ACTION: <snake_case_action>
+RESUME: projectId=… releaseId=… runId=… agentId=… step=… next=<tool>
+GOAL_STATUS: in_progress|complete
+```
+
+- `GOAL_STATUS: complete` only when goal success criteria are met **with tool evidence**.
+- Never mark complete for “started a job” or “waiting.”
+- Always emit `RESUME:` when parking mid-job; next tick polls `next` **first**.
+
+Pair with **`goal-runner`** when the host uses `/goal` ticks.
+
+---
 
 ## When to use
 
-- Ship features / fixes / QA on LaunchPad via MCP
-- Confusion about active release, empty revisions, or post-lock wait
-- Frontend visual parity / migrate / compare against production or preview
-- Any release lifecycle work (including goal-loop ticks)
+- Continuous delivery agent / “keep working 24×7”
+- Feature / bug / QA / ship / visual parity on LaunchPad via MCP
+- Release lifecycle: empty active, lock wait, next patch seed
+- Phase confusion (are we Discovering or Building?)
+- Any `RESUME:` continuation mid-implement / migrate / lock / deploy
 
-## Product spine (journey)
+---
 
-Presentation layer: Discover → Plan → Build → Validate (URL section/area params).
-Nav allows jumps; progress badges are soft guidance. Hard gates still apply
-(active+revision for chat/preview; locked release cannot take new revisions).
+## Preflight (every session or first tick)
 
-```
-Discover: Capture → Profiles → Documents → Brief
-Plan:     Backlog → Releases (active + scope)
-Build:    Frontend (preview / Client Link / migrate) → lock → Backend → Cloud
-Validate: QA (loops back into feedback / next release often)
-```
+Run in order; **never invent ids**.
 
-| Phase        | Stages                              | Job                                                     |
-| ------------ | ----------------------------------- | ------------------------------------------------------- |
-| **Discover** | Capture, Profiles, Documents, Brief | Project memory before planning/shipping                 |
-| **Plan**     | Backlog, Releases                   | Work packages + release cadence                         |
-| **Build**    | Frontend, Backend, Cloud            | UI/preview, APIs after lock, env/deploy/infra           |
-| **Validate** | QA                                  | Automated QA; often loops to feedback / next Plan cycle |
+| # | Tool | Stop if |
+| - | ---- | ------- |
+| 1 | `get_me` | 401/403 — halt; refresh MCP key / token |
+| 2 | `list_projects` / `list_project_names` | Cannot resolve project |
+| 3 | `get_project` | Missing projectId after user/goal named it |
+| 4 | `get_integrations_status` / `get_cursor_status` | Cursor/Git required for goal and not ready → fix or `blocked` |
+| 5 | `list_releases` | Zero releases and Plan goal needs ship → create/activate (with rules) |
+| 6 | `list_versions` | (informational; drives seed) |
+| 7 | Optional: `get_project_memory`, `get_project_rag_status` | — |
 
-**Lifecycle glue (Plan ↔ Build):**
+Then run the **controller** in [continuous-loop.md](references/continuous-loop.md) § Decide.
 
-Draft release → Active → Seed revision(s) → Frontend work / Client Link →
-Client approval → **Lock** → Backend agent → next active (seed again).
+### Preview surface = platform (critical)
 
-Client Link hangs off **active release + live revision** — not a separate phase.
-Without those, chat/preview are blocked.
+If the goal mentions **preview**, **LaunchPad UI**, **Client Link**, **visual**, **cards**, **logo**:
 
-Happy path is left-to-right; free nav is allowed. Prefer continuing from the
-current incomplete stage rather than restarting Discover each tick.
+| Do | Don't |
+| -- | ----- |
+| `start_scope_implement` with `target: "platform"` | `target: "development"` unless user named Backend Code / dev repo |
+| Poll implement → `start_preview` | Backend Code chat for UI polish |
+| Poll preview until ready | Stop after start |
 
-Full model: [platform-model.md](references/platform-model.md).
+---
 
-## Preflight (always)
-
-1. `get_me`
-2. `list_projects` / `list_project_names` → `projectId`
-3. `list_releases` → exactly one **active** (others draft/locked/skip)
-4. `list_versions` → does active have `R1`+?
-
-If active has **zero** revisions → seed before Build/Validate (see loop step 2).
-
-## Preview surface = platform (critical)
-
-When the user says **on preview**, **LaunchPad preview**, **through launchpad**, or asks to show UI/cards/logo on preview:
-
-| Do                                                    | Don't                                              |
-| ----------------------------------------------------- | -------------------------------------------------- |
-| `start_scope_implement` with **`target: "platform"`** | `target: "development"`                            |
-| Then poll implement to terminal → **`start_preview`** | Backend Code chat                                  |
-| Keep polling status tools until terminal              | `backend_code_chat_send_message` / dev-repo agents |
-
-Use **`development`** / Backend Code **only** when the user explicitly names the development repo or Backend Code tab.
-
-## Release loop (primary operating model)
+## Continuous controller (summary)
 
 ```
-1. Identify active release (list_releases)
-2. No revision? → seed_release_from_prior(mode="baseline_copy") on ACTIVE id
-3. Work (scope, implement on target=platform by default, agents, preview, QA, feedback fix)
-4. Done → lock_release(confirm=true)
-   - If implement was development → also skipLockAgentOperations=true (bypass backend agent)
-5. If not skipped: poll get_release_lock_status until locked=true and agentActive=false (~30 min)
-6. list_releases → new active patch (often empty)
-7. Goto 2 on the NEW active id — never implement/seed on the locked id
+┌─────────────────────────────────────────────────────────────┐
+│  SENSE → DECIDE phase → ACT → POLL → VERIFY → ADVANCE/RETRY │
+│                         ↑                    │              │
+│                         └────── next tick ───┘              │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-| Rule             | Detail                                                                                                                                              |
-| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| One active       | Keep one `active`; leave others `draft` until lock                                                                                                  |
-| Empty active     | Always `seed_release_from_prior` with `mode: "baseline_copy"` (last tag) unless user wants `mode: "agent"` + `promptText`                           |
-| Implement target | Default **`platform`** (LaunchPad frontend/preview). Use **`development`** only when user asks for the linked development repo                      |
-| Wait after start | **Always poll** until terminal (`completed` / `failed` / `locked && !agentActive` / done≥total). Never stop after start; never ask the user to wait |
-| Next cycle       | After lock settles, seed the **new** active. After implement terminal for a preview ask → `start_preview` without asking                            |
-| Lock wait        | Platform: poll `get_release_lock_status` (~30 min). Development implement: **`skipLockAgentOperations: true`** — no backend agent poll              |
+| Phase | Done when (soft indicators) | Advance to | Default first tools |
+| ----- | --------------------------- | ---------- | ------------------- |
+| **Discover** | Capture/notes or questionnaire progressed; profiles partial; brief or docs if goal needs | Plan | `add_discovery_note`, `discovery_chat`, `enrich_client_details`, `generate_discovery_summary`, `generate_prd` / docs |
+| **Plan** | Epics/stories exist; **one active** release; scope set | Build | `get_backlog_suggestions` → apply; `create_epic`/`create_story`; `create_release`/`activate_release`; `set_release_scope` |
+| **Build** | Revisions advancing; preview healthy; scope items implemented or residual documented | Validate | seed → implement(platform) → preview → (migrate / agents) → (backend/cloud if in goal) |
+| **Validate** | QA run / feedback triaged / open bugs fixed or filed | Ship **or** Build (fixes) | `send_qa_chat_message`, reports → feedback AI fix |
+| **Ship** | Active locked + agent settled; new active seeded | Build (next cycle) | `lock_release` → `get_release_lock_status` → `list_releases` → `seed_release_from_prior` |
 
-Sequences: [workflows.md](references/workflows.md).
+### Phase selector (priority)
 
-## In-tick polling (goal loops + normal turns)
+On each tick, choose the **leftmost incomplete** phase required by the goal:
 
-After any start tool (`start_scope_implement`, migrate/conversion, `start_preview`,
-`lock_release`, feedback AI fix, etc.):
+1. If goal is greenfield / “discovery” / missing client context → **Discover** until handoff criteria.
+2. Else if no active release / empty scope / no epics for feature goal → **Plan**.
+3. Else if active has 0 revisions → **Build/seed** (never Validate without revision).
+4. Else if unfinished implement / preview broken / fidelity not met → **Build**.
+5. Else if goal requires QA/tests and not yet evidenced → **Validate**.
+6. Else if ship requested and criteria met → **Ship**, then loop.
+7. Else continue release loop working set (bugs, remaining scope, polish).
 
-1. **Stay in the turn.** Poll status every few–tens of seconds until terminal.
-2. On success, run the **next** SDLC step immediately (preview → open UI → compare, etc.).
-3. Do **not** end a goal tick with “started; wait 5 minutes” — the interval is a
-   backstop, not a substitute for polling.
-4. If force-parked (hours-scale job or poll budget): emit durable state for goal-runner:
+**Go back** rules:
 
-```
-RESUME: projectId=… releaseId=… conversionId=… agentId=… step=poll_migrate next=list_versions
-GOAL_STATUS: in_progress
-```
+- QA fail / feedback bug → **Build** (fix) → re-Validate.
+- Lock failed / empty next active → re-Ship setup (seed) not re-Discover.
+- Missing product facts inventing stories → **Discover** snapshot tools, then Plan again.
+- Never re-run entire Discover every tick; resume from evidence.
 
-5. **“Agent not found for this project”** is not terminal — alternate poll paths:
-   `list_versions` (new `Rn`?), implement run status tools, `get_preview_status`,
-   conversion/list tools when available. Continue when a revision or preview update
-   appears; only re-start after confirmed death + goal still needs the work.
+Details: [continuous-loop.md](references/continuous-loop.md).
 
-See [pitfalls.md](references/pitfalls.md).
+---
 
-## Intent on the loop
+## Release loop (always — Plan/Build/Validate spine)
 
 ```
-Feature       → Plan backlog/scope on active → Build (seed if needed → implement) → Validate → lock loop
-Bug           → feedback AI fix on active+revision → preview → optional lock loop
-QA            → Validate on active+revision
-Ship          → lock → poll get_release_lock_status → seed next active → loop
-Visual parity → Build Frontend: compare → correct migrate → poll → re-preview → re-compare (loop)
+list_releases → exactly one active (others draft | locked | skip)
+       ↓
+list_versions on active → zero Rn? → seed_release_from_prior(mode=baseline_copy)
+       ↓
+WORK on that active only (scope / implement platform / preview / QA / feedback)
+       ↓
+DONE for this cycle → lock_release(confirm=true) [+ skipLockAgentOperations if development implement]
+       ↓
+poll get_release_lock_status until locked && !agentActive  (platform; up to ~30 min)
+       ↓
+list_releases → NEW active (often empty patch)
+       ↓
+seed NEW active → WORK → … forever
 ```
 
-## Short playbooks
+| Rule | Detail |
+| ---- | ------ |
+| One active | Never juggle two actives for normal shipping |
+| Empty active | Seed `baseline_copy` before Build/Validate |
+| Write target | Default `platform` (frontend/preview) |
+| Poll after start | Mandatory in-turn; minutes–hours OK |
+| Post-lock | Only work on **new** active id |
+| Development implement | Lock with `skipLockAgentOperations: true` |
 
-Tools: [tool-map.md](references/tool-map.md).
+---
 
-### Feature
+## Monitor matrix (start → poll → next)
 
-1. Optional Discover/PRD
-2. Epics/stories; ensure **one active** (`create_release` needs `startDate`+`releaseDate`, or `activate_release` with **`reason`**)
-3. If no revisions: `seed_release_from_prior` `{ mode: "baseline_copy" }`
-4. `set_release_scope` → `start_scope_implement` `{ execution: "sequential", target: "platform" }` (use `development` only if asked) → poll for hours if needed → terminal
-5. `start_preview` → QA
-6. Lock: platform → `lock_release` `{ confirm: true }` + poll; development implement → `lock_release` `{ confirm: true, skipLockAgentOperations: true }`
+| Started | Poll tools | Terminal success | Terminal failure → |
+| ------- | ---------- | ---------------- | ------------------ |
+| `seed_release_from_prior` | `list_versions` | New `Rn` on active | Retry seed once; else blocked |
+| `start_scope_implement` | `get_scope_implement_active`, `get_scope_implement_run`, `list_versions` | completed + new Rn | Read errors; `clarify_scope_implement` / re-run remaining; or move bugs to feedback |
+| `migrate_frontend` / `start_migrate_frontend_agent` | versions + agent status | New Rn / agent ended OK | Correct prompt; retry once; residual + continue |
+| `start_preview` / `restart_preview` | `get_preview_status` | ready / live URL | Restart; read logs if tools allow |
+| `lock_release` (platform) | `get_release_lock_status` | locked && !agentActive or readyForNextCycle | Don't unlock; report; don't implement on locked id |
+| `start_feedback_ai_fix` | `get_feedback_ai_fix_status` | success | Retry / clarify / manual residual |
+| `send_qa_chat_message` | `get_qa_message`, `retry_qa_generation` | report ready | retry_qa_generation |
+| `create_cursor_agent` / `spawn_dev_agent` | `get_cursor_agent` / `get_agent_status` | terminal success | stop + rethink prompt |
+| `backend_code_chat_send_message` | `backend_code_chat_get_session` | assistant terminal | Fix `prompt` field; never spawn_dev_agent as workaround |
+| `start_backend_cloud_deploy` | `get_backend_cloud_deploy_latest` / `_run` | succeeded | cancel / re-preflight / residual |
+| `run_infra_analysis` | `get_infra_analysis_latest` | completed | retry once |
+| `generate_understand_graph` | `get_understand_status` | ready | retry / residual |
 
-### Bug / feedback
+**In-tick rule:** after any start → poll every few–tens of seconds → on success immediately next SDLC step. Do **not** end with “started, wait N minutes” without `RESUME:`.
 
-1. Active + ≥1 revision required
-2. `list_feedback` / `get_feedback` (UUID id) → `start_feedback_ai_fix` → poll → `approve_feedback`
-3. Preview; continue loop if shipping
+Park only for **hours-scale** jobs or poll budget; always durable `RESUME:`.
 
-### QA
+Full sequences: [workflows.md](references/workflows.md).
 
-1. `get_qa_config` / topics / `send_qa_chat_message` → reports
-2. Failures → `move_qa_report_to_feedback` → bug playbook
+---
 
-### Frontend visual parity / correction
+## Playbook quick index
 
-Use for fidelity goals (e.g. ≥95% match production internal pages), migrate fixups,
-or “compare preview vs prod.” Stays on **platform** preview — not development Backend Code.
+| Intent | Path |
+| ------ | ---- |
+| Continuous 24×7 | This file + [continuous-loop.md](references/continuous-loop.md) |
+| New feature | Plan scope → seed → implement platform → preview → QA → lock → seed next |
+| Bug / feedback | active+Rn → AI fix → poll → preview → optional lock |
+| QA | Validate tools → failures to feedback → Build |
+| Visual parity | Build frontend compare loop ([workflows.md](references/workflows.md) §7) |
+| Backend Code | explicit only → `backend_code_chat_*` with **`prompt`** |
+| Ship / next release | lock → poll → list → seed new active |
+| Discover-only goal | Capture → profiles → docs/PRD → hand off Plan |
 
-1. Preflight: active + ≥1 revision; `start_preview` / poll `get_preview_status` if needed
-2. **Auth preview** — use displayed mock credentials (e.g. login form hint); never stop at
-   “loading Login” without retry, alternate path, or restart preview + evidence
-3. Open target internal routes; capture screenshots (and prod side-by-side when reachable)
-4. Diff → structured correction prompt → `migrate_frontend` / readonly migrate / platform
-   scope implement (`target: "platform"`)
-5. **Poll until terminal** — implement/migrate status tools; if agent id invalid:
-   `list_versions` + preview/implement status until new revision or confirmed failure
-6. Restart/await preview on the new revision; re-open **same** pages; re-compare
-7. Loop until criteria met (or residual diffs + unblockable reason documented)
-8. Optional ship: lock loop only after fidelity criteria satisfied
+Tools: [tool-map.md](references/tool-map.md). Model: [platform-model.md](references/platform-model.md). Failures: [pitfalls.md](references/pitfalls.md).
 
-Login/auth surface intentionally left alone unless the goal says otherwise.
-Clean install / TypeScript / production build constraints from the correction prompt must pass.
+### Feature (minimum loop)
 
-Full numbered sequence: [workflows.md](references/workflows.md) §7.
+1. Preflight.
+2. Optional Discover if product unknowns block scope.
+3. Epics/stories; ensure **one active** (`create_release` needs `startDate`+`releaseDate`; activate needs **`reason`**).
+4. Empty revisions → `seed_release_from_prior` `{ "mode": "baseline_copy" }`.
+5. `set_release_scope` → `start_scope_implement` `{ "execution": "sequential", "target": "platform", "items":[{...,"sortOrder":1}] }` → **poll hours if needed**.
+6. `start_preview` → poll → Validate as needed.
+7. `lock_release` `{ "confirm": true }` → poll lock → seed **new** active → continue goal or next scope.
 
-### Backend code fixes (development repo)
+### Ship end-of-cycle
 
-1. Only when user explicitly asks for Backend Code / development repo
-2. `backend_code_chat_get_session` → `backend_code_chat_send_message` with **`prompt`** + `mode: "agent"` (creates/resumes; later sends = follow-ups)
-3. Poll `backend_code_chat_get_session` — never `spawn_dev_agent` for Backend Code tab work
+1. `lock_release` `confirm: true` (development implement → also `skipLockAgentOperations: true`).
+2. Poll `get_release_lock_status` up to ~30 min if agent runs.
+3. `list_releases` → new active.
+4. `seed_release_from_prior` `mode: baseline_copy` on new active.
+5. Resume work — **never** implement on locked id.
 
-### Ship (end of cycle)
+### Validate + rewind
 
-1. `lock_release` (`confirm: true`)
-2. Poll `get_release_lock_status` until `readyForNextCycle` (or `locked && !agentActive`) — expect **up to ~30 minutes**; keep polling
-3. `list_releases` → new active
-4. `seed_release_from_prior` `{ mode: "baseline_copy" }` on **new** active
-5. Resume work on that line
+1. Run QA / list feedback.
+2. Failures → `move_qa_report_to_feedback` or `start_feedback_ai_fix` → poll.
+3. Fix → preview → re-run QA.
+4. When green and ship asked → Ship branch.
+
+---
 
 ## MCP golden rules
 
 - Destructive: `confirm: true`
-- Long-running: start → poll (never SSE). Scope implement can take **hours**; lock up to **~30 min**. **Do not end the turn mid-poll.**
-- Goal ticks: same rule — poll in-tick; park only with `RESUME:` after a real wait budget
-- Ask the user only for real forks (platform vs development when ambiguous **and** no preview cue; seed `agent` vs `baseline_copy` when unspecified). Otherwise auto-continue next SDLC step.
+- Long-running: start → poll (never SSE)
+- Goal ticks: poll in-tick; park only with `RESUME:`
 - `create_release`: `startDate` + `releaseDate`
-- `start_scope_implement`: prefer **`execution: "sequential"`** (separate PR per story); default **`target: "platform"`**; all-in-one via **`batchMode`**: `sequential_agents_shared_pr` | `parallel_agents_separate_prs` | `single_agent_shared_pr`; always pass **`items[].sortOrder`**
-- Development implement → lock with **`skipLockAgentOperations: true`** (bypass backend agent)
-- Platform lock → poll `get_release_lock_status` (~30 min)
 - `activate_release` / `update_release_status` / `update_release`: **`reason` required**
-- `seed_release_from_prior`: **`mode` required** (`baseline_copy` \| `agent`)
-- Feedback ids are UUIDs
-- Exclusions: AWS debug MCP, webhooks, OAuth callbacks, multipart ZIP, SSE, internal secrets
+- `seed_release_from_prior`: **`mode` required**
+- `start_scope_implement`: prefer **`execution: "sequential"`**, default **`target: "platform"`**, always **`items[].sortOrder`**
+- Feedback ids are **UUIDs**
+- Backend Code / infra / cloud-debug send: field is **`prompt`**, not `message`
+- Cursor agent `model` is server-resolved — do not pass `model`
+- Ask humans only for real forks (platform vs development when ambiguous **and** no preview cue; product secrets; repeated auth failure)
+- Auto-continue every other step
 
-See [pitfalls.md](references/pitfalls.md).
+Exclusions (no MCP): AWS debug MCP, webhooks, OAuth callbacks, multipart ZIP, SSE, internal deploy secrets, stakeholder-email-only chat mutations.
+
+---
+
+## Autonomy boundaries
+
+| Auto (do without asking) | Stop / ask / block |
+| ------------------------ | ------------------ |
+| Seed empty active (baseline_copy) | Destructive delete project / disconnect integrations |
+| Implement, preview, poll, re-preview | Choosing `mode: agent` seed without user prompt intent |
+| Feedback AI fix + approve when goal is fix | Spending / budget uncertainty when budget tools fail and goal is large |
+| Lock + seed next when goal is ship cycle | Switching to `development` target without clear user signal |
+| Create epic/story/scope from goal text | 401/403 auth |
+| Discover enrich when data empty and feature needs it | Repeated lock/seed failures after 2 retries |
+| Retry failed jobs once with adjusted prompt | Confirm-required deletes without goal saying so |
+
+Max auto-retries per job type per tick: **2** (then park with residual evidence + `in_progress`, or block).
+
+---
 
 ## References
 
-| Topic                               | File                                               |
-| ----------------------------------- | -------------------------------------------------- |
-| Release loop + statuses + revisions | [platform-model.md](references/platform-model.md)  |
-| Phase → tools                       | [tool-map.md](references/tool-map.md)              |
-| Numbered sequences                  | [workflows.md](references/workflows.md)            |
-| Required fields / poll / exclusions | [pitfalls.md](references/pitfalls.md)              |
-| MCP package setup                   | [mcp-server/README.md](../../mcp-server/README.md) |
+| Topic | File |
+| ----- | ---- |
+| **Continuous automaton (primary)** | [continuous-loop.md](references/continuous-loop.md) |
+| Release / revision / phases | [platform-model.md](references/platform-model.md) |
+| Phase → tools + monitor map | [tool-map.md](references/tool-map.md) |
+| Numbered sequences | [workflows.md](references/workflows.md) |
+| Required fields / anti-patterns | [pitfalls.md](references/pitfalls.md) |

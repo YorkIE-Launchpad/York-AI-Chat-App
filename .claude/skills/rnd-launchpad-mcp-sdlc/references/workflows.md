@@ -1,15 +1,21 @@
 # LaunchPad MCP workflows
 
-Spine: **one active → seed if empty → work (platform implement default) → lock (skip agent if development) → poll if needed → seed next → loop**.
+Spine for continuous agents: **sense → act → poll → next → (rewind) → next release**.
 
-Never implement or seed on a **locked** id. Never promise preview without **active + ≥1 revision**.
+Canonical math of the platform is the **release loop**. Journey phases tell you
+*what kind of work* to do next; the release loop is *where* Build/Validate write.
+
+Never implement or seed on a **locked** id. Never promise preview without
+**active + ≥1 revision**.
+
+Continuous decision tree: [continuous-loop.md](continuous-loop.md).
 
 ---
 
 ## Canonical release loop
 
 1. `list_releases` → note `activeReleaseId` (exactly one `active`; others draft/locked/skip)
-2. `list_versions` filtered to that release (or project versions tied to it)
+2. `list_versions` for that release
 3. **If no revisions:**
    ```json
    seed_release_from_prior({
@@ -30,18 +36,93 @@ Never implement or seed on a **locked** id. Never promise preview without **acti
    get_release_lock_status({ "releaseId": <sameId> })
    ```
    Stop when `locked === true` and `agentActive === false` (or `readyForNextCycle === true`)
-   - Development-repo implement: lock immediately without backend agent:
+   - Development-repo implement:
    ```json
-   lock_release({ "releaseId": <activeReleaseId>, "confirm": true, "skipLockAgentOperations": true })
+   lock_release({
+     "releaseId": <activeReleaseId>,
+     "confirm": true,
+     "skipLockAgentOperations": true
+   })
    ```
 6. `list_releases` → new `active` (often empty patch)
 7. Goto step 3 on the **new** active id
 
 ---
 
+## Continuous multi-cycle (24×7)
+
+```
+preflight
+while goal_not_complete:
+  RESUME first if present
+  decide_phase  # discover|plan|build|validate|ship  (priority table)
+  act_one_high_leverage_step
+  if started_async:
+    poll_until_terminal_or_park(RESUME)
+  if validation_failed:
+    set_phase build  # rewind
+  if ship_ready and goal_wants_lock:
+    lock → poll → seed next
+  emit PHASE / NEXT_ACTION / GOAL_STATUS
+```
+
+### Per-phase one-shot sequences
+
+#### D — Discover cycle
+
+1. `get_client_details`
+2. If sparse: `scrape_client_website` / `enrich_client_details` / `add_discovery_note` with goal text
+3. `generate_discovery_summary` or `discovery_chat`
+4. Optional: `generate_prd` / `generate_workspace_document`
+5. Exit → Plan when stories can be named truthfully
+
+#### P — Plan cycle
+
+1. `get_backlog_suggestions` → `apply_backlog_suggestion` and/or `create_epic` + `create_story`
+2. Ensure one active:
+   - `create_release` with `startDate` + `releaseDate`, or
+   - `activate_release` with **`reason`**
+3. `set_release_scope` with items
+4. Exit → Build
+
+#### B — Build cycle (platform default)
+
+1. Seed if empty (`baseline_copy`)
+2. `start_scope_implement`:
+   ```json
+   {
+     "projectId": 12,
+     "releaseId": 99,
+     "mode": "selected",
+     "execution": "sequential",
+     "target": "platform",
+     "items": [
+       { "storyId": 1, "sortOrder": 1 },
+       { "storyId": 2, "sortOrder": 2 }
+     ]
+   }
+   ```
+3. Poll `get_scope_implement_active` / `get_scope_implement_run` + `list_versions` (hours OK)
+4. `start_preview` → `get_preview_status`
+5. Optional fidelity: §7
+6. Optional Backend Code (user asked) §6
+
+#### V — Validate cycle
+
+1. `get_qa_config` / topics / `send_qa_chat_message` → poll message
+2. `list_qa_reports` → `move_qa_report_to_feedback` on fails
+3. Feedback path §3
+4. Rewind to Build until green or residual accepted
+
+#### S — Ship cycle
+
+Identical to release loop steps 5–7.
+
+---
+
 ## 0. Empty active release only
 
-Same as loop steps 3–4. Signals: active with zero versions / “awaiting first revision”.
+Loop steps 3–4. Signals: active with zero versions / “awaiting first revision”.
 
 ---
 
@@ -52,25 +133,21 @@ Same as loop steps 3–4. Signals: active with zero versions / “awaiting first
 1. Preflight (`get_me`, `list_projects`, `list_releases`, `list_versions`)
 2. Optional Discover/PRD
 3. `create_epic` / `create_story`
-4. Ensure one active:
-   - `create_release` with `startDate` + `releaseDate`, or
-   - `activate_release` on a draft with **`reason`** (prefer only after prior lock)
-5. If no revisions → **seed `baseline_copy`**
+4. Ensure one active (`create_release` or `activate_release` + reason)
+5. If no revisions → seed `baseline_copy`
 6. `set_release_scope` with `items`
 
 ### Build
 
-7. `start_scope_implement` with `execution: "sequential"` and default **`target: "platform"`** (LaunchPad frontend/preview; use `development` only if user asks) → poll for **hours** if needed until terminal
+7. `start_scope_implement` with `execution: "sequential"`, `target: "platform"` → poll
 8. `list_versions` → expect new `Rn`
-9. Optional agents; `start_preview`
+9. `start_preview`
 
 ### Validate + close cycle
 
 10. QA / feedback as needed
-11. Lock:
-    - If implement was **platform**: `lock_release` `{ confirm: true }` → poll `get_release_lock_status` (~30 min)
-    - If implement was **development**: `lock_release` `{ confirm: true, skipLockAgentOperations: true }` (bypass backend agent)
-12. `list_releases` → seed next active
+11. Lock (platform: poll lock status; development: skipLockAgentOperations)
+12. `list_releases` → seed next active → continue if continuous goal
 
 **Example create_release:**
 
@@ -87,7 +164,7 @@ Same as loop steps 3–4. Signals: active with zero versions / “awaiting first
 
 ## 2. After lock (next line)
 
-Identical to loop seed/list after lock. Do not call implement on the locked release.
+Seed/list only on the **new** active. Do not implement on the locked release.
 
 ---
 
@@ -96,7 +173,7 @@ Identical to loop seed/list after lock. Do not call implement on the locked rele
 1. Preflight; active must have a live revision (seed first if empty)
 2. `list_feedback` / `get_feedback` — UUID `feedbackId`
 3. `start_feedback_ai_fix` → poll `get_feedback_ai_fix_status`
-4. `approve_feedback`
+4. `approve_feedback` when appropriate
 5. `start_preview`
 6. Optional: continue to lock loop when shipping
 
@@ -107,31 +184,27 @@ Identical to loop seed/list after lock. Do not call implement on the locked rele
 1. Active + revision required
 2. `get_qa_config` → topics / chats / `send_qa_chat_message` → poll
 3. `list_qa_reports` → optional `move_qa_report_to_feedback` → §3
+4. Failures rewind to Build; success → Ship or next Plan
 
 ---
 
 ## 5. Temporary vs live revision
 
-| Goal                       | Tool                                            |
-| -------------------------- | ----------------------------------------------- |
-| Peek without changing live | `switch_version`                                |
-| Make live                  | `activate_version` (on **active** release only) |
+| Goal | Tool |
+| ---- | ---- |
+| Peek without changing live | `switch_version` |
+| Make live | `activate_version` (on **active** release only) |
 
 ---
 
 ## 6. Backend code fix pass (development repo)
 
-Use **backend code chat** only — do **not** use `spawn_dev_agent` / `agent_followup` for Backend Code tab work.
+Use **backend code chat** only — do **not** use `spawn_dev_agent` for Backend Code tab work.
 
-1. `backend_code_chat_get_session` — inspect session / messages / whether an agent is already running
-2. `backend_code_chat_send_message` with **`prompt`** (required; not `message`) and usually `mode: "agent"`
-   - First send **creates/resumes** the Cursor agent on the linked development repo
-   - Later sends are **follow-ups** on the same project chat
-   - Archived thread is fine: send still get-or-creates a session — no separate spawn path
-3. Poll `backend_code_chat_get_session` until the assistant turn is terminal (no SSE)
-4. More work → repeat step 2–3 (same tool = follow-up). Optional: `backend_code_chat_stop` / `backend_code_chat_archive`
-
-**Example:**
+1. `backend_code_chat_get_session`
+2. `backend_code_chat_send_message` with **`prompt`** and usually `mode: "agent"`
+3. Poll `backend_code_chat_get_session` until assistant terminal
+4. More work → repeat send; optional stop/archive tools if exposed
 
 ```json
 {
@@ -147,46 +220,39 @@ Same `prompt` field for `infra_analysis_chat_send_message` and `cloud_debug_chat
 
 ## 7. Frontend visual parity / correction loop
 
-Build → Frontend only. Requires **active release + ≥1 revision**. Default target
-**platform**. Do not use Backend Code unless the user named development repo.
+Build → Frontend only. Requires **active release + ≥1 revision**. Default **platform**.
 
 ### Cycle
 
-1. Preflight (`get_me`, `list_projects`, `list_releases`, `list_versions`)
-2. If zero revisions → `seed_release_from_prior` `{ mode: "baseline_copy" }`
-3. Ensure preview: `start_preview` → poll `get_preview_status` until ready
-4. Open preview; **authenticate** (use mock credentials shown on the form if present).
-   If stuck on “loading Login”: retry, hard-refresh, `restart_preview`, capture errors —
-   do **not** end the turn as “waiting for next goal tick.”
-5. Navigate target internal routes; screenshot preview
-6. Open production (or stored baseline) when reachable; screenshot same routes/viewport.
-   If prod auth fails (e.g. HTTP 400), record residual and continue preview-driven diffs.
-7. Diff → structured correction list (layout, missing controls, extra cards, typography, etc.)
-8. Launch correction on **platform**: `migrate_frontend` / conversion agent / or
-   `start_scope_implement` with `target: "platform"` and a clear fix prompt.
-   **Stay in turn** after start.
-9. **Poll to terminal** (few–tens of seconds between polls):
-   - Prefer implement/migrate status tools and `get_agent_status` / `get_cursor_agent` when ids work
-   - If **“Agent not found for this project”** or opaque conversion id:
-     - Poll `list_versions` for a new `Rn` on the active release
-     - Poll `get_scope_implement_active` / run status when used
-     - Poll `get_preview_status`
-     - Continue when a new revision appears; only re-launch after confirmed failure
-10. On terminal success: ensure live/preview on new revision (`activate_version` /
-    `switch_version` as appropriate); re-open **same** pages; re-compare
-11. Repeat 7–10 until criteria met (e.g. ≥95%) **or** residual diffs + why unblockable
-12. Ship only if the goal asks: lock loop (§ Canonical) after parity evidence
+1. Preflight
+2. Zero revisions → seed `baseline_copy`
+3. `start_preview` → poll ready
+4. Authenticate with mock credentials if shown (never park purely on “loading Login”)
+5. Navigate target routes; screenshot preview
+6. Prod baseline side-by-side when reachable; else residual + continue
+7. Diff → structured correction list
+8. `migrate_frontend` / `start_scope_implement` `target: platform` with fix prompt — **stay in turn**
+9. Poll to terminal (versions / implement / agent); agent-not-found → alternate poll paths
+10. Re-preview same pages; re-compare
+11. Repeat until criteria met or residual + unblockable reason
+12. Ship only if goal asks
 
-### Resume after park (goal ticks)
-
-If the poll budget forces an exit mid-migration:
+### Resume after park
 
 ```
 RESUME: projectId=<id> releaseId=<id> conversionId=<id?> agentId=<id?> step=poll_migrate next=list_versions
 ```
 
-Next turn/tick: poll `next` / versions **first**, then continue step 10 — do not
-re-seed or re-run the whole compare unless the job is confirmed dead.
+Next tick: poll first — do not re-seed or restart whole compare unless job confirmed dead.
+
+---
+
+## 8. Cloud deploy cycle
+
+1. `get_deploy_map` / `prepare_deploy_map` / `patch_deploy_map` as needed
+2. `backend_cloud_deploy_preflight`
+3. `start_backend_cloud_deploy` → poll latest/run
+4. Failures → preflight again or cloud_debug chat; do not invent AWS MCP tools
 
 ---
 
@@ -196,9 +262,11 @@ re-seed or re-run the whole compare unless the job is confirmed dead.
 - [ ] Empty active seeded with `mode: "baseline_copy"` before work
 - [ ] Build writes only on active
 - [ ] Implement defaulted to `target: "platform"` unless user asked for development
-- [ ] After any start tool, polled to terminal **in-turn** (not “wait for next goal interval”)
-- [ ] Agent-not-found recovered via `list_versions` / implement / preview status
-- [ ] After platform lock, polled `get_release_lock_status` (~30 min; not SSE); after development implement, locked with `skipLockAgentOperations: true`
+- [ ] After any start tool, polled to terminal **in-turn** (or RESUME park)
+- [ ] Agent-not-found recovered via versions / implement / preview status
+- [ ] After platform lock, polled `get_release_lock_status`; after development implement, skip lock agent
 - [ ] Next cycle seeded on **new** active id
-- [ ] Visual parity claims backed by side-by-side evidence
+- [ ] Continuous goals stay `in_progress` until evidence of full criteria
+- [ ] QA failures rewind to Build before claiming ship
 - [ ] Destructive calls use `confirm: true`
+- [ ] Durable PHASE / NEXT_ACTION / RESUME lines on autonomous ticks

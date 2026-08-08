@@ -170,17 +170,22 @@ pass; on fail, stay in_progress and fix only if the goal also asked to fix.
 ### launchpad
 
 Load and follow **`rnd-launchpad-mcp-sdlc`** on the first LaunchPad tick and
-every continuation (not one-off). Preflight active release + revision, then
-drive the happy path for the ask:
+every continuation (not one-off). Prefer the skill’s **continuous controller**
+([`references/continuous-loop.md`](../rnd-launchpad-mcp-sdlc/references/continuous-loop.md)):
+sense → decide phase (Discover / Plan / Build / Validate / Ship) → act → poll →
+advance or rewind → next release. Preflight active release + revision before
+Build/Validate writes.
 
-- **Feature/ship** → release loop (seed → implement platform → preview → QA → lock → seed next)
+- **Continuous / 24×7 deliver** → full phase loop + release loop forever until
+  goal criteria evidenced; emit `PHASE` / `NEXT_ACTION` / `RESUME` / `GOAL_STATUS`
+- **Feature/ship** → Plan scope → seed → implement platform → preview → QA → lock → seed next
 - **Bug** → feedback AI fix → poll → preview
-- **Visual fidelity / migrate / parity** → use the skill’s **Frontend visual parity**
-  playbook: auth → open internal pages → screenshot compare → correction migrate →
-  **poll until revision terminal** → re-preview → re-compare → repeat until criteria met
+- **Visual fidelity / migrate / parity** → Frontend visual parity playbook in the skill
+- **QA fail** → rewind to Build, re-Validate (do not claim ship)
 
 Complete only with evidence (preview/QA/lock/fidelity). Async protocol is mandatory
-after every start tool.
+after every start tool. Do **not** complete after a single lock unless the goal
+was only that ship event.
 
 ### multi
 

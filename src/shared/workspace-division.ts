@@ -501,6 +501,7 @@ export function buildDivisionActiveProjectContext(
 function projectDivisionHardRules(name: string): string[] {
   return [
     'DEFAULT SUBJECT: when the user does not name a project, assume they mean this project. Use its name and ids in tool calls/searches. Do not ask which project.',
+    'MANDATORY SKILL: rnd-launchpad-mcp-sdlc is required in Project workspace. Follow that skill for all LaunchPad delivery (releases, implement, preview, QA, lock/seed). The skill body is auto-injected every turn — do not skip it.',
     'HARD RULES — these override general "start doing it" behavior when the request is out of scope:',
     `IN SCOPE: delivery, Hub data, Launchpad/Pulse/Jira/comms for "${name}" only. Pass hub and/or launchpad project ids to tools that accept them.`,
     'OUT OF SCOPE (REFUSE): personal use; general company Q&A unrelated to this project; other clients/projects; Hub-only HR unless staffing/allocations for THIS project.',
