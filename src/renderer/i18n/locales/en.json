@@ -1205,7 +1205,7 @@
     "watchChanged": "change detected"
   },
   "loop": {
-    "usage": "Loop needs an interval. Examples: /loop 5m check deploy · /goal make tests pass (defaults to 2m) · /goal 5m make tests pass · /loop stop or /goal stop",
+    "usage": "Loop needs an interval. Examples: /loop 5m check deploy · /goal make tests pass (defaults to 2m, max 20 ticks) · /goal 5m max 50 make tests pass · /goal max:100 fix flaky CI · /loop stop or /goal stop",
     "started": "Looping every {{interval}}. First run started; will repeat until stopped.",
     "goalStarted": "Goal loop every {{interval}} (max {{max}} ticks). Working until GOAL_STATUS: complete.",
     "stopped": "Chat loop stopped.",
@@ -1228,11 +1228,15 @@
     "intervalHintGoal": "Optional — defaults to 2m if you skip. Pick a chip or enter a custom value.",
     "intervalRequired": "Choose an interval before starting",
     "intervalCustom": "Custom (e.g. 5m)",
+    "maxTicksLabel": "Max ticks",
+    "maxTicksHint": "Stop after this many attempts if the goal is not complete. Default 20.",
+    "maxTicksCustom": "Custom max ticks",
+    "maxTicksInvalid": "Enter a max ticks value of 1 or more",
     "startLoop": "Start loop",
     "startGoal": "Start goal",
     "stopActive": "Stop active automation",
     "promptRequired": "Enter a prompt or goal to start",
-    "slashHint": "Power users can also type /loop 5m … or /goal … (optional interval, default 2m) in the composer."
+    "slashHint": "Power users can also type /loop 5m … or /goal 5m max 50 … (optional interval default 2m; optional max ticks default 20) in the composer."
   },
   "remote": {
     "title": "Remote Control",

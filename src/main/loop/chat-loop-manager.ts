@@ -6,6 +6,7 @@
  * goal completes, or max iterations is reached.
  */
 import {
+  DEFAULT_GOAL_MAX_ITERATIONS,
   buildGoalTickPrompt,
   isGoalCompleteInText,
   type ChatLoopKind,
@@ -85,7 +86,8 @@ export class ChatLoopManager {
       prompt: input.prompt.trim(),
       intervalMs: input.intervalMs,
       tickCount: 0,
-      maxIterations: input.kind === 'goal' ? (input.maxIterations ?? 20) : null,
+      maxIterations:
+        input.kind === 'goal' ? (input.maxIterations ?? DEFAULT_GOAL_MAX_ITERATIONS) : null,
       startedAt: now,
       nextTickAt: null,
       stopReason: null,

@@ -1232,10 +1232,20 @@ export function WelcomeView() {
                       initialText={prompt.trim()}
                       activeStatus={null}
                       onClose={() => setLoopMenuOpen(false)}
-                      onStart={async ({ kind, prompt: loopPrompt, intervalMs }) => {
+                      onStart={async ({
+                        kind,
+                        prompt: loopPrompt,
+                        intervalMs,
+                        maxIterations,
+                      }) => {
                         setIsSubmitting(true);
                         try {
-                          await startSessionWithLoop({ kind, prompt: loopPrompt, intervalMs });
+                          await startSessionWithLoop({
+                            kind,
+                            prompt: loopPrompt,
+                            intervalMs,
+                            maxIterations,
+                          });
                         } finally {
                           setIsSubmitting(false);
                         }

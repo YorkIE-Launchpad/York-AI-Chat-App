@@ -18,6 +18,48 @@ const SHORT_INTERVAL_RE =
   /^(\d+)\s*(s|m|h|d|sec|secs|second|seconds|min|mins|minute|minutes|hr|hrs|hour|hours|day|days)\b/i;
 const EVERY_INTERVAL_RE =
   /\bevery\s+(\d+)\s*(s|m|h|d|sec|secs|second|seconds|min|mins|minute|minutes|hr|hrs|hour|hours|day|days)\b/i;
+/** Leading option: `max 50`, `max:50`, `max=50`. */
+const LEADING_MAX_TICKS_RE = /^max\s*[:=]?\s*(\d+)\b/i;
+/** Explicit option anywhere: `max:50` or `max=50` (colon/equals avoids eating goal prose). */
+const EXPLICIT_MAX_TICKS_RE = /\bmax\s*[:=]\s*(\d+)\b/i;
+
+/** Clamp a user-provided goal max-ticks value; invalid → default. */
+export function normalizeGoalMaxIterations(value: unknown): number {
+  const n = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(n) || n < 1) return DEFAULT_GOAL_MAX_ITERATIONS;
+  return Math.min(Math.floor(n), 10_000);
+}
+
+function stripMaxIterationsClause(text: string): {
+  rest: string;
+  maxIterations: number | null;
+} {
+  const trimmed = text.trim();
+  if (!trimmed) return { rest: '', maxIterations: null };
+
+  const leading = LEADING_MAX_TICKS_RE.exec(trimmed);
+  if (leading) {
+    const n = Number(leading[1]);
+    if (Number.isFinite(n) && n >= 1) {
+      return {
+        rest: trimmed.slice(leading[0].length).trim(),
+        maxIterations: normalizeGoalMaxIterations(n),
+      };
+    }
+  }
+
+  const explicit = EXPLICIT_MAX_TICKS_RE.exec(trimmed);
+  if (explicit) {
+    const n = Number(explicit[1]);
+    if (Number.isFinite(n) && n >= 1) {
+      const rest =
+        `${trimmed.slice(0, explicit.index)} ${trimmed.slice(explicit.index + explicit[0].length)}`.trim();
+      return { rest, maxIterations: normalizeGoalMaxIterations(n) };
+    }
+  }
+
+  return { rest: trimmed, maxIterations: null };
+}
 
 function normalizeUnit(raw: string): LoopIntervalUnit {
   const u = raw.toLowerCase();
@@ -74,6 +116,7 @@ function stripEveryClause(text: string): { rest: string; interval: LoopInterval 
  * Parse a chat slash command for loops.
  * Loop interval is required — e.g. `/loop 5m check deploy`.
  * Goal interval is optional and defaults to 2m — e.g. `/goal make tests pass` or `/goal 5m make tests pass`.
+ * Goal max ticks optional (default 20) — e.g. `/goal max 50 …`, `/goal 5m max 50 …`, or `max:50` anywhere.
  */
 export function parseLoopCommand(raw: string): ParsedLoopCommand {
   const trimmed = raw.trim();
@@ -142,12 +185,31 @@ export function parseLoopCommand(raw: string): ParsedLoopCommand {
   }
 
   if (command === 'goal') {
+    // Options: `/goal [interval] [max N] <goal>`, `/goal max N [interval] <goal>`, or `max:N` anywhere.
+    let { rest: goalText, maxIterations } = stripMaxIterationsClause(promptOrGoal);
+    if (!interval) {
+      const leadingAfterMax = SHORT_INTERVAL_RE.exec(goalText);
+      if (leadingAfterMax && leadingAfterMax.index === 0) {
+        interval = parseIntervalToken(leadingAfterMax[0]);
+        goalText = goalText.slice(leadingAfterMax[0].length).trim();
+      }
+    }
+    if (maxIterations === null) {
+      const again = stripMaxIterationsClause(goalText);
+      goalText = again.rest;
+      maxIterations = again.maxIterations;
+    }
+
+    if (!goalText) {
+      return { type: 'usage' };
+    }
+
     return {
       type: 'goal',
       kind: 'goal',
-      goal: promptOrGoal,
+      goal: goalText,
       interval: interval ?? msToLoopInterval(DEFAULT_GOAL_INTERVAL_MS),
-      maxIterations: DEFAULT_GOAL_MAX_ITERATIONS,
+      maxIterations: maxIterations ?? DEFAULT_GOAL_MAX_ITERATIONS,
     };
   }
 

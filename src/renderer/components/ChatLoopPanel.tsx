@@ -2,12 +2,13 @@ import { useEffect, useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { RefreshCw, Target, X } from 'lucide-react';
 import type { ChatLoopStatus } from '../types';
-import { parseIntervalToken } from '../../shared/loop/parse';
-import { DEFAULT_GOAL_INTERVAL_MS } from '../../shared/loop/types';
+import { normalizeGoalMaxIterations, parseIntervalToken } from '../../shared/loop/parse';
+import { DEFAULT_GOAL_INTERVAL_MS, DEFAULT_GOAL_MAX_ITERATIONS } from '../../shared/loop/types';
 
 export type ChatLoopPanelMode = 'interval' | 'goal';
 
 const INTERVAL_CHIPS = ['30s', '2m', '5m', '15m', '1h'] as const;
+const MAX_TICK_CHIPS = [10, 20, 50, 100] as const;
 
 export interface ChatLoopPanelProps {
   open: boolean;
@@ -20,6 +21,7 @@ export interface ChatLoopPanelProps {
     kind: ChatLoopPanelMode;
     prompt: string;
     intervalMs: number;
+    maxIterations?: number | null;
   }) => void | Promise<void>;
   onStop: () => void | Promise<void>;
 }
@@ -39,6 +41,7 @@ export function ChatLoopPanel({
   const [text, setText] = useState(initialText);
   const [selectedChip, setSelectedChip] = useState<string | null>(null);
   const [customInterval, setCustomInterval] = useState('');
+  const [maxTicks, setMaxTicks] = useState(String(DEFAULT_GOAL_MAX_ITERATIONS));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -50,10 +53,15 @@ export function ChatLoopPanel({
     setText(initialText);
     setSelectedChip(null);
     setCustomInterval('');
+    setMaxTicks(
+      activeStatus?.kind === 'goal' && activeStatus.maxIterations != null
+        ? String(activeStatus.maxIterations)
+        : String(DEFAULT_GOAL_MAX_ITERATIONS)
+    );
     setMode(activeStatus?.kind === 'goal' ? 'goal' : 'interval');
     // Only seed when opening (or seed inputs change) while draft is empty — keep typed draft across dismiss.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally omit draft fields so edits while open do not re-run
-  }, [open, initialText, activeStatus?.kind]);
+  }, [open, initialText, activeStatus?.kind, activeStatus?.maxIterations]);
 
   if (!open) return null;
 
@@ -73,8 +81,17 @@ export function ChatLoopPanel({
     setText('');
     setSelectedChip(null);
     setCustomInterval('');
+    setMaxTicks(String(DEFAULT_GOAL_MAX_ITERATIONS));
     setMode('interval');
     setError(null);
+  };
+
+  const resolveMaxIterations = (): number | null => {
+    const raw = maxTicks.trim();
+    if (!raw) return DEFAULT_GOAL_MAX_ITERATIONS;
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n < 1) return null;
+    return normalizeGoalMaxIterations(n);
   };
 
   const handleStart = async () => {
@@ -92,6 +109,14 @@ export function ChatLoopPanel({
         return;
       }
     }
+    let maxIterations: number | null = null;
+    if (mode === 'goal') {
+      maxIterations = resolveMaxIterations();
+      if (maxIterations === null) {
+        setError(t('loop.maxTicksInvalid'));
+        return;
+      }
+    }
     setSubmitting(true);
     setError(null);
     try {
@@ -99,6 +124,7 @@ export function ChatLoopPanel({
         kind: mode,
         prompt: trimmed,
         intervalMs,
+        maxIterations,
       });
       resetDraft();
       onClose();
@@ -222,6 +248,41 @@ export function ChatLoopPanel({
             className="w-full rounded-xl border border-border bg-surface px-3 py-1.5 text-[13px] text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
           />
         </div>
+
+        {mode === 'goal' && (
+          <div className="space-y-1.5">
+            <div className="text-[11px] font-medium uppercase tracking-[0.04em] text-text-muted">
+              {t('loop.maxTicksLabel')}
+            </div>
+            <p className="text-[11px] text-text-muted">{t('loop.maxTicksHint')}</p>
+            <div className="flex flex-wrap gap-1.5">
+              {MAX_TICK_CHIPS.map((chip) => (
+                <button
+                  key={chip}
+                  type="button"
+                  onClick={() => setMaxTicks(String(chip))}
+                  className={`rounded-full px-2.5 py-1 text-[12px] font-medium transition-colors ${
+                    maxTicks.trim() === String(chip)
+                      ? 'bg-accent/15 text-accent border border-accent/25'
+                      : 'bg-surface text-text-secondary border border-border hover:bg-surface-hover'
+                  }`}
+                >
+                  {chip}
+                </button>
+              ))}
+            </div>
+            <input
+              type="number"
+              min={1}
+              max={10000}
+              step={1}
+              value={maxTicks}
+              onChange={(e) => setMaxTicks(e.target.value)}
+              placeholder={t('loop.maxTicksCustom')}
+              className="w-full rounded-xl border border-border bg-surface px-3 py-1.5 text-[13px] text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
+            />
+          </div>
+        )}
 
         {error && <div className="text-[12px] text-error">{error}</div>}
 

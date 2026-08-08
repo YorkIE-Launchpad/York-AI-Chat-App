@@ -96,6 +96,63 @@ describe('parseLoopCommand', () => {
       expect(withInterval.maxIterations).toBe(20);
     }
   });
+
+  it('parses /goal max ticks (leading max N)', () => {
+    const result = parseLoopCommand('/goal max 50 make tests pass');
+    expect(result).toMatchObject({
+      type: 'goal',
+      kind: 'goal',
+      goal: 'make tests pass',
+      maxIterations: 50,
+    });
+    if (result.type === 'goal') {
+      expect(result.interval.ms).toBe(2 * 60_000);
+    }
+  });
+
+  it('parses /goal interval then max ticks', () => {
+    const result = parseLoopCommand('/goal 5m max 100 fix CI');
+    expect(result).toMatchObject({
+      type: 'goal',
+      goal: 'fix CI',
+      maxIterations: 100,
+    });
+    if (result.type === 'goal') {
+      expect(result.interval.ms).toBe(5 * 60_000);
+    }
+  });
+
+  it('parses /goal max first then interval', () => {
+    const result = parseLoopCommand('/goal max 30 10m ship feature');
+    expect(result).toMatchObject({
+      type: 'goal',
+      goal: 'ship feature',
+      maxIterations: 30,
+    });
+    if (result.type === 'goal') {
+      expect(result.interval.ms).toBe(10 * 60_000);
+    }
+  });
+
+  it('parses explicit max:N / max=N in goal body', () => {
+    const colon = parseLoopCommand('/goal make tests pass max:40');
+    expect(colon).toMatchObject({ type: 'goal', goal: 'make tests pass', maxIterations: 40 });
+
+    const equals = parseLoopCommand('/goal 3m fix flaky CI max=15');
+    expect(equals).toMatchObject({ type: 'goal', goal: 'fix flaky CI', maxIterations: 15 });
+    if (equals.type === 'goal') {
+      expect(equals.interval.ms).toBe(3 * 60_000);
+    }
+  });
+
+  it('does not treat bare "max 50" mid-goal as option without colon', () => {
+    const result = parseLoopCommand('/goal keep max 50 concurrent users happy');
+    expect(result).toMatchObject({
+      type: 'goal',
+      goal: 'keep max 50 concurrent users happy',
+      maxIterations: 20,
+    });
+  });
 });
 
 describe('isLoopSlashInput', () => {

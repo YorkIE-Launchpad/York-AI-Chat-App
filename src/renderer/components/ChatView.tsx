@@ -1527,8 +1527,8 @@ export function ChatView() {
                     initialText={prompt.trim()}
                     activeStatus={chatLoopStatus}
                     onClose={() => setLoopMenuOpen(false)}
-                    onStart={async ({ kind, prompt: loopPrompt, intervalMs }) => {
-                      await startChatLoop({ kind, prompt: loopPrompt, intervalMs });
+                    onStart={async ({ kind, prompt: loopPrompt, intervalMs, maxIterations }) => {
+                      await startChatLoop({ kind, prompt: loopPrompt, intervalMs, maxIterations });
                       setPrompt('');
                       if (textareaRef.current) textareaRef.current.value = '';
                     }}
