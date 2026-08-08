@@ -940,6 +940,16 @@ describe('isReconnectableErrorText', () => {
     expect(isReconnectableErrorText('unauthorized')).toBe(true);
   });
 
+  it('matches LaunchPad Cognito MCP token expiry phrases', () => {
+    expect(
+      isReconnectableErrorText(
+        'LaunchPad access is blocked because the connected MCP token has expired.'
+      )
+    ).toBe(true);
+    expect(isReconnectableErrorText('The MCP token has expired. Please reconnect.')).toBe(true);
+    expect(isReconnectableErrorText('JWT has expired')).toBe(true);
+  });
+
   it('does not match unrelated errors', () => {
     expect(isReconnectableErrorText('listTools timeout after 300000ms')).toBe(false);
     expect(isReconnectableErrorText('')).toBe(false);

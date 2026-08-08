@@ -178,6 +178,11 @@ function isSlackUserToken(token: string): boolean {
   return trimmed.startsWith('xoxp-') || trimmed.startsWith('xoxe.xoxp-');
 }
 
+function extractBearerTokenFromAuthHeader(authHeader: string): string {
+  const match = /^authorization\s*:\s*bearer\s+(.+)$/i.exec(authHeader.trim());
+  return match?.[1]?.trim() || '';
+}
+
 /**
  * Inject or replace mcp-remote `--header Authorization: Bearer …` with a fresh Cognito JWT.
  * Never persists the token into stored MCP config.
@@ -186,11 +191,12 @@ function isSlackUserToken(token: string): boolean {
 async function injectCognitoAuthHeader(
   args: string[],
   options: { kind: 'launchpad' | 'pulse' } = { kind: 'launchpad' }
-): Promise<string[]> {
+): Promise<{ args: string[]; bearerToken: string }> {
   const authHeader =
     options.kind === 'pulse'
       ? await getPulseCognitoBearerAuthHeader()
       : await getCognitoBearerAuthHeader();
+  const bearerToken = extractBearerTokenFromAuthHeader(authHeader);
   const nextArgs = [...args];
 
   for (let i = 0; i < nextArgs.length - 1; i++) {
@@ -203,7 +209,7 @@ async function injectCognitoAuthHeader(
   }
 
   nextArgs.push('--header', authHeader);
-  return nextArgs;
+  return { args: nextArgs, bearerToken };
 }
 
 /** Redact Authorization header values so Cognito JWTs are not written to logs. */
@@ -387,6 +393,8 @@ export class MCPManager {
   private reconnectingServers: Set<string> = new Set();
   // Access token last injected into each connector MCP child process env
   private connectorAccessTokensByServerId = new Map<string, string>();
+  // Cognito JWT last injected into mcp-remote --header for LaunchPad / R&D Pulse
+  private cognitoBearerTokensByServerId = new Map<string, string>();
   // Background connect retry loops (5s interval, 5min deadline)
   private connectRetryControllers = new Map<string, AbortController>();
   // Server IDs allowed to open a browser for OAuth during the current connect
@@ -1198,11 +1206,21 @@ export class MCPManager {
       });
 
       // Launchpad: Cognito id JWT (email in payload). Pulse: Hub Cognito access JWT.
+      // mcp-remote freezes the Authorization header at spawn; track it so tool
+      // calls can reconnect when the session JWT rotates/expires.
       if (isRndPulseMcpServerConfig(config)) {
-        args = await injectCognitoAuthHeader(args, { kind: 'pulse' });
+        const injected = await injectCognitoAuthHeader(args, { kind: 'pulse' });
+        args = injected.args;
+        if (injected.bearerToken) {
+          this.cognitoBearerTokensByServerId.set(config.id, injected.bearerToken);
+        }
         log('[MCPManager] Injected Cognito access-token Authorization header for R&D Pulse MCP');
       } else if (isLaunchpadMcpServerConfig(config)) {
-        args = await injectCognitoAuthHeader(args, { kind: 'launchpad' });
+        const injected = await injectCognitoAuthHeader(args, { kind: 'launchpad' });
+        args = injected.args;
+        if (injected.bearerToken) {
+          this.cognitoBearerTokensByServerId.set(config.id, injected.bearerToken);
+        }
         log('[MCPManager] Injected Cognito id-token Authorization header for Launchpad MCP');
       }
 
@@ -2080,6 +2098,7 @@ export class MCPManager {
     this.chromeReadyServerIds.delete(serverId);
     this.chromeReadyInFlight.delete(serverId);
     this.connectorAccessTokensByServerId.delete(serverId);
+    this.cognitoBearerTokensByServerId.delete(serverId);
 
     log(`[MCPManager] Disconnected from server ${serverId}`);
   }
@@ -2376,12 +2395,18 @@ export class MCPManager {
         }
 
         // Google/Slack MCP children freeze the access token in env at spawn time.
-        // Refresh the stored token and reconnect when it rotated so tool calls stay long-lived.
+        // LaunchPad/Pulse freeze Cognito JWT in mcp-remote --header at spawn time.
+        // Refresh and reconnect when the token rotated so tool calls stay long-lived.
         if (serverConfig) {
-          const reconnectedForToken = await this.reconnectConnectorServerIfTokenRotated(
-            currentTool.serverId,
-            serverConfig
-          );
+          const reconnectedForToken =
+            (await this.reconnectConnectorServerIfTokenRotated(
+              currentTool.serverId,
+              serverConfig
+            )) ||
+            (await this.reconnectCognitoMcpServerIfTokenRotated(
+              currentTool.serverId,
+              serverConfig
+            ));
           if (reconnectedForToken) {
             continue;
           }
@@ -2536,6 +2561,55 @@ export class MCPManager {
 
     log(
       `[MCPManager] ${connectorId} access token rotated; reconnecting MCP server ${serverConfig.name}`
+    );
+    return this.reconnectServer(serverId);
+  }
+
+  /**
+   * LaunchPad / R&D Pulse use mcp-remote with a Cognito JWT in --header at spawn.
+   * App session tokens refresh on their own (~1h Cognito lifetime), but the
+   * child keeps the old header until reconnect. Restart when the JWT rotated.
+   */
+  private async reconnectCognitoMcpServerIfTokenRotated(
+    serverId: string,
+    serverConfig: MCPServerConfig
+  ): Promise<boolean> {
+    const kind = isRndPulseMcpServerConfig(serverConfig)
+      ? 'pulse'
+      : isLaunchpadMcpServerConfig(serverConfig)
+        ? 'launchpad'
+        : null;
+    if (!kind) {
+      return false;
+    }
+
+    let freshToken: string;
+    try {
+      const authHeader =
+        kind === 'pulse'
+          ? await getPulseCognitoBearerAuthHeader()
+          : await getCognitoBearerAuthHeader();
+      freshToken = extractBearerTokenFromAuthHeader(authHeader);
+    } catch (error) {
+      logWarn(
+        `[MCPManager] Could not ensure fresh Cognito token for ${serverConfig.name} before tool call:`,
+        error
+      );
+      return false;
+    }
+
+    if (!freshToken) {
+      return false;
+    }
+
+    const injected = this.cognitoBearerTokensByServerId.get(serverId);
+    if (!injected || injected === freshToken) {
+      this.cognitoBearerTokensByServerId.set(serverId, freshToken);
+      return false;
+    }
+
+    log(
+      `[MCPManager] Cognito JWT rotated for ${serverConfig.name}; reconnecting MCP server to inject fresh Authorization header`
     );
     return this.reconnectServer(serverId);
   }
@@ -2849,6 +2923,8 @@ function isStreamableHttpSessionErrorText(text: string): boolean {
 
 function isAuthFailureErrorText(text: string): boolean {
   const normalized = text.trim().toLowerCase();
+  // Match common expiry wording, including "token has expired" (not the same as
+  // contiguous "token expired") from LaunchPad MCP / Cognito gateways.
   return (
     normalized.includes('authentication failed') ||
     normalized.includes('sign in again') ||
@@ -2857,11 +2933,17 @@ function isAuthFailureErrorText(text: string): boolean {
     normalized.includes('invalid_auth') ||
     normalized.includes('invalid credentials') ||
     normalized.includes('token expired') ||
+    normalized.includes('token has expired') ||
     normalized.includes('token has been expired') ||
+    normalized.includes('tokens expired') ||
     normalized.includes('token_expired') ||
+    normalized.includes('jwt expired') ||
+    normalized.includes('jwt has expired') ||
     normalized.includes('token_revoked') ||
     normalized.includes('authorization bearer token is required') ||
     normalized.includes('needs to be reconnected') ||
+    normalized.includes('mcp token has expired') ||
+    normalized.includes('access is blocked') ||
     normalized.includes('unauthorized')
   );
 }
