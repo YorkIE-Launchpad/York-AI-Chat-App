@@ -68,6 +68,19 @@ MCP excludes SSE streams. After start tools, poll:
 
 Reasonable poll interval: a few seconds to tens of seconds for long jobs; do not busy-loop. Scope implement and lock can run for **minutes to hours** — keep polling. Stop on terminal statuses (`completed`, `failed`, `cancelled`, `ERROR`, etc.).
 
+## Goal-tick / long-job anti-patterns
+
+| Mistake                                                        | Correct behavior                                                                                                      |
+| -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Exit right after migrate / implement “started”                 | Stay in turn; poll status until terminal, then do the next step (preview / re-compare)                                |
+| Wait for the next /goal interval instead of polling            | Interval is a **backstop**; in-tick poll for minutes (or park with `RESUME:` only after a real budget)                |
+| Treat “Agent not found for this project” as terminal failure   | Alternate: `list_versions`, implement run status, `get_preview_status`; continue if new `Rn` or preview updated       |
+| Park mid-job without durable state                             | Emit `RESUME: projectId=… releaseId=… conversionId=… step=… next=…` then `GOAL_STATUS: in_progress`                   |
+| Restart seed/journey every goal tick                           | Resume from prior active release, revision, and `RESUME:` line                                                        |
+| Claim ≥95% visual parity without screenshots                   | Side-by-side compare (or preview-only with residual + unblockable reason if prod auth fails)                          |
+| Stop at preview “loading Login”                                | Retry mock creds, alternate auth, restart preview; do not invent “waiting for user”                                   |
+| Use Backend Code / `target: "development"` for preview parity  | Platform implement / migrate only unless user named development                                                       |
+
 ## Release / revision mistakes
 
 | Mistake                                             | Correct behavior                                                                                                       |

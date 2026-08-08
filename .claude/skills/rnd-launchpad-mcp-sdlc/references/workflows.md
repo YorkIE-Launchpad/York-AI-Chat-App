@@ -145,12 +145,60 @@ Same `prompt` field for `infra_analysis_chat_send_message` and `cloud_debug_chat
 
 ---
 
+## 7. Frontend visual parity / correction loop
+
+Build → Frontend only. Requires **active release + ≥1 revision**. Default target
+**platform**. Do not use Backend Code unless the user named development repo.
+
+### Cycle
+
+1. Preflight (`get_me`, `list_projects`, `list_releases`, `list_versions`)
+2. If zero revisions → `seed_release_from_prior` `{ mode: "baseline_copy" }`
+3. Ensure preview: `start_preview` → poll `get_preview_status` until ready
+4. Open preview; **authenticate** (use mock credentials shown on the form if present).
+   If stuck on “loading Login”: retry, hard-refresh, `restart_preview`, capture errors —
+   do **not** end the turn as “waiting for next goal tick.”
+5. Navigate target internal routes; screenshot preview
+6. Open production (or stored baseline) when reachable; screenshot same routes/viewport.
+   If prod auth fails (e.g. HTTP 400), record residual and continue preview-driven diffs.
+7. Diff → structured correction list (layout, missing controls, extra cards, typography, etc.)
+8. Launch correction on **platform**: `migrate_frontend` / conversion agent / or
+   `start_scope_implement` with `target: "platform"` and a clear fix prompt.
+   **Stay in turn** after start.
+9. **Poll to terminal** (few–tens of seconds between polls):
+   - Prefer implement/migrate status tools and `get_agent_status` / `get_cursor_agent` when ids work
+   - If **“Agent not found for this project”** or opaque conversion id:
+     - Poll `list_versions` for a new `Rn` on the active release
+     - Poll `get_scope_implement_active` / run status when used
+     - Poll `get_preview_status`
+     - Continue when a new revision appears; only re-launch after confirmed failure
+10. On terminal success: ensure live/preview on new revision (`activate_version` /
+    `switch_version` as appropriate); re-open **same** pages; re-compare
+11. Repeat 7–10 until criteria met (e.g. ≥95%) **or** residual diffs + why unblockable
+12. Ship only if the goal asks: lock loop (§ Canonical) after parity evidence
+
+### Resume after park (goal ticks)
+
+If the poll budget forces an exit mid-migration:
+
+```
+RESUME: projectId=<id> releaseId=<id> conversionId=<id?> agentId=<id?> step=poll_migrate next=list_versions
+```
+
+Next turn/tick: poll `next` / versions **first**, then continue step 10 — do not
+re-seed or re-run the whole compare unless the job is confirmed dead.
+
+---
+
 ## Decision checklist
 
 - [ ] One active release; others draft/locked/skip
 - [ ] Empty active seeded with `mode: "baseline_copy"` before work
 - [ ] Build writes only on active
 - [ ] Implement defaulted to `target: "platform"` unless user asked for development
+- [ ] After any start tool, polled to terminal **in-turn** (not “wait for next goal interval”)
+- [ ] Agent-not-found recovered via `list_versions` / implement / preview status
 - [ ] After platform lock, polled `get_release_lock_status` (~30 min; not SSE); after development implement, locked with `skipLockAgentOperations: true`
 - [ ] Next cycle seeded on **new** active id
+- [ ] Visual parity claims backed by side-by-side evidence
 - [ ] Destructive calls use `confirm: true`

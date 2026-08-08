@@ -170,6 +170,10 @@ describe('goal status helpers', () => {
     expect(prompt).toContain('GOAL_STATUS: complete');
     expect(prompt).toContain('goal-runner');
     expect(prompt).toContain('Auto-detect');
+    expect(prompt).toContain('launchpad');
+    expect(prompt).toContain('rnd-launchpad-mcp-sdlc');
+    expect(prompt).toContain('poll status until terminal');
+    expect(prompt).toContain('RESUME:');
   });
 
   it('detects complete marker', () => {
