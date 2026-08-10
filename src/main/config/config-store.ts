@@ -138,6 +138,12 @@ export interface AppConfig {
   memoryEnabled: boolean;
 
   /**
+   * SuperContext pre-turn scout mode (M2).
+   * off | cold_intent (default) | always
+   */
+  superContextMode: 'off' | 'cold_intent' | 'always';
+
+  /**
    * Global kill-switch for mutating MCP connector tools.
    * When false, all connector writes are hard-denied. Default: true.
    */
@@ -229,6 +235,7 @@ const DIRECT_READ_KEYS = new Set<keyof AppConfig>([
   'theme',
   'sandboxEnabled',
   'memoryEnabled',
+  'superContextMode',
   'mcpWriteAccessEnabled',
   'meetingsEnabled',
   'matterEnabled',
@@ -252,6 +259,7 @@ export const EXPORTABLE_FIELDS: (keyof AppConfig)[] = [
   'sandboxEnabled',
   'enableThinking',
   'memoryEnabled',
+  'superContextMode',
   'mcpWriteAccessEnabled',
   'meetingsEnabled',
   'matterEnabled',
@@ -277,6 +285,7 @@ export const FIELD_VALIDATORS: Record<string, (v: unknown) => boolean> = {
   sandboxEnabled: (v) => typeof v === 'boolean',
   enableThinking: (v) => typeof v === 'boolean',
   memoryEnabled: (v) => typeof v === 'boolean',
+  superContextMode: (v) => v === 'off' || v === 'cold_intent' || v === 'always',
   mcpWriteAccessEnabled: (v) => typeof v === 'boolean',
   meetingsEnabled: (v) => typeof v === 'boolean',
   matterEnabled: (v) => typeof v === 'boolean',
@@ -370,6 +379,7 @@ const defaultConfig: AppConfig = {
   theme: 'light',
   sandboxEnabled: false,
   memoryEnabled: true,
+  superContextMode: 'cold_intent',
   mcpWriteAccessEnabled: true,
   openRouterUserApiKey: '',
   memoryRuntime: {
@@ -1160,6 +1170,12 @@ export class ConfigStore {
       theme: isAppTheme(raw.theme) ? raw.theme : defaultConfig.theme,
       sandboxEnabled: toBoolean(raw.sandboxEnabled, defaultConfig.sandboxEnabled),
       memoryEnabled: toBoolean(raw.memoryEnabled, defaultConfig.memoryEnabled),
+      superContextMode:
+        raw.superContextMode === 'off' ||
+        raw.superContextMode === 'always' ||
+        raw.superContextMode === 'cold_intent'
+          ? raw.superContextMode
+          : defaultConfig.superContextMode,
       mcpWriteAccessEnabled: toBoolean(
         raw.mcpWriteAccessEnabled,
         defaultConfig.mcpWriteAccessEnabled
@@ -1621,6 +1637,10 @@ export class ConfigStore {
         updates.sandboxEnabled !== undefined ? updates.sandboxEnabled : current.sandboxEnabled,
       memoryEnabled:
         updates.memoryEnabled !== undefined ? updates.memoryEnabled : current.memoryEnabled,
+      superContextMode:
+        updates.superContextMode !== undefined
+          ? updates.superContextMode
+          : current.superContextMode,
       mcpWriteAccessEnabled:
         updates.mcpWriteAccessEnabled !== undefined
           ? updates.mcpWriteAccessEnabled

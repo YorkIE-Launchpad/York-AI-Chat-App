@@ -691,6 +691,34 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('memory.setEnabled', enabled),
   },
 
+  wiki: {
+    list: () => ipcRenderer.invoke('wiki.list'),
+    listTree: () => ipcRenderer.invoke('wiki.listTree'),
+    search: (query: string, limit?: number) => ipcRenderer.invoke('wiki.search', query, limit),
+    get: (id: string) => ipcRenderer.invoke('wiki.get', id),
+    getByPath: (pagePath: string) => ipcRenderer.invoke('wiki.getByPath', pagePath),
+    update: (payload: { id: string; body: string; title?: string }) =>
+      ipcRenderer.invoke('wiki.update', payload),
+    count: () => ipcRenderer.invoke('wiki.count'),
+  },
+
+  checkpoints: {
+    list: (limit?: number) => ipcRenderer.invoke('checkpoints.list', limit),
+    get: (id: string) => ipcRenderer.invoke('checkpoints.get', id),
+    resume: (id: string) => ipcRenderer.invoke('checkpoints.resume', id),
+    cancel: (id: string) => ipcRenderer.invoke('checkpoints.cancel', id),
+  },
+
+  workflows: {
+    list: () => ipcRenderer.invoke('workflows.list'),
+    get: (id: string) => ipcRenderer.invoke('workflows.get', id),
+    create: (payload: unknown) => ipcRenderer.invoke('workflows.create', payload),
+    update: (id: string, updates: unknown) => ipcRenderer.invoke('workflows.update', id, updates),
+    delete: (id: string) => ipcRenderer.invoke('workflows.delete', id),
+    propose: (description: string) => ipcRenderer.invoke('workflows.propose', description),
+    run: (id: string) => ipcRenderer.invoke('workflows.run', id),
+  },
+
   meetings: {
     getOverview: (): Promise<MeetingOverview> => ipcRenderer.invoke('meetings.getOverview'),
     setEnabled: (enabled: boolean): Promise<{ success: boolean; enabled: boolean }> =>
@@ -1164,6 +1192,40 @@ declare global {
           workspaceKey?: string
         ) => Promise<MemoryInspectSessionResult | null>;
         setEnabled: (enabled: boolean) => Promise<{ success: boolean; enabled: boolean }>;
+      };
+      wiki: {
+        list: () => Promise<import('../shared/wiki').WikiPage[]>;
+        listTree: () => Promise<import('../shared/wiki').WikiTreeNode[]>;
+        search: (
+          query: string,
+          limit?: number
+        ) => Promise<import('../shared/wiki').WikiSearchResult[]>;
+        get: (id: string) => Promise<import('../shared/wiki').WikiPage | null>;
+        getByPath: (pagePath: string) => Promise<import('../shared/wiki').WikiPage | null>;
+        update: (payload: {
+          id: string;
+          body: string;
+          title?: string;
+        }) => Promise<import('../shared/wiki').WikiPage | null>;
+        count: () => Promise<{ count: number }>;
+      };
+      checkpoints: {
+        list: (limit?: number) => Promise<import('../shared/orchestration').CheckpointRun[]>;
+        get: (id: string) => Promise<import('../shared/orchestration').CheckpointRun | null>;
+        resume: (id: string) => Promise<unknown>;
+        cancel: (id: string) => Promise<import('../shared/orchestration').CheckpointRun | null>;
+      };
+      workflows: {
+        list: () => Promise<import('../shared/workflows').WorkflowDefinition[]>;
+        get: (id: string) => Promise<import('../shared/workflows').WorkflowDefinition | null>;
+        create: (payload: unknown) => Promise<import('../shared/workflows').WorkflowDefinition>;
+        update: (
+          id: string,
+          updates: unknown
+        ) => Promise<import('../shared/workflows').WorkflowDefinition | null>;
+        delete: (id: string) => Promise<{ success: boolean }>;
+        propose: (description: string) => Promise<import('../shared/workflows').WorkflowDefinition>;
+        run: (id: string) => Promise<{ runId: string; status: string }>;
       };
       meetings: {
         getOverview: () => Promise<MeetingOverview>;

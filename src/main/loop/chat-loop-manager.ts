@@ -52,6 +52,14 @@ export interface ChatLoopSessionApi {
   sessionExists: (sessionId: string) => boolean;
 }
 
+/** Optional durable checkpoint hooks for goal ticks (M3). */
+export interface ChatLoopCheckpointHooks {
+  onGoalStart?: (sessionId: string, goal: string) => string | null;
+  onGoalTick?: (runId: string, sessionId: string, tickCount: number) => void;
+  onGoalComplete?: (runId: string, sessionId: string, reason: string) => void;
+  onGoalFail?: (runId: string, sessionId: string, error: string) => void;
+}
+
 interface ActiveChatLoop {
   sessionId: string;
   kind: ChatLoopKind;
@@ -64,6 +72,8 @@ interface ActiveChatLoop {
   stopReason: string | null;
   timer: NodeJS.Timeout | null;
   ticking: boolean;
+  /** Durable run id for goals when checkpoints are enabled. */
+  checkpointRunId: string | null;
 }
 
 const IDLE_POLL_MS = 500;
@@ -73,13 +83,16 @@ export class ChatLoopManager {
   private readonly loops = new Map<string, ActiveChatLoop>();
   private readonly api: ChatLoopSessionApi;
   private readonly onChanged?: (status: ChatLoopStatus | null, sessionId: string) => void;
+  private readonly checkpoints?: ChatLoopCheckpointHooks;
 
   constructor(options: {
     api: ChatLoopSessionApi;
     onChanged?: (status: ChatLoopStatus | null, sessionId: string) => void;
+    checkpoints?: ChatLoopCheckpointHooks;
   }) {
     this.api = options.api;
     this.onChanged = options.onChanged;
+    this.checkpoints = options.checkpoints;
   }
 
   start(input: ChatLoopStartInput): ChatLoopStatus {
@@ -89,6 +102,12 @@ export class ChatLoopManager {
     }
 
     const now = Date.now();
+    let checkpointRunId: string | null = null;
+    if (input.kind === 'goal') {
+      checkpointRunId =
+        this.checkpoints?.onGoalStart?.(input.sessionId, input.prompt.trim()) ?? null;
+    }
+
     const loop: ActiveChatLoop = {
       sessionId: input.sessionId,
       kind: input.kind,
@@ -102,6 +121,7 @@ export class ChatLoopManager {
       stopReason: null,
       timer: null,
       ticking: false,
+      checkpointRunId,
     };
 
     this.loops.set(input.sessionId, loop);
@@ -126,6 +146,15 @@ export class ChatLoopManager {
     this.clearTimer(loop);
     loop.stopReason = reason;
     loop.nextTickAt = null;
+    if (loop.kind === 'goal' && loop.checkpointRunId) {
+      if (reason === 'goal_complete') {
+        this.checkpoints?.onGoalComplete?.(loop.checkpointRunId, sessionId, reason);
+      } else if (reason === 'error') {
+        this.checkpoints?.onGoalFail?.(loop.checkpointRunId, sessionId, reason);
+      } else {
+        this.checkpoints?.onGoalComplete?.(loop.checkpointRunId, sessionId, reason);
+      }
+    }
     log(`[ChatLoop] Stopped loop for session ${sessionId}: ${reason}`);
     this.emit(sessionId);
     // Keep status readable briefly; remove after emit consumers can read once.
@@ -188,6 +217,10 @@ export class ChatLoopManager {
     loop.ticking = true;
     loop.tickCount += 1;
     this.emit(sessionId);
+
+    if (loop.kind === 'goal' && loop.checkpointRunId) {
+      this.checkpoints?.onGoalTick?.(loop.checkpointRunId, sessionId, loop.tickCount);
+    }
 
     // Agent gets full tick instructions; transcript stores the user-facing goal/loop text.
     const agentPrompt = loop.kind === 'goal' ? buildGoalTickPrompt(loop.prompt) : loop.prompt;

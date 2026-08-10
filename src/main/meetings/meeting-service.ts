@@ -92,6 +92,14 @@ export class MeetingService {
   private readonly transcription = new MeetingTranscriptionService();
   private readonly notes = new MeetingNotesService();
   private memoryService: MemoryService | null = null;
+  private wikiIngest:
+    | ((meeting: {
+        id: string;
+        title: string;
+        startedAt: number;
+        notes: { title?: string; summary?: string; actionItems?: string[]; keyTopics?: string[] };
+      }) => void)
+    | null = null;
   private activeMeetingId: string | null = null;
   private activeStartedAt: number | null = null;
   private liveTranscript = '';
@@ -126,6 +134,19 @@ export class MeetingService {
 
   setMemoryService(service: MemoryService | null): void {
     this.memoryService = service;
+  }
+
+  setWikiIngest(
+    ingest:
+      | ((meeting: {
+          id: string;
+          title: string;
+          startedAt: number;
+          notes: { title?: string; summary?: string; actionItems?: string[]; keyTopics?: string[] };
+        }) => void)
+      | null
+  ): void {
+    this.wikiIngest = ingest;
   }
 
   isZoomConnected(): boolean {
@@ -1189,6 +1210,16 @@ export class MeetingService {
         transcriptText: meeting.transcriptText,
         notes: meeting.notes,
       });
+      try {
+        this.wikiIngest?.({
+          id: meeting.id,
+          title: meeting.title,
+          startedAt: meeting.startedAt,
+          notes: meeting.notes,
+        });
+      } catch (wikiError) {
+        logWarn('[Meetings] Failed to ingest meeting into wiki', wikiError);
+      }
     } catch (error) {
       logWarn('[Meetings] Failed to ingest meeting into global Memory', error);
     }

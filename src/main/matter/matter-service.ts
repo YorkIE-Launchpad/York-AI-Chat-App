@@ -93,6 +93,8 @@ export class MatterService {
   private morningBriefSentDay: string | null = null;
   private eodSentDay: string | null = null;
   private getMainWindow: (() => BrowserWindow | null) | null = null;
+  /** Post-collect hook (e.g. Memory Wiki compiler). Background profile feature. */
+  private postScanHandler: ((snapshot: MatterSnapshot) => void) | null = null;
 
   constructor(
     db: DatabaseInstance,
@@ -121,6 +123,14 @@ export class MatterService {
 
   setMainWindowGetter(getter: () => BrowserWindow | null): void {
     this.getMainWindow = getter;
+  }
+
+  /**
+   * Called after a successful Matter collect/rank pass (auto-fetch → wiki).
+   * Not tied to any chat Incognito session.
+   */
+  setPostScanHandler(handler: ((snapshot: MatterSnapshot) => void) | null): void {
+    this.postScanHandler = handler;
   }
 
   start(): void {
@@ -378,6 +388,12 @@ export class MatterService {
           body: snapshot.pulse,
           criticalCount: snapshot.criticalCount,
         });
+      }
+
+      try {
+        this.postScanHandler?.(snapshot);
+      } catch (hookError) {
+        logError('[Matter] post-scan handler failed:', hookError);
       }
 
       log(

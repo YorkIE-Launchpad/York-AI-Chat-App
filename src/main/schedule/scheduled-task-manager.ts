@@ -140,6 +140,14 @@ interface ScheduledTaskManagerOptions {
     prompt: string,
     cwd: string
   ) => Promise<{ changed: boolean; summary: string }>;
+  /** Durable checkpoint hooks (M3). */
+  onScheduleCheckpointStart?: (task: ScheduledTask) => string | null;
+  onScheduleCheckpointComplete?: (
+    runId: string,
+    task: ScheduledTask,
+    sessionId: string | null
+  ) => void;
+  onScheduleCheckpointFail?: (runId: string, task: ScheduledTask, error: string) => void;
 }
 
 export class ScheduledTaskManager {
@@ -147,6 +155,9 @@ export class ScheduledTaskManager {
   private readonly executeTask: (task: ScheduledTask) => Promise<ScheduledTaskRunResult>;
   private readonly onTaskError?: (taskId: string, error: string) => void;
   private readonly runAgentWatchCheck?: ScheduledTaskManagerOptions['runAgentWatchCheck'];
+  private readonly onScheduleCheckpointStart?: ScheduledTaskManagerOptions['onScheduleCheckpointStart'];
+  private readonly onScheduleCheckpointComplete?: ScheduledTaskManagerOptions['onScheduleCheckpointComplete'];
+  private readonly onScheduleCheckpointFail?: ScheduledTaskManagerOptions['onScheduleCheckpointFail'];
   private readonly now: () => number;
   private readonly timers = new Map<string, NodeJS.Timeout>();
   private readonly executingTasks = new Set<string>();
@@ -157,6 +168,9 @@ export class ScheduledTaskManager {
     this.executeTask = options.executeTask;
     this.onTaskError = options.onTaskError;
     this.runAgentWatchCheck = options.runAgentWatchCheck;
+    this.onScheduleCheckpointStart = options.onScheduleCheckpointStart;
+    this.onScheduleCheckpointComplete = options.onScheduleCheckpointComplete;
+    this.onScheduleCheckpointFail = options.onScheduleCheckpointFail;
     this.now = options.now ?? (() => Date.now());
   }
 
@@ -405,6 +419,7 @@ export class ScheduledTaskManager {
   }
 
   private async executeAndRecord(task: ScheduledTask): Promise<ScheduledTaskExecutionRecord> {
+    let checkpointRunId: string | null = null;
     try {
       if (task.kind === 'watch' && task.watchConfig) {
         const check = await checkWatchCondition(task.watchConfig, task.cwd, {
@@ -426,6 +441,7 @@ export class ScheduledTaskManager {
         log(`[ScheduledTask] Watch ${task.id} changed (${check.summary}); running act prompt`);
       }
 
+      checkpointRunId = this.onScheduleCheckpointStart?.(task) ?? null;
       const result = await this.executeTask(task);
       try {
         this.store.update(task.id, {
@@ -436,6 +452,9 @@ export class ScheduledTaskManager {
         });
       } catch (error) {
         logError('[ScheduledTaskManager] Failed to update store:', error);
+      }
+      if (checkpointRunId) {
+        this.onScheduleCheckpointComplete?.(checkpointRunId, task, result.sessionId ?? null);
       }
       return { success: true, sessionId: result.sessionId };
     } catch (error) {
@@ -448,6 +467,9 @@ export class ScheduledTaskManager {
         });
       } catch (updateError) {
         logError('[ScheduledTaskManager] Failed to update store:', updateError);
+      }
+      if (checkpointRunId) {
+        this.onScheduleCheckpointFail?.(checkpointRunId, task, message);
       }
       this.onTaskError?.(task.id, message);
       return { success: false, error: message };

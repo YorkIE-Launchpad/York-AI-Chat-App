@@ -590,6 +590,80 @@ function initializeSchema(database: Database.Database): void {
     ON matter_scans(started_at DESC)
   `);
 
+    // Memory Wiki pages (M1) — SQLite primary; Markdown vault is mirrored on disk
+    database.exec(`
+    CREATE TABLE IF NOT EXISTS wiki_pages (
+      id TEXT PRIMARY KEY,
+      path TEXT NOT NULL UNIQUE,
+      title TEXT NOT NULL,
+      body TEXT NOT NULL DEFAULT '',
+      score REAL NOT NULL DEFAULT 0,
+      sources TEXT NOT NULL DEFAULT '[]',
+      division_key TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
+
+    database.exec(`
+    CREATE INDEX IF NOT EXISTS idx_wiki_pages_path
+    ON wiki_pages(path)
+  `);
+
+    database.exec(`
+    CREATE INDEX IF NOT EXISTS idx_wiki_pages_score
+    ON wiki_pages(score DESC, updated_at DESC)
+  `);
+
+    // Durable orchestration checkpoints (M3)
+    database.exec(`
+    CREATE TABLE IF NOT EXISTS checkpoint_runs (
+      id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL,
+      step_id TEXT NOT NULL DEFAULT 'start',
+      status TEXT NOT NULL DEFAULT 'running',
+      payload TEXT NOT NULL DEFAULT '{}',
+      error TEXT,
+      cost_usd REAL,
+      session_id TEXT,
+      source_id TEXT,
+      title TEXT,
+      stuck_summary TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      completed_at INTEGER
+    )
+  `);
+
+    database.exec(`
+    CREATE INDEX IF NOT EXISTS idx_checkpoint_runs_status
+    ON checkpoint_runs(status, updated_at)
+  `);
+
+    database.exec(`
+    CREATE INDEX IF NOT EXISTS idx_checkpoint_runs_session
+    ON checkpoint_runs(session_id)
+  `);
+
+    // Visual workflows (M4) — versioned graph JSON
+    database.exec(`
+    CREATE TABLE IF NOT EXISTS workflows (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'draft',
+      graph_json TEXT NOT NULL,
+      schedule_task_id TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
+
+    database.exec(`
+    CREATE INDEX IF NOT EXISTS idx_workflows_status
+    ON workflows(status, updated_at DESC)
+  `);
+
     log('[Database] Schema initialized');
   } catch (error) {
     logError('[Database] Schema initialization failed:', error);

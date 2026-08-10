@@ -12,6 +12,7 @@ import {
   RefreshCw,
   Radar,
   User,
+  Workflow,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useWindowSize } from '../hooks/useWindowSize';
@@ -25,6 +26,7 @@ import { SettingsLogs } from './settings/SettingsLogs';
 import { SettingsMemory } from './settings/SettingsMemory';
 import { SettingsMeetings } from './settings/SettingsMeetings';
 import { SettingsMatter } from './settings/SettingsMatter';
+import { SettingsWorkflows } from './settings/SettingsWorkflows';
 import { useUpdaterStatus } from '../hooks/useUpdaterStatus';
 
 interface SettingsPanelProps {
@@ -36,6 +38,7 @@ interface SettingsPanelProps {
     | 'meetings'
     | 'matter'
     | 'schedule'
+    | 'workflows'
     | 'logs'
     | 'profile'
     | 'general';
@@ -48,6 +51,7 @@ type TabId =
   | 'meetings'
   | 'matter'
   | 'schedule'
+  | 'workflows'
   | 'logs'
   | 'profile'
   | 'general';
@@ -59,6 +63,7 @@ const VALID_TABS = new Set<TabId>([
   'meetings',
   'matter',
   'schedule',
+  'workflows',
   'logs',
   'profile',
   'general',
@@ -145,6 +150,12 @@ export function SettingsPanel({ onClose, initialTab = 'connectors' }: SettingsPa
       label: t('settings.schedule'),
       icon: Clock3,
       description: t('settings.scheduleDesc'),
+    },
+    {
+      id: 'workflows' as TabId,
+      label: 'Workflows',
+      icon: Workflow,
+      description: 'Visual automations with approval gates',
     },
     {
       id: 'logs' as TabId,
@@ -285,6 +296,9 @@ export function SettingsPanel({ onClose, initialTab = 'connectors' }: SettingsPa
                 {viewedTabs.has('schedule') && (
                   <SettingsSchedule isActive={activeTab === 'schedule'} />
                 )}
+              </div>
+              <div className={activeTab === 'workflows' ? '' : 'hidden'}>
+                {viewedTabs.has('workflows') && <SettingsWorkflows />}
               </div>
               <div className={activeTab === 'logs' ? '' : 'hidden'}>
                 {viewedTabs.has('logs') && <SettingsLogs isActive={activeTab === 'logs'} />}

@@ -23,6 +23,7 @@ import {
   ScheduleModelSelector,
   type ScheduleModelSelection,
 } from './ScheduleModelSelector';
+import { SettingsCheckpoints } from './SettingsCheckpoints';
 
 const isElectron = typeof window !== 'undefined' && window.electronAPI !== undefined;
 
@@ -816,6 +817,7 @@ export function SettingsSchedule({ isActive }: { isActive: boolean }) {
           ))
         )}
       </div>
+      <SettingsCheckpoints />
     </div>
   );
 }

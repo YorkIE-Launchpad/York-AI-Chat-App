@@ -39,6 +39,7 @@
 
 ### Mid-term (v3.5.0+)
 
+- **Company OS epic (OpenHuman-inspired)**: Memory Wiki + SuperContext + durable checkpoints + visual workflows — see [docs/openhuman-inspired-master-plan.md](docs/openhuman-inspired-master-plan.md) (M1–M4 in progress; M5 join-meeting + Telegram next)
 - **Plugin System**: Extensible architecture for community-built integrations
 - **Multi-Agent**: Orchestrate multiple agents for complex workflows
 - **Workspace Templates**: Pre-configured environments for common use cases (coding, writing, research)

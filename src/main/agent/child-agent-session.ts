@@ -15,6 +15,14 @@ import { configStore } from '../config/config-store';
 import { resolveBackendClientApiKey } from '../config/backend-auth';
 import type { MCPManager } from '../mcp/mcp-manager';
 import { log, logError } from '../utils/logger';
+import type { CheckpointService } from '../orchestration/checkpoint-service';
+
+/** Optional durable checkpoints for child subagents (M3). */
+let subagentCheckpoints: CheckpointService | null = null;
+
+export function bindSubagentCheckpointService(service: CheckpointService | null): void {
+  subagentCheckpoints = service;
+}
 import {
   leanMcpToolArgs,
   augmentMcpToolDescription,
@@ -409,6 +417,16 @@ export async function runChildAgentSession(
   const mcpToolsMode = input.mcpToolsMode ?? 'flat';
 
   concurrencyState.active++;
+  const checkpointRunId =
+    subagentCheckpoints?.startRun({
+      kind: 'subagent',
+      stepId: 'run',
+      sessionId: input.parentSessionId ?? null,
+      sourceId: subagentId,
+      title: task.slice(0, 120),
+      payload: { subagentId, task: task.slice(0, 500) },
+    }).id ?? null;
+
   if (emitProgress && input.parentSessionId) {
     safeSendEvent(
       input.sendEvent,
@@ -749,6 +767,15 @@ export async function runChildAgentSession(
     const durationMs = Date.now() - startTime;
     log(`[ChildAgent] Child ${subagentId} completed in ${durationMs}ms`);
 
+    if (checkpointRunId) {
+      subagentCheckpoints?.checkpoint(
+        checkpointRunId,
+        'done',
+        { durationMs, textPreview: finalText.slice(0, 200) },
+        'completed'
+      );
+    }
+
     if (emitProgress && input.parentSessionId) {
       safeSendEvent(
         input.sendEvent,
@@ -772,6 +799,10 @@ export async function runChildAgentSession(
     const isTimeout = err instanceof ChildAgentTimeoutError;
     const isCancelled = err instanceof ParentCancelledError;
     const errorKind = isTimeout ? 'timeout' : isCancelled ? 'cancelled' : message;
+
+    if (checkpointRunId) {
+      subagentCheckpoints?.fail(checkpointRunId, String(errorKind));
+    }
 
     if (emitProgress && input.parentSessionId) {
       safeSendEvent(

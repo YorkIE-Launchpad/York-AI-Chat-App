@@ -36,6 +36,7 @@ function makeConfig(): AppConfig {
     theme: 'light',
     sandboxEnabled: false,
     memoryEnabled: true,
+    superContextMode: 'cold_intent',
     mcpWriteAccessEnabled: true,
     memoryRuntime: {
       llm: {

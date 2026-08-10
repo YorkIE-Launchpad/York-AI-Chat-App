@@ -982,6 +982,10 @@ export interface AppConfig {
   sandboxEnabled?: boolean;
   memoryEnabled?: boolean;
   /**
+   * SuperContext scout mode: off | cold_intent (default) | always.
+   */
+  superContextMode?: 'off' | 'cold_intent' | 'always';
+  /**
    * Global kill-switch for mutating MCP connector tools.
    * When false, all connector writes are hard-denied. Default: true.
    */

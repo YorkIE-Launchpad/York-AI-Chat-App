@@ -51,6 +51,7 @@ function createMockConfigStore(overrides: Partial<AppConfig> = {}) {
     theme: 'dark',
     sandboxEnabled: true,
     memoryEnabled: true,
+    superContextMode: 'cold_intent',
     mcpWriteAccessEnabled: true,
     memoryRuntime: {
       llm: {

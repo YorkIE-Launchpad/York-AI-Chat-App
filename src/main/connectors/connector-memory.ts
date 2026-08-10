@@ -11,9 +11,33 @@ type ConnectorToolIngestContext = {
 };
 
 let memoryService: MemoryService | null = null;
+let wikiIngest:
+  | ((input: {
+      connectorId: string;
+      externalId: string;
+      title: string;
+      summary: string;
+      content: string;
+    }) => void)
+  | null = null;
 
 export function bindConnectorMemoryService(service: MemoryService | null): void {
   memoryService = service;
+}
+
+/** Optional Memory Wiki mirror for connector artifacts (skipped in Incognito). */
+export function bindConnectorWikiIngest(
+  ingest:
+    | ((input: {
+        connectorId: string;
+        externalId: string;
+        title: string;
+        summary: string;
+        content: string;
+      }) => void)
+    | null
+): void {
+  wikiIngest = ingest;
 }
 
 function extractTextResult(result: unknown): string {
@@ -102,6 +126,17 @@ export async function maybeIngestConnectorToolResult(
           ? payload.coreValue
           : undefined,
     });
+    try {
+      wikiIngest?.({
+        connectorId,
+        externalId,
+        title,
+        summary,
+        content: body,
+      });
+    } catch (wikiError) {
+      logWarn('[ConnectorMemory] Wiki ingest failed', wikiError);
+    }
   } catch (error) {
     logWarn('[ConnectorMemory] Failed to ingest connector tool result', {
       connectorId,

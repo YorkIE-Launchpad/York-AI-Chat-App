@@ -49,7 +49,7 @@ import { PluginCatalogService } from './skills/plugin-catalog-service';
 import { PluginRuntimeService } from './skills/plugin-runtime-service';
 import { MemoryService } from './memory/memory-service';
 import { MemoryExtension } from './memory/memory-extension';
-import { bindConnectorMemoryService } from './connectors/connector-memory';
+import { bindConnectorMemoryService, bindConnectorWikiIngest } from './connectors/connector-memory';
 import { connectorManager } from './connectors/connector-manager';
 import { MeetingService } from './meetings/meeting-service';
 import { MeetingExtension } from './meetings/meeting-extension';
@@ -59,6 +59,15 @@ import { SubagentExtension } from './agent/subagent-extension';
 import { AgentRuntimeExtensionManager } from './extensions/agent-runtime-extension-manager';
 import { WebFetchExtension } from './tools/web-fetch-extension';
 import { AskUserQuestionExtension } from './tools/ask-user-question-extension';
+import { WikiService } from './wiki/wiki-service';
+import { WikiExtension } from './wiki/wiki-extension';
+import { SuperContextExtension } from './supercontext/supercontext-extension';
+import { CheckpointService } from './orchestration/checkpoint-service';
+import { WorkflowService } from './workflows/workflow-service';
+import { WorkflowExtension } from './workflows/workflow-extension';
+import type { WorkflowGraph } from '../shared/workflows';
+import type { CheckpointRun } from '../shared/orchestration';
+import { bindSubagentCheckpointService } from './agent/child-agent-session';
 import {
   configStore,
   getPiAiModelPresets,
@@ -249,10 +258,73 @@ let skillsManager: SkillsManager | null = null;
 let pluginRuntimeService: PluginRuntimeService | null = null;
 let memoryService: MemoryService | null = null;
 let meetingService: MeetingService | null = null;
+let wikiService: WikiService | null = null;
+let checkpointService: CheckpointService | null = null;
+let workflowService: WorkflowService | null = null;
 let scheduledTaskManager: ScheduledTaskManager | null = null;
 let chatLoopManager: ChatLoopManager | null = null;
 let matterService: MatterService | null = null;
 let folderManager: FolderManager | null = null;
+
+/** Pending workflow approval resolvers keyed by runId:nodeId. */
+const pendingWorkflowApprovals = new Map<string, (decision: 'allow' | 'deny') => void>();
+
+function wireWikiAndOrchestration(db: ReturnType<typeof initDatabase>): void {
+  wikiService = new WikiService(db);
+  checkpointService = new CheckpointService(db);
+  workflowService = new WorkflowService(db, checkpointService);
+  bindSubagentCheckpointService(checkpointService);
+
+  bindConnectorWikiIngest((input) => {
+    wikiService?.ingestConnectorArtifact(input);
+  });
+
+  checkpointService.setStuckHandler((run, summary) => {
+    logWarn('[Checkpoint] Stuck run', run.id, summary);
+    if (run.sessionId && sessionManager) {
+      void sessionManager
+        .continueSession(
+          run.sessionId,
+          `[System] Durable run stuck — root-cause summary:\n${summary}`,
+          [{ type: 'text', text: `[Checkpoint stuck] ${summary}` }],
+          { broadcastUserMessage: true }
+        )
+        .catch((err) => logWarn('[Checkpoint] Failed to post stuck summary', err));
+    }
+    sendToRenderer({
+      type: 'checkpoint.update',
+      payload: { run },
+    } as never);
+  });
+}
+
+function buildExtensionList(
+  askUserQuestionExtension: AskUserQuestionExtension
+): import('./extensions/agent-runtime-extension').AgentRuntimeExtension[] {
+  if (!memoryService || !wikiService || !meetingService || !workflowService) {
+    throw new Error('Core services not ready for extension list');
+  }
+  return [
+    new MemoryExtension(memoryService),
+    new WikiExtension(wikiService),
+    new SuperContextExtension(() => ({
+      wikiService,
+      matterService,
+      meetingService,
+    })),
+    new MeetingExtension(meetingService),
+    new WorkflowExtension(workflowService),
+    new ConfigExtension(configStore),
+    new WebFetchExtension(),
+    askUserQuestionExtension,
+    new SubagentExtension(
+      () => sessionManager?.getMCPManager() ?? null,
+      sendToRenderer,
+      async (toolName, toolInput) =>
+        resolveSubagentToolPermission(toolName, toolInput as Record<string, unknown>)
+    ),
+  ];
+}
 
 function getFolderManager(): FolderManager {
   if (!folderManager) {
@@ -1394,8 +1466,11 @@ app
 
       pluginRuntimeService = new PluginRuntimeService(new PluginCatalogService());
       memoryService = new MemoryService(db);
+      bindConnectorMemoryService(memoryService);
+      wireWikiAndOrchestration(db);
       meetingService = new MeetingService();
       meetingService.setMemoryService(memoryService);
+      meetingService.setWikiIngest((m) => wikiService?.ingestMeeting(m));
 
       // Build the JSONL sender with permission/question interception BEFORE constructing SessionManager
       const headlessSendToRenderer = createHeadlessSendToRenderer();
@@ -1439,19 +1514,9 @@ app
       const headlessAskUserQuestionExtension = new AskUserQuestionExtension(
         headlessSendWithPermission
       );
-      const headlessExtensionManager = new AgentRuntimeExtensionManager([
-        new MemoryExtension(memoryService),
-        new MeetingExtension(meetingService),
-        new ConfigExtension(configStore),
-        new WebFetchExtension(),
-        headlessAskUserQuestionExtension,
-        new SubagentExtension(
-          () => sessionManager?.getMCPManager() ?? null,
-          sendToRenderer,
-          async (toolName, toolInput) =>
-            resolveSubagentToolPermission(toolName, toolInput as Record<string, unknown>)
-        ),
-      ]);
+      const headlessExtensionManager = new AgentRuntimeExtensionManager(
+        buildExtensionList(headlessAskUserQuestionExtension)
+      );
 
       // Set the global event sender so handleClientEvent's sendToRenderer calls
       // go through JSONL instead of the null mainWindow
@@ -1870,23 +1935,15 @@ app
     pluginRuntimeService = new PluginRuntimeService(new PluginCatalogService());
     memoryService = new MemoryService(db);
     bindConnectorMemoryService(memoryService);
+    wireWikiAndOrchestration(db);
     meetingService = new MeetingService();
     meetingService.setMemoryService(memoryService);
+    meetingService.setWikiIngest((m) => wikiService?.ingestMeeting(m));
     wireMeetingServiceEvents(meetingService);
     const askUserQuestionExtension = new AskUserQuestionExtension(sendToRenderer);
-    const extensionManager = new AgentRuntimeExtensionManager([
-      new MemoryExtension(memoryService),
-      new MeetingExtension(meetingService),
-      new ConfigExtension(configStore),
-      new WebFetchExtension(),
-      askUserQuestionExtension,
-      new SubagentExtension(
-        () => sessionManager?.getMCPManager() ?? null,
-        sendToRenderer,
-        async (toolName, toolInput) =>
-          resolveSubagentToolPermission(toolName, toolInput as Record<string, unknown>)
-      ),
-    ]);
+    const extensionManager = new AgentRuntimeExtensionManager(
+      buildExtensionList(askUserQuestionExtension)
+    );
 
     // Initialize session manager before creating an interactive window.
     // This avoids session.start racing the startup path and hitting a null manager.
@@ -2021,6 +2078,22 @@ app
           payload: { taskId, error },
         });
       },
+      onScheduleCheckpointStart: (task) => {
+        if (!checkpointService) return null;
+        return checkpointService.startRun({
+          kind: 'schedule',
+          stepId: 'execute',
+          sourceId: task.id,
+          title: task.title,
+          payload: { prompt: task.prompt, cwd: task.cwd },
+        }).id;
+      },
+      onScheduleCheckpointComplete: (runId, _task, sessionId) => {
+        checkpointService?.checkpoint(runId, 'done', { sessionId }, 'completed');
+      },
+      onScheduleCheckpointFail: (runId, _task, error) => {
+        checkpointService?.fail(runId, error);
+      },
       now: () => Date.now(),
     });
     scheduledTaskManager.start();
@@ -2053,11 +2126,96 @@ app
           payload: { sessionId, status },
         });
       },
+      checkpoints: {
+        onGoalStart: (sessionId, goal) => {
+          if (!checkpointService) return null;
+          return checkpointService.startRun({
+            kind: 'goal_tick',
+            stepId: 'tick_0',
+            sessionId,
+            title: goal.slice(0, 120),
+            payload: { goal },
+          }).id;
+        },
+        onGoalTick: (runId, _sessionId, tickCount) => {
+          checkpointService?.checkpoint(runId, `tick_${tickCount}`, { tickCount });
+        },
+        onGoalComplete: (runId, _sessionId, reason) => {
+          checkpointService?.checkpoint(runId, 'done', { reason }, 'completed');
+        },
+        onGoalFail: (runId, _sessionId, error) => {
+          checkpointService?.fail(runId, error);
+        },
+      },
     });
 
     matterService = new MatterService(db, sessionManager?.getMCPManager() ?? null, meetingService);
     matterService.setMainWindowGetter(() => mainWindow);
+    matterService.setPostScanHandler((snapshot) => {
+      wikiService?.ingestMatterItems(snapshot.items);
+    });
     matterService.start();
+
+    workflowService?.configureExecutor({
+      runAgentStep: async ({ prompt, workflowId, runId, nodeId }) => {
+        if (!sessionManager) throw new Error('Session manager not initialized');
+        const cwd = configStore.get('defaultWorkdir') || currentWorkingDir || process.cwd();
+        const started = await sessionManager.startSession(
+          `Workflow: ${workflowId}`,
+          prompt,
+          cwd
+        );
+        sendToRenderer({
+          type: 'session.update',
+          payload: { sessionId: started.id, updates: started },
+        });
+        checkpointService?.checkpoint(runId, nodeId, { sessionId: started.id });
+        return { sessionId: started.id };
+      },
+      requestApproval: async ({ runId, nodeId, message, workflowId }) => {
+        const key = `${runId}:${nodeId}`;
+        sendToRenderer({
+          type: 'permission.request',
+          payload: {
+            sessionId: `workflow:${workflowId}`,
+            toolUseId: key,
+            toolName: 'workflow_approval',
+            input: { message, runId, nodeId, workflowId },
+          },
+        });
+        return await new Promise<'allow' | 'deny'>((resolve) => {
+          pendingWorkflowApprovals.set(key, resolve);
+        });
+      },
+      notify: async ({ message }) => {
+        log(`[Workflow] Notify: ${message}`);
+      },
+    });
+
+    checkpointService?.registerResumer('goal_tick', async (run: CheckpointRun) => {
+      if (!run.sessionId || !chatLoopManager) return;
+      const goal = String(run.payload.goal || run.title || '');
+      if (!goal) return;
+      if (chatLoopManager.status(run.sessionId)) return;
+      chatLoopManager.start({
+        sessionId: run.sessionId,
+        kind: 'goal',
+        prompt: goal,
+        intervalMs: 2 * 60_000,
+        runImmediately: true,
+      });
+    });
+
+    checkpointService?.registerResumer('workflow', async (run: CheckpointRun) => {
+      await workflowService?.resumeRun(run.id);
+    });
+
+    void checkpointService
+      ?.bootResume()
+      .then((result) => {
+        log(`[Checkpoint] Boot resume: stuck=${result.stuck} resumed=${result.resumed}`);
+      })
+      .catch((err) => logWarn('[Checkpoint] Boot resume failed', err));
 
     // Initialize remote manager
     remoteManager.setRendererCallback(sendToRenderer);
@@ -4559,6 +4717,128 @@ ipcMain.handle('memory.setEnabled', (_event, enabled: boolean) => {
   return result;
 });
 
+// ── Memory Wiki (M1) ─────────────────────────────────────────────────────────
+ipcMain.handle('wiki.list', () => {
+  if (!wikiService) throw new Error('Wiki service not initialized');
+  return wikiService.list();
+});
+ipcMain.handle('wiki.listTree', () => {
+  if (!wikiService) throw new Error('Wiki service not initialized');
+  return wikiService.listTree();
+});
+ipcMain.handle('wiki.search', (_event, query: string, limit?: number) => {
+  if (!wikiService) throw new Error('Wiki service not initialized');
+  return wikiService.search(query, limit);
+});
+ipcMain.handle('wiki.get', (_event, id: string) => {
+  if (!wikiService) throw new Error('Wiki service not initialized');
+  return wikiService.get(id);
+});
+ipcMain.handle('wiki.getByPath', (_event, pagePath: string) => {
+  if (!wikiService) throw new Error('Wiki service not initialized');
+  return wikiService.getByPath(pagePath);
+});
+ipcMain.handle(
+  'wiki.update',
+  (_event, payload: { id: string; body: string; title?: string }) => {
+    if (!wikiService) throw new Error('Wiki service not initialized');
+    return wikiService.updatePage(payload.id, payload.body, payload.title);
+  }
+);
+ipcMain.handle('wiki.count', () => {
+  if (!wikiService) throw new Error('Wiki service not initialized');
+  return { count: wikiService.count() };
+});
+
+// ── Checkpoints (M3) ─────────────────────────────────────────────────────────
+ipcMain.handle('checkpoints.list', (_event, limit?: number) => {
+  if (!checkpointService) throw new Error('Checkpoint service not initialized');
+  return checkpointService.list(limit);
+});
+ipcMain.handle('checkpoints.get', (_event, id: string) => {
+  if (!checkpointService) throw new Error('Checkpoint service not initialized');
+  return checkpointService.get(id);
+});
+ipcMain.handle('checkpoints.resume', async (_event, id: string) => {
+  if (!checkpointService) throw new Error('Checkpoint service not initialized');
+  const run = checkpointService.get(id);
+  if (!run) throw new Error('Run not found');
+  if (run.kind === 'workflow' && workflowService) {
+    return workflowService.resumeRun(id);
+  }
+  checkpointService.resume(id);
+  if (run.kind === 'goal_tick' && run.sessionId && chatLoopManager) {
+    const goal = String(run.payload.goal || run.title || '');
+    if (goal && !chatLoopManager.status(run.sessionId)) {
+      chatLoopManager.start({
+        sessionId: run.sessionId,
+        kind: 'goal',
+        prompt: goal,
+        intervalMs: 2 * 60_000,
+        runImmediately: true,
+      });
+    }
+  }
+  return checkpointService.get(id);
+});
+ipcMain.handle('checkpoints.cancel', (_event, id: string) => {
+  if (!checkpointService) throw new Error('Checkpoint service not initialized');
+  return checkpointService.cancel(id);
+});
+
+// ── Workflows (M4) ───────────────────────────────────────────────────────────
+ipcMain.handle('workflows.list', () => {
+  if (!workflowService) throw new Error('Workflow service not initialized');
+  return workflowService.list();
+});
+ipcMain.handle('workflows.get', (_event, id: string) => {
+  if (!workflowService) throw new Error('Workflow service not initialized');
+  return workflowService.get(id);
+});
+ipcMain.handle(
+  'workflows.create',
+  (
+    _event,
+    payload: {
+      name: string;
+      description?: string;
+      status?: 'draft' | 'enabled' | 'disabled';
+      graph: WorkflowGraph;
+    }
+  ) => {
+    if (!workflowService) throw new Error('Workflow service not initialized');
+    return workflowService.create(payload);
+  }
+);
+ipcMain.handle(
+  'workflows.update',
+  (
+    _event,
+    id: string,
+    updates: {
+      name?: string;
+      description?: string;
+      status?: 'draft' | 'enabled' | 'disabled';
+      graph?: WorkflowGraph;
+    }
+  ) => {
+    if (!workflowService) throw new Error('Workflow service not initialized');
+    return workflowService.update(id, updates);
+  }
+);
+ipcMain.handle('workflows.delete', (_event, id: string) => {
+  if (!workflowService) throw new Error('Workflow service not initialized');
+  return { success: workflowService.delete(id) };
+});
+ipcMain.handle('workflows.propose', (_event, description: string) => {
+  if (!workflowService) throw new Error('Workflow service not initialized');
+  return workflowService.proposeFromDescription(description);
+});
+ipcMain.handle('workflows.run', async (_event, id: string) => {
+  if (!workflowService) throw new Error('Workflow service not initialized');
+  return workflowService.run(id);
+});
+
 ipcMain.handle('meetings.getOverview', async () => {
   if (!meetingService) {
     throw new Error('Meeting service not initialized');
@@ -4879,8 +5159,17 @@ async function handleClientEvent(event: ClientEvent): Promise<unknown> {
     case 'session.getContextUsage':
       return sm.getContextUsage(event.payload.sessionId);
 
-    case 'permission.response':
+    case 'permission.response': {
+      const pending = pendingWorkflowApprovals.get(event.payload.toolUseId);
+      if (pending) {
+        pendingWorkflowApprovals.delete(event.payload.toolUseId);
+        const decision =
+          event.payload.result === 'deny' ? 'deny' : ('allow' as const);
+        pending(decision);
+        return { success: true };
+      }
       return sm.handlePermissionResponse(event.payload.toolUseId, event.payload.result);
+    }
 
     case 'question.response':
       return sm.handleQuestionResponse(event.payload.questionId, event.payload.answer);
