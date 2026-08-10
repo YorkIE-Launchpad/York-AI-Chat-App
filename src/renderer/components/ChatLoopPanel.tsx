@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { RefreshCw, Target, X } from 'lucide-react';
 import type { ChatLoopStatus } from '../types';
@@ -9,6 +9,8 @@ export type ChatLoopPanelMode = 'interval' | 'goal';
 
 const INTERVAL_CHIPS = ['30s', '2m', '5m', '15m', '1h'] as const;
 const MAX_TICK_CHIPS = [10, 20, 50, 100] as const;
+/** Cap auto-grow so the panel stays usable; user can still drag-resize taller via resize-y. */
+const PROMPT_TEXTAREA_MAX_HEIGHT_PX = 240;
 
 export interface ChatLoopPanelProps {
   open: boolean;
@@ -37,6 +39,7 @@ export function ChatLoopPanel({
 }: ChatLoopPanelProps) {
   const { t } = useTranslation();
   const titleId = useId();
+  const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
   const [mode, setMode] = useState<ChatLoopPanelMode>('interval');
   const [text, setText] = useState(initialText);
   const [selectedChip, setSelectedChip] = useState<string | null>(null);
@@ -44,6 +47,15 @@ export function ChatLoopPanel({
   const [maxTicks, setMaxTicks] = useState(String(DEFAULT_GOAL_MAX_ITERATIONS));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const adjustPromptTextareaHeight = () => {
+    const textarea = promptTextareaRef.current;
+    if (!textarea) return;
+    textarea.style.height = 'auto';
+    const next = Math.min(textarea.scrollHeight, PROMPT_TEXTAREA_MAX_HEIGHT_PX);
+    textarea.style.height = `${next}px`;
+    textarea.style.overflowY = textarea.scrollHeight > PROMPT_TEXTAREA_MAX_HEIGHT_PX ? 'auto' : 'hidden';
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -62,6 +74,11 @@ export function ChatLoopPanel({
     // Only seed when opening (or seed inputs change) while draft is empty — keep typed draft across dismiss.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally omit draft fields so edits while open do not re-run
   }, [open, initialText, activeStatus?.kind, activeStatus?.maxIterations]);
+
+  useEffect(() => {
+    if (!open) return;
+    adjustPromptTextareaHeight();
+  }, [open, text]);
 
   if (!open) return null;
 
@@ -204,11 +221,15 @@ export function ChatLoopPanel({
             {mode === 'goal' ? t('loop.goalLabel') : t('loop.promptLabel')}
           </span>
           <textarea
+            ref={promptTextareaRef}
             value={text}
-            onChange={(e) => setText(e.target.value)}
+            onChange={(e) => {
+              setText(e.target.value);
+              requestAnimationFrame(adjustPromptTextareaHeight);
+            }}
             rows={3}
             placeholder={mode === 'goal' ? t('loop.goalPlaceholder') : t('loop.promptPlaceholder')}
-            className="w-full resize-none rounded-xl border border-border bg-surface px-3 py-2 text-[13px] text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
+            className="min-h-[4.5rem] max-h-60 w-full resize-y rounded-xl border border-border bg-surface px-3 py-2 text-[13px] text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
           />
         </label>
 
