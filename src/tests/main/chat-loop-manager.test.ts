@@ -41,7 +41,9 @@ describe('ChatLoopManager', () => {
 
     expect(status.sessionId).toBe('s1');
     await vi.advanceTimersByTimeAsync(0);
-    expect(continueSession).toHaveBeenCalledWith('s1', 'check deploy');
+    expect(continueSession).toHaveBeenCalledWith('s1', 'check deploy', [
+      { type: 'text', text: 'check deploy' },
+    ]);
 
     await vi.advanceTimersByTimeAsync(30_000);
     expect(continueSession.mock.calls.length).toBeGreaterThanOrEqual(2);
@@ -74,6 +76,12 @@ describe('ChatLoopManager', () => {
 
     await vi.advanceTimersByTimeAsync(600);
     expect(continueSession).toHaveBeenCalled();
+    const firstCall = continueSession.mock.calls[0];
+    expect(firstCall[0]).toBe('s2');
+    // Agent receives the full tick template; UI/DB user message is the goal text only.
+    expect(String(firstCall[1])).toContain('Continue working toward this goal');
+    expect(String(firstCall[1])).toContain('make tests pass');
+    expect(firstCall[2]).toEqual([{ type: 'text', text: 'make tests pass' }]);
     assistantText = 'All good\nGOAL_STATUS: complete';
     await vi.advanceTimersByTimeAsync(30_000);
     await vi.advanceTimersByTimeAsync(600);

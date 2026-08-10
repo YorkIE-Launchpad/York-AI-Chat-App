@@ -37,7 +37,16 @@ export interface ChatLoopStartInput {
 }
 
 export interface ChatLoopSessionApi {
-  continueSession: (sessionId: string, prompt: string) => Promise<void>;
+  /**
+   * Continues a session. `prompt` is what the agent receives; optional
+   * `displayContent` is what is saved/streamed as the user message
+   * (defaults to the prompt text when omitted).
+   */
+  continueSession: (
+    sessionId: string,
+    prompt: string,
+    displayContent?: Array<{ type: 'text'; text: string }>
+  ) => Promise<void>;
   getSessionStatus: (sessionId: string) => 'running' | 'idle' | 'completed' | null;
   getLatestAssistantText: (sessionId: string) => string | null;
   sessionExists: (sessionId: string) => boolean;
@@ -180,10 +189,12 @@ export class ChatLoopManager {
     loop.tickCount += 1;
     this.emit(sessionId);
 
-    const tickPrompt = loop.kind === 'goal' ? buildGoalTickPrompt(loop.prompt) : loop.prompt;
+    // Agent gets full tick instructions; transcript stores the user-facing goal/loop text.
+    const agentPrompt = loop.kind === 'goal' ? buildGoalTickPrompt(loop.prompt) : loop.prompt;
+    const displayContent = [{ type: 'text' as const, text: loop.prompt }];
 
     try {
-      await this.api.continueSession(sessionId, tickPrompt);
+      await this.api.continueSession(sessionId, agentPrompt, displayContent);
       if (loop.kind === 'goal') {
         await this.waitUntilIdle(sessionId);
         const text = this.api.getLatestAssistantText(sessionId) ?? '';

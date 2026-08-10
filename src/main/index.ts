@@ -1533,9 +1533,11 @@ app
 
       chatLoopManager = new ChatLoopManager({
         api: {
-          continueSession: async (sessionId, prompt) => {
+          continueSession: async (sessionId, prompt, displayContent) => {
             if (!sessionManager) throw new Error('Session manager not initialized');
-            await sessionManager.continueSession(sessionId, prompt);
+            await sessionManager.continueSession(sessionId, prompt, displayContent, {
+              broadcastUserMessage: true,
+            });
           },
           getSessionStatus: (sessionId) => {
             const session = sessionManager?.listSessions().find((s) => s.id === sessionId);
@@ -2025,9 +2027,11 @@ app
 
     chatLoopManager = new ChatLoopManager({
       api: {
-        continueSession: async (sessionId, prompt) => {
+        continueSession: async (sessionId, prompt, displayContent) => {
           if (!sessionManager) throw new Error('Session manager not initialized');
-          await sessionManager.continueSession(sessionId, prompt);
+          await sessionManager.continueSession(sessionId, prompt, displayContent, {
+            broadcastUserMessage: true,
+          });
         },
         getSessionStatus: (sessionId) => {
           const session = sessionManager?.listSessions().find((s) => s.id === sessionId);

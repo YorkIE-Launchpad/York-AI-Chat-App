@@ -45,7 +45,9 @@ export async function executeScheduledTask(
     const sessions = deps.sessionManager.listSessions();
     const exists = sessions.some((s) => s.id === task.boundSessionId);
     if (exists) {
-      await deps.sessionManager.continueSession(task.boundSessionId, task.prompt);
+      await deps.sessionManager.continueSession(task.boundSessionId, task.prompt, undefined, {
+        broadcastUserMessage: true,
+      });
       return { sessionId: deps.omitSessionId ? '' : task.boundSessionId };
     }
   }

@@ -102,8 +102,10 @@ export class SessionManager {
   private extensionManager?: AgentRuntimeExtensionManager;
   private askUserQuestionExtension?: AskUserQuestionExtension;
   private activeSessions: Map<string, AbortController> = new Map();
-  private promptQueues: Map<string, Array<{ prompt: string; content?: ContentBlock[] }>> =
-    new Map();
+  private promptQueues: Map<
+    string,
+    Array<{ prompt: string; content?: ContentBlock[]; broadcastUserMessage?: boolean }>
+  > = new Map();
   private pendingPermissions: Map<string, (result: PermissionResult) => void> = new Map();
   private pendingSudoPasswords: Map<
     string,
@@ -765,7 +767,8 @@ export class SessionManager {
   async continueSession(
     sessionId: string,
     prompt: string,
-    content?: ContentBlock[]
+    content?: ContentBlock[],
+    options?: { broadcastUserMessage?: boolean }
   ): Promise<void> {
     log('[SessionManager] Continuing session:', sessionId);
 
@@ -774,7 +777,7 @@ export class SessionManager {
       throw new Error(`Session not found: ${sessionId}`);
     }
 
-    this.enqueuePrompt(session, prompt, content);
+    this.enqueuePrompt(session, prompt, content, options);
   }
 
   async generateSessionTitleFromPrompt(prompt: string): Promise<string> {
@@ -1007,7 +1010,8 @@ export class SessionManager {
   private async processPrompt(
     session: Session,
     prompt: string,
-    content?: ContentBlock[]
+    content?: ContentBlock[],
+    options?: { broadcastUserMessage?: boolean }
   ): Promise<void> {
     const traceId = generateTraceId();
     return runWithLogContext(
@@ -1103,6 +1107,15 @@ export class SessionManager {
             messageContent.length,
             'content blocks'
           );
+          // Main-process-initiated continues (loops, schedules) never go through the
+          // renderer optimistic path — emit so the transcript shows the user turn.
+          // UI-initiated continues already add the bubble; skip to avoid duplicates.
+          if (options?.broadcastUserMessage) {
+            this.sendToRenderer({
+              type: 'stream.message',
+              payload: { sessionId: session.id, message: userMessage },
+            });
+          }
           const messagesForContext = [...existingMessages, userMessage];
 
           // Update session model to match current config (may have changed since session creation),
@@ -1275,9 +1288,14 @@ export class SessionManager {
     return normalizeGeneratedTitle(await generateTitleWithSdk(titlePrompt, configStore.getAll()));
   }
 
-  private enqueuePrompt(session: Session, prompt: string, content?: ContentBlock[]): void {
+  private enqueuePrompt(
+    session: Session,
+    prompt: string,
+    content?: ContentBlock[],
+    options?: { broadcastUserMessage?: boolean }
+  ): void {
     const queue = this.promptQueues.get(session.id) || [];
-    queue.push({ prompt, content });
+    queue.push({ prompt, content, broadcastUserMessage: options?.broadcastUserMessage });
     this.promptQueues.set(session.id, queue);
 
     if (!this.activeSessions.has(session.id)) {
@@ -1323,7 +1341,9 @@ export class SessionManager {
             return; // finally handles cleanup
           }
 
-          await this.processPrompt(latestSession, item.prompt, item.content);
+          await this.processPrompt(latestSession, item.prompt, item.content, {
+            broadcastUserMessage: item.broadcastUserMessage,
+          });
 
           if (controller.signal.aborted) return; // finally handles cleanup
         }
