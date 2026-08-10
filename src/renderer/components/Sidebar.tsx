@@ -22,6 +22,7 @@ import {
   FileDown,
   Radar,
   Target,
+  Workflow,
 } from 'lucide-react';
 import type { Session } from '../types';
 import { DivisionSwitcher } from './DivisionSwitcher';
@@ -172,7 +173,9 @@ export function Sidebar() {
   const toggleSidebar = useAppStore((s) => s.toggleSidebar);
   const setShowSettings = useAppStore((s) => s.setShowSettings);
   const setShowMatter = useAppStore((s) => s.setShowMatter);
+  const setShowWorkflows = useAppStore((s) => s.setShowWorkflows);
   const showMatter = useAppStore((s) => s.showMatter);
+  const showWorkflows = useAppStore((s) => s.showWorkflows);
   const matterBadgeCount = useAppStore((s) => s.matterBadgeCount);
   const matterEnabled =
     useAppStore((s) => s.appConfig?.matterEnabled ?? s.appConfig?.matterRuntime?.enabled) !== false;
@@ -311,6 +314,7 @@ export function Sidebar() {
     async (sessionId: string) => {
       setShowSettings(false);
       setShowMatter(false);
+      setShowWorkflows(false);
 
       // Read at call-time — do not close over activeSessionId / sessionStates.
       // sessionStates gets a new object ref on every patchSession, and including
@@ -375,6 +379,7 @@ export function Sidebar() {
       setMessages,
       setShowMatter,
       setShowSettings,
+      setShowWorkflows,
       setTraceSteps,
     ]
   );
@@ -385,6 +390,7 @@ export function Sidebar() {
     setActiveSession(null);
     setShowSettings(false);
     setShowMatter(false);
+    setShowWorkflows(false);
   };
 
   const handleIncognitoSession = () => {
@@ -393,12 +399,24 @@ export function Sidebar() {
     setActiveSession(null);
     setShowSettings(false);
     setShowMatter(false);
+    setShowWorkflows(false);
   };
 
   const handleOpenMatter = () => {
     discardActiveIncognitoIfLeaving(null);
     setIncognitoDraft(false);
     setShowMatter(true);
+  };
+
+  const handleOpenWorkflows = () => {
+    discardActiveIncognitoIfLeaving(null);
+    setIncognitoDraft(false);
+    setShowWorkflows(true);
+  };
+
+  const handleOpenSettings = () => {
+    setShowWorkflows(false);
+    setShowSettings(true);
   };
 
   const handleImportChat = async () => {
@@ -523,6 +541,18 @@ export function Sidebar() {
               ) : null}
             </button>
           ) : null}
+          <button
+            type="button"
+            onClick={handleOpenWorkflows}
+            className={`relative w-9 h-9 rounded-2xl flex items-center justify-center transition-colors border ${
+              showWorkflows
+                ? 'bg-accent/20 text-accent border-accent/50'
+                : 'bg-background text-accent border-accent/30 hover:bg-accent/10'
+            }`}
+            title={t('sidebar.workflows')}
+          >
+            <Workflow className="w-4 h-4" />
+          </button>
           {user ? (
             <div className="w-9 h-9 flex items-center justify-center" title={user.name}>
               <SidebarUserAvatar
@@ -534,7 +564,7 @@ export function Sidebar() {
           ) : null}
           <button
             type="button"
-            onClick={() => setShowSettings(true)}
+            onClick={handleOpenSettings}
             className="w-9 h-9 rounded-2xl flex items-center justify-center hover:bg-surface-hover transition-colors text-text-secondary"
             title={t('sidebar.settings')}
           >
@@ -915,6 +945,32 @@ export function Sidebar() {
               </span>
             </button>
           ) : null}
+          <button
+            type="button"
+            onClick={handleOpenWorkflows}
+            className={`w-full rounded-2xl px-3 py-2.5 flex items-center gap-2.5 text-left transition-colors border ${
+              showWorkflows
+                ? 'bg-accent/15 text-accent border-accent/40'
+                : 'bg-background text-text-primary border-border-subtle hover:bg-surface-hover hover:border-accent/30'
+            }`}
+            title={t('sidebar.workflows')}
+          >
+            <span
+              className={`relative flex h-8 w-8 shrink-0 items-center justify-center rounded-xl ${
+                showWorkflows ? 'bg-accent/20' : 'bg-accent/10'
+              }`}
+            >
+              <Workflow className="w-4 h-4 text-accent" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[13px] font-semibold leading-tight">
+                {t('sidebar.workflows')}
+              </span>
+              <span className="block text-[11px] text-text-muted leading-tight mt-0.5 truncate">
+                {t('sidebar.workflowsHint')}
+              </span>
+            </span>
+          </button>
           <div className="flex items-center gap-2 rounded-2xl bg-background/50 px-3 py-2">
             {user ? (
               <>
@@ -931,7 +987,7 @@ export function Sidebar() {
             )}
             <button
               type="button"
-              onClick={() => setShowSettings(true)}
+              onClick={handleOpenSettings}
               className="w-8 h-8 rounded-xl flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-surface-hover transition-colors flex-shrink-0"
               title={t('sidebar.settings')}
             >

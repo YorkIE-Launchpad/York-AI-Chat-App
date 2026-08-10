@@ -102,7 +102,7 @@ export function SettingsCheckpoints() {
           runs={workflowCheckpointRuns}
           selectedRunId={selectedRunId}
           onSelect={setSelectedRunId}
-          emptyLabel="No workflow runs yet. Start one from Settings → Workflows."
+          emptyLabel="No workflow runs yet. Start one from the sidebar Workflows panel."
           subtitleForRun={(run) => nameByRunId.get(run.id) || run.title || null}
         />
       </SettingsContentSection>

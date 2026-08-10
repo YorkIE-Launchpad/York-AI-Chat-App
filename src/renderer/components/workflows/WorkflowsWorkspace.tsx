@@ -1,7 +1,6 @@
 /**
- * Workflow review UI (M4) — propose drafts, inspect step pipeline, enable/run.
- * Lightweight canvas: ordered stage rail (not a full graph editor).
- * OpenHuman-style per-flow run history + inspector drawer.
+ * Workflow review body — propose drafts, library, pipeline, run history.
+ * Used by WorkflowsPage (first-class sidebar surface).
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -29,10 +28,9 @@ import type {
   WorkflowStatus,
 } from '../../../shared/workflows';
 import { topologicalOrder } from '../../../shared/workflows';
-import { WorkflowRunInspector } from '../workflows/WorkflowRunInspector';
-import { WorkflowRunsList } from '../workflows/WorkflowRunsList';
-import { useWorkflowRunsLiveRefresh } from '../workflows/useWorkflowRunsLiveRefresh';
-import { SettingsContentSection } from './shared';
+import { WorkflowRunInspector } from './WorkflowRunInspector';
+import { WorkflowRunsList } from './WorkflowRunsList';
+import { useWorkflowRunsLiveRefresh } from './useWorkflowRunsLiveRefresh';
 
 const NODE_META: Record<
   WorkflowNodeType,
@@ -106,7 +104,7 @@ function statusLabel(status: WorkflowStatus): string {
   return 'Draft';
 }
 
-export function SettingsWorkflows() {
+export function WorkflowsWorkspace() {
   const [workflows, setWorkflows] = useState<WorkflowDefinition[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [activeNodeId, setActiveNodeId] = useState<string | null>(null);
@@ -231,10 +229,6 @@ export function SettingsWorkflows() {
 
   return (
     <div className="space-y-6">
-      <SettingsContentSection
-        title="Visual workflows"
-        description="Turn a plain request into a reviewable automation. Approval steps always stop for you. Run history updates live while a run is active."
-      >
         {/* Composer */}
         <div className="relative overflow-hidden rounded-2xl border border-border-muted bg-gradient-to-br from-accent/[0.07] via-background to-background-secondary/80 p-4 sm:p-5">
           <div
@@ -473,7 +467,6 @@ export function SettingsWorkflows() {
             {status}
           </p>
         ) : null}
-      </SettingsContentSection>
 
       <WorkflowRunInspector
         runId={selectedRunId}

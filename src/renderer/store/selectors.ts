@@ -204,16 +204,18 @@ export function useLayoutState(): { sidebarCollapsed: boolean; contextPanelColla
   );
 }
 
-/** Returns whether settings or Matter panels are open. */
+/** Returns whether settings, Matter, or Workflows panels are open. */
 export function useSettingsState(): {
   showSettings: boolean;
   showMatter: boolean;
+  showWorkflows: boolean;
   settingsTab: string | null;
 } {
   return useAppStore(
     useShallow((s) => ({
       showSettings: s.showSettings,
       showMatter: s.showMatter,
+      showWorkflows: s.showWorkflows,
       settingsTab: s.settingsTab,
     }))
   );

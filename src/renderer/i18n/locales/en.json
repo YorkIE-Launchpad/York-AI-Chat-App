@@ -814,6 +814,8 @@
     "settings": "Settings",
     "matter": "Matter",
     "matterHint": "What needs you now",
+    "workflows": "Workflows",
+    "workflowsHint": "Automations & run history",
     "signOut": "Sign out",
     "themeToggle": "Toggle theme",
     "restartToUpdate": "Restart to update",

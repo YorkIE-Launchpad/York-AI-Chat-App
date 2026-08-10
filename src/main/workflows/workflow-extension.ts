@@ -14,7 +14,7 @@ export function createWorkflowTools(workflowService: WorkflowService): AgentRunt
     name: 'workflow_propose',
     label: 'workflow_propose',
     description:
-      'Draft a durable visual workflow from a natural-language automation request (e.g. "automate weekday 9am Hub leave + calendar brief"). Returns a draft for the user to review in Settings → Workflows. Does not enable or run the workflow.',
+      'Draft a durable visual workflow from a natural-language automation request (e.g. "automate weekday 9am Hub leave + calendar brief"). Returns a draft for the user to review in the Workflows panel (sidebar). Does not enable or run the workflow.',
     parameters: Type.Object({
       description: Type.String({
         minLength: 3,
@@ -33,7 +33,7 @@ export function createWorkflowTools(workflowService: WorkflowService): AgentRunt
               `id: ${draft.id}`,
               `name: ${draft.name}`,
               `nodes: ${draft.graph.nodes.map((n) => `${n.id}(${n.type})`).join(' → ')}`,
-              'Open Settings → Workflows to review, edit, enable, or run.',
+              'Open the Workflows panel from the sidebar to review, edit, enable, or run.',
             ].join('\n'),
           },
         ],

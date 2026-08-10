@@ -53,6 +53,11 @@ const SettingsPanel = lazy(() =>
 const MatterPage = lazy(() =>
   import('./components/matter/MatterPage').then((module) => ({ default: module.MatterPage }))
 );
+const WorkflowsPage = lazy(() =>
+  import('./components/workflows/WorkflowsPage').then((module) => ({
+    default: module.WorkflowsPage,
+  }))
+);
 
 function MainPanelFallback() {
   return (
@@ -104,8 +109,9 @@ function AuthenticatedApp() {
   const activeSessionId = useActiveSessionId();
   const settings = useSettings();
   const systemDarkMode = useSystemDarkMode();
-  const { showSettings, showMatter } = useSettingsState();
+  const { showSettings, showMatter, showWorkflows } = useSettingsState();
   const setShowMatter = useAppStore((s) => s.setShowMatter);
+  const setShowWorkflows = useAppStore((s) => s.setShowWorkflows);
   const setMatterBadgeCount = useAppStore((s) => s.setMatterBadgeCount);
   const { sidebarCollapsed } = useLayoutState();
   const globalNotice = useGlobalNotice();
@@ -359,7 +365,7 @@ function AuthenticatedApp() {
 
         {/* Main Content Area */}
         <main className="flex-1 min-h-0 min-w-0 flex flex-col overflow-hidden bg-background">
-          {!showSettings && !showMatter && !toolsReady && (
+          {!showSettings && !showMatter && !showWorkflows && !toolsReady && (
             <div
               className="px-4 py-2 text-xs text-text-secondary border-b border-border-muted bg-surface/60 flex items-center gap-2 shrink-0"
               role="status"
@@ -393,6 +399,16 @@ function AuthenticatedApp() {
                 <MatterPage onClose={() => setShowMatter(false)} />
               </Suspense>
             </PanelErrorBoundary>
+          ) : showWorkflows ? (
+            <PanelErrorBoundary
+              name="WorkflowsPage"
+              resetKey="workflows"
+              fallback={<MainPanelFallback />}
+            >
+              <Suspense fallback={<MainPanelFallback />}>
+                <WorkflowsPage onClose={() => setShowWorkflows(false)} />
+              </Suspense>
+            </PanelErrorBoundary>
           ) : activeSessionId ? (
             <PanelErrorBoundary
               name="ChatView"
@@ -409,7 +425,11 @@ function AuthenticatedApp() {
         </main>
 
         {/* Right rail: HTML preview (when active) or Context Panel */}
-        {activeSessionId && !showSettings && !showMatter && activeHtmlPreview && (
+        {activeSessionId &&
+          !showSettings &&
+          !showMatter &&
+          !showWorkflows &&
+          activeHtmlPreview && (
           <PanelErrorBoundary
             name="HtmlPreviewPanel"
             resetKey={`${activeSessionId}:${activeHtmlPreview.path}`}
@@ -420,7 +440,11 @@ function AuthenticatedApp() {
             </Suspense>
           </PanelErrorBoundary>
         )}
-        {activeSessionId && !showSettings && !showMatter && !activeHtmlPreview && (
+        {activeSessionId &&
+          !showSettings &&
+          !showMatter &&
+          !showWorkflows &&
+          !activeHtmlPreview && (
           <PanelErrorBoundary
             name="ContextPanel"
             resetKey={activeSessionId}

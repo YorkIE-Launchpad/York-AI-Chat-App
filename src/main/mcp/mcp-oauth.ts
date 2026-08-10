@@ -98,7 +98,7 @@ export function isMcpOAuthInteractionRequiredError(error: unknown): boolean {
 function buildClientMetadata(redirectUrl: string): OAuthClientMetadata {
   return {
     application_type: 'native',
-    client_name: 'York IE VECOS MCP Connector',
+    client_name: 'York IE Growth OS MCP Connector',
     grant_types: ['authorization_code', 'refresh_token'],
     logo_uri: undefined,
     redirect_uris: [redirectUrl],

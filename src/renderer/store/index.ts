@@ -119,6 +119,7 @@ interface AppState {
   } | null;
   showSettings: boolean;
   showMatter: boolean;
+  showWorkflows: boolean;
   settingsTab: string | null;
   matterBadgeCount: number;
   /** Global “Ask Growth OS” overlay open state. */
@@ -216,6 +217,7 @@ interface AppState {
   closeHtmlPreview: () => void;
   setShowSettings: (show: boolean) => void;
   setShowMatter: (show: boolean) => void;
+  setShowWorkflows: (show: boolean) => void;
   setSettingsTab: (tab: string | null) => void;
   setMatterBadgeCount: (count: number) => void;
   setAskGrowthOSOpen: (open: boolean) => void;
@@ -307,6 +309,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   activeHtmlPreview: null,
   showSettings: false,
   showMatter: false,
+  showWorkflows: false,
   settingsTab: null,
   matterBadgeCount: 0,
   askGrowthOSOpen: false,
@@ -408,6 +411,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             activeSessionId: sessionId,
             showMatter: false,
             showSettings: false,
+            showWorkflows: false,
             ...(switching ? { activeHtmlPreview: null } : {}),
             ...(sessionCwd ? { workingDir: sessionCwd } : {}),
           }
@@ -757,12 +761,32 @@ export const useAppStore = create<AppState>((set, get) => ({
     }),
   closeHtmlPreview: () => set({ activeHtmlPreview: null }),
   setShowSettings: (show) =>
-    set(show ? { showSettings: true, showMatter: false } : { showSettings: false }),
+    set(
+      show
+        ? { showSettings: true, showMatter: false, showWorkflows: false }
+        : { showSettings: false }
+    ),
   setShowMatter: (show) =>
     set(
       show
-        ? { showMatter: true, showSettings: false, activeSessionId: null }
+        ? {
+            showMatter: true,
+            showSettings: false,
+            showWorkflows: false,
+            activeSessionId: null,
+          }
         : { showMatter: false }
+    ),
+  setShowWorkflows: (show) =>
+    set(
+      show
+        ? {
+            showWorkflows: true,
+            showSettings: false,
+            showMatter: false,
+            activeSessionId: null,
+          }
+        : { showWorkflows: false }
     ),
   setSettingsTab: (tab) => set({ settingsTab: tab }),
   setMatterBadgeCount: (count) => set({ matterBadgeCount: Math.max(0, count) }),
@@ -914,6 +938,7 @@ if (typeof window !== 'undefined') {
     return {
       showSettings: !!s.showSettings,
       showMatter: !!s.showMatter,
+      showWorkflows: !!s.showWorkflows,
       askGrowthOSOpen: !!s.askGrowthOSOpen,
       activeSessionId: s.activeSessionId || null,
       sessionCount: (s.sessions || []).length,
@@ -925,6 +950,7 @@ if (typeof window !== 'undefined') {
     if (page === 'welcome') {
       store.setShowSettings(false);
       store.setShowMatter(false);
+      store.setShowWorkflows(false);
       store.setAskGrowthOSOpen(false);
       store.setActiveSession(null);
     } else if (page === 'matter') {
@@ -932,7 +958,13 @@ if (typeof window !== 'undefined') {
         store.appConfig?.matterEnabled ?? store.appConfig?.matterRuntime?.enabled ?? true;
       if (!enabled) return false;
       store.setShowMatter(true);
+    } else if (page === 'workflows') {
+      store.setShowWorkflows(true);
     } else if (page === 'settings') {
+      if (tab === 'workflows') {
+        store.setShowWorkflows(true);
+        return true;
+      }
       store.setSettingsTab(tab || 'connectors');
       store.setShowSettings(true);
     } else if (page === 'ask') {
@@ -943,6 +975,7 @@ if (typeof window !== 'undefined') {
       if (!exists) return false;
       store.setShowSettings(false);
       store.setShowMatter(false);
+      store.setShowWorkflows(false);
       store.setAskGrowthOSOpen(false);
       store.setActiveSession(sessionId);
     }

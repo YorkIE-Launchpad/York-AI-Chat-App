@@ -12,7 +12,6 @@ import {
   RefreshCw,
   Radar,
   User,
-  Workflow,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useWindowSize } from '../hooks/useWindowSize';
@@ -26,7 +25,6 @@ import { SettingsLogs } from './settings/SettingsLogs';
 import { SettingsMemory } from './settings/SettingsMemory';
 import { SettingsMeetings } from './settings/SettingsMeetings';
 import { SettingsMatter } from './settings/SettingsMatter';
-import { SettingsWorkflows } from './settings/SettingsWorkflows';
 import { useUpdaterStatus } from '../hooks/useUpdaterStatus';
 
 interface SettingsPanelProps {
@@ -38,7 +36,6 @@ interface SettingsPanelProps {
     | 'meetings'
     | 'matter'
     | 'schedule'
-    | 'workflows'
     | 'logs'
     | 'profile'
     | 'general';
@@ -51,7 +48,6 @@ type TabId =
   | 'meetings'
   | 'matter'
   | 'schedule'
-  | 'workflows'
   | 'logs'
   | 'profile'
   | 'general';
@@ -63,7 +59,6 @@ const VALID_TABS = new Set<TabId>([
   'meetings',
   'matter',
   'schedule',
-  'workflows',
   'logs',
   'profile',
   'general',
@@ -77,6 +72,7 @@ export function SettingsPanel({ onClose, initialTab = 'connectors' }: SettingsPa
   // takes effect even before this component mounts.
   const storeTab = useAppStore((s) => s.settingsTab);
   const setSettingsTab = useAppStore((s) => s.setSettingsTab);
+  const setShowWorkflows = useAppStore((s) => s.setShowWorkflows);
   const resolvedInitial =
     storeTab && VALID_TABS.has(storeTab as TabId) ? (storeTab as TabId) : initialTab;
 
@@ -101,11 +97,19 @@ export function SettingsPanel({ onClose, initialTab = 'connectors' }: SettingsPa
 
   // Consume the store signal and apply tab in one effect
   useEffect(() => {
-    if (storeTab && VALID_TABS.has(storeTab as TabId)) {
+    if (!storeTab) return;
+    // Legacy deep-link: Settings → Workflows → open first-class panel
+    if (storeTab === 'workflows') {
+      setSettingsTab(null);
+      setShowWorkflows(true);
+      onClose();
+      return;
+    }
+    if (VALID_TABS.has(storeTab as TabId)) {
       setActiveTab(storeTab as TabId);
       setSettingsTab(null);
     }
-  }, [storeTab, setSettingsTab]);
+  }, [storeTab, setSettingsTab, setShowWorkflows, onClose]);
 
   // Mark tab as viewed when it becomes active
   useEffect(() => {
@@ -150,12 +154,6 @@ export function SettingsPanel({ onClose, initialTab = 'connectors' }: SettingsPa
       label: t('settings.schedule'),
       icon: Clock3,
       description: t('settings.scheduleDesc'),
-    },
-    {
-      id: 'workflows' as TabId,
-      label: 'Workflows',
-      icon: Workflow,
-      description: 'Visual automations with approval gates',
     },
     {
       id: 'logs' as TabId,
@@ -296,9 +294,6 @@ export function SettingsPanel({ onClose, initialTab = 'connectors' }: SettingsPa
                 {viewedTabs.has('schedule') && (
                   <SettingsSchedule isActive={activeTab === 'schedule'} />
                 )}
-              </div>
-              <div className={activeTab === 'workflows' ? '' : 'hidden'}>
-                {viewedTabs.has('workflows') && <SettingsWorkflows />}
               </div>
               <div className={activeTab === 'logs' ? '' : 'hidden'}>
                 {viewedTabs.has('logs') && <SettingsLogs isActive={activeTab === 'logs'} />}
