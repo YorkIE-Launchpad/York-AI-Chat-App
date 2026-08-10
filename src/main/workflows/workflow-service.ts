@@ -5,6 +5,7 @@ import type { DatabaseInstance } from '../db/database';
 import type { CheckpointService } from '../orchestration/checkpoint-service';
 import type { CheckpointRun } from '../../shared/orchestration';
 import type {
+  WorkflowBinding,
   WorkflowDefinition,
   WorkflowDefinitionInput,
   WorkflowGraph,
@@ -12,16 +13,60 @@ import type {
   WorkflowRunSummary,
 } from '../../shared/workflows';
 import {
-  WORKFLOW_SCHEMA_VERSION,
+  buildWorkflowTitle,
   createEmptyWorkflowGraph,
+  normalizeWorkflowBinding,
 } from '../../shared/workflows';
-import { WorkflowStore } from './workflow-store';
+import {
+  buildWorkflowFromDescription,
+  buildWorkflowFromGraphInput,
+  getCronTriggerConfig,
+  validateWorkflowGraph,
+  WorkflowGraphValidationError,
+} from './workflow-build';
+import { WorkflowStore, type WorkflowUpdateFields } from './workflow-store';
 import { WorkflowExecutor, type WorkflowExecutorApi } from './workflow-executor';
-import { log } from '../utils/logger';
+import { log, logWarn } from '../utils/logger';
+
+export interface WorkflowScheduleBridge {
+  /** Create or update a schedule that runs this workflow id; return task id. */
+  upsertCronSchedule: (input: {
+    workflowId: string;
+    workflowName: string;
+    times: string[];
+    weekdays: number[];
+    existingTaskId: string | null;
+  }) => Promise<string>;
+  /** Disable/delete schedule when workflow disabled or deleted. */
+  removeSchedule: (taskId: string) => Promise<void>;
+}
+
+export type WorkflowTitleResolver = (description: string) => Promise<string | null>;
+
+function applyBindingToInput(
+  input: WorkflowDefinitionInput,
+  binding?: Partial<WorkflowBinding> | null
+): WorkflowDefinitionInput {
+  const b = normalizeWorkflowBinding(binding ?? input);
+  return {
+    ...input,
+    name: buildWorkflowTitle(input.name),
+    division: b.division,
+    hubProjectId: b.hubProjectId ?? null,
+    hubProjectName: b.hubProjectName ?? null,
+    launchpadProjectId: b.launchpadProjectId ?? null,
+    launchpadProjectName: b.launchpadProjectName ?? null,
+    folderId: b.folderId ?? null,
+    folderName: b.folderName ?? null,
+    canonicalKey: b.canonicalKey ?? null,
+  };
+}
 
 export class WorkflowService {
   private readonly store: WorkflowStore;
   private executor: WorkflowExecutor | null = null;
+  private scheduleBridge: WorkflowScheduleBridge | null = null;
+  private titleResolver: WorkflowTitleResolver | null = null;
 
   constructor(
     db: DatabaseInstance,
@@ -32,6 +77,14 @@ export class WorkflowService {
 
   configureExecutor(api: WorkflowExecutorApi): void {
     this.executor = new WorkflowExecutor(this.checkpoints, api);
+  }
+
+  setScheduleBridge(bridge: WorkflowScheduleBridge | null): void {
+    this.scheduleBridge = bridge;
+  }
+
+  setTitleResolver(resolver: WorkflowTitleResolver | null): void {
+    this.titleResolver = resolver;
   }
 
   listRuns(workflowId: string, limit = 40): CheckpointRun[] {
@@ -66,79 +119,151 @@ export class WorkflowService {
   }
 
   create(input: WorkflowDefinitionInput): WorkflowDefinition {
-    return this.store.create(input);
+    validateWorkflowGraph(input.graph);
+    this.assertApprovalGates(input.graph);
+    const created = this.store.create(
+      applyBindingToInput({ ...input, status: input.status || 'draft' })
+    );
+    if (created.status === 'enabled') {
+      void this.syncScheduleForWorkflow(created).catch((err) => {
+        logWarn('[Workflow] Failed to sync schedule on create', err);
+      });
+    }
+    return created;
   }
 
-  update(
-    id: string,
-    updates: Partial<
-      Pick<WorkflowDefinition, 'name' | 'description' | 'status' | 'graph' | 'scheduleTaskId'>
-    >
-  ): WorkflowDefinition | null {
-    return this.store.update(id, updates);
+  update(id: string, updates: WorkflowUpdateFields): WorkflowDefinition | null {
+    const existing = this.store.get(id);
+    if (!existing) return null;
+
+    if (updates.graph) {
+      validateWorkflowGraph(updates.graph);
+      this.assertApprovalGates(updates.graph);
+    }
+
+    const next = this.store.update(id, {
+      ...updates,
+      ...(updates.name !== undefined ? { name: buildWorkflowTitle(updates.name) } : {}),
+    });
+    if (!next) return null;
+
+    if (updates.status !== undefined || updates.graph !== undefined) {
+      void this.syncScheduleForWorkflow(next).catch((err) => {
+        logWarn('[Workflow] Failed to sync schedule', err);
+      });
+    }
+    return next;
   }
 
   delete(id: string): boolean {
+    const existing = this.store.get(id);
+    if (existing?.scheduleTaskId && this.scheduleBridge) {
+      void this.scheduleBridge.removeSchedule(existing.scheduleTaskId).catch(() => undefined);
+    }
     return this.store.delete(id);
   }
 
   /**
-   * Agent-facing: draft a simple linear automation from natural language.
+   * Agent / UI: draft from natural language.
+   * De-duplicates identical draft descriptions so re-runs don't spam the library.
    */
-  proposeFromDescription(description: string): WorkflowDefinition {
-    const name = description.trim().slice(0, 80) || 'Proposed workflow';
-    const graph: WorkflowGraph = {
-      version: WORKFLOW_SCHEMA_VERSION,
-      nodes: [
+  async proposeFromDescription(
+    description: string,
+    options?: { binding?: Partial<WorkflowBinding> | null }
+  ): Promise<{
+    workflow: WorkflowDefinition;
+    reused: boolean;
+  }> {
+    const raw = description.trim();
+    const existing = this.findDuplicateDraft(raw);
+    if (existing) {
+      log(`[Workflow] Reusing draft ${existing.id} for identical description`);
+      return { workflow: existing, reused: true };
+    }
+    const built = buildWorkflowFromDescription(raw);
+    let name = built.input.name;
+    if (this.titleResolver) {
+      try {
+        const generated = await this.titleResolver(raw);
+        if (generated?.trim()) name = buildWorkflowTitle(generated);
+      } catch (err) {
+        logWarn('[Workflow] Title generation failed; using deriveName', err);
+      }
+    }
+    const draft = this.store.create(
+      applyBindingToInput(
         {
-          id: 'trigger_1',
-          type: 'trigger',
-          label: 'Trigger',
-          trigger: 'manual',
-          x: 40,
-          y: 60,
+          ...built.input,
+          name,
         },
-        {
-          id: 'agent_1',
-          type: 'agent',
-          label: 'Agent step',
-          prompt: description.trim(),
-          x: 240,
-          y: 60,
-        },
-        {
-          id: 'approval_1',
-          type: 'approval',
-          label: 'Approve side effects',
-          message: `Approve running: ${name}?`,
-          requireApproval: true,
-          x: 440,
-          y: 60,
-        },
-        {
-          id: 'notify_1',
-          type: 'notify',
-          label: 'Notify',
-          message: `Workflow finished: ${name}`,
-          x: 640,
-          y: 60,
-        },
-      ],
-      edges: [
-        { id: 'e1', from: 'trigger_1', to: 'agent_1' },
-        { id: 'e2', from: 'agent_1', to: 'approval_1' },
-        { id: 'e3', from: 'approval_1', to: 'notify_1' },
-      ],
-    };
+        options?.binding
+      )
+    );
+    log(
+      `[Workflow] Proposed draft ${draft.id}: ${draft.name} | ${built.summary.join(' · ')}${
+        built.warnings.length ? ` | warnings: ${built.warnings.join('; ')}` : ''
+      } | space=${draft.division}`
+    );
+    return { workflow: draft, reused: false };
+  }
 
-    const draft = this.store.create({
-      name,
-      description: description.trim(),
-      status: 'draft',
-      graph,
-    });
-    log(`[Workflow] Proposed draft ${draft.id}: ${name}`);
-    return draft;
+  /**
+   * Agent: propose with explicit graph. Persists as draft only — never enables.
+   */
+  proposeFromGraph(input: {
+    name: string;
+    description?: string;
+    graph: WorkflowGraph;
+    requireApproval?: boolean;
+    binding?: Partial<WorkflowBinding> | null;
+  }): { workflow: WorkflowDefinition; summary: string[]; warnings: string[]; reused: boolean } {
+    const built = buildWorkflowFromGraphInput(input);
+    const key = `${built.input.name}\n${built.input.description || ''}`.trim();
+    const existing = this.findDuplicateDraft(key, built.input.name);
+    if (existing) {
+      log(`[Workflow] Reusing graph draft ${existing.id}`);
+      return {
+        workflow: existing,
+        summary: built.summary,
+        warnings: built.warnings,
+        reused: true,
+      };
+    }
+    const workflow = this.store.create(
+      applyBindingToInput(
+        {
+          ...built.input,
+          name: buildWorkflowTitle(input.name || built.input.name),
+        },
+        input.binding
+      )
+    );
+    log(`[Workflow] Proposed graph draft ${workflow.id}: ${workflow.name}`);
+    return {
+      workflow,
+      summary: built.summary,
+      warnings: built.warnings,
+      reused: false,
+    };
+  }
+
+  private findDuplicateDraft(
+    description: string,
+    name?: string
+  ): WorkflowDefinition | null {
+    const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
+    const wantDesc = norm(description);
+    const wantName = name ? norm(name) : '';
+    return (
+      this.store.list().find((w) => {
+        if (w.status !== 'draft') return false;
+        if (wantDesc && norm(w.description) === wantDesc) return true;
+        if (wantName && norm(w.name) === wantName && norm(w.description) === wantDesc) {
+          return true;
+        }
+        return false;
+      }) || null
+    );
   }
 
   async run(id: string): Promise<{ runId: string; status: string }> {
@@ -162,7 +287,7 @@ export class WorkflowService {
     });
   }
 
-  /** Ensure a node is approval-gated when present. */
+  /** Ensure approval nodes always gate. */
   assertApprovalGates(graph: WorkflowGraph): void {
     for (const node of graph.nodes) {
       if (node.type === 'approval' && !(node as { requireApproval?: boolean }).requireApproval) {
@@ -174,4 +299,32 @@ export class WorkflowService {
   emptyGraph(): WorkflowGraph {
     return createEmptyWorkflowGraph();
   }
+
+  private async syncScheduleForWorkflow(workflow: WorkflowDefinition): Promise<void> {
+    if (!this.scheduleBridge) return;
+
+    const cron = getCronTriggerConfig(workflow.graph);
+    if (workflow.status === 'enabled' && cron) {
+      const taskId = await this.scheduleBridge.upsertCronSchedule({
+        workflowId: workflow.id,
+        workflowName: workflow.name,
+        times: cron.times,
+        weekdays: cron.weekdays,
+        existingTaskId: workflow.scheduleTaskId,
+      });
+      if (taskId !== workflow.scheduleTaskId) {
+        this.store.update(workflow.id, { scheduleTaskId: taskId });
+      }
+      return;
+    }
+
+    if (workflow.scheduleTaskId) {
+      await this.scheduleBridge.removeSchedule(workflow.scheduleTaskId);
+      if (workflow.status !== 'enabled') {
+        this.store.update(workflow.id, { scheduleTaskId: null });
+      }
+    }
+  }
 }
+
+export { WorkflowGraphValidationError };

@@ -19,18 +19,41 @@ import {
   Workflow,
   Zap,
 } from 'lucide-react';
+import type { BackendModelInfo } from '../../../shared/backend-config';
 import type { CheckpointRun } from '../../../shared/orchestration';
 import type {
+  WorkflowBinding,
   WorkflowDefinition,
   WorkflowEdge,
+  WorkflowGraph,
   WorkflowNode,
   WorkflowNodeType,
   WorkflowStatus,
 } from '../../../shared/workflows';
-import { topologicalOrder } from '../../../shared/workflows';
+import {
+  topologicalOrder,
+  workflowWorkspaceLabel,
+} from '../../../shared/workflows';
+import {
+  insertAgentAfter,
+  removeAgentNode,
+  splitAgentPrompt,
+  updateNodeFields,
+} from '../../../shared/workflow-graph-edit';
+import {
+  activeDivisionFromUnifiedProject,
+  sessionFieldsFromActiveDivision,
+  type PersonalFolder,
+} from '../../../shared/workspace-division';
+import type { UnifiedCompanyProject } from '../../../shared/unified-company-projects';
+import { useAppStore } from '../../store';
 import { WorkflowRunInspector } from './WorkflowRunInspector';
 import { WorkflowRunsList } from './WorkflowRunsList';
 import { useWorkflowRunsLiveRefresh } from './useWorkflowRunsLiveRefresh';
+import { rememberRecentProject } from '../../utils/recent-projects';
+
+const ACCENT_TINT = 'bg-accent/12 text-accent';
+const ACCENT_RING = 'ring-accent/40';
 
 const NODE_META: Record<
   WorkflowNodeType,
@@ -39,36 +62,36 @@ const NODE_META: Record<
   trigger: {
     label: 'Trigger',
     icon: Zap,
-    tint: 'bg-sky-500/12 text-sky-700 dark:text-sky-300',
-    ring: 'ring-sky-500/35',
+    tint: ACCENT_TINT,
+    ring: ACCENT_RING,
     blurb: 'When this automation starts',
   },
   agent: {
     label: 'Agent',
     icon: Sparkles,
-    tint: 'bg-accent/12 text-accent',
-    ring: 'ring-accent/40',
-    blurb: 'York runs this prompt with tools',
+    tint: ACCENT_TINT,
+    ring: ACCENT_RING,
+    blurb: 'York runs this prompt with tools; later agents receive prior results',
   },
   tool: {
     label: 'Tool',
     icon: Workflow,
-    tint: 'bg-violet-500/12 text-violet-700 dark:text-violet-300',
-    ring: 'ring-violet-500/35',
+    tint: ACCENT_TINT,
+    ring: ACCENT_RING,
     blurb: 'Direct tool invocation',
   },
   approval: {
     label: 'Approval',
     icon: ShieldCheck,
-    tint: 'bg-amber-500/15 text-amber-800 dark:text-amber-200',
-    ring: 'ring-amber-500/45',
+    tint: ACCENT_TINT,
+    ring: ACCENT_RING,
     blurb: 'Always requires your explicit permission',
   },
   notify: {
     label: 'Notify',
     icon: Bell,
-    tint: 'bg-emerald-500/12 text-emerald-700 dark:text-emerald-300',
-    ring: 'ring-emerald-500/35',
+    tint: ACCENT_TINT,
+    ring: ACCENT_RING,
     blurb: 'Signal when the run finishes',
   },
 };
@@ -104,7 +127,13 @@ function statusLabel(status: WorkflowStatus): string {
   return 'Draft';
 }
 
+function shortModelLabel(modelId: string): string {
+  const parts = modelId.split('/');
+  return parts[parts.length - 1] || modelId;
+}
+
 export function WorkflowsWorkspace() {
+  const activeDivision = useAppStore((s) => s.activeDivision);
   const [workflows, setWorkflows] = useState<WorkflowDefinition[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [activeNodeId, setActiveNodeId] = useState<string | null>(null);
@@ -114,6 +143,10 @@ export function WorkflowsWorkspace() {
   const [runs, setRuns] = useState<CheckpointRun[]>([]);
   const [runsLoading, setRunsLoading] = useState(false);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
+  const [projects, setProjects] = useState<UnifiedCompanyProject[]>([]);
+  const [folders, setFolders] = useState<PersonalFolder[]>([]);
+  const [projectsLoading, setProjectsLoading] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!window.electronAPI?.workflows) return;
@@ -133,9 +166,35 @@ export function WorkflowsWorkspace() {
     }
   }, [selectedId]);
 
+  const loadWorkspaceOptions = useCallback(async () => {
+    setProjectsLoading(true);
+    try {
+      const api = window.electronAPI?.projects;
+      if (api?.listUnified) {
+        const result = await api.listUnified();
+        setProjects(result.projects || []);
+      } else {
+        setProjects([]);
+      }
+      const foldersApi = window.electronAPI?.folders;
+      if (foldersApi?.list) {
+        const result = await foldersApi.list();
+        setFolders(result.folders || []);
+      } else {
+        setFolders([]);
+      }
+    } catch {
+      setProjects([]);
+      setFolders([]);
+    } finally {
+      setProjectsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     void refresh();
-  }, [refresh]);
+    void loadWorkspaceOptions();
+  }, [refresh, loadWorkspaceOptions]);
 
   useEffect(() => {
     void refreshRuns();
@@ -152,8 +211,10 @@ export function WorkflowsWorkspace() {
   useEffect(() => {
     if (!selected) {
       setActiveNodeId(null);
+      setEditName('');
       return;
     }
+    setEditName(selected.name);
     const order = topologicalOrder(selected.graph);
     setActiveNodeId((prev) =>
       prev && selected.graph.nodes.some((n) => n.id === prev) ? prev : order[0] || null
@@ -164,10 +225,46 @@ export function WorkflowsWorkspace() {
     if (!proposeText.trim()) return;
     setBusy(true);
     try {
-      const draft = await window.electronAPI.workflows.propose(proposeText.trim());
+      const binding = sessionFieldsFromActiveDivision(activeDivision) as Partial<WorkflowBinding>;
+      const draft = await window.electronAPI.workflows.propose(proposeText.trim(), binding);
       setSelectedId(draft.id);
       setProposeText('');
-      setStatus('Draft ready — review each step, then enable when it looks right.');
+      const nodeKinds = draft.graph.nodes.map((n) =>
+        n.type === 'trigger' ? `trigger:${n.trigger}` : n.type
+      );
+      setStatus(
+        `Draft ready · ${draft.name} · ${workflowWorkspaceLabel(draft)} · ${nodeKinds.join(' → ')}. Review steps, then enable when right.`
+      );
+      await refresh();
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveName = async () => {
+    if (!selected || !editName.trim() || editName.trim() === selected.name) return;
+    setBusy(true);
+    try {
+      await window.electronAPI.workflows.update(selected.id, { name: editName.trim() });
+      setStatus('Title updated.');
+      await refresh();
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const updateBinding = async (binding: Partial<WorkflowBinding>) => {
+    if (!selected) return;
+    setBusy(true);
+    try {
+      await window.electronAPI.workflows.update(selected.id, binding);
+      setStatus(
+        `Workspace set to ${workflowWorkspaceLabel({ ...selected, ...binding } as WorkflowDefinition)}. Runs will appear there.`
+      );
       await refresh();
     } catch (error) {
       setStatus(error instanceof Error ? error.message : String(error));
@@ -181,11 +278,15 @@ export function WorkflowsWorkspace() {
     setBusy(true);
     try {
       await window.electronAPI.workflows.update(selected.id, { status: statusValue });
+      const cron =
+        selected.graph.nodes.find((n) => n.type === 'trigger' && n.trigger === 'cron') || null;
       setStatus(
         statusValue === 'enabled'
-          ? 'Workflow enabled. Manual runs and future triggers are live.'
+          ? cron
+            ? `Workflow enabled in ${workflowWorkspaceLabel(selected)}. Cron armed as schedule.`
+            : `Workflow enabled. Runs create chats in ${workflowWorkspaceLabel(selected)}.`
           : statusValue === 'disabled'
-            ? 'Workflow disabled.'
+            ? 'Workflow disabled; linked schedule removed if any.'
             : 'Saved as draft.'
       );
       await refresh();
@@ -201,7 +302,9 @@ export function WorkflowsWorkspace() {
     setBusy(true);
     try {
       const result = await window.electronAPI.workflows.run(selected.id);
-      setStatus(`Run started · ${result.runId.slice(0, 8)}… · ${result.status}`);
+      setStatus(
+        `Run started · ${result.runId.slice(0, 8)}… · chats in ${workflowWorkspaceLabel(selected)}`
+      );
       setSelectedRunId(result.runId);
       await refreshRuns();
     } catch (error) {
@@ -227,6 +330,35 @@ export function WorkflowsWorkspace() {
     }
   };
 
+  const saveGraph = async (graph: WorkflowGraph, toast?: string) => {
+    if (!selected) return;
+    setBusy(true);
+    try {
+      await window.electronAPI.workflows.update(selected.id, { graph });
+      setStatus(toast || 'Pipeline updated.');
+      await refresh();
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const mutateGraph = async (
+    mutator: (graph: WorkflowGraph) => WorkflowGraph,
+    toast?: string,
+    nextActiveId?: string | null
+  ) => {
+    if (!selected) return;
+    try {
+      const next = mutator(selected.graph);
+      if (nextActiveId) setActiveNodeId(nextActiveId);
+      await saveGraph(next, toast);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error));
+    }
+  };
+
   return (
     <div className="space-y-6">
         {/* Composer */}
@@ -243,7 +375,8 @@ export function WorkflowsWorkspace() {
               <div>
                 <p className="text-sm font-semibold tracking-tight">Propose an automation</p>
                 <p className="text-[11px] leading-4 text-text-muted">
-                  Example: every weekday at 9am, brief me on Hub leave and calendar.
+                  Drafts inherit your current workspace. Example: every weekday at 9am, brief me
+                  on Hub leave and calendar.
                 </p>
               </div>
             </div>
@@ -336,8 +469,8 @@ export function WorkflowsWorkspace() {
                         >
                           {statusLabel(w.status)}
                         </span>
-                        <span className="text-[10px] text-text-muted">
-                          {w.graph.nodes.length} steps
+                        <span className="truncate text-[10px] text-text-muted">
+                          {workflowWorkspaceLabel(w)} · {w.graph.nodes.length} steps
                         </span>
                       </div>
                     </button>
@@ -355,11 +488,22 @@ export function WorkflowsWorkspace() {
               <>
                 <header className="border-b border-border-muted px-4 py-3.5 sm:px-5">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="min-w-0 space-y-1.5">
+                    <div className="min-w-0 flex-1 space-y-2">
                       <div className="flex flex-wrap items-center gap-2">
-                        <h4 className="truncate text-base font-semibold tracking-tight text-text-primary">
-                          {selected.name}
-                        </h4>
+                        <input
+                          value={editName}
+                          onChange={(e) => setEditName(e.target.value)}
+                          onBlur={() => void saveName()}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              void saveName();
+                            }
+                          }}
+                          disabled={busy}
+                          className="min-w-0 max-w-full flex-1 truncate rounded-lg border border-transparent bg-transparent px-1 py-0.5 text-base font-semibold tracking-tight text-text-primary hover:border-border-muted focus:border-accent/40 focus:outline-none focus:ring-2 focus:ring-accent/15 disabled:opacity-60"
+                          aria-label="Workflow title"
+                        />
                         <span
                           className={`inline-flex rounded-md px-2 py-0.5 text-[11px] font-medium ${STATUS_STYLES[selected.status]}`}
                         >
@@ -371,8 +515,29 @@ export function WorkflowsWorkspace() {
                           {selected.description}
                         </p>
                       ) : null}
+                      <WorkflowWorkspaceBinder
+                        workflow={selected}
+                        projects={projects}
+                        folders={folders}
+                        loading={projectsLoading}
+                        disabled={busy}
+                        onChange={(binding) => {
+                          if (binding.division === 'project' && binding.hubProjectId) {
+                            const project = projects.find(
+                              (p) =>
+                                p.hubProjectId === binding.hubProjectId ||
+                                (binding.launchpadProjectId != null &&
+                                  p.launchpadProjectId === binding.launchpadProjectId)
+                            );
+                            if (project) rememberRecentProject(project);
+                          }
+                          void updateBinding(binding);
+                        }}
+                        onRefreshOptions={() => void loadWorkspaceOptions()}
+                      />
                       <p className="text-[11px] text-text-muted">
-                        Updated {new Date(selected.updatedAt).toLocaleString()}
+                        Agent step chats open in this workspace. Updated{' '}
+                        {new Date(selected.updatedAt).toLocaleString()}
                       </p>
                     </div>
                     <div className="flex flex-wrap items-center gap-1.5">
@@ -417,6 +582,15 @@ export function WorkflowsWorkspace() {
                     edges={selected.graph.edges}
                     activeNodeId={activeNodeId}
                     onSelectNode={setActiveNodeId}
+                    busy={busy}
+                    onAddAfter={async (afterId) => {
+                      const next = insertAgentAfter(selected.graph, afterId);
+                      const added = next.nodes.find(
+                        (n) => n.type === 'agent' && !selected.graph.nodes.some((o) => o.id === n.id)
+                      );
+                      setActiveNodeId(added?.id || afterId);
+                      await saveGraph(next, 'Agent step added.');
+                    }}
                   />
                   <NodeInspector
                     node={
@@ -424,6 +598,33 @@ export function WorkflowsWorkspace() {
                       selected.graph.nodes[0] ||
                       null
                     }
+                    graph={selected.graph}
+                    busy={busy}
+                    onSaveFields={async (nodeId, fields) => {
+                      await mutateGraph(
+                        (g) => updateNodeFields(g, nodeId, fields),
+                        'Step updated.'
+                      );
+                    }}
+                    onAddAfter={async (afterId) => {
+                      const next = insertAgentAfter(selected.graph, afterId);
+                      const added = next.nodes.find(
+                        (n) => n.type === 'agent' && !selected.graph.nodes.some((o) => o.id === n.id)
+                      );
+                      setActiveNodeId(added?.id || afterId);
+                      await saveGraph(next, 'Agent step added.');
+                    }}
+                    onRemove={async (nodeId) => {
+                      const next = removeAgentNode(selected.graph, nodeId);
+                      setActiveNodeId(
+                        topologicalOrder(next)[0] || next.nodes.find((n) => n.type === 'agent')?.id || null
+                      );
+                      await saveGraph(next, 'Agent step removed.');
+                    }}
+                    onSplit={async (nodeId) => {
+                      const next = splitAgentPrompt(selected.graph, nodeId);
+                      await saveGraph(next, 'Agent split into sequential steps.');
+                    }}
                   />
 
                   {/* Per-flow run history (OpenHuman FlowRunsSidebar) */}
@@ -511,6 +712,114 @@ function ActionButton({
   );
 }
 
+function WorkflowWorkspaceBinder({
+  workflow,
+  projects,
+  folders,
+  loading,
+  disabled,
+  onChange,
+  onRefreshOptions,
+}: {
+  workflow: WorkflowDefinition;
+  projects: UnifiedCompanyProject[];
+  folders: PersonalFolder[];
+  loading: boolean;
+  disabled?: boolean;
+  onChange: (binding: Partial<WorkflowBinding>) => void;
+  onRefreshOptions: () => void;
+}) {
+  const kindValue =
+    workflow.division === 'project'
+      ? workflow.canonicalKey
+        ? `project:${workflow.canonicalKey}`
+        : workflow.hubProjectId
+          ? `project:hub:${workflow.hubProjectId}`
+          : workflow.launchpadProjectId != null
+            ? `project:lp:${workflow.launchpadProjectId}`
+            : 'general'
+      : workflow.division === 'folder' && workflow.folderId
+        ? `folder:${workflow.folderId}`
+        : workflow.division;
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <label className="text-[11px] font-medium text-text-muted" htmlFor={`wf-space-${workflow.id}`}>
+        Workspace
+      </label>
+      <select
+        id={`wf-space-${workflow.id}`}
+        disabled={disabled}
+        value={kindValue}
+        onFocus={onRefreshOptions}
+        onChange={(e) => {
+          const value = e.target.value;
+          if (value === 'general' || value === 'hub') {
+            onChange({
+              division: value,
+              hubProjectId: null,
+              hubProjectName: null,
+              launchpadProjectId: null,
+              launchpadProjectName: null,
+              folderId: null,
+              folderName: null,
+              canonicalKey: null,
+            });
+            return;
+          }
+          if (value.startsWith('folder:')) {
+            const folderId = value.slice('folder:'.length);
+            const folder = folders.find((f) => f.id === folderId);
+            onChange({
+              division: 'folder',
+              folderId,
+              folderName: folder?.name || folderId,
+              hubProjectId: null,
+              hubProjectName: null,
+              launchpadProjectId: null,
+              launchpadProjectName: null,
+              canonicalKey: null,
+            });
+            return;
+          }
+          if (value.startsWith('project:')) {
+            const key = value.slice('project:'.length);
+            const project =
+              projects.find((p) => p.canonicalKey === key) ||
+              projects.find((p) => `hub:${p.hubProjectId}` === key) ||
+              projects.find((p) => p.launchpadProjectId != null && `lp:${p.launchpadProjectId}` === key);
+            if (project) {
+              const fields = sessionFieldsFromActiveDivision(
+                activeDivisionFromUnifiedProject(project)
+              );
+              onChange(fields);
+            }
+          }
+        }}
+        className="max-w-[16rem] rounded-lg border border-border bg-surface px-2 py-1 text-xs text-text-primary disabled:opacity-50"
+      >
+        <option value="general">General</option>
+        <option value="hub">Hub</option>
+        <optgroup label={loading ? 'Projects…' : 'Projects'}>
+          {projects.map((p) => (
+            <option key={p.canonicalKey} value={`project:${p.canonicalKey}`}>
+              {p.name}
+            </option>
+          ))}
+        </optgroup>
+        <optgroup label={loading ? 'Folders…' : 'Folders'}>
+          {folders.map((f) => (
+            <option key={f.id} value={`folder:${f.id}`}>
+              {f.name}
+            </option>
+          ))}
+        </optgroup>
+      </select>
+      <span className="text-[11px] text-text-muted">{workflowWorkspaceLabel(workflow)}</span>
+    </div>
+  );
+}
+
 function EmptyDetail() {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 py-16 text-center">
@@ -532,11 +841,15 @@ function WorkflowPipeline({
   edges,
   activeNodeId,
   onSelectNode,
+  busy,
+  onAddAfter,
 }: {
   nodes: WorkflowNode[];
   edges: WorkflowEdge[];
   activeNodeId: string | null;
   onSelectNode: (id: string) => void;
+  busy?: boolean;
+  onAddAfter?: (afterId: string) => void;
 }) {
   const order = useMemo(() => topologicalOrder({ version: 1, nodes, edges }), [nodes, edges]);
   const orderedNodes = order
@@ -560,6 +873,12 @@ function WorkflowPipeline({
             const isActive = activeNodeId === node.id;
             const isLast = index === orderedNodes.length - 1;
             const summary = nodeSummary(node);
+            const modelLine =
+              node.type === 'agent' && node.model ? shortModelLabel(node.model) : null;
+            const agentIndex = orderedNodes
+              .slice(0, index + 1)
+              .filter((n) => n.type === 'agent').length;
+            const receivesPrior = node.type === 'agent' && agentIndex > 1;
 
             return (
               <li key={node.id} className="flex items-center">
@@ -570,7 +889,7 @@ function WorkflowPipeline({
                     isActive
                       ? `border-transparent shadow-soft ring-2 ${meta.ring}`
                       : 'border-border-muted hover:border-border hover:shadow-soft'
-                  } ${node.type === 'approval' && !isActive ? 'border-amber-500/35' : ''}`}
+                  } ${node.type === 'approval' && !isActive ? 'border-accent/40' : ''}`}
                 >
                   <span
                     className={`mb-2 inline-flex h-8 w-8 items-center justify-center rounded-xl ${meta.tint}`}
@@ -583,14 +902,20 @@ function WorkflowPipeline({
                   <span className="mt-0.5 line-clamp-2 text-sm font-medium leading-snug text-text-primary">
                     {node.label || meta.label}
                   </span>
+                  {modelLine ? (
+                    <span className="mt-0.5 truncate text-[10px] text-accent/90">{modelLine}</span>
+                  ) : null}
                   <span className="mt-1.5 line-clamp-2 text-[11px] leading-4 text-text-muted">
                     {summary}
                   </span>
                   {node.type === 'approval' ? (
-                    <span className="mt-2 inline-flex w-fit items-center gap-1 rounded-md bg-amber-500/12 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:text-amber-200">
+                    <span className="mt-2 inline-flex w-fit items-center gap-1 rounded-md bg-accent/12 px-1.5 py-0.5 text-[10px] font-medium text-accent">
                       <ShieldCheck className="h-3 w-3" />
                       Gated
                     </span>
+                  ) : null}
+                  {receivesPrior ? (
+                    <span className="mt-2 text-[10px] text-text-muted">Receives prior results</span>
                   ) : null}
                 </button>
 
@@ -609,6 +934,20 @@ function WorkflowPipeline({
         </ol>
       </div>
 
+      {activeNodeId && onAddAfter ? (
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => onAddAfter(activeNodeId)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-[11px] font-medium text-text-secondary hover:bg-surface-hover disabled:opacity-50"
+          >
+            <Plus className="h-3 w-3" />
+            Add agent after selected
+          </button>
+        </div>
+      ) : null}
+
       <p className="text-[11px] leading-4 text-text-muted">
         Approval stages never auto-skip — they use the same permission flow as chat tools.
       </p>
@@ -616,11 +955,92 @@ function WorkflowPipeline({
   );
 }
 
-function NodeInspector({ node }: { node: WorkflowNode | null }) {
+function NodeInspector({
+  node,
+  graph,
+  busy,
+  onSaveFields,
+  onAddAfter,
+  onRemove,
+  onSplit,
+}: {
+  node: WorkflowNode | null;
+  graph: WorkflowGraph;
+  busy?: boolean;
+  onSaveFields: (
+    nodeId: string,
+    fields: {
+      label?: string;
+      prompt?: string;
+      model?: string | null;
+      provider?: string | null;
+      message?: string;
+    }
+  ) => Promise<void>;
+  onAddAfter: (afterId: string) => Promise<void>;
+  onRemove: (nodeId: string) => Promise<void>;
+  onSplit: (nodeId: string) => Promise<void>;
+}) {
+  const [label, setLabel] = useState('');
+  const [prompt, setPrompt] = useState('');
+  const [message, setMessage] = useState('');
+  const [modelKey, setModelKey] = useState('');
+  const [models, setModels] = useState<BackendModelInfo[]>([]);
+  const [dirty, setDirty] = useState(false);
+
+  useEffect(() => {
+    if (!node) return;
+    setLabel(node.label || '');
+    setPrompt(node.type === 'agent' ? node.prompt || '' : '');
+    setMessage(
+      node.type === 'approval' || node.type === 'notify' ? node.message || '' : ''
+    );
+    if (node.type === 'agent' && node.model) {
+      setModelKey(`${node.provider || ''}::${node.model}`);
+    } else {
+      setModelKey('');
+    }
+    setDirty(false);
+  }, [node]);
+
+  useEffect(() => {
+    if (!window.electronAPI?.config?.listBackendModels) return;
+    void window.electronAPI.config
+      .listBackendModels()
+      .then((items) => setModels(items || []))
+      .catch(() => setModels([]));
+  }, []);
+
   if (!node) return null;
   const meta = NODE_META[node.type];
   const Icon = meta.icon;
-  const summary = nodeSummary(node);
+  const agentCount = graph.nodes.filter((n) => n.type === 'agent').length;
+  const canRemove = node.type === 'agent' && agentCount > 1;
+  const canSplit =
+    node.type === 'agent' && (prompt.includes('\n\n') || prompt.trim().length > 80);
+
+  const save = async () => {
+    if (node.type === 'agent') {
+      let model: string | null = null;
+      let provider: string | null = null;
+      if (modelKey) {
+        const [p, ...rest] = modelKey.split('::');
+        provider = p || null;
+        model = rest.join('::') || null;
+      }
+      await onSaveFields(node.id, {
+        label,
+        prompt,
+        model,
+        provider,
+      });
+    } else if (node.type === 'approval' || node.type === 'notify') {
+      await onSaveFields(node.id, { label, message });
+    } else {
+      await onSaveFields(node.id, { label });
+    }
+    setDirty(false);
+  };
 
   return (
     <div className="rounded-2xl border border-border-muted bg-background-secondary/40 p-4">
@@ -632,7 +1052,7 @@ function NodeInspector({ node }: { node: WorkflowNode | null }) {
         </span>
         <div className="min-w-0 flex-1 space-y-1">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="text-sm font-semibold text-text-primary">{node.label || meta.label}</p>
+            <p className="text-sm font-semibold text-text-primary">Step settings</p>
             <span className="rounded-md bg-surface-muted px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-text-muted">
               {meta.label}
             </span>
@@ -640,14 +1060,140 @@ function NodeInspector({ node }: { node: WorkflowNode | null }) {
           <p className="text-xs text-text-muted">{meta.blurb}</p>
         </div>
       </div>
-      <div className="mt-3 rounded-xl border border-border-muted/80 bg-background px-3 py-2.5">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-text-muted">
-          Detail
-        </p>
-        <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-text-secondary">{summary}</p>
+
+      <div className="mt-3 space-y-3">
+        <label className="block space-y-1">
+          <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-text-muted">
+            Label
+          </span>
+          <input
+            value={label}
+            disabled={busy || node.type === 'trigger'}
+            onChange={(e) => {
+              setLabel(e.target.value);
+              setDirty(true);
+            }}
+            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-text-primary focus:border-accent/40 focus:outline-none focus:ring-2 focus:ring-accent/15 disabled:opacity-60"
+          />
+        </label>
+
+        {node.type === 'agent' ? (
+          <>
+            <label className="block space-y-1">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-text-muted">
+                Instructions
+              </span>
+              <textarea
+                value={prompt}
+                disabled={busy}
+                rows={5}
+                onChange={(e) => {
+                  setPrompt(e.target.value);
+                  setDirty(true);
+                }}
+                className="w-full resize-y rounded-lg border border-border bg-background px-3 py-2 text-sm leading-5 text-text-primary focus:border-accent/40 focus:outline-none focus:ring-2 focus:ring-accent/15 disabled:opacity-60"
+              />
+            </label>
+            <label className="block space-y-1">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-text-muted">
+                Model
+              </span>
+              <select
+                value={modelKey}
+                disabled={busy}
+                onChange={(e) => {
+                  setModelKey(e.target.value);
+                  setDirty(true);
+                }}
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-text-primary focus:border-accent/40 focus:outline-none focus:ring-2 focus:ring-accent/15 disabled:opacity-60"
+              >
+                <option value="">Default (app model)</option>
+                {models.map((m) => (
+                  <option key={`${m.provider}:${m.id}`} value={`${m.provider}::${m.id}`}>
+                    {m.name || shortModelLabel(m.id)} · {m.provider}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </>
+        ) : null}
+
+        {node.type === 'approval' || node.type === 'notify' ? (
+          <label className="block space-y-1">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-text-muted">
+              Message
+            </span>
+            <textarea
+              value={message}
+              disabled={busy}
+              rows={3}
+              onChange={(e) => {
+                setMessage(e.target.value);
+                setDirty(true);
+              }}
+              className="w-full resize-y rounded-lg border border-border bg-background px-3 py-2 text-sm leading-5 text-text-primary focus:border-accent/40 focus:outline-none focus:ring-2 focus:ring-accent/15 disabled:opacity-60"
+            />
+          </label>
+        ) : null}
+
+        {node.type === 'trigger' ? (
+          <div className="rounded-xl border border-border-muted/80 bg-background px-3 py-2.5">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-text-muted">
+              Detail
+            </p>
+            <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-text-secondary">
+              {nodeSummary(node)}
+            </p>
+          </div>
+        ) : null}
+
+        <div className="flex flex-wrap items-center gap-2">
+          {node.type !== 'trigger' ? (
+            <button
+              type="button"
+              disabled={busy || !dirty}
+              onClick={() => void save()}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-2.5 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+            >
+              <Check className="h-3.5 w-3.5" />
+              Save step
+            </button>
+          ) : null}
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void onAddAfter(node.id)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-hover disabled:opacity-50"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Add agent after
+          </button>
+          {canSplit ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void onSplit(node.id)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-hover disabled:opacity-50"
+            >
+              Split into agents
+            </button>
+          ) : null}
+          {canRemove ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void onRemove(node.id)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-transparent px-2.5 py-1.5 text-xs font-medium text-error hover:bg-error/10 disabled:opacity-50"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Remove agent
+            </button>
+          ) : null}
+        </div>
       </div>
+
       {node.type === 'approval' ? (
-        <p className="mt-2 text-[11px] leading-4 text-amber-800/90 dark:text-amber-200/90">
+        <p className="mt-2 text-[11px] leading-4 text-accent">
           When this step runs, York pauses and asks you to allow or deny before any later stages.
         </p>
       ) : null}

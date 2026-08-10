@@ -715,7 +715,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     create: (payload: unknown) => ipcRenderer.invoke('workflows.create', payload),
     update: (id: string, updates: unknown) => ipcRenderer.invoke('workflows.update', id, updates),
     delete: (id: string) => ipcRenderer.invoke('workflows.delete', id),
-    propose: (description: string) => ipcRenderer.invoke('workflows.propose', description),
+    propose: (description: string, binding?: unknown) =>
+      ipcRenderer.invoke('workflows.propose', description, binding),
     run: (id: string) => ipcRenderer.invoke('workflows.run', id),
     listRuns: (workflowId: string, limit?: number) =>
       ipcRenderer.invoke('workflows.listRuns', workflowId, limit),
@@ -1238,7 +1239,10 @@ declare global {
           updates: unknown
         ) => Promise<import('../shared/workflows').WorkflowDefinition | null>;
         delete: (id: string) => Promise<{ success: boolean }>;
-        propose: (description: string) => Promise<import('../shared/workflows').WorkflowDefinition>;
+        propose: (
+          description: string,
+          binding?: unknown
+        ) => Promise<import('../shared/workflows').WorkflowDefinition>;
         run: (id: string) => Promise<{ runId: string; status: string }>;
         listRuns: (
           workflowId: string,

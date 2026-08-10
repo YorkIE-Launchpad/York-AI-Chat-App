@@ -14,13 +14,17 @@ import {
   getWorkflowRunSteps,
   topologicalOrder,
 } from '../../shared/workflows';
+import {
+  composeAgentStepPrompt,
+  extractPriorAgentResults,
+} from '../../shared/workflow-graph-edit';
 import type { CheckpointRun } from '../../shared/orchestration';
 import { log, logWarn } from '../utils/logger';
 
 export interface WorkflowExecutorApi {
   /**
-   * Run an agent prompt (usually via schedule session or bound session).
-   * Return a session id when created/continued.
+   * Run an agent prompt; wait until the session turn finishes.
+   * Return session id + optional assistant summary for handoff.
    */
   runAgentStep: (input: {
     workflowId: string;
@@ -28,11 +32,9 @@ export interface WorkflowExecutorApi {
     nodeId: string;
     prompt: string;
     model?: string;
-  }) => Promise<{ sessionId?: string | null }>;
-  /**
-   * Request user approval (reuses permission UI path via host).
-   * Must not auto-approve.
-   */
+    provider?: string;
+    stepLabel?: string;
+  }) => Promise<{ sessionId?: string | null; summary?: string | null }>;
   requestApproval: (input: {
     workflowId: string;
     runId: string;
@@ -46,11 +48,10 @@ export interface WorkflowExecutorApi {
     message: string;
     channel?: string;
   }) => Promise<void>;
-  /** Optional live UI progress push after each checkpoint. */
   onProgress?: (event: WorkflowRunProgressEvent) => void;
 }
 
-function truncateOutput(value: unknown, max = 2000): unknown {
+function truncateOutput(value: unknown, max = 4000): unknown {
   if (value == null) return value;
   try {
     const text = typeof value === 'string' ? value : JSON.stringify(value);
@@ -103,12 +104,7 @@ export class WorkflowExecutor {
     extra?: Record<string, unknown>,
     status?: CheckpointRun['status']
   ): CheckpointRun | null {
-    const run = this.checkpoints.checkpoint(
-      runId,
-      stepId,
-      { steps, ...extra },
-      status
-    );
+    const run = this.checkpoints.checkpoint(runId, stepId, { steps, ...extra }, status);
     this.emitProgress(run);
     return run;
   }
@@ -117,7 +113,7 @@ export class WorkflowExecutor {
     workflow: WorkflowDefinition,
     options?: { resumeRunId?: string; fromStepId?: string }
   ): Promise<{ runId: string; status: string }> {
-    let steps = buildInitialRunSteps(workflow.graph.nodes);
+    let steps = buildInitialRunSteps(workflow.graph);
 
     const run =
       options?.resumeRunId != null
@@ -145,7 +141,6 @@ export class WorkflowExecutor {
       throw new Error('Failed to start workflow run');
     }
 
-    // Ensure steps exist on resume when payload lacked them
     if (getWorkflowRunSteps(run.payload).length === 0) {
       this.persistSteps(run.id, run.stepId, steps, { workflowId: workflow.id });
     } else {
@@ -156,7 +151,6 @@ export class WorkflowExecutor {
     let startIndex = 0;
     if (options?.fromStepId) {
       const idx = order.findIndex((id) => id === options.fromStepId);
-      // Resume from the paused/failed node itself (re-run that node)
       startIndex = idx >= 0 ? idx : 0;
     }
 
@@ -167,10 +161,9 @@ export class WorkflowExecutor {
 
       steps = readSteps(this.checkpoints, run.id, steps);
       if (steps.length === 0) {
-        steps = buildInitialRunSteps(workflow.graph.nodes);
+        steps = buildInitialRunSteps(workflow.graph);
       }
 
-      // Skip already-succeeded steps when resuming mid-graph
       const existingStep = steps.find((s) => s.nodeId === nodeId);
       if (
         options?.resumeRunId &&
@@ -239,19 +232,23 @@ export class WorkflowExecutor {
             lastNode: node.id,
             [`node_${node.id}`]: 'denied',
           });
-          const failed = this.checkpoints.fail(
-            run.id,
-            `Approval denied at node ${node.id}`
-          );
+          const failed = this.checkpoints.fail(run.id, `Approval denied at node ${node.id}`);
           this.emitProgress(failed);
           return { runId: run.id, status: 'failed' };
         }
 
-        // executeNode may have checkpointed mid-step (sessionId etc.) — re-read steps
         steps = readSteps(this.checkpoints, run.id, steps);
+        const doneStep = steps.find((s) => s.nodeId === node.id);
+        const summaryFromOutput =
+          doneStep?.output &&
+          typeof doneStep.output === 'object' &&
+          doneStep.output !== null &&
+          typeof (doneStep.output as { summary?: unknown }).summary === 'string'
+            ? String((doneStep.output as { summary: string }).summary).slice(0, 500)
+            : null;
         steps = updateStep(steps, node.id, {
           status: 'success',
-          summary: this.successSummary(node),
+          summary: summaryFromOutput || this.successSummary(node),
           finishedAt: Date.now(),
         });
         this.persistSteps(run.id, node.id, steps, {
@@ -300,16 +297,27 @@ export class WorkflowExecutor {
     node: WorkflowNode
   ): Promise<'ok' | 'paused' | 'denied'> {
     if (node.type === 'agent') {
+      const stepsBefore = getWorkflowRunSteps(this.checkpoints.get(runId)?.payload || {});
+      const priors = extractPriorAgentResults(stepsBefore);
+      const prompt = composeAgentStepPrompt(node.prompt, priors);
       const result = await this.api.runAgentStep({
         workflowId: workflow.id,
         runId,
         nodeId: node.id,
-        prompt: node.prompt,
+        prompt,
         model: node.model,
+        provider: node.provider,
+        stepLabel: node.label,
       });
       const steps = getWorkflowRunSteps(this.checkpoints.get(runId)?.payload || {});
+      const summary = result.summary?.trim() || undefined;
       const next = updateStep(steps, node.id, {
-        output: truncateOutput({ sessionId: result.sessionId ?? null }),
+        summary: summary ? summary.slice(0, 280) : undefined,
+        output: truncateOutput({
+          sessionId: result.sessionId ?? null,
+          summary: summary ?? null,
+          model: node.model ?? null,
+        }),
       });
       this.persistSteps(runId, node.id, next, {
         sessionId: result.sessionId ?? null,
@@ -318,17 +326,28 @@ export class WorkflowExecutor {
     }
 
     if (node.type === 'tool') {
-      await this.api.runAgentStep({
+      const stepsBefore = getWorkflowRunSteps(this.checkpoints.get(runId)?.payload || {});
+      const priors = extractPriorAgentResults(stepsBefore);
+      const base = `Execute tool ${node.toolName} with args ${JSON.stringify(node.args || {})}. Report outcome briefly.`;
+      const result = await this.api.runAgentStep({
         workflowId: workflow.id,
         runId,
         nodeId: node.id,
-        prompt: `Execute tool ${node.toolName} with args ${JSON.stringify(node.args || {})}. Report outcome briefly.`,
+        prompt: composeAgentStepPrompt(base, priors),
+        stepLabel: node.label || node.toolName,
       });
       const steps = getWorkflowRunSteps(this.checkpoints.get(runId)?.payload || {});
       const next = updateStep(steps, node.id, {
-        output: truncateOutput({ toolName: node.toolName, args: node.args }),
+        output: truncateOutput({
+          toolName: node.toolName,
+          args: node.args,
+          sessionId: result.sessionId ?? null,
+          summary: result.summary ?? null,
+        }),
       });
-      this.persistSteps(runId, node.id, next);
+      this.persistSteps(runId, node.id, next, {
+        sessionId: result.sessionId ?? null,
+      });
       return 'ok';
     }
 
@@ -345,7 +364,6 @@ export class WorkflowExecutor {
         { approvalMessage: node.message },
         'paused_for_approval'
       );
-      // Host may re-enter from resume after user grants; on first encounter we block here.
       const decision = await this.api.requestApproval({
         workflowId: workflow.id,
         runId,
@@ -355,7 +373,6 @@ export class WorkflowExecutor {
       if (decision !== 'allow') {
         return 'denied';
       }
-      // Clear pause so remaining nodes can run under running status
       this.checkpoints.resume(runId);
       return 'ok';
     }

@@ -2,14 +2,17 @@
  * Single workflow-run inspector drawer (OpenHuman FlowRunInspectorDrawer).
  * Polls getRun every 2s while non-terminal; shows step timeline + resume/cancel.
  */
-import { useCallback, useEffect, useState } from 'react';
-import { Loader2, X } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Loader2, MessageSquare, X } from 'lucide-react';
 import type { CheckpointRun } from '../../../shared/orchestration';
 import {
   getWorkflowRunSteps,
   isWorkflowRunTerminal,
   type WorkflowRunStep,
 } from '../../../shared/workflows';
+import { sessionIdsFromWorkflowRun } from '../../../shared/workflow-graph-edit';
+import { activeDivisionFromSession } from '../../../shared/workspace-division';
+import { useAppStore } from '../../store';
 import {
   relativeTime,
   runDisplayStatus,
@@ -37,12 +40,25 @@ function formatTs(ts: number | null | undefined): string | null {
   });
 }
 
+function stepSessionId(step: WorkflowRunStep): string | null {
+  if (step.output && typeof step.output === 'object' && step.output !== null) {
+    const sid = (step.output as { sessionId?: unknown }).sessionId;
+    if (typeof sid === 'string' && sid.trim()) return sid.trim();
+  }
+  return null;
+}
+
 export function WorkflowRunInspector({ runId, onClose, onMutated }: WorkflowRunInspectorProps) {
   const [run, setRun] = useState<CheckpointRun | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [expandedStepId, setExpandedStepId] = useState<string | null>(null);
+  const [chatHint, setChatHint] = useState<string | null>(null);
+
+  const sessions = useAppStore((s) => s.sessions);
+  const setActiveSession = useAppStore((s) => s.setActiveSession);
+  const setActiveDivision = useAppStore((s) => s.setActiveDivision);
 
   const load = useCallback(async () => {
     if (!runId || !window.electronAPI?.workflows?.getRun) return;
@@ -86,6 +102,27 @@ export function WorkflowRunInspector({ runId, onClose, onMutated }: WorkflowRunI
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [runId, onClose]);
+
+  const sessionIds = useMemo(
+    () => (run ? sessionIdsFromWorkflowRun(run.payload) : []),
+    [run]
+  );
+  const primarySessionId = sessionIds[sessionIds.length - 1] || null;
+
+  const openChat = useCallback(
+    (sessionId: string) => {
+      const session = sessions.find((s) => s.id === sessionId);
+      if (!session) {
+        setChatHint('Chat still starting… try again in a moment.');
+        return;
+      }
+      setChatHint(null);
+      setActiveDivision(activeDivisionFromSession(session));
+      setActiveSession(sessionId);
+      onClose();
+    },
+    [sessions, setActiveDivision, setActiveSession, onClose]
+  );
 
   if (!runId) return null;
 
@@ -153,14 +190,22 @@ export function WorkflowRunInspector({ runId, onClose, onMutated }: WorkflowRunI
                 >
                   {runStatusLabel(display)}
                 </span>
-                <span
-                  className="font-mono text-[11px] text-text-muted"
-                  title={run.id}
-                >
+                <span className="font-mono text-[11px] text-text-muted" title={run.id}>
                   {run.id.slice(0, 8)}
                 </span>
               </div>
             ) : null}
+            {primarySessionId ? (
+              <button
+                type="button"
+                onClick={() => openChat(primarySessionId)}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2 py-1 text-[11px] font-medium text-text-secondary hover:bg-surface-hover"
+              >
+                <MessageSquare className="h-3 w-3" />
+                Open chat
+              </button>
+            ) : null}
+            {chatHint ? <p className="text-[11px] text-text-muted">{chatHint}</p> : null}
           </div>
           <button
             type="button"
@@ -217,9 +262,9 @@ export function WorkflowRunInspector({ runId, onClose, onMutated }: WorkflowRunI
               ) : null}
 
               {run.status === 'paused_for_approval' ? (
-                <div className="rounded-xl border border-amber-500/35 bg-amber-500/10 px-3 py-3 text-xs text-amber-900 dark:text-amber-100">
-                  <p className="font-semibold">Needs approval</p>
-                  <p className="mt-1 leading-5 text-amber-800/90 dark:text-amber-200/90">
+                <div className="rounded-xl border border-accent/35 bg-accent/10 px-3 py-3 text-xs text-text-primary">
+                  <p className="font-semibold text-accent">Needs approval</p>
+                  <p className="mt-1 leading-5 text-text-secondary">
                     {approvalMessage || 'This run is waiting for you to allow a gated step.'}
                   </p>
                   <p className="mt-2 text-[11px] text-text-muted">
@@ -240,6 +285,7 @@ export function WorkflowRunInspector({ runId, onClose, onMutated }: WorkflowRunI
                   <ol className="space-y-2">
                     {steps.map((step, index) => {
                       const expanded = expandedStepId === step.nodeId;
+                      const sessionId = stepSessionId(step);
                       return (
                         <li
                           key={step.nodeId}
@@ -258,6 +304,16 @@ export function WorkflowRunInspector({ runId, onClose, onMutated }: WorkflowRunI
                                 <span className="truncate text-sm font-medium text-text-primary">
                                   {step.label}
                                 </span>
+                                {sessionId ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => openChat(sessionId)}
+                                    className="ml-auto inline-flex items-center gap-1 text-[11px] font-medium text-accent hover:underline"
+                                  >
+                                    <MessageSquare className="h-3 w-3" />
+                                    Open
+                                  </button>
+                                ) : null}
                               </div>
                               {step.summary ? (
                                 <p
@@ -269,7 +325,11 @@ export function WorkflowRunInspector({ runId, onClose, onMutated }: WorkflowRunI
                                         : 'italic text-text-muted'
                                   }`}
                                 >
-                                  {step.status === 'success' ? '✓ ' : step.status === 'failed' ? '✗ ' : ''}
+                                  {step.status === 'success'
+                                    ? '✓ '
+                                    : step.status === 'failed'
+                                      ? '✗ '
+                                      : ''}
                                   {step.summary}
                                 </p>
                               ) : null}

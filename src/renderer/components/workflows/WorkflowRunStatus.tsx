@@ -27,15 +27,15 @@ export function runStatusDotClass(status: CheckpointRunStatus | WorkflowRunDispl
     case 'running':
       return 'bg-accent animate-pulse';
     case 'completed':
-      return 'bg-emerald-500';
+      return 'bg-accent';
     case 'failed':
       return 'bg-error';
     case 'cancelled':
       return 'bg-text-muted';
     case 'stuck':
-      return 'bg-amber-500';
+      return 'bg-accent/70 animate-pulse';
     case 'needs_approval':
-      return 'bg-amber-500 animate-pulse';
+      return 'bg-accent animate-pulse';
     default:
       return 'bg-text-muted';
   }
@@ -50,15 +50,15 @@ export function runStatusPillClass(status: CheckpointRunStatus | WorkflowRunDisp
     case 'running':
       return 'bg-accent/12 text-accent ring-1 ring-accent/25';
     case 'completed':
-      return 'bg-emerald-500/12 text-emerald-700 dark:text-emerald-300 ring-1 ring-emerald-500/25';
+      return 'bg-accent/12 text-accent ring-1 ring-accent/25';
     case 'failed':
       return 'bg-error/10 text-error ring-1 ring-error/25';
     case 'cancelled':
       return 'bg-surface-muted text-text-muted ring-1 ring-border-muted';
     case 'stuck':
-      return 'bg-amber-500/15 text-amber-800 dark:text-amber-200 ring-1 ring-amber-500/30';
+      return 'bg-accent/15 text-accent ring-1 ring-accent/30';
     case 'needs_approval':
-      return 'bg-amber-500/15 text-amber-800 dark:text-amber-200 ring-1 ring-amber-500/35';
+      return 'bg-accent/15 text-accent ring-1 ring-accent/35';
     default:
       return 'bg-surface-muted text-text-secondary ring-1 ring-border-muted';
   }
@@ -69,11 +69,11 @@ export function stepStatusDotClass(status: WorkflowRunStepStatus): string {
     case 'running':
       return 'bg-accent animate-pulse';
     case 'success':
-      return 'bg-emerald-500';
+      return 'bg-accent';
     case 'failed':
       return 'bg-error';
     case 'awaiting_approval':
-      return 'bg-amber-500 animate-pulse';
+      return 'bg-accent animate-pulse';
     case 'skipped':
       return 'bg-text-muted/60';
     case 'pending':

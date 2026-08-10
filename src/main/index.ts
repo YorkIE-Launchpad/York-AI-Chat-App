@@ -65,7 +65,14 @@ import { SuperContextExtension } from './supercontext/supercontext-extension';
 import { CheckpointService } from './orchestration/checkpoint-service';
 import { WorkflowService } from './workflows/workflow-service';
 import { WorkflowExtension } from './workflows/workflow-extension';
-import type { WorkflowGraph } from '../shared/workflows';
+import { createWorkflowScheduleBridge } from './workflows/workflow-schedule-bridge';
+import {
+  parseWorkflowSchedulePrompt,
+  formatWorkflowSessionTitle,
+  workflowBindingToStartOptions,
+  type WorkflowBinding,
+  type WorkflowGraph,
+} from '../shared/workflows';
 import type { CheckpointRun } from '../shared/orchestration';
 import { bindSubagentCheckpointService } from './agent/child-agent-session';
 import {
@@ -268,6 +275,37 @@ let folderManager: FolderManager | null = null;
 
 /** Pending workflow approval resolvers keyed by runId:nodeId. */
 const pendingWorkflowApprovals = new Map<string, (decision: 'allow' | 'deny') => void>();
+
+/** Wait until a chat session reaches idle or error (agent turn finished). */
+function waitForSessionIdleOrError(sessionId: string): Promise<void> {
+  return new Promise((resolve) => {
+    const check = () => {
+      if (!sessionManager) {
+        resolve();
+        return true;
+      }
+      const current = sessionManager.listSessions().find((s) => s.id === sessionId);
+      if (!current || current.status === 'idle' || current.status === 'error') {
+        resolve();
+        return true;
+      }
+      return false;
+    };
+    if (check()) return;
+    const interval = setInterval(() => {
+      if (check()) clearInterval(interval);
+    }, 500);
+  });
+}
+
+async function executeTaskMaybeWorkflow(task: {
+  prompt: string;
+}): Promise<{ sessionId: string } | null> {
+  const workflowId = parseWorkflowSchedulePrompt(task.prompt);
+  if (!workflowId || !workflowService) return null;
+  const result = await workflowService.run(workflowId);
+  return { sessionId: result.runId };
+}
 
 function wireWikiAndOrchestration(db: ReturnType<typeof initDatabase>): void {
   wikiService = new WikiService(db);
@@ -1548,6 +1586,8 @@ app
       scheduledTaskManager = new ScheduledTaskManager({
         store: headlessScheduledTaskStore,
         executeTask: async (task) => {
+          const workflowRun = await executeTaskMaybeWorkflow(task);
+          if (workflowRun) return workflowRun;
           if (!sessionManager) {
             throw new Error('Session manager not initialized');
           }
@@ -1594,6 +1634,12 @@ app
         },
         now: () => Date.now(),
       });
+      workflowService?.setScheduleBridge(
+        createWorkflowScheduleBridge(
+          () => scheduledTaskManager,
+          () => configStore.get('defaultWorkdir') || headlessArgs.cwd || process.cwd()
+        )
+      );
       scheduledTaskManager.start();
 
       chatLoopManager = new ChatLoopManager({
@@ -2029,6 +2075,8 @@ app
     scheduledTaskManager = new ScheduledTaskManager({
       store: scheduledTaskStore,
       executeTask: async (task) => {
+        const workflowRun = await executeTaskMaybeWorkflow(task);
+        if (workflowRun) return workflowRun;
         if (!sessionManager) {
           throw new Error('Session manager not initialized');
         }
@@ -2096,6 +2144,12 @@ app
       },
       now: () => Date.now(),
     });
+    workflowService?.setScheduleBridge(
+      createWorkflowScheduleBridge(
+        () => scheduledTaskManager,
+        () => configStore.get('defaultWorkdir') || currentWorkingDir || process.cwd()
+      )
+    );
     scheduledTaskManager.start();
 
     chatLoopManager = new ChatLoopManager({
@@ -2156,21 +2210,70 @@ app
     });
     matterService.start();
 
+    workflowService?.setTitleResolver(async (description) => {
+      if (!sessionManager) return null;
+      try {
+        return await sessionManager.generateSessionTitleFromPrompt(description);
+      } catch {
+        return null;
+      }
+    });
     workflowService?.configureExecutor({
-      runAgentStep: async ({ prompt, workflowId, runId, nodeId }) => {
+      runAgentStep: async ({ prompt, workflowId, runId, nodeId, stepLabel, model, provider }) => {
         if (!sessionManager) throw new Error('Session manager not initialized');
+        const def = workflowService?.get(workflowId);
         const cwd = configStore.get('defaultWorkdir') || currentWorkingDir || process.cwd();
+        const stepPrompt = prompt.includes('[[YORK_WORKFLOW_AGENT_STEP]]')
+          ? prompt
+          : `[[YORK_WORKFLOW_AGENT_STEP]]\n${prompt}`;
+        const title = formatWorkflowSessionTitle(def?.name || 'Workflow', stepLabel);
+        const divisionOpts = def
+          ? workflowBindingToStartOptions(def)
+          : { division: 'general' as const };
+        const lockedModel = model?.trim() || undefined;
+        const lockedProvider = provider?.trim() || undefined;
         const started = await sessionManager.startSession(
-          `Workflow: ${workflowId}`,
-          prompt,
-          cwd
+          title,
+          stepPrompt,
+          cwd,
+          undefined,
+          undefined,
+          undefined,
+          {
+            ...divisionOpts,
+            ...(lockedModel
+              ? {
+                  model: lockedModel,
+                  provider: lockedProvider,
+                  lockModel: true,
+                }
+              : {}),
+          }
         );
         sendToRenderer({
           type: 'session.update',
           payload: { sessionId: started.id, updates: started },
         });
+        // Persist session early so Run details can open chat while the step runs
         checkpointService?.checkpoint(runId, nodeId, { sessionId: started.id });
-        return { sessionId: started.id };
+
+        await waitForSessionIdleOrError(started.id);
+
+        const sessions = sessionManager.listSessions();
+        const current = sessions.find((s) => s.id === started.id);
+        if (current?.status === 'error') {
+          throw new Error(`Workflow agent session failed (${started.id})`);
+        }
+
+        let summary: string | null = null;
+        try {
+          summary = extractAssistantText(sessionManager.getMessages(started.id));
+          if (summary && summary.length > 8000) summary = summary.slice(0, 8000);
+        } catch {
+          summary = null;
+        }
+
+        return { sessionId: started.id, summary };
       },
       requestApproval: async ({ runId, nodeId, message, workflowId }) => {
         const key = `${runId}:${nodeId}`;
@@ -4811,6 +4914,14 @@ ipcMain.handle(
       description?: string;
       status?: 'draft' | 'enabled' | 'disabled';
       graph: WorkflowGraph;
+      division?: WorkflowBinding['division'];
+      hubProjectId?: string | null;
+      hubProjectName?: string | null;
+      launchpadProjectId?: number | null;
+      launchpadProjectName?: string | null;
+      folderId?: string | null;
+      folderName?: string | null;
+      canonicalKey?: string | null;
     }
   ) => {
     if (!workflowService) throw new Error('Workflow service not initialized');
@@ -4827,6 +4938,14 @@ ipcMain.handle(
       description?: string;
       status?: 'draft' | 'enabled' | 'disabled';
       graph?: WorkflowGraph;
+      division?: WorkflowBinding['division'];
+      hubProjectId?: string | null;
+      hubProjectName?: string | null;
+      launchpadProjectId?: number | null;
+      launchpadProjectName?: string | null;
+      folderId?: string | null;
+      folderName?: string | null;
+      canonicalKey?: string | null;
     }
   ) => {
     if (!workflowService) throw new Error('Workflow service not initialized');
@@ -4837,10 +4956,18 @@ ipcMain.handle('workflows.delete', (_event, id: string) => {
   if (!workflowService) throw new Error('Workflow service not initialized');
   return { success: workflowService.delete(id) };
 });
-ipcMain.handle('workflows.propose', (_event, description: string) => {
-  if (!workflowService) throw new Error('Workflow service not initialized');
-  return workflowService.proposeFromDescription(description);
-});
+ipcMain.handle(
+  'workflows.propose',
+  async (
+    _event,
+    description: string,
+    binding?: Partial<WorkflowBinding> | null
+  ) => {
+    if (!workflowService) throw new Error('Workflow service not initialized');
+    const result = await workflowService.proposeFromDescription(description, { binding });
+    return result.workflow;
+  }
+);
 ipcMain.handle('workflows.run', async (_event, id: string) => {
   if (!workflowService) throw new Error('Workflow service not initialized');
   return workflowService.run(id);

@@ -659,6 +659,15 @@ function initializeSchema(database: Database.Database): void {
     )
   `);
 
+    ensureColumn(database, 'workflows', 'division', "division TEXT NOT NULL DEFAULT 'general'");
+    ensureColumn(database, 'workflows', 'hub_project_id', 'hub_project_id TEXT');
+    ensureColumn(database, 'workflows', 'hub_project_name', 'hub_project_name TEXT');
+    ensureColumn(database, 'workflows', 'launchpad_project_id', 'launchpad_project_id INTEGER');
+    ensureColumn(database, 'workflows', 'launchpad_project_name', 'launchpad_project_name TEXT');
+    ensureColumn(database, 'workflows', 'folder_id', 'folder_id TEXT');
+    ensureColumn(database, 'workflows', 'folder_name', 'folder_name TEXT');
+    ensureColumn(database, 'workflows', 'project_canonical_key', 'project_canonical_key TEXT');
+
     database.exec(`
     CREATE INDEX IF NOT EXISTS idx_workflows_status
     ON workflows(status, updated_at DESC)
