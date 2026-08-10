@@ -702,6 +702,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     count: () => ipcRenderer.invoke('wiki.count'),
   },
 
+  summaryTree: {
+    getGraph: (options?: { includeSourceLeaves?: boolean }) =>
+      ipcRenderer.invoke('summaryTree.getGraph', options),
+    stats: () => ipcRenderer.invoke('summaryTree.stats'),
+    build: () => ipcRenderer.invoke('summaryTree.build'),
+    reset: () => ipcRenderer.invoke('summaryTree.reset'),
+    getNode: (id: string) => ipcRenderer.invoke('summaryTree.getNode', id),
+    getVaultPath: () => ipcRenderer.invoke('summaryTree.getVaultPath'),
+  },
+
   checkpoints: {
     list: (limit?: number) => ipcRenderer.invoke('checkpoints.list', limit),
     get: (id: string) => ipcRenderer.invoke('checkpoints.get', id),
@@ -1223,6 +1233,16 @@ declare global {
           title?: string;
         }) => Promise<import('../shared/wiki').WikiPage | null>;
         count: () => Promise<{ count: number }>;
+      };
+      summaryTree: {
+        getGraph: (options?: {
+          includeSourceLeaves?: boolean;
+        }) => Promise<import('../shared/summary-tree').SummaryTreeGraph>;
+        stats: () => Promise<import('../shared/summary-tree').SummaryTreeStats>;
+        build: () => Promise<import('../shared/summary-tree').SummaryTreeBuildResult>;
+        reset: () => Promise<import('../shared/summary-tree').SummaryTreeStats>;
+        getNode: (id: string) => Promise<import('../shared/summary-tree').SummaryTreeNode | null>;
+        getVaultPath: () => Promise<{ path: string }>;
       };
       checkpoints: {
         list: (limit?: number) => Promise<import('../shared/orchestration').CheckpointRun[]>;

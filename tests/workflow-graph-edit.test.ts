@@ -79,6 +79,47 @@ describe('workflow-graph-edit', () => {
     expect(agent2?.type === 'agent' && agent2.model).toBeUndefined();
   });
 
+  it('updates tool node toolName and args', () => {
+    const graph: WorkflowGraph = {
+      version: WORKFLOW_SCHEMA_VERSION,
+      nodes: [
+        { id: 'trigger_1', type: 'trigger', label: 'Manual', trigger: 'manual' },
+        {
+          id: 'tool_1',
+          type: 'tool',
+          label: 'Tool step',
+          toolName: 'placeholder_tool',
+        },
+      ],
+      edges: [{ id: 'e', from: 'trigger_1', to: 'tool_1' }],
+    };
+    const next = updateNodeFields(graph, 'tool_1', {
+      toolName: 'list_employees',
+      args: { projectId: 'abc', limit: 10 },
+    });
+    const tool = next.nodes.find((n) => n.id === 'tool_1');
+    expect(tool?.type === 'tool' && tool.toolName).toBe('list_employees');
+    expect(tool?.type === 'tool' && tool.args).toEqual({ projectId: 'abc', limit: 10 });
+
+    const labelOnly = updateNodeFields(next, 'tool_1', { label: 'Employees' });
+    const labeled = labelOnly.nodes.find((n) => n.id === 'tool_1');
+    expect(labeled?.type === 'tool' && labeled.label).toBe('Employees');
+    expect(labeled?.type === 'tool' && labeled.toolName).toBe('list_employees');
+    expect(labeled?.type === 'tool' && labeled.args).toEqual({ projectId: 'abc', limit: 10 });
+
+    const cleared = updateNodeFields(labelOnly, 'tool_1', { args: null });
+    const clearedTool = cleared.nodes.find((n) => n.id === 'tool_1');
+    expect(clearedTool?.type === 'tool' && clearedTool.args).toBeUndefined();
+
+    const emptyObj = updateNodeFields(
+      updateNodeFields(graph, 'tool_1', { args: { x: 1 } }),
+      'tool_1',
+      { args: {} }
+    );
+    const emptyTool = emptyObj.nodes.find((n) => n.id === 'tool_1');
+    expect(emptyTool?.type === 'tool' && emptyTool.args).toBeUndefined();
+  });
+
   it('composes prior results only for subsequent agents', () => {
     const first = composeAgentStepPrompt('First prompt', []);
     expect(first).toBe('First prompt');

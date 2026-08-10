@@ -615,6 +615,40 @@ function initializeSchema(database: Database.Database): void {
     ON wiki_pages(score DESC, updated_at DESC)
   `);
 
+    // Summary Tree nodes (OpenHuman-aligned L0→L1→L2 over wiki leaves)
+    database.exec(`
+    CREATE TABLE IF NOT EXISTS summary_tree_nodes (
+      id TEXT PRIMARY KEY,
+      tree_key TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      level INTEGER NOT NULL,
+      parent_id TEXT,
+      title TEXT NOT NULL,
+      body TEXT NOT NULL DEFAULT '',
+      wiki_page_id TEXT,
+      score REAL NOT NULL DEFAULT 0,
+      x REAL NOT NULL DEFAULT 0,
+      y REAL NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
+
+    database.exec(`
+    CREATE INDEX IF NOT EXISTS idx_summary_tree_nodes_tree
+    ON summary_tree_nodes(tree_key)
+  `);
+
+    database.exec(`
+    CREATE INDEX IF NOT EXISTS idx_summary_tree_nodes_parent
+    ON summary_tree_nodes(parent_id)
+  `);
+
+    database.exec(`
+    CREATE INDEX IF NOT EXISTS idx_summary_tree_nodes_kind
+    ON summary_tree_nodes(kind)
+  `);
+
     // Durable orchestration checkpoints (M3)
     database.exec(`
     CREATE TABLE IF NOT EXISTS checkpoint_runs (

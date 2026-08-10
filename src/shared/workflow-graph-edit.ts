@@ -255,6 +255,9 @@ export function updateNodeFields(
     model?: string | null;
     provider?: string | null;
     message?: string;
+    toolName?: string;
+    /** null clears args; empty object is also omitted. */
+    args?: Record<string, unknown> | null;
   }
 ): WorkflowGraph {
   const g = cloneGraph(graph);
@@ -274,6 +277,24 @@ export function updateNodeFields(
       delete next.provider;
     } else if (fields.provider !== undefined) {
       next.provider = fields.provider.trim() || undefined;
+    }
+    g.nodes[idx] = next;
+  } else if (node.type === 'tool') {
+    const next: WorkflowToolNode = { ...node };
+    if (fields.label !== undefined) next.label = fields.label.trim() || next.label;
+    if (fields.toolName !== undefined) {
+      const name = fields.toolName.trim();
+      if (name) next.toolName = name;
+    }
+    if (fields.args === null) {
+      delete next.args;
+    } else if (fields.args !== undefined) {
+      const keys = Object.keys(fields.args);
+      if (keys.length === 0) {
+        delete next.args;
+      } else {
+        next.args = fields.args;
+      }
     }
     g.nodes[idx] = next;
   } else if (node.type === 'approval' && fields.message !== undefined) {

@@ -13,6 +13,7 @@ import type {
 import { useAppStore } from '../../store';
 import { SettingsContentSection } from './shared';
 import { SettingsMemoryWiki } from './SettingsMemoryWiki';
+import { SettingsSummaryTree } from './SettingsSummaryTree';
 
 type SearchMode = 'workspace' | 'all' | 'global';
 
@@ -351,6 +352,7 @@ export function SettingsMemory() {
   return (
     <div className="space-y-6">
       <SettingsMemoryWiki />
+      <SettingsSummaryTree />
       <SettingsContentSection title={t('memory.title')} description={t('memory.description')}>
         <div className="flex flex-col gap-3 rounded-xl border border-border-muted bg-background-secondary/60 p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">

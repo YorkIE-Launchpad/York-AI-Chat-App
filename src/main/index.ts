@@ -61,6 +61,8 @@ import { WebFetchExtension } from './tools/web-fetch-extension';
 import { AskUserQuestionExtension } from './tools/ask-user-question-extension';
 import { WikiService } from './wiki/wiki-service';
 import { WikiExtension } from './wiki/wiki-extension';
+import { SummaryTreeService } from './summary-tree/summary-tree-service';
+import { SummaryTreeExtension } from './summary-tree/summary-tree-extension';
 import { SuperContextExtension } from './supercontext/supercontext-extension';
 import { CheckpointService } from './orchestration/checkpoint-service';
 import { WorkflowService } from './workflows/workflow-service';
@@ -266,6 +268,7 @@ let pluginRuntimeService: PluginRuntimeService | null = null;
 let memoryService: MemoryService | null = null;
 let meetingService: MeetingService | null = null;
 let wikiService: WikiService | null = null;
+let summaryTreeService: SummaryTreeService | null = null;
 let checkpointService: CheckpointService | null = null;
 let workflowService: WorkflowService | null = null;
 let scheduledTaskManager: ScheduledTaskManager | null = null;
@@ -309,6 +312,7 @@ async function executeTaskMaybeWorkflow(task: {
 
 function wireWikiAndOrchestration(db: ReturnType<typeof initDatabase>): void {
   wikiService = new WikiService(db);
+  summaryTreeService = new SummaryTreeService(db);
   checkpointService = new CheckpointService(db);
   workflowService = new WorkflowService(db, checkpointService);
   bindSubagentCheckpointService(checkpointService);
@@ -339,16 +343,18 @@ function wireWikiAndOrchestration(db: ReturnType<typeof initDatabase>): void {
 function buildExtensionList(
   askUserQuestionExtension: AskUserQuestionExtension
 ): import('./extensions/agent-runtime-extension').AgentRuntimeExtension[] {
-  if (!memoryService || !wikiService || !meetingService || !workflowService) {
+  if (!memoryService || !wikiService || !meetingService || !workflowService || !summaryTreeService) {
     throw new Error('Core services not ready for extension list');
   }
   return [
     new MemoryExtension(memoryService),
     new WikiExtension(wikiService),
+    new SummaryTreeExtension(summaryTreeService),
     new SuperContextExtension(() => ({
       wikiService,
       matterService,
       meetingService,
+      summaryTreeService,
     })),
     new MeetingExtension(meetingService),
     new WorkflowExtension(workflowService),
@@ -4858,6 +4864,37 @@ ipcMain.handle(
 ipcMain.handle('wiki.count', () => {
   if (!wikiService) throw new Error('Wiki service not initialized');
   return { count: wikiService.count() };
+});
+
+// ── Summary Tree (OpenHuman-aligned hierarchy over wiki) ─────────────────────
+ipcMain.handle(
+  'summaryTree.getGraph',
+  (_event, options?: { includeSourceLeaves?: boolean }) => {
+    if (!summaryTreeService) throw new Error('Summary tree service not initialized');
+    return summaryTreeService.getGraph(options);
+  }
+);
+ipcMain.handle('summaryTree.stats', () => {
+  if (!summaryTreeService) throw new Error('Summary tree service not initialized');
+  return summaryTreeService.stats();
+});
+ipcMain.handle('summaryTree.build', () => {
+  if (!summaryTreeService || !wikiService) {
+    throw new Error('Summary tree / wiki not initialized');
+  }
+  return summaryTreeService.buildFromWiki(wikiService);
+});
+ipcMain.handle('summaryTree.reset', () => {
+  if (!summaryTreeService) throw new Error('Summary tree service not initialized');
+  return summaryTreeService.reset();
+});
+ipcMain.handle('summaryTree.getNode', (_event, id: string) => {
+  if (!summaryTreeService) throw new Error('Summary tree service not initialized');
+  return summaryTreeService.getNode(id);
+});
+ipcMain.handle('summaryTree.getVaultPath', () => {
+  if (!summaryTreeService) throw new Error('Summary tree service not initialized');
+  return { path: summaryTreeService.getVaultPath() };
 });
 
 // ── Checkpoints (M3) ─────────────────────────────────────────────────────────

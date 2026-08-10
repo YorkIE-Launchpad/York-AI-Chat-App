@@ -12,6 +12,7 @@ import { configStore } from '../config/config-store';
 import type { MatterService } from '../matter/matter-service';
 import type { MeetingService } from '../meetings/meeting-service';
 import type { WikiService } from '../wiki/wiki-service';
+import type { SummaryTreeService } from '../summary-tree/summary-tree-service';
 import { logWarn } from '../utils/logger';
 
 export interface SuperContextScoutInput {
@@ -24,6 +25,7 @@ export interface SuperContextDependencies {
   wikiService: WikiService | null;
   matterService: MatterService | null;
   meetingService: MeetingService | null;
+  summaryTreeService?: SummaryTreeService | null;
 }
 
 function trimBudget(text: string, budget = SUPER_CONTEXT_CHAR_BUDGET): string {
@@ -62,6 +64,17 @@ export async function buildSuperContextPrefix(
   const sections: string[] = ['[SuperContext scout — local sources only]'];
 
   try {
+    if (deps.summaryTreeService) {
+      const docs = deps.summaryTreeService.listDocuments(3);
+      if (docs.length) {
+        sections.push('## Summary Tree (documents)');
+        for (const doc of docs) {
+          const excerpt = doc.body.replace(/\s+/g, ' ').trim().slice(0, 280);
+          sections.push(`- ${doc.treeKey}: ${doc.title} — ${excerpt}`);
+        }
+      }
+    }
+
     if (deps.wikiService) {
       const hits = deps.wikiService.search(query, 5);
       if (hits.length) {

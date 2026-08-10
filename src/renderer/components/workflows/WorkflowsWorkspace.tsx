@@ -950,6 +950,20 @@ function EmptyDetail() {
   );
 }
 
+type McpToolOption = {
+  name: string;
+  serverName?: string;
+};
+
+function formatToolArgs(args: Record<string, unknown> | undefined): string {
+  if (!args || Object.keys(args).length === 0) return '';
+  try {
+    return JSON.stringify(args, null, 2);
+  } catch {
+    return '';
+  }
+}
+
 function NodeInspector({
   node,
   graph,
@@ -970,6 +984,8 @@ function NodeInspector({
       model?: string | null;
       provider?: string | null;
       message?: string;
+      toolName?: string;
+      args?: Record<string, unknown> | null;
     }
   ) => Promise<void>;
   onAddAfter: (afterId: string) => Promise<void>;
@@ -979,8 +995,12 @@ function NodeInspector({
   const [label, setLabel] = useState('');
   const [prompt, setPrompt] = useState('');
   const [message, setMessage] = useState('');
+  const [toolName, setToolName] = useState('');
+  const [argsText, setArgsText] = useState('');
+  const [argsError, setArgsError] = useState<string | null>(null);
   const [modelKey, setModelKey] = useState('');
   const [models, setModels] = useState<BackendModelInfo[]>([]);
+  const [mcpTools, setMcpTools] = useState<McpToolOption[]>([]);
   const [dirty, setDirty] = useState(false);
 
   useEffect(() => {
@@ -990,6 +1010,14 @@ function NodeInspector({
     setMessage(
       node.type === 'approval' || node.type === 'notify' ? node.message || '' : ''
     );
+    if (node.type === 'tool') {
+      setToolName(node.toolName || '');
+      setArgsText(formatToolArgs(node.args));
+    } else {
+      setToolName('');
+      setArgsText('');
+    }
+    setArgsError(null);
     if (node.type === 'agent' && node.model) {
       setModelKey(`${node.provider || ''}::${node.model}`);
     } else {
@@ -1006,6 +1034,23 @@ function NodeInspector({
       .catch(() => setModels([]));
   }, []);
 
+  useEffect(() => {
+    if (!window.electronAPI?.mcp?.getTools) return;
+    void window.electronAPI.mcp
+      .getTools()
+      .then((items) => {
+        const list = (items || [])
+          .map((t) => ({
+            name: String((t as McpToolOption).name || '').trim(),
+            serverName: String((t as McpToolOption).serverName || '').trim() || undefined,
+          }))
+          .filter((t) => t.name);
+        list.sort((a, b) => a.name.localeCompare(b.name));
+        setMcpTools(list);
+      })
+      .catch(() => setMcpTools([]));
+  }, []);
+
   if (!node) return null;
   const meta = NODE_META[node.type];
   const Icon = meta.icon;
@@ -1015,6 +1060,7 @@ function NodeInspector({
     (node.type !== 'agent' || agentCount > 1);
   const canSplit =
     node.type === 'agent' && (prompt.includes('\n\n') || prompt.trim().length > 80);
+  const toolDatalistId = `workflow-tool-names-${node.id}`;
 
   const save = async () => {
     if (node.type === 'agent') {
@@ -1030,6 +1076,37 @@ function NodeInspector({
         prompt,
         model,
         provider,
+      });
+    } else if (node.type === 'tool') {
+      const trimmedName = toolName.trim();
+      if (!trimmedName) {
+        setArgsError('Tool name is required.');
+        return;
+      }
+      const raw = argsText.trim();
+      let args: Record<string, unknown> | null = null;
+      if (raw) {
+        try {
+          const parsed: unknown = JSON.parse(raw);
+          if (
+            parsed === null ||
+            typeof parsed !== 'object' ||
+            Array.isArray(parsed)
+          ) {
+            setArgsError('Arguments must be a JSON object (e.g. {"key": "value"}).');
+            return;
+          }
+          args = parsed as Record<string, unknown>;
+        } catch {
+          setArgsError('Arguments must be valid JSON.');
+          return;
+        }
+      }
+      setArgsError(null);
+      await onSaveFields(node.id, {
+        label,
+        toolName: trimmedName,
+        args,
       });
     } else if (node.type === 'approval' || node.type === 'notify') {
       await onSaveFields(node.id, { label, message });
@@ -1111,6 +1188,67 @@ function NodeInspector({
                   </option>
                 ))}
               </select>
+            </label>
+          </>
+        ) : null}
+
+        {node.type === 'tool' ? (
+          <>
+            <label className="block space-y-1">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-text-muted">
+                Tool
+              </span>
+              <input
+                list={toolDatalistId}
+                value={toolName}
+                disabled={busy}
+                placeholder="Select or type a tool name"
+                onChange={(e) => {
+                  setToolName(e.target.value);
+                  setArgsError(null);
+                  setDirty(true);
+                }}
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-text-primary focus:border-accent/40 focus:outline-none focus:ring-2 focus:ring-accent/15 disabled:opacity-60"
+              />
+              <datalist id={toolDatalistId}>
+                {mcpTools.map((t) => (
+                  <option
+                    key={`${t.serverName || 'mcp'}:${t.name}`}
+                    value={t.name}
+                    label={t.serverName ? `${t.name} · ${t.serverName}` : t.name}
+                  />
+                ))}
+              </datalist>
+              <p className="text-[11px] leading-4 text-text-muted">
+                {mcpTools.length > 0
+                  ? `${mcpTools.length} connected MCP tool${mcpTools.length === 1 ? '' : 's'} available — or type any tool name.`
+                  : 'Type a tool name (MCP tools appear here when connectors are ready).'}
+              </p>
+            </label>
+            <label className="block space-y-1">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-text-muted">
+                Arguments (JSON)
+              </span>
+              <textarea
+                value={argsText}
+                disabled={busy}
+                rows={5}
+                spellCheck={false}
+                placeholder='{"key": "value"}'
+                onChange={(e) => {
+                  setArgsText(e.target.value);
+                  setArgsError(null);
+                  setDirty(true);
+                }}
+                className="w-full resize-y rounded-lg border border-border bg-background px-3 py-2 font-mono text-xs leading-5 text-text-primary focus:border-accent/40 focus:outline-none focus:ring-2 focus:ring-accent/15 disabled:opacity-60"
+              />
+              {argsError ? (
+                <p className="text-[11px] leading-4 text-error">{argsError}</p>
+              ) : (
+                <p className="text-[11px] leading-4 text-text-muted">
+                  Optional JSON object passed as tool args. Leave empty for no args.
+                </p>
+              )}
             </label>
           </>
         ) : null}
