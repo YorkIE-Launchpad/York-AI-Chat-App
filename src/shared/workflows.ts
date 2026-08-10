@@ -96,10 +96,98 @@ export interface WorkflowDefinitionInput {
   graph: WorkflowGraph;
 }
 
+export type WorkflowRunStepStatus =
+  | 'pending'
+  | 'running'
+  | 'success'
+  | 'failed'
+  | 'skipped'
+  | 'awaiting_approval';
+
+/** One node on a durable workflow run timeline (stored in checkpoint payload.steps). */
+export interface WorkflowRunStep {
+  nodeId: string;
+  label: string;
+  type: WorkflowNodeType;
+  status: WorkflowRunStepStatus;
+  summary?: string;
+  output?: unknown;
+  startedAt?: number;
+  finishedAt?: number;
+  error?: string;
+}
+
 export interface WorkflowRunSummary {
   run: CheckpointRun;
   workflowId: string;
   workflowName: string;
+}
+
+/** Progress push payload for live UI refresh. */
+export interface WorkflowRunProgressEvent {
+  runId: string;
+  workflowId: string;
+  status: CheckpointRun['status'];
+  stepId: string;
+  steps?: WorkflowRunStep[];
+}
+
+export type WorkflowRunDisplayStatus =
+  | CheckpointRun['status']
+  | 'needs_approval';
+
+export function isWorkflowRunTerminal(status: CheckpointRun['status']): boolean {
+  return status === 'completed' || status === 'failed' || status === 'cancelled';
+}
+
+export function resolveWorkflowRunDisplayStatus(
+  status: CheckpointRun['status']
+): WorkflowRunDisplayStatus {
+  if (status === 'paused_for_approval') return 'needs_approval';
+  return status;
+}
+
+export function workflowRunDisplayLabel(status: WorkflowRunDisplayStatus): string {
+  switch (status) {
+    case 'needs_approval':
+      return 'Needs approval';
+    case 'paused_for_approval':
+      return 'Needs approval';
+    case 'running':
+      return 'Running';
+    case 'completed':
+      return 'Completed';
+    case 'failed':
+      return 'Failed';
+    case 'cancelled':
+      return 'Cancelled';
+    case 'stuck':
+      return 'Stuck';
+    default:
+      return status;
+  }
+}
+
+export function getWorkflowRunSteps(payload: CheckpointRun['payload']): WorkflowRunStep[] {
+  const raw = payload.steps;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(
+    (s): s is WorkflowRunStep =>
+      typeof s === 'object' &&
+      s !== null &&
+      typeof (s as WorkflowRunStep).nodeId === 'string' &&
+      typeof (s as WorkflowRunStep).status === 'string'
+  );
+}
+
+export function buildInitialRunSteps(nodes: WorkflowNode[]): WorkflowRunStep[] {
+  return nodes.map((node) => ({
+    nodeId: node.id,
+    label: node.label || node.type,
+    type: node.type,
+    status: node.type === 'trigger' ? ('skipped' as const) : ('pending' as const),
+    summary: node.type === 'trigger' ? 'Trigger (start)' : undefined,
+  }));
 }
 
 export function createEmptyWorkflowGraph(): WorkflowGraph {

@@ -2190,6 +2190,13 @@ app
       notify: async ({ message }) => {
         log(`[Workflow] Notify: ${message}`);
       },
+      onProgress: (event) => {
+        for (const win of BrowserWindow.getAllWindows()) {
+          if (!win.isDestroyed()) {
+            win.webContents.send('workflows:run-progress', event);
+          }
+        }
+      },
     });
 
     checkpointService?.registerResumer('goal_tick', async (run: CheckpointRun) => {
@@ -4837,6 +4844,18 @@ ipcMain.handle('workflows.propose', (_event, description: string) => {
 ipcMain.handle('workflows.run', async (_event, id: string) => {
   if (!workflowService) throw new Error('Workflow service not initialized');
   return workflowService.run(id);
+});
+ipcMain.handle('workflows.listRuns', (_event, workflowId: string, limit?: number) => {
+  if (!workflowService) throw new Error('Workflow service not initialized');
+  return workflowService.listRuns(workflowId, limit);
+});
+ipcMain.handle('workflows.listAllRuns', (_event, limit?: number) => {
+  if (!workflowService) throw new Error('Workflow service not initialized');
+  return workflowService.listAllRuns(limit);
+});
+ipcMain.handle('workflows.getRun', (_event, runId: string) => {
+  if (!workflowService) throw new Error('Workflow service not initialized');
+  return workflowService.getRun(runId);
 });
 
 ipcMain.handle('meetings.getOverview', async () => {

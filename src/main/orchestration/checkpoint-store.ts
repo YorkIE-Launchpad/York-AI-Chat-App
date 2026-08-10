@@ -101,6 +101,40 @@ export class CheckpointStore {
     return rows.map(mapCheckpointRow);
   }
 
+  listByKind(kind: CheckpointRunKind, limit = 50): CheckpointRun[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM checkpoint_runs WHERE kind = ? ORDER BY updated_at DESC LIMIT ?`
+      )
+      .all(kind, limit) as CheckpointRunRow[];
+    return rows.map(mapCheckpointRow);
+  }
+
+  listBySource(
+    sourceId: string,
+    kind?: CheckpointRunKind,
+    limit = 40
+  ): CheckpointRun[] {
+    if (kind) {
+      const rows = this.db
+        .prepare(
+          `SELECT * FROM checkpoint_runs
+           WHERE source_id = ? AND kind = ?
+           ORDER BY updated_at DESC LIMIT ?`
+        )
+        .all(sourceId, kind, limit) as CheckpointRunRow[];
+      return rows.map(mapCheckpointRow);
+    }
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM checkpoint_runs
+         WHERE source_id = ?
+         ORDER BY updated_at DESC LIMIT ?`
+      )
+      .all(sourceId, limit) as CheckpointRunRow[];
+    return rows.map(mapCheckpointRow);
+  }
+
   listResumable(): CheckpointRun[] {
     const placeholders = RESUMABLE_CHECKPOINT_STATUSES.map(() => '?').join(',');
     const rows = this.db

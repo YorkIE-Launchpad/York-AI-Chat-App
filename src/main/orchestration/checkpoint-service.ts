@@ -67,6 +67,18 @@ export class CheckpointService {
     return this.store.list(limit);
   }
 
+  listByKind(kind: CheckpointRun['kind'], limit?: number): CheckpointRun[] {
+    return this.store.listByKind(kind, limit);
+  }
+
+  listBySource(
+    sourceId: string,
+    kind?: CheckpointRun['kind'],
+    limit?: number
+  ): CheckpointRun[] {
+    return this.store.listBySource(sourceId, kind, limit);
+  }
+
   listResumable(): CheckpointRun[] {
     return this.store.listResumable();
   }

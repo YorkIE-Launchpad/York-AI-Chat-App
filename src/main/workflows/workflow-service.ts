@@ -3,11 +3,13 @@
  */
 import type { DatabaseInstance } from '../db/database';
 import type { CheckpointService } from '../orchestration/checkpoint-service';
+import type { CheckpointRun } from '../../shared/orchestration';
 import type {
   WorkflowDefinition,
   WorkflowDefinitionInput,
   WorkflowGraph,
   WorkflowNode,
+  WorkflowRunSummary,
 } from '../../shared/workflows';
 import {
   WORKFLOW_SCHEMA_VERSION,
@@ -30,6 +32,29 @@ export class WorkflowService {
 
   configureExecutor(api: WorkflowExecutorApi): void {
     this.executor = new WorkflowExecutor(this.checkpoints, api);
+  }
+
+  listRuns(workflowId: string, limit = 40): CheckpointRun[] {
+    return this.checkpoints.listBySource(workflowId, 'workflow', limit);
+  }
+
+  listAllRuns(limit = 50): WorkflowRunSummary[] {
+    const runs = this.checkpoints.listByKind('workflow', limit);
+    return runs.map((run) => {
+      const workflowId = String(run.sourceId || run.payload.workflowId || '');
+      const def = workflowId ? this.store.get(workflowId) : null;
+      return {
+        run,
+        workflowId,
+        workflowName: def?.name || run.title || 'Unknown workflow',
+      };
+    });
+  }
+
+  getRun(runId: string): CheckpointRun | null {
+    const run = this.checkpoints.get(runId);
+    if (!run || run.kind !== 'workflow') return null;
+    return run;
   }
 
   list(): WorkflowDefinition[] {

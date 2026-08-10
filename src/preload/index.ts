@@ -717,6 +717,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
     delete: (id: string) => ipcRenderer.invoke('workflows.delete', id),
     propose: (description: string) => ipcRenderer.invoke('workflows.propose', description),
     run: (id: string) => ipcRenderer.invoke('workflows.run', id),
+    listRuns: (workflowId: string, limit?: number) =>
+      ipcRenderer.invoke('workflows.listRuns', workflowId, limit),
+    listAllRuns: (limit?: number) => ipcRenderer.invoke('workflows.listAllRuns', limit),
+    getRun: (runId: string) => ipcRenderer.invoke('workflows.getRun', runId),
+    onRunProgress: (
+      callback: (event: import('../shared/workflows').WorkflowRunProgressEvent) => void
+    ): (() => void) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        payload: import('../shared/workflows').WorkflowRunProgressEvent
+      ) => callback(payload);
+      ipcRenderer.on('workflows:run-progress', listener);
+      return () => ipcRenderer.removeListener('workflows:run-progress', listener);
+    },
   },
 
   meetings: {
@@ -1226,6 +1240,19 @@ declare global {
         delete: (id: string) => Promise<{ success: boolean }>;
         propose: (description: string) => Promise<import('../shared/workflows').WorkflowDefinition>;
         run: (id: string) => Promise<{ runId: string; status: string }>;
+        listRuns: (
+          workflowId: string,
+          limit?: number
+        ) => Promise<import('../shared/orchestration').CheckpointRun[]>;
+        listAllRuns: (
+          limit?: number
+        ) => Promise<import('../shared/workflows').WorkflowRunSummary[]>;
+        getRun: (
+          runId: string
+        ) => Promise<import('../shared/orchestration').CheckpointRun | null>;
+        onRunProgress: (
+          callback: (event: import('../shared/workflows').WorkflowRunProgressEvent) => void
+        ) => () => void;
       };
       meetings: {
         getOverview: () => Promise<MeetingOverview>;
