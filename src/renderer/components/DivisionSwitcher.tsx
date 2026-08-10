@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Briefcase,
   Building2,
@@ -17,7 +17,13 @@ import {
   divisionLabel,
 } from '../../shared/workspace-division';
 import type { UnifiedCompanyProject } from '../../shared/unified-company-projects';
+import { canonicalKeyForUnified } from '../../shared/unified-company-projects';
 import { hasOpenRouterUserApiKey } from '../../shared/openrouter-user-key';
+import {
+  rememberRecentProject,
+  resolveRecentProjects,
+  readRecentProjects,
+} from '../utils/recent-projects';
 
 interface DivisionSwitcherProps {
   compact?: boolean;
@@ -156,12 +162,23 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
 
   const selectProject = useCallback(
     (project: UnifiedCompanyProject) => {
+      rememberRecentProject(project);
       setActiveDivision(activeDivisionFromUnifiedProject(project));
       setMenuOpen(false);
       setPickingProject(false);
     },
     [setActiveDivision]
   );
+
+  const recentProjects = useMemo(
+    () => resolveRecentProjects(readRecentProjects(), projects),
+    [projects]
+  );
+
+  const otherProjects = useMemo(() => {
+    const recentKeys = new Set(recentProjects.map((p) => canonicalKeyForUnified(p)));
+    return projects.filter((p) => !recentKeys.has(canonicalKeyForUnified(p)));
+  }, [projects, recentProjects]);
 
   const selectFolder = useCallback(
     (folder: PersonalFolder) => {
@@ -381,32 +398,74 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
               {!loadingProjects && projectsError && projects.length > 0 && (
                 <p className="px-3 py-1 text-xs text-text-muted">{projectsError}</p>
               )}
+              {!loadingProjects && recentProjects.length > 0 && (
+                <>
+                  <div className="px-3 pt-1 pb-0.5 text-[10px] font-medium uppercase tracking-wide text-text-muted">
+                    Recent
+                  </div>
+                  {recentProjects.map((project) => (
+                    <ProjectMenuRow
+                      key={`recent:${project.canonicalKey}`}
+                      project={project}
+                      active={
+                        activeDivision?.kind === 'project' &&
+                        activeDivision.canonicalKey === project.canonicalKey
+                      }
+                      onSelect={selectProject}
+                    />
+                  ))}
+                  {otherProjects.length > 0 && (
+                    <div className="my-1 border-t border-border" />
+                  )}
+                </>
+              )}
+              {!loadingProjects && otherProjects.length > 0 && recentProjects.length > 0 && (
+                <div className="px-3 pt-0.5 pb-0.5 text-[10px] font-medium uppercase tracking-wide text-text-muted">
+                  All projects
+                </div>
+              )}
               {!loadingProjects &&
-                projects.map((project) => (
-                  <button
+                otherProjects.map((project) => (
+                  <ProjectMenuRow
                     key={project.canonicalKey}
-                    type="button"
-                    className={`w-full px-3 py-2 text-left hover:bg-bg-secondary ${
+                    project={project}
+                    active={
                       activeDivision?.kind === 'project' &&
                       activeDivision.canonicalKey === project.canonicalKey
-                        ? 'bg-bg-secondary'
-                        : ''
-                    }`}
-                    onClick={() => selectProject(project)}
-                  >
-                    <div className="truncate text-sm font-medium text-text-primary">
-                      {project.name}
-                    </div>
-                    <div className="truncate text-xs text-text-muted">
-                      {companyProjectSourceLabel(project.sources)}
-                    </div>
-                  </button>
+                    }
+                    onSelect={selectProject}
+                  />
                 ))}
             </div>
           )}
         </div>
       )}
     </div>
+  );
+}
+
+function ProjectMenuRow({
+  project,
+  active,
+  onSelect,
+}: {
+  project: UnifiedCompanyProject;
+  active: boolean;
+  onSelect: (project: UnifiedCompanyProject) => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={`w-full px-3 py-2 text-left hover:bg-bg-secondary ${
+        active ? 'bg-bg-secondary' : ''
+      }`}
+      onClick={() => onSelect(project)}
+    >
+      <div className="truncate text-sm font-medium text-text-primary">{project.name}</div>
+      <div className="truncate text-xs text-text-muted">
+        {companyProjectSourceLabel(project.sources)}
+      </div>
+    </button>
   );
 }
 

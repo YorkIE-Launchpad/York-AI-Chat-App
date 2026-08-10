@@ -1,12 +1,18 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Briefcase, Building2, KeyRound, Layers, Loader2, Lock } from 'lucide-react';
 import { useAppStore } from '../store';
 import type { UnifiedCompanyProject } from '../../shared/unified-company-projects';
+import { canonicalKeyForUnified } from '../../shared/unified-company-projects';
 import {
   activeDivisionFromUnifiedProject,
   companyProjectSourceLabel,
 } from '../../shared/workspace-division';
 import { hasOpenRouterUserApiKey } from '../../shared/openrouter-user-key';
+import {
+  rememberRecentProject,
+  resolveRecentProjects,
+  readRecentProjects,
+} from '../utils/recent-projects';
 
 /**
  * Full chooser shown on Welcome when no active division is selected.
@@ -89,6 +95,24 @@ export function DivisionChooser() {
     }
   }, [pickingProject, loadProjects]);
 
+  const selectProject = useCallback(
+    (project: UnifiedCompanyProject) => {
+      rememberRecentProject(project);
+      setActiveDivision(activeDivisionFromUnifiedProject(project));
+    },
+    [setActiveDivision]
+  );
+
+  const recentProjects = useMemo(
+    () => resolveRecentProjects(readRecentProjects(), projects),
+    [projects]
+  );
+
+  const otherProjects = useMemo(() => {
+    const recentKeys = new Set(recentProjects.map((p) => canonicalKeyForUnified(p)));
+    return projects.filter((p) => !recentKeys.has(canonicalKeyForUnified(p)));
+  }, [projects, recentProjects]);
+
   if (pickingProject) {
     return (
       <div className="mx-auto flex w-full max-w-lg min-h-0 flex-1 flex-col">
@@ -119,11 +143,36 @@ export function DivisionChooser() {
         )}
         {!loading && projects.length > 0 && (
           <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain pr-1">
-            {projects.map((project) => (
+            {recentProjects.length > 0 && (
+              <>
+                <div className="px-1 text-[10px] font-medium uppercase tracking-wide text-text-muted">
+                  Recent
+                </div>
+                {recentProjects.map((project) => (
+                  <button
+                    key={`recent:${project.canonicalKey}`}
+                    type="button"
+                    onClick={() => selectProject(project)}
+                    className="shrink-0 rounded-xl border border-border-subtle bg-bg-secondary px-4 py-3 text-left hover:border-accent/40 hover:bg-bg-tertiary transition-colors"
+                  >
+                    <div className="font-medium text-text-primary">{project.name}</div>
+                    <div className="mt-0.5 text-xs text-text-muted">
+                      {companyProjectSourceLabel(project.sources)}
+                    </div>
+                  </button>
+                ))}
+                {otherProjects.length > 0 && (
+                  <div className="px-1 pt-1 text-[10px] font-medium uppercase tracking-wide text-text-muted">
+                    All projects
+                  </div>
+                )}
+              </>
+            )}
+            {otherProjects.map((project) => (
               <button
                 key={project.canonicalKey}
                 type="button"
-                onClick={() => setActiveDivision(activeDivisionFromUnifiedProject(project))}
+                onClick={() => selectProject(project)}
                 className="shrink-0 rounded-xl border border-border-subtle bg-bg-secondary px-4 py-3 text-left hover:border-accent/40 hover:bg-bg-tertiary transition-colors"
               >
                 <div className="font-medium text-text-primary">{project.name}</div>
