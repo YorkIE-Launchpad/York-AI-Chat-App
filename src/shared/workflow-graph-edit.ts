@@ -1,8 +1,20 @@
 /**
- * Pure linear-graph edits for workflow pipelines (insert/remove/update agent nodes).
+ * Pure graph edits for workflow pipelines (linear helpers + freeform canvas ops).
  */
-import type { WorkflowAgentNode, WorkflowGraph, WorkflowNode } from './workflows';
-import { WORKFLOW_SCHEMA_VERSION, topologicalOrder } from './workflows';
+import type {
+  WorkflowAgentNode,
+  WorkflowApprovalNode,
+  WorkflowGraph,
+  WorkflowNode,
+  WorkflowNodeType,
+  WorkflowNotifyNode,
+  WorkflowToolNode,
+} from './workflows';
+import {
+  WORKFLOW_SCHEMA_VERSION,
+  topologicalOrder,
+  wouldCreateCycle,
+} from './workflows';
 
 function nodesInTopoOrder(graph: WorkflowGraph): WorkflowNode[] {
   const order = topologicalOrder(graph);
@@ -19,13 +31,18 @@ function cloneGraph(graph: WorkflowGraph): WorkflowGraph {
   };
 }
 
-function nextAgentId(nodes: WorkflowNode[]): string {
+function nextIdForPrefix(nodes: WorkflowNode[], prefix: string): string {
   let max = 0;
+  const re = new RegExp(`^${prefix}_(\\d+)$`);
   for (const n of nodes) {
-    const m = /^agent_(\d+)$/.exec(n.id);
+    const m = re.exec(n.id);
     if (m) max = Math.max(max, Number(m[1]));
   }
-  return `agent_${max + 1}`;
+  return `${prefix}_${max + 1}`;
+}
+
+function nextAgentId(nodes: WorkflowNode[]): string {
+  return nextIdForPrefix(nodes, 'agent');
 }
 
 function successors(graph: WorkflowGraph, fromId: string): string[] {
@@ -34,6 +51,156 @@ function successors(graph: WorkflowGraph, fromId: string): string[] {
 
 function predecessors(graph: WorkflowGraph, toId: string): string[] {
   return graph.edges.filter((e) => e.to === toId).map((e) => e.from);
+}
+
+export function setNodePosition(
+  graph: WorkflowGraph,
+  nodeId: string,
+  x: number,
+  y: number
+): WorkflowGraph {
+  const g = cloneGraph(graph);
+  const idx = g.nodes.findIndex((n) => n.id === nodeId);
+  if (idx < 0) throw new Error(`Node not found: ${nodeId}`);
+  g.nodes[idx] = { ...g.nodes[idx], x, y };
+  return g;
+}
+
+/**
+ * Add a non-trigger node at an optional position.
+ * Optionally auto-connect from `connectFromId` when provided.
+ */
+export function addNode(
+  graph: WorkflowGraph,
+  type: Exclude<WorkflowNodeType, 'trigger'>,
+  options?: {
+    position?: { x: number; y: number };
+    connectFromId?: string | null;
+    label?: string;
+    prompt?: string;
+    toolName?: string;
+    message?: string;
+  }
+): WorkflowGraph {
+  const g = cloneGraph(graph);
+  const x = options?.position?.x ?? 240 + g.nodes.length * 40;
+  const y = options?.position?.y ?? 80 + (g.nodes.length % 3) * 40;
+
+  let node: WorkflowNode;
+  if (type === 'agent') {
+    const agent: WorkflowAgentNode = {
+      id: nextAgentId(g.nodes),
+      type: 'agent',
+      label: options?.label?.trim() || 'New agent step',
+      prompt:
+        options?.prompt?.trim() ||
+        'Describe what this agent step should do. Prefer connected company tools.',
+      x,
+      y,
+    };
+    node = agent;
+  } else if (type === 'tool') {
+    const tool: WorkflowToolNode = {
+      id: nextIdForPrefix(g.nodes, 'tool'),
+      type: 'tool',
+      label: options?.label?.trim() || 'Tool step',
+      toolName: options?.toolName?.trim() || 'placeholder_tool',
+      x,
+      y,
+    };
+    node = tool;
+  } else if (type === 'approval') {
+    const approval: WorkflowApprovalNode = {
+      id: nextIdForPrefix(g.nodes, 'approval'),
+      type: 'approval',
+      label: options?.label?.trim() || 'Approval',
+      message: options?.message?.trim() || 'Approve before continuing this workflow?',
+      requireApproval: true,
+      x,
+      y,
+    };
+    node = approval;
+  } else {
+    const notify: WorkflowNotifyNode = {
+      id: nextIdForPrefix(g.nodes, 'notify'),
+      type: 'notify',
+      label: options?.label?.trim() || 'Notify',
+      message: options?.message?.trim() || 'Workflow step completed.',
+      x,
+      y,
+    };
+    node = notify;
+  }
+
+  g.nodes.push(node);
+  const fromId = options?.connectFromId;
+  if (fromId && g.nodes.some((n) => n.id === fromId)) {
+    return connectNodes(g, fromId, node.id);
+  }
+  return g;
+}
+
+/** Connect two nodes; rejects self-loops, missing nodes, duplicate edges, and cycles. */
+export function connectNodes(graph: WorkflowGraph, fromId: string, toId: string): WorkflowGraph {
+  if (fromId === toId) throw new Error('Cannot connect a node to itself');
+  const g = cloneGraph(graph);
+  if (!g.nodes.some((n) => n.id === fromId)) throw new Error(`Node not found: ${fromId}`);
+  if (!g.nodes.some((n) => n.id === toId)) throw new Error(`Node not found: ${toId}`);
+  if (g.edges.some((e) => e.from === fromId && e.to === toId)) {
+    return g;
+  }
+  if (wouldCreateCycle(g, fromId, toId)) {
+    throw new Error('Connection would create a cycle');
+  }
+  const toNode = g.nodes.find((n) => n.id === toId);
+  if (toNode?.type === 'trigger') {
+    throw new Error('Cannot connect into the trigger node');
+  }
+  g.edges.push({ id: `e_${fromId}_${toId}`, from: fromId, to: toId });
+  return g;
+}
+
+export function disconnectEdge(graph: WorkflowGraph, edgeId: string): WorkflowGraph {
+  const g = cloneGraph(graph);
+  g.edges = g.edges.filter((e) => e.id !== edgeId);
+  return g;
+}
+
+export function disconnectBetween(
+  graph: WorkflowGraph,
+  fromId: string,
+  toId: string
+): WorkflowGraph {
+  const g = cloneGraph(graph);
+  g.edges = g.edges.filter((e) => !(e.from === fromId && e.to === toId));
+  return g;
+}
+
+/**
+ * Remove any non-trigger node and reconnect predecessors → successors.
+ * Guard: if removing an agent and it is the last agent, still allow if other
+ * executable nodes remain (tool/approval/notify). Prefer removeAgentNode for
+ * the stricter “at least one agent” rule used by linear editor.
+ */
+export function removeNode(graph: WorkflowGraph, nodeId: string): WorkflowGraph {
+  const g = cloneGraph(graph);
+  const node = g.nodes.find((n) => n.id === nodeId);
+  if (!node) throw new Error(`Node not found: ${nodeId}`);
+  if (node.type === 'trigger') throw new Error('Cannot remove the trigger node');
+
+  const preds = predecessors(g, nodeId);
+  const succs = successors(g, nodeId);
+  g.nodes = g.nodes.filter((n) => n.id !== nodeId);
+  g.edges = g.edges.filter((e) => e.from !== nodeId && e.to !== nodeId);
+  for (const p of preds) {
+    for (const s of succs) {
+      if (!g.edges.some((e) => e.from === p && e.to === s) && !wouldCreateCycle(g, p, s)) {
+        g.edges.push({ id: `e_${p}_${s}`, from: p, to: s });
+      }
+    }
+  }
+  g.nodes = nodesInTopoOrder(g);
+  return g;
 }
 
 /** Insert a new agent after `afterNodeId`, rewiring linear edges. */

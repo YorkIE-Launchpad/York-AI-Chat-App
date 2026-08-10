@@ -6,6 +6,7 @@ import {
   removeAgentNode,
   sessionIdsFromWorkflowRun,
   updateNodeFields,
+  addNode,
 } from '../src/shared/workflow-graph-edit';
 import { WORKFLOW_SCHEMA_VERSION, buildInitialRunSteps, type WorkflowGraph } from '../src/shared/workflows';
 
@@ -144,5 +145,15 @@ describe('workflow-graph-edit', () => {
       'agent_3',
       'agent_2',
     ]);
+  });
+
+  it('adds and connects approval without cycle', () => {
+    const g = addNode(linearGraph(), 'approval', {
+      connectFromId: 'agent_2',
+      message: 'OK?',
+    });
+    const approval = g.nodes.find((n) => n.type === 'approval');
+    expect(approval).toBeTruthy();
+    expect(g.edges.some((e) => e.to === approval!.id)).toBe(true);
   });
 });

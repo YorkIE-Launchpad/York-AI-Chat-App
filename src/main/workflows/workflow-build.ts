@@ -11,7 +11,11 @@ import type {
   WorkflowTriggerKind,
   WorkflowTriggerNode,
 } from '../../shared/workflows';
-import { WORKFLOW_AGENT_STEP_MARKER, WORKFLOW_SCHEMA_VERSION } from '../../shared/workflows';
+import {
+  WORKFLOW_AGENT_STEP_MARKER,
+  WORKFLOW_SCHEMA_VERSION,
+  hasGraphCycle,
+} from '../../shared/workflows';
 
 export interface WorkflowBuildResult {
   input: WorkflowDefinitionInput;
@@ -423,6 +427,15 @@ export function validateWorkflowGraph(graph: WorkflowGraph): void {
         `Edge ${edge.id} references missing node (${edge.from} → ${edge.to}).`
       );
     }
+    if (edge.from === edge.to) {
+      throw new WorkflowGraphValidationError(`Edge ${edge.id} is a self-loop.`);
+    }
+  }
+
+  if (hasGraphCycle(graph)) {
+    throw new WorkflowGraphValidationError(
+      'Graph contains a cycle — workflows must be a directed acyclic graph (DAG).'
+    );
   }
 
   const cron = triggers[0] as WorkflowTriggerNode;

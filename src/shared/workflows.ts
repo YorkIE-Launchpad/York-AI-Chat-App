@@ -371,7 +371,11 @@ export function isWorkflowAgentExecutionContext(input: {
   return prompt.includes(WORKFLOW_AGENT_STEP_MARKER);
 }
 
-export function topologicalOrder(graph: WorkflowGraph): string[] {
+/**
+ * Kahns-style topological order. When a cycle exists, returns a partial order
+ * (length < nodes.length) — callers should check with hasGraphCycle / order completeness.
+ */
+export function topologicalOrderStrict(graph: WorkflowGraph): string[] {
   const indegree = new Map<string, number>();
   const out = new Map<string, string[]>();
   for (const node of graph.nodes) {
@@ -394,6 +398,42 @@ export function topologicalOrder(graph: WorkflowGraph): string[] {
       if (nextDeg === 0) queue.push(next);
     }
   }
+  return order;
+}
+
+/** True when edges form a cycle (not a DAG). */
+export function hasGraphCycle(graph: WorkflowGraph): boolean {
+  if (graph.nodes.length === 0) return false;
+  return topologicalOrderStrict(graph).length !== graph.nodes.length;
+}
+
+/**
+ * Would adding from→to create a cycle? (Assumes graph is currently a DAG.)
+ * Also true if from === to.
+ */
+export function wouldCreateCycle(graph: WorkflowGraph, from: string, to: string): boolean {
+  if (from === to) return true;
+  // Reachability: if we can already walk to → ... → from, then from→to closes a cycle.
+  const outs = new Map<string, string[]>();
+  for (const n of graph.nodes) outs.set(n.id, []);
+  for (const e of graph.edges) {
+    if (!outs.has(e.from) || !outs.has(e.to)) continue;
+    outs.get(e.from)!.push(e.to);
+  }
+  const seen = new Set<string>();
+  const stack = [to];
+  while (stack.length) {
+    const id = stack.pop()!;
+    if (id === from) return true;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    for (const next of outs.get(id) || []) stack.push(next);
+  }
+  return false;
+}
+
+export function topologicalOrder(graph: WorkflowGraph): string[] {
+  const order = topologicalOrderStrict(graph);
   // Fall back to node list if cycle
   if (order.length !== graph.nodes.length) {
     return graph.nodes.map((n) => n.id);

@@ -1,0 +1,67 @@
+/* York-themed @xyflow/react overrides for workflow canvas */
+
+.workflow-graph-canvas {
+  --xy-node-border-default: var(--border-muted, rgba(128, 128, 128, 0.35));
+  --xy-node-background-color-default: var(--background, #fff);
+  --xy-edge-stroke-default: color-mix(in srgb, var(--accent, #3d6b5a) 45%, transparent);
+  --xy-edge-stroke-width-default: 1.5;
+  --xy-connectionline-stroke: var(--accent, #3d6b5a);
+  --xy-attribution-background-color: transparent;
+  --xy-controls-button-background-color: var(--surface, #f5f5f5);
+  --xy-controls-button-color: var(--text-secondary, #555);
+  --xy-controls-button-border-color: var(--border-muted, rgba(128, 128, 128, 0.3));
+  --xy-controls-box-shadow: none;
+  --xy-background-color: transparent;
+  background:
+    radial-gradient(circle at 20% 0%, color-mix(in srgb, var(--accent, #3d6b5a) 8%, transparent), transparent 45%),
+    var(--background-secondary, transparent);
+  border-radius: 1rem;
+  overflow: hidden;
+}
+
+.workflow-graph-canvas .react-flow__attribution {
+  display: none;
+}
+
+.workflow-graph-canvas .react-flow__controls {
+  border: 1px solid var(--border-muted, rgba(128, 128, 128, 0.3));
+  border-radius: 0.75rem;
+  overflow: hidden;
+  box-shadow: none;
+}
+
+.workflow-graph-canvas .react-flow__controls-button {
+  border-bottom-color: var(--border-muted, rgba(128, 128, 128, 0.25));
+  width: 1.75rem;
+  height: 1.75rem;
+}
+
+.workflow-graph-canvas .react-flow__controls-button:hover {
+  background: var(--surface-hover, rgba(0, 0, 0, 0.04));
+}
+
+.workflow-graph-canvas .react-flow__edge-path {
+  stroke: color-mix(in srgb, var(--accent, #3d6b5a) 50%, var(--border, #ccc));
+}
+
+.workflow-graph-canvas .react-flow__edge.selected .react-flow__edge-path,
+.workflow-graph-canvas .react-flow__edge:focus .react-flow__edge-path {
+  stroke: var(--accent, #3d6b5a);
+  stroke-width: 2;
+}
+
+.workflow-graph-canvas .react-flow__handle {
+  width: 8px;
+  height: 8px;
+  background: var(--accent, #3d6b5a);
+  border: 2px solid var(--background, #fff);
+}
+
+.workflow-flow-node {
+  min-width: 9.5rem;
+  max-width: 11rem;
+}
+
+.workflow-flow-node.selected {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent, #3d6b5a) 45%, transparent);
+}

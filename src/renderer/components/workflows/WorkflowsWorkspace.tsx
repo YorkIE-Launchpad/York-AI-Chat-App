@@ -1,18 +1,19 @@
 /**
- * Workflow review body — propose drafts, library, pipeline, run history.
+ * Workflow review body — propose drafts, graph canvas, run history.
  * Used by WorkflowsPage (first-class sidebar surface).
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Bell,
   Check,
-  ChevronRight,
   CirclePlay,
   Loader2,
   Pause,
   Play,
   Plus,
   RefreshCw,
+  RotateCcw,
+  Save,
   ShieldCheck,
   Sparkles,
   Trash2,
@@ -24,22 +25,25 @@ import type { CheckpointRun } from '../../../shared/orchestration';
 import type {
   WorkflowBinding,
   WorkflowDefinition,
-  WorkflowEdge,
   WorkflowGraph,
   WorkflowNode,
   WorkflowNodeType,
+  WorkflowRunStep,
   WorkflowStatus,
 } from '../../../shared/workflows';
 import {
+  getWorkflowRunSteps,
   topologicalOrder,
   workflowWorkspaceLabel,
 } from '../../../shared/workflows';
 import {
   insertAgentAfter,
   removeAgentNode,
+  removeNode,
   splitAgentPrompt,
   updateNodeFields,
 } from '../../../shared/workflow-graph-edit';
+import { ensureGraphPositions } from '../../../shared/workflow-graph-xyflow';
 import {
   activeDivisionFromUnifiedProject,
   sessionFieldsFromActiveDivision,
@@ -47,6 +51,7 @@ import {
 } from '../../../shared/workspace-division';
 import type { UnifiedCompanyProject } from '../../../shared/unified-company-projects';
 import { useAppStore } from '../../store';
+import { WorkflowGraphCanvas } from './canvas/WorkflowGraphCanvas';
 import { WorkflowRunInspector } from './WorkflowRunInspector';
 import { WorkflowRunsList } from './WorkflowRunsList';
 import { useWorkflowRunsLiveRefresh } from './useWorkflowRunsLiveRefresh';
@@ -137,6 +142,9 @@ export function WorkflowsWorkspace() {
   const [workflows, setWorkflows] = useState<WorkflowDefinition[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [activeNodeId, setActiveNodeId] = useState<string | null>(null);
+  /** Local editable draft graph (Save/Discard). */
+  const [draftGraph, setDraftGraph] = useState<WorkflowGraph | null>(null);
+  const [graphDirty, setGraphDirty] = useState(false);
   const [proposeText, setProposeText] = useState('');
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -208,18 +216,46 @@ export function WorkflowsWorkspace() {
     [workflows, selectedId]
   );
 
+  const selectedRunSteps: WorkflowRunStep[] = useMemo(() => {
+    if (!selectedRunId) return [];
+    const run = runs.find((r) => r.id === selectedRunId);
+    return run ? getWorkflowRunSteps(run.payload) : [];
+  }, [runs, selectedRunId]);
+
+  const activeGraph = draftGraph ?? selected?.graph ?? null;
+
   useEffect(() => {
     if (!selected) {
       setActiveNodeId(null);
       setEditName('');
+      setDraftGraph(null);
+      setGraphDirty(false);
       return;
     }
     setEditName(selected.name);
-    const order = topologicalOrder(selected.graph);
-    setActiveNodeId((prev) =>
-      prev && selected.graph.nodes.some((n) => n.id === prev) ? prev : order[0] || null
-    );
-  }, [selected]);
+    // Reset draft only when switching workflows or after successful save refresh (not dirty).
+    setDraftGraph((prev) => {
+      if (graphDirty && prev) return prev;
+      return ensureGraphPositions(selected.graph);
+    });
+    if (!graphDirty) {
+      const order = topologicalOrder(selected.graph);
+      setActiveNodeId((prev) =>
+        prev && selected.graph.nodes.some((n) => n.id === prev) ? prev : order[0] || null
+      );
+    }
+  }, [selected, graphDirty]);
+
+  const selectWorkflow = (id: string | null) => {
+    if (id === selectedId) return;
+    if (graphDirty) {
+      const ok = window.confirm('Discard unsaved graph changes?');
+      if (!ok) return;
+    }
+    setGraphDirty(false);
+    setDraftGraph(null);
+    setSelectedId(id);
+  };
 
   const propose = async () => {
     if (!proposeText.trim()) return;
@@ -227,13 +263,15 @@ export function WorkflowsWorkspace() {
     try {
       const binding = sessionFieldsFromActiveDivision(activeDivision) as Partial<WorkflowBinding>;
       const draft = await window.electronAPI.workflows.propose(proposeText.trim(), binding);
+      setGraphDirty(false);
+      setDraftGraph(null);
       setSelectedId(draft.id);
       setProposeText('');
       const nodeKinds = draft.graph.nodes.map((n) =>
         n.type === 'trigger' ? `trigger:${n.trigger}` : n.type
       );
       setStatus(
-        `Draft ready · ${draft.name} · ${workflowWorkspaceLabel(draft)} · ${nodeKinds.join(' → ')}. Review steps, then enable when right.`
+        `Draft ready · ${draft.name} · ${workflowWorkspaceLabel(draft)} · ${nodeKinds.join(' → ')}. Review graph, then enable when right.`
       );
       await refresh();
     } catch (error) {
@@ -321,6 +359,8 @@ export function WorkflowsWorkspace() {
     try {
       await window.electronAPI.workflows.delete(selected.id);
       setSelectedId(null);
+      setDraftGraph(null);
+      setGraphDirty(false);
       setStatus('Workflow deleted.');
       await refresh();
     } catch (error) {
@@ -330,12 +370,35 @@ export function WorkflowsWorkspace() {
     }
   };
 
-  const saveGraph = async (graph: WorkflowGraph, toast?: string) => {
+  const applyDraftGraph = (graph: WorkflowGraph, nextActiveId?: string | null) => {
+    setDraftGraph(ensureGraphPositions(graph));
+    setGraphDirty(true);
+    if (nextActiveId !== undefined) {
+      if (nextActiveId) setActiveNodeId(nextActiveId);
+    }
+  };
+
+  const discardGraph = () => {
     if (!selected) return;
+    setDraftGraph(ensureGraphPositions(selected.graph));
+    setGraphDirty(false);
+    setStatus('Graph changes discarded.');
+    const order = topologicalOrder(selected.graph);
+    setActiveNodeId((prev) =>
+      prev && selected.graph.nodes.some((n) => n.id === prev) ? prev : order[0] || null
+    );
+  };
+
+  const saveGraph = async (graph?: WorkflowGraph, toast?: string) => {
+    if (!selected) return;
+    const toSave = graph ?? draftGraph;
+    if (!toSave) return;
     setBusy(true);
     try {
-      await window.electronAPI.workflows.update(selected.id, { graph });
-      setStatus(toast || 'Pipeline updated.');
+      await window.electronAPI.workflows.update(selected.id, { graph: toSave });
+      setDraftGraph(ensureGraphPositions(toSave));
+      setGraphDirty(false);
+      setStatus(toast || 'Graph saved.');
       await refresh();
     } catch (error) {
       setStatus(error instanceof Error ? error.message : String(error));
@@ -344,16 +407,16 @@ export function WorkflowsWorkspace() {
     }
   };
 
-  const mutateGraph = async (
+  const mutateGraph = (
     mutator: (graph: WorkflowGraph) => WorkflowGraph,
     toast?: string,
     nextActiveId?: string | null
   ) => {
-    if (!selected) return;
+    if (!selected || !activeGraph) return;
     try {
-      const next = mutator(selected.graph);
-      if (nextActiveId) setActiveNodeId(nextActiveId);
-      await saveGraph(next, toast);
+      const next = mutator(activeGraph);
+      applyDraftGraph(next, nextActiveId);
+      if (toast) setStatus(toast);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : String(error));
     }
@@ -440,7 +503,7 @@ export function WorkflowsWorkspace() {
                     <button
                       key={w.id}
                       type="button"
-                      onClick={() => setSelectedId(w.id)}
+                      onClick={() => selectWorkflow(w.id)}
                       className={`group w-full rounded-xl px-3 py-2.5 text-left transition ${
                         isSelected
                           ? 'bg-accent/10 ring-1 ring-accent/30'
@@ -455,13 +518,13 @@ export function WorkflowsWorkspace() {
                         >
                           {w.name}
                         </p>
-                        <ChevronRight
-                          className={`mt-0.5 h-3.5 w-3.5 shrink-0 transition ${
-                            isSelected
-                              ? 'text-accent opacity-100'
-                              : 'text-text-muted opacity-0 group-hover:opacity-100'
+                        <span
+                          className={`mt-0.5 text-[10px] font-medium ${
+                            isSelected ? 'text-accent opacity-100' : 'text-text-muted opacity-0 group-hover:opacity-100'
                           }`}
-                        />
+                        >
+                          Open
+                        </span>
                       </div>
                       <div className="mt-1.5 flex items-center gap-2">
                         <span
@@ -541,10 +604,28 @@ export function WorkflowsWorkspace() {
                       </p>
                     </div>
                     <div className="flex flex-wrap items-center gap-1.5">
+                      {graphDirty ? (
+                        <>
+                          <ActionButton
+                            onClick={() => void saveGraph(undefined, 'Graph saved.')}
+                            disabled={busy}
+                            variant="primary"
+                            icon={Save}
+                            label="Save graph"
+                          />
+                          <ActionButton
+                            onClick={discardGraph}
+                            disabled={busy}
+                            variant="ghost"
+                            icon={RotateCcw}
+                            label="Discard"
+                          />
+                        </>
+                      ) : null}
                       {selected.status !== 'enabled' ? (
                         <ActionButton
                           onClick={() => void setStatusFlag('enabled')}
-                          disabled={busy}
+                          disabled={busy || graphDirty}
                           variant="primary"
                           icon={Check}
                           label="Enable"
@@ -560,7 +641,7 @@ export function WorkflowsWorkspace() {
                       )}
                       <ActionButton
                         onClick={() => void run()}
-                        disabled={busy}
+                        disabled={busy || graphDirty}
                         variant="secondary"
                         icon={Play}
                         label="Run now"
@@ -577,53 +658,86 @@ export function WorkflowsWorkspace() {
                 </header>
 
                 <div className="flex-1 space-y-4 overflow-y-auto p-4 sm:p-5">
-                  <WorkflowPipeline
-                    nodes={selected.graph.nodes}
-                    edges={selected.graph.edges}
-                    activeNodeId={activeNodeId}
-                    onSelectNode={setActiveNodeId}
-                    busy={busy}
-                    onAddAfter={async (afterId) => {
-                      const next = insertAgentAfter(selected.graph, afterId);
-                      const added = next.nodes.find(
-                        (n) => n.type === 'agent' && !selected.graph.nodes.some((o) => o.id === n.id)
-                      );
-                      setActiveNodeId(added?.id || afterId);
-                      await saveGraph(next, 'Agent step added.');
-                    }}
-                  />
+                  {activeGraph ? (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-text-muted">
+                          Graph
+                        </p>
+                        <p className="text-[11px] text-text-muted">
+                          {activeGraph.nodes.length} nodes · {activeGraph.edges.length} edges
+                          {graphDirty ? ' · unsaved' : ''}
+                        </p>
+                      </div>
+                      <WorkflowGraphCanvas
+                        graph={activeGraph}
+                        selectedNodeId={activeNodeId}
+                        runSteps={selectedRunSteps}
+                        editable
+                        busy={busy}
+                        onSelectNode={setActiveNodeId}
+                        onGraphChange={(g) => applyDraftGraph(g)}
+                        onError={(message) => setStatus(message)}
+                      />
+                      <p className="text-[11px] leading-4 text-text-muted">
+                        Drag nodes, connect handles, or use the palette. Save before enable or run.
+                        Approval stages never auto-skip.
+                      </p>
+                    </div>
+                  ) : null}
                   <NodeInspector
                     node={
-                      selected.graph.nodes.find((n) => n.id === activeNodeId) ||
-                      selected.graph.nodes[0] ||
-                      null
+                      activeGraph
+                        ? activeGraph.nodes.find((n) => n.id === activeNodeId) ||
+                          activeGraph.nodes[0] ||
+                          null
+                        : null
                     }
-                    graph={selected.graph}
+                    graph={activeGraph || selected.graph}
                     busy={busy}
                     onSaveFields={async (nodeId, fields) => {
-                      await mutateGraph(
+                      mutateGraph(
                         (g) => updateNodeFields(g, nodeId, fields),
-                        'Step updated.'
+                        'Step updated (unsaved).'
                       );
                     }}
                     onAddAfter={async (afterId) => {
-                      const next = insertAgentAfter(selected.graph, afterId);
+                      if (!activeGraph) return;
+                      const next = insertAgentAfter(activeGraph, afterId);
                       const added = next.nodes.find(
-                        (n) => n.type === 'agent' && !selected.graph.nodes.some((o) => o.id === n.id)
+                        (n) => n.type === 'agent' && !activeGraph.nodes.some((o) => o.id === n.id)
                       );
-                      setActiveNodeId(added?.id || afterId);
-                      await saveGraph(next, 'Agent step added.');
+                      applyDraftGraph(next, added?.id || afterId);
+                      setStatus('Agent step added (unsaved).');
                     }}
                     onRemove={async (nodeId) => {
-                      const next = removeAgentNode(selected.graph, nodeId);
-                      setActiveNodeId(
-                        topologicalOrder(next)[0] || next.nodes.find((n) => n.type === 'agent')?.id || null
-                      );
-                      await saveGraph(next, 'Agent step removed.');
+                      if (!activeGraph) return;
+                      const target = activeGraph.nodes.find((n) => n.id === nodeId);
+                      try {
+                        const next =
+                          target?.type === 'agent'
+                            ? removeAgentNode(activeGraph, nodeId)
+                            : removeNode(activeGraph, nodeId);
+                        applyDraftGraph(
+                          next,
+                          topologicalOrder(next)[0] ||
+                            next.nodes.find((n) => n.type !== 'trigger')?.id ||
+                            null
+                        );
+                        setStatus('Step removed (unsaved).');
+                      } catch (error) {
+                        setStatus(error instanceof Error ? error.message : String(error));
+                      }
                     }}
                     onSplit={async (nodeId) => {
-                      const next = splitAgentPrompt(selected.graph, nodeId);
-                      await saveGraph(next, 'Agent split into sequential steps.');
+                      if (!activeGraph) return;
+                      try {
+                        const next = splitAgentPrompt(activeGraph, nodeId);
+                        applyDraftGraph(next);
+                        setStatus('Agent split into sequential steps (unsaved).');
+                      } catch (error) {
+                        setStatus(error instanceof Error ? error.message : String(error));
+                      }
                     }}
                   />
 
@@ -829,128 +943,9 @@ function EmptyDetail() {
       <div className="max-w-xs space-y-1">
         <p className="text-sm font-medium text-text-primary">Select a workflow</p>
         <p className="text-xs leading-5 text-text-muted">
-          Review the step pipeline, inspect approval gates, then enable when you trust the graph.
+          Review the step graph, inspect approval gates, then enable when you trust the graph.
         </p>
       </div>
-    </div>
-  );
-}
-
-function WorkflowPipeline({
-  nodes,
-  edges,
-  activeNodeId,
-  onSelectNode,
-  busy,
-  onAddAfter,
-}: {
-  nodes: WorkflowNode[];
-  edges: WorkflowEdge[];
-  activeNodeId: string | null;
-  onSelectNode: (id: string) => void;
-  busy?: boolean;
-  onAddAfter?: (afterId: string) => void;
-}) {
-  const order = useMemo(() => topologicalOrder({ version: 1, nodes, edges }), [nodes, edges]);
-  const orderedNodes = order
-    .map((id) => nodes.find((n) => n.id === id))
-    .filter((n): n is WorkflowNode => Boolean(n));
-
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-text-muted">
-          Pipeline
-        </p>
-        <p className="text-[11px] text-text-muted">{orderedNodes.length} stages · left to right</p>
-      </div>
-
-      <div className="workflow-pipeline relative overflow-x-auto pb-1">
-        <ol className="flex min-w-min items-stretch gap-0 px-0.5 py-1">
-          {orderedNodes.map((node, index) => {
-            const meta = NODE_META[node.type];
-            const Icon = meta.icon;
-            const isActive = activeNodeId === node.id;
-            const isLast = index === orderedNodes.length - 1;
-            const summary = nodeSummary(node);
-            const modelLine =
-              node.type === 'agent' && node.model ? shortModelLabel(node.model) : null;
-            const agentIndex = orderedNodes
-              .slice(0, index + 1)
-              .filter((n) => n.type === 'agent').length;
-            const receivesPrior = node.type === 'agent' && agentIndex > 1;
-
-            return (
-              <li key={node.id} className="flex items-center">
-                <button
-                  type="button"
-                  onClick={() => onSelectNode(node.id)}
-                  className={`group relative flex w-[9.5rem] shrink-0 flex-col rounded-2xl border bg-background px-3 py-3 text-left transition duration-200 ${
-                    isActive
-                      ? `border-transparent shadow-soft ring-2 ${meta.ring}`
-                      : 'border-border-muted hover:border-border hover:shadow-soft'
-                  } ${node.type === 'approval' && !isActive ? 'border-accent/40' : ''}`}
-                >
-                  <span
-                    className={`mb-2 inline-flex h-8 w-8 items-center justify-center rounded-xl ${meta.tint}`}
-                  >
-                    <Icon className="h-4 w-4" />
-                  </span>
-                  <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-text-muted">
-                    {meta.label}
-                  </span>
-                  <span className="mt-0.5 line-clamp-2 text-sm font-medium leading-snug text-text-primary">
-                    {node.label || meta.label}
-                  </span>
-                  {modelLine ? (
-                    <span className="mt-0.5 truncate text-[10px] text-accent/90">{modelLine}</span>
-                  ) : null}
-                  <span className="mt-1.5 line-clamp-2 text-[11px] leading-4 text-text-muted">
-                    {summary}
-                  </span>
-                  {node.type === 'approval' ? (
-                    <span className="mt-2 inline-flex w-fit items-center gap-1 rounded-md bg-accent/12 px-1.5 py-0.5 text-[10px] font-medium text-accent">
-                      <ShieldCheck className="h-3 w-3" />
-                      Gated
-                    </span>
-                  ) : null}
-                  {receivesPrior ? (
-                    <span className="mt-2 text-[10px] text-text-muted">Receives prior results</span>
-                  ) : null}
-                </button>
-
-                {!isLast ? (
-                  <div
-                    className="mx-1.5 flex w-7 shrink-0 flex-col items-center justify-center"
-                    aria-hidden
-                  >
-                    <div className="h-px w-full bg-gradient-to-r from-border via-accent/40 to-border" />
-                    <ChevronRight className="-mt-1.5 h-3.5 w-3.5 text-text-muted" />
-                  </div>
-                ) : null}
-              </li>
-            );
-          })}
-        </ol>
-      </div>
-
-      {activeNodeId && onAddAfter ? (
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => onAddAfter(activeNodeId)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 text-[11px] font-medium text-text-secondary hover:bg-surface-hover disabled:opacity-50"
-          >
-            <Plus className="h-3 w-3" />
-            Add agent after selected
-          </button>
-        </div>
-      ) : null}
-
-      <p className="text-[11px] leading-4 text-text-muted">
-        Approval stages never auto-skip — they use the same permission flow as chat tools.
-      </p>
     </div>
   );
 }
@@ -1015,7 +1010,9 @@ function NodeInspector({
   const meta = NODE_META[node.type];
   const Icon = meta.icon;
   const agentCount = graph.nodes.filter((n) => n.type === 'agent').length;
-  const canRemove = node.type === 'agent' && agentCount > 1;
+  const canRemove =
+    node.type !== 'trigger' &&
+    (node.type !== 'agent' || agentCount > 1);
   const canSplit =
     node.type === 'agent' && (prompt.includes('\n\n') || prompt.trim().length > 80);
 
@@ -1186,7 +1183,7 @@ function NodeInspector({
               className="inline-flex items-center gap-1.5 rounded-lg border border-transparent px-2.5 py-1.5 text-xs font-medium text-error hover:bg-error/10 disabled:opacity-50"
             >
               <Trash2 className="h-3.5 w-3.5" />
-              Remove agent
+              Remove step
             </button>
           ) : null}
         </div>
