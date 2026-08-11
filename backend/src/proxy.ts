@@ -14,6 +14,8 @@ const STRIP_REQUEST_HEADERS = new Set([
   'x-goog-api-key',
   // User OpenRouter BYOK — consumed by proxy, never forwarded upstream as this header.
   'x-york-openrouter-key',
+  // Client version gate — never forward to provider APIs.
+  'x-york-app-version',
   // Forced to identity below — do not forward client gzip preferences.
   'accept-encoding',
 ]);

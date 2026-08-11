@@ -1,6 +1,7 @@
 import cors from 'cors';
 import dotenv from 'dotenv';
 import express from 'express';
+import { requireMinClientVersion } from './client-version.js';
 import { requireCognito } from './cognito-auth.js';
 import { listEnabledModels } from './models.js';
 import { proxyToProvider, type ProviderTarget } from './proxy.js';
@@ -60,8 +61,9 @@ app.use('/zoom', zoomJsonWithRawBody, createZoomWebhookRouter());
 // Zoom session register/poll require Cognito (applied inside the router).
 app.use('/zoom', express.json(), createZoomSessionRouter());
 
-// All remaining routes require a valid Cognito JWT
+// All remaining routes require a valid Cognito JWT and a supported client version
 app.use(requireCognito);
+app.use(requireMinClientVersion);
 
 app.get('/models', (_req, res) => {
   res.json({ models: listEnabledModels() });

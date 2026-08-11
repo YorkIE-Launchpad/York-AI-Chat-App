@@ -10,7 +10,7 @@ import {
   shouldAllowEmptyAnthropicApiKey,
   shouldAllowEmptyGeminiApiKey,
 } from '../config/auth-utils';
-import { resolveBackendClientApiKey } from '../config/backend-auth';
+import { resolveBackendClientApiKey, getClientAppVersion } from '../config/backend-auth';
 import { log, logWarn } from '../utils/logger';
 import { normalizeGeneratedTitle } from '../session/session-title-utils';
 import { getSharedAuthStorage } from './shared-auth';
@@ -39,6 +39,8 @@ import {
   hasOpenRouterUserApiKey,
   withOpenRouterUserKeyHeader,
 } from '../../shared/openrouter-user-key';
+import { isBackendManagedProvider } from '../../shared/backend-config';
+import { withAppVersionHeader } from '../../shared/client-version';
 import {
   generalWorkspaceOpenRouterOnlyMessage,
   isProviderAllowedInDivision,
@@ -318,6 +320,10 @@ export async function runPiAiOneShot(
     resolvedModel = withOpenRouterUserKeyHeader(resolvedModel, userKey);
   }
 
+  if (isBackendManagedProvider(activeProvider)) {
+    resolvedModel = withAppVersionHeader(resolvedModel, getClientAppVersion());
+  }
+
   // Cognito JWT for backend-managed proxy; otherwise configured key
   let apiKey = (
     await resolveBackendClientApiKey({
@@ -460,6 +466,9 @@ export async function runPiAiOneShot(
       );
     }
     resolvedModel = yorkModel!;
+    if (isBackendManagedProvider(fallback.provider)) {
+      resolvedModel = withAppVersionHeader(resolvedModel, getClientAppVersion());
+    }
     apiKey = (
       await resolveBackendClientApiKey({
         provider: fallback.provider,

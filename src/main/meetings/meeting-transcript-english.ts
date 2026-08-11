@@ -1,7 +1,8 @@
 import OpenAI from 'openai';
 import { BACKEND_PROXY_PLACEHOLDER_KEY, getBackendProxyBaseUrl } from '../../shared/backend-config';
+import { appVersionHeaders } from '../../shared/client-version';
 import { isAuthenticated } from '../auth/session';
-import { resolveBackendClientApiKey } from '../config/backend-auth';
+import { getClientAppVersion, resolveBackendClientApiKey } from '../config/backend-auth';
 import { logWarn } from '../utils/logger';
 
 /** Devanagari (Hindi etc.) */
@@ -43,7 +44,11 @@ export async function normalizeTranscriptToEnglish(text: string): Promise<string
       provider: 'openai',
       apiKey: BACKEND_PROXY_PLACEHOLDER_KEY,
     });
-    const client = new OpenAI({ apiKey, baseURL: baseUrl });
+    const client = new OpenAI({
+      apiKey,
+      baseURL: baseUrl,
+      defaultHeaders: appVersionHeaders(getClientAppVersion()),
+    });
     const completion = await client.chat.completions.create({
       model: 'gpt-4o-mini',
       temperature: 0,

@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
 import { BACKEND_PROXY_PLACEHOLDER_KEY, getBackendProxyBaseUrl } from '../../shared/backend-config';
+import { YORK_APP_VERSION_HEADER } from '../../shared/client-version';
 import { isAuthenticated, ensureAuthenticatedSession } from '../auth/session';
-import { resolveBackendClientApiKey } from '../config/backend-auth';
+import { getClientAppVersion, resolveBackendClientApiKey } from '../config/backend-auth';
 import { log, logWarn } from '../utils/logger';
 
 export interface CreateRealtimeTranslationSessionOptions {
@@ -76,6 +77,7 @@ export async function createRealtimeTranslationSession(
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
         'OpenAI-Safety-Identifier': resolveSafetyIdentifier(safetyUserKey),
+        [YORK_APP_VERSION_HEADER]: getClientAppVersion(),
       },
       body: JSON.stringify({
         session: {

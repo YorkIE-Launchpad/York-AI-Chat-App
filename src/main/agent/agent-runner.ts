@@ -63,13 +63,14 @@ import {
 } from '../skills/slash-skill-expand';
 import { AgentRuntimeExtensionManager } from '../extensions/agent-runtime-extension-manager';
 import { configStore } from '../config/config-store';
-import { resolveBackendClientApiKey } from '../config/backend-auth';
+import { getClientAppVersion, resolveBackendClientApiKey } from '../config/backend-auth';
 import { normalizeOpenAICompatibleBaseUrl } from '../config/auth-utils';
 import { buildThinkingModePromptSection, resolveThinkingLevel } from '../../shared/thinking-mode';
 import {
   applyBackendManagedCredentials,
   isBackendManagedProvider,
 } from '../../shared/backend-config';
+import { withAppVersionHeader } from '../../shared/client-version';
 import {
   filterModelsForOpenRouterKey,
   resolveYorkPaidEcoFallback,
@@ -1997,6 +1998,9 @@ ${hints.join('\n')}
       if (!piModel) {
         throw new Error('Failed to resolve pi-ai model');
       }
+      if (isBackendManagedProvider(resolvedProvider)) {
+        piModel = withAppVersionHeader(piModel, getClientAppVersion());
+      }
       let activePiModel = piModel;
 
       // For Ollama: query actual context window from /api/show if user hasn't configured one
@@ -3701,6 +3705,9 @@ ${
               if (!yorkModel) {
                 emitTerminalError(openRouterLimitUserMessage(true));
               } else {
+                if (isBackendManagedProvider(fallback.provider)) {
+                  yorkModel = withAppVersionHeader(yorkModel, getClientAppVersion());
+                }
                 activePiModel = yorkModel;
                 resolvedProvider = fallback.provider;
                 await piSession.setModel(activePiModel);

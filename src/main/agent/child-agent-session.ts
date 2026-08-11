@@ -12,7 +12,7 @@ import {
 } from '@mariozechner/pi-coding-agent';
 import type { ServerEvent } from '../../renderer/types';
 import { configStore } from '../config/config-store';
-import { resolveBackendClientApiKey } from '../config/backend-auth';
+import { getClientAppVersion, resolveBackendClientApiKey } from '../config/backend-auth';
 import type { MCPManager } from '../mcp/mcp-manager';
 import { log, logError } from '../utils/logger';
 import type { CheckpointService } from '../orchestration/checkpoint-service';
@@ -47,6 +47,8 @@ import {
   filterModelsForOpenRouterKey,
   resolveYorkPaidEcoFallback,
 } from '../../shared/openrouter-fallback';
+import { isBackendManagedProvider } from '../../shared/backend-config';
+import { withAppVersionHeader } from '../../shared/client-version';
 import {
   isOpenRouterAccountLimitError,
   openRouterKeyRequiredMessage,
@@ -320,6 +322,10 @@ async function resolveChildPiModel(options: {
       return null;
     }
     piModel = withOpenRouterUserKeyHeader(piModel, userKey);
+  }
+
+  if (isBackendManagedProvider(provider)) {
+    piModel = withAppVersionHeader(piModel, getClientAppVersion());
   }
 
   const runtimeApiKey = (
@@ -716,6 +722,9 @@ export async function runChildAgentSession(
             });
           }
           piModel = yorkModel;
+          if (isBackendManagedProvider(fallback.provider)) {
+            piModel = withAppVersionHeader(piModel, getClientAppVersion());
+          }
           activeProvider = fallback.provider;
           const yorkApiKey = (
             await resolveBackendClientApiKey({

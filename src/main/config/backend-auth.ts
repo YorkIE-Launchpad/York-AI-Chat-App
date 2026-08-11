@@ -2,8 +2,25 @@ import {
   isBackendManagedProvider,
   isBackendProxyPlaceholderKey,
 } from '../../shared/backend-config';
+import { YORK_APP_VERSION_HEADER } from '../../shared/client-version';
 import { ensureAuthenticatedSession } from '../auth/session';
 import { log, logWarn } from '../utils/logger';
+
+/** Electron app version for backend min-version gate. */
+export function getClientAppVersion(): string {
+  try {
+    // Lazy require avoids hard failure in unit tests without electron.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { app } = require('electron') as typeof import('electron');
+    if (app && typeof app.getVersion === 'function') {
+      const v = app.getVersion()?.trim();
+      if (v) return v;
+    }
+  } catch {
+    // ignore — fall through
+  }
+  return '0.0.0';
+}
 
 /**
  * Resolve the credential Electron should send to the local LLM proxy.
@@ -35,7 +52,10 @@ export async function resolveBackendClientApiKey(options: {
 
 export async function getBackendAuthHeaders(): Promise<Record<string, string>> {
   const token = await resolveBackendClientApiKey({ provider: 'anthropic' });
-  return { Authorization: `Bearer ${token}` };
+  return {
+    Authorization: `Bearer ${token}`,
+    [YORK_APP_VERSION_HEADER]: getClientAppVersion(),
+  };
 }
 
 type CognitoBearerPick = {

@@ -1,6 +1,7 @@
 import { createHmac } from 'crypto';
 import type { Request, Response, Router } from 'express';
 import { Router as createRouter } from 'express';
+import { requireMinClientVersion } from './client-version.js';
 import { requireCognito } from './cognito-auth.js';
 import { log, logWarn } from './safe-log.js';
 import {
@@ -320,6 +321,7 @@ export function createZoomWebhookRouter(): Router {
 export function createZoomSessionRouter(): Router {
   const router = createRouter();
   router.use(requireCognito);
+  router.use(requireMinClientVersion);
 
   router.post('/sessions/register', (req: CognitoRequest, res: Response) => {
     const userSub = userSubFromReq(req);

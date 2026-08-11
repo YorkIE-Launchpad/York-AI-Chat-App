@@ -1,8 +1,9 @@
 import OpenAI from 'openai';
 import { toFile } from 'openai/uploads';
 import { BACKEND_PROXY_PLACEHOLDER_KEY, getBackendProxyBaseUrl } from '../../shared/backend-config';
+import { appVersionHeaders } from '../../shared/client-version';
 import { isAuthenticated } from '../auth/session';
-import { resolveBackendClientApiKey } from '../config/backend-auth';
+import { getClientAppVersion, resolveBackendClientApiKey } from '../config/backend-auth';
 import type { MeetingTranscriptionModel } from './meeting-types';
 import { log, logWarn } from '../utils/logger';
 
@@ -132,6 +133,7 @@ export class MeetingTranscriptionService {
     const client = new OpenAI({
       apiKey,
       baseURL: baseUrl,
+      defaultHeaders: appVersionHeaders(getClientAppVersion()),
     });
 
     const safeType = (mimeType || 'audio/webm').split(';')[0].trim() || 'audio/webm';
