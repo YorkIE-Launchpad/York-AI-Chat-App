@@ -747,19 +747,33 @@ export function ChatView() {
       return;
     }
     const updateLabelVisibility = () => {
-      const styles = window.getComputedStyle(rightEl);
-      const gap = Number.parseFloat(styles.columnGap || styles.gap) || 0;
-      let usedBySiblings = 0;
-      let siblingCount = 0;
+      const headerStyles = window.getComputedStyle(headerEl);
+      const rightStyles = window.getComputedStyle(rightEl);
+      const headerGap = Number.parseFloat(headerStyles.columnGap || headerStyles.gap) || 0;
+      const rightGap = Number.parseFloat(rightStyles.columnGap || rightStyles.gap) || 0;
+      const padLeft = Number.parseFloat(headerStyles.paddingLeft) || 0;
+      const padRight = Number.parseFloat(headerStyles.paddingRight) || 0;
+
+      // Brand is the first header child; leave a modest min width for the title.
+      const brandEl = headerEl.firstElementChild;
+      const brandWidth =
+        brandEl instanceof HTMLElement ? brandEl.getBoundingClientRect().width : 0;
+      const minTitleWidth = 72;
+
+      let usedByActionSiblings = 0;
+      let actionSiblingCount = 0;
       for (const child of Array.from(rightEl.children)) {
         if (child === measureEl || child === badgeEl) continue;
         if (!(child instanceof HTMLElement)) continue;
         if (child.getAttribute('aria-hidden') === 'true') continue;
-        usedBySiblings += child.getBoundingClientRect().width;
-        siblingCount += 1;
+        usedByActionSiblings += child.getBoundingClientRect().width;
+        actionSiblingCount += 1;
       }
-      const gaps = gap * siblingCount; // gaps between siblings and the badge
-      const availableForBadge = Math.max(0, rightEl.clientWidth - usedBySiblings - gaps);
+      // Gaps: brand–title, title–actions, plus between action siblings and the badge.
+      const layoutGaps = headerGap * 2 + rightGap * actionSiblingCount;
+      const reserved =
+        padLeft + padRight + brandWidth + minTitleWidth + usedByActionSiblings + layoutGaps;
+      const availableForBadge = Math.max(0, headerEl.clientWidth - reserved);
       const connectorFullWidth = measureEl.getBoundingClientRect().width;
       setShowConnectorLabel(availableForBadge >= connectorFullWidth);
     };
@@ -1156,21 +1170,18 @@ export function ChatView() {
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden bg-background">
-      {/* Header */}
+      {/* Header — single flex row: brand | truncated title | actions (never overlap) */}
       <div
         ref={headerRef}
-        className="relative h-12 border-b border-border-muted grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 px-4 lg:px-8 bg-background/88 backdrop-blur-md"
+        className="relative flex h-12 shrink-0 items-center gap-2 border-b border-border-muted px-4 lg:px-8 bg-background/88 backdrop-blur-md"
       >
-        <div className="min-w-0 truncate text-[11px] font-medium tracking-[0.08em] uppercase text-text-muted">
+        <div className="shrink-0 text-[11px] font-medium tracking-[0.08em] uppercase text-text-muted">
           York GrowthOS
         </div>
-        <h2 className="min-w-0 max-w-[min(40vw,32rem)] text-[15px] font-medium text-text-primary text-center truncate">
+        <h2 className="min-w-0 flex-1 truncate text-[15px] font-medium text-text-primary">
           {activeSession.title}
         </h2>
-        <div
-          ref={rightActionsRef}
-          className="min-w-0 justify-self-end flex items-center justify-end gap-2 overflow-hidden"
-        >
+        <div ref={rightActionsRef} className="relative flex shrink-0 items-center gap-2">
           <button
             type="button"
             onClick={() => void handleExportChat()}

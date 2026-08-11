@@ -25,10 +25,10 @@ const NOTES_2_11 = `# York GrowthOS v2.11.0
 
 Changes since \`v2.10.0\`.
 
-## Features
+## New Features
 
-- introduce HTML artifact creation and preview functionality
-- enforce notarization credentials and enhance pre-build checks
+- Introduce HTML artifact creation and preview functionality
+- Enforce notarization credentials and enhance pre-build checks
 
 ## Other
 
@@ -60,9 +60,9 @@ const NOTES_2_9 = `# York GrowthOS v2.9.0
 
 Changes since \`v2.8.0\`.
 
-## Features
+## New Features
 
-- implement chat export and import functionality
+- Implement chat export and import functionality
 
 ## Other
 
@@ -103,15 +103,25 @@ describe('notesUrl / parsePreviousVersion', () => {
 });
 
 describe('filterUserFacingSections', () => {
-  it('keeps Features / Fixes / Improvements and drops Other', () => {
+  it('keeps New Features / Bug Fixes and legacy Features / Fixes; drops Improvements and Other', () => {
     const filtered = filterUserFacingSections(NOTES_2_10);
     expect(filtered).toContain('## Features');
     expect(filtered).toContain('## Fixes');
-    expect(filtered).toContain('## Improvements');
     expect(filtered).toContain('implement Matter service');
+    expect(filtered).toContain('update ask disclaimer');
+    expect(filtered).not.toContain('## Improvements');
+    expect(filtered).not.toContain('streamline Matter button');
     expect(filtered).not.toContain('## Other');
     expect(filtered).not.toContain('update version to 2.10.0');
     expect(filtered).not.toContain('Changes since');
+    expect(hasUserFacingContent(filtered)).toBe(true);
+  });
+
+  it('keeps new section titles', () => {
+    const filtered = filterUserFacingSections(NOTES_2_11);
+    expect(filtered).toContain('## New Features');
+    expect(filtered).toContain('Introduce HTML artifact');
+    expect(filtered).not.toContain('## Other');
     expect(hasUserFacingContent(filtered)).toBe(true);
   });
 
@@ -125,6 +135,20 @@ Changes since \`v0.9.0\`.
 - bump version
 `;
     const filtered = filterUserFacingSections(onlyOther);
+    expect(hasUserFacingContent(filtered)).toBe(false);
+  });
+
+  it('treats Improvements-only notes as empty', () => {
+    const onlyImprovements = `# York GrowthOS v1.0.0
+
+Changes since \`v0.9.0\`.
+
+## Improvements
+
+- refactor internals
+`;
+    const filtered = filterUserFacingSections(onlyImprovements);
+    expect(filtered).not.toContain('## Improvements');
     expect(hasUserFacingContent(filtered)).toBe(false);
   });
 });
@@ -155,6 +179,7 @@ describe('collectReleaseNotes', () => {
     expect(result!.markdown).toContain('Matter service');
     expect(result!.markdown).not.toContain('chat export');
     expect(result!.markdown).not.toContain('## Other');
+    expect(result!.markdown).not.toContain('## Improvements');
     expect(fetchText).toHaveBeenCalledTimes(2);
   });
 

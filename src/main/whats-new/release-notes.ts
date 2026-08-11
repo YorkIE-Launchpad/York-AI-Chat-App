@@ -7,7 +7,13 @@
 export const RELEASE_NOTES_BASE_URL =
   'https://york-internal-apps.s3.ap-south-1.amazonaws.com/york-workos';
 
-const USER_FACING_SECTIONS = new Set(['Features', 'Fixes', 'Improvements']);
+/** New titles plus legacy Features/Fixes for older S3 notes. */
+const USER_FACING_SECTIONS = new Set([
+  'New Features',
+  'Bug Fixes',
+  'Features',
+  'Fixes',
+]);
 export const DEFAULT_MAX_NOTES_DEPTH = 20;
 
 const PREVIOUS_VERSION_RE = /Changes since\s+`?v?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)`?/i;
@@ -63,8 +69,9 @@ export function parsePreviousVersion(markdown: string): string | null {
 }
 
 /**
- * Keep Features / Fixes / Improvements only; drop Other and the
- * "Changes since" metadata line used for chain walking.
+ * Keep New Features / Bug Fixes (and legacy Features / Fixes) only;
+ * drop Improvements, Other, and the "Changes since" metadata line used
+ * for chain walking.
  */
 export function filterUserFacingSections(markdown: string): string {
   const lines = markdown.split(/\r?\n/);
@@ -100,7 +107,7 @@ export function filterUserFacingSections(markdown: string): string {
 }
 
 export function hasUserFacingContent(filteredMarkdown: string): boolean {
-  return /^##\s+(Features|Fixes|Improvements)\b/m.test(filteredMarkdown);
+  return /^##\s+(New Features|Bug Fixes|Features|Fixes)\b/m.test(filteredMarkdown);
 }
 
 export type FetchReleaseNotesText = (url: string) => Promise<string | null>;

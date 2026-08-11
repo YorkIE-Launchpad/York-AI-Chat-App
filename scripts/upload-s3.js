@@ -36,12 +36,12 @@ const TAG_NAME = `v${VERSION}`;
 
 /** @type {Record<string, string>} */
 const COMMIT_SECTIONS = {
-  feat: 'Features',
-  fix: 'Fixes',
-  perf: 'Improvements',
-  refactor: 'Improvements',
-  revert: 'Improvements',
+  feat: 'New Features',
+  fix: 'Bug Fixes',
 };
+
+/** Section order for generated RELEASE_NOTES.md */
+const SECTION_ORDER = ['New Features', 'Bug Fixes'];
 
 /**
  * Run a git command and return trimmed stdout, or null on failure.
@@ -125,7 +125,20 @@ function parseConventionalSubject(subject) {
 }
 
 /**
+ * Short user-facing bullet: capitalize first letter, strip trailing period.
+ * @param {string} description
+ * @returns {string}
+ */
+function formatReleaseBullet(description) {
+  let text = description.trim();
+  if (!text) return '';
+  text = text.replace(/\.+$/, '');
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/**
  * Build markdown release notes from commits since the previous tag.
+ * Only feat → New Features and fix → Bug Fixes; other types are skipped.
  * @param {string} outPath
  * @returns {{ previousTag: string | null; path: string }}
  */
@@ -137,18 +150,26 @@ function generateReleaseNotes(outPath) {
 
   /** @type {Record<string, string[]>} */
   const groups = {
-    Features: [],
-    Fixes: [],
-    Improvements: [],
-    Other: [],
+    'New Features': [],
+    'Bug Fixes': [],
+  };
+  /** @type {Record<string, Set<string>>} */
+  const seen = {
+    'New Features': new Set(),
+    'Bug Fixes': new Set(),
   };
 
   for (const subject of subjects) {
     const parsed = parseConventionalSubject(subject);
     if (!parsed) continue;
 
-    const section = COMMIT_SECTIONS[parsed.type] || 'Other';
-    groups[section].push(parsed.description);
+    const section = COMMIT_SECTIONS[parsed.type];
+    if (!section) continue;
+
+    const bullet = formatReleaseBullet(parsed.description);
+    if (!bullet || seen[section].has(bullet)) continue;
+    seen[section].add(bullet);
+    groups[section].push(bullet);
   }
 
   const lines = [`# York GrowthOS v${VERSION}`, ''];
@@ -159,7 +180,7 @@ function generateReleaseNotes(outPath) {
   }
 
   let hasItems = false;
-  for (const section of ['Features', 'Fixes', 'Improvements', 'Other']) {
+  for (const section of SECTION_ORDER) {
     const items = groups[section];
     if (items.length === 0) continue;
     hasItems = true;
