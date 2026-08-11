@@ -190,6 +190,15 @@ export interface ScheduleTask {
   lastState: string | null;
   lastCheckedAt: number | null;
   consecutiveUnchanged: number;
+  /** Workspace division where run chats are created. */
+  division: 'general' | 'hub' | 'project' | 'folder';
+  hubProjectId: string | null;
+  hubProjectName: string | null;
+  launchpadProjectId: number | null;
+  launchpadProjectName: string | null;
+  folderId: string | null;
+  folderName: string | null;
+  canonicalKey: string | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -222,6 +231,14 @@ export interface ScheduleCreateInput {
   sessionMode?: 'new' | 'continue';
   boundSessionId?: string | null;
   watchConfig?: WatchConfig | null;
+  division?: 'general' | 'hub' | 'project' | 'folder';
+  hubProjectId?: string | null;
+  hubProjectName?: string | null;
+  launchpadProjectId?: number | null;
+  launchpadProjectName?: string | null;
+  folderId?: string | null;
+  folderName?: string | null;
+  canonicalKey?: string | null;
 }
 
 export interface ScheduleUpdateInput {
@@ -246,6 +263,14 @@ export interface ScheduleUpdateInput {
   lastState?: string | null;
   lastCheckedAt?: number | null;
   consecutiveUnchanged?: number;
+  division?: 'general' | 'hub' | 'project' | 'folder';
+  hubProjectId?: string | null;
+  hubProjectName?: string | null;
+  launchpadProjectId?: number | null;
+  launchpadProjectName?: string | null;
+  folderId?: string | null;
+  folderName?: string | null;
+  canonicalKey?: string | null;
 }
 
 export interface ChatLoopStatus {

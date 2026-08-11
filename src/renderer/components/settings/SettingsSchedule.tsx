@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
-import { AlertCircle, CheckCircle, ChevronDown, Plus, X, Check } from 'lucide-react';
+import { AlertCircle, CheckCircle, ChevronDown, FolderOpen, Plus, X, Check } from 'lucide-react';
 import type {
   ScheduleConfig,
   ScheduleTask,
@@ -24,6 +24,12 @@ import {
   type ScheduleModelSelection,
 } from './ScheduleModelSelector';
 import { SettingsCheckpoints } from './SettingsCheckpoints';
+import {
+  sessionFieldsFromActiveDivision,
+  type SessionDivisionFields,
+  type WorkspaceDivisionKind,
+} from '../../../shared/workspace-division';
+import { workflowWorkspaceLabel } from '../../../shared/workflows';
 
 const isElectron = typeof window !== 'undefined' && window.electronAPI !== undefined;
 
@@ -47,6 +53,7 @@ const SCHEDULE_TIME_SUGGESTIONS = [
 export function SettingsSchedule({ isActive }: { isActive: boolean }) {
   const { t } = useTranslation();
   const workingDir = useAppStore((state) => state.workingDir);
+  const activeDivision = useAppStore((state) => state.activeDivision);
   const sessions = useAppStore((state) => state.sessions);
   const activeSessionId = useAppStore((state) => state.activeSessionId);
   const [tasks, setTasks] = useState<ScheduleTask[]>([]);
@@ -57,6 +64,9 @@ export function SettingsSchedule({ isActive }: { isActive: boolean }) {
   const [editingTaskSnapshot, setEditingTaskSnapshot] = useState<ScheduleTask | null>(null);
   const [prompt, setPrompt] = useState('');
   const [cwd, setCwd] = useState('');
+  const [workspaceBinding, setWorkspaceBinding] = useState<SessionDivisionFields>(() =>
+    normalizeScheduleBinding(sessionFieldsFromActiveDivision(null))
+  );
   const [runAt, setRunAt] = useState('');
   const [scheduleMode, setScheduleMode] = useState<ScheduleFormMode>('once');
   const [selectedTimes, setSelectedTimes] = useState<string[]>(['08:00']);
@@ -75,6 +85,7 @@ export function SettingsSchedule({ isActive }: { isActive: boolean }) {
   });
   const weekdayOptions = getWeekdayOptions(t);
   const scheduleModeOptions = getScheduleModeOptions(t);
+  const workspaceLabel = workflowWorkspaceLabel(workspaceBinding);
   const promptChangedWhileEditing = Boolean(
     editingTaskSnapshot && prompt.trim() !== editingTaskSnapshot.prompt.trim()
   );
@@ -107,6 +118,52 @@ export function SettingsSchedule({ isActive }: { isActive: boolean }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workingDir]);
+
+  useEffect(() => {
+    if (editingId) return;
+    setWorkspaceBinding(normalizeScheduleBinding(sessionFieldsFromActiveDivision(activeDivision)));
+  }, [activeDivision, editingId]);
+
+  function applyCurrentWorkspace() {
+    setCwd(workingDir || '');
+    setWorkspaceBinding(normalizeScheduleBinding(sessionFieldsFromActiveDivision(activeDivision)));
+  }
+
+  async function browseWorkspaceFolder() {
+    if (!isElectron) return;
+    try {
+      const folderPath = await window.electronAPI.invoke<string | null>({
+        type: 'folder.select',
+        payload: {},
+      });
+      if (folderPath) setCwd(folderPath);
+    } catch (err) {
+      setError(err instanceof Error ? { text: err.message } : { key: 'schedule.saveFailed' });
+    }
+  }
+
+  function bindingPayloadFromForm(): Pick<
+    ScheduleCreateInput,
+    | 'division'
+    | 'hubProjectId'
+    | 'hubProjectName'
+    | 'launchpadProjectId'
+    | 'launchpadProjectName'
+    | 'folderId'
+    | 'folderName'
+    | 'canonicalKey'
+  > {
+    return {
+      division: workspaceBinding.division,
+      hubProjectId: workspaceBinding.hubProjectId ?? null,
+      hubProjectName: workspaceBinding.hubProjectName ?? null,
+      launchpadProjectId: workspaceBinding.launchpadProjectId ?? null,
+      launchpadProjectName: workspaceBinding.launchpadProjectName ?? null,
+      folderId: workspaceBinding.folderId ?? null,
+      folderName: workspaceBinding.folderName ?? null,
+      canonicalKey: workspaceBinding.canonicalKey ?? null,
+    };
+  }
 
   const loadTasks = useCallback(async (options: { silent?: boolean } = {}) => {
     if (!isElectron) return;
@@ -233,6 +290,7 @@ export function SettingsSchedule({ isActive }: { isActive: boolean }) {
           sessionMode,
           boundSessionId,
           watchConfig,
+          ...bindingPayloadFromForm(),
         };
         if (shouldRegenerateTitle) {
           payload.prompt = trimmedPrompt;
@@ -266,6 +324,7 @@ export function SettingsSchedule({ isActive }: { isActive: boolean }) {
           sessionMode,
           boundSessionId,
           watchConfig,
+          ...bindingPayloadFromForm(),
         };
         await window.electronAPI.schedule.create(payload);
         setSuccess({ key: 'schedule.created' });
@@ -373,6 +432,7 @@ export function SettingsSchedule({ isActive }: { isActive: boolean }) {
     setEditingTaskSnapshot(task);
     setPrompt(task.prompt);
     setCwd(task.cwd);
+    setWorkspaceBinding(bindingFromTask(task));
     setRunAt(toLocalDateTimeInput(task.nextRunAt ?? task.runAt));
     setEnabled(task.enabled);
     setScheduleMode(detectScheduleMode(task));
@@ -401,6 +461,9 @@ export function SettingsSchedule({ isActive }: { isActive: boolean }) {
     setEditingTaskSnapshot(null);
     setPrompt('');
     setCwd(workingDir || '');
+    setWorkspaceBinding(
+      normalizeScheduleBinding(sessionFieldsFromActiveDivision(activeDivision))
+    );
     setRunAt(toLocalDateTimeInput(defaultRunAt));
     setScheduleMode('once');
     setSelectedTimes(['08:00']);
@@ -543,12 +606,44 @@ export function SettingsSchedule({ isActive }: { isActive: boolean }) {
             </div>
           </div>
         )}
-        <input
-          value={cwd}
-          onChange={(e) => setCwd(e.target.value)}
-          placeholder={t('schedule.cwdPlaceholder')}
-          className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm"
-        />
+        <div className="rounded-lg border border-border bg-background p-3 space-y-2">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <div className="text-sm font-medium text-text-primary">{t('schedule.workspace')}</div>
+              <div className="text-xs text-text-muted">{t('schedule.workspaceHint')}</div>
+            </div>
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-accent shrink-0">
+              {workspaceLabel}
+            </div>
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <input
+              value={cwd}
+              onChange={(e) => setCwd(e.target.value)}
+              placeholder={t('schedule.cwdPlaceholder')}
+              className="w-full min-w-0 flex-1 px-3 py-2 rounded-lg bg-surface border border-border text-sm"
+            />
+            <div className="flex gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => void browseWorkspaceFolder()}
+                disabled={isLoading}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border text-sm text-text-secondary hover:bg-surface-hover disabled:opacity-50"
+              >
+                <FolderOpen className="w-3.5 h-3.5" />
+                {t('schedule.workspaceBrowse')}
+              </button>
+              <button
+                type="button"
+                onClick={applyCurrentWorkspace}
+                disabled={isLoading}
+                className="inline-flex items-center px-3 py-2 rounded-lg border border-border text-sm text-text-secondary hover:bg-surface-hover disabled:opacity-50"
+              >
+                {t('schedule.workspaceUseCurrent')}
+              </button>
+            </div>
+          </div>
+        </div>
         <ScheduleModelSelector
           value={modelSelection}
           onChange={setModelSelection}
@@ -754,7 +849,10 @@ export function SettingsSchedule({ isActive }: { isActive: boolean }) {
                       {t('schedule.sessionStatus', { value: lastRunStatusLabel })}
                     </div>
                     <div className="text-xs text-text-muted truncate" title={task.cwd}>
-                      {t('schedule.cwd', { value: task.cwd })}
+                      {t('schedule.workspaceBound', {
+                        workspace: workflowWorkspaceLabel(bindingFromTask(task)),
+                        path: task.cwd || t('schedule.workspaceNoPath'),
+                      })}
                     </div>
                     <div className="text-xs text-text-muted truncate" title={task.model}>
                       {t('schedule.modelLabel', { value: task.model })}
@@ -823,6 +921,34 @@ export function SettingsSchedule({ isActive }: { isActive: boolean }) {
 }
 
 // ==================== Schedule Helpers ====================
+
+function normalizeScheduleBinding(
+  fields: Partial<SessionDivisionFields> | null | undefined
+): SessionDivisionFields {
+  return {
+    division: (fields?.division as WorkspaceDivisionKind) || 'general',
+    hubProjectId: fields?.hubProjectId ?? null,
+    hubProjectName: fields?.hubProjectName ?? null,
+    launchpadProjectId: fields?.launchpadProjectId ?? null,
+    launchpadProjectName: fields?.launchpadProjectName ?? null,
+    folderId: fields?.folderId ?? null,
+    folderName: fields?.folderName ?? null,
+    canonicalKey: fields?.canonicalKey ?? null,
+  };
+}
+
+function bindingFromTask(task: ScheduleTask): SessionDivisionFields {
+  return normalizeScheduleBinding({
+    division: task.division,
+    hubProjectId: task.hubProjectId,
+    hubProjectName: task.hubProjectName,
+    launchpadProjectId: task.launchpadProjectId,
+    launchpadProjectName: task.launchpadProjectName,
+    folderId: task.folderId,
+    folderName: task.folderName,
+    canonicalKey: task.canonicalKey,
+  });
+}
 
 function buildWatchConfigFromForm(
   kind: TaskKind,

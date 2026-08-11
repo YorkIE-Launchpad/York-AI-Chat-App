@@ -2,6 +2,10 @@ import { v4 as uuidv4 } from 'uuid';
 import type { DatabaseInstance, ScheduledTaskRow } from '../db/database';
 import { OPENROUTER_FREE_ROUTER_ID } from '../agent/free-model-resolve';
 import type { ScheduleSessionMode, ScheduleTaskKind, WatchConfig } from '../../shared/loop/types';
+import {
+  normalizeWorkflowBinding,
+  workflowBindingToStartOptions,
+} from '../../shared/workflows';
 import type {
   ScheduledTask,
   ScheduledTaskCreateInput,
@@ -21,6 +25,35 @@ export function resolveScheduleModel(
   return { model: resolvedModel, provider: resolvedProvider };
 }
 
+/** Normalize workspace binding fields from create/update/row payloads. */
+export function resolveScheduleWorkspaceBinding(
+  input?: Partial<{
+    division: string | null;
+    hubProjectId: string | null;
+    hubProjectName: string | null;
+    launchpadProjectId: number | null;
+    launchpadProjectName: string | null;
+    folderId: string | null;
+    folderName: string | null;
+    canonicalKey: string | null;
+  }> | null
+) {
+  return normalizeWorkflowBinding({
+    division: (input?.division as ScheduledTask['division']) || 'general',
+    hubProjectId: input?.hubProjectId,
+    hubProjectName: input?.hubProjectName,
+    launchpadProjectId: input?.launchpadProjectId,
+    launchpadProjectName: input?.launchpadProjectName,
+    folderId: input?.folderId,
+    folderName: input?.folderName,
+    canonicalKey: input?.canonicalKey,
+  });
+}
+
+export function scheduleBindingToStartOptions(task: ScheduledTask) {
+  return workflowBindingToStartOptions(task);
+}
+
 export function createScheduledTaskStore(db: DatabaseInstance): ScheduledTaskStore {
   return {
     list: () => db.scheduledTasks.getAll().map(mapRowToTask),
@@ -33,6 +66,7 @@ export function createScheduledTaskStore(db: DatabaseInstance): ScheduledTaskSto
       const { model, provider } = resolveScheduleModel(input.model, input.provider);
       const kind = normalizeKind(input.kind);
       const sessionMode = input.sessionMode ?? (kind === 'loop' ? 'continue' : 'new');
+      const binding = resolveScheduleWorkspaceBinding(input);
       const row: ScheduledTaskRow = {
         id: uuidv4(),
         title: input.title ?? '',
@@ -56,6 +90,14 @@ export function createScheduledTaskStore(db: DatabaseInstance): ScheduledTaskSto
         last_state: null,
         last_checked_at: null,
         consecutive_unchanged: 0,
+        division: binding.division,
+        hub_project_id: binding.hubProjectId ?? null,
+        hub_project_name: binding.hubProjectName ?? null,
+        launchpad_project_id: binding.launchpadProjectId ?? null,
+        launchpad_project_name: binding.launchpadProjectName ?? null,
+        folder_id: binding.folderId ?? null,
+        folder_name: binding.folderName ?? null,
+        project_canonical_key: binding.canonicalKey ?? null,
         created_at: now,
         updated_at: now,
       };
@@ -63,7 +105,9 @@ export function createScheduledTaskStore(db: DatabaseInstance): ScheduledTaskSto
       return mapRowToTask(row);
     },
     update: (id: string, updates: ScheduledTaskUpdateInput) => {
-      const mapped = mapTaskUpdatesToRow(updates);
+      const existing = db.scheduledTasks.get(id);
+      if (!existing) return null;
+      const mapped = mapTaskUpdatesToRow(updates, existing);
       db.scheduledTasks.update(id, mapped);
       const row = db.scheduledTasks.get(id);
       return row ? mapRowToTask(row) : null;
@@ -90,6 +134,16 @@ function normalizeSessionMode(value?: string | null, kind?: ScheduleTaskKind): S
 function mapRowToTask(row: ScheduledTaskRow): ScheduledTask {
   const { model, provider } = resolveScheduleModel(row.model, row.provider);
   const kind = normalizeKind(row.kind as ScheduleTaskKind | null);
+  const binding = resolveScheduleWorkspaceBinding({
+    division: row.division,
+    hubProjectId: row.hub_project_id,
+    hubProjectName: row.hub_project_name,
+    launchpadProjectId: row.launchpad_project_id,
+    launchpadProjectName: row.launchpad_project_name,
+    folderId: row.folder_id,
+    folderName: row.folder_name,
+    canonicalKey: row.project_canonical_key,
+  });
   return {
     id: row.id,
     title: row.title,
@@ -113,12 +167,23 @@ function mapRowToTask(row: ScheduledTaskRow): ScheduledTask {
     lastState: row.last_state,
     lastCheckedAt: row.last_checked_at,
     consecutiveUnchanged: row.consecutive_unchanged ?? 0,
+    division: binding.division,
+    hubProjectId: binding.hubProjectId ?? null,
+    hubProjectName: binding.hubProjectName ?? null,
+    launchpadProjectId: binding.launchpadProjectId ?? null,
+    launchpadProjectName: binding.launchpadProjectName ?? null,
+    folderId: binding.folderId ?? null,
+    folderName: binding.folderName ?? null,
+    canonicalKey: binding.canonicalKey ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
 }
 
-function mapTaskUpdatesToRow(updates: ScheduledTaskUpdateInput): Partial<ScheduledTaskRow> {
+function mapTaskUpdatesToRow(
+  updates: ScheduledTaskUpdateInput,
+  existing: ScheduledTaskRow
+): Partial<ScheduledTaskRow> {
   const mapped: Partial<ScheduledTaskRow> = {};
   if (updates.title !== undefined) mapped.title = updates.title;
   if (updates.prompt !== undefined) mapped.prompt = updates.prompt;
@@ -149,6 +214,45 @@ function mapTaskUpdatesToRow(updates: ScheduledTaskUpdateInput): Partial<Schedul
   if (updates.lastCheckedAt !== undefined) mapped.last_checked_at = updates.lastCheckedAt;
   if (updates.consecutiveUnchanged !== undefined) {
     mapped.consecutive_unchanged = updates.consecutiveUnchanged;
+  }
+
+  const touchesBinding =
+    updates.division !== undefined ||
+    updates.hubProjectId !== undefined ||
+    updates.hubProjectName !== undefined ||
+    updates.launchpadProjectId !== undefined ||
+    updates.launchpadProjectName !== undefined ||
+    updates.folderId !== undefined ||
+    updates.folderName !== undefined ||
+    updates.canonicalKey !== undefined;
+  if (touchesBinding) {
+    const binding = resolveScheduleWorkspaceBinding({
+      division: updates.division ?? existing.division,
+      hubProjectId:
+        updates.hubProjectId !== undefined ? updates.hubProjectId : existing.hub_project_id,
+      hubProjectName:
+        updates.hubProjectName !== undefined ? updates.hubProjectName : existing.hub_project_name,
+      launchpadProjectId:
+        updates.launchpadProjectId !== undefined
+          ? updates.launchpadProjectId
+          : existing.launchpad_project_id,
+      launchpadProjectName:
+        updates.launchpadProjectName !== undefined
+          ? updates.launchpadProjectName
+          : existing.launchpad_project_name,
+      folderId: updates.folderId !== undefined ? updates.folderId : existing.folder_id,
+      folderName: updates.folderName !== undefined ? updates.folderName : existing.folder_name,
+      canonicalKey:
+        updates.canonicalKey !== undefined ? updates.canonicalKey : existing.project_canonical_key,
+    });
+    mapped.division = binding.division;
+    mapped.hub_project_id = binding.hubProjectId ?? null;
+    mapped.hub_project_name = binding.hubProjectName ?? null;
+    mapped.launchpad_project_id = binding.launchpadProjectId ?? null;
+    mapped.launchpad_project_name = binding.launchpadProjectName ?? null;
+    mapped.folder_id = binding.folderId ?? null;
+    mapped.folder_name = binding.folderName ?? null;
+    mapped.project_canonical_key = binding.canonicalKey ?? null;
   }
   return mapped;
 }

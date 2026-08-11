@@ -4,6 +4,7 @@ import {
   buildScheduledTaskFallbackTitle,
   buildScheduledTaskTitle,
 } from '../../shared/schedule/task-title';
+import { scheduleBindingToStartOptions } from './scheduled-task-store';
 
 export interface ExecuteScheduledTaskDeps {
   sessionManager: SessionManager;
@@ -52,6 +53,7 @@ export async function executeScheduledTask(
     }
   }
 
+  const workspace = scheduleBindingToStartOptions(task);
   const started = await deps.sessionManager.startSession(
     title,
     task.prompt,
@@ -63,6 +65,7 @@ export async function executeScheduledTask(
       model: task.model,
       provider: task.provider,
       lockModel: true,
+      ...workspace,
     }
   );
   deps.onSessionStarted?.(started);

@@ -41,6 +41,7 @@ describe('scheduled task executeTask lock wiring', () => {
     expect(content).toContain('lockModel: true');
     expect(content).toContain('model: task.model');
     expect(content).toContain('provider: task.provider');
+    expect(content).toContain('scheduleBindingToStartOptions');
   });
 
   it('session-manager skips config model overwrite when modelLocked', async () => {

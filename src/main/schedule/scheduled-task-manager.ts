@@ -16,6 +16,7 @@ import {
   buildScheduledTaskTitle,
 } from '../../shared/schedule/task-title';
 import type { ScheduleSessionMode, ScheduleTaskKind, WatchConfig } from '../../shared/loop/types';
+import type { WorkspaceDivisionKind } from '../../shared/workspace-division';
 import { log, logError } from '../utils/logger';
 import { checkWatchCondition } from './watch-checks';
 
@@ -64,6 +65,15 @@ export interface ScheduledTask {
   lastState: string | null;
   lastCheckedAt: number | null;
   consecutiveUnchanged: number;
+  /** Workspace division where run chats are created. */
+  division: WorkspaceDivisionKind;
+  hubProjectId: string | null;
+  hubProjectName: string | null;
+  launchpadProjectId: number | null;
+  launchpadProjectName: string | null;
+  folderId: string | null;
+  folderName: string | null;
+  canonicalKey: string | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -84,6 +94,14 @@ export interface ScheduledTaskCreateInput {
   sessionMode?: ScheduleSessionMode;
   boundSessionId?: string | null;
   watchConfig?: WatchConfig | null;
+  division?: WorkspaceDivisionKind;
+  hubProjectId?: string | null;
+  hubProjectName?: string | null;
+  launchpadProjectId?: number | null;
+  launchpadProjectName?: string | null;
+  folderId?: string | null;
+  folderName?: string | null;
+  canonicalKey?: string | null;
 }
 
 export interface ScheduledTaskUpdateInput {
@@ -108,6 +126,14 @@ export interface ScheduledTaskUpdateInput {
   lastState?: string | null;
   lastCheckedAt?: number | null;
   consecutiveUnchanged?: number;
+  division?: WorkspaceDivisionKind;
+  hubProjectId?: string | null;
+  hubProjectName?: string | null;
+  launchpadProjectId?: number | null;
+  launchpadProjectName?: string | null;
+  folderId?: string | null;
+  folderName?: string | null;
+  canonicalKey?: string | null;
 }
 
 export interface ScheduledTaskStore {

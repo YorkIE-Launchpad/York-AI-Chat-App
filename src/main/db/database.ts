@@ -165,6 +165,15 @@ export interface ScheduledTaskRow {
   last_state: string | null;
   last_checked_at: number | null;
   consecutive_unchanged: number | null;
+  /** Workspace division (general / hub / project / folder). */
+  division: string | null;
+  hub_project_id: string | null;
+  hub_project_name: string | null;
+  launchpad_project_id: number | null;
+  launchpad_project_name: string | null;
+  folder_id: string | null;
+  folder_name: string | null;
+  project_canonical_key: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -490,6 +499,32 @@ function initializeSchema(database: Database.Database): void {
       'scheduled_tasks',
       'consecutive_unchanged',
       'consecutive_unchanged INTEGER'
+    );
+    ensureColumn(database, 'scheduled_tasks', 'division', "division TEXT NOT NULL DEFAULT 'general'");
+    ensureColumn(database, 'scheduled_tasks', 'hub_project_id', 'hub_project_id TEXT');
+    ensureColumn(database, 'scheduled_tasks', 'hub_project_name', 'hub_project_name TEXT');
+    ensureColumn(
+      database,
+      'scheduled_tasks',
+      'launchpad_project_id',
+      'launchpad_project_id INTEGER'
+    );
+    ensureColumn(
+      database,
+      'scheduled_tasks',
+      'launchpad_project_name',
+      'launchpad_project_name TEXT'
+    );
+    ensureColumn(database, 'scheduled_tasks', 'folder_id', 'folder_id TEXT');
+    ensureColumn(database, 'scheduled_tasks', 'folder_name', 'folder_name TEXT');
+    ensureColumn(
+      database,
+      'scheduled_tasks',
+      'project_canonical_key',
+      'project_canonical_key TEXT'
+    );
+    database.exec(
+      `UPDATE scheduled_tasks SET division = 'general' WHERE division IS NULL OR division = ''`
     );
 
     database.exec(`
@@ -851,9 +886,11 @@ export function initDatabase(): DatabaseInstance {
 
   const insertScheduledTask = rawDb.prepare(`
     INSERT OR REPLACE INTO scheduled_tasks (
-      id, title, prompt, cwd, run_at, next_run_at, schedule_config, repeat_every, repeat_unit, enabled, last_run_at, last_run_session_id, last_error, model, provider, kind, session_mode, bound_session_id, watch_config, last_state, last_checked_at, consecutive_unchanged, created_at, updated_at
+      id, title, prompt, cwd, run_at, next_run_at, schedule_config, repeat_every, repeat_unit, enabled, last_run_at, last_run_session_id, last_error, model, provider, kind, session_mode, bound_session_id, watch_config, last_state, last_checked_at, consecutive_unchanged,
+      division, hub_project_id, hub_project_name, launchpad_project_id, launchpad_project_name, folder_id, folder_name, project_canonical_key,
+      created_at, updated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const getScheduledTaskStmt = rawDb.prepare(`
@@ -1135,6 +1172,14 @@ export function initDatabase(): DatabaseInstance {
           task.last_state,
           task.last_checked_at,
           task.consecutive_unchanged,
+          task.division ?? 'general',
+          task.hub_project_id ?? null,
+          task.hub_project_name ?? null,
+          task.launchpad_project_id ?? null,
+          task.launchpad_project_name ?? null,
+          task.folder_id ?? null,
+          task.folder_name ?? null,
+          task.project_canonical_key ?? null,
           task.created_at,
           task.updated_at
         );
