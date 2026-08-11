@@ -37,20 +37,48 @@ function plutilReplace(plist, key, value) {
   execFileSync('plutil', ['-replace', key, '-string', value, plist], { stdio: 'inherit' });
 }
 
-/** Prefer branded bundle; rename stock Electron.app when needed. */
+/** Any previously branded host (e.g. older "York IE VECOS.app") under electron/dist. */
+function findLegacyBrandedApp() {
+  try {
+    return (
+      fs
+        .readdirSync(DIST_DIR)
+        .filter((name) => name.endsWith('.app') && name !== BUNDLE_NAME && name !== 'Electron.app')
+        .map((name) => path.join(DIST_DIR, name))
+        .find((p) => fs.existsSync(path.join(p, 'Contents', 'MacOS', 'Electron'))) ?? null
+    );
+  } catch {
+    return null;
+  }
+}
+
+/** Prefer branded bundle; rename stock / legacy host app when needed. */
 function resolveAppBundle() {
+  const legacy = findLegacyBrandedApp();
+
   if (fs.existsSync(BRANDED_APP)) {
     // Fresh electron install may recreate Electron.app alongside a leftover branded copy
     if (fs.existsSync(STOCK_APP)) {
       fs.rmSync(BRANDED_APP, { recursive: true, force: true });
       fs.renameSync(STOCK_APP, BRANDED_APP);
+    } else if (legacy) {
+      // Drop stale alternate brands so Dock / tray hover don't keep old names
+      fs.rmSync(legacy, { recursive: true, force: true });
     }
     return BRANDED_APP;
   }
+
   if (fs.existsSync(STOCK_APP)) {
     fs.renameSync(STOCK_APP, BRANDED_APP);
+    if (legacy) fs.rmSync(legacy, { recursive: true, force: true });
     return BRANDED_APP;
   }
+
+  if (legacy) {
+    fs.renameSync(legacy, BRANDED_APP);
+    return BRANDED_APP;
+  }
+
   return null;
 }
 
@@ -124,6 +152,10 @@ const lsregister =
 if (fs.existsSync(lsregister)) {
   spawnSync(lsregister, ['-u', appBundle], { stdio: 'ignore' });
   spawnSync(lsregister, ['-u', STOCK_APP], { stdio: 'ignore' });
+  // Unregister common legacy names so tray/Dock hover don't stick on old brand
+  for (const name of ['York IE VECOS.app', 'York GrowthOS.app', 'Electron.app']) {
+    spawnSync(lsregister, ['-u', path.join(DIST_DIR, name)], { stdio: 'ignore' });
+  }
   spawnSync(lsregister, ['-f', '-R', '-trusted', appBundle], { stdio: 'ignore' });
 }
 spawnSync('touch', [appBundle], { stdio: 'ignore' });
