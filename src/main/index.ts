@@ -26,10 +26,15 @@ import {
   nativeImage,
   desktopCapturer,
   session,
-  Notification,
   systemPreferences,
   globalShortcut,
 } from 'electron';
+import {
+  showOsNotification,
+  focusAppWindow,
+  focusAndNavigate,
+  truncateNotifyBody,
+} from './os-notifications';
 import { join, resolve, dirname, isAbsolute, basename, extname } from 'path';
 import * as fs from 'fs';
 import { execFileSync } from 'child_process';
@@ -934,52 +939,18 @@ function wireMeetingServiceEvents(service: MeetingService): void {
   service.syncDetectionPolling();
 }
 
-/** Keep refs so Chromium does not GC notifications before they appear. */
-const retainedMeetingNotifications = new Set<Notification>();
-
 function showMeetingOsNotification(options: { title: string; body: string }): void {
-  log(`[Meetings] Showing OS notification: ${options.title}`);
-  if (!Notification.isSupported()) {
-    logWarn('[Meetings] Electron Notification API is not supported on this platform');
-    return;
-  }
-  try {
-    const notification = new Notification({
-      title: options.title,
-      body: options.body,
-      silent: false,
-      timeoutType: 'default',
-      urgency: 'normal',
-    });
-    retainedMeetingNotifications.add(notification);
-    notification.on('click', () => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        if (mainWindow.isMinimized()) {
-          mainWindow.restore();
-        }
-        mainWindow.show();
-        mainWindow.focus();
-        mainWindow.webContents.send('meetings:openSettings');
+  showOsNotification({
+    tag: 'Meetings',
+    title: options.title,
+    body: options.body,
+    onClick: () => {
+      const win = focusAppWindow(mainWindow);
+      if (win) {
+        win.webContents.send('meetings:openSettings');
       }
-    });
-    notification.on('failed', (event, error) => {
-      logWarn(
-        '[Meetings] OS notification failed — on macOS Electron 41+ requires a valid code signature ' +
-          '(dev: npm run brand:electron re-signs the host) and Notification Center permission for this app',
-        error || event
-      );
-      retainedMeetingNotifications.delete(notification);
-    });
-    notification.on('close', () => {
-      retainedMeetingNotifications.delete(notification);
-    });
-    notification.on('show', () => {
-      log('[Meetings] OS notification shown');
-    });
-    notification.show();
-  } catch (error) {
-    logWarn('[Meetings] Failed to show OS notification', error);
-  }
+    },
+  });
 }
 
 function createWindow() {
@@ -2228,11 +2199,12 @@ app
       runAgentStep: async ({ prompt, workflowId, runId, nodeId, stepLabel, model, provider }) => {
         if (!sessionManager) throw new Error('Session manager not initialized');
         const def = workflowService?.get(workflowId);
+        const workflowName = def?.name || 'Workflow';
         const cwd = configStore.get('defaultWorkdir') || currentWorkingDir || process.cwd();
         const stepPrompt = prompt.includes('[[YORK_WORKFLOW_AGENT_STEP]]')
           ? prompt
           : `[[YORK_WORKFLOW_AGENT_STEP]]\n${prompt}`;
-        const title = formatWorkflowSessionTitle(def?.name || 'Workflow', stepLabel);
+        const title = formatWorkflowSessionTitle(workflowName, stepLabel);
         const divisionOpts = def
           ? workflowBindingToStartOptions(def)
           : { division: 'general' as const };
@@ -2279,6 +2251,16 @@ app
           summary = null;
         }
 
+        const stepLabelText = (stepLabel || 'Agent step').trim() || 'Agent step';
+        showOsNotification({
+          tag: 'Workflow',
+          title: `${workflowName} · ${stepLabelText}`,
+          body: truncateNotifyBody(summary || 'Step finished'),
+          onClick: () => {
+            focusAndNavigate('session', { sessionId: started.id, win: mainWindow });
+          },
+        });
+
         return { sessionId: started.id, summary };
       },
       requestApproval: async ({ runId, nodeId, message, workflowId }) => {
@@ -2296,8 +2278,18 @@ app
           pendingWorkflowApprovals.set(key, resolve);
         });
       },
-      notify: async ({ message }) => {
+      notify: async ({ message, workflowId }) => {
         log(`[Workflow] Notify: ${message}`);
+        const def = workflowService?.get(workflowId);
+        const workflowName = def?.name || 'Workflow';
+        showOsNotification({
+          tag: 'Workflow',
+          title: workflowName,
+          body: truncateNotifyBody(message || 'Notification'),
+          onClick: () => {
+            focusAndNavigate('workflows', { win: mainWindow });
+          },
+        });
       },
       onProgress: (event) => {
         for (const win of BrowserWindow.getAllWindows()) {

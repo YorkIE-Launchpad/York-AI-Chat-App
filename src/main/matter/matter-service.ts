@@ -22,6 +22,7 @@ import { collectMatterSignals, getEnabledMatterServerIds } from './matter-collec
 import { rankMatterSignals } from './matter-ranker';
 import { MatterScheduler } from './matter-scheduler';
 import { notifyMatterBrief, notifyMatterItem } from './matter-notifications';
+import { selectMatterScanNotifyItems } from '../os-notifications';
 import { shouldFireExpiry, shouldFireReminder, urgencyFromDueAt } from '../../shared/matter-time';
 
 const STARTUP_CONNECTOR_WAIT_MS = 120_000;
@@ -346,7 +347,25 @@ export class MatterService {
         }
       }
 
-      this.store.upsertRankedItems(ranked.items);
+      const previousForNotify = this.store.listActiveItems().map((i) => ({
+        fingerprint: i.fingerprint,
+        severity: i.severity,
+        status: i.status,
+      }));
+      // Include any known fingerprints (done/dismissed/etc) for resurface detection
+      for (const rankedItem of ranked.items) {
+        if (previousForNotify.some((p) => p.fingerprint === rankedItem.fingerprint)) continue;
+        const existing = this.store.getByFingerprint(rankedItem.fingerprint);
+        if (existing) {
+          previousForNotify.push({
+            fingerprint: existing.fingerprint,
+            severity: existing.severity,
+            status: existing.status,
+          });
+        }
+      }
+
+      const upserted = this.store.upsertRankedItems(ranked.items);
       this.store.expireAbsentItems(ranked.items.map((i) => i.fingerprint));
       this.lastPulse = ranked.pulse;
       this.lastBrief = ranked.brief;
@@ -382,12 +401,33 @@ export class MatterService {
         error: null,
       });
 
-      if (options?.notify && snapshot.criticalCount > 0 && this.scheduler.isInScanWindow()) {
-        notifyMatterBrief({
-          title: 'Matter — needs you',
-          body: snapshot.pulse,
-          criticalCount: snapshot.criticalCount,
-        });
+      if (options?.notify && this.scheduler.isInScanWindow()) {
+        const { items: notifyItems, overflow } = selectMatterScanNotifyItems(
+          previousForNotify,
+          upserted.map((i) => ({
+            fingerprint: i.fingerprint,
+            severity: i.severity,
+            status: i.status,
+            title: i.title,
+            summary: i.summary,
+            whyItMatters: i.whyItMatters,
+          }))
+        );
+        for (const item of notifyItems) {
+          notifyMatterItem({
+            kind: item.severity === 'critical' ? 'scan_critical' : 'scan_warning',
+            title: item.title,
+            body: item.summary || item.whyItMatters || item.title,
+            itemId: upserted.find((u) => u.fingerprint === item.fingerprint)?.id,
+          });
+        }
+        if (overflow > 0) {
+          notifyMatterBrief({
+            title: 'Matter — needs you',
+            body: `+${overflow} more need attention. ${snapshot.pulse}`,
+            criticalCount: snapshot.criticalCount,
+          });
+        }
       }
 
       try {

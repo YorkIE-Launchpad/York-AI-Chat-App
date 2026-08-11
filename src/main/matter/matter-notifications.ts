@@ -1,13 +1,7 @@
-import { Notification, BrowserWindow } from 'electron';
-import { logWarn } from '../utils/logger';
+import { showOsNotification, focusAndNavigate } from '../os-notifications';
 
 function focusMatterWindow(): void {
-  const win = BrowserWindow.getAllWindows()[0];
-  if (win) {
-    if (win.isMinimized()) win.restore();
-    win.focus();
-    void win.webContents.executeJavaScript(`window.__navigate && window.__navigate('matter')`);
-  }
+  focusAndNavigate('matter');
 }
 
 export function notifyMatterBrief(options: {
@@ -15,46 +9,34 @@ export function notifyMatterBrief(options: {
   body: string;
   criticalCount?: number;
 }): void {
-  try {
-    if (!Notification.isSupported()) return;
-    const notification = new Notification({
-      title: options.title,
-      body: options.body,
-      silent: false,
-    });
-    notification.on('click', () => {
-      focusMatterWindow();
-    });
-    notification.show();
-  } catch (error) {
-    logWarn('[Matter] Notification failed:', error);
-  }
+  showOsNotification({
+    tag: 'Matter',
+    title: options.title,
+    body: options.body,
+    onClick: () => focusMatterWindow(),
+  });
 }
 
 export function notifyMatterItem(options: {
-  kind: 'reminder' | 'expired' | 'snooze_wake';
+  kind: 'reminder' | 'expired' | 'snooze_wake' | 'scan_critical' | 'scan_warning';
   title: string;
   body: string;
   itemId?: string;
 }): void {
-  try {
-    if (!Notification.isSupported()) return;
-    const prefix =
-      options.kind === 'reminder'
-        ? 'Matter — reminder'
-        : options.kind === 'expired'
-          ? 'Matter — expired'
-          : 'Matter — back on radar';
-    const notification = new Notification({
-      title: options.title ? `${prefix}: ${options.title}` : prefix,
-      body: options.body,
-      silent: false,
-    });
-    notification.on('click', () => {
-      focusMatterWindow();
-    });
-    notification.show();
-  } catch (error) {
-    logWarn('[Matter] Item notification failed:', error);
-  }
+  const prefix =
+    options.kind === 'reminder'
+      ? 'Matter — reminder'
+      : options.kind === 'expired'
+        ? 'Matter — expired'
+        : options.kind === 'snooze_wake'
+          ? 'Matter — back on radar'
+          : options.kind === 'scan_critical'
+            ? 'Matter — urgent'
+            : 'Matter — warning';
+  showOsNotification({
+    tag: 'Matter',
+    title: options.title ? `${prefix}: ${options.title}` : prefix,
+    body: options.body,
+    onClick: () => focusMatterWindow(),
+  });
 }
