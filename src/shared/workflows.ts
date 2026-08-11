@@ -243,7 +243,9 @@ export function formatWorkflowSessionTitle(
   return `${WORKFLOW_SESSION_TITLE_PREFIX}${name} · ${shortStep}`;
 }
 
-export function workflowWorkspaceLabel(def: Pick<WorkflowDefinition, keyof WorkflowBinding>): string {
+export function workflowWorkspaceLabel(
+  def?: Partial<WorkflowBinding> | Pick<WorkflowDefinition, keyof WorkflowBinding> | null
+): string {
   const b = normalizeWorkflowBinding(def);
   if (b.division === 'project') {
     return projectDisplayName({
