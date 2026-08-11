@@ -5,6 +5,8 @@ import type {
   WorkflowAgentNode,
   WorkflowApprovalNode,
   WorkflowGraph,
+  WorkflowInputField,
+  WorkflowInputNode,
   WorkflowNode,
   WorkflowNodeType,
   WorkflowNotifyNode,
@@ -12,6 +14,7 @@ import type {
 } from './workflows';
 import {
   WORKFLOW_SCHEMA_VERSION,
+  defaultWorkflowInputFields,
   topologicalOrder,
   wouldCreateCycle,
 } from './workflows';
@@ -80,6 +83,7 @@ export function addNode(
     prompt?: string;
     toolName?: string;
     message?: string;
+    fields?: WorkflowInputField[];
   }
 ): WorkflowGraph {
   const g = cloneGraph(graph);
@@ -120,6 +124,21 @@ export function addNode(
       y,
     };
     node = approval;
+  } else if (type === 'input') {
+    const input: WorkflowInputNode = {
+      id: nextIdForPrefix(g.nodes, 'input'),
+      type: 'input',
+      label: options?.label?.trim() || 'Input',
+      prompt:
+        options?.prompt?.trim() || 'Provide the information needed to continue.',
+      fields:
+        options?.fields && options.fields.length > 0
+          ? options.fields
+          : defaultWorkflowInputFields(),
+      x,
+      y,
+    };
+    node = input;
   } else {
     const notify: WorkflowNotifyNode = {
       id: nextIdForPrefix(g.nodes, 'notify'),
@@ -258,6 +277,8 @@ export function updateNodeFields(
     toolName?: string;
     /** null clears args; empty object is also omitted. */
     args?: Record<string, unknown> | null;
+    /** Replace input-step fields when provided. */
+    inputFields?: WorkflowInputField[];
   }
 ): WorkflowGraph {
   const g = cloneGraph(graph);
@@ -302,6 +323,15 @@ export function updateNodeFields(
     if (fields.label !== undefined) {
       g.nodes[idx] = { ...g.nodes[idx], label: fields.label.trim() || node.label };
     }
+  } else if (node.type === 'input') {
+    const next: WorkflowInputNode = { ...node };
+    if (fields.label !== undefined) next.label = fields.label.trim() || next.label;
+    if (fields.prompt !== undefined) next.prompt = fields.prompt;
+    if (fields.inputFields !== undefined) {
+      next.fields =
+        fields.inputFields.length > 0 ? fields.inputFields : defaultWorkflowInputFields();
+    }
+    g.nodes[idx] = next;
   } else if (node.type === 'notify' && fields.message !== undefined) {
     g.nodes[idx] = { ...node, message: fields.message };
     if (fields.label !== undefined) {
@@ -442,6 +472,26 @@ export function sessionIdsFromWorkflowRun(payload: {
   return Array.from(new Set(ids));
 }
 
+/** Format input-step answers as a handoff summary for later agent prompts. */
+export function formatInputAnswersSummary(
+  answers: Record<string, string>,
+  fields?: WorkflowInputField[]
+): string {
+  const lines: string[] = [];
+  const labelByKey = new Map((fields || []).map((f) => [f.key, f.label]));
+  for (const [key, value] of Object.entries(answers)) {
+    const label = labelByKey.get(key) || key;
+    const text = String(value ?? '').trim();
+    if (!text) continue;
+    lines.push(`${label}: ${text}`);
+  }
+  return lines.join('\n');
+}
+
+/**
+ * Collect successful agent + input step results for handoff into later prompts.
+ * (Name kept for compatibility; also includes input answers.)
+ */
 export function extractPriorAgentResults(
   steps: Array<{
     nodeId: string;
@@ -454,8 +504,32 @@ export function extractPriorAgentResults(
 ): Array<{ label: string; summary: string }> {
   const out: Array<{ label: string; summary: string }> = [];
   for (const s of steps) {
-    if (s.type && s.type !== 'agent') continue;
     if (s.status !== 'success') continue;
+    if (s.type === 'input') {
+      let summary = (s.summary || '').trim();
+      if (s.output && typeof s.output === 'object' && s.output !== null) {
+        const o = s.output as {
+          summary?: unknown;
+          answers?: unknown;
+          fields?: unknown;
+        };
+        if (o.answers && typeof o.answers === 'object' && !Array.isArray(o.answers)) {
+          const answers = o.answers as Record<string, string>;
+          const fields = Array.isArray(o.fields)
+            ? (o.fields as WorkflowInputField[])
+            : undefined;
+          const formatted = formatInputAnswersSummary(answers, fields);
+          if (formatted) summary = formatted;
+        } else if (typeof o.summary === 'string' && o.summary.trim()) {
+          summary = o.summary.trim();
+        }
+      }
+      if (summary) {
+        out.push({ label: s.label || s.nodeId, summary: summary.slice(0, 4000) });
+      }
+      continue;
+    }
+    if (s.type && s.type !== 'agent') continue;
     let summary = (s.summary || '').trim();
     if (s.output && typeof s.output === 'object' && s.output !== null) {
       const o = s.output as { summary?: unknown };

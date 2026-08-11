@@ -243,7 +243,7 @@ export class CheckpointStore {
     const row = this.db
       .prepare(
         `SELECT * FROM checkpoint_runs
-         WHERE session_id = ? AND status IN ('running', 'paused_for_approval')
+         WHERE session_id = ? AND status IN ('running', 'paused_for_approval', 'paused_for_input')
          ORDER BY updated_at DESC LIMIT 1`
       )
       .get(sessionId) as CheckpointRunRow | undefined;
@@ -255,7 +255,7 @@ export class CheckpointStore {
       const row = this.db
         .prepare(
           `SELECT * FROM checkpoint_runs
-           WHERE source_id = ? AND kind = ? AND status IN ('running', 'paused_for_approval')
+           WHERE source_id = ? AND kind = ? AND status IN ('running', 'paused_for_approval', 'paused_for_input')
            ORDER BY updated_at DESC LIMIT 1`
         )
         .get(sourceId, kind) as CheckpointRunRow | undefined;
@@ -264,7 +264,7 @@ export class CheckpointStore {
     const row = this.db
       .prepare(
         `SELECT * FROM checkpoint_runs
-         WHERE source_id = ? AND status IN ('running', 'paused_for_approval')
+         WHERE source_id = ? AND status IN ('running', 'paused_for_approval', 'paused_for_input')
          ORDER BY updated_at DESC LIMIT 1`
       )
       .get(sourceId) as CheckpointRunRow | undefined;

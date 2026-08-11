@@ -73,6 +73,12 @@ function nodeSummary(node: WorkflowNode): string {
       return node.toolName || 'Tool';
     case 'approval':
       return node.message || 'Requires approval';
+    case 'input': {
+      const count = node.fields?.length ?? 0;
+      const prompt = node.prompt?.trim();
+      if (prompt) return prompt;
+      return count === 1 ? '1 field' : `${count} fields`;
+    }
     case 'notify':
       return node.message || 'Notify';
     default:

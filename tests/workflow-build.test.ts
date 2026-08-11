@@ -61,6 +61,52 @@ describe('workflow-build (OpenHuman-style authoring)', () => {
     expect(types).toContain('notify');
   });
 
+  it('adds input step when description asks to collect user input', () => {
+    const result = buildWorkflowFromDescription(
+      'Ask the user for a project name then brief me on Hub leave'
+    );
+    const types = result.input.graph.nodes.map((n) => n.type);
+    expect(types).toContain('input');
+    const input = result.input.graph.nodes.find((n) => n.type === 'input');
+    expect(input?.type === 'input' && input.fields.length).toBeGreaterThan(0);
+  });
+
+  it('validates input nodes require prompt and fields', () => {
+    expect(() =>
+      validateWorkflowGraph({
+        version: WORKFLOW_SCHEMA_VERSION,
+        nodes: [
+          { id: 't', type: 'trigger', label: 'T', trigger: 'manual' },
+          {
+            id: 'i',
+            type: 'input',
+            label: 'Input',
+            prompt: '',
+            fields: [{ key: 'a', label: 'A', kind: 'text' }],
+          },
+        ],
+        edges: [{ id: 'e1', from: 't', to: 'i' }],
+      })
+    ).toThrow(/prompt/i);
+
+    expect(() =>
+      validateWorkflowGraph({
+        version: WORKFLOW_SCHEMA_VERSION,
+        nodes: [
+          { id: 't', type: 'trigger', label: 'T', trigger: 'manual' },
+          {
+            id: 'i',
+            type: 'input',
+            label: 'Input',
+            prompt: 'Need info',
+            fields: [{ key: 'choice', label: 'Choice', kind: 'choice', options: ['Only one'] }],
+          },
+        ],
+        edges: [{ id: 'e1', from: 't', to: 'i' }],
+      })
+    ).toThrow(/at least 2 options/i);
+  });
+
   it('detects channel triggers', () => {
     const result = buildWorkflowFromDescription(
       'When a Slack message mentions urgent, draft a reply for approval'

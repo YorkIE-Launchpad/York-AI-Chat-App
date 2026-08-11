@@ -1,7 +1,7 @@
 /**
  * Compact palette for adding non-trigger workflow nodes to the canvas.
  */
-import { Bell, ShieldCheck, Sparkles, Workflow } from 'lucide-react';
+import { Bell, FormInput, ShieldCheck, Sparkles, Workflow } from 'lucide-react';
 import type { WorkflowNodeType } from '../../../../shared/workflows';
 
 const PALETTE: Array<{
@@ -11,6 +11,7 @@ const PALETTE: Array<{
 }> = [
   { type: 'agent', label: 'Agent', icon: Sparkles },
   { type: 'tool', label: 'Tool', icon: Workflow },
+  { type: 'input', label: 'Input', icon: FormInput },
   { type: 'approval', label: 'Approval', icon: ShieldCheck },
   { type: 'notify', label: 'Notify', icon: Bell },
 ];

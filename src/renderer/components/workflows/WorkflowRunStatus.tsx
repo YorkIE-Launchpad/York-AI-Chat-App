@@ -18,11 +18,11 @@ export function runStatusLabel(status: CheckpointRunStatus | WorkflowRunDisplayS
 
 export function runStatusDotClass(status: CheckpointRunStatus | WorkflowRunDisplayStatus): string {
   const display =
-    status === 'paused_for_approval'
+    status === 'paused_for_approval' || status === 'needs_approval'
       ? 'needs_approval'
-      : resolveWorkflowRunDisplayStatus(
-          status === 'needs_approval' ? 'paused_for_approval' : (status as CheckpointRunStatus)
-        );
+      : status === 'paused_for_input' || status === 'needs_input'
+        ? 'needs_input'
+        : resolveWorkflowRunDisplayStatus(status as CheckpointRunStatus);
   switch (display) {
     case 'running':
       return 'bg-accent animate-pulse';
@@ -35,6 +35,7 @@ export function runStatusDotClass(status: CheckpointRunStatus | WorkflowRunDispl
     case 'stuck':
       return 'bg-accent/70 animate-pulse';
     case 'needs_approval':
+    case 'needs_input':
       return 'bg-accent animate-pulse';
     default:
       return 'bg-text-muted';
@@ -45,7 +46,9 @@ export function runStatusPillClass(status: CheckpointRunStatus | WorkflowRunDisp
   const display =
     status === 'paused_for_approval' || status === 'needs_approval'
       ? 'needs_approval'
-      : (status as WorkflowRunDisplayStatus);
+      : status === 'paused_for_input' || status === 'needs_input'
+        ? 'needs_input'
+        : (status as WorkflowRunDisplayStatus);
   switch (display) {
     case 'running':
       return 'bg-accent/12 text-accent ring-1 ring-accent/25';
@@ -58,6 +61,7 @@ export function runStatusPillClass(status: CheckpointRunStatus | WorkflowRunDisp
     case 'stuck':
       return 'bg-accent/15 text-accent ring-1 ring-accent/30';
     case 'needs_approval':
+    case 'needs_input':
       return 'bg-accent/15 text-accent ring-1 ring-accent/35';
     default:
       return 'bg-surface-muted text-text-secondary ring-1 ring-border-muted';
@@ -73,6 +77,7 @@ export function stepStatusDotClass(status: WorkflowRunStepStatus): string {
     case 'failed':
       return 'bg-error';
     case 'awaiting_approval':
+    case 'awaiting_input':
       return 'bg-accent animate-pulse';
     case 'skipped':
       return 'bg-text-muted/60';

@@ -95,6 +95,21 @@ describe('workflow graph freeform edits', () => {
     expect(next.edges.some((e) => e.from === 'agent_2' && e.to === added.id)).toBe(true);
   });
 
+  it('round-trips input nodes through flow DTO', () => {
+    const withInput = addNode(linearGraph(), 'input', {
+      connectFromId: 'agent_2',
+      prompt: 'Provide a ticket id',
+      fields: [{ key: 'ticket', label: 'Ticket', kind: 'text', required: true }],
+    });
+    const flow = workflowGraphToFlow(withInput);
+    const inputFlow = flow.nodes.find((n) => n.data.nodeType === 'input');
+    expect(inputFlow?.data.summary).toContain('Provide a ticket id');
+    const back = flowToWorkflowGraph(flow.nodes, flow.edges, withInput);
+    const input = back.nodes.find((n) => n.type === 'input');
+    expect(input?.type === 'input' && input.prompt).toBe('Provide a ticket id');
+    expect(input?.type === 'input' && input.fields[0].key).toBe('ticket');
+  });
+
   it('connect rejects cycles and self loops', () => {
     expect(() => connectNodes(linearGraph(), 'agent_2', 'agent_1')).toThrow(/cycle/i);
     expect(() => connectNodes(linearGraph(), 'agent_1', 'agent_1')).toThrow(/itself/i);

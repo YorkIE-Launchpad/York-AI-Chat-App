@@ -7,6 +7,7 @@ import {
   Bell,
   Check,
   CirclePlay,
+  FormInput,
   Loader2,
   Pause,
   Play,
@@ -26,12 +27,14 @@ import type {
   WorkflowBinding,
   WorkflowDefinition,
   WorkflowGraph,
+  WorkflowInputField,
   WorkflowNode,
   WorkflowNodeType,
   WorkflowRunStep,
   WorkflowStatus,
 } from '../../../shared/workflows';
 import {
+  defaultWorkflowInputFields,
   getWorkflowRunSteps,
   topologicalOrder,
   workflowWorkspaceLabel,
@@ -92,6 +95,13 @@ const NODE_META: Record<
     ring: ACCENT_RING,
     blurb: 'Always requires your explicit permission',
   },
+  input: {
+    label: 'Input',
+    icon: FormInput,
+    tint: ACCENT_TINT,
+    ring: ACCENT_RING,
+    blurb: 'Pause for your answers (text or choices) before continuing',
+  },
   notify: {
     label: 'Notify',
     icon: Bell,
@@ -122,6 +132,12 @@ function nodeSummary(node: WorkflowNode): string {
   if (node.type === 'agent') return node.prompt?.trim() || 'Agent step';
   if (node.type === 'tool') return node.toolName || 'Tool';
   if (node.type === 'approval') return node.message || 'Requires approval';
+  if (node.type === 'input') {
+    const prompt = node.prompt?.trim();
+    if (prompt) return prompt;
+    const count = node.fields?.length ?? 0;
+    return count === 1 ? '1 field' : `${count} fields`;
+  }
   if (node.type === 'notify') return node.message || 'Notify';
   return (node as WorkflowNode).label || (node as WorkflowNode).id;
 }
@@ -681,7 +697,7 @@ export function WorkflowsWorkspace() {
                       />
                       <p className="text-[11px] leading-4 text-text-muted">
                         Drag nodes, connect handles, or use the palette. Save before enable or run.
-                        Approval stages never auto-skip.
+                        Approval and input stages never auto-skip.
                       </p>
                     </div>
                   ) : null}
@@ -986,6 +1002,7 @@ function NodeInspector({
       message?: string;
       toolName?: string;
       args?: Record<string, unknown> | null;
+      inputFields?: WorkflowInputField[];
     }
   ) => Promise<void>;
   onAddAfter: (afterId: string) => Promise<void>;
@@ -998,6 +1015,8 @@ function NodeInspector({
   const [toolName, setToolName] = useState('');
   const [argsText, setArgsText] = useState('');
   const [argsError, setArgsError] = useState<string | null>(null);
+  const [inputFields, setInputFields] = useState<WorkflowInputField[]>([]);
+  const [inputError, setInputError] = useState<string | null>(null);
   const [modelKey, setModelKey] = useState('');
   const [models, setModels] = useState<BackendModelInfo[]>([]);
   const [mcpTools, setMcpTools] = useState<McpToolOption[]>([]);
@@ -1006,7 +1025,9 @@ function NodeInspector({
   useEffect(() => {
     if (!node) return;
     setLabel(node.label || '');
-    setPrompt(node.type === 'agent' ? node.prompt || '' : '');
+    setPrompt(
+      node.type === 'agent' || node.type === 'input' ? node.prompt || '' : ''
+    );
     setMessage(
       node.type === 'approval' || node.type === 'notify' ? node.message || '' : ''
     );
@@ -1017,7 +1038,15 @@ function NodeInspector({
       setToolName('');
       setArgsText('');
     }
+    if (node.type === 'input') {
+      setInputFields(
+        node.fields?.length ? node.fields.map((f) => ({ ...f })) : defaultWorkflowInputFields()
+      );
+    } else {
+      setInputFields([]);
+    }
     setArgsError(null);
+    setInputError(null);
     if (node.type === 'agent' && node.model) {
       setModelKey(`${node.provider || ''}::${node.model}`);
     } else {
@@ -1110,6 +1139,51 @@ function NodeInspector({
       });
     } else if (node.type === 'approval' || node.type === 'notify') {
       await onSaveFields(node.id, { label, message });
+    } else if (node.type === 'input') {
+      if (!prompt.trim()) {
+        setInputError('Prompt is required.');
+        return;
+      }
+      if (inputFields.length === 0) {
+        setInputError('Add at least one field.');
+        return;
+      }
+      const keys = new Set<string>();
+      for (const field of inputFields) {
+        const key = field.key.trim();
+        const fieldLabel = field.label.trim();
+        if (!key || !fieldLabel) {
+          setInputError('Each field needs a key and label.');
+          return;
+        }
+        if (keys.has(key)) {
+          setInputError(`Duplicate field key: ${key}`);
+          return;
+        }
+        keys.add(key);
+        if (field.kind === 'choice') {
+          const options = (field.options || []).map((o) => o.trim()).filter(Boolean);
+          if (options.length < 2) {
+            setInputError(`Choice field "${fieldLabel}" needs at least 2 options.`);
+            return;
+          }
+        }
+      }
+      setInputError(null);
+      await onSaveFields(node.id, {
+        label,
+        prompt,
+        inputFields: inputFields.map((f) => ({
+          ...f,
+          key: f.key.trim(),
+          label: f.label.trim(),
+          options:
+            f.kind === 'choice'
+              ? (f.options || []).map((o) => o.trim()).filter(Boolean)
+              : undefined,
+          placeholder: f.kind === 'text' ? f.placeholder : undefined,
+        })),
+      });
     } else {
       await onSaveFields(node.id, { label });
     }
@@ -1271,6 +1345,219 @@ function NodeInspector({
           </label>
         ) : null}
 
+        {node.type === 'input' ? (
+          <>
+            <label className="block space-y-1">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-text-muted">
+                Prompt
+              </span>
+              <textarea
+                value={prompt}
+                disabled={busy}
+                rows={3}
+                onChange={(e) => {
+                  setPrompt(e.target.value);
+                  setInputError(null);
+                  setDirty(true);
+                }}
+                className="w-full resize-y rounded-lg border border-border bg-background px-3 py-2 text-sm leading-5 text-text-primary focus:border-accent/40 focus:outline-none focus:ring-2 focus:ring-accent/15 disabled:opacity-60"
+              />
+            </label>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-text-muted">
+                  Fields
+                </span>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    const nextIndex = inputFields.length + 1;
+                    setInputFields((prev) => [
+                      ...prev,
+                      {
+                        key: `field_${nextIndex}`,
+                        label: `Field ${nextIndex}`,
+                        kind: 'text',
+                        required: true,
+                      },
+                    ]);
+                    setDirty(true);
+                  }}
+                  className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-medium text-text-secondary hover:bg-surface-hover disabled:opacity-50"
+                >
+                  <Plus className="h-3 w-3" />
+                  Add field
+                </button>
+              </div>
+              {inputFields.map((field, index) => (
+                <div
+                  key={`${field.key}-${index}`}
+                  className="space-y-2 rounded-xl border border-border-muted bg-background px-3 py-2.5"
+                >
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="block space-y-1">
+                      <span className="text-[10px] text-text-muted">Key</span>
+                      <input
+                        value={field.key}
+                        disabled={busy}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          setInputFields((prev) =>
+                            prev.map((f, i) => (i === index ? { ...f, key: value } : f))
+                          );
+                          setInputError(null);
+                          setDirty(true);
+                        }}
+                        className="w-full rounded-lg border border-border bg-background-secondary px-2 py-1.5 text-xs text-text-primary focus:border-accent/40 focus:outline-none disabled:opacity-60"
+                      />
+                    </label>
+                    <label className="block space-y-1">
+                      <span className="text-[10px] text-text-muted">Kind</span>
+                      <select
+                        value={field.kind}
+                        disabled={busy}
+                        onChange={(e) => {
+                          const kind = e.target.value === 'choice' ? 'choice' : 'text';
+                          setInputFields((prev) =>
+                            prev.map((f, i) =>
+                              i === index
+                                ? {
+                                    ...f,
+                                    kind,
+                                    options:
+                                      kind === 'choice'
+                                        ? f.options?.length
+                                          ? f.options
+                                          : ['Option A', 'Option B']
+                                        : undefined,
+                                  }
+                                : f
+                            )
+                          );
+                          setInputError(null);
+                          setDirty(true);
+                        }}
+                        className="w-full rounded-lg border border-border bg-background-secondary px-2 py-1.5 text-xs text-text-primary focus:border-accent/40 focus:outline-none disabled:opacity-60"
+                      >
+                        <option value="text">Text</option>
+                        <option value="choice">Choice</option>
+                      </select>
+                    </label>
+                  </div>
+                  <label className="block space-y-1">
+                    <span className="text-[10px] text-text-muted">Label</span>
+                    <input
+                      value={field.label}
+                      disabled={busy}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        setInputFields((prev) =>
+                          prev.map((f, i) => (i === index ? { ...f, label: value } : f))
+                        );
+                        setInputError(null);
+                        setDirty(true);
+                      }}
+                      className="w-full rounded-lg border border-border bg-background-secondary px-2 py-1.5 text-xs text-text-primary focus:border-accent/40 focus:outline-none disabled:opacity-60"
+                    />
+                  </label>
+                  {field.kind === 'text' ? (
+                    <label className="block space-y-1">
+                      <span className="text-[10px] text-text-muted">Placeholder</span>
+                      <input
+                        value={field.placeholder || ''}
+                        disabled={busy}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          setInputFields((prev) =>
+                            prev.map((f, i) =>
+                              i === index ? { ...f, placeholder: value } : f
+                            )
+                          );
+                          setDirty(true);
+                        }}
+                        className="w-full rounded-lg border border-border bg-background-secondary px-2 py-1.5 text-xs text-text-primary focus:border-accent/40 focus:outline-none disabled:opacity-60"
+                      />
+                    </label>
+                  ) : (
+                    <label className="block space-y-1">
+                      <span className="text-[10px] text-text-muted">
+                        Options (one per line)
+                      </span>
+                      <textarea
+                        value={(field.options || []).join('\n')}
+                        disabled={busy}
+                        rows={3}
+                        onChange={(e) => {
+                          const options = e.target.value.split('\n');
+                          setInputFields((prev) =>
+                            prev.map((f, i) => (i === index ? { ...f, options } : f))
+                          );
+                          setInputError(null);
+                          setDirty(true);
+                        }}
+                        className="w-full resize-y rounded-lg border border-border bg-background-secondary px-2 py-1.5 text-xs text-text-primary focus:border-accent/40 focus:outline-none disabled:opacity-60"
+                      />
+                      <label className="inline-flex items-center gap-1.5 text-[11px] text-text-secondary">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(field.multiSelect)}
+                          disabled={busy}
+                          onChange={(e) => {
+                            const multiSelect = e.target.checked;
+                            setInputFields((prev) =>
+                              prev.map((f, i) =>
+                                i === index ? { ...f, multiSelect } : f
+                              )
+                            );
+                            setDirty(true);
+                          }}
+                        />
+                        Allow multiple selections
+                      </label>
+                    </label>
+                  )}
+                  <div className="flex items-center justify-between">
+                    <label className="inline-flex items-center gap-1.5 text-[11px] text-text-secondary">
+                      <input
+                        type="checkbox"
+                        checked={field.required !== false}
+                        disabled={busy}
+                        onChange={(e) => {
+                          const required = e.target.checked;
+                          setInputFields((prev) =>
+                            prev.map((f, i) => (i === index ? { ...f, required } : f))
+                          );
+                          setDirty(true);
+                        }}
+                      />
+                      Required
+                    </label>
+                    <button
+                      type="button"
+                      disabled={busy || inputFields.length <= 1}
+                      onClick={() => {
+                        setInputFields((prev) => prev.filter((_, i) => i !== index));
+                        setDirty(true);
+                      }}
+                      className="text-[11px] font-medium text-error hover:underline disabled:opacity-40"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {inputError ? (
+                <p className="text-[11px] leading-4 text-error">{inputError}</p>
+              ) : (
+                <p className="text-[11px] leading-4 text-text-muted">
+                  Answers are passed to later agent steps as prior context.
+                </p>
+              )}
+            </div>
+          </>
+        ) : null}
+
         {node.type === 'trigger' ? (
           <div className="rounded-xl border border-border-muted/80 bg-background px-3 py-2.5">
             <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-text-muted">
@@ -1330,6 +1617,11 @@ function NodeInspector({
       {node.type === 'approval' ? (
         <p className="mt-2 text-[11px] leading-4 text-accent">
           When this step runs, York pauses and asks you to allow or deny before any later stages.
+        </p>
+      ) : null}
+      {node.type === 'input' ? (
+        <p className="mt-2 text-[11px] leading-4 text-accent">
+          When this step runs, York pauses for your answers in the run inspector before continuing.
         </p>
       ) : null}
     </div>

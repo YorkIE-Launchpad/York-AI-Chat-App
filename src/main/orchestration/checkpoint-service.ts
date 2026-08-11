@@ -92,7 +92,7 @@ export class CheckpointService {
   }
 
   /**
-   * Scan for stuck runs, emit reports, then resume `running` / `paused_for_approval`.
+   * Scan for stuck runs, emit reports, then resume `running` / `paused_for_approval` / `paused_for_input`.
    */
   async bootResume(): Promise<{ stuck: number; resumed: number }> {
     const newlyStuck = this.store.detectStuck();
@@ -125,5 +125,12 @@ export class CheckpointService {
    */
   pauseForApproval(id: string, stepId: string, payload?: CheckpointPayload): CheckpointRun | null {
     return this.store.checkpoint(id, stepId, payload, 'paused_for_approval');
+  }
+
+  /**
+   * Mark input pause — used by workflow input nodes.
+   */
+  pauseForInput(id: string, stepId: string, payload?: CheckpointPayload): CheckpointRun | null {
+    return this.store.checkpoint(id, stepId, payload, 'paused_for_input');
   }
 }

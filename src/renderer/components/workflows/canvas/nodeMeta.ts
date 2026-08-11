@@ -1,7 +1,15 @@
 /**
  * Shared node chrome metadata for workflow canvas cards.
  */
-import { Bell, ShieldCheck, Sparkles, Workflow, Zap, type LucideIcon } from 'lucide-react';
+import {
+  Bell,
+  FormInput,
+  ShieldCheck,
+  Sparkles,
+  Workflow,
+  Zap,
+  type LucideIcon,
+} from 'lucide-react';
 import type { WorkflowNodeType } from '../../../../shared/workflows';
 
 export const ACCENT_TINT = 'bg-accent/12 text-accent';
@@ -31,6 +39,13 @@ export const NODE_META: Record<
     tint: ACCENT_TINT,
     ring: ACCENT_RING,
     blurb: 'Direct tool invocation',
+  },
+  input: {
+    label: 'Input',
+    icon: FormInput,
+    tint: ACCENT_TINT,
+    ring: ACCENT_RING,
+    blurb: 'Pause for your answers (text or choices) before continuing',
   },
   approval: {
     label: 'Approval',

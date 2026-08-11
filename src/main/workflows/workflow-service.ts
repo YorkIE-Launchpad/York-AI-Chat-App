@@ -15,6 +15,7 @@ import type {
 import {
   buildWorkflowTitle,
   createEmptyWorkflowGraph,
+  defaultWorkflowInputFields,
   normalizeWorkflowBinding,
 } from '../../shared/workflows';
 import {
@@ -287,11 +288,19 @@ export class WorkflowService {
     });
   }
 
-  /** Ensure approval nodes always gate. */
+  /** Ensure approval nodes always gate; input nodes have usable fields. */
   assertApprovalGates(graph: WorkflowGraph): void {
     for (const node of graph.nodes) {
       if (node.type === 'approval' && !(node as { requireApproval?: boolean }).requireApproval) {
         (node as WorkflowNode & { requireApproval: true }).requireApproval = true;
+      }
+      if (node.type === 'input') {
+        if (!node.prompt?.trim()) {
+          node.prompt = 'Provide the information needed to continue.';
+        }
+        if (!Array.isArray(node.fields) || node.fields.length === 0) {
+          node.fields = defaultWorkflowInputFields();
+        }
       }
     }
   }

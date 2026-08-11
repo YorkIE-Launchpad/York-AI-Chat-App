@@ -14,9 +14,33 @@ import {
 
 export const WORKFLOW_SCHEMA_VERSION = 1 as const;
 
-export type WorkflowNodeType = 'trigger' | 'agent' | 'tool' | 'approval' | 'notify';
+export type WorkflowNodeType =
+  | 'trigger'
+  | 'agent'
+  | 'tool'
+  | 'approval'
+  | 'input'
+  | 'notify';
 
 export type WorkflowTriggerKind = 'cron' | 'channel' | 'manual';
+
+export type WorkflowInputFieldKind = 'text' | 'choice';
+
+/** Designer-defined field on an input step (text or multiple-choice). */
+export interface WorkflowInputField {
+  /** Stable id used as the answer key and handoff label. */
+  key: string;
+  label: string;
+  kind: WorkflowInputFieldKind;
+  /** Defaults to true when omitted. */
+  required?: boolean;
+  /** Placeholder for text fields. */
+  placeholder?: string;
+  /** Choice options (required for kind === 'choice', 2+ labels). */
+  options?: string[];
+  /** When true, choice allows multiple selected labels. */
+  multiSelect?: boolean;
+}
 
 export interface WorkflowNodeBase {
   id: string;
@@ -60,6 +84,14 @@ export interface WorkflowApprovalNode extends WorkflowNodeBase {
   requireApproval: true;
 }
 
+/** Pause the run and collect structured answers before continuing. */
+export interface WorkflowInputNode extends WorkflowNodeBase {
+  type: 'input';
+  /** Shown above the form when the run reaches this step. */
+  prompt: string;
+  fields: WorkflowInputField[];
+}
+
 export interface WorkflowNotifyNode extends WorkflowNodeBase {
   type: 'notify';
   channel?: string;
@@ -71,7 +103,21 @@ export type WorkflowNode =
   | WorkflowAgentNode
   | WorkflowToolNode
   | WorkflowApprovalNode
+  | WorkflowInputNode
   | WorkflowNotifyNode;
+
+/** Default single text field when adding an input step from the palette. */
+export function defaultWorkflowInputFields(): WorkflowInputField[] {
+  return [
+    {
+      key: 'answer',
+      label: 'Your answer',
+      kind: 'text',
+      required: true,
+      placeholder: 'Type your response…',
+    },
+  ];
+}
 
 export interface WorkflowEdge {
   id: string;
@@ -218,7 +264,8 @@ export type WorkflowRunStepStatus =
   | 'success'
   | 'failed'
   | 'skipped'
-  | 'awaiting_approval';
+  | 'awaiting_approval'
+  | 'awaiting_input';
 
 /** One node on a durable workflow run timeline (stored in checkpoint payload.steps). */
 export interface WorkflowRunStep {
@@ -250,7 +297,18 @@ export interface WorkflowRunProgressEvent {
 
 export type WorkflowRunDisplayStatus =
   | CheckpointRun['status']
-  | 'needs_approval';
+  | 'needs_approval'
+  | 'needs_input';
+
+/** Event payload when a run pauses for structured user input. */
+export interface WorkflowInputRequestEvent {
+  runId: string;
+  workflowId: string;
+  nodeId: string;
+  prompt: string;
+  fields: WorkflowInputField[];
+  label?: string;
+}
 
 export function isWorkflowRunTerminal(status: CheckpointRun['status']): boolean {
   return status === 'completed' || status === 'failed' || status === 'cancelled';
@@ -260,6 +318,7 @@ export function resolveWorkflowRunDisplayStatus(
   status: CheckpointRun['status']
 ): WorkflowRunDisplayStatus {
   if (status === 'paused_for_approval') return 'needs_approval';
+  if (status === 'paused_for_input') return 'needs_input';
   return status;
 }
 
@@ -269,6 +328,10 @@ export function workflowRunDisplayLabel(status: WorkflowRunDisplayStatus): strin
       return 'Needs approval';
     case 'paused_for_approval':
       return 'Needs approval';
+    case 'needs_input':
+      return 'Needs input';
+    case 'paused_for_input':
+      return 'Needs input';
     case 'running':
       return 'Running';
     case 'completed':

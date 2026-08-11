@@ -171,6 +171,12 @@ function wantsNotify(text: string): boolean {
   );
 }
 
+function wantsUserInput(text: string): boolean {
+  return /\b(ask (?:the )?user|ask me|collect|prompt (?:the )?user|get (?:my |user )?input|wait for (?:my |user )?input|form field|fill in)\b/i.test(
+    text
+  );
+}
+
 function splitActionSteps(action: string): string[] {
   const parts = action
     .split(/\s*(?:;\s*|\.\s+|\bthen\b|\band then\b)\s*/i)
@@ -281,6 +287,31 @@ export function buildWorkflowFromDescription(description: string): WorkflowBuild
     x += 200;
     summary.push(`Agent: ${labelForStep(step, i)}`);
   });
+
+  if (wantsUserInput(raw)) {
+    const id = 'input_1';
+    nodes.push({
+      id,
+      type: 'input',
+      label: 'Collect input',
+      prompt: 'Provide the information needed to continue.',
+      fields: [
+        {
+          key: 'answer',
+          label: 'Your answer',
+          kind: 'text',
+          required: true,
+          placeholder: 'Type your response…',
+        },
+      ],
+      x,
+      y: 80,
+    });
+    edges.push({ id: `e_${prevId}_${id}`, from: prevId, to: id });
+    prevId = id;
+    x += 200;
+    summary.push('Input: collect user answers');
+  }
 
   if (wantsApproval(raw)) {
     const id = 'approval_1';
@@ -399,6 +430,51 @@ export function validateWorkflowGraph(graph: WorkflowGraph): void {
           `Approval node ${node.id} must set requireApproval: true.`
         );
       }
+    } else if (node.type === 'input') {
+      if (!node.prompt?.trim()) {
+        throw new WorkflowGraphValidationError(`Input node ${node.id} needs a prompt.`);
+      }
+      if (!Array.isArray(node.fields) || node.fields.length === 0) {
+        throw new WorkflowGraphValidationError(
+          `Input node ${node.id} needs at least one field.`
+        );
+      }
+      const keys = new Set<string>();
+      for (const field of node.fields) {
+        const key = typeof field?.key === 'string' ? field.key.trim() : '';
+        const label = typeof field?.label === 'string' ? field.label.trim() : '';
+        if (!key) {
+          throw new WorkflowGraphValidationError(
+            `Input node ${node.id} has a field without a key.`
+          );
+        }
+        if (!label) {
+          throw new WorkflowGraphValidationError(
+            `Input node ${node.id} field "${key}" needs a label.`
+          );
+        }
+        if (keys.has(key)) {
+          throw new WorkflowGraphValidationError(
+            `Input node ${node.id} has duplicate field key "${key}".`
+          );
+        }
+        keys.add(key);
+        if (field.kind !== 'text' && field.kind !== 'choice') {
+          throw new WorkflowGraphValidationError(
+            `Input node ${node.id} field "${key}" has invalid kind.`
+          );
+        }
+        if (field.kind === 'choice') {
+          const options = (field.options || [])
+            .map((o) => String(o || '').trim())
+            .filter(Boolean);
+          if (options.length < 2) {
+            throw new WorkflowGraphValidationError(
+              `Input node ${node.id} choice field "${key}" needs at least 2 options.`
+            );
+          }
+        }
+      }
     } else if (node.type === 'notify') {
       if (!node.message?.trim()) {
         throw new WorkflowGraphValidationError(`Notify node ${node.id} needs a message.`);
@@ -514,6 +590,7 @@ export function buildWorkflowFromGraphInput(input: {
     if (n.type === 'agent') return `Agent: ${n.label}`;
     if (n.type === 'tool') return `Tool: ${n.toolName}`;
     if (n.type === 'approval') return 'Approval: gate';
+    if (n.type === 'input') return `Input: ${n.label || n.fields.length + ' fields'}`;
     if (n.type === 'notify') return `Notify: ${n.channel || 'local'}`;
     return (n as WorkflowNode).id;
   });

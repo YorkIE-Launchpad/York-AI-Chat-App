@@ -3,8 +3,9 @@
  * Polls getRun every 2s while non-terminal; shows step timeline + resume/cancel.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Loader2, MessageSquare, X } from 'lucide-react';
+import { HelpCircle, Loader2, MessageSquare, X } from 'lucide-react';
 import type { CheckpointRun } from '../../../shared/orchestration';
+import type { WorkflowInputField } from '../../../shared/workflows';
 import {
   getWorkflowRunSteps,
   isWorkflowRunTerminal,
@@ -48,6 +49,20 @@ function stepSessionId(step: WorkflowRunStep): string | null {
   return null;
 }
 
+function readInputFields(payload: CheckpointRun['payload']): WorkflowInputField[] {
+  const raw = payload.inputFields;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(
+    (f): f is WorkflowInputField =>
+      typeof f === 'object' &&
+      f !== null &&
+      typeof (f as WorkflowInputField).key === 'string' &&
+      typeof (f as WorkflowInputField).label === 'string' &&
+      ((f as WorkflowInputField).kind === 'text' ||
+        (f as WorkflowInputField).kind === 'choice')
+  );
+}
+
 export function WorkflowRunInspector({ runId, onClose, onMutated }: WorkflowRunInspectorProps) {
   const [run, setRun] = useState<CheckpointRun | null>(null);
   const [loading, setLoading] = useState(false);
@@ -55,8 +70,12 @@ export function WorkflowRunInspector({ runId, onClose, onMutated }: WorkflowRunI
   const [busy, setBusy] = useState(false);
   const [expandedStepId, setExpandedStepId] = useState<string | null>(null);
   const [chatHint, setChatHint] = useState<string | null>(null);
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [choiceSelections, setChoiceSelections] = useState<Record<string, string[]>>({});
+  const [inputError, setInputError] = useState<string | null>(null);
 
   const sessions = useAppStore((s) => s.sessions);
+  const pendingQuestionsBySessionId = useAppStore((s) => s.pendingQuestionsBySessionId);
   const setActiveSession = useAppStore((s) => s.setActiveSession);
   const setActiveDivision = useAppStore((s) => s.setActiveDivision);
 
@@ -85,12 +104,16 @@ export function WorkflowRunInspector({ runId, onClose, onMutated }: WorkflowRunI
     const timer = window.setInterval(() => {
       void load();
     }, 2000);
-    const unsub = window.electronAPI?.workflows?.onRunProgress?.((event) => {
+    const unsubProgress = window.electronAPI?.workflows?.onRunProgress?.((event) => {
+      if (event.runId === runId) void load();
+    });
+    const unsubInput = window.electronAPI?.workflows?.onInputRequest?.((event) => {
       if (event.runId === runId) void load();
     });
     return () => {
       window.clearInterval(timer);
-      unsub?.();
+      unsubProgress?.();
+      unsubInput?.();
     };
   }, [runId, run?.status, load]);
 
@@ -108,6 +131,43 @@ export function WorkflowRunInspector({ runId, onClose, onMutated }: WorkflowRunI
     [run]
   );
   const primarySessionId = sessionIds[sessionIds.length - 1] || null;
+
+  const sessionAwaitingQuestion = useMemo(() => {
+    for (const id of [...sessionIds].reverse()) {
+      if (pendingQuestionsBySessionId[id]) return id;
+    }
+    return null;
+  }, [sessionIds, pendingQuestionsBySessionId]);
+
+  const inputFields = useMemo(
+    () => (run ? readInputFields(run.payload) : []),
+    [run]
+  );
+  const inputNodeId =
+    run && typeof run.payload.inputNodeId === 'string' ? run.payload.inputNodeId : null;
+  const inputPrompt =
+    run && typeof run.payload.inputPrompt === 'string' ? run.payload.inputPrompt : null;
+
+  useEffect(() => {
+    if (run?.status !== 'paused_for_input') {
+      setAnswers({});
+      setChoiceSelections({});
+      setInputError(null);
+      return;
+    }
+    const nextAnswers: Record<string, string> = {};
+    const nextChoices: Record<string, string[]> = {};
+    for (const field of inputFields) {
+      if (field.kind === 'choice') {
+        nextChoices[field.key] = [];
+      } else {
+        nextAnswers[field.key] = '';
+      }
+    }
+    setAnswers(nextAnswers);
+    setChoiceSelections(nextChoices);
+    setInputError(null);
+  }, [run?.status, run?.id, inputFields]);
 
   const openChat = useCallback(
     (sessionId: string) => {
@@ -155,6 +215,67 @@ export function WorkflowRunInspector({ runId, onClose, onMutated }: WorkflowRunI
     setBusy(true);
     try {
       await window.electronAPI.checkpoints.cancel(run.id);
+      await load();
+      onMutated?.();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const buildSubmittedAnswers = (): Record<string, string> | null => {
+    const result: Record<string, string> = {};
+    for (const field of inputFields) {
+      const required = field.required !== false;
+      if (field.kind === 'choice') {
+        const selected = choiceSelections[field.key] || [];
+        if (required && selected.length === 0) {
+          setInputError(`Select an option for “${field.label}”.`);
+          return null;
+        }
+        result[field.key] = selected.join(', ');
+      } else {
+        const value = (answers[field.key] || '').trim();
+        if (required && !value) {
+          setInputError(`Fill in “${field.label}”.`);
+          return null;
+        }
+        result[field.key] = value;
+      }
+    }
+    setInputError(null);
+    return result;
+  };
+
+  const submitInput = async () => {
+    if (!run || !inputNodeId) return;
+    const payloadAnswers = buildSubmittedAnswers();
+    if (!payloadAnswers) return;
+    setBusy(true);
+    try {
+      await window.electronAPI.workflows.submitInput({
+        runId: run.id,
+        nodeId: inputNodeId,
+        answers: payloadAnswers,
+      });
+      await load();
+      onMutated?.();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const cancelInput = async () => {
+    if (!run || !inputNodeId) return;
+    setBusy(true);
+    try {
+      await window.electronAPI.workflows.cancelInput({
+        runId: run.id,
+        nodeId: inputNodeId,
+      });
       await load();
       onMutated?.();
     } catch (err) {
@@ -261,6 +382,27 @@ export function WorkflowRunInspector({ runId, onClose, onMutated }: WorkflowRunI
                 </div>
               ) : null}
 
+              {sessionAwaitingQuestion ? (
+                <div className="rounded-xl border border-accent/35 bg-accent/10 px-3 py-3 text-xs text-text-primary">
+                  <p className="inline-flex items-center gap-1.5 font-semibold text-accent">
+                    <HelpCircle className="h-3.5 w-3.5" />
+                    Agent needs your answer
+                  </p>
+                  <p className="mt-1 leading-5 text-text-secondary">
+                    An agent step asked a clarifying question in chat. Answer there to continue
+                    this step.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => openChat(sessionAwaitingQuestion)}
+                    className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-accent px-2.5 py-1.5 text-[11px] font-medium text-white"
+                  >
+                    <MessageSquare className="h-3 w-3" />
+                    Answer in chat
+                  </button>
+                </div>
+              ) : null}
+
               {run.status === 'paused_for_approval' ? (
                 <div className="rounded-xl border border-accent/35 bg-accent/10 px-3 py-3 text-xs text-text-primary">
                   <p className="font-semibold text-accent">Needs approval</p>
@@ -270,6 +412,99 @@ export function WorkflowRunInspector({ runId, onClose, onMutated }: WorkflowRunI
                   <p className="mt-2 text-[11px] text-text-muted">
                     Use the permission dialog if open, or Resume after approving.
                   </p>
+                </div>
+              ) : null}
+
+              {run.status === 'paused_for_input' ? (
+                <div className="rounded-xl border border-accent/35 bg-accent/10 px-3 py-3 text-xs text-text-primary">
+                  <p className="font-semibold text-accent">Needs input</p>
+                  <p className="mt-1 leading-5 text-text-secondary">
+                    {inputPrompt || 'Provide the information needed to continue this workflow.'}
+                  </p>
+                  <div className="mt-3 space-y-3">
+                    {inputFields.map((field) => (
+                      <div key={field.key} className="space-y-1.5">
+                        <p className="text-[11px] font-medium text-text-primary">
+                          {field.label}
+                          {field.required === false ? (
+                            <span className="ml-1 font-normal text-text-muted">(optional)</span>
+                          ) : null}
+                        </p>
+                        {field.kind === 'choice' ? (
+                          <div className="flex flex-wrap gap-1.5">
+                            {(field.options || []).map((option) => {
+                              const selected = (choiceSelections[field.key] || []).includes(
+                                option
+                              );
+                              return (
+                                <button
+                                  key={option}
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() => {
+                                    setChoiceSelections((prev) => {
+                                      const current = prev[field.key] || [];
+                                      if (field.multiSelect) {
+                                        return {
+                                          ...prev,
+                                          [field.key]: selected
+                                            ? current.filter((o) => o !== option)
+                                            : [...current, option],
+                                        };
+                                      }
+                                      return { ...prev, [field.key]: [option] };
+                                    });
+                                    setInputError(null);
+                                  }}
+                                  className={`rounded-lg border px-2.5 py-1.5 text-[11px] font-medium transition ${
+                                    selected
+                                      ? 'border-accent bg-accent text-white'
+                                      : 'border-border bg-background text-text-secondary hover:bg-surface-hover'
+                                  } disabled:opacity-50`}
+                                >
+                                  {option}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <input
+                            type="text"
+                            value={answers[field.key] || ''}
+                            disabled={busy}
+                            placeholder={field.placeholder || ''}
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              setAnswers((prev) => ({ ...prev, [field.key]: value }));
+                              setInputError(null);
+                            }}
+                            className="w-full rounded-lg border border-border bg-background px-2.5 py-1.5 text-sm text-text-primary focus:border-accent/40 focus:outline-none focus:ring-2 focus:ring-accent/15 disabled:opacity-60"
+                          />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  {inputError ? (
+                    <p className="mt-2 text-[11px] text-error">{inputError}</p>
+                  ) : null}
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={busy || !inputNodeId}
+                      onClick={() => void submitInput()}
+                      className="rounded-lg bg-accent px-3 py-1.5 text-[11px] font-medium text-white disabled:opacity-50"
+                    >
+                      Submit answers
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy || !inputNodeId}
+                      onClick={() => void cancelInput()}
+                      className="rounded-lg border border-border px-3 py-1.5 text-[11px] font-medium text-text-secondary hover:bg-surface-hover disabled:opacity-50"
+                    >
+                      Cancel input
+                    </button>
+                  </div>
                 </div>
               ) : null}
 
@@ -286,6 +521,8 @@ export function WorkflowRunInspector({ runId, onClose, onMutated }: WorkflowRunI
                     {steps.map((step, index) => {
                       const expanded = expandedStepId === step.nodeId;
                       const sessionId = stepSessionId(step);
+                      const stepHasPendingQuestion =
+                        sessionId != null && Boolean(pendingQuestionsBySessionId[sessionId]);
                       return (
                         <li
                           key={step.nodeId}
@@ -311,7 +548,7 @@ export function WorkflowRunInspector({ runId, onClose, onMutated }: WorkflowRunI
                                     className="ml-auto inline-flex items-center gap-1 text-[11px] font-medium text-accent hover:underline"
                                   >
                                     <MessageSquare className="h-3 w-3" />
-                                    Open
+                                    {stepHasPendingQuestion ? 'Answer' : 'Open'}
                                   </button>
                                 ) : null}
                               </div>

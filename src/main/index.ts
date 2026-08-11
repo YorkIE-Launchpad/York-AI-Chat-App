@@ -284,6 +284,16 @@ let folderManager: FolderManager | null = null;
 /** Pending workflow approval resolvers keyed by runId:nodeId. */
 const pendingWorkflowApprovals = new Map<string, (decision: 'allow' | 'deny') => void>();
 
+/** Pending workflow input resolvers keyed by runId:nodeId. */
+const pendingWorkflowInputs = new Map<
+  string,
+  (
+    result:
+      | { kind: 'submitted'; answers: Record<string, string> }
+      | { kind: 'cancelled' }
+  ) => void
+>();
+
 /** Wait until a chat session reaches idle or error (agent turn finished). */
 function waitForSessionIdleOrError(sessionId: string): Promise<void> {
   return new Promise((resolve) => {
@@ -2276,6 +2286,38 @@ app
         });
         return await new Promise<'allow' | 'deny'>((resolve) => {
           pendingWorkflowApprovals.set(key, resolve);
+        });
+      },
+      requestUserInput: async ({ runId, nodeId, prompt, fields, workflowId, label }) => {
+        const key = `${runId}:${nodeId}`;
+        const event = {
+          runId,
+          workflowId,
+          nodeId,
+          prompt,
+          fields,
+          label,
+        };
+        for (const win of BrowserWindow.getAllWindows()) {
+          if (!win.isDestroyed()) {
+            win.webContents.send('workflows:input-request', event);
+          }
+        }
+        const def = workflowService?.get(workflowId);
+        const workflowName = def?.name || 'Workflow';
+        showOsNotification({
+          tag: 'Workflow',
+          title: `${workflowName} · Needs input`,
+          body: truncateNotifyBody(prompt || label || 'Provide information to continue'),
+          onClick: () => {
+            focusAndNavigate('workflows', { win: mainWindow });
+          },
+        });
+        return await new Promise<
+          | { kind: 'submitted'; answers: Record<string, string> }
+          | { kind: 'cancelled' }
+        >((resolve) => {
+          pendingWorkflowInputs.set(key, resolve);
         });
       },
       notify: async ({ message, workflowId }) => {
@@ -5013,6 +5055,51 @@ ipcMain.handle('workflows.getRun', (_event, runId: string) => {
   if (!workflowService) throw new Error('Workflow service not initialized');
   return workflowService.getRun(runId);
 });
+ipcMain.handle(
+  'workflows.submitInput',
+  (
+    _event,
+    payload: { runId: string; nodeId: string; answers: Record<string, string> }
+  ) => {
+    const runId = typeof payload?.runId === 'string' ? payload.runId.trim() : '';
+    const nodeId = typeof payload?.nodeId === 'string' ? payload.nodeId.trim() : '';
+    if (!runId || !nodeId) {
+      throw new Error('runId and nodeId are required');
+    }
+    const answers =
+      payload?.answers && typeof payload.answers === 'object' && !Array.isArray(payload.answers)
+        ? Object.fromEntries(
+            Object.entries(payload.answers).map(([k, v]) => [k, String(v ?? '')])
+          )
+        : {};
+    const key = `${runId}:${nodeId}`;
+    const pending = pendingWorkflowInputs.get(key);
+    if (!pending) {
+      throw new Error('No pending input request for this workflow step');
+    }
+    pendingWorkflowInputs.delete(key);
+    pending({ kind: 'submitted', answers });
+    return { success: true };
+  }
+);
+ipcMain.handle(
+  'workflows.cancelInput',
+  (_event, payload: { runId: string; nodeId: string }) => {
+    const runId = typeof payload?.runId === 'string' ? payload.runId.trim() : '';
+    const nodeId = typeof payload?.nodeId === 'string' ? payload.nodeId.trim() : '';
+    if (!runId || !nodeId) {
+      throw new Error('runId and nodeId are required');
+    }
+    const key = `${runId}:${nodeId}`;
+    const pending = pendingWorkflowInputs.get(key);
+    if (!pending) {
+      throw new Error('No pending input request for this workflow step');
+    }
+    pendingWorkflowInputs.delete(key);
+    pending({ kind: 'cancelled' });
+    return { success: true };
+  }
+);
 
 ipcMain.handle('meetings.getOverview', async () => {
   if (!meetingService) {

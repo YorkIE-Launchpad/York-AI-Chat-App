@@ -197,4 +197,73 @@ describe('workflow-graph-edit', () => {
     expect(approval).toBeTruthy();
     expect(g.edges.some((e) => e.to === approval!.id)).toBe(true);
   });
+
+  it('adds input node with default text field', () => {
+    const g = addNode(linearGraph(), 'input', {
+      connectFromId: 'agent_2',
+      prompt: 'What project?',
+    });
+    const input = g.nodes.find((n) => n.type === 'input');
+    expect(input?.type).toBe('input');
+    if (input?.type === 'input') {
+      expect(input.prompt).toBe('What project?');
+      expect(input.fields.length).toBe(1);
+      expect(input.fields[0].key).toBe('answer');
+      expect(input.fields[0].kind).toBe('text');
+    }
+    expect(g.edges.some((e) => e.to === input!.id)).toBe(true);
+  });
+
+  it('updates input prompt and fields', () => {
+    let g = addNode(linearGraph(), 'input', { connectFromId: 'agent_2' });
+    const inputId = g.nodes.find((n) => n.type === 'input')!.id;
+    g = updateNodeFields(g, inputId, {
+      prompt: 'Choose a region',
+      inputFields: [
+        {
+          key: 'region',
+          label: 'Region',
+          kind: 'choice',
+          options: ['US', 'EU'],
+          required: true,
+        },
+      ],
+    });
+    const input = g.nodes.find((n) => n.id === inputId);
+    expect(input?.type === 'input' && input.prompt).toBe('Choose a region');
+    expect(input?.type === 'input' && input.fields[0].key).toBe('region');
+    expect(input?.type === 'input' && input.fields[0].options).toEqual(['US', 'EU']);
+  });
+
+  it('includes successful input answers in prior handoff', () => {
+    const prior = extractPriorAgentResults([
+      {
+        nodeId: 'input_1',
+        type: 'input',
+        label: 'Collect project',
+        status: 'success',
+        output: {
+          answers: { project: 'York Hub', owner: 'Ada' },
+          fields: [
+            { key: 'project', label: 'Project', kind: 'text' },
+            { key: 'owner', label: 'Owner', kind: 'text' },
+          ],
+        },
+      },
+      {
+        nodeId: 'agent_1',
+        type: 'agent',
+        label: 'Act',
+        status: 'success',
+        summary: 'Updated allocations.',
+      },
+    ]);
+    expect(prior).toEqual([
+      { label: 'Collect project', summary: 'Project: York Hub\nOwner: Ada' },
+      { label: 'Act', summary: 'Updated allocations.' },
+    ]);
+    const composed = composeAgentStepPrompt('Do the update', prior);
+    expect(composed).toContain('Project: York Hub');
+    expect(composed).toContain('Updated allocations.');
+  });
 });

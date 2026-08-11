@@ -145,6 +145,7 @@ export function SettingsCheckpoints() {
                 <div className="flex gap-1">
                   {(run.status === 'running' ||
                     run.status === 'paused_for_approval' ||
+                    run.status === 'paused_for_input' ||
                     run.status === 'stuck') && (
                     <button
                       type="button"

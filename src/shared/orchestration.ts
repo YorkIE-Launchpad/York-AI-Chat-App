@@ -7,6 +7,7 @@ export type CheckpointRunKind = 'goal_tick' | 'schedule' | 'subagent' | 'workflo
 export type CheckpointRunStatus =
   | 'running'
   | 'paused_for_approval'
+  | 'paused_for_input'
   | 'completed'
   | 'failed'
   | 'cancelled'
@@ -51,4 +52,5 @@ export const CHECKPOINT_STUCK_MS = 30 * 60_000;
 export const RESUMABLE_CHECKPOINT_STATUSES: CheckpointRunStatus[] = [
   'running',
   'paused_for_approval',
+  'paused_for_input',
 ];

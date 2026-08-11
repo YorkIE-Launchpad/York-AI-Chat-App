@@ -732,6 +732,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('workflows.listRuns', workflowId, limit),
     listAllRuns: (limit?: number) => ipcRenderer.invoke('workflows.listAllRuns', limit),
     getRun: (runId: string) => ipcRenderer.invoke('workflows.getRun', runId),
+    submitInput: (payload: {
+      runId: string;
+      nodeId: string;
+      answers: Record<string, string>;
+    }) => ipcRenderer.invoke('workflows.submitInput', payload),
+    cancelInput: (payload: { runId: string; nodeId: string }) =>
+      ipcRenderer.invoke('workflows.cancelInput', payload),
     onRunProgress: (
       callback: (event: import('../shared/workflows').WorkflowRunProgressEvent) => void
     ): (() => void) => {
@@ -741,6 +748,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ) => callback(payload);
       ipcRenderer.on('workflows:run-progress', listener);
       return () => ipcRenderer.removeListener('workflows:run-progress', listener);
+    },
+    onInputRequest: (
+      callback: (event: import('../shared/workflows').WorkflowInputRequestEvent) => void
+    ): (() => void) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        payload: import('../shared/workflows').WorkflowInputRequestEvent
+      ) => callback(payload);
+      ipcRenderer.on('workflows:input-request', listener);
+      return () => ipcRenderer.removeListener('workflows:input-request', listener);
     },
   },
 
@@ -1274,8 +1291,20 @@ declare global {
         getRun: (
           runId: string
         ) => Promise<import('../shared/orchestration').CheckpointRun | null>;
+        submitInput: (payload: {
+          runId: string;
+          nodeId: string;
+          answers: Record<string, string>;
+        }) => Promise<{ success: boolean }>;
+        cancelInput: (payload: {
+          runId: string;
+          nodeId: string;
+        }) => Promise<{ success: boolean }>;
         onRunProgress: (
           callback: (event: import('../shared/workflows').WorkflowRunProgressEvent) => void
+        ) => () => void;
+        onInputRequest: (
+          callback: (event: import('../shared/workflows').WorkflowInputRequestEvent) => void
         ) => () => void;
       };
       meetings: {

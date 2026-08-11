@@ -5,6 +5,7 @@
 import type { CheckpointService } from '../orchestration/checkpoint-service';
 import type {
   WorkflowDefinition,
+  WorkflowInputField,
   WorkflowNode,
   WorkflowRunProgressEvent,
   WorkflowRunStep,
@@ -17,9 +18,14 @@ import {
 import {
   composeAgentStepPrompt,
   extractPriorAgentResults,
+  formatInputAnswersSummary,
 } from '../../shared/workflow-graph-edit';
 import type { CheckpointRun } from '../../shared/orchestration';
 import { log, logWarn } from '../utils/logger';
+
+export type WorkflowUserInputResult =
+  | { kind: 'submitted'; answers: Record<string, string> }
+  | { kind: 'cancelled' };
 
 export interface WorkflowExecutorApi {
   /**
@@ -41,6 +47,14 @@ export interface WorkflowExecutorApi {
     nodeId: string;
     message: string;
   }) => Promise<'allow' | 'deny'>;
+  requestUserInput: (input: {
+    workflowId: string;
+    runId: string;
+    nodeId: string;
+    prompt: string;
+    fields: WorkflowInputField[];
+    label?: string;
+  }) => Promise<WorkflowUserInputResult>;
   notify?: (input: {
     workflowId: string;
     runId: string;
@@ -186,12 +200,19 @@ export class WorkflowExecutor {
 
       const now = Date.now();
       const isApproval = node.type === 'approval';
+      const isInput = node.type === 'input';
       steps = updateStep(steps, node.id, {
-        status: isApproval ? 'awaiting_approval' : 'running',
+        status: isApproval
+          ? 'awaiting_approval'
+          : isInput
+            ? 'awaiting_input'
+            : 'running',
         startedAt: existingStep?.startedAt ?? now,
         summary: isApproval
           ? node.message || 'Waiting for approval'
-          : `Running ${node.label || node.type}…`,
+          : isInput
+            ? node.prompt || 'Waiting for your input'
+            : `Running ${node.label || node.type}…`,
       });
       this.persistSteps(run.id, node.id, steps, { lastNode: node.id });
 
@@ -203,9 +224,15 @@ export class WorkflowExecutor {
           const msg =
             node.type === 'approval'
               ? node.message || 'Waiting for your approval'
-              : 'Waiting for your approval';
+              : node.type === 'input'
+                ? node.prompt || 'Waiting for your input'
+                : 'Waiting for your approval';
+          const pauseStatus =
+            node.type === 'input' ? 'paused_for_input' : 'paused_for_approval';
+          const stepStatus =
+            node.type === 'input' ? 'awaiting_input' : 'awaiting_approval';
           steps = updateStep(steps, node.id, {
-            status: 'awaiting_approval',
+            status: stepStatus,
             summary: msg,
           });
           this.persistSteps(
@@ -215,10 +242,12 @@ export class WorkflowExecutor {
             {
               lastNode: node.id,
               approvalMessage: node.type === 'approval' ? node.message : undefined,
+              inputPrompt: node.type === 'input' ? node.prompt : undefined,
+              inputFields: node.type === 'input' ? node.fields : undefined,
             },
-            'paused_for_approval'
+            pauseStatus
           );
-          return { runId: run.id, status: 'paused_for_approval' };
+          return { runId: run.id, status: pauseStatus };
         }
 
         if (result === 'denied') {
@@ -233,6 +262,22 @@ export class WorkflowExecutor {
             [`node_${node.id}`]: 'denied',
           });
           const failed = this.checkpoints.fail(run.id, `Approval denied at node ${node.id}`);
+          this.emitProgress(failed);
+          return { runId: run.id, status: 'failed' };
+        }
+
+        if (result === 'cancelled') {
+          steps = updateStep(steps, node.id, {
+            status: 'failed',
+            summary: 'Input cancelled',
+            error: 'Input cancelled',
+            finishedAt: Date.now(),
+          });
+          this.persistSteps(run.id, node.id, steps, {
+            lastNode: node.id,
+            [`node_${node.id}`]: 'cancelled',
+          });
+          const failed = this.checkpoints.fail(run.id, `Input cancelled at node ${node.id}`);
           this.emitProgress(failed);
           return { runId: run.id, status: 'failed' };
         }
@@ -287,6 +332,7 @@ export class WorkflowExecutor {
     if (node.type === 'agent') return 'Agent step finished';
     if (node.type === 'tool') return `Tool ${node.toolName} finished`;
     if (node.type === 'approval') return 'Approved';
+    if (node.type === 'input') return 'Input collected';
     if (node.type === 'notify') return 'Notification sent';
     return 'Done';
   }
@@ -295,7 +341,7 @@ export class WorkflowExecutor {
     workflow: WorkflowDefinition,
     runId: string,
     node: WorkflowNode
-  ): Promise<'ok' | 'paused' | 'denied'> {
+  ): Promise<'ok' | 'paused' | 'denied' | 'cancelled'> {
     if (node.type === 'agent') {
       const stepsBefore = getWorkflowRunSteps(this.checkpoints.get(runId)?.payload || {});
       const priors = extractPriorAgentResults(stepsBefore);
@@ -373,6 +419,53 @@ export class WorkflowExecutor {
       if (decision !== 'allow') {
         return 'denied';
       }
+      this.checkpoints.resume(runId);
+      return 'ok';
+    }
+
+    if (node.type === 'input') {
+      const steps = getWorkflowRunSteps(this.checkpoints.get(runId)?.payload || {});
+      const next = updateStep(steps, node.id, {
+        status: 'awaiting_input',
+        summary: node.prompt || 'Waiting for your input',
+      });
+      this.persistSteps(
+        runId,
+        node.id,
+        next,
+        {
+          inputPrompt: node.prompt,
+          inputFields: node.fields,
+          inputNodeId: node.id,
+          inputLabel: node.label,
+        },
+        'paused_for_input'
+      );
+      const response = await this.api.requestUserInput({
+        workflowId: workflow.id,
+        runId,
+        nodeId: node.id,
+        prompt: node.prompt || node.label || 'Provide input to continue',
+        fields: node.fields,
+        label: node.label,
+      });
+      if (response.kind !== 'submitted') {
+        return 'cancelled';
+      }
+      const summary = formatInputAnswersSummary(response.answers, node.fields);
+      const after = getWorkflowRunSteps(this.checkpoints.get(runId)?.payload || {});
+      const withOutput = updateStep(after, node.id, {
+        summary: summary.slice(0, 280) || 'Input collected',
+        output: truncateOutput({
+          answers: response.answers,
+          fields: node.fields,
+          prompt: node.prompt,
+          summary: summary || 'Input collected',
+        }),
+      });
+      this.persistSteps(runId, node.id, withOutput, {
+        lastInputAnswers: response.answers,
+      });
       this.checkpoints.resume(runId);
       return 'ok';
     }
