@@ -37,6 +37,8 @@ export function MatterItemDetail({
   const hasSourceUrl = Boolean(item.sourceRef.url?.trim());
   const rawDetails = item.rawDetails?.trim() || '';
   const isPrepNote = rawDetails.startsWith(MEETING_PREP_MARKER);
+  const prettyRaw = formatRawDetails(rawDetails);
+  const isJsonRaw = prettyRaw.kind === 'json';
 
   return (
     <div className="w-full max-w-xl rounded-2xl border border-border-muted bg-surface/90 shadow-lg overflow-hidden">
@@ -143,12 +145,39 @@ export function MatterItemDetail({
 
         <div>
           <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-text-muted mb-1">
-            {isPrepNote ? t('matter.detailPrepNote') : t('matter.detailRaw')}
+            {isPrepNote
+              ? t('matter.detailPrepNote')
+              : isJsonRaw
+                ? t('matter.detailRawJson')
+                : t('matter.detailRaw')}
           </p>
-          {rawDetails ? (
-            <pre className="rounded-xl border border-border-subtle bg-background px-3 py-2.5 text-[11px] leading-relaxed text-text-secondary whitespace-pre-wrap break-words font-mono max-h-56 overflow-y-auto">
-              {rawDetails}
-            </pre>
+          {prettyRaw.text ? (
+            isJsonRaw ? (
+              <div className="rounded-xl border border-border-subtle bg-background overflow-hidden max-h-56 overflow-y-auto">
+                {prettyRaw.rows ? (
+                  <dl className="divide-y divide-border-subtle">
+                    {prettyRaw.rows.map((row) => (
+                      <div key={row.key} className="grid grid-cols-[minmax(5.5rem,32%)_1fr] gap-2 px-3 py-1.5">
+                        <dt className="text-[10px] font-semibold uppercase tracking-wide text-text-muted break-all pt-0.5">
+                          {row.key}
+                        </dt>
+                        <dd className="text-[11px] leading-relaxed text-text-secondary whitespace-pre-wrap break-words font-mono min-w-0">
+                          {row.value}
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+                ) : (
+                  <pre className="px-3 py-2.5 text-[11px] leading-relaxed text-text-secondary whitespace-pre-wrap break-words font-mono">
+                    {prettyRaw.text}
+                  </pre>
+                )}
+              </div>
+            ) : (
+              <pre className="rounded-xl border border-border-subtle bg-background px-3 py-2.5 text-[11px] leading-relaxed text-text-secondary whitespace-pre-wrap break-words font-mono max-h-56 overflow-y-auto">
+                {prettyRaw.text}
+              </pre>
+            )
           ) : (
             <p className="text-[12px] text-text-muted">{t('matter.detailRawEmpty')}</p>
           )}
@@ -290,5 +319,84 @@ function formatWhen(ts: number): string {
     });
   } catch {
     return '—';
+  }
+}
+
+type FormattedRawDetails =
+  | { kind: 'empty'; text: ''; rows?: undefined }
+  | { kind: 'text'; text: string; rows?: undefined }
+  | {
+      kind: 'json';
+      text: string;
+      /** Top-level object keys as key/value rows when structure is a plain object. */
+      rows?: Array<{ key: string; value: string }>;
+    };
+
+/** Detect JSON payloads and pretty-print for the Matter detail raw panel. */
+export function formatRawDetails(raw: string): FormattedRawDetails {
+  const trimmed = raw.trim();
+  if (!trimmed) return { kind: 'empty', text: '' };
+
+  const parsed = tryParseJson(trimmed);
+  if (parsed === undefined) {
+    return { kind: 'text', text: trimmed };
+  }
+
+  let pretty: string;
+  try {
+    pretty = JSON.stringify(parsed, null, 2);
+  } catch {
+    return { kind: 'text', text: trimmed };
+  }
+
+  if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+    const obj = parsed as Record<string, unknown>;
+    const keys = Object.keys(obj);
+    // Prefer a scannable key/value table for typical connector envelopes (not huge).
+    if (keys.length > 0 && keys.length <= 40) {
+      const rows = keys.map((key) => ({
+        key,
+        value: formatJsonFieldValue(obj[key]),
+      }));
+      return { kind: 'json', text: pretty, rows };
+    }
+  }
+
+  return { kind: 'json', text: pretty };
+}
+
+function tryParseJson(text: string): unknown | undefined {
+  const first = text[0];
+  if (first !== '{' && first !== '[') return undefined;
+  try {
+    return JSON.parse(text);
+  } catch {
+    // Some payloads wrap JSON with noise; try first {…} / […] span.
+    const startObj = text.indexOf('{');
+    const startArr = text.indexOf('[');
+    let start = -1;
+    if (startObj >= 0 && startArr >= 0) start = Math.min(startObj, startArr);
+    else start = Math.max(startObj, startArr);
+    if (start < 0) return undefined;
+    const open = text[start];
+    const close = open === '{' ? '}' : ']';
+    const end = text.lastIndexOf(close);
+    if (end <= start) return undefined;
+    try {
+      return JSON.parse(text.slice(start, end + 1));
+    } catch {
+      return undefined;
+    }
+  }
+}
+
+function formatJsonFieldValue(value: unknown): string {
+  if (value == null) return String(value);
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
   }
 }

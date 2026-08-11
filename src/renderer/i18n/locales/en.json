@@ -895,6 +895,7 @@
     "detailEmpty": "No details available.",
     "detailNoAction": "No suggested action yet.",
     "detailRaw": "Raw source details",
+    "detailRawJson": "Source payload",
     "detailPrepNote": "Prep note",
     "detailRawEmpty": "No raw connector payload was captured for this item. Run Scan now to refresh.",
     "detailNoSourceUrl": "No deep link found in the source payload.",
