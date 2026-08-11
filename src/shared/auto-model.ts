@@ -51,21 +51,23 @@ export const AUTO_MODEL_TIERS: Record<AutoModelTier, AutoModelCandidate[]> = {
     { provider: 'openrouter', id: 'google/gemma-4-31b-it:free', supportsVision: true },
     { provider: 'openrouter', id: 'qwen/qwen3-next-80b-a3b-instruct:free', supportsVision: false },
     { provider: 'anthropic', id: 'claude-sonnet-5', supportsVision: true },
-    { provider: 'openai', id: 'gpt-5.6', supportsVision: true },
+    // Temporarily hidden — re-enable later: gpt-5.6
+    { provider: 'openai', id: 'gpt-5.6-luna', supportsVision: true },
     { provider: 'gemini', id: 'gemini-3.1-pro-preview', supportsVision: true },
     { provider: 'openrouter', id: 'anthropic/claude-sonnet-5', supportsVision: true },
-    { provider: 'openrouter', id: 'openai/gpt-5.6-sol', supportsVision: true },
+    // Temporarily hidden — re-enable later: openai/gpt-5.6-sol
     { provider: 'openrouter', id: 'google/gemini-3.1-pro-preview', supportsVision: true },
   ],
   frontier: [
     { provider: 'anthropic', id: 'claude-fable-5', supportsVision: true },
     { provider: 'anthropic', id: 'claude-opus-5', supportsVision: true },
     { provider: 'anthropic', id: 'claude-opus-4-8', supportsVision: true },
-    { provider: 'openai', id: 'gpt-5.6-sol', supportsVision: true },
+    // Temporarily hidden — re-enable later: gpt-5.6-sol / gpt-5.6 / openai/gpt-5.6-sol
+    { provider: 'openai', id: 'gpt-5.6-luna', supportsVision: true },
     { provider: 'openrouter', id: 'anthropic/claude-fable-5', supportsVision: true },
     { provider: 'openrouter', id: 'anthropic/claude-opus-5', supportsVision: true },
     { provider: 'openrouter', id: 'anthropic/claude-opus-4.8', supportsVision: true },
-    { provider: 'openrouter', id: 'openai/gpt-5.6-sol', supportsVision: true },
+    { provider: 'openrouter', id: 'openai/gpt-5.6-luna', supportsVision: true },
     { provider: 'openrouter', id: 'nvidia/nemotron-3-super-120b-a12b:free', supportsVision: false },
     { provider: 'openrouter', id: 'qwen/qwen3-coder:free', supportsVision: false },
     { provider: 'openrouter', id: 'poolside/laguna-m.1:free', supportsVision: false },

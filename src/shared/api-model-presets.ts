@@ -66,8 +66,9 @@ export const API_PROVIDER_PRESETS: SharedProviderPresets = {
       { id: 'anthropic/claude-opus-4.8', name: 'anthropic/claude-opus-4.8' },
       { id: 'anthropic/claude-sonnet-5', name: 'anthropic/claude-sonnet-5' },
       { id: 'anthropic/claude-haiku-4.5', name: 'anthropic/claude-haiku-4.5' },
-      { id: 'openai/gpt-5.6-sol', name: 'openai/gpt-5.6-sol' },
-      { id: 'openai/gpt-5.6-terra', name: 'openai/gpt-5.6-terra' },
+      // Temporarily hidden — re-enable later:
+      // { id: 'openai/gpt-5.6-sol', name: 'openai/gpt-5.6-sol' },
+      // { id: 'openai/gpt-5.6-terra', name: 'openai/gpt-5.6-terra' },
       { id: 'openai/gpt-5.6-luna', name: 'openai/gpt-5.6-luna' },
       { id: 'google/gemini-3.5-flash', name: 'google/gemini-3.5-flash' },
       { id: 'google/gemini-3.1-pro-preview', name: 'google/gemini-3.1-pro-preview' },
@@ -95,10 +96,11 @@ export const API_PROVIDER_PRESETS: SharedProviderPresets = {
     name: 'OpenAI',
     baseUrl: 'https://api.openai.com/v1',
     models: [
-      { id: 'gpt-5.6-sol', name: 'gpt-5.6-sol' },
-      { id: 'gpt-5.6-terra', name: 'gpt-5.6-terra' },
+      // Temporarily hidden — re-enable later:
+      // { id: 'gpt-5.6-sol', name: 'gpt-5.6-sol' },
+      // { id: 'gpt-5.6-terra', name: 'gpt-5.6-terra' },
+      // { id: 'gpt-5.6', name: 'gpt-5.6' },
       { id: 'gpt-5.6-luna', name: 'gpt-5.6-luna' },
-      { id: 'gpt-5.6', name: 'gpt-5.6' },
       { id: 'gpt-5.4', name: 'gpt-5.4' },
       { id: 'gpt-5.4-mini', name: 'gpt-5.4-mini' },
       { id: 'gpt-5.3-codex', name: 'gpt-5.3-codex' },
@@ -176,8 +178,9 @@ export const PI_AI_CURATED_PRESETS: Record<string, { piProvider: string; pick: s
       'anthropic/claude-opus-4.8',
       'anthropic/claude-sonnet-5',
       'anthropic/claude-haiku-4.5',
-      'openai/gpt-5.6-sol',
-      'openai/gpt-5.6-terra',
+      // Temporarily hidden — re-enable later:
+      // 'openai/gpt-5.6-sol',
+      // 'openai/gpt-5.6-terra',
       'openai/gpt-5.6-luna',
       'google/gemini-3.5-flash',
       'google/gemini-3.1-pro-preview',
@@ -199,10 +202,11 @@ export const PI_AI_CURATED_PRESETS: Record<string, { piProvider: string; pick: s
   openai: {
     piProvider: 'openai',
     pick: [
-      'gpt-5.6-sol',
-      'gpt-5.6-terra',
+      // Temporarily hidden — re-enable later:
+      // 'gpt-5.6-sol',
+      // 'gpt-5.6-terra',
+      // 'gpt-5.6',
       'gpt-5.6-luna',
-      'gpt-5.6',
       'gpt-5.4',
       'gpt-5.4-mini',
       'gpt-5.3-codex',
@@ -229,7 +233,7 @@ export function getModelInputGuidance(
 ): ModelInputGuidance {
   if (provider === 'openrouter') {
     return {
-      placeholder: 'openai/gpt-5.6-sol, anthropic/claude-sonnet-5, google/gemini-3.5-flash',
+      placeholder: 'openai/gpt-5.6-luna, anthropic/claude-sonnet-5, google/gemini-3.5-flash',
       hint: 'Use the exact model ID for the selected protocol or endpoint.',
     };
   }
@@ -257,7 +261,7 @@ export function getModelInputGuidance(
 
   if (provider === 'openai') {
     return {
-      placeholder: 'gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna',
+      placeholder: 'gpt-5.6-luna, gpt-5.4, gpt-5.4-mini',
       hint: 'Use the exact model ID for the selected protocol or endpoint.',
     };
   }
