@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { Check, Clock3, MessageSquare, Pin, PinOff, X, ExternalLink, Ban } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import type { MatterItem } from '../../../shared/matter';
+import { MEETING_PREP_MARKER, type MatterItem } from '../../../shared/matter';
 import { formatDueRelative, isDueUrgent } from '../../../shared/matter-time';
 
 const SEVERITY_CLASS: Record<string, string> = {
@@ -36,6 +36,7 @@ export function MatterItemDetail({
   const sourceLabel = item.sourceRef.label || item.source;
   const hasSourceUrl = Boolean(item.sourceRef.url?.trim());
   const rawDetails = item.rawDetails?.trim() || '';
+  const isPrepNote = rawDetails.startsWith(MEETING_PREP_MARKER);
 
   return (
     <div className="w-full max-w-xl rounded-2xl border border-border-muted bg-surface/90 shadow-lg overflow-hidden">
@@ -142,7 +143,7 @@ export function MatterItemDetail({
 
         <div>
           <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-text-muted mb-1">
-            {t('matter.detailRaw')}
+            {isPrepNote ? t('matter.detailPrepNote') : t('matter.detailRaw')}
           </p>
           {rawDetails ? (
             <pre className="rounded-xl border border-border-subtle bg-background px-3 py-2.5 text-[11px] leading-relaxed text-text-secondary whitespace-pre-wrap break-words font-mono max-h-56 overflow-y-auto">

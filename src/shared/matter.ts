@@ -53,6 +53,9 @@ export const MATTER_SOURCE_IDS = [
 export const MATTER_DEFAULT_SNOOZE_MS = 24 * 60 * 60 * 1000;
 export const MATTER_MIN_SNOOZE_MS = 60 * 60 * 1000;
 
+/** Stable marker for calendar prep notes stored in MatterItem.rawDetails. */
+export const MEETING_PREP_MARKER = '## Meeting prep';
+
 export type MatterConfigurableSource = (typeof MATTER_SOURCE_IDS)[number];
 
 export interface MatterSourceRef {

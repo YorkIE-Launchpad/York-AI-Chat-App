@@ -24,6 +24,20 @@ import {
   DEFAULT_LAUNCHPAD_MCP_SERVER_ID,
   DEFAULT_SLACK_MCP_SERVER_ID,
 } from '../../shared/mcp-defaults';
+import {
+  MAX_VAGUE_ENRICHMENTS_PER_SCAN,
+  enrichVagueCalendarMeeting,
+  isVagueMeetingTitle,
+  parseEventAttendees,
+} from './matter-calendar-enrichment';
+
+export {
+  MEETING_PREP_MARKER,
+  isVagueMeetingTitle,
+  parseEventAttendees,
+  buildEnrichedMeetingTitle,
+  buildMeetingPrepNote,
+} from './matter-calendar-enrichment';
 
 const MAX_PER_SOURCE = 8;
 const RAW_CAP = 4000;
@@ -385,9 +399,22 @@ function parseCalendarLines(body: string): Array<{ id: string; title: string; wh
   return out;
 }
 
+type CalendarDraft = {
+  id: string;
+  title: string;
+  when: string;
+  htmlLink?: string;
+  raw: unknown;
+  detailBody: string;
+  startMs?: number;
+  endMs?: number | null;
+  hoursUntil: number;
+};
+
 async function collectCalendar(
   mcpManager: MCPManager,
-  _profile: WelcomeProfile | null
+  _profile: WelcomeProfile | null,
+  meetingService: MeetingService | null = null
 ): Promise<RawMatterSignal[]> {
   const tool = findToolName(mcpManager, DEFAULT_GOOGLE_CALENDAR_MCP_SERVER_ID, [
     'list_events',
@@ -410,72 +437,123 @@ async function collectCalendar(
   if (!events.length) return [];
 
   const getTool = findToolName(mcpManager, DEFAULT_GOOGLE_CALENDAR_MCP_SERVER_ID, ['get_event']);
-  const detailed = await Promise.all(
-    events.map(async (ev) => {
-      let htmlLink: string | undefined;
-      let startIso: string | undefined;
-      let raw: unknown = ev;
-      if (getTool && !ev.id.startsWith('line-')) {
-        const detailText = await safeCallTool(mcpManager, getTool, { event_id: ev.id });
-        if (detailText) {
-          const parsed = parseJsonLoose(detailText) as Record<string, unknown> | null;
-          const nested = parsed && typeof parsed === 'object' ? parsed : null;
-          htmlLink = extractUrl(detailText);
-          const bodyStr = typeof nested?.body === 'string' ? nested.body : detailText;
-          const whenMatch = bodyStr.match(/\(([^)]+→[^)]+)\)/);
-          startIso = whenMatch?.[1]?.split('→')[0]?.trim() || ev.when.split('→')[0]?.trim();
-          if (typeof nested?.title === 'string' && nested.title.trim()) {
-            ev.title = nested.title.trim();
+  const drafts = (
+    await Promise.all(
+      events.map(async (ev): Promise<CalendarDraft | null> => {
+        let htmlLink: string | undefined;
+        let startIso: string | undefined;
+        let raw: unknown = ev;
+        let detailBody = '';
+        if (getTool && !ev.id.startsWith('line-')) {
+          const detailText = await safeCallTool(mcpManager, getTool, { event_id: ev.id });
+          if (detailText) {
+            const parsed = parseJsonLoose(detailText) as Record<string, unknown> | null;
+            const nested = parsed && typeof parsed === 'object' ? parsed : null;
+            htmlLink = extractUrl(detailText);
+            const bodyStr = typeof nested?.body === 'string' ? nested.body : detailText;
+            detailBody = bodyStr;
+            const whenMatch = bodyStr.match(/\(([^)]+→[^)]+)\)/);
+            startIso = whenMatch?.[1]?.split('→')[0]?.trim() || ev.when.split('→')[0]?.trim();
+            if (typeof nested?.title === 'string' && nested.title.trim()) {
+              ev.title = nested.title.trim();
+            }
+            raw = nested || detailText;
           }
-          raw = nested || detailText;
         }
+        const startMs = parseIsoMs(startIso) ?? parseIsoMs(ev.when.split('→')[0]?.trim());
+        // Prefer event end from "start → end" range when present.
+        const endFromWhen = (() => {
+          const range = startIso && startIso.includes('→') ? startIso : ev.when;
+          const parts = range.split('→');
+          if (parts.length >= 2) return parseIsoMs(parts[1]?.trim());
+          return null;
+        })();
+        const hoursUntil = startMs != null ? (startMs - Date.now()) / 36e5 : 999;
+        // Action bar: only meetings starting within ~6h (prep / show up), not passive week list
+        if (hoursUntil < 0 || hoursUntil > 6) return null;
+        // Drop personal holds (Break, block, focus, OOO, …) — not action radar material
+        if (isPersonalCalendarHold(ev.title)) return null;
+        // Drop daily recurring series (standup / FREQ=DAILY) — too noisy for Matter
+        const rawText = detailBody || (typeof raw === 'string' ? raw : truncate(raw));
+        if (isDailySeriesMeeting(ev.title, rawText)) return null;
+
+        return {
+          id: ev.id,
+          title: ev.title,
+          when: ev.when,
+          htmlLink,
+          raw,
+          detailBody: rawText,
+          startMs: startMs ?? undefined,
+          endMs: endFromWhen,
+          hoursUntil,
+        };
+      })
+    )
+  ).filter((d): d is CalendarDraft => !!d);
+
+  const signals: RawMatterSignal[] = [];
+  let enrichLeft = MAX_VAGUE_ENRICHMENTS_PER_SCAN;
+
+  for (const draft of drafts.slice(0, MAX_PER_SOURCE)) {
+    const orbit: MatterOrbit = draft.hoursUntil <= 2 ? 'now' : 'today';
+    const severity: MatterSeverity =
+      draft.hoursUntil <= 1 ? 'critical' : draft.hoursUntil <= 3 ? 'warning' : 'signal';
+
+    let title = draft.title;
+    let summary = draft.when;
+    let raw: unknown = draft.raw;
+    let whyHint = 'Starts soon — prep or confirm you still need to attend.';
+    let suggestedAction = 'Open the event and prep or decline.';
+
+    if (isVagueMeetingTitle(draft.title) && enrichLeft > 0) {
+      enrichLeft -= 1;
+      try {
+        const attendees = parseEventAttendees(draft.detailBody);
+        const enriched = await enrichVagueCalendarMeeting({
+          mcpManager,
+          meetingService,
+          originalTitle: draft.title,
+          when: draft.when,
+          attendees,
+          eventUrl: draft.htmlLink,
+        });
+        title = enriched.title;
+        summary = enriched.summary;
+        whyHint = enriched.whyHint;
+        suggestedAction = enriched.suggestedAction;
+        raw = enriched.prepNote;
+      } catch (error) {
+        logWarn('[Matter] Vague calendar enrichment failed:', error);
       }
-      const startMs = parseIsoMs(startIso) ?? parseIsoMs(ev.when.split('→')[0]?.trim());
-      // Prefer event end from "start → end" range when present.
-      const endFromWhen = (() => {
-        const range = startIso && startIso.includes('→') ? startIso : ev.when;
-        const parts = range.split('→');
-        if (parts.length >= 2) return parseIsoMs(parts[1]?.trim());
-        return null;
-      })();
-      const hoursUntil = startMs != null ? (startMs - Date.now()) / 36e5 : 999;
-      // Action bar: only meetings starting within ~6h (prep / show up), not passive week list
-      if (hoursUntil < 0 || hoursUntil > 6) return null;
-      // Drop personal holds (Break, block, focus, OOO, …) — not action radar material
-      if (isPersonalCalendarHold(ev.title)) return null;
-      // Drop daily recurring series (standup / FREQ=DAILY) — too noisy for Matter
-      const rawText = typeof raw === 'string' ? raw : truncate(raw);
-      if (isDailySeriesMeeting(ev.title, rawText)) return null;
+    }
 
-      const orbit: MatterOrbit = hoursUntil <= 2 ? 'now' : 'today';
-      const severity: MatterSeverity =
-        hoursUntil <= 1 ? 'critical' : hoursUntil <= 3 ? 'warning' : 'signal';
-
-      return signal({
-        fingerprint: `calendar:event:${ev.id}`,
+    signals.push(
+      signal({
+        fingerprint: `calendar:event:${draft.id}`,
         source: 'calendar',
-        title: ev.title,
-        summary: ev.when,
+        title,
+        summary,
         raw,
         severityHint: severity,
         orbitHint: orbit,
         categoryHint: 'time',
-        whyHint: 'Starts soon — prep or confirm you still need to attend.',
-        suggestedAction: 'Open the event and prep or decline.',
+        whyHint,
+        suggestedAction,
         sourceRef: {
           connectorId: DEFAULT_GOOGLE_CALENDAR_MCP_SERVER_ID,
-          externalId: ev.id,
+          externalId: draft.id,
           label: 'Calendar',
-          url: htmlLink,
+          url: draft.htmlLink,
         },
-        muteKeys: [`calendar:event:${ev.id}`, 'source:calendar'],
-        dueAt: startMs ?? undefined,
-        expiresAt: endFromWhen ?? startMs ?? undefined,
-      });
-    })
-  );
+        muteKeys: [`calendar:event:${draft.id}`, 'source:calendar'],
+        dueAt: draft.startMs,
+        expiresAt: draft.endMs ?? draft.startMs,
+      })
+    );
+  }
 
-  return detailed.filter((s): s is RawMatterSignal => !!s).slice(0, MAX_PER_SOURCE);
+  return signals;
 }
 
 // ── Slack: one signal per matching message ──────────────────────────────────
@@ -1122,7 +1200,7 @@ export async function collectMatterSignals(options: {
     }
   } else {
     await Promise.all([
-      run('calendar', () => collectCalendar(mcpManager, profile)),
+      run('calendar', () => collectCalendar(mcpManager, profile, meetingService)),
       run('slack', () => collectSlack(mcpManager, profile)),
       run('gmail', () => collectGmail(mcpManager, profile)),
       run('jira', () => collectJira(mcpManager, profile)),

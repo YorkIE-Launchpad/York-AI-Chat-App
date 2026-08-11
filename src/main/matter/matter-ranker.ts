@@ -33,7 +33,7 @@ Return ONLY valid JSON (no markdown):
   "items": [
     {
       "fingerprint": "MUST equal an input signal fingerprint exactly",
-      "title": "prefer the signal title; shorten only if needed (<= 90 chars)",
+      "title": "prefer the signal title (especially enriched calendar titles with people/topic); shorten only if needed (<= 90 chars). Never rewrite an enriched meeting title back to a bare invite like Sync/Meeting/Catch up",
       "summary": "one sentence about the action required",
       "whyItMatters": "why THIS person must act, tied to role/title when possible",
       "severity": "critical|warning|healthy|signal",
@@ -68,6 +68,7 @@ Rules:
 - Prefer fewer high-action items. Max items is provided.
 - critical = blocker / manager escalation / meeting in <2h needing prep.
 - warning = action due today. signal = lighter but still an action.
+- For calendar items with a "## Meeting prep" rawDetails / prep note: KEEP them as prep-for-imminent-meeting actions; use that prep context for summary and whyItMatters; keep the collector title when it already names people or a topic.
 - rankScore and confidence MUST be JSON numbers (e.g. 60, 0.7), never words like "sixty".
 - Never use JSON keys, schema fragments, or path arrays as titles.
 - If nothing needs action, return empty items and a calm pulse.`;

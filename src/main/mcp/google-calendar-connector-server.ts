@@ -575,11 +575,31 @@ async function main() {
         const meetUri =
           conf?.entryPoints?.find((e) => e.entryPointType === 'video' && e.uri)?.uri || hangoutLink;
 
+        const attendeeRows = Array.isArray(payload.attendees)
+          ? (payload.attendees as Array<Record<string, unknown>>)
+          : [];
+        const attendeeLabels = attendeeRows
+          .map((attendee) => {
+            const email =
+              typeof attendee.email === 'string' ? attendee.email.trim().toLowerCase() : '';
+            const displayName =
+              typeof attendee.displayName === 'string' ? attendee.displayName.trim() : '';
+            if (displayName && email) return `${displayName} <${email}>`;
+            if (email) return email;
+            if (displayName) return displayName;
+            return '';
+          })
+          .filter(Boolean);
+        const attendeesLine = attendeeLabels.length
+          ? `Attendees: ${attendeeLabels.join(', ')}`
+          : '';
+
         const body = [
           summarizeEvent(payload),
           location ? `Location: ${location}` : '',
           htmlLink ? `Link: ${htmlLink}` : '',
           meetUri ? `Meet: ${meetUri}` : '',
+          attendeesLine,
           description && description !== title ? description : '',
           recurringEventId ? `RecurringEventId: ${recurringEventId}` : '',
           recurrenceLines.length ? `Recurrence:\n${recurrenceLines.join('\n')}` : '',
@@ -597,6 +617,7 @@ async function main() {
             'event',
             title,
             calendarId,
+            ...attendeeLabels.slice(0, 8),
             ...(recurringEventId || recurrenceLines.length ? ['recurring'] : []),
             ...(recurrenceLines.some((r) => /FREQ=DAILY/i.test(r)) ? ['daily'] : []),
           ],
