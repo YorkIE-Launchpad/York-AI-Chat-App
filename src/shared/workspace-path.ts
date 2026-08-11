@@ -24,6 +24,68 @@ function remapCoworkAbsolutePath(pathValue: string, workspacePath?: string | nul
   return null;
 }
 
+/**
+ * Agents sometimes emit absolute paths like `/Users/someone/outputs/deck.html`
+ * that fall outside the open workspace even though the real file was written
+ * under `workspace/outputs/...`. Reclaim those as workspace-relative
+ * `outputs/...` paths.
+ *
+ * Rejects `..` segments so remapping cannot escape the workspace.
+ */
+export function extractOutputsRelativePath(pathValue: string): string | null {
+  if (!pathValue?.trim()) {
+    return null;
+  }
+
+  const normalized = pathValue.trim().replace(/\\/g, '/');
+  const match = normalized.match(/(?:^|\/)outputs\/(.+)$/i);
+  if (!match?.[1]) {
+    return null;
+  }
+
+  const segments = match[1].split('/').filter(Boolean);
+  if (segments.length === 0 || segments.some((segment) => segment === '..')) {
+    return null;
+  }
+
+  return `outputs/${segments.join('/')}`;
+}
+
+function pathLooksUnderRoot(candidate: string, root: string): boolean {
+  const toComparable = (value: string): string => {
+    const normalized = value.replace(/\\/g, '/').replace(/\/+$/, '');
+    // Windows drive / UNC compare case-insensitively; POSIX keeps case.
+    if (isWindowsDrivePath(value) || isUncPath(value)) {
+      return normalized.toLowerCase();
+    }
+    return normalized;
+  };
+
+  const candidateNorm = toComparable(candidate);
+  const rootNorm = toComparable(root);
+  if (!candidateNorm || !rootNorm) {
+    return false;
+  }
+  return candidateNorm === rootNorm || candidateNorm.startsWith(`${rootNorm}/`);
+}
+
+function remapOutsideOutputsAbsolutePath(
+  pathValue: string,
+  workspacePath?: string | null
+): string | null {
+  if (!workspacePath) {
+    return null;
+  }
+  if (pathLooksUnderRoot(pathValue, workspacePath)) {
+    return null;
+  }
+  const outputsRelative = extractOutputsRelativePath(pathValue);
+  if (!outputsRelative) {
+    return null;
+  }
+  return joinRelativePath(workspacePath, outputsRelative);
+}
+
 export function resolvePathAgainstWorkspace(
   pathValue: string,
   workspacePath?: string | null
@@ -40,6 +102,10 @@ export function resolvePathAgainstWorkspace(
     if (/^[A-Za-z]:[/\\]workspace[/\\]/i.test(pathValue)) {
       const relativePart = pathValue.replace(/^[A-Za-z]:[/\\]workspace[/\\]/i, '');
       return workspacePath ? joinRelativePath(workspacePath, relativePart) : pathValue;
+    }
+    const outputsRemapped = remapOutsideOutputsAbsolutePath(pathValue, workspacePath);
+    if (outputsRemapped !== null) {
+      return outputsRemapped;
     }
     return pathValue;
   }

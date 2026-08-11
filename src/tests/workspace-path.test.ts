@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { resolvePathAgainstWorkspace } from '../shared/workspace-path';
+import {
+  extractOutputsRelativePath,
+  resolvePathAgainstWorkspace,
+} from '../shared/workspace-path';
 
 describe('resolvePathAgainstWorkspace', () => {
   it('returns empty/falsy pathValue as-is', () => {
@@ -93,5 +96,39 @@ describe('resolvePathAgainstWorkspace', () => {
     expect(resolvePathAgainstWorkspace('/mnt/user-data/outputs/foo.md')).toBe(
       '/mnt/user-data/outputs/foo.md'
     );
+  });
+
+  it('extracts outputs-relative paths and rejects traversal', () => {
+    expect(extractOutputsRelativePath('/Users/lay.s/outputs/report.html')).toBe(
+      'outputs/report.html'
+    );
+    expect(
+      extractOutputsRelativePath(
+        '/Users/lay.s/outputs/sports-data-provider-executive/Sports-Data-Provider-Evaluation-2026-Client-Report.html'
+      )
+    ).toBe(
+      'outputs/sports-data-provider-executive/Sports-Data-Provider-Evaluation-2026-Client-Report.html'
+    );
+    expect(extractOutputsRelativePath('outputs/deck.html')).toBe('outputs/deck.html');
+    expect(extractOutputsRelativePath('/tmp/outputs/../secret.html')).toBeNull();
+    expect(extractOutputsRelativePath('/tmp/other/file.html')).toBeNull();
+  });
+
+  it('remaps absolute outputs paths outside the workspace onto the workspace', () => {
+    expect(
+      resolvePathAgainstWorkspace(
+        '/Users/lay.s/outputs/sports-data-provider-executive/report.html',
+        '/Users/demo/project'
+      )
+    ).toBe('/Users/demo/project/outputs/sports-data-provider-executive/report.html');
+  });
+
+  it('does not remap absolute outputs paths already under the workspace', () => {
+    expect(
+      resolvePathAgainstWorkspace(
+        '/Users/demo/project/outputs/report.html',
+        '/Users/demo/project'
+      )
+    ).toBe('/Users/demo/project/outputs/report.html');
   });
 });

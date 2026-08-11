@@ -84,4 +84,28 @@ describe('findLatestHtmlPreviewCandidate', () => {
 
     expect(findLatestHtmlPreviewCandidate(steps, '/workspace')).toBeNull();
   });
+
+  it('remaps outside absolute outputs/ artifact paths into the session cwd', () => {
+    const steps: TraceStep[] = [
+      {
+        id: 'art1',
+        type: 'tool_result',
+        status: 'completed',
+        title: 'artifact',
+        toolName: 'artifact',
+        toolOutput: JSON.stringify({
+          path: '/Users/lay.s/outputs/sports-data-provider-executive/report.html',
+          name: 'Sports Data Provider Evaluation 2026 Client Report',
+          type: 'html',
+        }),
+        timestamp: 1,
+      },
+    ];
+
+    const candidate = findLatestHtmlPreviewCandidate(steps, '/Users/demo/project');
+    expect(candidate?.path).toBe(
+      '/Users/demo/project/outputs/sports-data-provider-executive/report.html'
+    );
+    expect(candidate?.title).toBe('Sports Data Provider Evaluation 2026 Client Report');
+  });
 });
