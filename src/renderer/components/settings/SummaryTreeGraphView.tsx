@@ -1,15 +1,18 @@
 /**
  * Read-only xyflow canvas for Summary Tree nodes (Document / L2 / L1 / Source).
  */
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, type CSSProperties } from 'react';
 import {
   Background,
   BackgroundVariant,
   Controls,
+  Handle,
+  Position,
   ReactFlow,
   ReactFlowProvider,
   useEdgesState,
   useNodesState,
+  useReactFlow,
   type Edge,
   type Node,
   type NodeProps,
@@ -36,32 +39,48 @@ type StNodeData = {
   title: string;
 };
 
-function SummaryDotNode({ data, selected }: NodeProps<Node<StNodeData, 'summaryDot'>>) {
+function truncateTitle(title: string, max: number): string {
+  const t = title.trim() || 'Untitled';
+  return t.length <= max ? t : `${t.slice(0, max - 1)}…`;
+}
+
+function SummaryTreeFlowNode({ data, selected }: NodeProps<Node<StNodeData, 'summaryTree'>>) {
   const color = KIND_COLOR[data.kind] || '#888';
-  const size = data.kind === 'document' ? 18 : data.kind === 'l2' ? 14 : data.kind === 'l1' ? 11 : 7;
+  const isSource = data.kind === 'source';
+  const titleMax = data.kind === 'document' ? 28 : data.kind === 'source' ? 18 : 22;
+
   return (
     <div
-      className={`summary-tree-dot ${selected ? 'selected' : ''}`}
+      className={`summary-tree-node summary-tree-node--${data.kind}${selected ? ' selected' : ''}`}
       title={`${kindLabel(data.kind)}: ${data.title}`}
-      style={{
-        width: size,
-        height: size,
-        background: color,
-        boxShadow: selected ? `0 0 0 3px color-mix(in srgb, ${color} 40%, transparent)` : undefined,
-      }}
-    />
+      style={
+        {
+          '--st-kind': color,
+        } as CSSProperties
+      }
+    >
+      <Handle type="target" position={Position.Top} className="summary-tree-handle" />
+      <span className="summary-tree-node__dot" aria-hidden />
+      <span className="summary-tree-node__text">
+        {!isSource ? (
+          <span className="summary-tree-node__kind">{data.label}</span>
+        ) : null}
+        <span className="summary-tree-node__title">{truncateTitle(data.title, titleMax)}</span>
+      </span>
+      <Handle type="source" position={Position.Bottom} className="summary-tree-handle" />
+    </div>
   );
 }
 
-const nodeTypes = { summaryDot: SummaryDotNode };
+const nodeTypes = { summaryTree: SummaryTreeFlowNode };
 
 function toFlow(graph: SummaryTreeGraph, selectedId: string | null): {
-  nodes: Node<StNodeData, 'summaryDot'>[];
+  nodes: Node<StNodeData, 'summaryTree'>[];
   edges: Edge[];
 } {
-  const nodes: Node<StNodeData, 'summaryDot'>[] = graph.nodes.map((n) => ({
+  const nodes: Node<StNodeData, 'summaryTree'>[] = graph.nodes.map((n) => ({
     id: n.id,
-    type: 'summaryDot' as const,
+    type: 'summaryTree' as const,
     position: { x: n.x, y: n.y },
     selected: n.id === selectedId,
     data: {
@@ -92,11 +111,19 @@ function CanvasInner({
   const mapped = useMemo(() => toFlow(graph, selectedId), [graph, selectedId]);
   const [nodes, setNodes] = useNodesState(mapped.nodes);
   const [edges, setEdges] = useEdgesState(mapped.edges);
+  const { fitView } = useReactFlow();
 
   useEffect(() => {
     setNodes(mapped.nodes);
     setEdges(mapped.edges);
   }, [mapped, setNodes, setEdges]);
+
+  useEffect(() => {
+    const id = requestAnimationFrame(() => {
+      void fitView({ padding: 0.18, duration: 200 });
+    });
+    return () => cancelAnimationFrame(id);
+  }, [graph.nodes, graph.links, fitView]);
 
   const onNodeClick = useCallback(
     (_: React.MouseEvent, node: Node) => {
@@ -118,12 +145,17 @@ function CanvasInner({
         nodesConnectable={false}
         elementsSelectable
         fitView
-        fitViewOptions={{ padding: 0.2 }}
+        fitViewOptions={{ padding: 0.18 }}
+        nodeOrigin={[0.5, 0]}
         proOptions={{ hideAttribution: true }}
-        minZoom={0.15}
-        maxZoom={2}
+        minZoom={0.12}
+        maxZoom={1.75}
+        defaultEdgeOptions={{
+          type: 'smoothstep',
+          style: { strokeWidth: 1.25 },
+        }}
       >
-        <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="var(--border-muted)" />
+        <Background variant={BackgroundVariant.Lines} gap={22} size={1} color="var(--border-muted)" />
         <Controls showInteractive={false} />
       </ReactFlow>
     </div>

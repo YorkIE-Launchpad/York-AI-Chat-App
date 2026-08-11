@@ -1,6 +1,13 @@
-/* Summary Tree graph — dense dotted field, small kind-colored dots */
+/* Summary Tree graph — labeled hierarchy chips + kind colors */
 
 .summary-tree-canvas {
+  --xy-edge-stroke-default: color-mix(in srgb, var(--text-muted, #888) 65%, transparent);
+  --xy-edge-stroke-width-default: 1.25;
+  --xy-controls-button-background-color: var(--surface, #f5f5f5);
+  --xy-controls-button-color: var(--text-secondary, #555);
+  --xy-controls-button-border-color: var(--border-muted, rgba(128, 128, 128, 0.3));
+  --xy-controls-box-shadow: none;
+  --xy-background-color: transparent;
   background:
     radial-gradient(circle at 30% 0%, color-mix(in srgb, var(--accent, #3d6b5a) 6%, transparent), transparent 50%),
     var(--background-secondary, transparent);
@@ -13,8 +20,8 @@
 }
 
 .summary-tree-canvas .react-flow__edge-path {
-  stroke: color-mix(in srgb, var(--text-muted, #888) 55%, transparent);
-  stroke-width: 1;
+  stroke: color-mix(in srgb, var(--text-muted, #888) 60%, transparent);
+  stroke-width: 1.25;
 }
 
 .summary-tree-canvas .react-flow__controls {
@@ -24,12 +31,108 @@
   box-shadow: none;
 }
 
-.summary-tree-dot {
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, #fff 35%, transparent);
+.summary-tree-canvas .react-flow__controls-button {
+  border-bottom-color: var(--border-muted, rgba(128, 128, 128, 0.25));
+  width: 1.75rem;
+  height: 1.75rem;
+}
+
+.summary-tree-canvas .react-flow__node {
   cursor: pointer;
 }
 
-.summary-tree-dot.selected {
-  border-color: var(--background, #fff);
+.summary-tree-handle {
+  width: 6px !important;
+  height: 6px !important;
+  min-width: 6px !important;
+  min-height: 6px !important;
+  border: none !important;
+  background: transparent !important;
+  opacity: 0;
+}
+
+.summary-tree-node {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  max-width: 11.5rem;
+  padding: 0.35rem 0.55rem 0.35rem 0.4rem;
+  border-radius: 0.65rem;
+  border: 1px solid color-mix(in srgb, var(--st-kind, #888) 45%, var(--border-muted, rgba(128, 128, 128, 0.35)));
+  background: color-mix(in srgb, var(--background, #fff) 92%, var(--st-kind, #888));
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--st-kind, #888) 12%, transparent);
+  color: var(--text-primary, #111);
+  line-height: 1.2;
+}
+
+.summary-tree-node.selected {
+  border-color: var(--st-kind, #888);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--st-kind, #888) 28%, transparent);
+}
+
+.summary-tree-node--document {
+  max-width: 13rem;
+  padding: 0.45rem 0.65rem 0.45rem 0.45rem;
+  border-width: 1.5px;
+}
+
+.summary-tree-node--source {
+  max-width: 8.5rem;
+  padding: 0.22rem 0.4rem 0.22rem 0.3rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--background, #fff) 96%, var(--st-kind, #888));
+}
+
+.summary-tree-node__dot {
+  flex-shrink: 0;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 999px;
+  background: var(--st-kind, #888);
+  border: 1px solid color-mix(in srgb, #fff 40%, transparent);
+}
+
+.summary-tree-node--document .summary-tree-node__dot {
+  width: 0.7rem;
+  height: 0.7rem;
+}
+
+.summary-tree-node--source .summary-tree-node__dot {
+  width: 0.4rem;
+  height: 0.4rem;
+}
+
+.summary-tree-node__text {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.08rem;
+}
+
+.summary-tree-node__kind {
+  font-size: 0.58rem;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--st-kind, #888) 75%, var(--text-muted, #888));
+}
+
+.summary-tree-node__title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.7rem;
+  font-weight: 560;
+  color: var(--text-primary, #111);
+}
+
+.summary-tree-node--source .summary-tree-node__title {
+  font-size: 0.62rem;
+  font-weight: 500;
+  color: var(--text-secondary, #444);
+}
+
+.summary-tree-node--document .summary-tree-node__title {
+  font-size: 0.78rem;
+  font-weight: 650;
 }

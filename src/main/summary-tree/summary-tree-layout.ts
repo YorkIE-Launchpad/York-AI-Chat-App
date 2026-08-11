@@ -1,11 +1,15 @@
 /**
- * Deterministic layout for summary tree nodes (radial forest).
+ * Deterministic layout for summary tree nodes (vertical forest).
  */
 import type { SummaryTreeNode } from '../../shared/summary-tree';
 
+const LEVEL_GAP_Y = 110;
+const SIBLING_GAP_X = 148;
+const TREE_GAP_X = 80;
+
 /**
- * Assign stable x/y positions: each document tree laid out in a radial sector.
- * Children fan around parents by kind level.
+ * Assign stable x/y positions: each document tree laid out top-down.
+ * Documents at the top, sources at the bottom — readable next to labeled chips.
  */
 export function layoutSummaryTreeNodes(nodes: SummaryTreeNode[]): SummaryTreeNode[] {
   if (nodes.length === 0) return [];
@@ -24,7 +28,6 @@ export function layoutSummaryTreeNodes(nodes: SummaryTreeNode[]): SummaryTreeNod
     }
   }
 
-  // Stable child order by title
   for (const [pid, kids] of children) {
     kids.sort((a, b) => {
       const na = byId.get(a)!;
@@ -35,45 +38,45 @@ export function layoutSummaryTreeNodes(nodes: SummaryTreeNode[]): SummaryTreeNod
   }
   roots.sort((a, b) => byId.get(a)!.title.localeCompare(byId.get(b)!.title));
 
-  const treeKeys = [...new Set(roots.map((id) => byId.get(id)!.treeKey))];
-  const forestGap = 520;
-  const radiusByLevel: Record<number, number> = {
-    3: 0, // document
-    2: 140, // l2
-    1: 240, // l1
-    0: 340, // source
+  /** Subtree width in sibling units (leaf = 1). */
+  const subtreeWidth = (id: string): number => {
+    const kids = children.get(id) || [];
+    if (kids.length === 0) return 1;
+    return Math.max(
+      1,
+      kids.reduce((sum, kid) => sum + subtreeWidth(kid), 0)
+    );
   };
 
-  roots.forEach((rootId, rootIndex) => {
-    const originX = rootIndex * forestGap;
-    const originY = 0;
+  let forestOffsetX = 0;
 
-    const place = (id: string, angle: number, parentX: number, parentY: number, depth: number) => {
-      const node = byId.get(id)!;
-      const r = radiusByLevel[node.level] ?? 100 + depth * 80;
-      if (!node.parentId) {
-        node.x = originX;
-        node.y = originY;
-      } else {
-        node.x = parentX + Math.cos(angle) * (r * 0.45 + 60);
-        node.y = parentY + Math.sin(angle) * (r * 0.45 + 60);
-      }
+  const place = (id: string, centerX: number, depth: number) => {
+    const node = byId.get(id)!;
+    node.x = centerX;
+    node.y = depth * LEVEL_GAP_Y;
 
-      const kids = children.get(id) || [];
-      if (kids.length === 0) return;
-      const span = Math.min(Math.PI * 1.4, Math.PI * 0.35 * kids.length);
-      const start = angle - span / 2;
-      kids.forEach((kid, i) => {
-        const a =
-          kids.length === 1 ? angle : start + (span * i) / Math.max(1, kids.length - 1);
-        place(kid, a, node.x, node.y, depth + 1);
-      });
-    };
+    const kids = children.get(id) || [];
+    if (kids.length === 0) return;
 
-    // Start fans upward so trees don't all stack
-    const baseAngle = -Math.PI / 2 + (treeKeys.indexOf(byId.get(rootId)!.treeKey) % 3) * 0.15;
-    place(rootId, baseAngle, originX, originY, 0);
-  });
+    const widths = kids.map(subtreeWidth);
+    const total = widths.reduce((a, b) => a + b, 0);
+    let cursor = centerX - ((total - 1) * SIBLING_GAP_X) / 2;
+
+    kids.forEach((kid, i) => {
+      const w = widths[i];
+      const kidCenter = cursor + ((w - 1) * SIBLING_GAP_X) / 2;
+      place(kid, kidCenter, depth + 1);
+      cursor += w * SIBLING_GAP_X;
+    });
+  };
+
+  for (const rootId of roots) {
+    const widthUnits = subtreeWidth(rootId);
+    const span = Math.max(1, widthUnits - 1) * SIBLING_GAP_X;
+    const centerX = forestOffsetX + span / 2;
+    place(rootId, centerX, 0);
+    forestOffsetX += span + TREE_GAP_X + SIBLING_GAP_X;
+  }
 
   return [...byId.values()];
 }

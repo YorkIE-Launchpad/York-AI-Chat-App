@@ -84,6 +84,10 @@ export class SummaryTreeService {
       nodes = nodes.filter((n) => n.kind !== 'source');
     }
 
+    // Re-layout at read time so the canvas stays readable even if stored x/y
+    // were from an older algorithm (or all zeros).
+    nodes = layoutSummaryTreeNodes(nodes);
+
     const links: SummaryTreeLink[] = [];
     const ids = new Set(nodes.map((n) => n.id));
     for (const n of nodes) {

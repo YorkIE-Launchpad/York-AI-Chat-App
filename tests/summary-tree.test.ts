@@ -106,4 +106,27 @@ describe('summary-tree-layout', () => {
     const parentLinks = nodes.filter((n) => n.parentId).length;
     expect(parentLinks).toBe(nodes.length - 1);
   });
+
+  it('places documents above descendants (top-down forest)', () => {
+    const leaves = [
+      ...Array.from({ length: 3 }, (_, i) => leaf(i + 1, 'alpha')),
+      ...Array.from({ length: 3 }, (_, i) => leaf(i + 10, 'beta')),
+    ];
+    let nodes: SummaryTreeNode[] = sealAllTrees(leaves);
+    nodes = layoutSummaryTreeNodes(nodes);
+
+    const docs = nodes.filter((n) => n.kind === 'document');
+    expect(docs.length).toBe(2);
+
+    for (const doc of docs) {
+      const kids = nodes.filter((n) => n.parentId === doc.id);
+      expect(kids.length).toBeGreaterThan(0);
+      for (const kid of kids) {
+        expect(kid.y).toBeGreaterThan(doc.y);
+      }
+    }
+
+    // Forests side-by-side: roots at distinct x
+    expect(Math.abs(docs[0].x - docs[1].x)).toBeGreaterThan(50);
+  });
 });
