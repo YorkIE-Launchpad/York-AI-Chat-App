@@ -124,6 +124,7 @@ export function MemorySourceDetailPanel({ memoryId, onClose }: MemorySourceDetai
             type="button"
             onClick={onClose}
             className="rounded-lg p-1.5 text-text-muted hover:bg-surface-hover hover:text-text-primary"
+            title={t('common.close', 'Close')}
             aria-label={t('common.close', 'Close')}
           >
             <X className="h-4 w-4" />

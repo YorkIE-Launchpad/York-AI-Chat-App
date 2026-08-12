@@ -137,6 +137,8 @@ export function ConnectionConfigStep({
                     onCopy(`http://127.0.0.1:${gatewayPort}/webhook/feishu`);
                   }}
                   className="p-2 rounded-lg hover:bg-surface-active transition-colors"
+                  title={t('remote.copyWebhook')}
+                  aria-label={t('remote.copyWebhook')}
                 >
                   <Copy className="w-4 h-4 text-text-muted" />
                 </button>

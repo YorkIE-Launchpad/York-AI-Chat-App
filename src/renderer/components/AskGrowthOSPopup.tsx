@@ -230,6 +230,7 @@ export function AskGrowthOSPopup() {
               type="button"
               className="flex h-8 w-8 items-center justify-center rounded-xl text-text-muted hover:bg-surface-hover hover:text-text-primary"
               onClick={close}
+              title={t('askGrowthOS.close')}
               aria-label={t('askGrowthOS.close')}
             >
               <X className="h-4 w-4" />

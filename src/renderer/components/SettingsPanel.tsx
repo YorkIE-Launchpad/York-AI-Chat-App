@@ -266,6 +266,8 @@ export function SettingsPanel({ onClose, initialTab = 'connectors' }: SettingsPa
           <button
             onClick={onClose}
             className="p-2 rounded-lg hover:bg-surface-hover transition-colors"
+            title={t('common.close')}
+            aria-label={t('common.close')}
           >
             <X className="w-5 h-5 text-text-secondary" />
           </button>

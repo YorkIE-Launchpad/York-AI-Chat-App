@@ -1,5 +1,6 @@
 import { useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
 import { X } from 'lucide-react';
 
 interface ImageLightboxProps {
@@ -9,6 +10,7 @@ interface ImageLightboxProps {
 }
 
 export function ImageLightbox({ src, alt = '', onClose }: ImageLightboxProps) {
+  const { t } = useTranslation();
   // Defer close so the same click/pointer that dismissed the overlay
   // cannot fall through onto the thumbnail and reopen it.
   const close = useCallback(() => {
@@ -60,7 +62,8 @@ export function ImageLightbox({ src, alt = '', onClose }: ImageLightboxProps) {
           e.stopPropagation();
         }}
         className="titlebar-no-drag absolute top-14 right-4 z-[10001] flex h-10 w-10 items-center justify-center rounded-full bg-white/15 text-white hover:bg-white/25 transition-colors pointer-events-auto"
-        aria-label="Close"
+        title={t('common.close')}
+        aria-label={t('common.close')}
       >
         <X className="h-5 w-5" />
       </button>

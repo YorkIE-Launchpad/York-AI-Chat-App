@@ -52,6 +52,7 @@ export function GlobalNoticeToast({ notice, onDismiss, onAction }: Props) {
             type="button"
             onClick={onDismiss}
             className="text-text-muted hover:text-text-primary transition-colors"
+            title={t('common.close')}
             aria-label={t('common.close')}
           >
             <X className="h-4 w-4" />

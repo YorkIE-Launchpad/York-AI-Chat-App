@@ -575,6 +575,8 @@ export function SettingsConnectors({ isActive }: { isActive: boolean }) {
                 setPresetEnvValues({});
               }}
               className="text-text-muted hover:text-text-primary"
+              title={t('common.close')}
+              aria-label={t('common.close')}
             >
               <X className="w-4 h-4" />
             </button>

@@ -98,6 +98,7 @@ export function MeetingPicker({ open, onClose, onSelect, excludeIds = [] }: Meet
             type="button"
             onClick={onClose}
             className="rounded-lg p-2 text-text-secondary transition-colors hover:bg-surface-hover"
+            title={t('common.close')}
             aria-label={t('common.close')}
           >
             <X className="h-5 w-5" />

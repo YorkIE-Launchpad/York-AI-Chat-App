@@ -19,7 +19,12 @@
     "install": "Install",
     "optional": "optional",
     "appLogoAlt": "York GrowthOS logo",
-    "pastedImageAlt": "Pasted {{index}}"
+    "pastedImageAlt": "Pasted {{index}}",
+    "copyCode": "Copy code",
+    "copied": "Copied",
+    "removeImage": "Remove image",
+    "removeFile": "Remove file",
+    "removeMeeting": "Remove meeting"
   },
   "welcome": {
     "title": "Deal flow, diligence, or portfolio — what's next?",
@@ -1246,7 +1251,8 @@
     "startGoal": "Start goal",
     "stopActive": "Stop active automation",
     "promptRequired": "Enter a prompt or goal to start",
-    "slashHint": "Power users can also type /loop 5m … or /goal 5m max 50 … (optional interval default 2m; optional max ticks default 20) in the composer."
+    "slashHint": "Power users can also type /loop 5m … or /goal 5m max 50 … (optional interval default 2m; optional max ticks default 20) in the composer.",
+    "dismissNotice": "Dismiss"
   },
   "remote": {
     "title": "Remote Control",
@@ -1292,6 +1298,8 @@
     "webhookMode": "Webhook mode",
     "webhookDesc": "Feishu pushes messages to your server. A publicly reachable address is required.",
     "localWebhookUrl": "Local webhook URL",
+    "copyWebhook": "Copy webhook URL",
+    "dismissPairingGuide": "Dismiss setup guide",
     "useBuiltInNgrok": "Use built-in ngrok",
     "ngrokHelpPrefix": "Get one for free from",
     "ngrokHelpSuffix": "",

@@ -638,6 +638,8 @@ export function SettingsSkills({ isActive }: { isActive: boolean }) {
               <button
                 onClick={() => setIsPluginModalOpen(false)}
                 className="p-2 rounded-lg hover:bg-surface-hover transition-colors"
+                title={t('common.close')}
+                aria-label={t('common.close')}
               >
                 <X className="w-5 h-5 text-text-secondary" />
               </button>
@@ -844,6 +846,8 @@ export function SettingsSkills({ isActive }: { isActive: boolean }) {
               <button
                 onClick={() => setIsHubSkillsModalOpen(false)}
                 className="p-2 rounded-lg hover:bg-surface-hover transition-colors"
+                title={t('common.close')}
+                aria-label={t('common.close')}
               >
                 <X className="w-5 h-5 text-text-secondary" />
               </button>

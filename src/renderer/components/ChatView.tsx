@@ -1259,6 +1259,8 @@ export function ChatView() {
             type="button"
             className="text-text-muted hover:text-text-primary"
             onClick={() => setLoopNotice(null)}
+            title={t('loop.dismissNotice')}
+            aria-label={t('loop.dismissNotice')}
           >
             <X className="w-3.5 h-3.5" />
           </button>
@@ -1355,6 +1357,8 @@ export function ChatView() {
                           e.stopPropagation();
                           removeImage(index);
                         }}
+                        title={t('common.removeImage')}
+                        aria-label={t('common.removeImage')}
                         className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-error text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
                       >
                         <X className="w-3 h-3" />
@@ -1377,6 +1381,8 @@ export function ChatView() {
                       <button
                         type="button"
                         onClick={() => removeFile(index)}
+                        title={t('common.removeFile')}
+                        aria-label={t('common.removeFile')}
                         className="w-6 h-6 rounded-full bg-error/10 hover:bg-error/20 text-error flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
                       >
                         <X className="w-3.5 h-3.5" />
@@ -1423,6 +1429,8 @@ export function ChatView() {
                           prev.filter((item) => item.meetingId !== meeting.meetingId)
                         )
                       }
+                      title={t('common.removeMeeting')}
+                      aria-label={t('common.removeMeeting')}
                       className="w-6 h-6 rounded-full bg-error/10 hover:bg-error/20 text-error flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
                     >
                       <X className="w-3.5 h-3.5" />

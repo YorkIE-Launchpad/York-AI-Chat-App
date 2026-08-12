@@ -3,6 +3,7 @@
  * Polls getRun every 2s while non-terminal; shows step timeline + resume/cancel.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { HelpCircle, Loader2, MessageSquare, X } from 'lucide-react';
 import type { CheckpointRun } from '../../../shared/orchestration';
 import type { WorkflowInputField } from '../../../shared/workflows';
@@ -64,6 +65,7 @@ function readInputFields(payload: CheckpointRun['payload']): WorkflowInputField[
 }
 
 export function WorkflowRunInspector({ runId, onClose, onMutated }: WorkflowRunInspectorProps) {
+  const { t } = useTranslation();
   const [run, setRun] = useState<CheckpointRun | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -332,7 +334,8 @@ export function WorkflowRunInspector({ runId, onClose, onMutated }: WorkflowRunI
             type="button"
             onClick={onClose}
             className="rounded-lg p-1.5 text-text-muted hover:bg-surface-hover hover:text-text-primary"
-            aria-label="Close"
+            title={t('common.close')}
+            aria-label={t('common.close')}
           >
             <X className="h-4 w-4" />
           </button>

@@ -35,6 +35,8 @@ export function PairingGuideCard() {
       <button
         onClick={handleDismiss}
         className="absolute top-3 right-3 p-1 rounded-lg hover:bg-accent/10 text-text-secondary transition-colors"
+        title={t('remote.dismissPairingGuide')}
+        aria-label={t('remote.dismissPairingGuide')}
       >
         <X className="w-4 h-4" />
       </button>

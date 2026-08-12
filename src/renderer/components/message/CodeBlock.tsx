@@ -1,5 +1,6 @@
 // Fenced code block with syntax highlighting (highlight.js) and copy button
 import { useState, useMemo, memo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Copy, Check } from 'lucide-react';
 import hljs from 'highlight.js';
 
@@ -15,6 +16,7 @@ interface CodeBlockProps {
 }
 
 export const CodeBlock = memo(function CodeBlock({ language, children }: CodeBlockProps) {
+  const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
 
   const highlightedHtml = useMemo(() => {
@@ -49,6 +51,8 @@ export const CodeBlock = memo(function CodeBlock({ language, children }: CodeBlo
         <button
           onClick={handleCopy}
           className="w-7 h-7 flex items-center justify-center rounded bg-surface hover:bg-surface-hover transition-colors"
+          title={copied ? t('common.copied') : t('common.copyCode')}
+          aria-label={copied ? t('common.copied') : t('common.copyCode')}
         >
           {copied ? (
             <Check className="w-3.5 h-3.5 text-success" />

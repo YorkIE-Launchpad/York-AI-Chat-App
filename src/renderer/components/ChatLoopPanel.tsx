@@ -171,6 +171,7 @@ export function ChatLoopPanel({
           type="button"
           onClick={onClose}
           className="rounded-lg p-1 text-text-muted hover:bg-surface-hover hover:text-text-primary"
+          title={t('common.close')}
           aria-label={t('common.close')}
         >
           <X className="h-3.5 w-3.5" />
