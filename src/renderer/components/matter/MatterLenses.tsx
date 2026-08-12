@@ -10,10 +10,17 @@ const STATUS_COLOR: Record<string, string> = {
 interface MatterLensesProps {
   lenses: MatterLens[];
   activeLens: MatterLensId | null;
+  /** Passive highlight from a selected signal — does not filter the list. */
+  highlightedLens?: MatterLensId | null;
   onSelect: (id: MatterLensId | null) => void;
 }
 
-export function MatterLenses({ lenses, activeLens, onSelect }: MatterLensesProps) {
+export function MatterLenses({
+  lenses,
+  activeLens,
+  highlightedLens = null,
+  onSelect,
+}: MatterLensesProps) {
   const activeCount = lenses.filter((l) => l.status === 'ACTIVE' || l.count > 0).length;
 
   return (
@@ -29,6 +36,7 @@ export function MatterLenses({ lenses, activeLens, onSelect }: MatterLensesProps
       <div className="flex-1 min-h-0 overflow-y-auto space-y-2 pr-1">
         {lenses.map((lens) => {
           const selected = activeLens === lens.id;
+          const related = !selected && highlightedLens === lens.id;
           return (
             <button
               key={lens.id}
@@ -36,10 +44,13 @@ export function MatterLenses({ lenses, activeLens, onSelect }: MatterLensesProps
               onClick={() => onSelect(selected ? null : lens.id)}
               aria-pressed={selected}
               data-selected={selected ? 'true' : 'false'}
+              data-highlighted={related ? 'true' : 'false'}
               className={`matter-focus-lens w-full text-left rounded-xl border px-3 py-2.5 transition-colors ${
                 selected
                   ? 'matter-focus-lens-selected is-selected border-accent/50 bg-accent-muted/15'
-                  : 'border-border-muted bg-background/50 hover:bg-surface-hover/40'
+                  : related
+                    ? 'matter-focus-lens-related border-accent/35 bg-accent-muted/10'
+                    : 'border-border-muted bg-background/50 hover:bg-surface-hover/40'
               }`}
             >
               <div className="flex items-center justify-between gap-2">

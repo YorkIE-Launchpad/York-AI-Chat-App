@@ -13,6 +13,7 @@ import type {
   MatterSourceRef,
   MatterSourcesConfig,
 } from '../../shared/matter';
+import { normalizeMatterContentText } from '../../shared/matter';
 import type { MCPManager } from '../mcp/mcp-manager';
 import type { MeetingService } from '../meetings/meeting-service';
 import { log, logWarn } from '../utils/logger';
@@ -91,13 +92,36 @@ export function isPersonalCalendarHold(title: string): boolean {
   return false;
 }
 
+/** True when RRULE BYDAY covers all weekdays (order-independent). */
+function rruleCoversAllWeekdays(byday: string): boolean {
+  const days = new Set(
+    byday
+      .split(',')
+      .map((d) => d.trim().toUpperCase())
+      .filter(Boolean)
+  );
+  return ['MO', 'TU', 'WE', 'TH', 'FR'].every((d) => days.has(d));
+}
+
 /**
  * True for daily recurring series (standup/sync/etc.) that should not clutter Matter.
- * Detects Google RRULE FREQ=DAILY from event detail text, or common daily title patterns.
+ * Independent of personal holds — drops even for real-looking meeting titles.
+ * Detects FREQ=DAILY, weekday-every-day WEEKLY RRULEs, connector "daily" keyword,
+ * or common daily title patterns.
  */
 export function isDailySeriesMeeting(title: string, rawText?: string | null): boolean {
   const blob = `${rawText || ''}`;
   if (/FREQ=DAILY\b/i.test(blob)) return true;
+
+  // Weekday standups often use FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR instead of FREQ=DAILY.
+  const weeklyByDay = blob.match(/FREQ=WEEKLY\b[^;\n]*;BYDAY=([A-Za-z,]+)/i);
+  if (weeklyByDay && rruleCoversAllWeekdays(weeklyByDay[1])) return true;
+  const byDayWeekly = blob.match(/BYDAY=([A-Za-z,]+)[^;\n]*;FREQ=WEEKLY\b/i);
+  if (byDayWeekly && rruleCoversAllWeekdays(byDayWeekly[1])) return true;
+
+  // Connector get_event adds "daily" to keywords when FREQ=DAILY (also useful if RRULE text is missing).
+  if (/"daily"|'daily'|"keywords"\s*:\s*\[[^\]]*\bdaily\b/i.test(blob)) return true;
+  if (/\bkeywords\b[^\n]*\bdaily\b/i.test(blob)) return true;
 
   const t = title.trim().toLowerCase().replace(/[–—]/g, '-').replace(/\s+/g, ' ');
   if (!t) return false;
@@ -109,6 +133,37 @@ export function isDailySeriesMeeting(title: string, rawText?: string | null): bo
   }
   // Short titles that are clearly a daily cadence ritual
   if (t.length <= 48 && /^(daily)\b/.test(t)) return true;
+  return false;
+}
+
+/** Date-only bound: YYYY-MM-DD with no time / T separator. */
+function isDateOnlyBound(value: string): boolean {
+  const v = value.trim();
+  if (!v) return false;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return true;
+  // Reject timed ISO (contains T or space+time)
+  if (/T|\d{1,2}:\d{2}/.test(v)) return false;
+  return /^\d{4}-\d{2}-\d{2}/.test(v) && !/[T ]\d/.test(v);
+}
+
+/**
+ * True for Google all-day (date-only) calendar events.
+ * Independent of personal holds — drops even for real-looking titles.
+ */
+export function isAllDayCalendarEvent(when: string, rawText?: string | null): boolean {
+  const range = (when || '').trim();
+  if (range.includes('→')) {
+    const [start, end] = range.split('→').map((p) => p.trim());
+    if (start && end && isDateOnlyBound(start) && isDateOnlyBound(end)) return true;
+  } else if (range && isDateOnlyBound(range)) {
+    return true;
+  }
+
+  const blob = `${rawText || ''}`;
+  // Detail lines like "Title (2026-08-12 → 2026-08-13)" or start.date style
+  const paren = blob.match(/\((\d{4}-\d{2}-\d{2})\s*→\s*(\d{4}-\d{2}-\d{2})\)/);
+  if (paren && isDateOnlyBound(paren[1]) && isDateOnlyBound(paren[2])) return true;
+  if (/"date"\s*:\s*"\d{4}-\d{2}-\d{2}"/.test(blob) && !/"dateTime"\s*:/.test(blob)) return true;
   return false;
 }
 
@@ -200,6 +255,69 @@ function pickString(obj: Record<string, unknown>, keys: string[]): string {
     if (typeof value === 'number' && Number.isFinite(value)) return String(value);
   }
   return '';
+}
+
+function hashKey(input: string): string {
+  let h = 0;
+  for (let i = 0; i < input.length; i++) h = (Math.imul(31, h) + input.charCodeAt(i)) | 0;
+  return Math.abs(h).toString(36);
+}
+
+/** Prefer a stable Hub request id from free-text or JSON-ish lines. */
+export function extractHubRequestId(line: string): string | null {
+  const trimmed = line.trim();
+  if (!trimmed) return null;
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      const id = pickString(parsed as Record<string, unknown>, [
+        'id',
+        'requestId',
+        'request_id',
+        'hubRequestId',
+      ]);
+      if (id) return id;
+    }
+  } catch {
+    // not JSON
+  }
+  const uuid = trimmed.match(
+    /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/i
+  );
+  if (uuid) return uuid[0].toLowerCase();
+  const hashNum = trimmed.match(/#(\d{2,})\b/);
+  if (hashNum) return hashNum[1];
+  const labeled = trimmed.match(/\b(?:request|req|id)\s*[:=#]\s*([A-Za-z0-9_-]{4,})\b/i);
+  if (labeled) return labeled[1];
+  return null;
+}
+
+export function hubRequestFingerprint(line: string): string {
+  const id = extractHubRequestId(line);
+  if (id) return `hub:request:${id}`;
+  return `hub:request:${hashKey(normalizeMatterContentText(line))}`;
+}
+
+/** Prefer stable Launchpad entity id from raw payload. */
+export function extractLaunchpadEntityId(raw: unknown): string | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const id = pickString(raw as Record<string, unknown>, [
+    'id',
+    'projectId',
+    'releaseId',
+    'featureId',
+    'versionId',
+  ]);
+  return id || null;
+}
+
+export function launchpadItemFingerprint(input: {
+  stableName: string;
+  raw: unknown;
+}): string {
+  const id = extractLaunchpadEntityId(input.raw);
+  if (id) return `launchpad:item:${id}`;
+  return `launchpad:item:${hashKey(normalizeMatterContentText(input.stableName))}`;
 }
 
 /** True when copy clearly asks the person to do something (not FYI / unread triage). */
@@ -473,9 +591,10 @@ async function collectCalendar(
         if (hoursUntil < 0 || hoursUntil > 6) return null;
         // Drop personal holds (Break, block, focus, OOO, …) — not action radar material
         if (isPersonalCalendarHold(ev.title)) return null;
-        // Drop daily recurring series (standup / FREQ=DAILY) — too noisy for Matter
+        // Daily / all-day drops are independent of personal holds (real titles still drop).
         const rawText = detailBody || (typeof raw === 'string' ? raw : truncate(raw));
         if (isDailySeriesMeeting(ev.title, rawText)) return null;
+        if (isAllDayCalendarEvent(ev.when, rawText)) return null;
 
         return {
           id: ev.id,
@@ -900,7 +1019,7 @@ async function collectHub(
         if (/^No pending|none|0 request/i.test(line)) continue;
         signals.push(
           signal({
-            fingerprint: `hub:request:${hashKey(line)}`,
+            fingerprint: hubRequestFingerprint(line),
             source: 'hub',
             title: humanTitle(line, 'Hub request'),
             summary: 'Pending Hub request waiting on you',
@@ -926,18 +1045,43 @@ async function collectHub(
 
 function extractLaunchpadEntities(
   text: string
-): Array<{ title: string; summary: string; raw: unknown; risky: boolean }> {
+): Array<{
+  title: string;
+  summary: string;
+  raw: unknown;
+  risky: boolean;
+  stableName: string;
+}> {
   const parsed = parseJsonLoose(text);
-  const items: Array<{ title: string; summary: string; raw: unknown; risky: boolean }> = [];
+  const items: Array<{
+    title: string;
+    summary: string;
+    raw: unknown;
+    risky: boolean;
+    stableName: string;
+  }> = [];
   const seen = new Set<string>();
 
-  const pushEntity = (title: string, summary: string, raw: unknown, risky: boolean) => {
-    const clean = humanTitle(title, '');
-    if (!clean || looksLikeJunkTitle(clean)) return;
-    const key = clean.toLowerCase();
+  const pushEntity = (
+    stableName: string,
+    title: string,
+    summary: string,
+    raw: unknown,
+    risky: boolean
+  ) => {
+    const cleanName = humanTitle(stableName, '');
+    if (!cleanName || looksLikeJunkTitle(cleanName)) return;
+    const externalId = extractLaunchpadEntityId(raw);
+    const key = (externalId || cleanName).toLowerCase();
     if (seen.has(key)) return;
     seen.add(key);
-    items.push({ title: clean, summary: cleanDisplayText(summary).slice(0, 280), raw, risky });
+    items.push({
+      title: humanTitle(title, cleanName),
+      summary: cleanDisplayText(summary).slice(0, 280),
+      raw,
+      risky,
+      stableName: cleanName,
+    });
   };
 
   const walk = (node: unknown, depth = 0) => {
@@ -983,6 +1127,7 @@ function extractLaunchpadEntities(
 
     if (looksEntity) {
       pushEntity(
+        name,
         status ? `${name} — ${status}` : name,
         summary || status || 'Launchpad delivery item',
         obj,
@@ -1004,6 +1149,7 @@ function extractLaunchpadEntities(
     if (looksLikeJunkTitle(trimmed) || trimmed.length < 8 || trimmed.length > 140) continue;
     if (/^Error|Found \d|No /i.test(trimmed)) continue;
     pushEntity(
+      trimmed,
       trimmed,
       'Launchpad delivery item',
       trimmed,
@@ -1030,9 +1176,12 @@ async function collectLaunchpad(mcpManager: MCPManager): Promise<RawMatterSignal
     return [];
   }
 
-  return entities.map((entity, idx) =>
+  return entities.map((entity) =>
     signal({
-      fingerprint: `launchpad:item:${hashKey(entity.title)}:${idx}`,
+      fingerprint: launchpadItemFingerprint({
+        stableName: entity.stableName,
+        raw: entity.raw,
+      }),
       source: 'launchpad',
       title: entity.title,
       summary: entity.summary || 'Launchpad delivery item',
@@ -1123,12 +1272,6 @@ function fuseConflicts(signals: RawMatterSignal[]): RawMatterSignal[] {
       muteKeys: ['fused:calendar-jira'],
     }),
   ];
-}
-
-function hashKey(input: string): string {
-  let h = 0;
-  for (let i = 0; i < input.length; i++) h = (Math.imul(31, h) + input.charCodeAt(i)) | 0;
-  return Math.abs(h).toString(36);
 }
 
 const SOURCE_SERVER: Record<MatterConfigurableSource, string | null> = {

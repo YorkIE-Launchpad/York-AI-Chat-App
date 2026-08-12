@@ -178,6 +178,42 @@ export const DEFAULT_MATTER_RUNTIME: MatterRuntimeConfig = {
   sources: { ...DEFAULT_MATTER_SOURCES },
 };
 
+/** Normalize text for Matter content equality (dismiss change detection). */
+export function normalizeMatterContentText(text: string | null | undefined): string {
+  return (text || '').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Stable key for dismiss “until it changes” — summary + raw details.
+ * Done items are never auto-resurfaced; this key only gates dismissed signals.
+ */
+export function matterContentKey(
+  summary: string | null | undefined,
+  rawDetails: string | null | undefined
+): string {
+  return `${normalizeMatterContentText(summary)}\n${normalizeMatterContentText(rawDetails)}`;
+}
+
+/**
+ * Whether a collected signal should proceed past done/dismiss gates on a scan.
+ * Done stays suppressed; dismissed resurfaces only when content meaningfully changes.
+ */
+export function shouldKeepMatterScanSignal(input: {
+  existingStatus?: MatterItemStatus | null;
+  existingSummary?: string | null;
+  existingRawDetails?: string | null;
+  signalSummary?: string | null;
+  signalRawDetails?: string | null;
+}): boolean {
+  if (input.existingStatus === 'done') return false;
+  if (input.existingStatus === 'dismissed') {
+    const prev = matterContentKey(input.existingSummary, input.existingRawDetails);
+    const next = matterContentKey(input.signalSummary, input.signalRawDetails);
+    if (prev === next) return false;
+  }
+  return true;
+}
+
 export interface MatterLens {
   id: MatterLensId;
   label: string;

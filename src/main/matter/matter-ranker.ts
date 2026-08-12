@@ -13,6 +13,7 @@ import type {
 import { deriveMatterTimeFields, urgencyFromDueAt } from '../../shared/matter-time';
 import type { RawMatterSignal } from './matter-collector';
 import {
+  isAllDayCalendarEvent,
   isDailySeriesMeeting,
   isPersonalCalendarHold,
   looksLikeJunkTitle,
@@ -298,11 +299,11 @@ function heuristicRank(
   const actionable = signals.filter((s) => {
     if (looksLikeJunkTitle(s.title)) return false;
     if (s.source === 'calendar' && isPersonalCalendarHold(s.title)) return false;
-    if (
-      s.source === 'calendar' &&
-      isDailySeriesMeeting(s.title, s.rawDetails || s.rawExcerpt || '')
-    ) {
-      return false;
+    if (s.source === 'calendar') {
+      const calText = s.rawDetails || s.rawExcerpt || '';
+      // Independent of personal holds — daily series and all-day never become Matter items.
+      if (isDailySeriesMeeting(s.title, calText)) return false;
+      if (isAllDayCalendarEvent(s.summary || '', calText)) return false;
     }
     if (s.source === 'meeting' || s.source === 'fused' || s.source === 'jira') return true;
     if (s.severityHint === 'critical' || s.severityHint === 'warning') return true;

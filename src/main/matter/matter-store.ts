@@ -15,6 +15,28 @@ import type {
 } from '../../shared/matter';
 import { MATTER_DEFAULT_SNOOZE_MS } from '../../shared/matter';
 
+/**
+ * Status when re-upserting a ranked signal onto an existing row.
+ * Done never auto-resurfaces; dismissed may resurface when scan content changed.
+ */
+export function nextMatterUpsertStatus(input: {
+  existingStatus: MatterItemStatus;
+  incomingStatus?: MatterItemStatus | null;
+  snoozeUntil: number | null;
+  now?: number;
+}): MatterItemStatus {
+  const now = input.now ?? Date.now();
+  const stillSnoozed =
+    input.existingStatus === 'snoozed' &&
+    (input.snoozeUntil ? input.snoozeUntil > now : true);
+  if (stillSnoozed) return 'snoozed';
+  if (input.existingStatus === 'done') return 'done';
+  if (input.existingStatus === 'dismissed' && input.incomingStatus !== 'dismissed') {
+    return 'resurfaced';
+  }
+  return input.incomingStatus || 'active';
+}
+
 function parseJsonObject(raw: string | null | undefined): Record<string, unknown> {
   if (!raw) return {};
   try {
@@ -243,7 +265,6 @@ export function createMatterStore(db: DatabaseInstance): MatterStore {
       for (const incoming of items) {
         const existing = db.matterItems.getByFingerprint(incoming.fingerprint);
         if (existing) {
-          const wasDoneOrDismissed = existing.status === 'done' || existing.status === 'dismissed';
           const stillSnoozed =
             existing.status === 'snoozed' &&
             (existing.snooze_until ? existing.snooze_until > now : true);
@@ -252,11 +273,12 @@ export function createMatterStore(db: DatabaseInstance): MatterStore {
             stillSnoozed && !existing.snooze_until
               ? now + MATTER_DEFAULT_SNOOZE_MS
               : existing.snooze_until;
-          const nextStatus = stillSnoozed
-            ? 'snoozed'
-            : wasDoneOrDismissed && incoming.status !== 'dismissed'
-              ? 'resurfaced'
-              : incoming.status || 'active';
+          const nextStatus = nextMatterUpsertStatus({
+            existingStatus: existing.status as MatterItemStatus,
+            incomingStatus: incoming.status,
+            snoozeUntil: existing.snooze_until,
+            now,
+          });
 
           const dueChanged = (existing.due_at ?? null) !== (incoming.dueAt ?? null);
           const remindChanged = (existing.remind_at ?? null) !== (incoming.remindAt ?? null);

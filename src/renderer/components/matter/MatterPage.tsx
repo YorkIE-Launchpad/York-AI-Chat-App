@@ -85,6 +85,11 @@ export function MatterPage({ onClose }: MatterPageProps) {
     [snapshot.items, selectedId]
   );
 
+  const relatedLensId = useMemo(() => {
+    if (!selectedId) return null;
+    return snapshot.lenses.find((l) => l.itemIds.includes(selectedId))?.id ?? null;
+  }, [selectedId, snapshot.lenses]);
+
   useEffect(() => {
     if (selectedId && !selectedItem) {
       setSelectedId(null);
@@ -343,7 +348,12 @@ export function MatterPage({ onClose }: MatterPageProps) {
         </section>
 
         <section className="min-h-0 border-l border-border-muted px-3 py-3">
-          <MatterLenses lenses={snapshot.lenses} activeLens={activeLens} onSelect={setActiveLens} />
+          <MatterLenses
+            lenses={snapshot.lenses}
+            activeLens={activeLens}
+            highlightedLens={relatedLensId}
+            onSelect={setActiveLens}
+          />
         </section>
       </div>
 

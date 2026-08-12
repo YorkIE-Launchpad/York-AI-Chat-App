@@ -9,6 +9,7 @@ import {
   DEFAULT_MATTER_RUNTIME,
   MATTER_DEFAULT_SNOOZE_MS,
   MATTER_MIN_SNOOZE_MS,
+  shouldKeepMatterScanSignal,
   type MatterItem,
   type MatterItemActionInput,
   type MatterLens,
@@ -322,10 +323,16 @@ export class MatterService {
         ].filter((k): k is string => !!k);
         if (keys.some((k) => mutedKeys.has(k))) return false;
         const existing = this.store.getByFingerprint(signal.fingerprint);
-        if (existing?.status === 'dismissed') {
-          // allow resurface only if raw excerpt meaningfully changed
-          const prevSummary = existing.summary || '';
-          if (signal.summary && signal.summary === prevSummary) return false;
+        if (
+          !shouldKeepMatterScanSignal({
+            existingStatus: existing?.status,
+            existingSummary: existing?.summary,
+            existingRawDetails: existing?.rawDetails,
+            signalSummary: signal.summary,
+            signalRawDetails: signal.rawDetails,
+          })
+        ) {
+          return false;
         }
         return true;
       });
