@@ -25,6 +25,7 @@ import path from 'path';
 import {
   connectWithOAuthRetry,
   isMcpOAuthInteractionRequiredError,
+  McpOAuthInteractionRequiredError,
   OpenCoworkMcpOAuthProvider,
 } from './mcp-oauth';
 import { mcpOAuthStore } from './mcp-oauth-store';
@@ -732,7 +733,7 @@ export class MCPManager {
           try {
             await this.connectServer(config, { interactiveOAuth: false });
           } catch (error) {
-            logError(`[MCPManager] Failed to connect to server ${config.name}:`, error);
+            logMcpConnectFailure(`Failed to connect to server ${config.name}`, error);
             // Do not spam OAuth browser / retries when the user has not signed in yet
             if (!isMcpOAuthInteractionRequiredError(error)) {
               this.startConnectRetryLoop(config);
@@ -788,7 +789,7 @@ export class MCPManager {
         await this.connectServer(config, { interactiveOAuth: true });
         await this.refreshTools();
       } catch (error) {
-        logError(`[MCPManager] Failed to connect to server ${config.name}:`, error);
+        logMcpConnectFailure(`Failed to connect to server ${config.name}`, error);
         if (!isMcpOAuthInteractionRequiredError(error)) {
           this.startConnectRetryLoop(config);
         }
@@ -806,7 +807,7 @@ export class MCPManager {
         await this.connectServer(config, { interactiveOAuth: true });
         await this.refreshTools();
       } catch (error) {
-        logError(`[MCPManager] Failed to reconnect server ${config.name}:`, error);
+        logMcpConnectFailure(`Failed to reconnect server ${config.name}`, error);
         if (!isMcpOAuthInteractionRequiredError(error)) {
           this.startConnectRetryLoop(config);
         }
@@ -1666,7 +1667,7 @@ export class MCPManager {
             ([id, entry]) => entry.provider === provider && this.pendingInteractiveOAuth.has(id)
           );
         if (!interactiveAllowed) {
-          throw new Error(
+          throw new McpOAuthInteractionRequiredError(
             `MCP OAuth authorization for ${config.name} requires user action. Connect this server from Settings.`
           );
         }
@@ -2664,8 +2665,8 @@ export class MCPManager {
           // Sibling re-alias: share tokens already obtained; no new browser OAuth
           await this.connectServer(sibling, { interactiveOAuth: false });
         } catch (siblingError) {
-          logError(
-            `[MCPManager] Failed to re-alias Atlassian sibling ${siblingId} after reconnect:`,
+          logMcpConnectFailure(
+            `Failed to re-alias Atlassian sibling ${siblingId} after reconnect`,
             siblingError
           );
           this.connectionStatus.set(siblingId, 'failed');
@@ -2678,7 +2679,7 @@ export class MCPManager {
       log(`[MCPManager] Reconnected server ${config.name} (${serverId})`);
       return true;
     } catch (error) {
-      logError(`[MCPManager] Failed to reconnect server ${serverId}:`, error);
+      logMcpConnectFailure(`Failed to reconnect server ${serverId}`, error);
       return false;
     } finally {
       this.reconnectingServers.delete(serverId);
@@ -2862,6 +2863,27 @@ function extractStructuredToolErrorMessage(result: unknown): string {
   }
 
   return '';
+}
+
+/**
+ * OAuth "connect from Settings" failures are expected until the user signs in.
+ * Keep them a single warn line — never dump stack / error objects into the console.
+ */
+function logMcpConnectFailure(context: string, error: unknown): void {
+  if (isMcpOAuthInteractionRequiredError(error)) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : typeof error === 'object' &&
+            error !== null &&
+            'message' in error &&
+            typeof (error as { message: unknown }).message === 'string'
+          ? (error as { message: string }).message
+          : 'OAuth sign-in required';
+    logWarn(`[MCPManager] ${context}: ${message}`);
+    return;
+  }
+  logError(`[MCPManager] ${context}:`, error);
 }
 
 /**

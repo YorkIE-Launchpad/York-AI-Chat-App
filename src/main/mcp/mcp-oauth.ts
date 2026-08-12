@@ -87,11 +87,29 @@ export function isMcpOAuthInteractionRequiredError(error: unknown): boolean {
   if (error instanceof McpOAuthInteractionRequiredError) {
     return true;
   }
-  return (
+  if (
     typeof error === 'object' &&
     error !== null &&
     'name' in error &&
     (error as { name: unknown }).name === 'McpOAuthInteractionRequiredError'
+  ) {
+    return true;
+  }
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === 'object' &&
+          error !== null &&
+          'message' in error &&
+          typeof (error as { message: unknown }).message === 'string'
+        ? (error as { message: string }).message
+        : '';
+  // Defense in depth for plain Errors thrown before typed conversion, or
+  // across process/IPC boundaries that lose the custom class.
+  return (
+    message.includes('requires user action') ||
+    message.includes('MCP server requires sign-in') ||
+    message.includes('MCP OAuth tokens are invalid or expired')
   );
 }
 

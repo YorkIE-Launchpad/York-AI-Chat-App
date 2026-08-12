@@ -127,6 +127,9 @@ mac:
       to: .
     - from: resources/tray-iconTemplate@2x.png
       to: .
+    # Runtime Dock icon via app.dock.setIcon (separate from CFBundle icon.icns / logo.png).
+    - from: resources/GrowthOS-01.png
+      to: .
     # Stage as env.prod (no leading dot) — electron-builder skips .env* sources.
     - from: .bundle-resources/env/env.prod
       to: env.prod

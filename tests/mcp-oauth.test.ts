@@ -4,9 +4,24 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   connectWithOAuthRetry,
   createOAuthCallbackListener,
+  isMcpOAuthInteractionRequiredError,
   McpOAuthInteractionRequiredError,
   OpenCoworkMcpOAuthProvider,
 } from '../src/main/mcp/mcp-oauth';
+
+describe('isMcpOAuthInteractionRequiredError', () => {
+  it('recognizes typed and message-shaped OAuth interaction errors', () => {
+    expect(isMcpOAuthInteractionRequiredError(new McpOAuthInteractionRequiredError())).toBe(true);
+    expect(
+      isMcpOAuthInteractionRequiredError(
+        new Error(
+          'MCP OAuth authorization for Jira requires user action. Connect this server from Settings.'
+        )
+      )
+    ).toBe(true);
+    expect(isMcpOAuthInteractionRequiredError(new Error('connection closed'))).toBe(false);
+  });
+});
 
 describe('createOAuthCallbackListener', () => {
   it('captures authorization codes from the loopback callback', async () => {

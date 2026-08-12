@@ -521,7 +521,8 @@ function applyAppBranding() {
   app.setName(PRODUCT_NAME);
 
   if (process.platform === 'darwin' && app.dock) {
-    const dockIconPath = resolveResourcePath('icon.png');
+    // Dock-only brand mark; UI / tray / window icons keep using logo.png / icon.*.
+    const dockIconPath = resolveResourcePath('GrowthOS-01.png');
     if (fs.existsSync(dockIconPath)) {
       const image = nativeImage.createFromPath(dockIconPath);
       if (!image.isEmpty()) {
