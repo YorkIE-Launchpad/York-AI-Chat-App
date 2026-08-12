@@ -10,6 +10,12 @@ import {
 } from '../../utils/file-link';
 import { resolvePathAgainstWorkspace } from '../../../shared/workspace-path';
 import {
+  DEFAULT_JIRA_SITE_ORIGIN,
+  isJiraRestApiUrl,
+  jiraBrowseUrl,
+  normalizeJiraSourceUrl,
+} from '../../../shared/jira-urls';
+import {
   normalizeLocalFileMarkdownLinks,
   resolveLocalFilePathFromHref,
 } from '../../utils/markdown-local-link';
@@ -41,6 +47,17 @@ const MessageMarkdown = lazy(() =>
 // Render them as regular links instead of strikethrough links.
 function normalizeCitationMarkdownLinks(markdown: string): string {
   return markdown.replace(/~\[(.+?)\]\(([^)\s]+)\)~/g, '[$1]($2)');
+}
+
+function flattenReactText(node: React.ReactNode): string {
+  if (node == null || typeof node === 'boolean') return '';
+  if (typeof node === 'string' || typeof node === 'number') return String(node);
+  if (Array.isArray(node)) return node.map(flattenReactText).join('');
+  if (isValidElement(node)) {
+    const props = node.props as { children?: React.ReactNode };
+    return flattenReactText(props.children);
+  }
+  return '';
 }
 
 export const ContentBlockView = memo(function ContentBlockView({
@@ -191,14 +208,24 @@ export const ContentBlockView = memo(function ContentBlockView({
           return <span>{children}</span>;
         }
 
+        const openHref = (() => {
+          if (!isJiraRestApiUrl(safeHref)) return safeHref;
+          const labelText = flattenReactText(children);
+          const keyFromLabel = labelText.match(/\b([A-Z][A-Z0-9]+-\d+)\b/i)?.[1];
+          return (
+            normalizeJiraSourceUrl(safeHref, { issueKey: keyFromLabel }) ||
+            (keyFromLabel ? jiraBrowseUrl(keyFromLabel, DEFAULT_JIRA_SITE_ORIGIN) : safeHref)
+          );
+        })();
+
         return (
           <a
-            href={safeHref}
+            href={openHref}
             rel="noreferrer"
             onClick={(event) => {
               event.preventDefault();
               if (typeof window !== 'undefined' && window.electronAPI?.openExternal) {
-                void window.electronAPI.openExternal(safeHref);
+                void window.electronAPI.openExternal(openHref);
               }
             }}
             className="text-accent hover:text-accent-hover"

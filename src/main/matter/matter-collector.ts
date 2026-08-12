@@ -26,6 +26,11 @@ import {
   DEFAULT_SLACK_MCP_SERVER_ID,
 } from '../../shared/mcp-defaults';
 import {
+  DEFAULT_JIRA_SITE_ORIGIN,
+  jiraBrowseUrl,
+  jiraSiteOriginFromUrl,
+} from '../../shared/jira-urls';
+import {
   MAX_VAGUE_ENRICHMENTS_PER_SCAN,
   enrichVagueCalendarMeeting,
   isVagueMeetingTitle,
@@ -966,9 +971,15 @@ async function collectJira(
       const critical = /highest|blocker|critical|p0|p1/i.test(priority) || /block/i.test(status);
       // Skip parked / waiting-on-others if language is clear
       if (/waiting for|deferred|icebox|backlog/i.test(status) && !critical) return null;
-      const browse =
-        extractUrl(truncate(issue)) ||
-        (key ? `https://yorkblack.atlassian.net/browse/${key}` : undefined);
+      // Never use REST `self` links — they open the API, not the board.
+      const self =
+        typeof issue.self === 'string'
+          ? issue.self
+          : typeof (fields as { self?: unknown }).self === 'string'
+            ? ((fields as { self: string }).self as string)
+            : undefined;
+      const siteOrigin = (self && jiraSiteOriginFromUrl(self)) || DEFAULT_JIRA_SITE_ORIGIN;
+      const browse = key ? jiraBrowseUrl(key, siteOrigin) : undefined;
 
       return signal({
         fingerprint: `jira:issue:${key}`,

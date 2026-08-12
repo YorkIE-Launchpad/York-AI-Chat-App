@@ -87,6 +87,41 @@ describe('extractMcpSourcesFromTurn', () => {
     expect(sources).toEqual([{ title: 'York Hub', serverName: 'York Hub' }]);
   });
 
+  it('rewrites Jira REST self-links to browse URLs', () => {
+    const messages: Message[] = [
+      msg('u1', 'user', [{ type: 'text', text: 'What is on my Jira board?' }]),
+      msg('a1', 'assistant', [
+        {
+          type: 'tool_use',
+          id: 'tu1',
+          name: 'mcp__Jira__searchJiraIssuesUsingJql',
+          input: { jql: 'assignee = currentUser()' },
+        },
+      ]),
+      msg('a2', 'assistant', [
+        {
+          type: 'tool_result',
+          toolUseId: 'tu1',
+          content: JSON.stringify({
+            issues: [
+              {
+                key: 'VECOS-42',
+                self: 'https://yorkblack.atlassian.net/rest/api/3/issue/10042',
+                fields: { summary: 'Sources open board' },
+              },
+            ],
+          }),
+        },
+      ]),
+      msg('a3', 'assistant', [{ type: 'text', text: 'You have VECOS-42 open.' }]),
+    ];
+
+    const sources = extractMcpSourcesFromTurn(messages, 'u1');
+    expect(sources).toHaveLength(1);
+    expect(sources[0].url).toBe('https://yorkblack.atlassian.net/browse/VECOS-42');
+    expect(sources[0].serverName).toBe('Jira');
+  });
+
   it('ignores non-MCP tools', () => {
     const messages: Message[] = [
       msg('u1', 'user', [{ type: 'text', text: 'Read file' }]),

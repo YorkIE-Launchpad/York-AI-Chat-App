@@ -28,6 +28,7 @@ describe('CoworkAgentRunner York IE SDK integration', () => {
     expect(agentRunnerContent).toContain('you MUST end with a "Sources:" section.');
     expect(agentRunnerContent).toContain('Prefer standard Markdown links: [Title](https://...).');
     expect(agentRunnerContent).toContain('[Title](memory:{id})');
+    expect(agentRunnerContent).toContain('/browse/{KEY}');
     expect(agentRunnerContent).not.toContain('https://claude.ai/chat/URL');
   });
 

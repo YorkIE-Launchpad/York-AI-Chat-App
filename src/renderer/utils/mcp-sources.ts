@@ -1,3 +1,4 @@
+import { toUserFacingSourceUrls } from '../../shared/jira-urls';
 import type { Message, ToolResultContent, ToolUseContent } from '../types';
 import { messageHasAssistantText } from './active-turn';
 
@@ -164,7 +165,7 @@ export function extractMcpSourcesFromTurn(
 
     if (!resultText) continue;
 
-    for (const url of extractUrls(resultText)) {
+    for (const url of toUserFacingSourceUrls(extractUrls(resultText), resultText)) {
       if (seenUrls.has(url)) continue;
       seenUrls.add(url);
       items.push({
