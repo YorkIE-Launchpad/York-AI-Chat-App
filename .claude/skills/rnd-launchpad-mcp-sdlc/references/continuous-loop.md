@@ -25,7 +25,7 @@ lock_status               ← get_release_lock_status (if recently locked)
 feedback_open             ← list_feedback (open/unfixed)
 qa_reports_recent         ← list_qa_reports
 integrations              ← get_integrations_status / get_cursor_status
-memory_hint               ← get_project_memory (optional)
+memory_hint               ← get_project_memory (optional; poll knowledgeRefresh if busy)
 RESUME_*                  ← last durable line from thread
 goal_criteria             ← user/automation goal text
 ```

@@ -127,7 +127,7 @@
     "saving": "Saving…",
     "openRouterKeyMissing": "Without this key you cannot use General or Folders. Add a key here, or use Hub / Project for York models.",
     "thinkingMode": "Thinking mode",
-    "thinkingModeHelp": "Use deeper model reasoning for complex tasks. Slower and uses more tokens; reduces rushed or guessy answers. You can also toggle Think next to the model picker in chat."
+    "thinkingModeHelp": "Deeper model reasoning plus a mid-loop think scratchpad for complex, multi-step, or fact-heavy work. Uses more tokens. Toggle Think next to the model picker in chat."
   },
   "memory": {
     "title": "Memory",
@@ -371,7 +371,7 @@
     "localOllamaModelUnavailable": "Found local Ollama, but model {{model}} could not complete a minimal inference request.",
     "localOllamaModelLoading": "Found local Ollama, but the model is still loading into memory. Large models may take up to a minute.",
     "enableThinking": "Enable Thinking Mode",
-    "enableThinkingHint": "Show Claude's thinking process step by step. This provides more transparency but may increase token usage.",
+    "enableThinkingHint": "Enables extended reasoning and a think scratchpad for long tool chains. More transparent; may increase token usage.",
     "enableThinkingOllamaHint": "Most Ollama models do not support thinking mode. Enable only if your model explicitly supports it.",
     "testSuccess": "Connection successful ({{ms}}ms)",
     "testSuccessNeedSave": "Connection test passed. Save settings before starting a session.",
@@ -957,7 +957,7 @@
     "startFailed": "Failed to start session. Please try again.",
     "disclaimer": "York GrowthOS is AI-powered and may make mistakes. Please double-check responses.",
     "thinkingMode": "Think",
-    "thinkingModeOnHint": "Thinking mode on — deeper reasoning for complex tasks (slower, more tokens). Click to turn off.",
+    "thinkingModeOnHint": "Thinking mode on — decisive deeper reasoning and think scratchpad (more tokens). Click to turn off.",
     "thinkingModeOffHint": "Thinking mode off. Click to enable deeper reasoning for complex, multi-step, or fact-heavy tasks.",
     "noModel": "No model",
     "connectorCount_one": "{{count}} connector",

@@ -231,11 +231,12 @@ Build → Frontend only. Requires **active release + ≥1 revision**. Default **
 5. Navigate target routes; screenshot preview
 6. Prod baseline side-by-side when reachable; else residual + continue
 7. Diff → structured correction list
-8. `migrate_frontend` / `start_scope_implement` `target: platform` with fix prompt — **stay in turn**
-9. Poll to terminal (versions / implement / agent); agent-not-found → alternate poll paths
-10. Re-preview same pages; re-compare
-11. Repeat until criteria met or residual + unblockable reason
-12. Ship only if goal asks
+8. Ensure GitHub ready (`get_cursor_github_readiness` or rely on `migrate_frontend` preflight). On access failure: tell human to accept launchpad invite / fix Integrations — do **not** wait for a browser “Understood” dialog on the server.
+9. `migrate_frontend` (same as UI Build Frontend App) / `start_scope_implement` `target: platform` with fix prompt — **stay in turn**
+10. Poll to terminal (`get_cursor_agent` for migrate — treat `MIGRATE_PLATFORM_SYNC_FAILED` / FAILED / ERROR as terminal failure; versions / implement for scope); agent-not-found → alternate poll paths
+11. Re-preview same pages; re-compare
+12. Repeat until criteria met or residual + unblockable reason
+13. Ship only if goal asks
 
 ### Resume after park
 

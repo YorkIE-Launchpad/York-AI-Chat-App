@@ -15,7 +15,10 @@ For **which tool when** in the continuous agent, see [continuous-loop.md](contin
 | `get_release_lock_status` | Poll after lock (no SSE; up to ~30 min) |
 | `list_versions` / `get_live_url` | Revisions R1… / live URL |
 | `get_integrations_status` / `get_cursor_status` / `get_cursor_github_readiness` | Readiness |
-| `get_project_memory` | Preferences / delivery conventions |
+| `get_project_memory` | Preferences, knowledge lenses, `knowledgeRefresh` (status/cost/lastUpdatedAt) |
+| `update_project_memory_settings` | Toggle `knowledgeEnabled` (needs development repo) |
+| `get_project_memory_skill` | Rendered `SKILL.md` bodies (`skill=preferences\|knowledge\|both`) |
+| `refresh_project_memory` | Sync preferences + enqueue knowledge agent; poll `get_project_memory` while queued/running |
 | `search_project_rag` / `ask_project_assistant` | Project Q&A |
 | `list_project_chat_messages` | Project chat history |
 | `get_project_rag_status` / `backfill_project_rag` | RAG index |
@@ -70,7 +73,8 @@ For **which tool when** in the continuous agent, see [continuous-loop.md](contin
 | `cancel_scope_implement` | Cancel (`confirm`) |
 | `seed_release_from_prior` | Empty active → last tag (`mode: baseline_copy` \| `agent` + `promptText`) |
 | `revert_release_to_baseline` | Revert (`confirm`) |
-| `migrate_frontend` / `start_migrate_frontend_agent` | Dev → platform / migrate agents |
+| `migrate_frontend` | **Build Frontend App** — same as UI. Tool preflights `get_cursor_github_readiness` (blocks with invite/access guidance if not ready; **no** browser confirm waits on the server). Then `migrateFrontend: true` (+ optional `projectVersionId`, `userPrompt`). Returns `agentId` (often `readonly_migrate_*`) + poll next-steps. Poll `get_cursor_agent` until terminal (`MIGRATE_PLATFORM_SYNC_FAILED` = failed). |
+| `start_migrate_frontend_agent` | Do **not** use for Build Frontend App. Internal multi-repo Cursor agent only (post-carbon-copy reuse/surgery path). |
 | `list_versions` / `activate_version` / `switch_version` | Revisions |
 
 ## Build — agents (generic / Cursor)
@@ -153,6 +157,7 @@ For **which tool when** in the continuous agent, see [continuous-loop.md](contin
 
 | Tool | Use |
 | ---- | --- |
+| `get_client_link` | **Stakeholder Client Link** — `{origin}/projects/{slug}` (e.g. `https://launchpad.yorkdevs.link/projects/patriot-pay`). Not preview host:port. |
 | `get_public_project` / `ensure_public_preview` / `get_public_preview_status` / `get_public_preview_logs` / `stop_public_preview` | Public preview |
 | `get_client_link_messages` / `get_client_link_agent_status` / `get_client_link_summary` / `refresh_client_link_build` | Status |
 | `resend_stakeholder_link` | Resend (when allowed) |
@@ -188,7 +193,7 @@ For **which tool when** in the continuous agent, see [continuous-loop.md](contin
 | ----- | ---- | --------------- |
 | `seed_release_from_prior` | `list_versions` | implement / preview |
 | `start_scope_implement` | `get_scope_implement_active`, `get_scope_implement_run`, `list_versions` | `start_preview` |
-| `migrate_frontend` / migrate agent | versions + agent status | re-preview / compare |
+| `migrate_frontend` | `get_cursor_agent` (+ list_versions); treat `MIGRATE_PLATFORM_SYNC_FAILED` as terminal fail. Preflight GitHub readiness is built in. | re-preview / compare |
 | `start_preview` / `restart_preview` | `get_preview_status` | QA / fidelity / approve |
 | `lock_release` | `get_release_lock_status` | `list_releases` → seed |
 | `start_feedback_ai_fix` | `get_feedback_ai_fix_status` | `approve_feedback` / preview |

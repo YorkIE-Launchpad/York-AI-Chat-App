@@ -66,6 +66,7 @@ import { configStore } from '../config/config-store';
 import { getClientAppVersion, resolveBackendClientApiKey } from '../config/backend-auth';
 import { normalizeOpenAICompatibleBaseUrl } from '../config/auth-utils';
 import { buildThinkingModePromptSection, resolveThinkingLevel } from '../../shared/thinking-mode';
+import { withThinkToolIfEnabled } from '../tools/think-tool';
 import {
   applyBackendManagedCredentials,
   isBackendManagedProvider,
@@ -2274,9 +2275,14 @@ ${hints.join('\n')}
         sessionId: session.id,
         onLaunchPadProgress,
       });
-      let customTools = toolSelection.customTools;
+      const withThink = withThinkToolIfEnabled(
+        enableThinking,
+        toolSelection.customTools,
+        toolSelection.toolsSignature
+      );
+      let customTools = withThink.customTools;
       let mcpToolMode: McpToolExposureMode = toolSelection.mode;
-      const toolsSignature = toolSelection.toolsSignature;
+      const toolsSignature = withThink.toolsSignature;
 
       if (cachedSession && cachedSession.toolsSignature !== toolsSignature) {
         logCtx('[CoworkAgentRunner] MCP tools changed, recreating cached pi session:', session.id);
@@ -2747,9 +2753,14 @@ ${
           sessionId: session.id,
           onLaunchPadProgress,
         });
-        customTools = adjusted.customTools;
+        const adjustedWithThink = withThinkToolIfEnabled(
+          enableThinking,
+          adjusted.customTools,
+          adjusted.toolsSignature
+        );
+        customTools = adjustedWithThink.customTools;
         mcpToolMode = adjusted.mode;
-        effectiveToolsSignature = adjusted.toolsSignature;
+        effectiveToolsSignature = adjustedWithThink.toolsSignature;
       }
 
       // Diagnostic: log tools being passed to SDK (helps debug Ollama tool use)

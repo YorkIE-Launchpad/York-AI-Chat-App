@@ -76,8 +76,18 @@ Pass `confirm: true` for destructive tools, including:
 | `run_infra_analysis` | infra latest/result |
 | `generate_understand_graph` | `get_understand_status` |
 | QA generation | `get_qa_message` / `retry_qa_generation` |
+| `migrate_frontend` | `get_cursor_agent` (pipeline / `MIGRATE_PLATFORM_SYNC_FAILED` = terminal). Tool preflights GitHub readiness |
 
-Stop on terminal statuses (`completed`, `failed`, `cancelled`, `ERROR`, locked&&!agentActive, etc.).
+Stop on terminal statuses (`completed`, `failed`, `cancelled`, `ERROR`, locked&&!agentActive, `MIGRATE_PLATFORM_SYNC_FAILED`, etc.).
+
+## Build Frontend App (migrate) mistakes
+
+| Mistake | Correct |
+| ------- | ------- |
+| Call `migrate_frontend` then wait for UI confirm | Server does not wait; poll `get_cursor_agent` |
+| Ignore GitHub readiness / invite errors | Fix Integrations or accept launchpad invite; then retry |
+| Treat `MIGRATE_PLATFORM_SYNC_FAILED` as still running | Terminal failure — read detail; residual or retry once |
+| Use `start_migrate_frontend_agent` for Build Frontend App | Use **`migrate_frontend` only** |
 
 ## Goal-tick / long-job anti-patterns
 
@@ -124,6 +134,9 @@ Stop on terminal statuses (`completed`, `failed`, `cancelled`, `ERROR`, locked&&
 | Manually curating memory each turn | Self-updates; `refresh_project_memory` only to force |
 | Expect memory always | Gated by `PROJECT_MEMORY_ENABLED` |
 | Expect one sighting to stick | Preferences need ≥2 sightings |
+| Re-call `refresh_project_memory` while busy | Poll `get_project_memory` → `knowledgeRefresh.status` until idle/failed |
+| Expect knowledge without a development repo | Link a development repo; use `update_project_memory_settings` only when `hasDevelopmentRepo` |
+| Ignore `knowledgeRefresh.lastCostUsd` | Cost materializes after the Cursor agent finishes (usage ledger) |
 
 ## Hard exclusions (no MCP tools)
 

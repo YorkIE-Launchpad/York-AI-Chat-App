@@ -80,7 +80,7 @@ Run in order; **never invent ids**.
 | 4 | `get_integrations_status` / `get_cursor_status` | Cursor/Git required for goal and not ready → fix or `blocked` |
 | 5 | `list_releases` | Zero releases and Plan goal needs ship → create/activate (with rules) |
 | 6 | `list_versions` | (informational; drives seed) |
-| 7 | Optional: `get_project_memory`, `get_project_rag_status` | — |
+| 7 | Optional: `get_project_memory` (check `knowledgeRefresh`), `get_project_rag_status` | Soft context only — memory = learned prefs + delivery/conventions/architecture/IA; RAG status = index health. Do not block the tick if either fails |
 
 Then run the **controller** in [continuous-loop.md](references/continuous-loop.md) § Decide.
 
@@ -172,7 +172,7 @@ seed NEW active → WORK → … forever
 | ------- | ---------- | ---------------- | ------------------ |
 | `seed_release_from_prior` | `list_versions` | New `Rn` on active | Retry seed once; else blocked |
 | `start_scope_implement` | `get_scope_implement_active`, `get_scope_implement_run`, `list_versions` | completed + new Rn | Read errors; `clarify_scope_implement` / re-run remaining; or move bugs to feedback |
-| `migrate_frontend` / `start_migrate_frontend_agent` | versions + agent status | New Rn / agent ended OK | Correct prompt; retry once; residual + continue |
+| `migrate_frontend` | `get_cursor_agent` (+ list_versions). Prefer **only** `migrate_frontend` (same as Release UI). Tool preflights GitHub readiness. `start_migrate_frontend_agent` is not the UI path. | New Rn / agent FINISHED; pipeline completed | Fix GitHub access / invite if preflight fails; retry once with `migrate_frontend`; residual + continue |
 | `start_preview` / `restart_preview` | `get_preview_status` | ready / live URL | Restart; read logs if tools allow |
 | `lock_release` (platform) | `get_release_lock_status` | locked && !agentActive or readyForNextCycle | Don't unlock; report; don't implement on locked id |
 | `start_feedback_ai_fix` | `get_feedback_ai_fix_status` | success | Retry / clarify / manual residual |

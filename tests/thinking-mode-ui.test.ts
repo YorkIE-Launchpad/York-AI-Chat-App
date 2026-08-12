@@ -23,6 +23,7 @@ describe('Thinking mode UI wiring', () => {
     );
     expect(runner).toContain('resolveThinkingLevel');
     expect(runner).toContain('buildThinkingModePromptSection');
+    expect(runner).toContain('withThinkToolIfEnabled');
     expect(runner).not.toMatch(/enableThinking \? ['"]medium['"]/);
   });
 });
