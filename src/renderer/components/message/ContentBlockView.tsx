@@ -1,5 +1,5 @@
 // Dispatches a single ContentBlock to the appropriate sub-renderer
-import { Suspense, lazy, isValidElement, cloneElement, memo, useMemo } from 'react';
+import { Suspense, lazy, isValidElement, cloneElement, memo, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../../store';
 import { PanelErrorBoundary } from '../PanelErrorBoundary';
@@ -14,6 +14,7 @@ import {
   resolveLocalFilePathFromHref,
 } from '../../utils/markdown-local-link';
 import { normalizeLatexDelimiters } from '../../utils/latex-delimiters';
+import { parseMemoryHref } from '../../utils/memory-cite-link';
 import { AUTO_TEXT_DIRECTION_PROPS } from '../../utils/text-direction';
 import type {
   ToolUseContent,
@@ -30,6 +31,7 @@ import type { ContentBlockViewProps } from './types';
 import { AttachmentImageThumb } from '../attachments';
 import { ALLOWED_IMAGE_MIME_TYPES } from '../../utils/attachment-preview';
 import { FileAttachmentBlock } from './FileAttachmentBlock';
+import { MemorySourceDetailPanel } from './MemorySourceDetailPanel';
 
 const MessageMarkdown = lazy(() =>
   import('../MessageMarkdown').then((module) => ({ default: module.MessageMarkdown }))
@@ -49,6 +51,7 @@ export const ContentBlockView = memo(function ContentBlockView({
   message,
 }: ContentBlockViewProps) {
   const { t } = useTranslation();
+  const [memorySourceId, setMemorySourceId] = useState<string | null>(null);
   const activeSessionId = useAppStore((s) => s.activeSessionId);
   const sessions = useAppStore((s) => s.sessions);
   const workingDir = useAppStore((s) => s.workingDir);
@@ -127,6 +130,20 @@ export const ContentBlockView = memo(function ContentBlockView({
   const markdownComponents = useMemo(
     () => ({
       a({ children, href }: { children?: React.ReactNode; href?: string }) {
+        const memoryId = parseMemoryHref(href);
+        if (memoryId) {
+          return (
+            <button
+              type="button"
+              onClick={() => setMemorySourceId(memoryId)}
+              className={getFileLinkButtonClassName()}
+              title={memoryId}
+            >
+              {children}
+            </button>
+          );
+        }
+
         const localFilePath = resolveLocalFilePathFromHref(href, currentWorkingDir);
         if (localFilePath) {
           return (
@@ -167,14 +184,20 @@ export const ContentBlockView = memo(function ContentBlockView({
           );
         }
 
-        const safeHref = href && /^(?:https?:|mailto:|#)/i.test(href) ? href : undefined;
+        const safeHref = href && /^(?:https?:|mailto:)/i.test(href) ? href : undefined;
+        if (!safeHref) {
+          // Non-openable hrefs (invented memory URLs, junk schemes, bare fragments)
+          // should not look clickable.
+          return <span>{children}</span>;
+        }
+
         return (
           <a
             href={safeHref}
             rel="noreferrer"
             onClick={(event) => {
               event.preventDefault();
-              if (safeHref && typeof window !== 'undefined' && window.electronAPI?.openExternal) {
+              if (typeof window !== 'undefined' && window.electronAPI?.openExternal) {
                 void window.electronAPI.openExternal(safeHref);
               }
             }}
@@ -299,18 +322,9 @@ export const ContentBlockView = memo(function ContentBlockView({
       }
 
       return (
-        <PanelErrorBoundary
-          name="MessageMarkdown"
-          fallback={
-            <div
-              {...AUTO_TEXT_DIRECTION_PROPS}
-              className="prose-chat max-w-none text-text-primary whitespace-pre-wrap break-words text-start"
-            >
-              {normalizedText}
-            </div>
-          }
-        >
-          <Suspense
+        <>
+          <PanelErrorBoundary
+            name="MessageMarkdown"
             fallback={
               <div
                 {...AUTO_TEXT_DIRECTION_PROPS}
@@ -320,13 +334,30 @@ export const ContentBlockView = memo(function ContentBlockView({
               </div>
             }
           >
-            <MessageMarkdown
-              normalizedText={escapeThinkTags(normalizedText)}
-              isStreaming={isStreaming}
-              components={markdownComponents}
+            <Suspense
+              fallback={
+                <div
+                  {...AUTO_TEXT_DIRECTION_PROPS}
+                  className="prose-chat max-w-none text-text-primary whitespace-pre-wrap break-words text-start"
+                >
+                  {normalizedText}
+                </div>
+              }
+            >
+              <MessageMarkdown
+                normalizedText={escapeThinkTags(normalizedText)}
+                isStreaming={isStreaming}
+                components={markdownComponents}
+              />
+            </Suspense>
+          </PanelErrorBoundary>
+          {memorySourceId && (
+            <MemorySourceDetailPanel
+              memoryId={memorySourceId}
+              onClose={() => setMemorySourceId(null)}
             />
-          </Suspense>
-        </PanelErrorBoundary>
+          )}
+        </>
       );
     }
 

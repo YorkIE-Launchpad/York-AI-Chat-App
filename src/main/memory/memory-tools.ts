@@ -2,9 +2,14 @@ import { Type } from '@sinclair/typebox';
 import type { MemoryService } from './memory-service';
 import type { MemoryReadResult, MemorySearchResult, MemoryToolDefinition } from './memory-types';
 
+export function memoryCiteHref(id: string): string {
+  return `memory:${id}`;
+}
+
 function formatSearchResult(result: MemorySearchResult): string {
   const lines = [
     `- id: ${result.id}`,
+    `  cite: ${memoryCiteHref(result.id)}`,
     `  type: ${result.kind}`,
     `  title: ${result.title}`,
     `  summary: ${result.summary}`,
@@ -24,6 +29,7 @@ function formatSearchResult(result: MemorySearchResult): string {
 function formatReadResult(result: MemoryReadResult): string {
   const lines = [
     `id: ${result.id}`,
+    `cite: ${memoryCiteHref(result.id)}`,
     `type: ${result.kind}`,
     `title: ${result.title}`,
     `summary: ${result.summary}`,

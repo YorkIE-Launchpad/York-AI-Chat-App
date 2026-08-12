@@ -21,6 +21,11 @@ const mathSanitizeSchema = {
     // so a second ['className', ...] entry would be silently ignored.
     code: [['className', /^language-./, 'math-inline', 'math-display']],
   },
+  protocols: {
+    ...defaultSchema.protocols,
+    // Allow in-app memory citations: [Title](memory:{id})
+    href: [...(defaultSchema.protocols?.href || []), 'memory'],
+  },
 };
 
 // NOTE: rehypeSanitize runs BEFORE rehypeKatex — KaTeX output is unsanitized.

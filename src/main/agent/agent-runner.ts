@@ -2678,7 +2678,8 @@ Sources:
 Rules:
 - Use real URLs from tool payloads (html_link, web_view_link, permalink, issue/page URLs, etc.).
 - Prefer standard Markdown links: [Title](https://...).
-- If a hit has no URL, cite the connector and identifier as plain text (e.g. "York Hub — employee Jane Doe"). Never invent URLs.
+- For memory_search / memory_read hits, cite with the tool's cite value: [Title](memory:{id}). Never invent http URLs for memory.
+- If a hit has no URL and is not memory, cite the connector and identifier as plain text (e.g. "York Hub — employee Jane Doe"). Never invent URLs.
 - Only list sources that tools actually returned. Do not invent sources.
 </citation_requirements>`,
         `<tool_behavior>

@@ -26,8 +26,19 @@ describe('MessageCard citation link normalization', () => {
     );
   });
 
+  it('opens memory:{id} cites and demotes non-openable source hrefs', () => {
+    expect(messageCardContent).toContain('parseMemoryHref');
+    expect(messageCardContent).toContain('MemorySourceDetailPanel');
+    expect(messageCardContent).toContain('return <span>{children}</span>');
+  });
+
   it('disables remark-gfm single-tilde strikethrough parsing for safety', () => {
     expect(messageMarkdownContent).toContain('singleTilde: false');
     expect(messageMarkdownContent).toContain('REMARK_PLUGINS');
+  });
+
+  it('allows memory: href protocol through sanitize so citations remain clickable', () => {
+    expect(messageMarkdownContent).toContain("'memory'");
+    expect(messageMarkdownContent).toContain('protocols');
   });
 });
