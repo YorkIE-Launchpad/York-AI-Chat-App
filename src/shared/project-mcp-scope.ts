@@ -28,12 +28,23 @@ const HUB_PROJECT_LIST_TOOLS = new Set([
 ]);
 
 const PROJECT_ID_ARG_KEYS = [
+  'projectId',
   'id',
   'project_id',
-  'projectId',
   'timesheet_project_id',
   'timesheetProjectId',
 ] as const;
+
+/** Default arg key when injecting into empty Hub tool args (per Hub MCP schemas). */
+const HUB_TOOL_DEFAULT_ID_ARG: Partial<Record<string, string>> = {
+  get_project: 'projectId',
+  list_project_allocations: 'project_id',
+  get_project_allocation_timeline: 'project_id',
+  get_project_bench_suggestions: 'project_id',
+  list_project_release_notes: 'project_id',
+  get_project_jira_quality: 'project_id',
+  send_project_bench_suggestions_chat: 'project_id',
+};
 
 const PROJECT_NAME_KEYS = [
   'name',
@@ -115,17 +126,20 @@ function readProjectIdArg(args: Record<string, unknown>): string | null {
 
 function injectProjectIdArg(
   args: Record<string, unknown>,
-  hubProjectId: string
+  hubProjectId: string,
+  hubToolName?: string | null
 ): Record<string, unknown> {
   const next = { ...args };
-  // Prefer overwriting an existing id-shaped key; otherwise set Hub's usual `id`.
+  // Prefer overwriting an existing id-shaped key; otherwise use tool-specific default.
   for (const key of PROJECT_ID_ARG_KEYS) {
     if (key in next) {
       next[key] = hubProjectId;
       return next;
     }
   }
-  next.id = hubProjectId;
+  const defaultKey =
+    (hubToolName && HUB_TOOL_DEFAULT_ID_ARG[hubToolName]) || 'projectId';
+  next[defaultKey] = hubProjectId;
   return next;
 }
 
@@ -253,7 +267,7 @@ export function prepareProjectScopedMcpArgs(
     }
     return {
       kind: 'allow',
-      args: injectProjectIdArg(args, hubProjectId),
+      args: injectProjectIdArg(args, hubProjectId, original),
       filterResult: false,
     };
   }

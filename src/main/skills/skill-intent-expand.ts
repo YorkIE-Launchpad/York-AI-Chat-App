@@ -11,8 +11,10 @@ import { stripFrontmatter } from '@mariozechner/pi-coding-agent';
 import type { ExpandableSkillRef } from './slash-skill-expand';
 
 export const LAUNCHPAD_SKILL_NAME = 'rnd-launchpad-mcp-sdlc';
+export const YORK_OS_SKILL_NAME = 'york-os';
 
 const LAUNCHPAD_SKILL_BLOCK_RE = new RegExp(`<skill\\s+name=["']${LAUNCHPAD_SKILL_NAME}["']`, 'i');
+const YORK_OS_SKILL_BLOCK_RE = new RegExp(`<skill\\s+name=["']${YORK_OS_SKILL_NAME}["']`, 'i');
 
 export type LaunchPadSkillExpandOptions = {
   /**
@@ -121,5 +123,73 @@ export function expandLaunchPadSkillIntent(
     text: `${skillBlock}\n\n${prompt}`,
     skillName: skill.name,
     reason: force ? 'force' : 'intent',
+  };
+}
+
+function stripLeadingSkillBlock(prompt: string, blockRe: RegExp): string {
+  let text = (prompt || '').trim();
+  if (!text || !blockRe.test(text)) {
+    return text;
+  }
+  const closed = text.lastIndexOf('</skill>');
+  if (closed !== -1) {
+    text = text.slice(closed + '</skill>'.length).trim();
+  }
+  return text;
+}
+
+function hasYorkOsSkillBlock(prompt: string): boolean {
+  return YORK_OS_SKILL_BLOCK_RE.test(prompt || '');
+}
+
+/**
+ * Confluence / wiki document creation intent.
+ * Tuned for asks like "Create a Confluence page about resource performance issues".
+ */
+export function isConfluenceDocumentIntent(prompt: string): boolean {
+  const text = stripLeadingSkillBlock(prompt, YORK_OS_SKILL_BLOCK_RE);
+  if (!text) return false;
+
+  if (/\bconfluence\b/i.test(text)) return true;
+  if (/\bwiki\s+page\b/i.test(text)) return true;
+  if (/\batlassian\s+page\b/i.test(text)) return true;
+  if (/\bcreate\b[\s\S]{0,80}\bpage\b[\s\S]{0,80}\bconfluence\b/i.test(text)) return true;
+  if (/\bdocument\b[\s\S]{0,80}\bconfluence\b/i.test(text)) return true;
+  if (/\bconfluence\b[\s\S]{0,80}\bpage\b/i.test(text)) return true;
+  if (/\bwiki\b/i.test(text) && /\b(create|write|publish|document)\b/i.test(text)) return true;
+
+  return false;
+}
+
+/**
+ * Prepend the full york-os skill block when the prompt looks like Confluence/wiki
+ * document work. No-ops when the skill block is already present or unavailable.
+ */
+export function expandYorkOsSkillIntent(
+  prompt: string,
+  skills: ExpandableSkillRef[]
+): { expanded: boolean; text: string; skillName?: string } {
+  if (hasYorkOsSkillBlock(prompt)) {
+    return { expanded: false, text: prompt };
+  }
+
+  if (!isConfluenceDocumentIntent(prompt)) {
+    return { expanded: false, text: prompt };
+  }
+
+  const skill = skills.find((s) => s.name.toLowerCase() === YORK_OS_SKILL_NAME.toLowerCase());
+  if (!skill) {
+    return { expanded: false, text: prompt };
+  }
+
+  const skillBlock = buildSkillBlock(skill);
+  if (!skillBlock) {
+    return { expanded: false, text: prompt };
+  }
+
+  return {
+    expanded: true,
+    text: `${skillBlock}\n\n${prompt}`,
+    skillName: skill.name,
   };
 }

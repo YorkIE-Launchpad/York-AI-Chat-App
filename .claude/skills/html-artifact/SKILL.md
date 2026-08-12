@@ -21,6 +21,10 @@ description: >-
 **Do not use** when the user explicitly asks for Office/PDF formats
 (`pptx`, `docx`, `xlsx`, `pdf`, PowerPoint, Word, Excel). Then use those skills.
 
+**Do not use** when the user names **Confluence**, **wiki**, or **Atlassian**.
+Route those asks to Confluence MCP (`createConfluencePage` / `updateConfluencePage`)
+via the york-os skill instead of writing local HTML.
+
 Still obey CHAT FIRST: only write files when the user asked to create/save something.
 
 ## Output contract

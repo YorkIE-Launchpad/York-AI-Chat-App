@@ -166,6 +166,13 @@ export function normalizeSessionDivision(
     const launchpadProjectName = parseOptionalString(input?.launchpadProjectName);
 
     if (!hubProjectId && launchpadProjectId == null) {
+      console.warn(
+        '[WorkspaceDivision] Project division demoted to general — missing hubProjectId and launchpadProjectId',
+        {
+          hubProjectName: hubProjectName ?? input?.hubProjectName ?? null,
+          canonicalKey: input?.canonicalKey ?? null,
+        }
+      );
       return {
         division: 'general',
         hubProjectId: null,

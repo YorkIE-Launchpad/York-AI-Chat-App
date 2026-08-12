@@ -44,7 +44,7 @@ describe('project-mcp-scope', () => {
     const prepared = prepareProjectScopedMcpArgs('mcp__York_IE_HUB__get_project', {}, coachSession);
     expect(prepared).toEqual({
       kind: 'allow',
-      args: { id: 'coach-uuid' },
+      args: { projectId: 'coach-uuid' },
       filterResult: false,
     });
   });

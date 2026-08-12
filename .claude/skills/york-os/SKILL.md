@@ -102,7 +102,8 @@ Full map: [connectors.md](references/connectors.md).
 | Catch me up / brief me / status with a person  | **Plan + fan-out**                   | [work-brief.md](references/work-brief.md)                                   |
 | **Client status** / update on client Z         | Hub clients                          | [client-status.md](references/client-status.md) — all relevant connectors   |
 | **Project status** / how is project Y          | Hub projects                         | [project-status.md](references/project-status.md) — Hub + Launchpad + comms |
-| Docs, decks, shared files                      | Drive                                | Gmail if email context helps                                                |
+| Google Docs / Sheets / decks in Drive            | Drive                                | Gmail if email context helps                                                |
+| **Confluence page / wiki / internal process doc** | Confluence                           | `getConfluenceSpaces` → parent page → `createConfluencePage`                |
 | List only: “what’s on my calendar Tuesday”     | Google Calendar `list_events`        | `get_event` if detail needed                                                |
 | **Prep / prepare agendas / prep for meetings** | Calendar then **Enrichment fan-out** | [meeting-prep.md](references/meeting-prep.md)                               |
 | Schedule / invite / “set up a meeting with …”  | Hub resolve → Calendar               | **Schedule with a person**                                                  |
@@ -111,6 +112,21 @@ Full map: [connectors.md](references/connectors.md).
 
 **List vs prep:** listing the calendar is Calendar-only. Preparing agendas,
 briefing, or enriching meetings is **never** Calendar-alone — run enrichment.
+
+## Confluence document creation
+
+When the user asks to create, write, or publish a Confluence page, wiki page, or
+internal process doc:
+
+1. **Start immediately** — do not draft only in chat unless the user asked to
+   review content first.
+2. **Discover context:** `getConfluenceSpaces` and/or `searchConfluenceUsingCql`
+   to find the target space; `getPagesInConfluenceSpace` when a parent page is needed.
+3. **Create:** call `createConfluencePage` with space id, title, and body on the
+   first actionable turn (approval UI may prompt).
+4. **Reply** with the page URL in `Sources:`.
+
+Do not route Confluence document asks to local HTML (`outputs/`) or Google Drive.
 
 ## Hard rule — Enrichment fan-out (meeting prep)
 

@@ -1040,6 +1040,7 @@ export function WelcomeView() {
               <textarea
                 ref={textareaRef}
                 value={prompt}
+                spellCheck={true}
                 onChange={(e) => {
                   setPrompt(e.target.value);
                   setCursorIndex(e.target.selectionStart ?? e.target.value.length);

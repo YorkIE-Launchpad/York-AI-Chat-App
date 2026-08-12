@@ -360,6 +360,31 @@ describe('hub-allocations parsers', () => {
       })
     ).toEqual({ id: '99', name: 'Nested', hours: 3 });
   });
+
+  it('prefers projectId over allocation id when both are present', () => {
+    expect(
+      normalizeAllocatedProject({
+        id: 'allocation-row-1',
+        projectId: 'hub-project-uuid',
+        title: 'Alpha',
+      })
+    ).toEqual({ id: 'hub-project-uuid', name: 'Alpha' });
+  });
+
+  it('accepts uuid and project_uuid id fields', () => {
+    expect(
+      normalizeAllocatedProject({
+        uuid: 'uuid-1',
+        title: 'Via UUID',
+      })
+    ).toEqual({ id: 'uuid-1', name: 'Via UUID' });
+    expect(
+      normalizeAllocatedProject({
+        project_uuid: 'proj-uuid-2',
+        name: 'Via project_uuid',
+      })
+    ).toEqual({ id: 'proj-uuid-2', name: 'Via project_uuid' });
+  });
 });
 
 describe('fetchAllocatedProjectsForUser', () => {

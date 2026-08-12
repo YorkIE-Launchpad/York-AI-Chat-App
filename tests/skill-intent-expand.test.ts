@@ -5,7 +5,10 @@ import * as path from 'path';
 import { discoverSkillsFromPaths } from '../src/main/skills/slash-skill-expand';
 import {
   LAUNCHPAD_SKILL_NAME,
+  YORK_OS_SKILL_NAME,
   expandLaunchPadSkillIntent,
+  expandYorkOsSkillIntent,
+  isConfluenceDocumentIntent,
   isLaunchPadDeliveryIntent,
 } from '../src/main/skills/skill-intent-expand';
 
@@ -118,6 +121,88 @@ describe('expandLaunchPadSkillIntent', () => {
   it('leaves prompt unchanged when skill is missing', () => {
     const user = 'Implement NFL games with FC4 format on preview';
     const result = expandLaunchPadSkillIntent(user, []);
+    expect(result.expanded).toBe(false);
+    expect(result.text).toBe(user);
+  });
+});
+
+describe('isConfluenceDocumentIntent', () => {
+  it('matches explicit Confluence page creation asks', () => {
+    expect(
+      isConfluenceDocumentIntent(
+        'Create a Confluence page about resource performance issues'
+      )
+    ).toBe(true);
+    expect(isConfluenceDocumentIntent('Publish this as a wiki page in Confluence')).toBe(true);
+    expect(isConfluenceDocumentIntent('Write an Atlassian page for the onboarding process')).toBe(
+      true
+    );
+  });
+
+  it('matches wiki create/document verbs', () => {
+    expect(isConfluenceDocumentIntent('Create a wiki page for the HR policy')).toBe(true);
+    expect(isConfluenceDocumentIntent('Document this process in Confluence')).toBe(true);
+  });
+
+  it('does not match unrelated asks', () => {
+    expect(isConfluenceDocumentIntent('Create a one-pager for the client update')).toBe(false);
+    expect(isConfluenceDocumentIntent('how does leave policy work?')).toBe(false);
+    expect(isConfluenceDocumentIntent('Document this process')).toBe(false);
+  });
+});
+
+describe('expandYorkOsSkillIntent', () => {
+  it('injects york-os for Confluence document asks', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'york-yos-skill-'));
+    try {
+      writeSkill(root, YORK_OS_SKILL_NAME, '# York OS router');
+      const skills = discoverSkillsFromPaths([root]);
+      const user = 'Create a Confluence page about resource performance issues';
+      const result = expandYorkOsSkillIntent(user, skills);
+      expect(result.expanded).toBe(true);
+      expect(result.skillName).toBe(YORK_OS_SKILL_NAME);
+      expect(result.text).toContain(`<skill name="${YORK_OS_SKILL_NAME}"`);
+      expect(result.text).toContain('# York OS router');
+      expect(result.text).toContain(user);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('does not expand pure Q&A', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'york-yos-skill-'));
+    try {
+      writeSkill(root, YORK_OS_SKILL_NAME, '# York OS router');
+      const skills = discoverSkillsFromPaths([root]);
+      const result = expandYorkOsSkillIntent('how does leave policy work?', skills);
+      expect(result.expanded).toBe(false);
+      expect(result.text).toBe('how does leave policy work?');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('does not double-inject when skill block already present', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'york-yos-skill-'));
+    try {
+      writeSkill(root, YORK_OS_SKILL_NAME, '# York OS router');
+      const skills = discoverSkillsFromPaths([root]);
+      const first = expandYorkOsSkillIntent(
+        'Create a Confluence page about resource performance issues',
+        skills
+      );
+      expect(first.expanded).toBe(true);
+      const second = expandYorkOsSkillIntent(first.text, skills);
+      expect(second.expanded).toBe(false);
+      expect(second.text).toBe(first.text);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('leaves prompt unchanged when skill is missing', () => {
+    const user = 'Create a Confluence page about resource performance issues';
+    const result = expandYorkOsSkillIntent(user, []);
     expect(result.expanded).toBe(false);
     expect(result.text).toBe(user);
   });

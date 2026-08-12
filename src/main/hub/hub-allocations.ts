@@ -112,6 +112,27 @@ function unwrapDataArray(payload: unknown): unknown[] {
   return [];
 }
 
+/** Hub project id keys — prefer project UUID fields over bare allocation `id`. */
+const HUB_PROJECT_ID_KEYS = [
+  'projectId',
+  'hubProjectId',
+  'clientProjectId',
+  'project_uuid',
+  'uuid',
+  'id',
+  '_id',
+] as const;
+
+function extractHubProjectId(
+  record: Record<string, unknown>,
+  nested: Record<string, unknown> | null
+): string | null {
+  return (
+    stringField(record, ...HUB_PROJECT_ID_KEYS) ||
+    (nested ? stringField(nested, ...HUB_PROJECT_ID_KEYS) : null)
+  );
+}
+
 /** Normalize a Hub allocated-project / project-list row. */
 export function normalizeAllocatedProject(row: unknown): AllocatedHubProject | null {
   const record = asRecord(row);
@@ -123,9 +144,7 @@ export function normalizeAllocatedProject(row: unknown): AllocatedHubProject | n
     asRecord(record.hubProject) ||
     asRecord(record.clientProject) ||
     null;
-  const id =
-    stringField(record, 'id', 'projectId', 'hubProjectId', 'clientProjectId') ||
-    (nested ? stringField(nested, 'id', 'projectId', 'hubProjectId') : null);
+  const id = extractHubProjectId(record, nested);
   // Prefer explicit `name` (EIP). Hub allocated-projects / list uses `title` as project name.
   const hasExplicitName = Boolean(stringField(record, 'name', 'projectName', 'hubProjectName'));
   const name =
@@ -133,6 +152,10 @@ export function normalizeAllocatedProject(row: unknown): AllocatedHubProject | n
     stringField(record, 'title') ||
     (nested ? stringField(nested, 'name', 'projectName', 'title') : null);
   if (!id || !name) {
+    const keys = Object.keys(record).slice(0, 12).join(', ');
+    logWarn(
+      `[HubAllocations] Dropped project row — missing ${!id ? 'id' : 'name'} (keys: ${keys || 'none'})`
+    );
     return null;
   }
   const hours = numberField(record, 'hours', 'allocatedHours', 'hours_per_week');

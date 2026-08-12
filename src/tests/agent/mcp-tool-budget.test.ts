@@ -419,7 +419,7 @@ describe('buildMcpMetaTools', () => {
       emptyExtensionCtx
     );
     expect(hubManager.callTool).toHaveBeenCalledWith('mcp__York_IE_HUB__get_project', {
-      id: 'coach-uuid',
+      projectId: 'coach-uuid',
     });
   });
 

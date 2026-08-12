@@ -1000,6 +1000,7 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,
+      spellcheck: true,
     },
   };
 
@@ -1018,6 +1019,30 @@ function createWindow() {
 
   mainWindow = new BrowserWindow(windowOptions);
   mainWindow.setTitle(PRODUCT_NAME);
+
+  mainWindow.webContents.on('context-menu', (_event, params) => {
+    const template: Electron.MenuItemConstructorOptions[] = [
+      { role: 'undo', enabled: params.editFlags.canUndo },
+      { role: 'redo', enabled: params.editFlags.canRedo },
+      { type: 'separator' },
+      { role: 'cut', enabled: params.editFlags.canCut },
+      { role: 'copy', enabled: params.editFlags.canCopy },
+      { role: 'paste', enabled: params.editFlags.canPaste },
+      { role: 'selectAll', enabled: params.editFlags.canSelectAll },
+    ];
+
+    if (params.misspelledWord && params.dictionarySuggestions?.length) {
+      template.unshift(
+        ...params.dictionarySuggestions.slice(0, 5).map((suggestion) => ({
+          label: suggestion,
+          click: () => mainWindow?.webContents.replaceMisspelling(suggestion),
+        })),
+        { type: 'separator' }
+      );
+    }
+
+    Menu.buildFromTemplate(template).popup({ window: mainWindow! });
+  });
 
   const allowedOrigins = new Set<string>();
   if (process.env.VITE_DEV_SERVER_URL) {

@@ -46,6 +46,7 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
   const [loadingProjects, setLoadingProjects] = useState(false);
   const [loadingFolders, setLoadingFolders] = useState(false);
   const [projectsError, setProjectsError] = useState<string | null>(null);
+  const [staleProjectWarning, setStaleProjectWarning] = useState<string | null>(null);
   const [newFolderName, setNewFolderName] = useState('');
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -62,7 +63,7 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
     return () => document.removeEventListener('mousedown', onDocClick);
   }, [menuOpen]);
 
-  const loadProjects = useCallback(async () => {
+  const loadProjects = useCallback(async (): Promise<UnifiedCompanyProject[]> => {
     setLoadingProjects(true);
     setProjectsError(null);
     try {
@@ -72,45 +73,83 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
         if (!hubApi?.listAllocatedProjects) {
           setProjects([]);
           setProjectsError('Projects unavailable');
-          return;
+          return [];
         }
         const result = await hubApi.listAllocatedProjects();
         if (!result.success) {
           setProjects([]);
           setProjectsError(result.error || 'Failed to load projects');
-          return;
+          return [];
         }
-        setProjects(
-          (result.projects || []).map((p) => ({
-            canonicalKey: `hub:${p.id}`,
-            name: p.name,
-            sources: { hub: true as const },
-            hubProjectId: p.id,
-            hubProjectName: p.name,
-          }))
-        );
-        if (!(result.projects || []).length) {
+        const mapped = (result.projects || []).map((p) => ({
+          canonicalKey: `hub:${p.id}`,
+          name: p.name,
+          sources: { hub: true as const },
+          hubProjectId: p.id,
+          hubProjectName: p.name,
+        }));
+        setProjects(mapped);
+        if (!mapped.length) {
           setProjectsError('No projects');
         }
-        return;
+        return mapped;
       }
       const result = await api.listUnified();
-      setProjects(result.projects || []);
+      const loaded = result.projects || [];
+      setProjects(loaded);
       const partial: string[] = [];
       if (result.hubError) partial.push(`Hub: ${result.hubError}`);
       if (result.launchpadError) partial.push(`LaunchPad: ${result.launchpadError}`);
-      if (!(result.projects || []).length) {
+      if (!loaded.length) {
         setProjectsError(partial.join(' · ') || result.error || 'No projects');
       } else if (partial.length) {
         setProjectsError(partial.join(' · '));
       }
+      return loaded;
     } catch (error) {
       setProjects([]);
       setProjectsError(error instanceof Error ? error.message : 'Failed to load projects');
+      return [];
     } finally {
       setLoadingProjects(false);
     }
   }, []);
+
+  // Warn when the stored project workspace is no longer in the live allocation list.
+  useEffect(() => {
+    if (activeDivision?.kind !== 'project') {
+      setStaleProjectWarning(null);
+      return;
+    }
+
+    const division = activeDivision;
+    const activeKey = division.canonicalKey;
+    const projectName = division.name || 'This project';
+    let cancelled = false;
+
+    void (async () => {
+      const loaded = await loadProjects();
+      if (cancelled) return;
+
+      const found = loaded.some((p) => canonicalKeyForUnified(p) === activeKey);
+      if (!found) {
+        const message = `"${projectName}" is no longer in your project list. Hub lookups may fail — select another project in the sidebar.`;
+        setStaleProjectWarning(message);
+        useAppStore.getState().setGlobalNotice({
+          id: `stale-project:${activeKey}`,
+          type: 'warning',
+          message,
+          durationMs: 12_000,
+        });
+      } else {
+        setStaleProjectWarning(null);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeDivision, loadProjects]);
 
   const loadFolders = useCallback(async () => {
     setLoadingFolders(true);
@@ -241,6 +280,12 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
           className={`${compact ? 'h-3 w-3' : 'h-3.5 w-3.5'} shrink-0 text-text-muted`}
         />
       </button>
+
+      {staleProjectWarning && !menuOpen && (
+        <p className="mt-1 px-0.5 text-[10px] leading-snug text-amber-700 dark:text-amber-300">
+          {staleProjectWarning}
+        </p>
+      )}
 
       {menuOpen && (
         <div className="absolute left-0 right-0 z-40 mt-1 overflow-hidden rounded-lg border border-border bg-background shadow-lg">

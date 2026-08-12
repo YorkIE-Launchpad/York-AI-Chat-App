@@ -55,7 +55,10 @@ import { extractArtifactsFromText, buildArtifactTraceSteps } from '../utils/arti
 import { getDefaultShell } from '../utils/shell-resolver';
 import { PluginRuntimeService } from '../skills/plugin-runtime-service';
 import type { SkillsAdapter } from '../skills/skills-adapter';
-import { expandLaunchPadSkillIntent } from '../skills/skill-intent-expand';
+import {
+  expandLaunchPadSkillIntent,
+  expandYorkOsSkillIntent,
+} from '../skills/skill-intent-expand';
 import {
   discoverSkillsFromPaths,
   expandAtSkillMentions,
@@ -2347,6 +2350,14 @@ ${hints.join('\n')}
               log(
                 `[CoworkAgentRunner] Auto-injected LaunchPad skill /${launchpadExpansion.skillName} for ${why}`
               );
+            } else {
+              const yorkOsExpansion = expandYorkOsSkillIntent(prompt, expandableSkills);
+              if (yorkOsExpansion.expanded) {
+                expandedUserPrompt = yorkOsExpansion.text;
+                log(
+                  `[CoworkAgentRunner] Auto-injected York OS skill /${yorkOsExpansion.skillName} for Confluence/wiki document intent`
+                );
+              }
             }
           }
         }
@@ -2664,7 +2675,7 @@ ${workspaceListing ? `\nTop-level entries in the workspace:\n${workspaceListing}
 8. Google Calendar create/update/delete: call the tool when available (approval UI may prompt). Do not refuse and hand the user a copy-paste invite instead.
 9. York company/work asks (meetings, agendas/prep, people, leave, client or project status, delivery, promises/follow-ups): load the york-os skill and use connected connectors as it directs. Do not answer from a single connector when the ask implies prep, brief, status, or enrich.
 10. Multi-source company asks: form a short tool-call plan (phases + cross-tool join keys such as emails, clientId, projectId, eventId), then execute; chain ids/emails from one tool into the next; never re-ask the user for values tools already returned. In mcp_search_tools meta mode, search narrowly by connector/keyword and call mcp_call_tool immediately after discovery.
-11. HTML-FIRST CREATIONS: When the user asks to create a presentation, deck, one-pager, report page, dashboard mock, landing page, interactive handout, or similar visual deliverable — and they have NOT explicitly requested an Office/PDF format (pptx, docx, xlsx, pdf, PowerPoint, Word, Excel) — write a self-contained HTML file under outputs/ (e.g. outputs/client-update.html). Load the html-artifact skill. After writing, emit a compact \`\`\`artifact block with JSON {"path":"outputs/...html","name":"...","type":"html"} so the in-app preview can open. Do not default to pptx/docx/xlsx/pdf skills unless the user named those formats.
+11. HTML-FIRST CREATIONS: When the user asks to create a presentation, deck, one-pager, report page, dashboard mock, landing page, interactive handout, or similar visual deliverable — and they have NOT explicitly requested an Office/PDF format (pptx, docx, xlsx, pdf, PowerPoint, Word, Excel) or a Confluence/wiki/Atlassian page — write a self-contained HTML file under outputs/ (e.g. outputs/client-update.html). Load the html-artifact skill. After writing, emit a compact \`\`\`artifact block with JSON {"path":"outputs/...html","name":"...","type":"html"} so the in-app preview can open. Do not default to pptx/docx/xlsx/pdf skills unless the user named those formats. When the user names Confluence, wiki, or Atlassian, do NOT default to HTML — use Confluence MCP (createConfluencePage / updateConfluencePage) per york-os on the first actionable turn.
 12. LAUNCHPAD DELIVERY: In Project workspace, the rnd-launchpad-mcp-sdlc skill is mandatory every turn (auto-injected). Elsewhere: on LaunchPad implement / preview / release / feature / bug / QA asks, follow that skill and use LaunchPad MCP tools. "On preview" / LaunchPad preview ⇒ start_scope_implement with target platform (never development or Backend Code unless the user explicitly names that surface). After any start tool, keep polling status tools until terminal — do not stop mid-job or ask the user to wait. On terminal implement for a preview ask, call start_preview next; after lock settles, seed the new active. Never claim a local "implementation workspace" is missing — platform work is MCP-remote. Call tools (mcp_call_tool immediately after mcp_search_tools in meta mode).
 13. GOAL LOOPS: When the message is a goal tick ("Continue working toward this goal"), mentions GOAL_STATUS, or the user asks to keep going until done / finish a goal, load the goal-runner skill. Auto-detect goal type (including launchpad for LaunchPad release/migrate/preview/fidelity), take concrete next steps, and end every such reply with exactly GOAL_STATUS: complete or GOAL_STATUS: in_progress. Only complete with evidence; never mark complete for a plan alone. After any start tool, keep the turn alive and poll to terminal (same as rule 12 for LaunchPad) — do not park solely because a job "started" or wait for the next goal interval. If forced to park mid long job, emit RESUME: projectId=… releaseId=… … step=… next=<status_tool> before in_progress. Resume RESUME: lines on the next tick first. LaunchPad domain work must also load rnd-launchpad-mcp-sdlc.${workspaceScopeRule}`,
         profileInstructionsPrompt,

@@ -316,6 +316,7 @@ export function AskGrowthOSPopup() {
             <textarea
               ref={textareaRef}
               value={prompt}
+              spellCheck={true}
               onChange={(e) => setPrompt(e.target.value)}
               onKeyDown={onKeyDownComposer}
               rows={2}
