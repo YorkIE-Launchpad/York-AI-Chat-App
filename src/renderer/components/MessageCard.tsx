@@ -4,8 +4,10 @@ import { useState, memo, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Copy, Check, Ban } from 'lucide-react';
 import type { Message, ContentBlock, ToolUseContent, ToolResultContent } from '../types';
+import { isClientOutdatedError } from '../../shared/client-version';
 import { ContentBlockView } from './message/ContentBlockView';
 import { McpSourcesFooter } from './message/McpSourcesFooter';
+import { ClientOutdatedUpdateActions } from './ClientOutdatedUpdateActions';
 import { shouldShowMcpSourcesFooter } from '../utils/mcp-sources';
 
 interface MessageCardProps {
@@ -66,6 +68,11 @@ export const MessageCard = memo(function MessageCard({
         .filter(Boolean)
         .join('\n\n'),
     [contentBlocks]
+  );
+
+  const showClientOutdatedUpdate = useMemo(
+    () => !isUser && !isStreaming && isClientOutdatedError(textToCopy),
+    [isStreaming, isUser, textToCopy]
   );
 
   const handleCopy = async () => {
@@ -164,6 +171,9 @@ export const MessageCard = memo(function MessageCard({
             );
           })}
           {mcpSourcesFooter.show && <McpSourcesFooter sources={mcpSourcesFooter.sources} />}
+          {showClientOutdatedUpdate ? (
+            <ClientOutdatedUpdateActions className="mt-2 max-w-md" />
+          ) : null}
           {textToCopy && !isStreaming ? (
             <div className="flex items-center gap-1 pt-1 -ml-1.5">
               {copyButton(

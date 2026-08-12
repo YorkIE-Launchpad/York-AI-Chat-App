@@ -67,6 +67,7 @@ import {
 } from '../utils/load-composer-image';
 import { useDictation } from '../hooks/useDictation';
 import { DictationButton } from './DictationButton';
+import { ClientOutdatedUpdateActions } from './ClientOutdatedUpdateActions';
 import { needsOpenRouterUserKey } from '../../shared/openrouter-user-key';
 
 type AttachedFile = {
@@ -1675,6 +1676,10 @@ export function ChatView() {
                 </button>
               </div>
             </div>
+
+            {dictationStatus === 'error' && dictationErrorKind === 'client_outdated' ? (
+              <ClientOutdatedUpdateActions className="mt-2" />
+            ) : null}
 
             <p className="text-[11px] text-text-muted/60 text-center mt-2.5">
               {t('chat.disclaimer')}

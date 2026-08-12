@@ -27,6 +27,9 @@ function titleForState(
     if (errorKind === 'sign_in') {
       return t('chat.dictationSignInRequired');
     }
+    if (errorKind === 'client_outdated') {
+      return t('chat.dictationClientOutdated');
+    }
     return t('chat.dictationFailed');
   }
   return t('chat.dictationStart');

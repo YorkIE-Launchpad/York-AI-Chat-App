@@ -6,6 +6,11 @@ import {
   type ThinkingContent,
   type ToolCall,
 } from '@mariozechner/pi-ai';
+import {
+  CLIENT_OUTDATED_UPDATE_HINT,
+  isClientOutdatedError,
+  resolveClientOutdatedUserMessage,
+} from '../../shared/client-version';
 
 type MessageEndContentBlock = TextContent | ThinkingContent | ToolCall;
 
@@ -112,6 +117,10 @@ export function toUserFacingErrorText(errorText: string): string {
   if (lower.includes('empty_success_result')) {
     return 'The model returned an empty success result. The current model or gateway may have compatibility issues. Please retry or switch protocols.';
   }
+  // Outdated Electron app (backend min-version gate) — before generic 4xx hints.
+  if (isClientOutdatedError(errorText)) {
+    return resolveClientOutdatedUserMessage(errorText);
+  }
   // Usage/quota rejections often arrive as HTTP 400 invalid_request_error — detect before generic 400.
   if (isUsageLimitError(errorText)) {
     return USAGE_LIMIT_USER_MESSAGE;
@@ -189,6 +198,8 @@ export function buildTerminalErrorMessage(errorText: string, partialText = ''): 
     hint = '_Please retry later or contact your admin._';
   } else if (isContextOverflowError(errorText)) {
     hint = '_Use Compact in the context bar, or start a new chat._';
+  } else if (isClientOutdatedError(errorText)) {
+    hint = `_${CLIENT_OUTDATED_UPDATE_HINT}_`;
   } else if (FOUR_XX_ERROR_RE.test(errorText)) {
     hint = '_Please check your configuration and retry._';
   }

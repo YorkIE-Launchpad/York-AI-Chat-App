@@ -18,6 +18,7 @@ vi.mock('../../main/auth/session', () => ({
 
 vi.mock('../../main/config/backend-auth', () => ({
   resolveBackendClientApiKey: (...args: unknown[]) => resolveBackendClientApiKeyMock(...args),
+  getClientAppVersion: () => '3.3.6',
 }));
 
 vi.mock('../../shared/backend-config', () => ({
@@ -115,6 +116,28 @@ describe('createRealtimeTranslationSession', () => {
     const { createRealtimeTranslationSession } =
       await import('../../main/dictation/dictation-service');
     await expect(createRealtimeTranslationSession()).rejects.toThrow(/Invalid authentication/);
+  });
+
+  it('surfaces app update required for HTTP 426 client_outdated', async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 426,
+      text: async () =>
+        JSON.stringify({
+          error: 'client_outdated',
+          message:
+            'Please update York IE GrowthOS to continue. This app is v3.2.0; v3.3.1 or newer is required.',
+          minVersion: '3.3.1',
+          clientVersion: '3.2.0',
+        }),
+    });
+
+    const { createRealtimeTranslationSession } =
+      await import('../../main/dictation/dictation-service');
+    await expect(createRealtimeTranslationSession()).rejects.toThrow(
+      /Please update York IE GrowthOS/
+    );
+    await expect(createRealtimeTranslationSession()).rejects.toThrow(/v3\.3\.1/);
   });
 });
 

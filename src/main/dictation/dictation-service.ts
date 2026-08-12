@@ -1,6 +1,9 @@
 import { createHash } from 'node:crypto';
 import { BACKEND_PROXY_PLACEHOLDER_KEY, getBackendProxyBaseUrl } from '../../shared/backend-config';
-import { YORK_APP_VERSION_HEADER } from '../../shared/client-version';
+import {
+  resolveClientOutdatedFromHttpResponse,
+  YORK_APP_VERSION_HEADER,
+} from '../../shared/client-version';
 import { isAuthenticated, ensureAuthenticatedSession } from '../auth/session';
 import { getClientAppVersion, resolveBackendClientApiKey } from '../config/backend-auth';
 import { log, logWarn } from '../utils/logger';
@@ -108,6 +111,17 @@ export async function createRealtimeTranslationSession(
   }
 
   if (!response.ok) {
+    const outdatedMessage = resolveClientOutdatedFromHttpResponse(
+      response.status,
+      payload,
+      rawText
+    );
+    if (outdatedMessage) {
+      logWarn('[Dictation] Realtime session blocked — app update required', {
+        status: response.status,
+      });
+      throw new Error(outdatedMessage);
+    }
     const message =
       payload &&
       typeof payload === 'object' &&

@@ -11,6 +11,10 @@ import {
   CONTEXT_OVERFLOW_USER_MESSAGE,
   USAGE_LIMIT_USER_MESSAGE,
 } from '../src/main/agent/agent-runner-message-end';
+import {
+  CLIENT_OUTDATED_UPDATE_HINT,
+  CLIENT_OUTDATED_USER_MESSAGE,
+} from '../src/shared/client-version';
 
 describe('resolveMessageEndPayload', () => {
   it('falls back to accumulated streamed text when message_end content is empty', () => {
@@ -276,6 +280,22 @@ describe('toUserFacingErrorText', () => {
     const result = toUserFacingErrorText('retry delay exceeded');
     expect(result).toContain('Network connection interrupted');
   });
+
+  it('maps HTTP 426 / client_outdated to app update copy (not config hint)', () => {
+    const raw =
+      '426 {"error":"client_outdated","message":"Please update York IE GrowthOS to continue. This app is v3.2.0; v3.3.1 or newer is required.","minVersion":"3.3.1","clientVersion":"3.2.0"}';
+    const result = toUserFacingErrorText(raw);
+    expect(result).toContain('Please update York IE GrowthOS');
+    expect(result).toContain('v3.2.0');
+    expect(result).toContain('v3.3.1');
+    expect(result).not.toContain('check your configuration');
+    expect(result).not.toContain('Original error:');
+  });
+
+  it('maps bare HTTP 426 Upgrade Required to app update copy', () => {
+    const result = toUserFacingErrorText('426 Upgrade Required');
+    expect(result).toBe(CLIENT_OUTDATED_USER_MESSAGE);
+  });
 });
 
 describe('resolveAssistantStreamErrorText', () => {
@@ -420,6 +440,16 @@ describe('buildTerminalErrorMessage', () => {
   it('uses the compact hint for bare 413 errors (not configuration)', () => {
     const result = buildTerminalErrorMessage('413');
     expect(result).toContain('_Use Compact in the context bar, or start a new chat._');
+    expect(result).not.toContain('_Please check your configuration and retry._');
+  });
+
+  it('uses the update hint for client-outdated terminal errors', () => {
+    const sanitized = toUserFacingErrorText(
+      '426 {"error":"client_outdated","message":"Please update York IE GrowthOS to continue. This app is v3.2.0; v3.3.1 or newer is required."}'
+    );
+    const result = buildTerminalErrorMessage(sanitized);
+    expect(result).toContain('Please update York IE GrowthOS');
+    expect(result).toContain(`_${CLIENT_OUTDATED_UPDATE_HINT}_`);
     expect(result).not.toContain('_Please check your configuration and retry._');
   });
 });

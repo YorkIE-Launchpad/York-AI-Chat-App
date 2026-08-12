@@ -7,7 +7,9 @@ import { useAskGrowthOSState, useSessionMessages } from '../store/selectors';
 import { useIPC } from '../hooks/useIPC';
 import { useDictation } from '../hooks/useDictation';
 import { DictationButton } from './DictationButton';
+import { ClientOutdatedUpdateActions } from './ClientOutdatedUpdateActions';
 import { MessageMarkdown } from './MessageMarkdown';
+import { isClientOutdatedError } from '../../shared/client-version';
 import { getInitialSessionTitle } from '../../shared/session-title';
 import type { ContentBlock, Message } from '../types';
 
@@ -272,26 +274,27 @@ export function AskGrowthOSPopup() {
                   return null;
                 }
                 const isUser = message.role === 'user';
+                const showUpdate = !isUser && isClientOutdatedError(text);
                 return (
-                  <div
-                    key={message.id}
-                    className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}
-                  >
-                    <div
-                      className={`max-w-[92%] rounded-2xl px-3.5 py-2.5 text-sm ${
-                        isUser
-                          ? 'bg-accent text-white'
-                          : 'border border-border-subtle bg-background text-text-primary'
-                      }`}
-                    >
-                      {isUser ? (
-                        <p className="whitespace-pre-wrap">{text || '…'}</p>
-                      ) : (
-                        <div className="prose-sm max-w-none">
-                          <MessageMarkdown normalizedText={text} />
-                        </div>
-                      )}
+                  <div key={message.id} className="space-y-2">
+                    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
+                      <div
+                        className={`max-w-[92%] rounded-2xl px-3.5 py-2.5 text-sm ${
+                          isUser
+                            ? 'bg-accent text-white'
+                            : 'border border-border-subtle bg-background text-text-primary'
+                        }`}
+                      >
+                        {isUser ? (
+                          <p className="whitespace-pre-wrap">{text || '…'}</p>
+                        ) : (
+                          <div className="prose-sm max-w-none">
+                            <MessageMarkdown normalizedText={text} />
+                          </div>
+                        )}
+                      </div>
                     </div>
+                    {showUpdate ? <ClientOutdatedUpdateActions /> : null}
                   </div>
                 );
               })}
@@ -352,13 +355,17 @@ export function AskGrowthOSPopup() {
             <p className="mt-1.5 px-1 text-[11px] text-accent">{t('chat.dictationListening')}</p>
           ) : null}
           {dictation.status === 'error' && dictation.errorKind ? (
-            <p className="mt-1.5 px-1 text-[11px] text-error">
-              {dictation.errorKind === 'mic_denied'
-                ? t('chat.dictationMicDenied')
-                : dictation.errorKind === 'sign_in'
-                  ? t('chat.dictationSignInRequired')
-                  : t('chat.dictationFailed')}
-            </p>
+            dictation.errorKind === 'client_outdated' ? (
+              <ClientOutdatedUpdateActions className="mt-2" />
+            ) : (
+              <p className="mt-1.5 px-1 text-[11px] text-error">
+                {dictation.errorKind === 'mic_denied'
+                  ? t('chat.dictationMicDenied')
+                  : dictation.errorKind === 'sign_in'
+                    ? t('chat.dictationSignInRequired')
+                    : t('chat.dictationFailed')}
+              </p>
+            )
           ) : null}
         </div>
       </div>

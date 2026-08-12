@@ -64,6 +64,7 @@ import {
 } from '../utils/load-composer-image';
 import { useDictation } from '../hooks/useDictation';
 import { DictationButton } from './DictationButton';
+import { ClientOutdatedUpdateActions } from './ClientOutdatedUpdateActions';
 import {
   formatInterval,
   isLoopSlashInput,
@@ -1294,6 +1295,9 @@ export function WelcomeView() {
                 </div>
               </div>
             </form>
+            {dictationStatus === 'error' && dictationErrorKind === 'client_outdated' ? (
+              <ClientOutdatedUpdateActions className="mt-3" />
+            ) : null}
           </>
         )}
       </div>

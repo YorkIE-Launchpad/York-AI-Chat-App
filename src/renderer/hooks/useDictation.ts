@@ -1,8 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { isClientOutdatedError } from '../../shared/client-version';
 
 export type DictationStatus = 'idle' | 'connecting' | 'recording' | 'error';
 
-export type DictationErrorKind = 'mic_denied' | 'sign_in' | 'unsupported' | 'failed' | null;
+export type DictationErrorKind =
+  | 'mic_denied'
+  | 'sign_in'
+  | 'unsupported'
+  | 'failed'
+  | 'client_outdated'
+  | null;
 
 const OPENAI_TRANSLATION_CALLS_URL = 'https://api.openai.com/v1/realtime/translations/calls';
 
@@ -308,6 +315,8 @@ export function useDictation({
         setErrorKind('mic_denied');
       } else if (/sign in/i.test(message)) {
         setErrorKind('sign_in');
+      } else if (isClientOutdatedError(message)) {
+        setErrorKind('client_outdated');
       } else {
         setErrorKind('failed');
       }

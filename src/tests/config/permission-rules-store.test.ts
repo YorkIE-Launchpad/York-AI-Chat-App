@@ -9,7 +9,8 @@
  *   - Built-in Chrome MCP (`mcp__Chrome__*`), R&D Launchpad MCP (`mcp__R_D_Launchpad__*` /
  *     legacy `mcp__Launchpad__*`), York IE HUB MCP (`mcp__York_IE_HUB__*` / legacy `mcp__Hub__*`),
  *     GTM Pulse MCP (`mcp__GTM_Pulse__*`), OpenAI meta-tools (`mcp_run`, `mcp_search_tools`, `mcp_call_tool`),
- *     meeting tools (`meeting_search`, `meeting_read`), and `webfetch` auto-allow, overridable by rules
+ *     meeting tools (`meeting_search`, `meeting_read`), wiki tools (`wiki_search`,
+ *     `wiki_read`, `wiki_list`), and `webfetch` auto-allow, overridable by rules
  *   - Garbage / malformed renderer input falls back to DEFAULT_RULES so the
  *     fail-safe is an extra prompt, never a silent auto-allow
  *   - Malformed individual rule entries are coerced to 'ask' rather than
@@ -302,6 +303,13 @@ describe('permission-rules-store', () => {
       expect(decidePermission(SESSION_A, 'Meeting_Search', { query: 'standup' })).toBe('allow');
     });
 
+    it('returns allow for wiki tools by default', () => {
+      expect(decidePermission(SESSION_A, 'wiki_search', { query: 'acme' })).toBe('allow');
+      expect(decidePermission(SESSION_A, 'wiki_read', { path: 'clients/acme' })).toBe('allow');
+      expect(decidePermission(SESSION_A, 'wiki_list', { pathPrefix: 'clients' })).toBe('allow');
+      expect(decidePermission(SESSION_A, 'Wiki_Search', { query: 'acme' })).toBe('allow');
+    });
+
     it('returns ask for non-builtin MCP tools by default', () => {
       expect(decidePermission(SESSION_A, 'mcp__Notion__search', {})).toBe('ask');
     });
@@ -410,6 +418,13 @@ describe('permission-rules-store', () => {
       setPermissionRules([{ tool: 'meeting_search', action: 'ask' }]);
       expect(decidePermission(SESSION_A, 'meeting_search', { query: 'standup' })).toBe('ask');
       expect(decidePermission(SESSION_A, 'meeting_read', { id: 'm1' })).toBe('allow');
+    });
+
+    it('explicit ask rule for a wiki tool overrides the built-in allow', () => {
+      setPermissionRules([{ tool: 'wiki_search', action: 'ask' }]);
+      expect(decidePermission(SESSION_A, 'wiki_search', { query: 'acme' })).toBe('ask');
+      expect(decidePermission(SESSION_A, 'wiki_read', { path: 'clients/acme' })).toBe('allow');
+      expect(decidePermission(SESSION_A, 'wiki_list', {})).toBe('allow');
     });
   });
 

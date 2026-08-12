@@ -89,6 +89,7 @@ export function getPermissionRules(): PermissionRule[] {
  *      Slack / Gmail / Drive / Calendar / Jira / Confluence read tools (see allowlists below; write tools ask),
  *      OpenAI budget meta-tools (`mcp_run`, and child-only `mcp_search_tools` / `mcp_call_tool`),
  *      first-party meeting tools (`meeting_search`, `meeting_read`),
+ *      first-party wiki tools (`wiki_search`, `wiki_read`, `wiki_list`),
  *      and the first-party `webfetch` tool
  *   4. Default: 'ask' for unknown tools (conservative)
  *
@@ -122,7 +123,7 @@ export function decidePermission(
 
   // Built-in default: Chrome / R&D Launchpad / R&D Pulse / York IE HUB / GTM Pulse /
   // Slack / Gmail / Drive / Calendar / Jira / Confluence read tools,
-  // first-party meeting tools, and webfetch run without a permission prompt.
+  // first-party meeting / wiki tools, and webfetch run without a permission prompt.
   // Slack / Gmail / Drive / Calendar / Jira / Confluence write tools fall through to 'ask'.
   // Explicit rules for a specific tool still win above.
   // Legacy Launchpad/Hub prefixes are kept so older connector names keep working.
@@ -136,6 +137,9 @@ export function decidePermission(
   if (MCP_FIRST_PARTY_READ_TOOLS.has(lowered)) return 'allow';
   if (lowered === 'meeting_search') return 'allow';
   if (lowered === 'meeting_read') return 'allow';
+  if (lowered === 'wiki_search') return 'allow';
+  if (lowered === 'wiki_read') return 'allow';
+  if (lowered === 'wiki_list') return 'allow';
   if (lowered === 'webfetch') return 'allow';
   if (lowered === 'mcp_run') return 'allow';
   if (lowered === 'mcp_search_tools') return 'allow';
