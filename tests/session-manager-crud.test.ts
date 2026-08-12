@@ -593,3 +593,28 @@ describe('SessionManager incognito sessions', () => {
     expect(manager.listSessions().some((s) => s.id === session.id)).toBe(false);
   });
 });
+
+describe('SessionManager.createIdleSession', () => {
+  it('persists an idle Hub session without enqueueing a prompt', async () => {
+    const sendToRenderer = vi.fn();
+    const db = makeDb();
+    const manager = new SessionManager(db, sendToRenderer);
+
+    const session = await manager.createIdleSession('Matter · Reply to Acme', undefined, undefined, undefined, {
+      division: 'hub',
+    });
+
+    expect(session.title).toBe('Matter · Reply to Acme');
+    expect(session.status).toBe('idle');
+    expect(session.division).toBe('hub');
+    expect(db.sessions.create).toHaveBeenCalledTimes(1);
+    expect(manager.getMessages(session.id)).toEqual([]);
+    // No agent turn should start from createIdleSession alone
+    expect(sendToRenderer).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'session.status',
+        payload: expect.objectContaining({ status: 'running' }),
+      })
+    );
+  });
+});

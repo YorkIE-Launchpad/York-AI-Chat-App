@@ -6,6 +6,8 @@ function makeEvent(type: ClientEvent['type']): ClientEvent {
   switch (type) {
     case 'session.start':
       return { type, payload: { title: 'Hello', prompt: 'World' } };
+    case 'session.create':
+      return { type, payload: { title: 'Matter · Item' } };
     case 'session.continue':
       return { type, payload: { sessionId: 'session-1', prompt: 'Next' } };
     case 'session.stop':
@@ -49,6 +51,7 @@ describe('eventRequiresSessionManager', () => {
   it('requires a session manager only for session and permission events', () => {
     const requiredTypes: ClientEvent['type'][] = [
       'session.start',
+      'session.create',
       'session.continue',
       'session.stop',
       'session.dequeue',

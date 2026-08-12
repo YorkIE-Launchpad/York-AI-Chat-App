@@ -1,8 +1,14 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { RefreshCw, Settings, X, Radio, Activity, Gauge, Plug, Clock3 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import type { MatterItem, MatterLensId, MatterSnapshot } from '../../../shared/matter';
+import type {
+  MatterItem,
+  MatterLensId,
+  MatterSeverity,
+  MatterSnapshot,
+} from '../../../shared/matter';
 import { DEFAULT_MATTER_RUNTIME, MATTER_DEFAULT_SNOOZE_MS } from '../../../shared/matter';
+import { buildMatterSessionTitle } from '../../../shared/matter-chat';
 import { useAppStore } from '../../store';
 import { useIPC } from '../../hooks/useIPC';
 import { MatterRadar } from './MatterRadar';
@@ -10,6 +16,38 @@ import { MatterSignalCard } from './MatterSignalCard';
 import { MatterLenses } from './MatterLenses';
 import { MatterAskBar } from './MatterAskBar';
 import { MatterItemDetail } from './MatterItemDetail';
+
+type MatterSeverityFilter = Extract<MatterSeverity, 'critical' | 'warning' | 'healthy'>;
+
+const SEVERITY_FILTERS: Array<{
+  id: MatterSeverityFilter;
+  label: string;
+  countKey: 'criticalCount' | 'warningCount' | 'healthyCount';
+  className: string;
+  activeClassName: string;
+}> = [
+  {
+    id: 'critical',
+    label: 'CRITICAL',
+    countKey: 'criticalCount',
+    className: 'text-red-400 hover:bg-red-400/10',
+    activeClassName: 'bg-red-400/15 ring-1 ring-red-400/40',
+  },
+  {
+    id: 'warning',
+    label: 'WARNING',
+    countKey: 'warningCount',
+    className: 'text-amber-400 hover:bg-amber-400/10',
+    activeClassName: 'bg-amber-400/15 ring-1 ring-amber-400/40',
+  },
+  {
+    id: 'healthy',
+    label: 'HEALTHY',
+    countKey: 'healthyCount',
+    className: 'text-emerald-400 hover:bg-emerald-400/10',
+    activeClassName: 'bg-emerald-400/15 ring-1 ring-emerald-400/40',
+  },
+];
 
 const EMPTY_SNAPSHOT: MatterSnapshot = {
   items: [],
@@ -36,15 +74,17 @@ interface MatterPageProps {
 
 export function MatterPage({ onClose }: MatterPageProps) {
   const { t } = useTranslation();
-  const { startSession } = useIPC();
+  const { startSession, createSession } = useIPC();
   const workingDir = useAppStore((s) => s.workingDir);
   const setSettingsTab = useAppStore((s) => s.setSettingsTab);
   const setShowSettings = useAppStore((s) => s.setShowSettings);
   const setMatterBadgeCount = useAppStore((s) => s.setMatterBadgeCount);
+  const setMatterChatDraft = useAppStore((s) => s.setMatterChatDraft);
 
   const [snapshot, setSnapshot] = useState<MatterSnapshot>(EMPTY_SNAPSHOT);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [activeLens, setActiveLens] = useState<MatterLensId | null>(null);
+  const [activeSeverity, setActiveSeverity] = useState<MatterSeverityFilter | null>(null);
   const [clearingNow, setClearingNow] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -71,13 +111,21 @@ export function MatterPage({ onClose }: MatterPageProps) {
   }, [refresh, applySnapshot]);
 
   const filteredItems = useMemo(() => {
-    if (!activeLens) return snapshot.items;
-    const lens = snapshot.lenses.find((l) => l.id === activeLens);
-    if (!lens) return snapshot.items;
-    const ids = new Set(lens.itemIds);
-    return snapshot.items.filter((i) => ids.has(i.id));
-  }, [snapshot.items, snapshot.lenses, activeLens]);
+    let items = snapshot.items;
+    if (activeLens) {
+      const lens = snapshot.lenses.find((l) => l.id === activeLens);
+      if (lens) {
+        const ids = new Set(lens.itemIds);
+        items = items.filter((i) => ids.has(i.id));
+      }
+    }
+    if (activeSeverity) {
+      items = items.filter((i) => i.severity === activeSeverity);
+    }
+    return items;
+  }, [snapshot.items, snapshot.lenses, activeLens, activeSeverity]);
 
+  const filterActive = Boolean(activeLens || activeSeverity);
   const highlightedIds = useMemo(() => new Set(filteredItems.map((i) => i.id)), [filteredItems]);
 
   const selectedItem = useMemo(
@@ -128,13 +176,43 @@ export function MatterPage({ onClose }: MatterPageProps) {
     }
   };
 
-  const handleChat = async (prompt: string, itemIds?: string[]) => {
+  const openSignalChat = async (item: MatterItem) => {
+    setBusy(true);
+    try {
+      const title = buildMatterSessionTitle(item.title);
+      const session = await createSession(title, workingDir || undefined, { division: 'hub' });
+      if (!session) return;
+      setMatterChatDraft(session.id, {
+        itemIds: [item.id],
+        composerPrefill: t('matter.chatComposerPrefill'),
+        contextSummary: {
+          title: item.title,
+          summary: item.summary,
+          whyItMatters: item.whyItMatters,
+          suggestedAction: item.suggestedAction,
+          sourceLabel: item.sourceRef.label || item.source,
+          url: item.sourceRef.url,
+        },
+      });
+      // setActiveSession (via createSession) already clears showMatter.
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** Ask bar: user already typed intent — build prompt and run immediately. */
+  const handleAsk = async (prompt: string, itemIds?: string[]) => {
     if (!window.electronAPI?.matter) return;
     setBusy(true);
     try {
       const built = await window.electronAPI.matter.buildChatPrompt(prompt, itemIds);
+      const titleItem =
+        (itemIds?.[0] && snapshot.items.find((i) => i.id === itemIds[0])) ||
+        snapshot.items[0] ||
+        null;
+      const title = buildMatterSessionTitle(titleItem?.title ?? null);
       // Matter is org/context radar — always open chats in Hub, not General.
-      await startSession('Matter', built.prompt, workingDir || undefined, { division: 'hub' });
+      await startSession(title, built.prompt, workingDir || undefined, { division: 'hub' });
     } finally {
       setBusy(false);
     }
@@ -298,9 +376,7 @@ export function MatterPage({ onClose }: MatterPageProps) {
                   onSnooze={() => void runAction(item, 'snooze')}
                   onPin={() => void runAction(item, item.pinned ? 'unpin' : 'pin')}
                   onOpen={() => void runAction(item, 'open')}
-                  onHandleChat={() =>
-                    void handleChat(`Help me resolve this Matter item: ${item.title}`, [item.id])
-                  }
+                  onHandleChat={() => void openSignalChat(item)}
                 />
               ))
             )}
@@ -315,15 +391,37 @@ export function MatterPage({ onClose }: MatterPageProps) {
               <MatterRadar
                 items={snapshot.items}
                 selectedId={selectedId}
-                highlightedIds={activeLens ? highlightedIds : new Set()}
+                highlightedIds={filterActive ? highlightedIds : new Set()}
                 pulse={snapshot.pulse}
                 onSelect={setSelectedId}
               />
             </div>
-            <div className="mt-3 flex items-center gap-6 text-[11px] font-semibold tracking-wide">
-              <span className="text-red-400">{snapshot.criticalCount} CRITICAL</span>
-              <span className="text-amber-400">{snapshot.warningCount} WARNING</span>
-              <span className="text-emerald-400">{snapshot.healthyCount} HEALTHY</span>
+            <div
+              className="mt-3 flex items-center gap-2 text-[11px] font-semibold tracking-wide"
+              role="group"
+              aria-label="Filter signals by severity"
+            >
+              {SEVERITY_FILTERS.map((sev) => {
+                const selected = activeSeverity === sev.id;
+                return (
+                  <button
+                    key={sev.id}
+                    type="button"
+                    onClick={() => setActiveSeverity(selected ? null : sev.id)}
+                    aria-pressed={selected}
+                    title={
+                      selected
+                        ? `Clear ${sev.label.toLowerCase()} filter`
+                        : `Show ${sev.label.toLowerCase()} signals`
+                    }
+                    className={`rounded-lg px-2.5 py-1 transition-colors ${sev.className} ${
+                      selected ? sev.activeClassName : ''
+                    }`}
+                  >
+                    {snapshot[sev.countKey]} {sev.label}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
@@ -337,11 +435,7 @@ export function MatterPage({ onClose }: MatterPageProps) {
                 onSnooze={() => void runAction(selectedItem, 'snooze')}
                 onPin={() => void runAction(selectedItem, selectedItem.pinned ? 'unpin' : 'pin')}
                 onOpen={() => void runAction(selectedItem, 'open')}
-                onHandleChat={() =>
-                  void handleChat(`Help me resolve this Matter item: ${selectedItem.title}`, [
-                    selectedItem.id,
-                  ])
-                }
+                onHandleChat={() => void openSignalChat(selectedItem)}
               />
             </div>
           ) : null}
@@ -360,7 +454,7 @@ export function MatterPage({ onClose }: MatterPageProps) {
       <MatterAskBar
         disabled={busy}
         onAsk={(prompt) =>
-          void handleChat(
+          void handleAsk(
             prompt,
             selectedId ? [selectedId] : snapshot.items.slice(0, 5).map((i) => i.id)
           )

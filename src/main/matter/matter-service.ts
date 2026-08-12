@@ -606,7 +606,7 @@ export class MatterService {
       prompt.trim(),
       '',
       '---',
-      'Matter context (use york-os / connected tools to resolve; do not invent sources):',
+      'Matter context (use york-os / connected tools as needed; wait for my guidance — do not take action unless I ask; do not invent sources):',
       `Pulse: ${snapshot.pulse}`,
       `Focus score: ${snapshot.focusScore}`,
       `Profile: ${snapshot.profileSummary || 'unknown'}`,

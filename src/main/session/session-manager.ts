@@ -337,6 +337,51 @@ export class SessionManager {
     return session;
   }
 
+  /**
+   * Create a persisted (or ephemeral) idle session without enqueueing a prompt.
+   * Used when the UI should wait for the user's first message (e.g. Matter Chat).
+   */
+  async createIdleSession(
+    title: string,
+    cwd?: string,
+    allowedTools?: string[],
+    memoryEnabled?: boolean,
+    options?: {
+      model?: string;
+      provider?: string;
+      lockModel?: boolean;
+      division?: SessionDivisionFields['division'];
+      hubProjectId?: string | null;
+      hubProjectName?: string | null;
+      launchpadProjectId?: number | null;
+      launchpadProjectName?: string | null;
+      folderId?: string | null;
+      folderName?: string | null;
+      canonicalKey?: string | null;
+      incognito?: boolean;
+    }
+  ): Promise<Session> {
+    const isIncognito = options?.incognito === true;
+    log('[SessionManager] Creating idle session:', title, isIncognito ? '(incognito)' : '');
+
+    const session = this.createSession(
+      isIncognito ? title || 'Incognito' : title,
+      cwd,
+      allowedTools,
+      isIncognito ? false : memoryEnabled,
+      options
+    );
+
+    if (session.incognito) {
+      this.ephemeralSessions.set(session.id, session);
+      this.messageCache.set(session.id, []);
+    } else {
+      this.saveSession(session);
+    }
+
+    return session;
+  }
+
   isIncognitoSession(sessionId: string): boolean {
     return this.ephemeralSessions.has(sessionId);
   }

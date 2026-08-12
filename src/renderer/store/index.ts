@@ -15,6 +15,7 @@ import type {
 } from '../types';
 import { applySessionUpdate } from '../utils/session-update';
 import type { ActiveDivision } from '../../shared/workspace-division';
+import type { MatterChatDraft } from '../../shared/matter-chat';
 import {
   loadActiveDivisionFromStorage,
   saveActiveDivisionToStorage,
@@ -168,6 +169,12 @@ interface AppState {
   /** Active /loop|/goal status keyed by sessionId (null/missing = no loop). */
   chatLoopBySessionId: Record<string, ChatLoopStatus>;
 
+  /**
+   * Pending Matter chat draft keyed by session id — context card + composer prefill
+   * until the user sends their first message (no auto-run).
+   */
+  matterChatDraftBySessionId: Record<string, MatterChatDraft>;
+
   // System theme (from OS native theme)
   systemDarkMode: boolean;
 
@@ -259,6 +266,9 @@ interface AppState {
 
   setChatLoopStatus: (sessionId: string, status: ChatLoopStatus | null) => void;
 
+  setMatterChatDraft: (sessionId: string, draft: MatterChatDraft) => void;
+  clearMatterChatDraft: (sessionId: string) => void;
+
   // Context window actions
   setSessionContextWindow: (sessionId: string, contextWindow: number) => void;
 
@@ -331,6 +341,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   skillsStorageChangedAt: 0,
   skillsStorageChangeEvent: null,
   chatLoopBySessionId: {},
+  matterChatDraftBySessionId: {},
   systemDarkMode: false,
   incognitoDraft: false,
 
@@ -370,10 +381,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       const restScrollPositions = Object.fromEntries(
         Object.entries(state.sessionScrollPositions).filter(([id]) => id !== sessionId)
       );
+      const restMatterDrafts = { ...state.matterChatDraftBySessionId };
+      delete restMatterDrafts[sessionId];
       return {
         sessions: state.sessions.filter((s) => s.id !== sessionId),
         sessionStates: restSessionStates,
         sessionScrollPositions: restScrollPositions,
+        matterChatDraftBySessionId: restMatterDrafts,
         activeSessionId: state.activeSessionId === sessionId ? null : state.activeSessionId,
       };
     }),
@@ -383,17 +397,22 @@ export const useAppStore = create<AppState>((set, get) => ({
       const idSet = new Set(sessionIds);
       const newSessionStates: Record<string, SessionState> = {};
       const newScrollPositions: Record<string, number> = {};
+      const newMatterDrafts: Record<string, MatterChatDraft> = {};
       for (const key of Object.keys(state.sessionStates)) {
         if (!idSet.has(key)) newSessionStates[key] = state.sessionStates[key];
       }
       for (const key of Object.keys(state.sessionScrollPositions)) {
         if (!idSet.has(key)) newScrollPositions[key] = state.sessionScrollPositions[key];
       }
+      for (const key of Object.keys(state.matterChatDraftBySessionId)) {
+        if (!idSet.has(key)) newMatterDrafts[key] = state.matterChatDraftBySessionId[key];
+      }
 
       return {
         sessions: state.sessions.filter((s) => !idSet.has(s.id)),
         sessionStates: newSessionStates,
         sessionScrollPositions: newScrollPositions,
+        matterChatDraftBySessionId: newMatterDrafts,
         activeSessionId:
           state.activeSessionId && idSet.has(state.activeSessionId) ? null : state.activeSessionId,
       };
@@ -902,6 +921,22 @@ export const useAppStore = create<AppState>((set, get) => ({
           [sessionId]: status,
         },
       };
+    }),
+
+  setMatterChatDraft: (sessionId, draft) =>
+    set((state) => ({
+      matterChatDraftBySessionId: {
+        ...state.matterChatDraftBySessionId,
+        [sessionId]: draft,
+      },
+    })),
+
+  clearMatterChatDraft: (sessionId) =>
+    set((state) => {
+      if (!(sessionId in state.matterChatDraftBySessionId)) return {};
+      const next = { ...state.matterChatDraftBySessionId };
+      delete next[sessionId];
+      return { matterChatDraftBySessionId: next };
     }),
 
   // Context window actions

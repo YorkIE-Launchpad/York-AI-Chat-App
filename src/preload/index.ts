@@ -67,6 +67,7 @@ let ipcListener: ((event: Electron.IpcRendererEvent, data: ServerEvent) => void)
 // Allowlist of valid ClientEvent types to prevent spoofing arbitrary IPC channels
 const ALLOWED_CLIENT_EVENTS: ReadonlySet<string> = new Set<ClientEvent['type']>([
   'session.start',
+  'session.create',
   'session.continue',
   'session.stop',
   'session.dequeue',

@@ -616,6 +616,25 @@ export type ClientEvent =
       };
     }
   | {
+      /** Create an idle session without enqueueing / running a prompt. */
+      type: 'session.create';
+      payload: {
+        title: string;
+        cwd?: string;
+        allowedTools?: string[];
+        memoryEnabled?: boolean;
+        incognito?: boolean;
+        division?: WorkspaceDivisionKind;
+        hubProjectId?: string | null;
+        hubProjectName?: string | null;
+        launchpadProjectId?: number | null;
+        launchpadProjectName?: string | null;
+        folderId?: string | null;
+        folderName?: string | null;
+        canonicalKey?: string | null;
+      };
+    }
+  | {
       type: 'session.continue';
       payload: { sessionId: string; prompt: string; content?: ContentBlock[] };
     }

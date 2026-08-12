@@ -100,10 +100,15 @@ export function ChatView() {
   const chatLoopStatus = useAppStore((s) =>
     activeSessionId ? (s.chatLoopBySessionId[activeSessionId] ?? null) : null
   );
+  const matterChatDraft = useAppStore((s) =>
+    activeSessionId ? (s.matterChatDraftBySessionId[activeSessionId] ?? null) : null
+  );
+  const clearMatterChatDraft = useAppStore((s) => s.clearMatterChatDraft);
   const { continueSession, stopSession, removeQueuedMessage, exportSession, isElectron } = useIPC();
   const [prompt, setPrompt] = useState('');
   const [cursorIndex, setCursorIndex] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const matterPrefillAppliedForSessionRef = useRef<string | null>(null);
   const {
     isOpen: isSlashMenuOpen,
     filteredSkills: slashSkills,
@@ -407,7 +412,37 @@ export function ChatView() {
 
   useEffect(() => {
     textareaRef.current?.focus();
+    // Drop Matter composer prefill when leaving that idle session
+    if (
+      matterPrefillAppliedForSessionRef.current &&
+      matterPrefillAppliedForSessionRef.current !== activeSessionId
+    ) {
+      matterPrefillAppliedForSessionRef.current = null;
+      setPrompt('');
+      if (textareaRef.current) {
+        textareaRef.current.value = '';
+      }
+    }
   }, [activeSessionId]);
+
+  // Seed Matter Chat composer once per idle session (editable; not auto-sent).
+  useEffect(() => {
+    if (!activeSessionId || !matterChatDraft) {
+      return;
+    }
+    if (messages.length > 0) return;
+    if (matterPrefillAppliedForSessionRef.current === activeSessionId) return;
+    matterPrefillAppliedForSessionRef.current = activeSessionId;
+    const prefill = matterChatDraft.composerPrefill;
+    setPrompt(prefill);
+    if (textareaRef.current) {
+      textareaRef.current.value = prefill;
+      textareaRef.current.focus();
+      const len = prefill.length;
+      textareaRef.current.setSelectionRange(len, len);
+    }
+    setCursorIndex(prefill.length);
+  }, [activeSessionId, matterChatDraft, messages.length]);
 
   // Handle paste event for images
   const handlePaste = async (e: React.ClipboardEvent) => {
@@ -1042,16 +1077,33 @@ export function ChatView() {
         });
       });
 
-      // Add text if present
-      if (currentPrompt.trim()) {
+      // Add text if present — Matter drafts attach signal context only on first send
+      let textToSend = currentPrompt.trim();
+      const pendingMatterDraft = matterChatDraft;
+      if (textToSend && pendingMatterDraft && window.electronAPI?.matter) {
+        try {
+          const built = await window.electronAPI.matter.buildChatPrompt(
+            textToSend,
+            pendingMatterDraft.itemIds
+          );
+          textToSend = built.prompt;
+        } catch (err) {
+          console.warn('[ChatView] Failed to attach Matter context:', err);
+        }
+      }
+      if (textToSend) {
         contentBlocks.push({
           type: 'text',
-          text: currentPrompt.trim(),
+          text: textToSend,
         });
       }
 
       // Send message with content blocks
       await continueSession(activeSessionId, contentBlocks);
+
+      if (pendingMatterDraft) {
+        clearMatterChatDraft(activeSessionId);
+      }
 
       // Clean up
       setPrompt('');
@@ -1275,12 +1327,70 @@ export function ChatView() {
           className="w-full max-w-[920px] mx-auto py-8 px-5 lg:px-8 space-y-5"
         >
           {displayedMessages.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-28 text-text-muted space-y-3 text-center">
-              <p className="text-[11px] uppercase tracking-[0.16em] text-text-muted/80">
-                York GrowthOS
-              </p>
-              <p className="text-base text-text-secondary">{t('chat.startConversation')}</p>
-            </div>
+            matterChatDraft ? (
+              <div className="rounded-2xl border border-border-muted bg-surface/50 px-4 py-4 space-y-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-[11px] uppercase tracking-[0.14em] text-text-muted">
+                      {t('matter.chatContextTitle')}
+                      {matterChatDraft.contextSummary.sourceLabel
+                        ? ` · ${matterChatDraft.contextSummary.sourceLabel}`
+                        : ''}
+                    </p>
+                    <h3 className="mt-1 text-[15px] font-medium text-text-primary">
+                      {matterChatDraft.contextSummary.title}
+                    </h3>
+                    {matterChatDraft.contextSummary.summary ? (
+                      <p className="mt-1.5 text-sm text-text-secondary">
+                        {matterChatDraft.contextSummary.summary}
+                      </p>
+                    ) : null}
+                  </div>
+                  {matterChatDraft.contextSummary.url ? (
+                    <button
+                      type="button"
+                      className="shrink-0 text-[12px] font-medium text-accent hover:underline"
+                      onClick={() => {
+                        const url = matterChatDraft.contextSummary.url;
+                        if (url && window.electronAPI?.openExternal) {
+                          void window.electronAPI.openExternal(url);
+                        }
+                      }}
+                    >
+                      {t('matter.chatContextOpenSource')}
+                    </button>
+                  ) : null}
+                </div>
+                {matterChatDraft.contextSummary.whyItMatters ? (
+                  <div>
+                    <p className="text-[11px] font-medium text-text-muted">
+                      {t('matter.chatContextWhy')}
+                    </p>
+                    <p className="mt-0.5 text-sm text-text-secondary">
+                      {matterChatDraft.contextSummary.whyItMatters}
+                    </p>
+                  </div>
+                ) : null}
+                {matterChatDraft.contextSummary.suggestedAction ? (
+                  <div>
+                    <p className="text-[11px] font-medium text-text-muted">
+                      {t('matter.chatContextSuggested')}
+                    </p>
+                    <p className="mt-0.5 text-sm text-text-secondary">
+                      {matterChatDraft.contextSummary.suggestedAction}
+                    </p>
+                  </div>
+                ) : null}
+                <p className="text-[12px] text-text-muted">{t('matter.chatContextWaiting')}</p>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-28 text-text-muted space-y-3 text-center">
+                <p className="text-[11px] uppercase tracking-[0.16em] text-text-muted/80">
+                  York GrowthOS
+                </p>
+                <p className="text-base text-text-secondary">{t('chat.startConversation')}</p>
+              </div>
+            )
           ) : (
             displayedMessages.map((message) => {
               const isStreaming =

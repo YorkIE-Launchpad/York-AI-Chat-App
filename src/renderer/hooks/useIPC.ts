@@ -829,6 +829,123 @@ export function useIPC() {
     ]
   );
 
+  /**
+   * Create an idle session (no prompt / no agent turn). Used by Matter Chat so the
+   * user can provide guidance before any LLM usage.
+   */
+  const createSession = useCallback(
+    async (
+      title: string,
+      cwd?: string,
+      options?: {
+        incognito?: boolean;
+        division?: 'general' | 'hub';
+      }
+    ) => {
+      console.log('[useIPC] Creating idle session:', title, options?.incognito ? '(incognito)' : '');
+
+      if (options?.division === 'hub' || options?.division === 'general') {
+        useAppStore.getState().setActiveDivision({ kind: options.division });
+      }
+
+      const activeDivision = useAppStore.getState().activeDivision;
+      const divisionPayload =
+        activeDivision?.kind === 'project'
+          ? {
+              division: 'project' as const,
+              hubProjectId: activeDivision.hubProjectId ?? null,
+              hubProjectName: activeDivision.hubProjectName ?? activeDivision.name,
+              launchpadProjectId: activeDivision.launchpadProjectId ?? null,
+              launchpadProjectName: activeDivision.launchpadProjectName ?? null,
+              canonicalKey: activeDivision.canonicalKey,
+            }
+          : activeDivision?.kind === 'folder'
+            ? {
+                division: 'folder' as const,
+                folderId: activeDivision.folderId,
+                folderName: activeDivision.folderName,
+              }
+            : activeDivision?.kind === 'hub'
+              ? { division: 'hub' as const }
+              : { division: 'general' as const };
+
+      const incognito =
+        options?.incognito === true || useAppStore.getState().incognitoDraft === true;
+
+      if (!isElectron) {
+        const sessionId = `mock-session-${Date.now()}`;
+        const session: Session = {
+          id: sessionId,
+          title: title || (incognito ? 'Incognito' : 'New Session'),
+          status: 'idle',
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          cwd: cwd || '',
+          mountedPaths: [],
+          allowedTools: [
+            'webfetch',
+            'websearch',
+            'read',
+            'write',
+            'edit',
+            'list_directory',
+            'glob',
+            'grep',
+          ],
+          memoryEnabled: !incognito,
+          incognito: incognito || undefined,
+          ...divisionPayload,
+          hubProjectId:
+            activeDivision?.kind === 'project' ? (activeDivision.hubProjectId ?? null) : null,
+          hubProjectName:
+            activeDivision?.kind === 'project'
+              ? (activeDivision.hubProjectName ?? activeDivision.name)
+              : null,
+          launchpadProjectId:
+            activeDivision?.kind === 'project' ? (activeDivision.launchpadProjectId ?? null) : null,
+          launchpadProjectName:
+            activeDivision?.kind === 'project'
+              ? (activeDivision.launchpadProjectName ?? null)
+              : null,
+          folderId: activeDivision?.kind === 'folder' ? activeDivision.folderId : null,
+          folderName: activeDivision?.kind === 'folder' ? activeDivision.folderName : null,
+          canonicalKey: activeDivision?.kind === 'project' ? activeDivision.canonicalKey : null,
+        };
+
+        addSession(session);
+        useAppStore.getState().setActiveSession(sessionId);
+        return session;
+      }
+
+      try {
+        const session = await invoke<Session>({
+          type: 'session.create',
+          payload: {
+            title,
+            cwd,
+            incognito: incognito || undefined,
+            memoryEnabled: incognito ? false : undefined,
+            ...divisionPayload,
+          },
+        });
+        if (session) {
+          addSession(session);
+          useAppStore.getState().setActiveSession(session.id);
+        }
+        return session;
+      } catch (e) {
+        useAppStore.getState().setGlobalNotice({
+          id: `notice-session-create-${Date.now()}`,
+          type: 'error',
+          message: e instanceof Error ? e.message : i18n.t('chat.startFailed'),
+          messageKey: e instanceof Error ? undefined : 'chat.startFailed',
+        });
+        return null;
+      }
+    },
+    [invoke, addSession]
+  );
+
   // Continue an existing session
   const continueSession = useCallback(
     async (sessionId: string, promptOrContent: string | ContentBlock[]) => {
@@ -1161,6 +1278,7 @@ export function useIPC() {
     send,
     invoke,
     startSession,
+    createSession,
     continueSession,
     stopSession,
     removeQueuedMessage,

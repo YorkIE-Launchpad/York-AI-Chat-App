@@ -5465,6 +5465,34 @@ async function handleClientEvent(event: ClientEvent): Promise<unknown> {
         }
       );
 
+    case 'session.create':
+      if (getWorkspacePathUnsupportedReason(event.payload.cwd)) {
+        sendToRenderer({
+          type: 'error',
+          payload: {
+            message: getWorkspacePathUnsupportedReason(event.payload.cwd)!,
+          },
+        });
+        return null;
+      }
+      return sm.createIdleSession(
+        event.payload.title,
+        event.payload.cwd,
+        event.payload.allowedTools,
+        event.payload.incognito ? false : event.payload.memoryEnabled,
+        {
+          division: event.payload.division,
+          hubProjectId: event.payload.hubProjectId,
+          hubProjectName: event.payload.hubProjectName,
+          launchpadProjectId: event.payload.launchpadProjectId,
+          launchpadProjectName: event.payload.launchpadProjectName,
+          folderId: event.payload.folderId,
+          folderName: event.payload.folderName,
+          canonicalKey: event.payload.canonicalKey,
+          incognito: event.payload.incognito === true,
+        }
+      );
+
     case 'session.continue':
       return sm.continueSession(
         event.payload.sessionId,
