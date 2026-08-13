@@ -46,6 +46,7 @@ import {
   isProviderAllowedInDivision,
   type SessionDivisionFields,
 } from '../../shared/workspace-division';
+import { reportHubGovernanceUsageFromCompletion } from '../hub/hub-ai-governance';
 
 const NETWORK_ERROR_RE =
   /enotfound|econnrefused|etimedout|eai_again|enetunreach|timed?\s*out|timeout|abort|network\s*error/i;
@@ -226,6 +227,10 @@ export async function runPiAiOneShot(
     signal?: AbortSignal;
     /** Session workspace division — General is OpenRouter-only. */
     division?: Partial<SessionDivisionFields> | null;
+    /** Hub usage feature tag (default: one_shot). */
+    usageFeature?: string;
+    /** Synthetic session id for Hub usage (default: one_shot). */
+    usageSessionId?: string;
   }
 ): Promise<{ text: string; hasThinking: boolean; durationMs: number }> {
   let effectiveConfig = config;
@@ -491,6 +496,24 @@ export async function runPiAiOneShot(
   if (response.stopReason === 'error' || response.stopReason === 'aborted') {
     logWarn('[OneShot] Provider error-as-resolve:', response.stopReason, response.errorMessage);
     const details = response.errorMessage || 'Provider returned an error';
+    reportHubGovernanceUsageFromCompletion({
+      modelId: String(resolvedModel.id || effectiveConfig.model || ''),
+      provider: String(resolvedModel.provider || activeProvider || ''),
+      sessionId: options?.usageSessionId?.trim() || 'one_shot',
+      division: options?.division?.division ?? null,
+      hubProjectId: options?.division?.hubProjectId ?? null,
+      folderId: options?.division?.folderId ?? null,
+      launchpadProjectId: options?.division?.launchpadProjectId ?? null,
+      feature: options?.usageFeature?.trim() || 'one_shot',
+      usage: (response as { usage?: unknown }).usage,
+      responseId:
+        typeof (response as { responseId?: unknown }).responseId === 'string'
+          ? (response as { responseId: string }).responseId
+          : null,
+      latencyMs: Date.now() - start,
+      status: 'error',
+      errorCode: response.stopReason,
+    });
     if (isOpenRouterAccountLimitError(activeProvider, details)) {
       throw new Error(openRouterLimitUserMessage(true));
     }
@@ -517,6 +540,23 @@ export async function runPiAiOneShot(
     'thinkingBlocks:',
     thinkingBlocks.length
   );
+  reportHubGovernanceUsageFromCompletion({
+    modelId: String(resolvedModel.id || effectiveConfig.model || ''),
+    provider: String(resolvedModel.provider || activeProvider || ''),
+    sessionId: options?.usageSessionId?.trim() || 'one_shot',
+    division: options?.division?.division ?? null,
+    hubProjectId: options?.division?.hubProjectId ?? null,
+    folderId: options?.division?.folderId ?? null,
+    launchpadProjectId: options?.division?.launchpadProjectId ?? null,
+    feature: options?.usageFeature?.trim() || 'one_shot',
+    usage: (response as { usage?: unknown }).usage,
+    responseId:
+      typeof (response as { responseId?: unknown }).responseId === 'string'
+        ? (response as { responseId: string }).responseId
+        : null,
+    latencyMs: Date.now() - start,
+    status: 'ok',
+  });
   return { text, hasThinking, durationMs: Date.now() - start };
 }
 

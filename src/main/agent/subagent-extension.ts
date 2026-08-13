@@ -121,6 +121,7 @@ function createSpawnSubagentTool(
         concurrencyState,
         emitProgress: true,
         division,
+        usageFeature: 'subagent',
       });
 
       return {

@@ -79,7 +79,7 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
   const setIsConfigured = useAppStore((state) => state.setIsConfigured);
   const setShowSettings = useAppStore((state) => state.setShowSettings);
   const setSettingsTab = useAppStore((state) => state.setSettingsTab);
-  // Only models whose providers have API keys (from backend GET /models).
+  // Org-configured models from Hub AI Governance (via listBackendModels).
   const [models, setModels] = useState<BackendModelInfo[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
@@ -256,6 +256,13 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
         return;
       }
       if (model.provider === 'openrouter' && !hasOpenRouterKey) {
+        setShowSettings(true);
+        setSettingsTab('general');
+        setIsOpen(false);
+        return;
+      }
+      // Over-budget paid models require OpenRouter BYOK per Hub AI Governance.
+      if (model.hasBudget === false && !hasOpenRouterKey) {
         setShowSettings(true);
         setSettingsTab('general');
         setIsOpen(false);
@@ -472,19 +479,21 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
               const renderModelButton = (model: BackendModelInfo, showOpenRouterCue: boolean) => {
                 const isSelected =
                   selectedModel?.provider === model.provider && selectedModel?.id === model.id;
+                const budgetRequiresByok = model.hasBudget === false && !hasOpenRouterKey;
+                const rowDisabled = openRouterDisabled || budgetRequiresByok;
                 return (
                   <button
                     key={`${model.provider}::${model.id}`}
                     type="button"
                     role="option"
                     aria-selected={isSelected}
-                    aria-disabled={openRouterDisabled}
-                    disabled={openRouterDisabled}
+                    aria-disabled={rowDisabled}
+                    disabled={rowDisabled}
                     onClick={() => {
                       void handleSelect(model);
                     }}
                     className={`flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left transition-colors ${
-                      openRouterDisabled
+                      rowDisabled
                         ? 'cursor-not-allowed text-text-muted opacity-50'
                         : isSelected
                           ? 'bg-accent-muted text-accent'
@@ -494,12 +503,17 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
                     <span className="min-w-0 flex-1 truncate whitespace-nowrap text-[13px] font-medium">
                       {shortModelName(model.name, model.id)}
                     </span>
-                    {showOpenRouterCue && !openRouterDisabled && (
+                    {budgetRequiresByok && (
+                      <span className="shrink-0 text-[10px] font-medium tracking-[0.02em] text-text-muted">
+                        {t('workspace.models.byokRequired', 'key required')}
+                      </span>
+                    )}
+                    {showOpenRouterCue && !rowDisabled && (
                       <span className="shrink-0 text-[10px] font-medium tracking-[0.02em] text-text-muted">
                         {t('workspace.models.openRouterCue', 'OpenRouter')}
                       </span>
                     )}
-                    {isSelected && !openRouterDisabled && (
+                    {isSelected && !rowDisabled && (
                       <Check className="h-3.5 w-3.5 shrink-0" />
                     )}
                   </button>

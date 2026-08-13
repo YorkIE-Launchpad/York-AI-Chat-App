@@ -32,6 +32,7 @@ import { normalizeMcpToolResultForModel } from './tool-result-utils';
 import { buildMcpMetaTools, selectCustomToolsForModel } from './mcp-tool-budget';
 import { resolveFreeModelForChild } from './free-model-resolve';
 import { resolveAutoModelIfNeeded } from './auto-model-resolve';
+import { reportHubGovernanceUsageFromCompletion } from '../hub/hub-ai-governance';
 import type { CustomProtocolType, ProviderType } from '../config/config-store';
 import {
   applyPiModelRuntimeOverrides,
@@ -374,6 +375,8 @@ export interface RunChildAgentSessionInput {
   emitProgress?: boolean;
   /** Parent session workspace division — General is OpenRouter-only. */
   division?: Partial<SessionDivisionFields> | null;
+  /** Hub usage feature tag (default: subagent). */
+  usageFeature?: string;
 }
 
 export interface RunChildAgentSessionResult {
@@ -584,7 +587,32 @@ export async function runChildAgentSession(
     }
 
     let finalText = '';
+    const usageFeature = (input.usageFeature || '').trim() || 'subagent';
     const unsubscribe = childSession.subscribe((event) => {
+      if (event.type === 'message_end') {
+        const msg = (event as { message?: Record<string, unknown> }).message;
+        if (msg) {
+          reportHubGovernanceUsageFromCompletion({
+            modelId: String(piModel.id || ''),
+            provider: String(piModel.provider || activeProvider || ''),
+            sessionId: input.parentSessionId || subagentId,
+            division: input.division?.division ?? null,
+            hubProjectId: input.division?.hubProjectId ?? null,
+            folderId: input.division?.folderId ?? null,
+            launchpadProjectId: input.division?.launchpadProjectId ?? null,
+            feature: usageFeature,
+            usage: msg.usage,
+            responseId: typeof msg.responseId === 'string' ? msg.responseId : null,
+            latencyMs: Date.now() - startTime,
+            status: 'ok',
+            metadata: {
+              subagent_id: subagentId,
+              model_mode: modelMode,
+            },
+          });
+        }
+      }
+
       if (event.type === 'agent_end') {
         const messages = (event as { messages?: unknown[] }).messages || [];
         for (let i = messages.length - 1; i >= 0; i--) {

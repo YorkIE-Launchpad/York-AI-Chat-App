@@ -1266,6 +1266,31 @@ export class MCPManager {
         }
         this.connectorAccessTokensByServerId.set(config.id, tokenRecord.accessToken);
       }
+
+      // Hub usage ingest for GUI Operate vision LLM calls (MCP subprocess has no Electron session).
+      const isGuiOperateServer =
+        config.name === 'GUI_Operate' ||
+        config.name === 'GUI Operate' ||
+        config.id === 'gui-operate';
+      if (isGuiOperateServer) {
+        try {
+          const authHeader = await getPulseCognitoBearerAuthHeader();
+          const bearer = extractBearerTokenFromAuthHeader(authHeader);
+          if (bearer) {
+            extraConnectorEnv.YORK_HUB_ACCESS_TOKEN = bearer;
+          }
+          const { authConfig } = await import('../../shared/auth-config');
+          if (authConfig.hubApiUrl) {
+            extraConnectorEnv.YORK_HUB_API_URL = authConfig.hubApiUrl;
+          }
+        } catch (hubEnvErr) {
+          logWarn(
+            '[MCPManager] Could not inject Hub usage auth for GUI Operate:',
+            hubEnvErr instanceof Error ? hubEnvErr.message : hubEnvErr
+          );
+        }
+      }
+
       const env = await this.getEnhancedEnv({ ...(config.env || {}), ...extraConnectorEnv });
 
       // If command is 'npx', resolve the concrete executable path now.

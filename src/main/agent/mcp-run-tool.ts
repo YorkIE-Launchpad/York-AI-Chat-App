@@ -114,6 +114,7 @@ export function buildMcpRunTool(options: BuildMcpRunToolOptions): ToolDefinition
         concurrencyState: childAgentConcurrency,
         emitProgress: Boolean(sendEvent && parentSessionId),
         division,
+        usageFeature: 'mcp_run',
       });
 
       return {

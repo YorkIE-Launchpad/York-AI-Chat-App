@@ -56,6 +56,15 @@ export interface BackendModelInfo {
   id: string;
   name: string;
   provider: BackendCloudProvider;
+  /** Hub catalog: model stays on org key after user is over budget. */
+  isFree?: boolean;
+  /** Hub catalog default-active flag. */
+  isDefaultActive?: boolean;
+  /**
+   * From user allowed-models grant: is_free || user remaining.
+   * false → paid model while over budget; requires BYOK (OpenRouter user key).
+   */
+  hasBudget?: boolean;
 }
 
 const PROFILE_KEY_TO_BACKEND_PROVIDER: Record<string, BackendCloudProvider> = {

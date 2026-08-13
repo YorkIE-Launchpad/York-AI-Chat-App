@@ -48,6 +48,7 @@ import {
   HubAllocationsError,
   listAllocatedProjects,
 } from './hub/hub-allocations';
+import { clearHubGovernanceModelsCache } from './hub/hub-ai-governance';
 import { listUnifiedCompanyProjects } from './launchpad/unified-projects';
 import { createFolderManager, type FolderManager } from './folders/folder-manager';
 import { PluginCatalogService } from './skills/plugin-catalog-service';
@@ -2700,6 +2701,7 @@ ipcMain.handle('auth.getAvatarDataUrl', async (_event, imageUrl?: string) => {
 ipcMain.handle('auth.logout', async () => {
   stopAuthRefreshTimer();
   clearHubAllocationsCache();
+  clearHubGovernanceModelsCache();
   await authLogout(mainWindow);
   return { success: true };
 });
@@ -2728,6 +2730,7 @@ ipcMain.handle('auth.submitOAuthCode', async (_event, code: string, redirectUri:
     const status = await completeOAuthFromHubCode(mainWindow, code.trim(), redirect);
     startAuthRefreshTimer(() => mainWindow);
     clearHubAllocationsCache();
+    clearHubGovernanceModelsCache();
     return { success: true, ...status };
   } catch (error) {
     logError('[Auth] OAuth callback failed:', error);

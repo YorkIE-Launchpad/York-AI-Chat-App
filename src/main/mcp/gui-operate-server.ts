@@ -22,6 +22,7 @@
 import { writeMCPLog } from './mcp-logger.js';
 import { type CallToolResult, type ListToolsResult, Server } from '@modelcontextprotocol/server';
 import { serveStdio } from '@modelcontextprotocol/server/stdio';
+import { reportMcpVisionUsageViaEnv } from '../../shared/hub-governance-usage';
 
 writeMCPLog('=== Module Loading Started ===', 'Bootstrap');
 writeMCPLog('Imported MCP SDK modules', 'Bootstrap');
@@ -4326,6 +4327,16 @@ async function callVisionAPIWithTimeout(
     'Vision Routing'
   );
 
+  const visionRequestStartedAt = Date.now();
+  const visionProvider = isOpenAICompatible
+    ? isOpenRouter
+      ? 'openrouter'
+      : model.includes('gemini')
+        ? 'gemini'
+        : 'openai'
+    : 'anthropic';
+  const visionModelId = isOpenAICompatible ? model : anthropicModel || model;
+
   const selectedApiKey = pickVisionApiKey(
     selectedRoute,
     anthropicApiKey,
@@ -4436,6 +4447,21 @@ async function callVisionAPIWithTimeout(
                 : 'Vision API Response';
               writeMCPLog(responseContent, logLabel);
 
+              reportMcpVisionUsageViaEnv({
+                modelId: visionModelId,
+                provider: visionProvider,
+                usage: jsonData.usage,
+                latencyMs: Date.now() - visionRequestStartedAt,
+                functionName,
+                requestId:
+                  typeof jsonData.id === 'string'
+                    ? jsonData.id
+                    : typeof jsonData.request_id === 'string'
+                      ? jsonData.request_id
+                      : null,
+                status: 'ok',
+              });
+
               isResolved = true;
               resolve(responseContent);
             } catch (e: unknown) {
@@ -4539,6 +4565,16 @@ async function callVisionAPIWithTimeout(
         `[callVisionAPIWithTimeout] Response received, length: ${responseContent.length}`,
         'API Response'
       );
+
+      reportMcpVisionUsageViaEnv({
+        modelId: visionModelId,
+        provider: visionProvider,
+        usage: message.usage,
+        latencyMs: Date.now() - visionRequestStartedAt,
+        functionName,
+        requestId: typeof message.id === 'string' ? message.id : null,
+        status: 'ok',
+      });
 
       return responseContent;
     } catch (error: unknown) {

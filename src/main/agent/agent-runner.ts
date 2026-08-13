@@ -90,6 +90,7 @@ import {
   withOpenRouterUserKeyHeader,
 } from '../../shared/openrouter-user-key';
 import { fetchBackendModels } from '../config/backend-client';
+import { reportHubGovernanceUsageFromCompletion } from '../hub/hub-ai-governance';
 import {
   buildTerminalErrorEmissionDetails,
   buildTerminalErrorMessage,
@@ -3335,6 +3336,23 @@ ${
                 const userFacing = isOpenRouterAccountLimitError(resolvedProvider, rawError)
                   ? openRouterLimitUserMessage(true)
                   : resolvedPayload.errorText;
+                reportHubGovernanceUsageFromCompletion({
+                  modelId: activePiModel.id,
+                  provider: String(activePiModel.provider || provider || ''),
+                  sessionId: session.id,
+                  hubProjectId: session.hubProjectId,
+                  folderId: session.folderId,
+                  launchpadProjectId: session.launchpadProjectId,
+                  division: session.division,
+                  usage: (msg as { usage?: unknown }).usage,
+                  responseId:
+                    typeof (msg as { responseId?: unknown }).responseId === 'string'
+                      ? (msg as { responseId: string }).responseId
+                      : null,
+                  latencyMs: Date.now() - promptStartedAt,
+                  status: 'error',
+                  errorCode: 'message_end_error',
+                });
                 emitTerminalError(userFacing);
                 break;
               }
@@ -3425,6 +3443,22 @@ ${
                     model: activePiModel.id,
                     tokenUsage,
                   };
+                  reportHubGovernanceUsageFromCompletion({
+                    modelId: activePiModel.id,
+                    provider: String(activePiModel.provider || provider || ''),
+                    sessionId: session.id,
+                    hubProjectId: session.hubProjectId,
+                    folderId: session.folderId,
+                    launchpadProjectId: session.launchpadProjectId,
+                    division: session.division,
+                    usage: msgWithUsage.usage,
+                    responseId:
+                      typeof (msg as { responseId?: unknown }).responseId === 'string'
+                        ? (msg as { responseId: string }).responseId
+                        : null,
+                    latencyMs: Date.now() - promptStartedAt,
+                    status: 'ok',
+                  });
                   this.sendMessage(session.id, assistantMsg);
                 }
               }

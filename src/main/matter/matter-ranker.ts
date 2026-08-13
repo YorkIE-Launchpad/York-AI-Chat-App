@@ -471,7 +471,10 @@ export async function rankMatterSignals(options: {
     );
 
     // No temperature / maxTokens — model defaults only.
-    const result = await runPiAiOneShot(userPrompt, SYSTEM_PROMPT, oneShotConfig);
+    const result = await runPiAiOneShot(userPrompt, SYSTEM_PROMPT, oneShotConfig, {
+      usageFeature: 'matter_scan',
+      usageSessionId: 'matter_scan',
+    });
 
     const parsed = extractJsonObject(result.text) as {
       pulse?: unknown;
