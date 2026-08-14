@@ -137,7 +137,7 @@ export function SettingsGeneral() {
         <p className="text-sm text-text-secondary">
           {t(
             'general.openRouterKeyHelp',
-            'OpenRouter models use your own key (General workspace is OpenRouter-only). Free models (:free / openrouter/free) have no per-token cost — rate limits apply. Paid names like GPT Sol or Claude bill your OpenRouter credits, not York.'
+            'OpenRouter models use your own key (BYOK), not York billing. Free models (:free / openrouter/free) have no per-token cost — rate limits apply. Paid OpenRouter names bill your OpenRouter credits. York-managed Claude / GPT / Gemini use the York proxy when allowed by Hub.'
           )}
         </p>
         <p className="text-xs text-text-muted">

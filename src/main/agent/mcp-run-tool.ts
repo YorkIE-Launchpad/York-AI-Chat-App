@@ -22,7 +22,7 @@ export interface BuildMcpRunToolOptions {
   parentSessionId?: string;
   requestPermission?: ChildPermissionHandler | null;
   getParentAbortSignal?: () => AbortSignal | null;
-  /** Parent session workspace division — General is OpenRouter-only. */
+  /** Parent session workspace division (provider gating is FE-owned). */
   division?: Partial<SessionDivisionFields> | null;
 }
 

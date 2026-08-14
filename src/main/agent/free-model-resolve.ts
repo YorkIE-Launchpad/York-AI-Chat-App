@@ -120,7 +120,7 @@ export async function resolveFreeModelForChild(options: {
   parent?: ParentModelFallback;
   /** When omitted, reads from config store. */
   openRouterUserApiKey?: string | null;
-  /** Session workspace division — General is OpenRouter-only. */
+  /** Session workspace division (provider gating is FE-owned). */
   division?: Partial<SessionDivisionFields> | null;
 }): Promise<FreeModelResolveResult> {
   const openRouterUserApiKey =

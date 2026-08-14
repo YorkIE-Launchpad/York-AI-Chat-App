@@ -24,6 +24,13 @@ import {
   filterModelsForDivision,
   sessionFieldsFromActiveDivision,
 } from '../../shared/workspace-division';
+import {
+  applyLaunchPadBudgetAsSoleGateToModels,
+  applyLaunchPadBudgetFallbackToModels,
+  resolveProjectBudgetGateStrategy,
+  shouldFetchLaunchPadProjectBudget,
+  shouldUseUnfilteredAllowedModels,
+} from '../../shared/fe-budget-gate';
 import { filterModelsForOpenRouterKey } from '../../shared/openrouter-fallback';
 import { useTranslation } from 'react-i18next';
 
@@ -88,7 +95,6 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
   const reconcileKeyRef = useRef<string | null>(null);
 
   const hasOpenRouterKey = hasOpenRouterUserApiKey(appConfig?.openRouterUserApiKey);
-  const isGeneralDivision = activeDivision?.kind === 'general' || activeDivision?.kind === 'folder';
   const divisionSession = useMemo(
     () => sessionFieldsFromActiveDivision(activeDivision),
     [activeDivision]
@@ -105,21 +111,82 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
   const isAutoSelected = isAutoModelId(appConfig?.model);
   const autoPreference = normalizeAutoModelPreference(appConfig?.autoModelPreference);
 
-  const loadModels = useCallback((opts?: { silent?: boolean }) => {
-    if (!isElectron) return;
-    if (!opts?.silent) setIsLoading(true);
-    void window.electronAPI.config
-      .listBackendModels()
-      .then((items) => {
-        setModels(items);
-      })
-      .catch(() => {
-        setModels([]);
-      })
-      .finally(() => {
-        if (!opts?.silent) setIsLoading(false);
-      });
-  }, []);
+  const loadModels = useCallback(
+    (opts?: { silent?: boolean }) => {
+      if (!isElectron) return;
+      if (!opts?.silent) setIsLoading(true);
+      void (async () => {
+        try {
+          const hubApi = window.electronAPI.hub;
+          const launchpadApi = window.electronAPI.launchpad;
+
+          let usable = true;
+          let strategy: ReturnType<typeof resolveProjectBudgetGateStrategy> = null;
+          let userStatus: string | null = null;
+          const lpId =
+            activeDivision?.kind === 'project'
+              ? (activeDivision.launchpadProjectId ?? null)
+              : null;
+
+          if (activeDivision?.kind === 'project') {
+            strategy = resolveProjectBudgetGateStrategy({
+              division: 'project',
+              sources: activeDivision.sources,
+              hubProjectId: activeDivision.hubProjectId ?? null,
+              launchpadProjectId: lpId,
+            });
+            if (strategy === 'both' && hubApi?.getUserAiBudget) {
+              try {
+                const budgetRes = await hubApi.getUserAiBudget();
+                userStatus = budgetRes.success ? budgetRes.budget?.status ?? null : null;
+              } catch {
+                userStatus = null;
+              }
+            }
+            usable = !shouldUseUnfilteredAllowedModels({
+              strategy,
+              userBudgetStatus: userStatus,
+            });
+          }
+
+          let items = await window.electronAPI.config.listBackendModels({ usable });
+
+          if (activeDivision?.kind === 'project') {
+            try {
+              // Hub-only: trust allowed-models?usable=true. No LaunchPad fetch.
+              // LaunchPad-only / both-fallback: unfiltered grants + LaunchPad overlay.
+              if (
+                shouldFetchLaunchPadProjectBudget({
+                  strategy,
+                  userBudgetStatus: userStatus,
+                  launchpadProjectId: lpId,
+                }) &&
+                launchpadApi?.getProjectBudget &&
+                typeof lpId === 'number'
+              ) {
+                const lpRes = await launchpadApi.getProjectBudget(lpId);
+                if (lpRes.success && lpRes.budget) {
+                  items =
+                    strategy === 'launchpad'
+                      ? applyLaunchPadBudgetAsSoleGateToModels(items, lpRes.budget)
+                      : applyLaunchPadBudgetFallbackToModels(items, lpRes.budget);
+                }
+              }
+            } catch {
+              // Keep catalog as-is if budget IPC fails — allowed-models has_budget still applies.
+            }
+          }
+
+          setModels(items);
+        } catch {
+          setModels([]);
+        } finally {
+          if (!opts?.silent) setIsLoading(false);
+        }
+      })();
+    },
+    [activeDivision]
+  );
 
   useEffect(() => {
     loadModels();
@@ -198,9 +265,7 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
       apiKey: BACKEND_PROXY_PLACEHOLDER_KEY,
     };
     const currentProvider = appConfig?.provider;
-    // General workspace is OpenRouter-only — force OpenRouter as Auto's provider shell.
     const canKeepProvider =
-      !isGeneralDivision &&
       isBackendManagedProvider(currentProvider) &&
       !(currentProvider === 'openrouter' && !hasOpenRouterKey);
     if (canKeepProvider) {
@@ -213,10 +278,9 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
             ? 'openai'
             : 'anthropic';
     } else {
-      const resolvedPreferred: BackendCloudProvider = isGeneralDivision
-        ? 'openrouter'
-        : pickFallbackModel(usableModels)?.provider ||
-          (PROVIDER_ORDER.find((p) => usableModels.some((m) => m.provider === p)) ?? 'anthropic');
+      const resolvedPreferred: BackendCloudProvider =
+        pickFallbackModel(usableModels)?.provider ||
+        (PROVIDER_ORDER.find((p) => usableModels.some((m) => m.provider === p)) ?? 'anthropic');
       payload.provider = resolvedPreferred;
       payload.activeProfileKey = profileKeyForProvider(resolvedPreferred);
       payload.customProtocol =
@@ -229,7 +293,7 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
     payload = applyBackendManagedCredentials(payload);
     await saveConfig(payload);
     setIsOpen(false);
-  }, [appConfig, autoPreference, hasOpenRouterKey, isGeneralDivision, usableModels, saveConfig]);
+  }, [appConfig, autoPreference, hasOpenRouterKey, usableModels, saveConfig]);
 
   const handleSelectPreference = useCallback(
     async (preference: AutoModelPreference) => {
@@ -238,30 +302,24 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
         autoModelPreference: preference,
         apiKey: BACKEND_PROXY_PLACEHOLDER_KEY,
       };
-      if (isGeneralDivision) {
-        payload.provider = 'openrouter';
-        payload = applyBackendManagedCredentials(payload);
-      } else if (isBackendManagedProvider(appConfig?.provider)) {
+      if (isBackendManagedProvider(appConfig?.provider)) {
         payload.provider = appConfig!.provider;
         payload = applyBackendManagedCredentials(payload);
       }
       await saveConfig(payload);
     },
-    [appConfig, isGeneralDivision, saveConfig]
+    [appConfig, saveConfig]
   );
 
   const handleSelect = useCallback(
     async (model: BackendModelInfo) => {
-      if (isGeneralDivision && model.provider !== 'openrouter') {
-        return;
-      }
       if (model.provider === 'openrouter' && !hasOpenRouterKey) {
         setShowSettings(true);
         setSettingsTab('general');
         setIsOpen(false);
         return;
       }
-      // Over-budget paid models require OpenRouter BYOK per Hub AI Governance.
+      // Over-budget paid models require OpenRouter BYOK (or Project LaunchPad fallback elsewhere).
       if (model.hasBudget === false && !hasOpenRouterKey) {
         setShowSettings(true);
         setSettingsTab('general');
@@ -284,32 +342,17 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
       await saveConfig(payload);
       setIsOpen(false);
     },
-    [hasOpenRouterKey, isGeneralDivision, saveConfig, setSettingsTab, setShowSettings]
+    [hasOpenRouterKey, saveConfig, setSettingsTab, setShowSettings]
   );
 
-  // When the configured cloud model isn't usable (missing from catalog, OpenRouter
-  // without BYOK, or General workspace with a York-paid model), fall back to the
-  // first available concrete model. Never overwrite a selection with Auto — Auto
-  // is opt-in only. For Auto in General, force the OpenRouter provider shell.
+  // When the configured cloud model isn't usable (missing from catalog or
+  // OpenRouter without BYOK), fall back to the first available concrete model.
+  // Never overwrite a selection with Auto — Auto is opt-in only.
   useEffect(() => {
     if (!isElectron || isLoading || isSaving || !appConfig) return;
 
     if (isAutoModelId(appConfig.model)) {
-      if (isGeneralDivision && appConfig.provider !== 'openrouter') {
-        const reconcileKey = 'auto::openrouter';
-        if (reconcileKeyRef.current === reconcileKey) return;
-        reconcileKeyRef.current = reconcileKey;
-        void saveConfig(
-          applyBackendManagedCredentials({
-            model: AUTO_MODEL_ID,
-            autoModelPreference: autoPreference,
-            provider: 'openrouter',
-            apiKey: BACKEND_PROXY_PLACEHOLDER_KEY,
-          })
-        );
-      } else {
-        reconcileKeyRef.current = null;
-      }
+      reconcileKeyRef.current = null;
       return;
     }
     if (usableModels.length === 0) return;
@@ -330,16 +373,7 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
     if (reconcileKeyRef.current === reconcileKey) return;
     reconcileKeyRef.current = reconcileKey;
     void handleSelect(fallback);
-  }, [
-    appConfig,
-    autoPreference,
-    handleSelect,
-    isGeneralDivision,
-    isLoading,
-    isSaving,
-    saveConfig,
-    usableModels,
-  ]);
+  }, [appConfig, handleSelect, isLoading, isSaving, usableModels]);
 
   const pendingFallback =
     !isAutoSelected && !selectedModel && isBackendManagedProvider(appConfig?.provider)
@@ -470,8 +504,6 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
             </div>
 
             {PROVIDER_ORDER.map((provider) => {
-              // General workspace: only show OpenRouter.
-              if (isGeneralDivision && provider !== 'openrouter') return null;
               const items = groupedModels[provider];
               if (items.length === 0) return null;
               const openRouterDisabled = provider === 'openrouter' && !hasOpenRouterKey;
@@ -520,7 +552,7 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
                 );
               };
 
-              if (isGeneralDivision && provider === 'openrouter') {
+              if (provider === 'openrouter') {
                 const freeItems = items.filter((m) => isOpenRouterFreeTierModel(m.id));
                 const paidItems = items.filter((m) => !isOpenRouterFreeTierModel(m.id));
                 return (
@@ -528,19 +560,13 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
                     <div className="px-2.5 pb-1.5 pt-1.5">
                       <div className="text-[11px] font-medium tracking-[0.04em] text-text-muted">
                         {t(
-                          'workspace.models.generalOpenRouterTitle',
-                          'Your OpenRouter key · not York billing'
+                          'workspace.models.openRouterTitle',
+                          'OpenRouter · your key (not York billing)'
                         )}
                         {openRouterDisabled
                           ? ` · ${t('workspace.models.keyRequired', 'key required')}`
                           : ''}
                       </div>
-                      <p className="mt-0.5 text-[11px] leading-snug text-text-muted">
-                        {t(
-                          'workspace.models.generalOpenRouterHint',
-                          'For York-managed Claude / GPT / Gemini, switch to Hub or a Project.'
-                        )}
-                      </p>
                     </div>
                     {openRouterDisabled && (
                       <button
@@ -586,33 +612,9 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
                 <div key={provider} className="px-1.5 py-1">
                   <div className="px-2.5 pb-1 pt-1.5 text-[11px] font-medium tracking-[0.04em] text-text-muted">
                     {PROVIDER_LABELS[provider]}
-                    {openRouterDisabled
-                      ? ` · ${t('workspace.models.keyRequired', 'key required')}`
-                      : ''}
                   </div>
-                  {openRouterDisabled && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowSettings(true);
-                        setSettingsTab('general');
-                        setIsOpen(false);
-                      }}
-                      className="mb-1 w-full rounded-xl px-2.5 py-2 text-left text-[12px] text-accent hover:bg-surface-hover"
-                    >
-                      {t(
-                        'workspace.models.addOpenRouterKey',
-                        'Add your OpenRouter API key (Settings → General)'
-                      )}
-                    </button>
-                  )}
                   <div className="space-y-0.5">
-                    {items.map((model) =>
-                      renderModelButton(
-                        model,
-                        provider === 'openrouter' && !isOpenRouterFreeTierModel(model.id)
-                      )
-                    )}
+                    {items.map((model) => renderModelButton(model, false))}
                   </div>
                 </div>
               );

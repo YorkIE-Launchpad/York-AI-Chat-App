@@ -642,37 +642,28 @@ export function filterMcpToolsForDivision<T extends { name: string }>(
 }
 
 /**
- * General + personal folders are OpenRouter-only. Hub / Project keep the full catalog.
+ * All divisions may use any cloud provider when Hub allows the model.
+ * OpenRouter still requires the user's own API key (BYOK) at the picker / run layer.
  * When division is omitted (background jobs / one-shots without a session), pass through.
  */
 export function isProviderAllowedInDivision(
   provider: string | undefined | null,
-  session: Partial<SessionDivisionFields> | null | undefined
+  _session: Partial<SessionDivisionFields> | null | undefined
 ): boolean {
   if (!provider) return false;
-  const kind = session?.division;
-  if (kind !== 'general' && kind !== 'hub' && kind !== 'project' && kind !== 'folder') {
-    return true;
-  }
-  if (kind === 'general' || kind === 'folder') {
-    return provider === 'openrouter';
-  }
   return true;
 }
 
 export function filterModelsForDivision<T extends { provider: string }>(
   models: T[],
-  session: Partial<SessionDivisionFields> | null | undefined
+  _session: Partial<SessionDivisionFields> | null | undefined
 ): T[] {
-  const kind = session?.division;
-  if (kind !== 'general' && kind !== 'folder') {
-    return models;
-  }
-  return models.filter((m) => m.provider === 'openrouter');
+  return models;
 }
 
+/** @deprecated General/Folder are no longer OpenRouter-only; kept for older call sites. */
 export function generalWorkspaceOpenRouterOnlyMessage(): string {
-  return 'General and personal Folders only use OpenRouter with your own API key (not York billing). Switch to Hub or a Project for York-managed Claude, GPT, or Gemini — or pick an OpenRouter model after adding your key in Settings → General.';
+  return 'OpenRouter models require your own API key in Settings → General. York-managed Claude, GPT, and Gemini use the York proxy when allowed by Hub AI Governance.';
 }
 
 export function sessionFieldsFromActiveDivision(

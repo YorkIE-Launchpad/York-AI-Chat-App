@@ -9,13 +9,15 @@ import { logWarn } from '../utils/logger';
 /**
  * Model picker / auto-resolve catalog from Hub AI Governance:
  * org `GET /models` intersected with the signed-in user's allowed-models
- * (budget / is_free flags attached). No fallback to the York proxy static catalog.
+ * (budget / is_free flags attached). Consumer default: usable=true.
+ * No fallback to the York proxy static catalog.
  */
-export async function fetchBackendModels(
-  _backendUrl: string = resolveBackendUrl()
-): Promise<BackendModelInfo[]> {
+export async function fetchBackendModels(options?: {
+  usable?: boolean;
+  forceRefresh?: boolean;
+}): Promise<BackendModelInfo[]> {
   try {
-    return await fetchHubGovernanceModels();
+    return await fetchHubGovernanceModels(options);
   } catch (error) {
     if (error instanceof HubAiGovernanceError) {
       logWarn('[Backend] Hub AI governance models failed:', error.status, error.message);

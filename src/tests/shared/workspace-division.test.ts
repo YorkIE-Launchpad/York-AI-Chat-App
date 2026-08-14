@@ -236,7 +236,7 @@ describe('workspace-division', () => {
     expect(dualCtx).toContain('LaunchPad project id: 3');
   });
 
-  it('restricts General workspace models to OpenRouter only', () => {
+  it('allows Hub-allowed providers in all workspace divisions', () => {
     const catalog: BackendModelInfo[] = [
       { id: 'openrouter/free', name: 'Free', provider: 'openrouter' },
       { id: 'claude-haiku-4-5', name: 'Haiku', provider: 'anthropic' },
@@ -244,16 +244,14 @@ describe('workspace-division', () => {
       { id: 'gemini-2.5-flash', name: 'Flash', provider: 'gemini' },
     ];
 
-    expect(
-      filterModelsForDivision(catalog, { division: 'general' }).map((m) => m.provider)
-    ).toEqual(['openrouter']);
+    expect(filterModelsForDivision(catalog, { division: 'general' })).toHaveLength(4);
     expect(
       filterModelsForDivision(catalog, {
         division: 'folder',
         folderId: 'f1',
         folderName: 'Notes',
-      }).map((m) => m.provider)
-    ).toEqual(['openrouter']);
+      })
+    ).toHaveLength(4);
     expect(filterModelsForDivision(catalog, { division: 'hub' })).toHaveLength(4);
     expect(
       filterModelsForDivision(catalog, {
@@ -264,23 +262,26 @@ describe('workspace-division', () => {
     ).toHaveLength(4);
 
     expect(isProviderAllowedInDivision('openrouter', { division: 'general' })).toBe(true);
-    expect(isProviderAllowedInDivision('anthropic', { division: 'general' })).toBe(false);
-    expect(isProviderAllowedInDivision('anthropic', { division: 'folder' })).toBe(false);
+    expect(isProviderAllowedInDivision('anthropic', { division: 'general' })).toBe(true);
+    expect(isProviderAllowedInDivision('anthropic', { division: 'folder' })).toBe(true);
     expect(isProviderAllowedInDivision('anthropic', { division: 'hub' })).toBe(true);
     expect(isProviderAllowedInDivision('openrouter', { division: 'hub' })).toBe(true);
+    expect(isProviderAllowedInDivision('', { division: 'hub' })).toBe(false);
 
-    // Compose with missing BYOK → empty catalog in General without key
+    // Without BYOK, OpenRouter rows are still filtered out; York providers remain.
     expect(
-      filterModelsForOpenRouterKey(filterModelsForDivision(catalog, { division: 'general' }), '')
-    ).toEqual([]);
+      filterModelsForOpenRouterKey(filterModelsForDivision(catalog, { division: 'general' }), '').map(
+        (m) => m.provider
+      )
+    ).toEqual(['anthropic', 'openai', 'gemini']);
     expect(
       filterModelsForOpenRouterKey(
         filterModelsForDivision(catalog, { division: 'general' }),
         'sk-or'
-      ).map((m) => m.provider)
-    ).toEqual(['openrouter']);
+      )
+    ).toHaveLength(4);
 
-    // No division context → pass-through (do not default to General)
+    // No division context → pass-through
     expect(filterModelsForDivision(catalog, null)).toHaveLength(4);
     expect(filterModelsForDivision(catalog, undefined)).toHaveLength(4);
     expect(filterModelsForDivision(catalog, {})).toHaveLength(4);

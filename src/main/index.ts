@@ -48,7 +48,11 @@ import {
   HubAllocationsError,
   listAllocatedProjects,
 } from './hub/hub-allocations';
-import { clearHubGovernanceModelsCache } from './hub/hub-ai-governance';
+import { clearHubGovernanceModelsCache, fetchUserAiBudget, HubAiGovernanceError } from './hub/hub-ai-governance';
+import {
+  fetchProjectBudget,
+  LaunchPadProjectsError,
+} from './launchpad/launchpad-projects';
 import { listUnifiedCompanyProjects } from './launchpad/unified-projects';
 import { createFolderManager, type FolderManager } from './folders/folder-manager';
 import { PluginCatalogService } from './skills/plugin-catalog-service';
@@ -2762,6 +2766,51 @@ ipcMain.handle('hub.listAllocatedProjects', async (_event, forceRefresh?: boolea
   }
 });
 
+ipcMain.handle('hub.getUserAiBudget', async (_event, forceRefresh?: boolean) => {
+  try {
+    await ensureAuthenticatedSession();
+    const budget = await fetchUserAiBudget({ forceRefresh: Boolean(forceRefresh) });
+    return { success: true, budget };
+  } catch (error) {
+    if (error instanceof AuthRequiredError) {
+      return { success: false, error: error.message, code: error.code };
+    }
+    if (error instanceof HubAiGovernanceError) {
+      return { success: false, error: error.message, code: 'HUB_AI_BUDGET' };
+    }
+    logError('[HubAiGovernance] getUserAiBudget failed:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to load user AI budget',
+    };
+  }
+});
+
+ipcMain.handle(
+  'launchpad.getProjectBudget',
+  async (_event, projectId: number, forceRefresh?: boolean) => {
+    try {
+      await ensureAuthenticatedSession();
+      const budget = await fetchProjectBudget(Number(projectId), {
+        forceRefresh: Boolean(forceRefresh),
+      });
+      return { success: true, budget };
+    } catch (error) {
+      if (error instanceof AuthRequiredError) {
+        return { success: false, error: error.message, code: error.code };
+      }
+      if (error instanceof LaunchPadProjectsError) {
+        return { success: false, error: error.message, code: 'LAUNCHPAD_BUDGET' };
+      }
+      logError('[LaunchPadProjects] getProjectBudget failed:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to load LaunchPad project budget',
+      };
+    }
+  }
+);
+
 ipcMain.handle('projects.listUnified', async (_event, forceRefresh?: boolean) => {
   try {
     await ensureAuthenticatedSession();
@@ -3512,9 +3561,12 @@ ipcMain.handle(
   }
 );
 
-ipcMain.handle('config.listBackendModels', async () => {
-  return fetchBackendModels();
-});
+ipcMain.handle(
+  'config.listBackendModels',
+  async (_event, options?: { usable?: boolean }) => {
+    return fetchBackendModels(options);
+  }
+);
 
 ipcMain.handle('config.diagnose', async (_event, payload: DiagnosticInput) => {
   try {

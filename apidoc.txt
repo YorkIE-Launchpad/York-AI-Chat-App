@@ -4,6 +4,13 @@ Overview
 
 * Auth: Bearer JWT (same as Hub UI)
 * Fiscal year for budgets: May–April (e.g. 2025-05-01 → FY label FY 2025–26)
+* Soft budget status on Hub snapshots: ok | warning | over | unset
+* Empty workspace_tags on a grant = allowed in all workspaces
+* Catalog is_free = model stays on the org key after the user is over budget
+* Consumer allowlist: GET .../allowed-models?usable=true — catalog free models always (even if not granted); paid models only when a FY ceiling is set and not over. Omit usable for Hub admin (full grant list)
+* Usage ingest returns user_budget_percent / project_budget_percent (not status labels). null when no ceiling
+* Auth: Bearer JWT (same as Hub UI)
+* Fiscal year for budgets: May–April (e.g. 2025-05-01 → FY label FY 2025–26)
 * Soft budget status: ok | warning | over | unset
 * Empty workspace_tags on a grant = allowed in all workspaces
 * Catalog is_free = model stays on the org key after the user is over budget
@@ -136,8 +143,14 @@ Query (optional):
 * scope = explicit | effective (default effective merge)
 * workspace = workspace tag filter
 * model_id = filter one model
+* usable = true to return only models the org key can run
+* scope = explicit | effective (default effective merge)
+* workspace = workspace tag filter
+* model_id = filter one model
 
-Example: GET /api/ai-governance/users/jane@york.ie/allowed-models?scope=effective&workspace=cursor
+Example (consumer): GET /api/ai-governance/users/kalrav%40york.ie/allowed-models?usable=true
+UAT: https://api.uat-hub.yorkdevs.link/api/ai-governance/users/kalrav%40york.ie/allowed-models?usable=true
+Example (Hub admin, unfiltered): GET /api/ai-governance/users/jane@york.ie/allowed-models?scope=effective&workspace=cursor
 Sample response (data):
 
 {
@@ -162,7 +175,25 @@ Sample response (data):
   "model_ids": ["gpt-4o", "claude-sonnet-4"]
 }
 
-Root has_budget is false when FY status is over. Per-grant has_budget = is_free || user remaining. When over budget, keep grants with has_budget: true (free models) on the org key and prompt bring-your-own key for paid models.
+Without usable, root has_budget is false only when FY status is over (unset still counts as remaining). With usable=true, root has_budget is true only when a ceiling is set and not over (ok / warning). Per-grant has_budget = is_free || that flag.
+usable=true when budget is over or unset (data): catalog free models only. Paid omitted. Free catalog rows appear even if they were not granted.
+
+{
+  "email": "kalrav@york.ie",
+  "has_budget": false,
+  "grants": [
+    {
+      "model_id": "claude-sonnet-4",
+      "workspace_tags": [],
+      "source": "default",
+      "is_free": true,
+      "has_budget": true
+    }
+  ],
+  "model_ids": ["claude-sonnet-4"]
+}
+
+When usable=true and budget is over or unset: paid models are omitted; catalog is_free models are always returned even if they were not on the user allowlist. Keep those on the org key; prompt bring-your-own key for paid models.
 
 PUT /api/ai-governance/users/:email/allowed-models
 
@@ -310,7 +341,7 @@ Request body: none
 
 POST /api/ai-governance/usage
 
-Ingest a usage event. Optional project_id attributes spend to a project budget. At least one token field or cost field is required.
+Ingest a usage event. Optional project_id attributes spend to a project budget. At least one token field or cost field is required. Response includes user_budget_percent (and project_budget_percent when project_id was set). Values may exceed 100; null when no FY ceiling. Never hard-blocks.
 Permission: authenticated (private)
 Sample request:
 
@@ -372,8 +403,8 @@ Sample response (data):
     "workspace": "cursor"
   },
   "created_at": "2026-08-12T11:30:01.000Z",
-  "user_budget_status": "ok",
-  "project_budget_status": "warning"
+  "user_budget_percent": 85.0,
+  "project_budget_percent": 42.5
 }
 
 

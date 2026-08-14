@@ -2890,25 +2890,37 @@ function extractStructuredToolErrorMessage(result: unknown): string {
   return '';
 }
 
+function mcpConnectFailureDetail(error: unknown): string {
+  let text = '';
+  if (error instanceof Error) {
+    text = error.message;
+  } else if (
+    typeof error === 'object' &&
+    error !== null &&
+    'message' in error &&
+    typeof (error as { message: unknown }).message === 'string'
+  ) {
+    text = (error as { message: string }).message;
+  } else if (typeof error === 'string') {
+    text = error;
+  } else {
+    text = String(error);
+  }
+  const firstLine = text.split(/\r?\n/, 1)[0]?.trim() ?? '';
+  return firstLine || 'unknown error';
+}
+
 /**
- * OAuth "connect from Settings" failures are expected until the user signs in.
- * Keep them a single warn line — never dump stack / error objects into the console.
+ * Connect failures (OAuth pending, process exit, connection closed) are often
+ * expected and retried. Keep a single line — never dump stack / error objects.
  */
 function logMcpConnectFailure(context: string, error: unknown): void {
+  const line = `[MCPManager] ${context}: ${mcpConnectFailureDetail(error)}`;
   if (isMcpOAuthInteractionRequiredError(error)) {
-    const message =
-      error instanceof Error
-        ? error.message
-        : typeof error === 'object' &&
-            error !== null &&
-            'message' in error &&
-            typeof (error as { message: unknown }).message === 'string'
-          ? (error as { message: string }).message
-          : 'OAuth sign-in required';
-    logWarn(`[MCPManager] ${context}: ${message}`);
+    logWarn(line);
     return;
   }
-  logError(`[MCPManager] ${context}:`, error);
+  logError(line);
 }
 
 /**

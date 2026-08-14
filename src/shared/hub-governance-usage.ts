@@ -69,6 +69,40 @@ function numberField(row: Record<string, unknown>, ...keys: string[]): number | 
   return undefined;
 }
 
+function nullableNumberField(row: Record<string, unknown>, ...keys: string[]): number | null {
+  for (const key of keys) {
+    const value = row[key];
+    if (value === null) return null;
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+  }
+  return null;
+}
+
+/** Parsed POST /api/ai-governance/usage data (percents, not status labels). */
+export interface HubGovernanceUsageIngestResult {
+  /** FY spend / ceiling. null when no ceiling. May exceed 100. */
+  userBudgetPercent: number | null;
+  /** Project spend / ceiling when project_id was set. null when no ceiling. */
+  projectBudgetPercent: number | null;
+}
+
+/**
+ * Parse usage ingest envelope (or bare data) for user_budget_percent / project_budget_percent.
+ * Hub never hard-blocks; values may exceed 100; null means no FY ceiling.
+ */
+export function parseHubGovernanceUsageResponse(payload: unknown): HubGovernanceUsageIngestResult {
+  const root = asRecord(payload) || {};
+  const data = asRecord(root.data) || root;
+  return {
+    userBudgetPercent: nullableNumberField(data, 'user_budget_percent', 'userBudgetPercent'),
+    projectBudgetPercent: nullableNumberField(
+      data,
+      'project_budget_percent',
+      'projectBudgetPercent'
+    ),
+  };
+}
+
 /**
  * Build a Hub usage ingest payload from pi-ai / SDK usage + session context.
  * Returns null when neither token fields nor cost are present (API requirement).

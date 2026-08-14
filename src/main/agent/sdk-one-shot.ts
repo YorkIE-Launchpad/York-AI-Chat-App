@@ -225,7 +225,7 @@ export async function runPiAiOneShot(
     temperature?: number;
     maxTokens?: number;
     signal?: AbortSignal;
-    /** Session workspace division — General is OpenRouter-only. */
+    /** Session workspace division (provider gating is FE-owned). */
     division?: Partial<SessionDivisionFields> | null;
     /** Hub usage feature tag (default: one_shot). */
     usageFeature?: string;

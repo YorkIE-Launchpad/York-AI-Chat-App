@@ -1908,7 +1908,7 @@ ${hints.join('\n')}
         });
       }
 
-      // General workspace is OpenRouter-only (covers locked models / race before UI reconcile).
+      // Provider must be set (OpenRouter BYOK / York proxy gating is FE-owned).
       if (!isProviderAllowedInDivision(resolvedProvider, session)) {
         const msg = generalWorkspaceOpenRouterOnlyMessage();
         this.sendMessage(session.id, {
@@ -1920,7 +1920,7 @@ ${hints.join('\n')}
         });
         this.sendTraceUpdate(session.id, thinkingStepId, {
           status: 'error',
-          title: 'OpenRouter required in General',
+          title: 'Model provider unavailable',
         });
         return;
       }

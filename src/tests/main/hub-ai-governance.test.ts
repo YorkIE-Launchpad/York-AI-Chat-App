@@ -4,9 +4,12 @@ import {
   clearHubGovernanceModelsCache,
   extractVisionApiUsage,
   fetchHubGovernanceModelsForToken,
+  fetchUserAiBudgetForToken,
+  fetchUserAllowedAiModelsForToken,
   HubAiGovernanceError,
   joinCatalogWithAllowedModels,
   parseHubGovernanceModels,
+  parseHubGovernanceUsageResponse,
   parseUserAllowedAiModels,
   postHubGovernanceUsage,
   postHubGovernanceUsageForToken,
@@ -177,6 +180,58 @@ describe('parseUserAllowedAiModels', () => {
     expect(parsed.hasBudget).toBe(false);
     expect(parsed.modelIds).toEqual(['claude-sonnet-4']);
   });
+
+  it('parses usable=true over/unset sample (catalog free only)', () => {
+    const parsed = parseUserAllowedAiModels({
+      success: true,
+      data: {
+        email: 'kalrav@york.ie',
+        has_budget: false,
+        grants: [
+          {
+            model_id: 'claude-sonnet-4',
+            workspace_tags: [],
+            source: 'default',
+            is_free: true,
+            has_budget: true,
+          },
+        ],
+        model_ids: ['claude-sonnet-4'],
+      },
+    });
+    expect(parsed.hasBudget).toBe(false);
+    expect(parsed.modelIds).toEqual(['claude-sonnet-4']);
+    expect(parsed.grants).toEqual([
+      {
+        modelId: 'claude-sonnet-4',
+        workspaceTags: [],
+        source: 'default',
+        isFree: true,
+        hasBudget: true,
+      },
+    ]);
+  });
+
+  it('defaults missing root has_budget to false', () => {
+    expect(parseUserAllowedAiModels({ data: { email: 'a@york.ie', grants: [] } }).hasBudget).toBe(
+      false
+    );
+  });
+
+  it('unions group grants into modelIds when model_ids omits them', () => {
+    const parsed = parseUserAllowedAiModels({
+      data: {
+        email: 'kalrav@york.ie',
+        has_budget: true,
+        grants: [
+          { model_id: 'claude-haiku-4-5', source: 'default', is_free: false, has_budget: true },
+          { model_id: 'claude-opus-4-8', source: 'group', is_free: false, has_budget: true },
+        ],
+        model_ids: ['claude-haiku-4-5'],
+      },
+    });
+    expect(parsed.modelIds).toEqual(['claude-haiku-4-5', 'claude-opus-4-8']);
+  });
 });
 
 describe('joinCatalogWithAllowedModels', () => {
@@ -233,6 +288,54 @@ describe('joinCatalogWithAllowedModels', () => {
         hasBudget: true,
       },
     ]);
+  });
+
+  it('omits paid and keeps catalog is_free when Hub has_budget is false', () => {
+    const joined = joinCatalogWithAllowedModels(catalog, {
+      email: 'kalrav@york.ie',
+      hasBudget: false,
+      modelIds: ['claude-sonnet-4'],
+      grants: [{ modelId: 'claude-sonnet-4', workspaceTags: [], isFree: true, hasBudget: true }],
+    });
+    expect(joined.map((m) => m.id)).toEqual(['claude-sonnet-4']);
+    expect(joined[0]?.hasBudget).toBe(true);
+  });
+
+  it('keeps catalog is_free when over/unset even if not granted', () => {
+    const joined = joinCatalogWithAllowedModels(catalog, {
+      email: 'kalrav@york.ie',
+      hasBudget: false,
+      modelIds: [],
+      grants: [],
+    });
+    expect(joined).toEqual([
+      {
+        id: 'claude-sonnet-4',
+        name: 'Claude Sonnet 4',
+        provider: 'anthropic',
+        isFree: true,
+        hasBudget: true,
+      },
+    ]);
+  });
+
+  it('appends group grants missing from the org picker catalog', () => {
+    const joined = joinCatalogWithAllowedModels(catalog, {
+      email: 'kalrav@york.ie',
+      hasBudget: true,
+      modelIds: ['claude-sonnet-4', 'claude-opus-4-8'],
+      grants: [
+        { modelId: 'claude-sonnet-4', workspaceTags: [], source: 'default', isFree: true, hasBudget: true },
+        { modelId: 'claude-opus-4-8', workspaceTags: [], source: 'group', isFree: false, hasBudget: true },
+      ],
+    });
+    expect(joined.map((m) => m.id)).toEqual(['claude-sonnet-4', 'claude-opus-4-8']);
+    expect(joined[1]).toMatchObject({
+      id: 'claude-opus-4-8',
+      provider: 'anthropic',
+      isFree: false,
+      hasBudget: true,
+    });
   });
 });
 
@@ -314,6 +417,92 @@ describe('fetchHubGovernanceModelsForToken', () => {
       name: 'HubAiGovernanceError',
       status: 403,
     } satisfies Partial<HubAiGovernanceError>);
+  });
+});
+
+describe('fetchUserAllowedAiModelsForToken', () => {
+  it('GETs allowed-models?usable=true by default', async () => {
+    const fetchFn = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        success: true,
+        data: {
+          email: 'jane@york.ie',
+          has_budget: true,
+          grants: [],
+          model_ids: ['gpt-4o'],
+        },
+      }),
+    })) as unknown as typeof fetch;
+
+    const allowed = await fetchUserAllowedAiModelsForToken({
+      token: 'access-token',
+      email: 'jane@york.ie',
+      fetchFn,
+    });
+
+    expect(allowed.hasBudget).toBe(true);
+    expect(allowed.modelIds).toEqual(['gpt-4o']);
+    expect(fetchFn).toHaveBeenCalledWith(
+      'https://api.hub.test/api/ai-governance/users/jane%40york.ie/allowed-models?usable=true',
+      expect.objectContaining({ method: 'GET' })
+    );
+  });
+
+  it('omits usable when usable=false (LaunchPad unfiltered grants)', async () => {
+    const fetchFn = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        success: true,
+        data: { email: 'jane@york.ie', has_budget: false, grants: [], model_ids: ['gpt-4o'] },
+      }),
+    })) as unknown as typeof fetch;
+
+    await fetchUserAllowedAiModelsForToken({
+      token: 'access-token',
+      email: 'jane@york.ie',
+      usable: false,
+      fetchFn,
+    });
+
+    expect(fetchFn).toHaveBeenCalledWith(
+      'https://api.hub.test/api/ai-governance/users/jane%40york.ie/allowed-models',
+      expect.objectContaining({ method: 'GET' })
+    );
+  });
+});
+
+describe('fetchUserAiBudgetForToken', () => {
+  it('GETs /api/users/:email/ai-budget and parses snapshot', async () => {
+    const fetchFn = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        success: true,
+        data: {
+          status: 'over',
+          amount: 500,
+          spent: 520,
+          remaining: -20,
+          currency: 'USD',
+        },
+      }),
+    })) as unknown as typeof fetch;
+
+    const budget = await fetchUserAiBudgetForToken({
+      token: 'access-token',
+      email: 'jane@york.ie',
+      fetchFn,
+    });
+
+    expect(budget.status).toBe('over');
+    expect(budget.remaining).toBe(-20);
+    expect(fetchFn).toHaveBeenCalledWith(
+      'https://api.hub.test/api/users/jane%40york.ie/ai-budget',
+      expect.objectContaining({ method: 'GET' })
+    );
   });
 });
 
@@ -482,9 +671,42 @@ describe('reportMcpVisionUsageViaEnv', () => {
   });
 });
 
+describe('parseHubGovernanceUsageResponse', () => {
+  it('parses apidoc percents from envelope', () => {
+    expect(
+      parseHubGovernanceUsageResponse({
+        success: true,
+        data: {
+          id: 'a7b8c9d0-e1f2-3456-0123-567890123456',
+          user_budget_percent: 85.0,
+          project_budget_percent: 42.5,
+        },
+      })
+    ).toEqual({ userBudgetPercent: 85, projectBudgetPercent: 42.5 });
+  });
+
+  it('treats null percents as no FY ceiling', () => {
+    expect(
+      parseHubGovernanceUsageResponse({
+        data: { user_budget_percent: null, project_budget_percent: null },
+      })
+    ).toEqual({ userBudgetPercent: null, projectBudgetPercent: null });
+  });
+
+  it('allows values over 100', () => {
+    expect(
+      parseHubGovernanceUsageResponse({
+        user_budget_percent: 112.5,
+        project_budget_percent: 100,
+      })
+    ).toEqual({ userBudgetPercent: 112.5, projectBudgetPercent: 100 });
+  });
+});
+
 describe('postHubGovernanceUsage', () => {
   afterEach(() => {
     vi.clearAllMocks();
+    clearHubGovernanceModelsCache();
   });
 
   it('POSTs usage with Bearer token and body', async () => {
@@ -493,7 +715,11 @@ describe('postHubGovernanceUsage', () => {
       status: 200,
       json: async () => ({
         success: true,
-        data: { id: 'usage-1', user_budget_status: 'ok' },
+        data: {
+          id: 'usage-1',
+          user_budget_percent: 85.0,
+          project_budget_percent: 42.5,
+        },
       }),
     })) as unknown as typeof fetch;
 
@@ -511,7 +737,11 @@ describe('postHubGovernanceUsage', () => {
       fetchFn,
     });
 
-    expect(data).toEqual({ id: 'usage-1', user_budget_status: 'ok' });
+    expect(data).toMatchObject({
+      id: 'usage-1',
+      userBudgetPercent: 85,
+      projectBudgetPercent: 42.5,
+    });
     expect(fetchFn).toHaveBeenCalledWith(
       'https://api.hub.test/api/ai-governance/usage',
       expect.objectContaining({
@@ -523,6 +753,33 @@ describe('postHubGovernanceUsage', () => {
         body: JSON.stringify(payload),
       })
     );
+  });
+
+  it('clears models cache when user_budget_percent is at least 100', async () => {
+    const fetchFn = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        success: true,
+        data: { id: 'usage-over', user_budget_percent: 101, project_budget_percent: null },
+      }),
+    })) as unknown as typeof fetch;
+
+    const payload = buildHubUsagePayloadFromPiUsage({
+      modelId: 'gpt-4o',
+      provider: 'openai',
+      sessionId: 'sess_1',
+      usage: { input: 1, output: 2 },
+      occurredAt: new Date('2026-08-12T12:00:00.000Z'),
+    })!;
+
+    const data = await postHubGovernanceUsageForToken({
+      token: 'access-token',
+      payload,
+      fetchFn,
+    });
+    expect(data.userBudgetPercent).toBe(101);
+    expect(data.projectBudgetPercent).toBeNull();
   });
 
   it('public wrapper swallows non-OK responses', async () => {

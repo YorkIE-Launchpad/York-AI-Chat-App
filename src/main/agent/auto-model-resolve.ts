@@ -36,7 +36,7 @@ export interface AutoResolveInput {
   enabledModels?: BackendModelInfo[];
   /** When omitted, reads from config store. */
   openRouterUserApiKey?: string | null;
-  /** Session workspace division — General is OpenRouter-only. */
+  /** Session workspace division (provider gating is FE-owned). */
   division?: Partial<SessionDivisionFields> | null;
 }
 

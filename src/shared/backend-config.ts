@@ -1,4 +1,4 @@
-import type { SharedProviderType } from './api-model-presets';
+import { API_PROVIDER_PRESETS, type SharedProviderType } from './api-model-presets';
 
 /** Placeholder stored in config; never sent upstream. Request-time Cognito JWT replaces it. */
 export const BACKEND_PROXY_PLACEHOLDER_KEY = 'sk-york-ie-local-proxy';
@@ -32,6 +32,35 @@ export function isBackendManagedProvider(
   );
 }
 
+const BACKEND_PROVIDER_LOOKUP_ORDER: BackendCloudProvider[] = [
+  'anthropic',
+  'openai',
+  'gemini',
+  'openrouter',
+];
+
+/**
+ * Infer York-proxy provider for a Hub grant that is not in GET /models
+ * (e.g. group-only allowlist rows).
+ */
+export function inferBackendCloudProviderForModelId(
+  modelId: string
+): BackendCloudProvider | null {
+  const id = modelId.trim();
+  if (!id) return null;
+  const lower = id.toLowerCase();
+  for (const provider of BACKEND_PROVIDER_LOOKUP_ORDER) {
+    if (API_PROVIDER_PRESETS[provider].models.some((m) => m.id.toLowerCase() === lower)) {
+      return provider;
+    }
+  }
+  if (lower.startsWith('claude-')) return 'anthropic';
+  if (lower.startsWith('gemini-')) return 'gemini';
+  if (/^(gpt-|o[1-4]|chatgpt-)/.test(lower)) return 'openai';
+  if (id.includes('/')) return 'openrouter';
+  return null;
+}
+
 /** Base URL pi-ai / SDK should call (local proxy). */
 export function getBackendProxyBaseUrl(
   provider: BackendCloudProvider,
@@ -56,13 +85,14 @@ export interface BackendModelInfo {
   id: string;
   name: string;
   provider: BackendCloudProvider;
-  /** Hub catalog: model stays on org key after user is over budget. */
+  /** Hub catalog: model stays on org key after user FY is over or unset. */
   isFree?: boolean;
   /** Hub catalog default-active flag. */
   isDefaultActive?: boolean;
   /**
-   * From user allowed-models grant: is_free || user remaining.
-   * false → paid model while over budget; requires BYOK (OpenRouter user key).
+   * From user allowed-models grant: is_free || root has_budget.
+   * Root has_budget is true only when a FY ceiling is set and not over (ok/warning).
+   * false → paid model while over/unset; requires BYOK (OpenRouter user key).
    */
   hasBudget?: boolean;
 }

@@ -253,6 +253,26 @@ contextBridge.exposeInMainWorld('electronAPI', {
       error?: string;
       code?: string;
     }> => ipcRenderer.invoke('hub.listAllocatedProjects', forceRefresh),
+    getUserAiBudget: (
+      forceRefresh?: boolean
+    ): Promise<{
+      success: boolean;
+      budget?: import('../shared/fe-budget-gate').HubUserAiBudgetSnapshot;
+      error?: string;
+      code?: string;
+    }> => ipcRenderer.invoke('hub.getUserAiBudget', forceRefresh),
+  },
+
+  launchpad: {
+    getProjectBudget: (
+      projectId: number,
+      forceRefresh?: boolean
+    ): Promise<{
+      success: boolean;
+      budget?: import('../shared/fe-budget-gate').LaunchPadProjectBudget;
+      error?: string;
+      code?: string;
+    }> => ipcRenderer.invoke('launchpad.getProjectBudget', projectId, forceRefresh),
   },
 
   projects: {
@@ -368,8 +388,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
       apiKey: string;
       baseUrl?: string;
     }): Promise<ProviderModelInfo[]> => ipcRenderer.invoke('config.listModels', payload),
-    listBackendModels: (): Promise<import('../shared/backend-config').BackendModelInfo[]> =>
-      ipcRenderer.invoke('config.listBackendModels'),
+    listBackendModels: (options?: {
+      usable?: boolean;
+    }): Promise<import('../shared/backend-config').BackendModelInfo[]> =>
+      ipcRenderer.invoke('config.listBackendModels', options),
     diagnose: (input: DiagnosticInput): Promise<DiagnosticResult> =>
       ipcRenderer.invoke('config.diagnose', input),
     discoverLocal: (payload?: { baseUrl?: string }): Promise<LocalOllamaDiscoveryResult> =>
@@ -931,6 +953,23 @@ declare global {
           error?: string;
           code?: string;
         }>;
+        getUserAiBudget: (forceRefresh?: boolean) => Promise<{
+          success: boolean;
+          budget?: import('../shared/fe-budget-gate').HubUserAiBudgetSnapshot;
+          error?: string;
+          code?: string;
+        }>;
+      };
+      launchpad: {
+        getProjectBudget: (
+          projectId: number,
+          forceRefresh?: boolean
+        ) => Promise<{
+          success: boolean;
+          budget?: import('../shared/fe-budget-gate').LaunchPadProjectBudget;
+          error?: string;
+          code?: string;
+        }>;
       };
       projects: {
         listUnified: (forceRefresh?: boolean) => Promise<{
@@ -1000,7 +1039,9 @@ declare global {
           apiKey: string;
           baseUrl?: string;
         }) => Promise<ProviderModelInfo[]>;
-        listBackendModels: () => Promise<import('../shared/backend-config').BackendModelInfo[]>;
+        listBackendModels: (options?: {
+          usable?: boolean;
+        }) => Promise<import('../shared/backend-config').BackendModelInfo[]>;
         diagnose: (input: DiagnosticInput) => Promise<DiagnosticResult>;
         discoverLocal: (payload?: { baseUrl?: string }) => Promise<LocalOllamaDiscoveryResult>;
       };

@@ -373,7 +373,7 @@ export interface RunChildAgentSessionInput {
   /** When set, emit subagent.progress events under this id (generated if omitted and sendEvent set). */
   subagentId?: string;
   emitProgress?: boolean;
-  /** Parent session workspace division — General is OpenRouter-only. */
+  /** Parent session workspace division (provider gating is FE-owned). */
   division?: Partial<SessionDivisionFields> | null;
   /** Hub usage feature tag (default: subagent). */
   usageFeature?: string;
