@@ -33,9 +33,19 @@ export function isOpenRouterUserKeyWorkspace(
 /** True when chat would need an OpenRouter key but none is saved. */
 export function needsOpenRouterUserKey(
   division: { kind?: string | null } | null | undefined,
-  openRouterUserApiKey: string | undefined | null
+  openRouterUserApiKey: string | undefined | null,
+  options?: { activeSource?: 'project' | 'user' | 'none' | null; budgetReady?: boolean }
 ): boolean {
-  return isOpenRouterUserKeyWorkspace(division) && !hasOpenRouterUserApiKey(openRouterUserApiKey);
+  if (isOpenRouterUserKeyWorkspace(division)) {
+    return !hasOpenRouterUserApiKey(openRouterUserApiKey);
+  }
+  if (division?.kind === 'hub' || division?.kind === 'project') {
+    if (!options?.budgetReady) return false;
+    if (options.activeSource === 'none') {
+      return !hasOpenRouterUserApiKey(openRouterUserApiKey);
+    }
+  }
+  return false;
 }
 
 /** Free / router catalog entries shown under "Free" in the General model picker. */

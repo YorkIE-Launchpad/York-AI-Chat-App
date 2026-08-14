@@ -261,6 +261,25 @@ contextBridge.exposeInMainWorld('electronAPI', {
       error?: string;
       code?: string;
     }> => ipcRenderer.invoke('hub.getUserAiBudget', forceRefresh),
+    getProjectAiBudget: (
+      projectId: string,
+      forceRefresh?: boolean
+    ): Promise<{
+      success: boolean;
+      budget?: import('../shared/fe-budget-gate').HubUserAiBudgetSnapshot;
+      error?: string;
+      code?: string;
+    }> => ipcRenderer.invoke('hub.getProjectAiBudget', projectId, forceRefresh),
+    onUsage: (
+      callback: (snapshot: import('../shared/fe-budget-gate').HubUsageMeterSnapshot) => void
+    ): (() => void) => {
+      const listener = (
+        _: Electron.IpcRendererEvent,
+        snapshot: import('../shared/fe-budget-gate').HubUsageMeterSnapshot
+      ) => callback(snapshot);
+      ipcRenderer.on('hub:usage', listener);
+      return () => ipcRenderer.removeListener('hub:usage', listener);
+    },
   },
 
   launchpad: {
@@ -959,6 +978,18 @@ declare global {
           error?: string;
           code?: string;
         }>;
+        getProjectAiBudget: (
+          projectId: string,
+          forceRefresh?: boolean
+        ) => Promise<{
+          success: boolean;
+          budget?: import('../shared/fe-budget-gate').HubUserAiBudgetSnapshot;
+          error?: string;
+          code?: string;
+        }>;
+        onUsage: (
+          callback: (snapshot: import('../shared/fe-budget-gate').HubUsageMeterSnapshot) => void
+        ) => () => void;
       };
       launchpad: {
         getProjectBudget: (

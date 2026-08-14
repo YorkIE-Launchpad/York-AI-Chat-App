@@ -2,6 +2,7 @@ import { useTranslation } from 'react-i18next';
 import { ExternalLink, KeyRound } from 'lucide-react';
 import { useAppStore } from '../store';
 import { needsOpenRouterUserKey } from '../../shared/openrouter-user-key';
+import { divisionBudgetCheckKey } from '../../shared/fe-budget-gate';
 
 interface OpenRouterKeyGateBannerProps {
   className?: string;
@@ -20,10 +21,16 @@ export function OpenRouterKeyGateBanner({
   const { t } = useTranslation();
   const activeDivision = useAppStore((s) => s.activeDivision);
   const appConfig = useAppStore((s) => s.appConfig);
+  const hubUsage = useAppStore((s) => s.hubUsage);
   const setShowSettings = useAppStore((s) => s.setShowSettings);
   const setSettingsTab = useAppStore((s) => s.setSettingsTab);
 
-  if (!needsOpenRouterUserKey(activeDivision, appConfig?.openRouterUserApiKey)) {
+  if (
+    !needsOpenRouterUserKey(activeDivision, appConfig?.openRouterUserApiKey, {
+      activeSource: hubUsage?.activeSource,
+      budgetReady: hubUsage?.checkedDivisionKey === divisionBudgetCheckKey(activeDivision),
+    })
+  ) {
     return null;
   }
 
@@ -35,7 +42,12 @@ export function OpenRouterKeyGateBanner({
   const workspaceLabel =
     activeDivision?.kind === 'folder'
       ? t('workspace.openRouter.foldersLabel', 'Folders')
-      : t('workspace.openRouter.generalLabel', 'General');
+      : activeDivision?.kind === 'hub'
+        ? t('workspace.openRouter.hubLabel', 'Hub')
+        : activeDivision?.kind === 'project'
+          ? t('workspace.openRouter.projectLabel', 'Project')
+          : t('workspace.openRouter.generalLabel', 'General');
+  const noYorkAllowance = hubUsage?.activeSource === 'none' && (activeDivision?.kind === 'hub' || activeDivision?.kind === 'project');
 
   if (compact) {
     return (
@@ -49,7 +61,9 @@ export function OpenRouterKeyGateBanner({
               workspace: workspaceLabel,
             })}
           </span>{' '}
-          {t('workspace.openRouter.gateShort')}
+          {noYorkAllowance
+            ? t('workspace.budget.noYorkAllowance')
+            : t('workspace.openRouter.gateShort')}
         </span>
         <button
           type="button"
@@ -74,11 +88,15 @@ export function OpenRouterKeyGateBanner({
             {t('workspace.openRouter.gateTitle', { workspace: workspaceLabel })}
           </p>
           <p className="text-xs leading-relaxed text-text-secondary">
-            {t('workspace.openRouter.gateBody')}
+            {noYorkAllowance
+              ? t('workspace.budget.noYorkAllowance')
+              : t('workspace.openRouter.gateBody')}
           </p>
-          <p className="text-xs leading-relaxed text-text-muted">
-            {t('workspace.openRouter.gateAlt')}
-          </p>
+          {!noYorkAllowance && (
+            <p className="text-xs leading-relaxed text-text-muted">
+              {t('workspace.openRouter.gateAlt')}
+            </p>
+          )}
           <div className="flex flex-wrap items-center gap-2 pt-0.5">
             <button
               type="button"

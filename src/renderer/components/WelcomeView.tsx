@@ -43,6 +43,7 @@ type AttachedFile = {
 
 import welcomeLogoSrc from '../assets/logo.png';
 import { ModelSelector } from './ModelSelector';
+import { HubBudgetMeter } from './HubBudgetMeter';
 import { ThinkingModeToggle } from './ThinkingModeToggle';
 import { OpenRouterKeyGateBanner } from './OpenRouterKeyGateBanner';
 import { SlashCommandMenu } from './SlashCommandMenu';
@@ -73,6 +74,7 @@ import {
 } from '../../shared/loop/parse';
 import { DEFAULT_GOAL_MAX_ITERATIONS } from '../../shared/loop/types';
 import { needsOpenRouterUserKey } from '../../shared/openrouter-user-key';
+import { divisionBudgetCheckKey } from '../../shared/fe-budget-gate';
 
 const WELCOME_ICON_MAP: Record<WelcomeActionIcon, LucideIcon> = {
   FileText,
@@ -160,12 +162,17 @@ export function WelcomeView() {
   const workingDir = useAppStore((state) => state.workingDir);
   const activeDivision = useAppStore((state) => state.activeDivision);
   const appConfig = useAppStore((state) => state.appConfig);
+  const hubUsage = useAppStore((state) => state.hubUsage);
   const incognitoDraft = useAppStore((state) => state.incognitoDraft);
   const setIncognitoDraft = useAppStore((state) => state.setIncognitoDraft);
   const setGlobalNotice = useAppStore((state) => state.setGlobalNotice);
   const openRouterKeyRequired = needsOpenRouterUserKey(
     activeDivision,
-    appConfig?.openRouterUserApiKey
+    appConfig?.openRouterUserApiKey,
+    {
+      activeSource: hubUsage?.activeSource,
+      budgetReady: hubUsage?.checkedDivisionKey === divisionBudgetCheckKey(activeDivision),
+    }
   );
   const canSubmit =
     !openRouterKeyRequired &&
@@ -1276,6 +1283,7 @@ export function WelcomeView() {
                 <div className="flex flex-shrink-0 items-center gap-2">
                   <ThinkingModeToggle />
                   <ModelSelector />
+                  <HubBudgetMeter />
                   {dictationAvailable && (
                     <DictationButton
                       status={dictationStatus}

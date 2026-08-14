@@ -37,6 +37,7 @@ import { PanelErrorBoundary } from './components/PanelErrorBoundary';
 import { useAuth } from './auth/AuthContext';
 import { LoginPage } from './components/LoginPage';
 import { findLatestHtmlPreviewCandidate, htmlPreviewSignature } from './utils/html-preview';
+import { useWorkspaceBudgetCheck } from './hooks/useWorkspaceBudgetCheck';
 
 const ChatView = lazy(() =>
   import('./components/ChatView').then((module) => ({ default: module.ChatView }))
@@ -139,6 +140,7 @@ function AuthenticatedApp() {
   const { width } = useWindowSize();
   const { payload: whatsNewPayload, dismiss: dismissWhatsNew } = useWhatsNew();
   useAskGrowthOSHotkey(true);
+  useWorkspaceBudgetCheck();
   const initialized = useRef(false);
   const sidebarBeforeSettings = useRef(false);
   const lastHtmlPreviewSig = useRef<string | null>(null);

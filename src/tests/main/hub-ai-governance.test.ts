@@ -5,6 +5,7 @@ import {
   extractVisionApiUsage,
   fetchHubGovernanceModelsForToken,
   fetchUserAiBudgetForToken,
+  fetchProjectAiBudgetForToken,
   fetchUserAllowedAiModelsForToken,
   HubAiGovernanceError,
   joinCatalogWithAllowedModels,
@@ -506,6 +507,53 @@ describe('fetchUserAiBudgetForToken', () => {
   });
 });
 
+describe('fetchProjectAiBudgetForToken', () => {
+  it('GETs /api/projects/:id/ai-budget and parses snapshot', async () => {
+    const fetchFn = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        success: true,
+        data: {
+          status: 'warning',
+          amount: 2000,
+          spent: 1650.25,
+          remaining: 349.75,
+          currency: 'USD',
+        },
+      }),
+    })) as unknown as typeof fetch;
+
+    const budget = await fetchProjectAiBudgetForToken({
+      token: 'access-token',
+      projectId: 'proj-1',
+      fetchFn,
+    });
+
+    expect(budget.status).toBe('warning');
+    expect(budget.amount).toBe(2000);
+    expect(fetchFn).toHaveBeenCalledWith(
+      'https://api.hub.test/api/projects/proj-1/ai-budget',
+      expect.objectContaining({ method: 'GET' })
+    );
+  });
+
+  it('treats 403 as unset so FE can fall back to personal', async () => {
+    const fetchFn = vi.fn(async () => ({
+      ok: false,
+      status: 403,
+      json: async () => ({ success: false }),
+    })) as unknown as typeof fetch;
+
+    const budget = await fetchProjectAiBudgetForToken({
+      token: 'access-token',
+      projectId: 'proj-1',
+      fetchFn,
+    });
+    expect(budget.status).toBe('unset');
+  });
+});
+
 describe('buildHubUsagePayloadFromPiUsage', () => {
   it('maps tokens, cost, session, and project from pi-ai usage', () => {
     const payload = buildHubUsagePayloadFromPiUsage({
@@ -682,7 +730,19 @@ describe('parseHubGovernanceUsageResponse', () => {
           project_budget_percent: 42.5,
         },
       })
-    ).toEqual({ userBudgetPercent: 85, projectBudgetPercent: 42.5 });
+    ).toEqual({ userBudgetPercent: 85, projectBudgetPercent: 42.5, totalTokens: null });
+  });
+
+  it('parses last-turn total tokens from ingest', () => {
+    expect(
+      parseHubGovernanceUsageResponse({
+        data: {
+          user_budget_percent: 85,
+          project_budget_percent: 42.5,
+          total_tokens: 1600,
+        },
+      })
+    ).toEqual({ userBudgetPercent: 85, projectBudgetPercent: 42.5, totalTokens: 1600 });
   });
 
   it('treats null percents as no FY ceiling', () => {
@@ -690,7 +750,7 @@ describe('parseHubGovernanceUsageResponse', () => {
       parseHubGovernanceUsageResponse({
         data: { user_budget_percent: null, project_budget_percent: null },
       })
-    ).toEqual({ userBudgetPercent: null, projectBudgetPercent: null });
+    ).toEqual({ userBudgetPercent: null, projectBudgetPercent: null, totalTokens: null });
   });
 
   it('allows values over 100', () => {
@@ -699,7 +759,7 @@ describe('parseHubGovernanceUsageResponse', () => {
         user_budget_percent: 112.5,
         project_budget_percent: 100,
       })
-    ).toEqual({ userBudgetPercent: 112.5, projectBudgetPercent: 100 });
+    ).toEqual({ userBudgetPercent: 112.5, projectBudgetPercent: 100, totalTokens: null });
   });
 });
 

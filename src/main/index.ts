@@ -48,7 +48,7 @@ import {
   HubAllocationsError,
   listAllocatedProjects,
 } from './hub/hub-allocations';
-import { clearHubGovernanceModelsCache, fetchUserAiBudget, HubAiGovernanceError } from './hub/hub-ai-governance';
+import { clearHubGovernanceModelsCache, fetchUserAiBudget, fetchProjectAiBudget, HubAiGovernanceError } from './hub/hub-ai-governance';
 import {
   fetchProjectBudget,
   LaunchPadProjectsError,
@@ -2785,6 +2785,31 @@ ipcMain.handle('hub.getUserAiBudget', async (_event, forceRefresh?: boolean) => 
     };
   }
 });
+
+ipcMain.handle(
+  'hub.getProjectAiBudget',
+  async (_event, projectId: string, forceRefresh?: boolean) => {
+    try {
+      await ensureAuthenticatedSession();
+      const budget = await fetchProjectAiBudget(String(projectId || ''), {
+        forceRefresh: Boolean(forceRefresh),
+      });
+      return { success: true, budget };
+    } catch (error) {
+      if (error instanceof AuthRequiredError) {
+        return { success: false, error: error.message, code: error.code };
+      }
+      if (error instanceof HubAiGovernanceError) {
+        return { success: false, error: error.message, code: 'HUB_AI_BUDGET' };
+      }
+      logError('[HubAiGovernance] getProjectAiBudget failed:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to load project AI budget',
+      };
+    }
+  }
+);
 
 ipcMain.handle(
   'launchpad.getProjectBudget',

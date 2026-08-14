@@ -84,6 +84,8 @@ export interface HubGovernanceUsageIngestResult {
   userBudgetPercent: number | null;
   /** Project spend / ceiling when project_id was set. null when no ceiling. */
   projectBudgetPercent: number | null;
+  /** Last-turn total tokens from the ingest row. */
+  totalTokens: number | null;
 }
 
 /**
@@ -100,6 +102,7 @@ export function parseHubGovernanceUsageResponse(payload: unknown): HubGovernance
       'project_budget_percent',
       'projectBudgetPercent'
     ),
+    totalTokens: nullableNumberField(data, 'total_tokens', 'totalTokens'),
   };
 }
 

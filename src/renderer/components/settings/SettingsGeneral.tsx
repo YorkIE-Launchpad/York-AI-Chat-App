@@ -4,6 +4,7 @@ import { ExternalLink, RefreshCw } from 'lucide-react';
 import { useAppStore } from '../../store';
 import { hasOpenRouterUserApiKey } from '../../../shared/openrouter-user-key';
 import { useUpdaterStatus } from '../../hooks/useUpdaterStatus';
+import { HubBudgetUsageCard } from './HubBudgetUsageCard';
 
 const isElectron = typeof window !== 'undefined' && window.electronAPI !== undefined;
 
@@ -91,6 +92,8 @@ export function SettingsGeneral() {
 
   return (
     <div className="space-y-6">
+      <HubBudgetUsageCard />
+
       {/* Theme */}
       <div className="space-y-3">
         <h4 className="text-sm font-medium text-text-primary">{t('general.appearance')}</h4>

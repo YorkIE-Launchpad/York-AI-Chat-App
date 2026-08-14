@@ -936,6 +936,8 @@
     "openRouter": {
       "generalLabel": "General",
       "foldersLabel": "Folders",
+      "hubLabel": "Hub",
+      "projectLabel": "Project",
       "gateTitle": "{{workspace}} needs your OpenRouter API key",
       "gateShort": "Add your key in Settings, or switch to Hub / Project for York models.",
       "gateBody": "General and personal Folders only run OpenRouter models on your own API key (York does not pay for them). Paste a key from openrouter.ai/keys in Settings → General. Free OpenRouter models have no per-token cost; rate limits still apply.",
@@ -955,6 +957,25 @@
       "noProviderKeys": "No provider keys configured",
       "openRouterLimitsFooter": "Your OpenRouter limits: under $10 credits → ~50/day; $10+ → ~1000/day. Paid models use your credits, not York’s.",
       "openRouterKeyFooter": "General/Folders need your OpenRouter API key. Free models still require a key for access. Limits: <$10 → 50/day; $10+ → 1000/day."
+    },
+    "budget": {
+      "title": "AI usage",
+      "refresh": "Refresh usage",
+      "you": "Your allowance",
+      "project": "This project · used first",
+      "projectNamed": "This project (currently {{name}} project's workspace) · used first",
+      "noYorkAllowance": "No York allowance in this workspace. Use your OpenRouter key.",
+      "onTrack": "On track",
+      "onTrackDetail": "On track this month.",
+      "high": "Running high",
+      "highDetail": "Most of this month’s allowance is used.",
+      "over": "Over allowance",
+      "overDetail": "York-managed paid models are paused until {{renewsOn}}.",
+      "askManager": "Need more capacity? Ask your manager for more usage allowance.",
+      "renewsOn": "Renews {{renewsOn}}",
+      "openSettings": "Open AI usage in Settings",
+      "lastReply": "Last reply {{tokens}}",
+      "byokCue": "Add your OpenRouter API key below."
     }
   },
   "chat": {

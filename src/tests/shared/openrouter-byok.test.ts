@@ -28,6 +28,33 @@ describe('openrouter user key helpers', () => {
     expect(needsOpenRouterUserKey({ kind: 'project' }, null)).toBe(false);
   });
 
+  it('gates Hub/Project when no York allowance after the workspace check', () => {
+    expect(
+      needsOpenRouterUserKey({ kind: 'hub' }, '', {
+        activeSource: 'none',
+        budgetReady: true,
+      })
+    ).toBe(true);
+    expect(
+      needsOpenRouterUserKey({ kind: 'project' }, 'sk-or-v1-x', {
+        activeSource: 'none',
+        budgetReady: true,
+      })
+    ).toBe(false);
+    expect(
+      needsOpenRouterUserKey({ kind: 'project' }, '', {
+        activeSource: 'project',
+        budgetReady: true,
+      })
+    ).toBe(false);
+    expect(
+      needsOpenRouterUserKey({ kind: 'hub' }, '', {
+        activeSource: 'none',
+        budgetReady: false,
+      })
+    ).toBe(false);
+  });
+
   it('classifies free-tier catalog ids', () => {
     expect(isOpenRouterFreeTierModel('openrouter/free')).toBe(true);
     expect(isOpenRouterFreeTierModel('openrouter/auto')).toBe(true);

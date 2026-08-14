@@ -15,6 +15,7 @@ import {
 } from '../../shared/backend-config';
 import {
   parseHubUserAiBudget,
+  type HubUsageMeterSnapshot,
   type HubUserAiBudgetSnapshot,
 } from '../../shared/fe-budget-gate';
 import {
@@ -34,6 +35,7 @@ export type {
   HubGovernanceUsagePayload,
   HubUserAiBudgetSnapshot,
 };
+export type { HubUsageMeterSnapshot };
 export { parseHubUserAiBudget };
 export {
   buildHubUsagePayloadFromPiUsage,
@@ -101,6 +103,11 @@ let userBudgetCache: {
   data: HubUserAiBudgetSnapshot;
   fetchedAt: number;
 } | null = null;
+let projectBudgetCache: {
+  projectId: string;
+  data: HubUserAiBudgetSnapshot;
+  fetchedAt: number;
+} | null = null;
 
 function modelsCacheKey(usable: boolean): string {
   return usable ? 'usable' : 'all';
@@ -114,10 +121,15 @@ export function clearHubGovernanceModelsCache(): void {
   modelsCache.clear();
   allowedCacheMap.clear();
   userBudgetCache = null;
+  projectBudgetCache = null;
 }
 
 function userAiBudgetPath(email: string): string {
   return `/api/users/${encodeURIComponent(email)}/ai-budget`;
+}
+
+function projectAiBudgetPath(projectId: string): string {
+  return `/api/projects/${encodeURIComponent(projectId)}/ai-budget`;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -563,6 +575,83 @@ export async function fetchUserAiBudget(options?: {
 }
 
 /**
+ * Fetch + parse Hub GET /api/projects/:id/ai-budget (same snapshot DTO as user).
+ * 403/404 → unset (no project ceiling this user can see) so FE can fall back to personal.
+ */
+export async function fetchProjectAiBudgetForToken(input: {
+  token: string;
+  alternateToken?: string | null;
+  projectId: string;
+  fetchFn?: FetchFn;
+}): Promise<HubUserAiBudgetSnapshot> {
+  const fetchFn = input.fetchFn ?? fetch;
+  const projectId = input.projectId.trim();
+  if (!projectId) {
+    return parseHubUserAiBudget({ status: 'unset' });
+  }
+  const path = projectAiBudgetPath(projectId);
+  let result = await hubGet(path, input.token, fetchFn);
+
+  if (
+    (!result.ok || result.status === 401 || result.status === 403) &&
+    input.alternateToken
+  ) {
+    logWarn('[HubAiGovernance]', path, 'failed with primary token — retrying alternate');
+    result = await hubGet(path, input.alternateToken, fetchFn);
+  }
+
+  if (result.ok && isSuccessEnvelope(result.json)) {
+    return parseHubUserAiBudget(result.json);
+  }
+  if (result.status === 403 || result.status === 404) {
+    return parseHubUserAiBudget({ status: 'unset' });
+  }
+
+  throw new HubAiGovernanceError(
+    result.status || 502,
+    result.status === 401
+      ? `Hub rejected Cognito token for ${path} (401). Try signing out and back in.`
+      : `Failed to load Hub project AI budget (${result.status || 'network'})`
+  );
+}
+
+/**
+ * Cached Hub GET /api/projects/:id/ai-budget.
+ */
+export async function fetchProjectAiBudget(
+  projectId: string,
+  options?: {
+    fetchFn?: FetchFn;
+    forceRefresh?: boolean;
+  }
+): Promise<HubUserAiBudgetSnapshot> {
+  const id = projectId.trim();
+  if (
+    !options?.forceRefresh &&
+    projectBudgetCache &&
+    projectBudgetCache.projectId === id &&
+    Date.now() - projectBudgetCache.fetchedAt < CACHE_TTL_MS
+  ) {
+    return projectBudgetCache.data;
+  }
+
+  const { token, alternateToken } = await resolveAccessToken();
+  const data = await fetchProjectAiBudgetForToken({
+    token,
+    alternateToken,
+    projectId: id,
+    fetchFn: options?.fetchFn,
+  });
+  projectBudgetCache = { projectId: id, data, fetchedAt: Date.now() };
+  log(
+    '[HubAiGovernance] Loaded project AI budget',
+    id,
+    `(status=${data.status}, remaining=${data.remaining})`
+  );
+  return data;
+}
+
+/**
  * Cached picker list: org catalog intersected with user allowed-models when available.
  * Default usable=true (consumer). Pass usable=false for LaunchPad paid re-enable.
  * If allowed-models fails, returns the full catalog (does not empty the picker).
@@ -670,10 +759,16 @@ export async function postHubGovernanceUsageForToken(input: {
     if (parsed.userBudgetPercent != null && parsed.userBudgetPercent >= 100) {
       clearHubGovernanceModelsCache();
     }
+    const totalTokens =
+      parsed.totalTokens ??
+      (typeof input.payload.total_tokens === 'number' && Number.isFinite(input.payload.total_tokens)
+        ? input.payload.total_tokens
+        : null);
     return {
       ...data,
       userBudgetPercent: parsed.userBudgetPercent,
       projectBudgetPercent: parsed.projectBudgetPercent,
+      totalTokens,
     };
   }
 
@@ -685,6 +780,23 @@ export async function postHubGovernanceUsageForToken(input: {
   );
 }
 
+function broadcastHubUsage(snapshot: HubUsageMeterSnapshot): void {
+  try {
+    // Lazy require so unit tests / MCP imports do not load Electron.
+    const { BrowserWindow } = require('electron') as typeof import('electron');
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (win.isDestroyed()) continue;
+      try {
+        win.webContents.send('hub:usage', snapshot);
+      } catch {
+        /* ignore */
+      }
+    }
+  } catch {
+    /* tests / non-Electron */
+  }
+}
+
 /**
  * Post a usage event. Swallows errors (log only) — safe for fire-and-forget from agent stream.
  */
@@ -694,11 +806,17 @@ export async function postHubGovernanceUsage(
 ): Promise<void> {
   try {
     const { token, alternateToken } = await resolveAccessToken();
-    await postHubGovernanceUsageForToken({
+    const result = await postHubGovernanceUsageForToken({
       token,
       alternateToken,
       payload,
       fetchFn: options?.fetchFn,
+    });
+    broadcastHubUsage({
+      userBudgetPercent: result.userBudgetPercent,
+      projectBudgetPercent: result.projectBudgetPercent,
+      lastTurnTokens: result.totalTokens,
+      updatedAt: Date.now(),
     });
   } catch (error) {
     if (error instanceof HubAiGovernanceError) {

@@ -2,14 +2,21 @@ import { describe, expect, it } from 'vitest';
 import {
   applyLaunchPadBudgetAsSoleGateToModels,
   applyLaunchPadBudgetFallbackToModels,
+  applyActiveProjectBudgetToModels,
+  budgetMeterFillPercent,
+  budgetMeterTone,
+  formatCompactTokens,
+  hasAiBudgetCeiling,
   isUserAiBudgetBlockingPaid,
   isUserAiBudgetOver,
   parseHubUserAiBudget,
   parseLaunchPadProjectBudget,
+  resolveActiveBudgetSource,
   resolveProjectBudgetGateStrategy,
   shouldFetchLaunchPadProjectBudget,
   shouldUseLaunchPadProjectBudgetFallback,
   shouldUseUnfilteredAllowedModels,
+  userBudgetPercentFromSnapshot,
 } from '../../shared/fe-budget-gate';
 
 describe('parseHubUserAiBudget', () => {
@@ -291,5 +298,129 @@ describe('FE Project budget apply helpers', () => {
     expect(isUserAiBudgetBlockingPaid('unset')).toBe(true);
     expect(isUserAiBudgetBlockingPaid('ok')).toBe(false);
     expect(isUserAiBudgetBlockingPaid('warning')).toBe(false);
+  });
+});
+
+describe('budget meter helpers', () => {
+  it('hides when percent is null', () => {
+    expect(budgetMeterTone(null)).toBeNull();
+    expect(budgetMeterTone(undefined)).toBeNull();
+    expect(budgetMeterTone(Number.NaN)).toBeNull();
+  });
+
+  it('maps 0–79 ok, 80–99 warning, ≥100 over', () => {
+    expect(budgetMeterTone(0)).toBe('ok');
+    expect(budgetMeterTone(79.9)).toBe('ok');
+    expect(budgetMeterTone(80)).toBe('warning');
+    expect(budgetMeterTone(99)).toBe('warning');
+    expect(budgetMeterTone(100)).toBe('over');
+    expect(budgetMeterTone(112.5)).toBe('over');
+  });
+
+  it('caps visual fill at 100', () => {
+    expect(budgetMeterFillPercent(0)).toBe(0);
+    expect(budgetMeterFillPercent(85)).toBe(85);
+    expect(budgetMeterFillPercent(112.5)).toBe(100);
+  });
+
+  it('abbreviates last-turn tokens', () => {
+    expect(formatCompactTokens(0)).toBe('0');
+    expect(formatCompactTokens(999)).toBe('999');
+    expect(formatCompactTokens(1000)).toBe('1k');
+    expect(formatCompactTokens(1600)).toBe('1.6k');
+    expect(formatCompactTokens(10_000)).toBe('10k');
+    expect(formatCompactTokens(1_600_000)).toBe('1.6M');
+  });
+
+  it('derives percent from spent/amount snapshot', () => {
+    expect(
+      userBudgetPercentFromSnapshot({ status: 'ok', amount: 500, spent: 128.45 })
+    ).toBeCloseTo(25.69, 2);
+    expect(
+      userBudgetPercentFromSnapshot({ status: 'warning', amount: 100, spent: 85 })
+    ).toBe(85);
+  });
+
+  it('hides meter when unset or amount is missing', () => {
+    expect(userBudgetPercentFromSnapshot({ status: 'unset', amount: 500, spent: 10 })).toBeNull();
+    expect(userBudgetPercentFromSnapshot({ status: 'ok', amount: null, spent: 10 })).toBeNull();
+    expect(userBudgetPercentFromSnapshot({ status: 'ok', amount: 0, spent: 0 })).toBeNull();
+    expect(userBudgetPercentFromSnapshot({ status: 'over' })).toBe(100);
+  });
+});
+
+describe('resolveActiveBudgetSource', () => {
+  it('uses project first, then personal, then OpenRouter', () => {
+    expect(
+      resolveActiveBudgetSource({
+        divisionKind: 'project',
+        projectHasBudget: true,
+        userHasBudget: true,
+      })
+    ).toBe('project');
+    expect(
+      resolveActiveBudgetSource({
+        divisionKind: 'project',
+        projectHasBudget: false,
+        userHasBudget: true,
+      })
+    ).toBe('user');
+    expect(
+      resolveActiveBudgetSource({
+        divisionKind: 'project',
+        projectHasBudget: false,
+        userHasBudget: false,
+      })
+    ).toBe('none');
+  });
+
+  it('uses personal budget in Hub, OpenRouter when unset', () => {
+    expect(
+      resolveActiveBudgetSource({
+        divisionKind: 'hub',
+        projectHasBudget: true,
+        userHasBudget: true,
+      })
+    ).toBe('user');
+    expect(
+      resolveActiveBudgetSource({
+        divisionKind: 'hub',
+        projectHasBudget: false,
+        userHasBudget: false,
+      })
+    ).toBe('none');
+  });
+
+  it('always OpenRouter in General and Folders', () => {
+    expect(
+      resolveActiveBudgetSource({
+        divisionKind: 'general',
+        projectHasBudget: true,
+        userHasBudget: true,
+      })
+    ).toBe('none');
+    expect(
+      resolveActiveBudgetSource({
+        divisionKind: 'folder',
+        projectHasBudget: false,
+        userHasBudget: true,
+      })
+    ).toBe('none');
+  });
+
+  it('hasAiBudgetCeiling is false for unset', () => {
+    expect(hasAiBudgetCeiling({ status: 'unset', amount: 500 })).toBe(false);
+    expect(hasAiBudgetCeiling({ status: 'ok', amount: 500 })).toBe(true);
+    expect(hasAiBudgetCeiling({ status: 'over' })).toBe(true);
+  });
+
+  it('applyActiveProjectBudgetToModels gates paid when over', () => {
+    const models = [
+      { id: 'gpt-4o', hasBudget: true, isFree: false },
+      { id: 'haiku', hasBudget: true, isFree: true },
+    ];
+    expect(applyActiveProjectBudgetToModels(models, 42)[0]?.hasBudget).toBe(true);
+    expect(applyActiveProjectBudgetToModels(models, 112)[0]?.hasBudget).toBe(false);
+    expect(applyActiveProjectBudgetToModels(models, 112)[1]?.hasBudget).toBe(true);
   });
 });

@@ -16,6 +16,7 @@ import type {
 import { applySessionUpdate } from '../utils/session-update';
 import type { ActiveDivision } from '../../shared/workspace-division';
 import type { MatterChatDraft } from '../../shared/matter-chat';
+import type { HubUsageMeterSnapshot } from '../../shared/fe-budget-gate';
 import {
   loadActiveDivisionFromStorage,
   saveActiveDivisionToStorage,
@@ -181,6 +182,9 @@ interface AppState {
   /** Welcome composer is primed for an incognito (ephemeral) chat. */
   incognitoDraft: boolean;
 
+  /** Hub AI budget meter (seeded from GET ai-budget, updated after usage ingest). */
+  hubUsage: HubUsageMeterSnapshot | null;
+
   // Actions
   setSessions: (sessions: Session[]) => void;
   addSession: (session: Session) => void;
@@ -266,6 +270,8 @@ interface AppState {
 
   setChatLoopStatus: (sessionId: string, status: ChatLoopStatus | null) => void;
 
+  setHubUsage: (snapshot: HubUsageMeterSnapshot | null) => void;
+
   setMatterChatDraft: (sessionId: string, draft: MatterChatDraft) => void;
   clearMatterChatDraft: (sessionId: string) => void;
 
@@ -344,6 +350,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   matterChatDraftBySessionId: {},
   systemDarkMode: false,
   incognitoDraft: false,
+  hubUsage: null,
 
   // Session actions
   setSessions: (sessions) =>
@@ -809,6 +816,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     ),
   setSettingsTab: (tab) => set({ settingsTab: tab }),
   setMatterBadgeCount: (count) => set({ matterBadgeCount: Math.max(0, count) }),
+  setHubUsage: (snapshot) => set({ hubUsage: snapshot }),
   setAskGrowthOSOpen: (open) =>
     set((state) =>
       open

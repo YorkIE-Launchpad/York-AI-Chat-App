@@ -24,13 +24,7 @@ import {
   filterModelsForDivision,
   sessionFieldsFromActiveDivision,
 } from '../../shared/workspace-division';
-import {
-  applyLaunchPadBudgetAsSoleGateToModels,
-  applyLaunchPadBudgetFallbackToModels,
-  resolveProjectBudgetGateStrategy,
-  shouldFetchLaunchPadProjectBudget,
-  shouldUseUnfilteredAllowedModels,
-} from '../../shared/fe-budget-gate';
+import { applyActiveProjectBudgetToModels } from '../../shared/fe-budget-gate';
 import { filterModelsForOpenRouterKey } from '../../shared/openrouter-fallback';
 import { useTranslation } from 'react-i18next';
 
@@ -95,6 +89,9 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
   const reconcileKeyRef = useRef<string | null>(null);
 
   const hasOpenRouterKey = hasOpenRouterUserApiKey(appConfig?.openRouterUserApiKey);
+  const hubUsage = useAppStore((state) => state.hubUsage);
+  const activeBudgetSource = hubUsage?.activeSource ?? null;
+  const projectBudgetPercent = hubUsage?.projectBudgetPercent ?? null;
   const divisionSession = useMemo(
     () => sessionFieldsFromActiveDivision(activeDivision),
     [activeDivision]
@@ -117,66 +114,11 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
       if (!opts?.silent) setIsLoading(true);
       void (async () => {
         try {
-          const hubApi = window.electronAPI.hub;
-          const launchpadApi = window.electronAPI.launchpad;
-
-          let usable = true;
-          let strategy: ReturnType<typeof resolveProjectBudgetGateStrategy> = null;
-          let userStatus: string | null = null;
-          const lpId =
-            activeDivision?.kind === 'project'
-              ? (activeDivision.launchpadProjectId ?? null)
-              : null;
-
-          if (activeDivision?.kind === 'project') {
-            strategy = resolveProjectBudgetGateStrategy({
-              division: 'project',
-              sources: activeDivision.sources,
-              hubProjectId: activeDivision.hubProjectId ?? null,
-              launchpadProjectId: lpId,
-            });
-            if (strategy === 'both' && hubApi?.getUserAiBudget) {
-              try {
-                const budgetRes = await hubApi.getUserAiBudget();
-                userStatus = budgetRes.success ? budgetRes.budget?.status ?? null : null;
-              } catch {
-                userStatus = null;
-              }
-            }
-            usable = !shouldUseUnfilteredAllowedModels({
-              strategy,
-              userBudgetStatus: userStatus,
-            });
-          }
-
+          const usable = activeBudgetSource !== 'project';
           let items = await window.electronAPI.config.listBackendModels({ usable });
-
-          if (activeDivision?.kind === 'project') {
-            try {
-              // Hub-only: trust allowed-models?usable=true. No LaunchPad fetch.
-              // LaunchPad-only / both-fallback: unfiltered grants + LaunchPad overlay.
-              if (
-                shouldFetchLaunchPadProjectBudget({
-                  strategy,
-                  userBudgetStatus: userStatus,
-                  launchpadProjectId: lpId,
-                }) &&
-                launchpadApi?.getProjectBudget &&
-                typeof lpId === 'number'
-              ) {
-                const lpRes = await launchpadApi.getProjectBudget(lpId);
-                if (lpRes.success && lpRes.budget) {
-                  items =
-                    strategy === 'launchpad'
-                      ? applyLaunchPadBudgetAsSoleGateToModels(items, lpRes.budget)
-                      : applyLaunchPadBudgetFallbackToModels(items, lpRes.budget);
-                }
-              }
-            } catch {
-              // Keep catalog as-is if budget IPC fails — allowed-models has_budget still applies.
-            }
+          if (activeBudgetSource === 'project') {
+            items = applyActiveProjectBudgetToModels(items, projectBudgetPercent);
           }
-
           setModels(items);
         } catch {
           setModels([]);
@@ -185,7 +127,7 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
         }
       })();
     },
-    [activeDivision]
+    [activeBudgetSource, projectBudgetPercent]
   );
 
   useEffect(() => {

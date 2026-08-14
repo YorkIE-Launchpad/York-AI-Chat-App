@@ -15,6 +15,7 @@ import { useIPC } from '../hooks/useIPC';
 import { MessageCard } from './MessageCard';
 import { MessageQueueList } from './MessageQueueList';
 import { ModelSelector } from './ModelSelector';
+import { HubBudgetMeter } from './HubBudgetMeter';
 import { ThinkingModeToggle } from './ThinkingModeToggle';
 import { OpenRouterKeyGateBanner } from './OpenRouterKeyGateBanner';
 import { SlashCommandMenu } from './SlashCommandMenu';
@@ -69,6 +70,7 @@ import { useDictation } from '../hooks/useDictation';
 import { DictationButton } from './DictationButton';
 import { ClientOutdatedUpdateActions } from './ClientOutdatedUpdateActions';
 import { needsOpenRouterUserKey } from '../../shared/openrouter-user-key';
+import { divisionBudgetCheckKey } from '../../shared/fe-budget-gate';
 
 type AttachedFile = {
   name: string;
@@ -93,9 +95,14 @@ export function ChatView() {
   const setStoreChatLoopStatus = useAppStore((s) => s.setChatLoopStatus);
   const activeDivision = useAppStore((s) => s.activeDivision);
   const appConfig = useAppStore((s) => s.appConfig);
+  const hubUsage = useAppStore((s) => s.hubUsage);
   const openRouterKeyRequired = needsOpenRouterUserKey(
     activeDivision,
-    appConfig?.openRouterUserApiKey
+    appConfig?.openRouterUserApiKey,
+    {
+      activeSource: hubUsage?.activeSource,
+      budgetReady: hubUsage?.checkedDivisionKey === divisionBudgetCheckKey(activeDivision),
+    }
   );
   const chatLoopStatus = useAppStore((s) =>
     activeSessionId ? (s.chatLoopBySessionId[activeSessionId] ?? null) : null
@@ -1748,6 +1755,7 @@ export function ChatView() {
               <div className="flex items-center gap-1 shrink-0">
                 <ThinkingModeToggle />
                 <ModelSelector />
+                <HubBudgetMeter />
 
                 {dictationAvailable && (
                   <DictationButton
