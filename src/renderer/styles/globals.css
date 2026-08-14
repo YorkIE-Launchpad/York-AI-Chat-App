@@ -168,11 +168,13 @@
     app-region: no-drag;
   }
 
-  /* Message bubbles */
+  /* Message bubbles — shrink-wrap to the text, cap at 90% of the chat column.
+     Right-align is handled by the parent flex (items-end). Do not use
+     `margin-left: auto` with fit-content; that overflows left under the sidebar. */
   .message-user {
     @apply bg-surface rounded-2xl border border-border-subtle;
     width: fit-content;
-    margin-left: auto;
+    max-width: 90%;
   }
 
   /* Prose styling for assistant messages - elegant serif font */

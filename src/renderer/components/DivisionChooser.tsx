@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Briefcase, Building2, KeyRound, Layers, Loader2, Lock } from 'lucide-react';
+import { Briefcase, Building2, KeyRound, Layers, Loader2, Lock, Search } from 'lucide-react';
 import { useAppStore } from '../store';
 import type { UnifiedCompanyProject } from '../../shared/unified-company-projects';
-import { canonicalKeyForUnified } from '../../shared/unified-company-projects';
+import { canonicalKeyForUnified, filterCompanyProjects } from '../../shared/unified-company-projects';
 import {
   activeDivisionFromUnifiedProject,
   companyProjectSourceLabel,
@@ -32,6 +32,7 @@ export function DivisionChooser() {
   const [projects, setProjects] = useState<UnifiedCompanyProject[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [projectQuery, setProjectQuery] = useState('');
 
   const loadProjects = useCallback(async () => {
     setLoading(true);
@@ -113,6 +114,16 @@ export function DivisionChooser() {
     return projects.filter((p) => !recentKeys.has(canonicalKeyForUnified(p)));
   }, [projects, recentProjects]);
 
+  const visibleRecentProjects = useMemo(
+    () => filterCompanyProjects(recentProjects, projectQuery),
+    [recentProjects, projectQuery]
+  );
+  const visibleOtherProjects = useMemo(
+    () => filterCompanyProjects(otherProjects, projectQuery),
+    [otherProjects, projectQuery]
+  );
+  const hasProjectMatches = visibleRecentProjects.length > 0 || visibleOtherProjects.length > 0;
+
   if (pickingProject) {
     return (
       <div className="mx-auto flex w-full max-w-lg min-h-0 flex-1 flex-col">
@@ -120,7 +131,10 @@ export function DivisionChooser() {
           <button
             type="button"
             className="text-sm text-text-muted hover:text-text-primary"
-            onClick={() => setPickingProject(false)}
+            onClick={() => {
+              setProjectQuery('');
+              setPickingProject(false);
+            }}
           >
             ← Back
           </button>
@@ -142,13 +156,33 @@ export function DivisionChooser() {
           <p className="mb-2 text-center text-xs text-text-muted">{error}</p>
         )}
         {!loading && projects.length > 0 && (
-          <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain pr-1">
-            {recentProjects.length > 0 && (
+          <div className="flex min-h-0 flex-1 flex-col gap-2">
+            <div className="relative shrink-0">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
+              <input
+                type="search"
+                autoFocus
+                value={projectQuery}
+                onChange={(e) => setProjectQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key !== 'Escape') return;
+                  if (projectQuery) {
+                    e.preventDefault();
+                    setProjectQuery('');
+                  }
+                }}
+                placeholder="Search projects…"
+                aria-label="Search projects"
+                className="w-full rounded-xl border border-border-subtle bg-bg-secondary py-2.5 pl-10 pr-3 text-sm text-text-primary placeholder:text-text-muted"
+              />
+            </div>
+            <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain pr-1">
+            {visibleRecentProjects.length > 0 && (
               <>
                 <div className="px-1 text-[10px] font-medium uppercase tracking-wide text-text-muted">
                   Recent
                 </div>
-                {recentProjects.map((project) => (
+                {visibleRecentProjects.map((project) => (
                   <button
                     key={`recent:${project.canonicalKey}`}
                     type="button"
@@ -161,14 +195,14 @@ export function DivisionChooser() {
                     </div>
                   </button>
                 ))}
-                {otherProjects.length > 0 && (
+                {visibleOtherProjects.length > 0 && (
                   <div className="px-1 pt-1 text-[10px] font-medium uppercase tracking-wide text-text-muted">
                     All projects
                   </div>
                 )}
               </>
             )}
-            {otherProjects.map((project) => (
+            {visibleOtherProjects.map((project) => (
               <button
                 key={project.canonicalKey}
                 type="button"
@@ -181,6 +215,12 @@ export function DivisionChooser() {
                 </div>
               </button>
             ))}
+            {!hasProjectMatches && (
+              <p className="rounded-lg border border-border-subtle bg-bg-secondary px-4 py-6 text-center text-sm text-text-muted">
+                No matching projects
+              </p>
+            )}
+            </div>
           </div>
         )}
       </div>

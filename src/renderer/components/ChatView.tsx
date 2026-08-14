@@ -1229,7 +1229,7 @@ export function ChatView() {
   }
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden bg-background">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
       {/* Header — single flex row: brand | truncated title | actions (never overlap) */}
       <div
         ref={headerRef}
@@ -1328,10 +1328,10 @@ export function ChatView() {
       )}
 
       {/* Messages */}
-      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto">
+      <div ref={scrollContainerRef} className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
         <div
           ref={messagesContainerRef}
-          className="w-full max-w-[920px] mx-auto py-8 px-5 lg:px-8 space-y-5"
+          className="mx-auto w-full min-w-0 max-w-[920px] space-y-5 px-5 py-8 lg:px-8"
         >
           {displayedMessages.length === 0 ? (
             matterChatDraft ? (
@@ -1403,7 +1403,7 @@ export function ChatView() {
               const isStreaming =
                 typeof message.id === 'string' && message.id.startsWith('partial-');
               return (
-                <div key={message.id}>
+                <div key={message.id} className="min-w-0 max-w-full">
                   <MessageCard
                     message={message}
                     isStreaming={isStreaming}
@@ -1442,8 +1442,8 @@ export function ChatView() {
       </div>
 
       {/* Input */}
-      <div className="border-t border-border-muted bg-background/92 backdrop-blur-md">
-        <div className="max-w-[920px] mx-auto px-5 lg:px-8 pt-4 pb-5 space-y-3">
+      <div className="min-w-0 border-t border-border-muted bg-background/92 backdrop-blur-md">
+        <div className="mx-auto w-full min-w-0 max-w-[920px] space-y-3 px-5 pb-5 pt-4 lg:px-8">
           {queuedCount > 0 && (
             <MessageQueueList
               messages={queuedMessages}
@@ -1559,7 +1559,7 @@ export function ChatView() {
             )}
 
             <div
-              className={`relative flex items-center gap-1.5 p-2.5 rounded-[1.5rem] bg-background/88 border border-border-muted shadow-soft transition-colors ${
+              className={`relative flex min-w-0 items-center gap-1.5 p-2.5 rounded-[1.5rem] bg-background/88 border border-border-muted shadow-soft transition-colors ${
                 isDragging ? 'ring-2 ring-accent bg-accent/5' : ''
               }`}
             >

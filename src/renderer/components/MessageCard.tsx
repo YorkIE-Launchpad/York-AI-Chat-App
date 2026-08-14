@@ -103,19 +103,19 @@ export const MessageCard = memo(function MessageCard({
   );
 
   return (
-    <div className="animate-fade-in">
+    <div className="min-w-0 max-w-full animate-fade-in">
       {isUser ? (
         // User message - compact styling with smaller padding and radius
-        <div className="flex flex-col items-end gap-1.5">
+        <div className="flex min-w-0 max-w-full flex-col items-end gap-1.5">
           {isCancelled && (
             <div className="inline-flex items-center gap-1.5 rounded-full bg-surface-muted px-2.5 py-1 text-[11px] font-medium text-text-muted">
               <Ban className="w-3 h-3 shrink-0" aria-hidden />
               <span>{t('messageCard.cancelledNotSent')}</span>
             </div>
           )}
-          <div className="flex items-start gap-2 justify-end group">
+          <div className="flex min-w-0 max-w-full items-start justify-end gap-2 group">
             <div
-              className={`message-user px-4 py-3 rounded-[1.65rem] max-w-[80%] min-w-0 break-words ${
+              className={`message-user min-w-0 w-fit max-w-[90%] break-words px-4 py-3 rounded-[1.65rem] ${
                 isCancelled ? 'opacity-55' : ''
               }`}
               aria-label={isCancelled ? t('messageCard.cancelledAria') : undefined}
@@ -150,7 +150,7 @@ export const MessageCard = memo(function MessageCard({
         </div>
       ) : (
         // Assistant message — no bubble, direct content + copy like ChatGPT/Claude
-        <div className="group/assistant space-y-1.5">
+        <div className="group/assistant min-w-0 max-w-full space-y-1.5">
           {contentBlocks.map((block, index) => {
             // Skip tool_result blocks that are merged into their tool_use card
             if (

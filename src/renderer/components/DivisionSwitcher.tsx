@@ -8,6 +8,7 @@ import {
   Loader2,
   Folder,
   Lock,
+  Search,
 } from 'lucide-react';
 import { useAppStore } from '../store';
 import type { ActiveDivision, PersonalFolder } from '../../shared/workspace-division';
@@ -17,7 +18,7 @@ import {
   divisionLabel,
 } from '../../shared/workspace-division';
 import type { UnifiedCompanyProject } from '../../shared/unified-company-projects';
-import { canonicalKeyForUnified } from '../../shared/unified-company-projects';
+import { canonicalKeyForUnified, filterCompanyProjects } from '../../shared/unified-company-projects';
 import { hasOpenRouterUserApiKey } from '../../shared/openrouter-user-key';
 import {
   rememberRecentProject,
@@ -48,7 +49,9 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
   const [projectsError, setProjectsError] = useState<string | null>(null);
   const [staleProjectWarning, setStaleProjectWarning] = useState<string | null>(null);
   const [newFolderName, setNewFolderName] = useState('');
+  const [projectQuery, setProjectQuery] = useState('');
   const menuRef = useRef<HTMLDivElement>(null);
+  const projectSearchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -57,11 +60,22 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
         setMenuOpen(false);
         setPickingProject(false);
         setPickingFolder(false);
+        setProjectQuery('');
       }
     };
     document.addEventListener('mousedown', onDocClick);
     return () => document.removeEventListener('mousedown', onDocClick);
   }, [menuOpen]);
+
+  useEffect(() => {
+    if (!pickingProject) {
+      setProjectQuery('');
+      return;
+    }
+    if (loadingProjects || projects.length === 0) return;
+    const id = window.setTimeout(() => projectSearchRef.current?.focus(), 0);
+    return () => window.clearTimeout(id);
+  }, [pickingProject, loadingProjects, projects.length]);
 
   const loadProjects = useCallback(async (): Promise<UnifiedCompanyProject[]> => {
     setLoadingProjects(true);
@@ -219,6 +233,16 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
     return projects.filter((p) => !recentKeys.has(canonicalKeyForUnified(p)));
   }, [projects, recentProjects]);
 
+  const visibleRecentProjects = useMemo(
+    () => filterCompanyProjects(recentProjects, projectQuery),
+    [recentProjects, projectQuery]
+  );
+  const visibleOtherProjects = useMemo(
+    () => filterCompanyProjects(otherProjects, projectQuery),
+    [otherProjects, projectQuery]
+  );
+  const hasProjectMatches = visibleRecentProjects.length > 0 || visibleOtherProjects.length > 0;
+
   const selectFolder = useCallback(
     (folder: PersonalFolder) => {
       if (!hasOpenRouterUserApiKey(appConfig?.openRouterUserApiKey)) {
@@ -268,6 +292,7 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
           setMenuOpen((open) => !open);
           setPickingProject(false);
           setPickingFolder(false);
+          setProjectQuery('');
         }}
         className={`flex w-full items-center gap-2 rounded-lg border border-border bg-background text-left text-text-primary hover:bg-surface-hover transition-colors ${
           compact ? 'px-2 py-1.5 text-xs' : 'px-3 py-2 text-sm'
@@ -420,7 +445,7 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
               )}
             </div>
           ) : (
-            <div className="max-h-64 overflow-y-auto py-1">
+            <div className="flex max-h-80 flex-col py-1">
               <div className="flex items-center justify-between px-3 py-2 text-xs text-text-muted">
                 <button
                   type="button"
@@ -431,26 +456,76 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
                 </button>
                 <span>Company projects</span>
               </div>
-              {loadingProjects && (
-                <div className="flex items-center gap-2 px-3 py-3 text-xs text-text-muted">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  Loading…
+              {!loadingProjects && projects.length > 0 && (
+                <div className="px-2 pb-2">
+                  <div className="relative">
+                    <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" />
+                    <input
+                      ref={projectSearchRef}
+                      type="search"
+                      value={projectQuery}
+                      onChange={(e) => setProjectQuery(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key !== 'Escape') return;
+                        e.stopPropagation();
+                        if (projectQuery) {
+                          setProjectQuery('');
+                          return;
+                        }
+                        setPickingProject(false);
+                      }}
+                      placeholder="Search projects…"
+                      aria-label="Search projects"
+                      className="w-full rounded border border-border bg-bg-secondary py-1.5 pl-7 pr-2 text-xs text-text-primary placeholder:text-text-muted"
+                    />
+                  </div>
                 </div>
               )}
-              {!loadingProjects && projectsError && projects.length === 0 && (
-                <p className="px-3 py-3 text-xs text-text-muted">{projectsError}</p>
-              )}
-              {!loadingProjects && projectsError && projects.length > 0 && (
-                <p className="px-3 py-1 text-xs text-text-muted">{projectsError}</p>
-              )}
-              {!loadingProjects && recentProjects.length > 0 && (
-                <>
-                  <div className="px-3 pt-1 pb-0.5 text-[10px] font-medium uppercase tracking-wide text-text-muted">
-                    Recent
+              <div className="min-h-0 flex-1 overflow-y-auto">
+                {loadingProjects && (
+                  <div className="flex items-center gap-2 px-3 py-3 text-xs text-text-muted">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    Loading…
                   </div>
-                  {recentProjects.map((project) => (
+                )}
+                {!loadingProjects && projectsError && projects.length === 0 && (
+                  <p className="px-3 py-3 text-xs text-text-muted">{projectsError}</p>
+                )}
+                {!loadingProjects && projectsError && projects.length > 0 && (
+                  <p className="px-3 py-1 text-xs text-text-muted">{projectsError}</p>
+                )}
+                {!loadingProjects && visibleRecentProjects.length > 0 && (
+                  <>
+                    <div className="px-3 pt-1 pb-0.5 text-[10px] font-medium uppercase tracking-wide text-text-muted">
+                      Recent
+                    </div>
+                    {visibleRecentProjects.map((project) => (
+                      <ProjectMenuRow
+                        key={`recent:${project.canonicalKey}`}
+                        project={project}
+                        active={
+                          activeDivision?.kind === 'project' &&
+                          activeDivision.canonicalKey === project.canonicalKey
+                        }
+                        onSelect={selectProject}
+                      />
+                    ))}
+                    {visibleOtherProjects.length > 0 && (
+                      <div className="my-1 border-t border-border" />
+                    )}
+                  </>
+                )}
+                {!loadingProjects &&
+                  visibleOtherProjects.length > 0 &&
+                  visibleRecentProjects.length > 0 && (
+                    <div className="px-3 pt-0.5 pb-0.5 text-[10px] font-medium uppercase tracking-wide text-text-muted">
+                      All projects
+                    </div>
+                  )}
+                {!loadingProjects &&
+                  visibleOtherProjects.map((project) => (
                     <ProjectMenuRow
-                      key={`recent:${project.canonicalKey}`}
+                      key={project.canonicalKey}
                       project={project}
                       active={
                         activeDivision?.kind === 'project' &&
@@ -459,28 +534,10 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
                       onSelect={selectProject}
                     />
                   ))}
-                  {otherProjects.length > 0 && (
-                    <div className="my-1 border-t border-border" />
-                  )}
-                </>
-              )}
-              {!loadingProjects && otherProjects.length > 0 && recentProjects.length > 0 && (
-                <div className="px-3 pt-0.5 pb-0.5 text-[10px] font-medium uppercase tracking-wide text-text-muted">
-                  All projects
-                </div>
-              )}
-              {!loadingProjects &&
-                otherProjects.map((project) => (
-                  <ProjectMenuRow
-                    key={project.canonicalKey}
-                    project={project}
-                    active={
-                      activeDivision?.kind === 'project' &&
-                      activeDivision.canonicalKey === project.canonicalKey
-                    }
-                    onSelect={selectProject}
-                  />
-                ))}
+                {!loadingProjects && projects.length > 0 && !hasProjectMatches && (
+                  <p className="px-3 py-3 text-xs text-text-muted">No matching projects</p>
+                )}
+              </div>
             </div>
           )}
         </div>

@@ -55,6 +55,7 @@ const MCP_LIST_TOOLS_TIMEOUT_MS = 5 * 60 * 1000;
 const MCP_TOOL_CALL_TIMEOUT_MS = 5 * 60 * 1000;
 const CONNECT_RETRY_INTERVAL_MS = 5000;
 const CONNECT_RETRY_MAX_MS = 5 * 60 * 1000;
+const CONNECT_RETRY_SLOW_INTERVAL_MS = 30 * 1000;
 
 type RefreshToolsResult =
   | { kind: 'success'; serverId: string; tools: MCPTool[] }
@@ -396,7 +397,7 @@ export class MCPManager {
   private connectorAccessTokensByServerId = new Map<string, string>();
   // Cognito JWT last injected into mcp-remote --header for LaunchPad / R&D Pulse
   private cognitoBearerTokensByServerId = new Map<string, string>();
-  // Background connect retry loops (5s interval, 5min deadline)
+  // Background connect retry loops (5s for 5min, then 30s until success/disable)
   private connectRetryControllers = new Map<string, AbortController>();
   // Server IDs allowed to open a browser for OAuth during the current connect
   private pendingInteractiveOAuth = new Set<string>();
@@ -931,7 +932,8 @@ export class MCPManager {
   }
 
   /**
-   * Start a background loop that retries connecting every 5s for up to 5 minutes.
+   * Start a background loop that retries connecting every 5s for 5 minutes,
+   * then every 30s until the server connects or is disabled.
    */
   private startConnectRetryLoop(config: MCPServerConfig): void {
     const serverId = config.id;
@@ -947,23 +949,35 @@ export class MCPManager {
     this.connectionStatus.set(serverId, 'connecting');
 
     log(
-      `[MCPManager] Starting connect retry loop for ${config.name} (every ${CONNECT_RETRY_INTERVAL_MS}ms, up to ${CONNECT_RETRY_MAX_MS}ms)`
+      `[MCPManager] Starting connect retry loop for ${config.name} (every ${CONNECT_RETRY_INTERVAL_MS}ms for ${CONNECT_RETRY_MAX_MS}ms, then every ${CONNECT_RETRY_SLOW_INTERVAL_MS}ms)`
     );
 
     void this.runConnectRetryLoop(serverId, controller);
   }
 
   private async runConnectRetryLoop(serverId: string, controller: AbortController): Promise<void> {
-    const deadline = Date.now() + CONNECT_RETRY_MAX_MS;
+    const aggressiveDeadline = Date.now() + CONNECT_RETRY_MAX_MS;
+    let loggedSlowRetry = false;
 
     try {
-      while (Date.now() < deadline) {
-        if (controller.signal.aborted) {
-          return;
+      while (!controller.signal.aborted) {
+        const inAggressiveWindow = Date.now() < aggressiveDeadline;
+        if (!inAggressiveWindow && !this.clients.has(serverId)) {
+          this.connectionStatus.set(serverId, 'failed');
+          if (!loggedSlowRetry) {
+            loggedSlowRetry = true;
+            const config = this.serverConfigs.get(serverId);
+            logWarn(
+              `[MCPManager] Connect retry for ${config?.name ?? serverId} still failing after ${CONNECT_RETRY_MAX_MS}ms; continuing every ${CONNECT_RETRY_SLOW_INTERVAL_MS}ms`
+            );
+          }
         }
 
         try {
-          await abortableDelay(CONNECT_RETRY_INTERVAL_MS, controller.signal);
+          await abortableDelay(
+            inAggressiveWindow ? CONNECT_RETRY_INTERVAL_MS : CONNECT_RETRY_SLOW_INTERVAL_MS,
+            controller.signal
+          );
         } catch {
           return;
         }
@@ -985,10 +999,14 @@ export class MCPManager {
           return;
         }
 
-        this.connectionStatus.set(serverId, 'connecting');
+        const quietStatus = Date.now() >= aggressiveDeadline;
+        if (!quietStatus) {
+          this.connectionStatus.set(serverId, 'connecting');
+        }
         const reconnected = await this.reconnectServer(serverId, {
           skipRefresh: true,
           preserveConnectRetry: true,
+          quietStatus,
         });
         if (reconnected) {
           await this.refreshTools();
@@ -996,15 +1014,7 @@ export class MCPManager {
           return;
         }
 
-        this.connectionStatus.set(serverId, 'connecting');
-      }
-
-      if (!controller.signal.aborted && !this.clients.has(serverId)) {
-        this.connectionStatus.set(serverId, 'failed');
-        const config = this.serverConfigs.get(serverId);
-        logWarn(
-          `[MCPManager] Giving up connect retry for ${config?.name ?? serverId} after ${CONNECT_RETRY_MAX_MS}ms`
-        );
+        this.connectionStatus.set(serverId, quietStatus ? 'failed' : 'connecting');
       }
     } finally {
       const ownsController = this.connectRetryControllers.get(serverId) === controller;
@@ -1030,15 +1040,18 @@ export class MCPManager {
    * Connect to a single MCP server.
    * Leaves status as 'connecting' until refreshTools confirms tools were discovered.
    * @param options.interactiveOAuth — open browser for OAuth only when the user initiated connect/reconnect
+   * @param options.quietStatus — do not flip UI status (slow background retries after the 5min window)
    */
   private async connectServer(
     config: MCPServerConfig,
-    options?: { interactiveOAuth?: boolean }
+    options?: { interactiveOAuth?: boolean; quietStatus?: boolean }
   ): Promise<void> {
     log(`[MCPManager] Connecting to MCP server: ${config.name} (${config.type})`);
 
     // Mark status as connecting at the very start, before any transport creation
-    this.connectionStatus.set(config.id, 'connecting');
+    if (!options?.quietStatus) {
+      this.connectionStatus.set(config.id, 'connecting');
+    }
     const interactive = options?.interactiveOAuth === true;
     if (interactive) {
       this.pendingInteractiveOAuth.add(config.id);
@@ -1053,7 +1066,13 @@ export class MCPManager {
       // Do not mark 'connected' here — that requires a non-empty tool list via refreshTools
       this.cancelConnectRetry(config.id);
     } catch (error) {
-      this.connectionStatus.set(config.id, 'failed');
+      if (isMcpOAuthInteractionRequiredError(error)) {
+        this.connectionStatus.set(config.id, 'failed');
+      } else if (!this.connectRetryControllers.has(config.id)) {
+        this.startConnectRetryLoop(config);
+      } else if (!options?.quietStatus) {
+        this.connectionStatus.set(config.id, 'connecting');
+      }
       throw error;
     } finally {
       this.pendingInteractiveOAuth.delete(config.id);
@@ -2357,8 +2376,12 @@ export class MCPManager {
 
     for (const serverId of failedServerIds) {
       await this.disconnectServer(serverId);
-      // disconnectServer clears connectionStatus; mark failed explicitly
-      this.connectionStatus.set(serverId, 'failed');
+      const config = this.serverConfigs.get(serverId);
+      if (config?.enabled) {
+        this.startConnectRetryLoop(config);
+      } else {
+        this.connectionStatus.set(serverId, 'failed');
+      }
     }
 
     log(`[MCPManager] Total tools available: ${this.tools.size}`);
@@ -2647,6 +2670,8 @@ export class MCPManager {
       preserveConnectRetry?: boolean;
       /** Open browser OAuth when tokens are missing/invalid (Settings reconnect). Default false. */
       interactiveOAuth?: boolean;
+      /** Do not flip UI status (slow background retries after the 5min window). */
+      quietStatus?: boolean;
     }
   ): Promise<boolean> {
     // Prevent concurrent reconnect operations for the same server
@@ -2664,7 +2689,9 @@ export class MCPManager {
 
     this.reconnectingServers.add(serverId);
     // Pre-set 'connecting' before disconnect to avoid status flickering to 'disabled'
-    this.connectionStatus.set(serverId, 'connecting');
+    if (!options?.quietStatus) {
+      this.connectionStatus.set(serverId, 'connecting');
+    }
     try {
       const shareKey =
         isShareableAtlassianRemoteMcpServer(config) && config.url
@@ -2680,15 +2707,23 @@ export class MCPManager {
         forceCloseShared: Boolean(shareKey),
       });
       const interactiveOAuth = options?.interactiveOAuth === true;
-      await this.connectServer(config, { interactiveOAuth });
+      await this.connectServer(config, {
+        interactiveOAuth,
+        quietStatus: options?.quietStatus,
+      });
 
       for (const siblingId of siblingIds) {
         const sibling = this.serverConfigs.get(siblingId);
         if (!sibling?.enabled || this.clients.has(siblingId)) continue;
-        this.connectionStatus.set(siblingId, 'connecting');
+        if (!options?.quietStatus) {
+          this.connectionStatus.set(siblingId, 'connecting');
+        }
         try {
           // Sibling re-alias: share tokens already obtained; no new browser OAuth
-          await this.connectServer(sibling, { interactiveOAuth: false });
+          await this.connectServer(sibling, {
+            interactiveOAuth: false,
+            quietStatus: options?.quietStatus,
+          });
         } catch (siblingError) {
           logMcpConnectFailure(
             `Failed to re-alias Atlassian sibling ${siblingId} after reconnect`,
@@ -2705,6 +2740,9 @@ export class MCPManager {
       return true;
     } catch (error) {
       logMcpConnectFailure(`Failed to reconnect server ${serverId}`, error);
+      if (!isMcpOAuthInteractionRequiredError(error) && !options?.preserveConnectRetry) {
+        this.startConnectRetryLoop(config);
+      }
       return false;
     } finally {
       this.reconnectingServers.delete(serverId);

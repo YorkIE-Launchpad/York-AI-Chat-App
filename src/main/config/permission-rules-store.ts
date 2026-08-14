@@ -24,10 +24,31 @@ const DEFAULT_RULES: PermissionRule[] = [
   { tool: 'grep', action: 'allow' },
   { tool: 'ls', action: 'allow' },
   { tool: 'find', action: 'allow' },
+  { tool: 'wiki_search', action: 'allow' },
+  { tool: 'wiki_read', action: 'allow' },
+  { tool: 'wiki_list', action: 'allow' },
   { tool: 'write', action: 'ask' },
   { tool: 'edit', action: 'ask' },
   { tool: 'bash', action: 'ask' },
 ];
+
+/** Mutating wiki tools stay on the ask path until an explicit rule exists. */
+const WIKI_MUTATION_TOOLS = new Set([
+  'wiki_write',
+  'wiki_create',
+  'wiki_update',
+  'wiki_delete',
+  'wiki_edit',
+  'wiki_upsert',
+  'wiki_remove',
+]);
+
+/** First-party wiki reads (`wiki_search` / `wiki_read` / `wiki_list` and future `wiki_*`). */
+export function isAutoAllowedWikiTool(toolName: string): boolean {
+  const lowered = toolName.toLowerCase();
+  if (!lowered.startsWith('wiki_')) return false;
+  return !WIKI_MUTATION_TOOLS.has(lowered);
+}
 
 const VALID_ACTIONS: ReadonlySet<PermissionRule['action']> = new Set(['allow', 'deny', 'ask']);
 
@@ -89,7 +110,7 @@ export function getPermissionRules(): PermissionRule[] {
  *      Slack / Gmail / Drive / Calendar / Jira / Confluence read tools (see allowlists below; write tools ask),
  *      OpenAI budget meta-tools (`mcp_run`, and child-only `mcp_search_tools` / `mcp_call_tool`),
  *      first-party meeting tools (`meeting_search`, `meeting_read`),
- *      first-party wiki tools (`wiki_search`, `wiki_read`, `wiki_list`),
+ *      first-party wiki tools (`wiki_*` except mutations like `wiki_write`),
  *      and the first-party `webfetch` tool
  *   4. Default: 'ask' for unknown tools (conservative)
  *
@@ -137,9 +158,7 @@ export function decidePermission(
   if (MCP_FIRST_PARTY_READ_TOOLS.has(lowered)) return 'allow';
   if (lowered === 'meeting_search') return 'allow';
   if (lowered === 'meeting_read') return 'allow';
-  if (lowered === 'wiki_search') return 'allow';
-  if (lowered === 'wiki_read') return 'allow';
-  if (lowered === 'wiki_list') return 'allow';
+  if (isAutoAllowedWikiTool(toolName)) return 'allow';
   if (lowered === 'webfetch') return 'allow';
   if (lowered === 'mcp_run') return 'allow';
   if (lowered === 'mcp_search_tools') return 'allow';

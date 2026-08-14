@@ -340,7 +340,7 @@ export const ContentBlockView = memo(function ContentBlockView({
         return (
           <p
             {...AUTO_TEXT_DIRECTION_PROPS}
-            className="text-text-primary whitespace-pre-wrap break-words text-start"
+            className="text-start text-text-primary whitespace-pre-wrap break-words break-anywhere"
           >
             {text}
             {isStreaming && <span className="inline-block w-2 h-4 bg-accent ml-1 animate-pulse" />}

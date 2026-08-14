@@ -45,7 +45,7 @@ type TestManagerInternals = {
   oauthProviders: Map<string, unknown>;
   reconnectServer?: (
     serverId: string,
-    options?: { skipRefresh?: boolean; preserveConnectRetry?: boolean }
+    options?: { skipRefresh?: boolean; preserveConnectRetry?: boolean; quietStatus?: boolean }
   ) => Promise<boolean>;
   startConnectRetryLoop: (config: MCPServerConfig) => void;
   disconnectServer: (
@@ -616,6 +616,7 @@ describe('MCPManager', () => {
       expect(testManager.reconnectServer).toHaveBeenNthCalledWith(1, retryConfig.id, {
         skipRefresh: true,
         preserveConnectRetry: true,
+        quietStatus: false,
       });
 
       await vi.advanceTimersByTimeAsync(5000);
@@ -650,10 +651,10 @@ describe('MCPManager', () => {
 
       expect(reconnectSpy.mock.calls.length).toBeGreaterThan(3);
       expect(manager.getServerStatus()[0].status).toBe('failed');
-      expect(testManager.connectRetryControllers.has(retryConfig.id)).toBe(false);
+      expect(testManager.connectRetryControllers.has(retryConfig.id)).toBe(true);
     });
 
-    it('gives up after 5 minutes and marks status failed', async () => {
+    it('marks failed after 5 minutes but keeps retrying slowly', async () => {
       const testManager = asTestManager(manager);
       testManager.reconnectServer = vi.fn().mockResolvedValue(false);
 
@@ -664,6 +665,33 @@ describe('MCPManager', () => {
 
       expect(testManager.reconnectServer).toHaveBeenCalledTimes(60);
       expect(manager.getServerStatus()[0].status).toBe('failed');
+      expect(testManager.connectRetryControllers.has(retryConfig.id)).toBe(true);
+
+      await vi.advanceTimersByTimeAsync(30 * 1000);
+      await Promise.resolve();
+
+      expect(testManager.reconnectServer).toHaveBeenCalledTimes(61);
+      expect(testManager.reconnectServer).toHaveBeenLastCalledWith(retryConfig.id, {
+        skipRefresh: true,
+        preserveConnectRetry: true,
+        quietStatus: true,
+      });
+      expect(manager.getServerStatus()[0].status).toBe('failed');
+    });
+
+    it('starts a connect retry loop when a manual reconnect fails', async () => {
+      const testManager = asTestManager(manager);
+      const managerInternal = manager as unknown as {
+        connectServerInternal: (config: MCPServerConfig) => Promise<void>;
+      };
+      managerInternal.connectServerInternal = vi
+        .fn()
+        .mockRejectedValue(new Error('forced reconnect failure'));
+
+      const ok = await manager.reconnectServer(retryConfig.id);
+      expect(ok).toBe(false);
+      expect(manager.getServerStatus()[0].status).toBe('connecting');
+      expect(testManager.connectRetryControllers.has(retryConfig.id)).toBe(true);
     });
 
     it('stops retrying when the server is disconnected', async () => {
@@ -730,7 +758,7 @@ describe('MCPManager', () => {
   });
 
   describe('zero-tools failure', () => {
-    it('marks server as failed when listTools returns 0 tools', async () => {
+    it('disconnects and auto-retries when listTools returns 0 tools', async () => {
       const { logError } = await import('../../main/utils/logger');
       const testManager = asTestManager(manager);
       const mockClient: TestMCPClient = {
@@ -758,13 +786,16 @@ describe('MCPManager', () => {
       expect(statuses[0]).toMatchObject({
         id: 'empty-tools',
         connected: false,
-        status: 'failed',
+        status: 'connecting',
         toolCount: 0,
       });
       expect(testManager.clients.has('empty-tools')).toBe(false);
+      expect(testManager.connectRetryControllers.has('empty-tools')).toBe(true);
       expect(logError).toHaveBeenCalledWith(
         expect.stringContaining('listed 0 tools after connect')
       );
+
+      await manager.disconnectServer('empty-tools');
     });
 
     it('getServerStatus reports failed when client is connected with 0 tools', () => {

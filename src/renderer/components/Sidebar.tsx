@@ -478,7 +478,7 @@ export function Sidebar() {
 
   if (sidebarCollapsed) {
     return (
-      <aside className="w-[4.5rem] bg-surface/96 border-r border-border-muted flex flex-col overflow-hidden">
+      <aside className="relative z-20 flex w-[4.5rem] shrink-0 flex-col overflow-hidden border-r border-border-muted bg-surface/96">
         <div className="px-3 pt-4 pb-3 flex flex-col items-center gap-2 border-b border-border-muted">
           <button
             onClick={toggleSidebar}
@@ -595,7 +595,7 @@ export function Sidebar() {
   }
 
   return (
-    <aside className="w-[17.5rem] bg-surface/96 border-r border-border-muted flex flex-col overflow-hidden">
+    <aside className="relative z-20 flex w-[17.5rem] shrink-0 flex-col overflow-hidden border-r border-border-muted bg-surface/96">
       <div className="px-4 pt-5 pb-4 border-b border-border-muted">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex items-center gap-3">

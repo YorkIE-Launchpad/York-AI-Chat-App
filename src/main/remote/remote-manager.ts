@@ -25,6 +25,7 @@ import type {
   RemoteConfig,
 } from './types';
 import type { Message, ContentBlock, ServerEvent, Session } from '../../renderer/types/index';
+import { isAutoAllowedWikiTool } from '../config/permission-rules-store';
 
 // Agent executor interface - exported for use in main process
 export interface AgentExecutor {
@@ -812,7 +813,9 @@ export class RemoteManager extends EventEmitter {
         'Task',
       ];
 
-      if (safeTools.includes(toolName)) {
+      const lowered = toolName.toLowerCase();
+      const isListedSafe = safeTools.some((name) => name.toLowerCase() === lowered);
+      if (isListedSafe || isAutoAllowedWikiTool(toolName)) {
         log('[RemoteManager] Auto-approving safe tool:', toolName);
         // Send notification to user
         await this.doSendToChannel(channelInfo, `🔧 Auto-running: **${toolName}**`);

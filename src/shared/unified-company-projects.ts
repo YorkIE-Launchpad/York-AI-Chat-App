@@ -49,6 +49,29 @@ export function canonicalKeyForUnified(project: UnifiedCompanyProject): string {
   return project.canonicalKey;
 }
 
+function companyProjectSearchHaystack(project: UnifiedCompanyProject): string {
+  return [
+    project.name,
+    project.hubProjectName,
+    project.launchpadProjectName,
+    project.hubProjectId,
+    project.launchpadProjectId != null ? String(project.launchpadProjectId) : '',
+  ]
+    .filter((value) => Boolean(value && value.trim()))
+    .join(' ')
+    .toLowerCase();
+}
+
+/** Case-insensitive substring match on project names and ids. */
+export function filterCompanyProjects(
+  projects: UnifiedCompanyProject[],
+  query: string
+): UnifiedCompanyProject[] {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return projects;
+  return projects.filter((project) => companyProjectSearchHaystack(project).includes(needle));
+}
+
 /**
  * Merge Hub + LaunchPad lists.
  * 1. Hub rows always emit an entry (attach LP when projectId matches).

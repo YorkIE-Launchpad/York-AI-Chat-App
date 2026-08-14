@@ -4,7 +4,9 @@ import {
   parseLaunchPadProjectsPayload,
   hubCanonicalKey,
   launchpadCanonicalKey,
+  filterCompanyProjects,
 } from '../../shared/unified-company-projects';
+import type { UnifiedCompanyProject } from '../../shared/unified-company-projects';
 import type { AllocatedHubProject } from '../../shared/workspace-division';
 import type { LaunchPadProjectListItem } from '../../shared/unified-company-projects';
 
@@ -85,6 +87,49 @@ describe('mergeHubAndLaunchpadProjects', () => {
   it('sorts by display name', () => {
     const merged = mergeHubAndLaunchpadProjects([hub('z', 'Zebra')], [lp(1, 'Apple', null)]);
     expect(merged.map((p) => p.name)).toEqual(['Apple', 'Zebra']);
+  });
+});
+
+describe('filterCompanyProjects', () => {
+  const catalog: UnifiedCompanyProject[] = [
+    {
+      canonicalKey: 'hub:alpha',
+      name: 'Alpha Delivery',
+      sources: { hub: true, launchpad: true },
+      hubProjectId: 'alpha',
+      hubProjectName: 'Alpha Delivery',
+      launchpadProjectId: 42,
+      launchpadProjectName: 'Alpha LP',
+    },
+    {
+      canonicalKey: 'hub:beta',
+      name: 'Beta Ops',
+      sources: { hub: true },
+      hubProjectId: 'beta',
+      hubProjectName: 'Beta Ops',
+    },
+    {
+      canonicalKey: 'lp:9',
+      name: 'Solo LaunchPad',
+      sources: { launchpad: true },
+      launchpadProjectId: 9,
+      launchpadProjectName: 'Solo LaunchPad',
+    },
+  ];
+
+  it('returns all projects when the query is blank', () => {
+    expect(filterCompanyProjects(catalog, '   ')).toEqual(catalog);
+  });
+
+  it('matches display name case-insensitively', () => {
+    expect(filterCompanyProjects(catalog, 'beta').map((p) => p.canonicalKey)).toEqual(['hub:beta']);
+  });
+
+  it('matches LaunchPad name or numeric id', () => {
+    expect(filterCompanyProjects(catalog, 'alpha lp').map((p) => p.canonicalKey)).toEqual([
+      'hub:alpha',
+    ]);
+    expect(filterCompanyProjects(catalog, '9').map((p) => p.canonicalKey)).toEqual(['lp:9']);
   });
 });
 

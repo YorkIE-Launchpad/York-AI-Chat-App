@@ -9,8 +9,8 @@
  *   - Built-in Chrome MCP (`mcp__Chrome__*`), R&D Launchpad MCP (`mcp__R_D_Launchpad__*` /
  *     legacy `mcp__Launchpad__*`), York IE HUB MCP (`mcp__York_IE_HUB__*` / legacy `mcp__Hub__*`),
  *     GTM Pulse MCP (`mcp__GTM_Pulse__*`), OpenAI meta-tools (`mcp_run`, `mcp_search_tools`, `mcp_call_tool`),
- *     meeting tools (`meeting_search`, `meeting_read`), wiki tools (`wiki_search`,
- *     `wiki_read`, `wiki_list`), and `webfetch` auto-allow, overridable by rules
+ *     meeting tools (`meeting_search`, `meeting_read`), wiki tools (`wiki_*`
+ *     except mutations like `wiki_write`), and `webfetch` auto-allow, overridable by rules
  *   - Garbage / malformed renderer input falls back to DEFAULT_RULES so the
  *     fail-safe is an extra prompt, never a silent auto-allow
  *   - Malformed individual rule entries are coerced to 'ask' rather than
@@ -308,6 +308,14 @@ describe('permission-rules-store', () => {
       expect(decidePermission(SESSION_A, 'wiki_read', { path: 'clients/acme' })).toBe('allow');
       expect(decidePermission(SESSION_A, 'wiki_list', { pathPrefix: 'clients' })).toBe('allow');
       expect(decidePermission(SESSION_A, 'Wiki_Search', { query: 'acme' })).toBe('allow');
+      expect(decidePermission(SESSION_A, 'wiki_get', { id: 'p1' })).toBe('allow');
+    });
+
+    it('asks for mutating wiki tools by default', () => {
+      expect(decidePermission(SESSION_A, 'wiki_write', { path: 'clients/acme', body: 'x' })).toBe(
+        'ask'
+      );
+      expect(decidePermission(SESSION_A, 'wiki_delete', { id: 'p1' })).toBe('ask');
     });
 
     it('returns ask for non-builtin MCP tools by default', () => {
@@ -586,6 +594,9 @@ describe('permission-rules-store', () => {
       const tools = rules.map((r) => r.tool);
       expect(tools).toContain('read');
       expect(tools).toContain('bash');
+      expect(tools).toContain('wiki_search');
+      expect(tools).toContain('wiki_read');
+      expect(tools).toContain('wiki_list');
     });
 
     it('returns shallow copies so callers cannot mutate the internal cache', () => {
