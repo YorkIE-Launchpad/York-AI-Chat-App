@@ -590,7 +590,10 @@ export async function runChildAgentSession(
     const usageFeature = (input.usageFeature || '').trim() || 'subagent';
     const unsubscribe = childSession.subscribe((event) => {
       if (event.type === 'message_end') {
-        const msg = (event as { message?: Record<string, unknown> }).message;
+        const msg = event.message as unknown as {
+          usage?: unknown;
+          responseId?: unknown;
+        };
         if (msg) {
           reportHubGovernanceUsageFromCompletion({
             modelId: String(piModel.id || ''),

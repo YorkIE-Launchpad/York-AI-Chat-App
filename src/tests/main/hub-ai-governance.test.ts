@@ -680,11 +680,14 @@ describe('extractVisionApiUsage', () => {
 
 describe('reportMcpVisionUsageViaEnv', () => {
   it('POSTs mcp_vision usage when token and hub url are provided', async () => {
-    const fetchFn = vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      json: async () => ({ success: true }),
-    })) as unknown as typeof fetch;
+    const fetchFn = vi.fn(
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        ({
+          ok: true,
+          status: 200,
+          json: async () => ({ success: true }),
+        }) as Response
+    );
 
     reportMcpVisionUsageViaEnv({
       modelId: 'claude-sonnet-4-6',
@@ -707,7 +710,8 @@ describe('reportMcpVisionUsageViaEnv', () => {
         }),
       })
     );
-    const body = JSON.parse((fetchFn.mock.calls[0][1] as { body: string }).body);
+    const requestInit = fetchFn.mock.calls[0]?.[1] as unknown as { body: string };
+    const body = JSON.parse(requestInit.body);
     expect(body).toMatchObject({
       feature: 'mcp_vision',
       model_id: 'claude-sonnet-4-6',
