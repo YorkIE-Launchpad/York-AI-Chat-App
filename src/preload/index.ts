@@ -409,6 +409,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     }): Promise<ProviderModelInfo[]> => ipcRenderer.invoke('config.listModels', payload),
     listBackendModels: (options?: {
       usable?: boolean;
+      forceRefresh?: boolean;
     }): Promise<import('../shared/backend-config').BackendModelInfo[]> =>
       ipcRenderer.invoke('config.listBackendModels', options),
     diagnose: (input: DiagnosticInput): Promise<DiagnosticResult> =>
@@ -1072,6 +1073,7 @@ declare global {
         }) => Promise<ProviderModelInfo[]>;
         listBackendModels: (options?: {
           usable?: boolean;
+          forceRefresh?: boolean;
         }) => Promise<import('../shared/backend-config').BackendModelInfo[]>;
         diagnose: (input: DiagnosticInput) => Promise<DiagnosticResult>;
         discoverLocal: (payload?: { baseUrl?: string }) => Promise<LocalOllamaDiscoveryResult>;

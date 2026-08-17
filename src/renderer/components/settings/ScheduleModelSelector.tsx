@@ -75,6 +75,12 @@ export function ScheduleModelSelector({
   }, [loadModels]);
 
   useEffect(() => {
+    const handleCatalogRefresh = () => loadModels({ silent: true });
+    window.addEventListener('york:models-catalog-refreshed', handleCatalogRefresh);
+    return () => window.removeEventListener('york:models-catalog-refreshed', handleCatalogRefresh);
+  }, [loadModels]);
+
+  useEffect(() => {
     if (!isOpen) return;
     const onPointerDown = (event: MouseEvent) => {
       if (!rootRef.current?.contains(event.target as Node)) {

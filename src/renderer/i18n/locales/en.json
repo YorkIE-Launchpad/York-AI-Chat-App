@@ -132,7 +132,13 @@
     "saving": "Saving…",
     "openRouterKeyMissing": "Without this key you cannot use General or Folders. Add a key here, or use Hub / Project for York models.",
     "thinkingMode": "Thinking mode",
-    "thinkingModeHelp": "Deeper model reasoning plus a mid-loop think scratchpad for complex, multi-step, or fact-heavy work. Uses more tokens. Toggle Think next to the model picker in chat."
+    "thinkingModeHelp": "Deeper model reasoning plus a mid-loop think scratchpad for complex, multi-step, or fact-heavy work. Uses more tokens. Toggle Think next to the model picker in chat.",
+    "modelsCatalog": "Model catalog",
+    "modelsCatalogHelp": "Reload York-managed models from Hub AI Governance (org allowlist and budget flags). Use this after an admin updates your model access.",
+    "refreshModels": "Refresh models",
+    "refreshingModels": "Refreshing…",
+    "refreshModelsSuccess": "Refreshed {{count}} model(s)",
+    "refreshModelsFailed": "Failed to refresh models. Check your Hub connection or try again later."
   },
   "memory": {
     "title": "Memory",

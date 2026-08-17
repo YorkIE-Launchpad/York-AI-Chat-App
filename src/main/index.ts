@@ -3588,7 +3588,7 @@ ipcMain.handle(
 
 ipcMain.handle(
   'config.listBackendModels',
-  async (_event, options?: { usable?: boolean }) => {
+  async (_event, options?: { usable?: boolean; forceRefresh?: boolean }) => {
     return fetchBackendModels(options);
   }
 );

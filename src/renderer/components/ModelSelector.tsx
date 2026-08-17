@@ -135,6 +135,12 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
   }, [loadModels]);
 
   useEffect(() => {
+    const handleCatalogRefresh = () => loadModels({ silent: true });
+    window.addEventListener('york:models-catalog-refreshed', handleCatalogRefresh);
+    return () => window.removeEventListener('york:models-catalog-refreshed', handleCatalogRefresh);
+  }, [loadModels]);
+
+  useEffect(() => {
     if (!isOpen) return;
     // Refresh catalog when opening in case backend keys changed.
     loadModels({ silent: true });

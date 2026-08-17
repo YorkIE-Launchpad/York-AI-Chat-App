@@ -20,6 +20,8 @@ export function SettingsGeneral() {
   const [savingKey, setSavingKey] = useState(false);
   const [keySaveMessage, setKeySaveMessage] = useState<string | null>(null);
   const [savingThinking, setSavingThinking] = useState(false);
+  const [refreshingModels, setRefreshingModels] = useState(false);
+  const [modelsRefreshMessage, setModelsRefreshMessage] = useState<string | null>(null);
   const {
     status: updaterStatus,
     checking: updaterChecking,
@@ -90,6 +92,24 @@ export function SettingsGeneral() {
     }
   };
 
+  const refreshModelsCatalog = async () => {
+    if (!isElectron || refreshingModels) return;
+    setRefreshingModels(true);
+    setModelsRefreshMessage(null);
+    try {
+      const items = await window.electronAPI.config.listBackendModels({
+        usable: true,
+        forceRefresh: true,
+      });
+      setModelsRefreshMessage(t('general.refreshModelsSuccess', { count: items.length }));
+      window.dispatchEvent(new CustomEvent('york:models-catalog-refreshed'));
+    } catch {
+      setModelsRefreshMessage(t('general.refreshModelsFailed'));
+    } finally {
+      setRefreshingModels(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <HubBudgetUsageCard />
@@ -130,6 +150,26 @@ export function SettingsGeneral() {
         >
           {thinkingEnabled ? t('memory.enabled') : t('memory.disabled')}
         </button>
+      </div>
+
+      {/* Model catalog */}
+      <div className="space-y-3 pt-2 border-t border-border">
+        <h4 className="text-sm font-medium text-text-primary">{t('general.modelsCatalog')}</h4>
+        <p className="text-sm text-text-secondary">{t('general.modelsCatalogHelp')}</p>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            disabled={refreshingModels}
+            onClick={() => void refreshModelsCatalog()}
+            className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-sm text-text-secondary hover:border-accent/50 hover:text-text-primary disabled:opacity-50"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${refreshingModels ? 'animate-spin' : ''}`} />
+            {refreshingModels ? t('general.refreshingModels') : t('general.refreshModels')}
+          </button>
+        </div>
+        {modelsRefreshMessage && (
+          <p className="text-xs text-text-muted">{modelsRefreshMessage}</p>
+        )}
       </div>
 
       {/* OpenRouter key for General / Folders (user-owned, not York billing) */}
