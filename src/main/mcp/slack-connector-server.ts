@@ -185,6 +185,24 @@ function formatMessages(messages: SlimMessage[]): string {
     .join('\n');
 }
 
+/** Parse-stable search line: `channelId|#name [ts] user: text` (DM names omit #). */
+function formatSearchMatchLine(message: {
+  ts?: string;
+  text?: string;
+  username?: string;
+  permalink?: string | null;
+  channelId: string;
+  channelName: string;
+}): string {
+  const id = message.channelId.trim() || 'unknown';
+  const rawName = message.channelName.trim().replace(/^#/, '');
+  const isIm = /^D/i.test(id);
+  const namePart = rawName ? (isIm ? rawName : `#${rawName}`) : '';
+  const channelToken = namePart ? `${id}|${namePart}` : id;
+  const base = `${channelToken} [${message.ts || ''}] ${message.username || 'unknown'}: ${message.text || ''}`;
+  return message.permalink ? `${base}\nLink: ${message.permalink}` : base;
+}
+
 function mapMessages(messages: SlimMessage[] | undefined, channelId?: string): SlimMessage[] {
   return (messages ?? []).map((message) => ({
     ts: message.ts,
@@ -257,6 +275,11 @@ async function main() {
           properties: {
             query: { type: 'string' },
             limit: { type: 'number' },
+            sort: {
+              type: 'string',
+              description: 'score (relevance) or timestamp (newest first). Defaults to timestamp.',
+              enum: ['score', 'timestamp'],
+            },
           },
           required: ['query'],
         },
@@ -366,11 +389,14 @@ async function main() {
       },
       search_messages: async (args) => {
         const query = String(args.query || '');
+        const sort = args.sort === 'score' ? 'score' : 'timestamp';
         let response;
         try {
           response = await client.search.messages({
             query,
             count: typeof args.limit === 'number' ? args.limit : 20,
+            sort,
+            sort_dir: 'desc',
           });
         } catch (error) {
           throw formatSlackError(error, 'Searching Slack messages');
@@ -382,6 +408,10 @@ async function main() {
               : typeof message.channel === 'string'
                 ? message.channel
                 : '';
+          const channelName =
+            typeof message.channel === 'object' && message.channel && 'name' in message.channel
+              ? String((message.channel as { name?: string }).name || '')
+              : '';
           const permalink =
             typeof (message as { permalink?: unknown }).permalink === 'string'
               ? (message as { permalink: string }).permalink
@@ -392,7 +422,8 @@ async function main() {
           return {
             ts: message.ts,
             text: message.text,
-            channel: message.channel?.name || message.channel?.id || channelId,
+            channelId,
+            channelName,
             username: message.username || message.user,
             permalink,
           };
@@ -401,12 +432,7 @@ async function main() {
           externalId: `slack:search:${query}`,
           title: `Slack search: ${query}`,
           summary: `Found ${matches.length} Slack message matches`,
-          body: matches
-            .map((message) => {
-              const base = `${message.channel || 'unknown'} [${message.ts}] ${message.username || 'unknown'}: ${message.text || ''}`;
-              return message.permalink ? `${base}\nLink: ${message.permalink}` : base;
-            })
-            .join('\n'),
+          body: matches.map((message) => formatSearchMatchLine(message)).join('\n'),
           occurredAt: Date.now(),
           keywords: ['slack', 'search', ...query.split(/\s+/).filter(Boolean)],
         });

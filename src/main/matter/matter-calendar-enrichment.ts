@@ -413,7 +413,7 @@ function parseSlackHits(
   const out: Array<{ channel: string; user: string; text: string; link?: string }> = [];
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
-    const m = line.match(/^(\S+)\s+\[([^\]]+)\]\s+([^:]+):\s*(.*)$/);
+    const m = line.match(/^(.+?)\s+\[([^\]]+)\]\s+([^:]+):\s*(.*)$/);
     if (!m) continue;
     let link: string | undefined;
     const next = lines[i + 1]?.trim() || '';

@@ -25,7 +25,8 @@ const MATTER_RANKER_MODEL = 'gpt-5.6-luna';
 const SYSTEM_PROMPT = `You are Matter Ranker for York IE VECOS — personal ACTION radar only.
 
 Given the employee's Hub profile and raw signals, keep ONLY items that need THIS person's action now.
-People triage their own unreads / feeds in Slack, Gmail, Calendar — Matter is not an unread inbox.
+People triage their own unreads / feeds in Gmail and Calendar — Matter is not those inboxes.
+Exception — Slack: KEEP each individual unread DM or channel message as a comms item. Do not drop Slack unreads because they are also visible in Slack.
 
 Return ONLY valid JSON (no markdown):
 {
@@ -58,13 +59,14 @@ Return ONLY valid JSON (no markdown):
 
 Rules:
 - KEEP only action-needed items: reply/approve/unblock/prep-for-imminent-meeting/complete assigned work.
-- DROP awareness-only: unread counts, FYI, OOO lists, "on your calendar this week", generic triage.
+- KEEP Slack unread DMs and channel messages as individual comms items (open or mark handled).
+- DROP awareness-only for other sources: unread counts, FYI, OOO lists, "on your calendar this week", generic triage.
 - DROP personal calendar holds: Break, block, focus/OOO/lunch/PTO and similar solo holds — Matter is not a calendar reminder for free time.
 - DROP daily recurring series (daily standup/sync, RRULE FREQ=DAILY) — not one-off action items.
-- DROP anything the person can casually discover in the native app with no ask on them.
+- DROP anything the person can casually discover in the native app with no ask on them — except Slack unreads, which Matter should surface.
 - Prefer role relevance (title/squad/department): if an item is not for them, omit it.
 - ONE input signal = ONE output item. Never merge into counts.
-- FORBIDDEN titles: unread rollups, "threads that may need a reply", calendar count titles.
+- FORBIDDEN titles: unread rollups, "threads that may need a reply", calendar count titles. Still KEEP individual Slack message titles.
 - fingerprint MUST be copied exactly from an input signal.
 - Prefer fewer high-action items. Max items is provided.
 - critical = blocker / manager escalation / meeting in <2h needing prep.
@@ -284,7 +286,7 @@ export interface RankedMatterResult {
   }>;
 }
 
-function heuristicRank(
+export function heuristicRank(
   signals: RawMatterSignal[],
   profile: WelcomeProfile | null,
   maxItems: number
@@ -305,7 +307,8 @@ function heuristicRank(
       if (isDailySeriesMeeting(s.title, calText)) return false;
       if (isAllDayCalendarEvent(s.summary || '', calText)) return false;
     }
-    if (s.source === 'meeting' || s.source === 'fused' || s.source === 'jira') return true;
+    if (s.source === 'meeting' || s.source === 'fused' || s.source === 'jira' || s.source === 'slack')
+      return true;
     if (s.severityHint === 'critical' || s.severityHint === 'warning') return true;
     const blob = `${s.title} ${s.summary} ${s.suggestedAction || ''} ${s.whyHint || ''}`;
     return (

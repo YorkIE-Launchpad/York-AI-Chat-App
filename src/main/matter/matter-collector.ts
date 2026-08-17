@@ -46,6 +46,9 @@ export {
 } from './matter-calendar-enrichment';
 
 const MAX_PER_SOURCE = 8;
+/** Slack unreads are first-class Matter items; allow more than other sources. */
+const MAX_SLACK_PER_SCAN = 40;
+const SLACK_SEARCH_LIMIT = 40;
 const RAW_CAP = 4000;
 
 /** Exact / near-exact titles that are personal holds, not collaborative meetings. */
@@ -680,23 +683,27 @@ async function collectCalendar(
   return signals;
 }
 
-// ── Slack: one signal per matching message ──────────────────────────────────
+// ── Slack: one signal per unread DM / channel message ───────────────────────
 
-function parseSlackMessages(
-  body: string
-): Array<{ channel: string; ts: string; user: string; text: string; link?: string }> {
+export interface ParsedSlackSearchMessage {
+  channel: string;
+  channelLabel: string;
+  ts: string;
+  user: string;
+  text: string;
+  link?: string;
+}
+
+/**
+ * Parse Slack search envelope body lines.
+ * Accepts `channel [ts] user: text`, DM names with spaces, and `C123|#eng [ts] …`.
+ */
+export function parseSlackSearchBody(body: string): ParsedSlackSearchMessage[] {
   const lines = body.split('\n');
-  const out: Array<{
-    channel: string;
-    ts: string;
-    user: string;
-    text: string;
-    link?: string;
-  }> = [];
+  const out: ParsedSlackSearchMessage[] = [];
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
-    // channel [ts] user: text
-    const m = line.match(/^(\S+)\s+\[([^\]]+)\]\s+([^:]+):\s*(.*)$/);
+    const m = line.match(/^(.+?)\s+\[([^\]]+)\]\s+([^:]+):\s*(.*)$/);
     if (!m) continue;
     let link: string | undefined;
     const next = lines[i + 1]?.trim() || '';
@@ -706,8 +713,19 @@ function parseSlackMessages(
     } else {
       link = extractUrl(line);
     }
+    const rawChannel = m[1].trim();
+    let channel = rawChannel;
+    let channelLabel = rawChannel.replace(/^#/, '');
+    const pipe = rawChannel.indexOf('|');
+    if (pipe >= 0) {
+      const idPart = rawChannel.slice(0, pipe).trim();
+      const namePart = rawChannel.slice(pipe + 1).trim().replace(/^#/, '');
+      channel = idPart || namePart;
+      channelLabel = namePart || idPart;
+    }
     out.push({
-      channel: m[1],
+      channel,
+      channelLabel,
       ts: m[2],
       user: m[3].trim(),
       text: (m[4] || '').trim(),
@@ -717,10 +735,38 @@ function parseSlackMessages(
   return out;
 }
 
-async function collectSlack(
-  mcpManager: MCPManager,
-  profile: WelcomeProfile | null
-): Promise<RawMatterSignal[]> {
+function slackMessageToSignal(msg: ParsedSlackSearchMessage): RawMatterSignal {
+  const isDm = /^D/i.test(msg.channel);
+  const place = isDm
+    ? msg.channelLabel && !/^D/i.test(msg.channelLabel)
+      ? `DM with ${msg.channelLabel}`
+      : 'DM'
+    : `#${msg.channelLabel || 'channel'}`;
+  const userLabel = /^[UW][A-Z0-9]{8,}$/i.test(msg.user) ? 'Someone' : msg.user;
+  const preview = cleanDisplayText(msg.text).slice(0, 100) || '(no text)';
+  const title = humanTitle(`${userLabel} in ${place}: ${preview}`, 'Slack unread');
+  return signal({
+    fingerprint: `slack:msg:${msg.channel}:${msg.ts}`,
+    source: 'slack',
+    title,
+    summary: cleanDisplayText(msg.text).slice(0, 280) || `Unread from ${userLabel}`,
+    raw: msg,
+    severityHint: 'warning',
+    orbitHint: 'today',
+    categoryHint: 'comms',
+    whyHint: 'Unread Slack message — open or mark handled.',
+    suggestedAction: 'Open in Slack or mark handled.',
+    sourceRef: {
+      connectorId: DEFAULT_SLACK_MCP_SERVER_ID,
+      externalId: `${msg.channel}:${msg.ts}`,
+      label: 'Slack',
+      url: msg.link,
+    },
+    muteKeys: [`slack:channel:${msg.channel}`, 'source:slack'],
+  });
+}
+
+async function collectSlack(mcpManager: MCPManager): Promise<RawMatterSignal[]> {
   const tool = findToolName(mcpManager, DEFAULT_SLACK_MCP_SERVER_ID, [
     'search_messages',
     'search_public_and_private',
@@ -730,50 +776,29 @@ async function collectSlack(
   ]);
   if (!tool) return [];
 
-  const me = profile?.name?.split(/\s+/)[0] || '';
-  const after = new Date(Date.now() - 2 * 864e5).toISOString().slice(0, 10);
-  // Prefer DMs / asks — not every mention. Further filtered for action language below.
-  const query = me ? `(is:dm OR to:@me OR ${me}) after:${after}` : `is:dm after:${after}`;
-  const text = await safeCallTool(mcpManager, tool, {
-    query,
-    limit: 15,
-  });
-  if (!text) return [];
+  const queries = ['is:unread is:dm', 'is:unread -is:dm'] as const;
+  const seen = new Set<string>();
+  const dms: ParsedSlackSearchMessage[] = [];
+  const channels: ParsedSlackSearchMessage[] = [];
 
-  const body = envelopeBody(text);
-  const messages = parseSlackMessages(body)
-    .filter((msg) => looksLikeActionNeeded(msg.text))
-    .slice(0, MAX_PER_SOURCE);
-  if (!messages.length) return [];
-
-  return messages.map((msg) => {
-    const channelLabel = /^[CGD][A-Z0-9]{8,}$/i.test(msg.channel)
-      ? 'channel'
-      : msg.channel.replace(/^#/, '');
-    const userLabel = /^[UW][A-Z0-9]{8,}$/i.test(msg.user) ? 'Someone' : msg.user;
-    const preview = cleanDisplayText(msg.text).slice(0, 100) || '(no text)';
-    const title = humanTitle(`${userLabel} in #${channelLabel}: ${preview}`, 'Slack ask');
-    return signal({
-      fingerprint: `slack:msg:${msg.channel}:${msg.ts}`,
-      source: 'slack',
-      title,
-      summary: cleanDisplayText(msg.text).slice(0, 280) || `Ask from ${userLabel}`,
-      raw: msg,
-      severityHint: 'warning',
-      orbitHint: 'today',
-      categoryHint: 'comms',
-      whyHint: 'Someone is asking you to reply or take action in Slack.',
-      suggestedAction: 'Reply in Slack or mark handled.',
-      sourceRef: {
-        connectorId: DEFAULT_SLACK_MCP_SERVER_ID,
-        externalId: `${msg.channel}:${msg.ts}`,
-        label: 'Slack',
-        url: msg.link,
-      },
-      muteKeys: [`slack:channel:${msg.channel}`, 'source:slack'],
-      occurredAt: parseIsoMs(msg.ts) || Number(msg.ts) * 1000 || undefined,
+  for (const query of queries) {
+    const text = await safeCallTool(mcpManager, tool, {
+      query,
+      limit: SLACK_SEARCH_LIMIT,
+      sort: 'timestamp',
     });
-  });
+    if (!text) continue;
+    const bucket = query.includes('is:dm') && !query.includes('-is:dm') ? dms : channels;
+    for (const msg of parseSlackSearchBody(envelopeBody(text))) {
+      const key = `${msg.channel}:${msg.ts}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      bucket.push(msg);
+    }
+  }
+
+  const messages = [...dms, ...channels].slice(0, MAX_SLACK_PER_SCAN);
+  return messages.map(slackMessageToSignal);
 }
 
 // ── Gmail: only emails that clearly need action (not inbox unread triage) ───
@@ -1355,7 +1380,7 @@ export async function collectMatterSignals(options: {
   } else {
     await Promise.all([
       run('calendar', () => collectCalendar(mcpManager, profile, meetingService)),
-      run('slack', () => collectSlack(mcpManager, profile)),
+      run('slack', () => collectSlack(mcpManager)),
       run('gmail', () => collectGmail(mcpManager, profile)),
       run('jira', () => collectJira(mcpManager, profile)),
       run('hub', () => collectHub(mcpManager, profile)),
