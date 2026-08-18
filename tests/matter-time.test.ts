@@ -3,6 +3,7 @@ import {
   deriveMatterTimeFields,
   formatDueRelative,
   MATTER_REMIND_LEAD_MS,
+  orbitFromRankScore,
   shouldFireExpiry,
   shouldFireReminder,
   urgencyFromDueAt,
@@ -56,6 +57,33 @@ describe('urgencyFromDueAt', () => {
     const u = urgencyFromDueAt(now - 5 * 60 * 1000, now);
     expect(u?.severity).toBe('critical');
     expect(u?.orbit).toBe('now');
+  });
+});
+
+describe('orbitFromRankScore', () => {
+  const now = Date.parse('2026-08-04T12:00:00.000Z');
+
+  it('maps high rankScore to the inner now ring', () => {
+    expect(orbitFromRankScore(90)).toBe('now');
+    expect(orbitFromRankScore(90, { fallbackOrbit: 'watching' })).toBe('now');
+  });
+
+  it('maps mid scores to today/week and low scores to watching', () => {
+    expect(orbitFromRankScore(60)).toBe('today');
+    expect(orbitFromRankScore(30)).toBe('week');
+    expect(orbitFromRankScore(10)).toBe('watching');
+  });
+
+  it('floors overdue calendar items to now even with a low score', () => {
+    expect(orbitFromRankScore(10, { dueAt: now - 60 * 60 * 1000, now })).toBe('now');
+  });
+
+  it('keeps a closer fallback orbit when rank is lower', () => {
+    expect(orbitFromRankScore(10, { fallbackOrbit: 'today' })).toBe('today');
+  });
+
+  it('pins to now regardless of score', () => {
+    expect(orbitFromRankScore(5, { pinned: true, fallbackOrbit: 'watching' })).toBe('now');
   });
 });
 

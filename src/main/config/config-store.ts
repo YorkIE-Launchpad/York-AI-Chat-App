@@ -421,7 +421,11 @@ const defaultConfig: AppConfig = {
     storageRoot: '',
   },
   matterEnabled: true,
-  matterRuntime: { ...DEFAULT_MATTER_RUNTIME, sources: { ...DEFAULT_MATTER_RUNTIME.sources } },
+  matterRuntime: {
+    ...DEFAULT_MATTER_RUNTIME,
+    sources: { ...DEFAULT_MATTER_RUNTIME.sources },
+    sourcePrompts: { ...DEFAULT_MATTER_RUNTIME.sourcePrompts },
+  },
   enableThinking: false,
   profileDosPrompt: '',
   profileDontsPrompt: '',

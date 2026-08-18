@@ -47,9 +47,9 @@ export function MatterLenses({
               data-highlighted={related ? 'true' : 'false'}
               className={`matter-focus-lens w-full text-left rounded-xl border px-3 py-2.5 transition-colors ${
                 selected
-                  ? 'matter-focus-lens-selected is-selected border-accent/50 bg-accent-muted/15'
+                  ? 'matter-focus-lens-selected is-selected border-accent bg-accent/20 ring-1 ring-accent/50'
                   : related
-                    ? 'matter-focus-lens-related border-accent/35 bg-accent-muted/10'
+                    ? 'matter-focus-lens-related border-accent bg-accent/15 ring-1 ring-accent/40'
                     : 'border-border-muted bg-background/50 hover:bg-surface-hover/40'
               }`}
             >

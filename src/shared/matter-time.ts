@@ -65,6 +65,42 @@ export function deriveMatterTimeFields(options: {
 }
 
 /** Orbit / severity / rank boost from minutes until due. */
+const ORBIT_INNERNESS: Record<MatterOrbit, number> = {
+  now: 0,
+  today: 1,
+  week: 2,
+  watching: 3,
+};
+
+/** Inner-most orbit wins so rank/due dates can only pull a blip toward the center. */
+export function innerMatterOrbit(a: MatterOrbit, b: MatterOrbit): MatterOrbit {
+  return ORBIT_INNERNESS[a] <= ORBIT_INNERNESS[b] ? a : b;
+}
+
+/**
+ * Map rankScore (0–100) onto radar rings. Higher score → closer to center.
+ * Due-date urgency and an optional fallback orbit only pull inward (never outward).
+ */
+export function orbitFromRankScore(
+  rankScore: number,
+  options?: {
+    dueAt?: number | null;
+    pinned?: boolean;
+    now?: number;
+    fallbackOrbit?: MatterOrbit | null;
+  }
+): MatterOrbit {
+  if (options?.pinned) return 'now';
+  const score = Number.isFinite(rankScore) ? rankScore : 0;
+  const fromRank: MatterOrbit =
+    score >= 75 ? 'now' : score >= 50 ? 'today' : score >= 25 ? 'week' : 'watching';
+  let orbit = fromRank;
+  const urgency = urgencyFromDueAt(options?.dueAt ?? null, options?.now);
+  if (urgency) orbit = innerMatterOrbit(orbit, urgency.orbit);
+  if (options?.fallbackOrbit) orbit = innerMatterOrbit(orbit, options.fallbackOrbit);
+  return orbit;
+}
+
 export function urgencyFromDueAt(dueAt: number | null, now = Date.now()): MatterUrgency | null {
   if (dueAt == null || !Number.isFinite(dueAt)) return null;
   const hoursUntil = (dueAt - now) / 36e5;

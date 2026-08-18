@@ -20,6 +20,7 @@ import { log, logWarn } from '../utils/logger';
 import {
   DEFAULT_GMAIL_MCP_SERVER_ID,
   DEFAULT_GOOGLE_CALENDAR_MCP_SERVER_ID,
+  DEFAULT_HUB_MCP_NAME,
   DEFAULT_HUB_MCP_SERVER_ID,
   DEFAULT_JIRA_MCP_SERVER_ID,
   DEFAULT_LAUNCHPAD_MCP_SERVER_ID,
@@ -45,11 +46,14 @@ export {
   buildMeetingPrepNote,
 } from './matter-calendar-enrichment';
 
-const MAX_PER_SOURCE = 8;
+const MAX_PER_SOURCE = 12;
 /** Slack unreads: cap per bucket so other Matter sources still get radar slots. */
-const MAX_SLACK_DMS_PER_SCAN = 6;
-const MAX_SLACK_CHANNELS_PER_SCAN = 4;
+const MAX_SLACK_DMS_PER_SCAN = 8;
+const MAX_SLACK_CHANNELS_PER_SCAN = 6;
 const SLACK_SEARCH_LIMIT = 20;
+/** Hub inboxes (kudos, drafts, approvals, announcements) share this cap. */
+const MAX_HUB_PER_SCAN = 16;
+const HUB_ENVELOPE_STATUS_TEXT = /^(ok|okay|success|true|done|created|updated)$/i;
 const RAW_CAP = 4000;
 
 /** Exact / near-exact titles that are personal holds, not collaborative meetings. */
@@ -241,14 +245,36 @@ export function looksLikeJunkTitle(text: string): boolean {
   return false;
 }
 
+const SLACK_EMOJI: Record<string, string> = {
+  clipboard: '📋',
+  calendar: '📅',
+  email: '✉️',
+  warning: '⚠️',
+  fire: '🔥',
+  tada: '🎉',
+  eyes: '👀',
+  wave: '👋',
+  thumbsup: '👍',
+  '+1': '👍',
+  white_check_mark: '✅',
+  x: '❌',
+  slack: '💬',
+};
+
 function cleanDisplayText(text: string): string {
   return text
     .replace(/<@([A-Z0-9]+)>/gi, '@user')
     .replace(/<#([A-Z0-9]+)(?:\|([^>]+))?>/gi, (_m, _id, name) => (name ? `#${name}` : '#channel'))
     .replace(/<(https?:[^|>]+)(?:\|([^>]+))?>/gi, (_m, url, label) => label || url)
-    .replace(/\b[CDG][A-Z0-9]{9,}\b/g, '')
+    .replace(/:([a-z0-9_+-]+):/gi, (_m, name: string) => SLACK_EMOJI[name.toLowerCase()] || '')
+    .replace(/\b[UWCGD][A-Z0-9]{8,}\b/gi, '')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+/** Slack user/channel IDs that must never appear in Matter titles. */
+export function isSlackOpaqueId(value: string): boolean {
+  return /^[UWCGD][A-Z0-9]{8,}$/i.test(value.trim());
 }
 
 function humanTitle(text: string, fallback = 'Untitled item'): string {
@@ -307,6 +333,267 @@ export function hubRequestFingerprint(line: string): string {
   return `hub:request:${hashKey(normalizeMatterContentText(line))}`;
 }
 
+export interface HubInboxRecord {
+  id: string | null;
+  title: string;
+  summary: string;
+  unread: boolean;
+  raw: unknown;
+}
+
+function hubRecordIsRead(obj: Record<string, unknown>): boolean {
+  if (obj.read === true || obj.isRead === true || obj.is_read === true || obj.seen === true) {
+    return true;
+  }
+  if (obj.unread === false || obj.isUnread === false || obj.is_unread === false) {
+    return true;
+  }
+  const status = pickString(obj, ['status', 'state', 'readStatus', 'read_status']);
+  return Boolean(status && /^(read|seen|dismissed|archived)$/i.test(status));
+}
+
+function isEnvelopeStatusText(text: string): boolean {
+  return HUB_ENVELOPE_STATUS_TEXT.test(text.trim());
+}
+
+function isHubApiEnvelope(obj: Record<string, unknown>): boolean {
+  return 'data' in obj && ('success' in obj || 'statusCode' in obj || 'timestamp' in obj);
+}
+
+function looksLikeHubServerName(name: string): boolean {
+  const key = name.toLowerCase().replace(/[^a-z0-9]/g, '');
+  return (
+    key === 'hub' ||
+    key === 'yorkiehub' ||
+    name.trim().toLowerCase() === DEFAULT_HUB_MCP_NAME.toLowerCase()
+  );
+}
+
+/** Connected Hub MCP id — default catalog id or a migrated connector with the Hub name. */
+export function resolveHubServerId(mcpManager: MCPManager): string | null {
+  try {
+    const connected = mcpManager.getServerStatus().filter((s) => s.connected);
+    const exact = connected.find((s) => s.id === DEFAULT_HUB_MCP_SERVER_ID);
+    if (exact) return exact.id;
+    const named = connected.find((s) => looksLikeHubServerName(s.name));
+    if (named) return named.id;
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+function unwrapHubSource(parsed: unknown): unknown {
+  if (!parsed || typeof parsed !== 'object') return parsed;
+  const obj = parsed as Record<string, unknown>;
+  if ('body' in obj) {
+    const body = obj.body;
+    if (typeof body === 'string') {
+      const nested = parseJsonLoose(body);
+      return nested != null ? unwrapHubSource(nested) : body;
+    }
+    if (body != null) return unwrapHubSource(body);
+  }
+  if (
+    'data' in obj &&
+    obj.data != null &&
+    ('success' in obj || 'statusCode' in obj || 'timestamp' in obj)
+  ) {
+    return unwrapHubSource(obj.data);
+  }
+  if (!Array.isArray(obj)) {
+    for (const key of [
+      'items',
+      'results',
+      'notifications',
+      'kudos',
+      'announcements',
+      'requests',
+      'timesheets',
+      'drafts',
+      'leaveRequests',
+    ]) {
+      if (Array.isArray(obj[key])) return obj[key];
+    }
+  }
+  return parsed;
+}
+
+function synthesizeHubTitle(obj: Record<string, unknown>, fallback: string): string {
+  const explicit = pickString(obj, ['title', 'subject', 'headline', 'name']);
+  if (explicit && !looksLikeJunkTitle(explicit) && !isEnvelopeStatusText(explicit)) {
+    return humanTitle(explicit, fallback);
+  }
+  const employee = pickString(obj, [
+    'employee_name',
+    'employeeName',
+    'employee',
+    'sender_name',
+    'senderName',
+    'from_name',
+    'fromName',
+    'author_name',
+    'authorName',
+  ]);
+  const leaveType = pickString(obj, ['leaveType', 'leave_type', 'wfhType', 'wfh_type']);
+  const type = pickString(obj, ['type', 'kind', 'category']);
+  const status = pickString(obj, ['status', 'state']);
+  const week = pickString(obj, ['week', 'week_start', 'weekStart', 'period', 'weekOf']);
+  const message = pickString(obj, ['message', 'description', 'body', 'comment']);
+  const senderEmail = pickString(obj, ['sender_email', 'senderEmail', 'from']);
+
+  if (
+    leaveType ||
+    /^(SICK|PRIVILEGE|MATERNITY|PATERNITY|UNPAID|FESTIVAL|FLOATING_VACATION)$/i.test(type)
+  ) {
+    const kind = leaveType || type;
+    const who = employee || 'Teammate';
+    return humanTitle(`${who} — ${kind} leave pending`, fallback);
+  }
+  if (week && status) {
+    const who = employee ? `${employee} — ` : '';
+    return humanTitle(`${who}Timesheet ${status} (${week})`, fallback);
+  }
+  if (employee && status && /draft|submitted|pending|review/i.test(status)) {
+    return humanTitle(`${employee} — timesheet ${status}`, fallback);
+  }
+  if (employee || senderEmail) {
+    const who = employee || senderEmail;
+    if (message && !isEnvelopeStatusText(message)) {
+      return humanTitle(`${who} sent kudos`, fallback);
+    }
+    if (status) return humanTitle(`${who} — ${status}`, fallback);
+  }
+  if (message && !isEnvelopeStatusText(message) && !looksLikeJunkTitle(message)) {
+    return humanTitle(message, fallback);
+  }
+  if (type && !isEnvelopeStatusText(type) && !looksLikeJunkTitle(type)) {
+    return humanTitle(type, fallback);
+  }
+  return fallback;
+}
+
+function looksLikeHubInboxRecord(obj: Record<string, unknown>): boolean {
+  if (isHubApiEnvelope(obj)) return false;
+  const id = pickString(obj, [
+    'id',
+    'notificationId',
+    'notification_id',
+    'requestId',
+    'request_id',
+    'uuid',
+    'kudosId',
+    'kudos_id',
+    'timesheetId',
+  ]);
+  const title = pickString(obj, ['title', 'subject', 'headline', 'name']);
+  const message = pickString(obj, ['message', 'body', 'description']);
+  const employee = pickString(obj, [
+    'employee_name',
+    'employeeName',
+    'employee',
+    'employee_email',
+    'employeeEmail',
+    'sender_name',
+    'senderName',
+    'sender_email',
+  ]);
+  const leaveType = pickString(obj, ['leaveType', 'leave_type']);
+  const status = pickString(obj, ['status', 'state']);
+  const type = pickString(obj, ['type', 'kind', 'category']);
+  const week = pickString(obj, ['week', 'week_start', 'weekStart']);
+
+  if (title && !isEnvelopeStatusText(title) && (id || message || employee || status)) return true;
+  if (employee && (leaveType || status || id || type)) return true;
+  if (leaveType && (id || status || employee)) return true;
+  if (id && (status || message || type || week)) return true;
+  if (week && status) return true;
+  if (message && !isEnvelopeStatusText(message) && (id || employee || type)) return true;
+  return false;
+}
+
+function collectHubObjects(node: unknown, out: Record<string, unknown>[], depth = 0): void {
+  if (!node || depth > 6 || out.length >= 40) return;
+  if (Array.isArray(node)) {
+    for (const item of node) collectHubObjects(item, out, depth + 1);
+    return;
+  }
+  if (typeof node !== 'object') return;
+  const obj = node as Record<string, unknown>;
+  if (isHubApiEnvelope(obj)) {
+    for (const value of Object.values(obj)) collectHubObjects(value, out, depth + 1);
+    return;
+  }
+  if (looksLikeHubInboxRecord(obj)) {
+    out.push(obj);
+    return;
+  }
+  for (const value of Object.values(obj)) collectHubObjects(value, out, depth + 1);
+}
+
+/** Parse Hub MCP envelope/JSON/line output into one record per notification or inbox item. */
+export function extractHubInboxRecords(text: string): HubInboxRecord[] {
+  const parsed = parseJsonLoose(text);
+  const source = parsed != null ? unwrapHubSource(parsed) : parsed;
+
+  const objects: Record<string, unknown>[] = [];
+  if (typeof source !== 'string') {
+    collectHubObjects(source, objects);
+  }
+  if (objects.length) {
+    return objects.map((obj) => {
+      const title = synthesizeHubTitle(obj, 'Hub notification');
+      const summary =
+        pickString(obj, [
+          'summary',
+          'description',
+          'body',
+          'message',
+          'status',
+          'employee_name',
+          'employeeName',
+        ]) || title;
+      const id =
+        pickString(obj, [
+          'id',
+          'notificationId',
+          'notification_id',
+          'requestId',
+          'request_id',
+          'uuid',
+          'kudosId',
+          'kudos_id',
+          'timesheetId',
+        ]) || extractHubRequestId(title);
+      return {
+        id,
+        title,
+        summary: cleanDisplayText(summary).slice(0, 280),
+        unread: !hubRecordIsRead(obj),
+        raw: obj,
+      };
+    });
+  }
+
+  const body = typeof source === 'string' ? source : envelopeBody(text);
+  const records: HubInboxRecord[] = [];
+  for (const line of body.split('\n')) {
+    const trimmed = line.replace(/^[-*•]\s*/, '').trim();
+    if (looksLikeJunkTitle(trimmed) || trimmed.length < 8 || trimmed.length > 180) continue;
+    if (/^No (pending|notifications?|announcements?|requests?)|none|0 request/i.test(trimmed)) {
+      continue;
+    }
+    records.push({
+      id: extractHubRequestId(trimmed),
+      title: humanTitle(trimmed, 'Hub notification'),
+      summary: trimmed,
+      unread: true,
+      raw: trimmed,
+    });
+  }
+  return records;
+}
+
 /** Prefer stable Launchpad entity id from raw payload. */
 export function extractLaunchpadEntityId(raw: unknown): string | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
@@ -320,10 +607,7 @@ export function extractLaunchpadEntityId(raw: unknown): string | null {
   return id || null;
 }
 
-export function launchpadItemFingerprint(input: {
-  stableName: string;
-  raw: unknown;
-}): string {
+export function launchpadItemFingerprint(input: { stableName: string; raw: unknown }): string {
   const id = extractLaunchpadEntityId(input.raw);
   if (id) return `launchpad:item:${id}`;
   return `launchpad:item:${hashKey(normalizeMatterContentText(input.stableName))}`;
@@ -720,7 +1004,10 @@ export function parseSlackSearchBody(body: string): ParsedSlackSearchMessage[] {
     const pipe = rawChannel.indexOf('|');
     if (pipe >= 0) {
       const idPart = rawChannel.slice(0, pipe).trim();
-      const namePart = rawChannel.slice(pipe + 1).trim().replace(/^#/, '');
+      const namePart = rawChannel
+        .slice(pipe + 1)
+        .trim()
+        .replace(/^#/, '');
       channel = idPart || namePart;
       channelLabel = namePart || idPart;
     }
@@ -738,12 +1025,15 @@ export function parseSlackSearchBody(body: string): ParsedSlackSearchMessage[] {
 
 function slackMessageToSignal(msg: ParsedSlackSearchMessage): RawMatterSignal {
   const isDm = /^D/i.test(msg.channel);
+  const label = (msg.channelLabel || '').trim();
   const place = isDm
-    ? msg.channelLabel && !/^D/i.test(msg.channelLabel)
-      ? `DM with ${msg.channelLabel}`
+    ? label && !isSlackOpaqueId(label) && !/^D/i.test(label)
+      ? `DM with ${label}`
       : 'DM'
-    : `#${msg.channelLabel || 'channel'}`;
-  const userLabel = /^[UW][A-Z0-9]{8,}$/i.test(msg.user) ? 'Someone' : msg.user;
+    : label && !isSlackOpaqueId(label)
+      ? `#${label}`
+      : '#channel';
+  const userLabel = !msg.user || isSlackOpaqueId(msg.user) ? 'Someone' : msg.user;
   const preview = cleanDisplayText(msg.text).slice(0, 100) || '(no text)';
   const title = humanTitle(`${userLabel} in ${place}: ${preview}`, 'Slack unread');
   return signal({
@@ -765,6 +1055,51 @@ function slackMessageToSignal(msg: ParsedSlackSearchMessage): RawMatterSignal {
     },
     muteKeys: [`slack:channel:${msg.channel}`, 'source:slack'],
   });
+}
+
+function parseSlackUserDisplayName(text: string): string | null {
+  const body = envelopeBody(text);
+  const parsed = parseJsonLoose(body) ?? parseJsonLoose(text);
+  if (!parsed || typeof parsed !== 'object') return null;
+  const obj = parsed as Record<string, unknown>;
+  const profile =
+    obj.profile && typeof obj.profile === 'object' ? (obj.profile as Record<string, unknown>) : {};
+  const name =
+    pickString(obj, ['real_name', 'display_name', 'name']) ||
+    pickString(profile, ['display_name', 'real_name', 'name']);
+  if (!name || isSlackOpaqueId(name)) return null;
+  return name;
+}
+
+async function resolveSlackPeople(
+  mcpManager: MCPManager,
+  messages: ParsedSlackSearchMessage[]
+): Promise<ParsedSlackSearchMessage[]> {
+  const tool = findToolName(mcpManager, DEFAULT_SLACK_MCP_SERVER_ID, ['get_user']);
+  const cache = new Map<string, string>();
+  const resolve = async (value: string): Promise<string> => {
+    const id = value.trim();
+    if (!id || !/^[UW]/i.test(id) || !isSlackOpaqueId(id)) return value;
+    if (cache.has(id)) return cache.get(id)!;
+    if (!tool) {
+      cache.set(id, id);
+      return id;
+    }
+    const text = await safeCallTool(mcpManager, tool, { user_id: id });
+    const name = text ? parseSlackUserDisplayName(text) : null;
+    const resolved = name || id;
+    cache.set(id, resolved);
+    return resolved;
+  };
+  const out: ParsedSlackSearchMessage[] = [];
+  for (const msg of messages) {
+    out.push({
+      ...msg,
+      channelLabel: await resolve(msg.channelLabel),
+      user: await resolve(msg.user),
+    });
+  }
+  return out;
 }
 
 async function collectSlack(mcpManager: MCPManager): Promise<RawMatterSignal[]> {
@@ -798,10 +1133,10 @@ async function collectSlack(mcpManager: MCPManager): Promise<RawMatterSignal[]> 
     }
   }
 
-  const messages = [
+  const messages = await resolveSlackPeople(mcpManager, [
     ...dms.slice(0, MAX_SLACK_DMS_PER_SCAN),
     ...channels.slice(0, MAX_SLACK_CHANNELS_PER_SCAN),
-  ];
+  ]);
   return messages.map(slackMessageToSignal);
 }
 
@@ -972,7 +1307,7 @@ async function collectJira(
 
   const text = await safeCallTool(mcpManager, tool, {
     jql,
-    maxResults: 10,
+    maxResults: 12,
     fields: ['summary', 'status', 'priority', 'updated', 'issuetype'],
   });
   if (!text) return [];
@@ -1035,57 +1370,211 @@ async function collectJira(
     .filter((s): s is RawMatterSignal => !!s);
 }
 
-// ── Hub: only pending requests that need the user (not OOO awareness) ───────
+// ── Hub: kudos, drafts, pending inboxes (approvals, requests, announcements) ─
+
+type HubInboxKind =
+  | 'kudos'
+  | 'timesheet_draft'
+  | 'leave'
+  | 'timesheet'
+  | 'request'
+  | 'announcement';
+
+function hubInboxFingerprint(kind: HubInboxKind, record: HubInboxRecord): string {
+  if (record.id) return `hub:${kind}:${record.id}`;
+  if (kind === 'request') return hubRequestFingerprint(record.title);
+  return `hub:${kind}:${hashKey(normalizeMatterContentText(`${record.title}\n${record.summary}`))}`;
+}
+
+async function collectHubInbox(
+  mcpManager: MCPManager,
+  options: {
+    serverId: string;
+    kind: HubInboxKind;
+    tools: string[];
+    args?: Record<string, unknown>;
+    category: MatterCategory;
+    severity: MatterSeverity;
+    orbitHint: MatterOrbit;
+    whyHint: string;
+    suggestedAction: string;
+    limit: number;
+    unreadOnly?: boolean;
+  }
+): Promise<RawMatterSignal[]> {
+  const tool = findToolName(mcpManager, options.serverId, options.tools);
+  if (!tool) return [];
+  const text = await safeCallTool(mcpManager, tool, options.args || {});
+  if (!text) return [];
+
+  const records = extractHubInboxRecords(text).filter((record) => {
+    if (options.unreadOnly && !record.unread) return false;
+    return true;
+  });
+
+  return records.slice(0, options.limit).map((record) =>
+    signal({
+      fingerprint: hubInboxFingerprint(options.kind, record),
+      source: 'hub',
+      title: record.title,
+      summary: record.summary || `Hub ${options.kind} waiting on you`,
+      raw: record.raw,
+      severityHint: options.severity,
+      orbitHint: options.orbitHint,
+      categoryHint: options.category,
+      whyHint: options.whyHint,
+      suggestedAction: options.suggestedAction,
+      sourceRef: {
+        connectorId: options.serverId,
+        externalId: record.id,
+        label: 'Hub',
+        url: extractUrl(truncate(record.raw)),
+      },
+      muteKeys: [`hub:${options.kind}`, 'source:hub'],
+    })
+  );
+}
+
+async function collectHubKudos(
+  mcpManager: MCPManager,
+  serverId: string,
+  email: string
+): Promise<RawMatterSignal[]> {
+  const shared = {
+    serverId,
+    kind: 'kudos' as const,
+    category: 'people' as const,
+    severity: 'signal' as const,
+    orbitHint: 'week' as const,
+    whyHint: 'Kudos received in Hub — open or acknowledge.',
+    suggestedAction: 'Open Hub and view the kudos.',
+    limit: 6,
+  };
+  if (email) {
+    const received = await collectHubInbox(mcpManager, {
+      ...shared,
+      tools: ['list_employee_kudos'],
+      args: { type: 'received', user_email: email },
+    });
+    if (received.length) return received;
+  }
+  const filtered = await collectHubInbox(mcpManager, {
+    ...shared,
+    tools: ['list_kudos'],
+    args: email ? { recipient: email, limit: 8 } : { limit: 8 },
+  });
+  if (filtered.length || !email) return filtered;
+  return collectHubInbox(mcpManager, {
+    ...shared,
+    tools: ['list_kudos'],
+    args: { limit: 8 },
+  });
+}
 
 async function collectHub(
   mcpManager: MCPManager,
   profile: WelcomeProfile | null
 ): Promise<RawMatterSignal[]> {
-  const signals: RawMatterSignal[] = [];
-  const reqTool = findToolName(mcpManager, DEFAULT_HUB_MCP_SERVER_ID, [
-    'list_pending_hub_requests',
-    'list_hub_requests',
+  const serverId = resolveHubServerId(mcpManager);
+  if (!serverId) return [];
+  const email = profile?.email || '';
+
+  const requestShared = {
+    serverId,
+    kind: 'request' as const,
+    tools: ['list_hub_requests'],
+    category: 'people' as const,
+    severity: 'warning' as const,
+    orbitHint: 'today' as const,
+    whyHint: 'A Hub request needs your approve / reject / follow-up.',
+    suggestedAction: 'Open Hub and act on the request.',
+    limit: 6,
+  };
+
+  // Action inboxes first so the per-scan cap keeps drafts/approvals over kudos.
+  const batches = await Promise.all([
+    collectHubInbox(mcpManager, {
+      serverId,
+      kind: 'timesheet_draft',
+      tools: ['list_my_timesheet_drafts'],
+      args: { limit: 8 },
+      category: 'admin',
+      severity: 'warning',
+      orbitHint: 'today',
+      whyHint: 'Unsubmitted Hub timesheet draft waiting on you.',
+      suggestedAction: 'Review and submit your timesheet in Hub.',
+      limit: 6,
+    }),
+    collectHubInbox(mcpManager, {
+      serverId,
+      kind: 'leave',
+      tools: ['list_pending_leave_wfh_requests', 'list_pending_wfh_requests'],
+      args: { limit: 12 },
+      category: 'people',
+      severity: 'warning',
+      orbitHint: 'today',
+      whyHint: 'Leave or WFH request waiting on your approval.',
+      suggestedAction: 'Approve or reject in Hub.',
+      limit: 6,
+    }),
+    collectHubInbox(mcpManager, {
+      serverId,
+      kind: 'timesheet',
+      tools: ['list_pending_timesheet_reviews'],
+      args: { limit: 12 },
+      category: 'admin',
+      severity: 'warning',
+      orbitHint: 'today',
+      whyHint: 'Timesheet review waiting on you.',
+      suggestedAction: 'Review and approve in Hub.',
+      limit: 6,
+    }),
+    collectHubInbox(mcpManager, {
+      ...requestShared,
+      args: email
+        ? { status: 'open', assignee: email, limit: 10 }
+        : { status: 'open', mine: true, limit: 10 },
+    }),
+    ...(email
+      ? [
+          collectHubInbox(mcpManager, {
+            ...requestShared,
+            args: { status: 'open', mine: true, limit: 10 },
+            limit: 4,
+          }),
+        ]
+      : []),
+    collectHubKudos(mcpManager, serverId, email),
+    collectHubInbox(mcpManager, {
+      serverId,
+      kind: 'announcement',
+      tools: ['list_announcements'],
+      args: { limit: 8 },
+      category: 'people',
+      severity: 'signal',
+      orbitHint: 'week',
+      whyHint: 'Org announcement from Hub that may need your attention.',
+      suggestedAction: 'Read the announcement in Hub.',
+      limit: 4,
+    }),
   ]);
-  if (reqTool) {
-    const text = await safeCallTool(mcpManager, reqTool, {});
-    if (text) {
-      const lines = envelopeBody(text)
-        .split('\n')
-        .map((l) => l.trim())
-        .filter((l) => l.length > 8 && l.length < 160)
-        .slice(0, 5);
-      for (const line of lines) {
-        if (looksLikeJunkTitle(line)) continue;
-        if (/^No pending|none|0 request/i.test(line)) continue;
-        signals.push(
-          signal({
-            fingerprint: hubRequestFingerprint(line),
-            source: 'hub',
-            title: humanTitle(line, 'Hub request'),
-            summary: 'Pending Hub request waiting on you',
-            raw: line,
-            severityHint: 'warning',
-            orbitHint: 'today',
-            categoryHint: 'people',
-            whyHint: 'A Hub request needs your approve / reject / follow-up.',
-            suggestedAction: 'Open Hub and act on the request.',
-            sourceRef: { connectorId: DEFAULT_HUB_MCP_SERVER_ID, label: 'Hub' },
-            muteKeys: ['source:hub'],
-          })
-        );
-      }
+
+  const seen = new Set<string>();
+  const signals: RawMatterSignal[] = [];
+  for (const batch of batches) {
+    for (const item of batch) {
+      if (seen.has(item.fingerprint)) continue;
+      seen.add(item.fingerprint);
+      signals.push(item);
+      if (signals.length >= MAX_HUB_PER_SCAN) return signals;
     }
   }
-
-  void profile;
-  return signals.slice(0, MAX_PER_SOURCE);
+  return signals;
 }
 
 // ── Launchpad: one signal per release/feature entity ────────────────────────
 
-function extractLaunchpadEntities(
-  text: string
-): Array<{
+function extractLaunchpadEntities(text: string): Array<{
   title: string;
   summary: string;
   raw: unknown;
@@ -1325,10 +1814,17 @@ const SOURCE_SERVER: Record<MatterConfigurableSource, string | null> = {
 };
 
 /** MCP server ids required by currently enabled Matter sources (excludes meetings). */
-export function getEnabledMatterServerIds(sources: MatterSourcesConfig): string[] {
+export function getEnabledMatterServerIds(
+  sources: MatterSourcesConfig,
+  mcpManager?: MCPManager | null
+): string[] {
   const ids: string[] = [];
   for (const key of Object.keys(sources) as MatterConfigurableSource[]) {
     if (!sources[key]) continue;
+    if (key === 'hub') {
+      ids.push((mcpManager ? resolveHubServerId(mcpManager) : null) ?? DEFAULT_HUB_MCP_SERVER_ID);
+      continue;
+    }
     const serverId = SOURCE_SERVER[key];
     if (serverId) ids.push(serverId);
   }
@@ -1354,10 +1850,17 @@ export async function collectMatterSignals(options: {
       sourcesSkipped.push(key);
       return;
     }
-    const serverId = SOURCE_SERVER[key];
-    if (serverId && (!mcpManager || !isServerConnected(mcpManager, serverId))) {
-      sourcesSkipped.push(key);
-      return;
+    if (key === 'hub') {
+      if (!mcpManager || !resolveHubServerId(mcpManager)) {
+        sourcesSkipped.push(key);
+        return;
+      }
+    } else {
+      const serverId = SOURCE_SERVER[key];
+      if (serverId && (!mcpManager || !isServerConnected(mcpManager, serverId))) {
+        sourcesSkipped.push(key);
+        return;
+      }
     }
     if (key === 'meeting' && !meetingService) {
       sourcesSkipped.push(key);

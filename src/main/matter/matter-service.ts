@@ -8,6 +8,8 @@ import { formatWelcomeProfileSummary } from '../../shared/welcome-actions';
 import {
   DEFAULT_MATTER_RUNTIME,
   MATTER_DEFAULT_SNOOZE_MS,
+  MATTER_LENS_CATEGORIES,
+  MATTER_LENS_IDS,
   MATTER_MIN_SNOOZE_MS,
   shouldKeepMatterScanSignal,
   type MatterItem,
@@ -16,7 +18,7 @@ import {
   type MatterRuntimeConfig,
   type MatterSnapshot,
 } from '../../shared/matter';
-// DEFAULT_MATTER_RUNTIME kept for getRuntime fallback
+import { normalizeMatterRuntimeConfig } from './matter-config';
 import { log, logError, logWarn } from '../utils/logger';
 import { createMatterStore, type MatterStore } from './matter-store';
 import { collectMatterSignals, getEnabledMatterServerIds } from './matter-collector';
@@ -24,7 +26,12 @@ import { rankMatterSignals } from './matter-ranker';
 import { MatterScheduler } from './matter-scheduler';
 import { notifyMatterBrief, notifyMatterItem } from './matter-notifications';
 import { selectMatterScanNotifyItems } from '../os-notifications';
-import { shouldFireExpiry, shouldFireReminder, urgencyFromDueAt } from '../../shared/matter-time';
+import {
+  shouldFireExpiry,
+  shouldFireReminder,
+  orbitFromRankScore,
+  urgencyFromDueAt,
+} from '../../shared/matter-time';
 
 const STARTUP_CONNECTOR_WAIT_MS = 120_000;
 const STARTUP_CONNECTOR_POLL_MS = 750;
@@ -50,17 +57,8 @@ function buildLenses(items: MatterItem[], rankedLenses: MatterSnapshot['lenses']
     time: 'Time',
     team: 'Team Heat',
   };
-  const categoryMap: Record<MatterLens['id'], string[]> = {
-    delivery: ['delivery'],
-    people: ['people'],
-    clients: ['client'],
-    comms: ['comms'],
-    time: ['time'],
-    team: ['people', 'admin'],
-  };
-
-  return (['delivery', 'people', 'clients', 'comms', 'time', 'team'] as const).map((id) => {
-    const cats = categoryMap[id];
+  return MATTER_LENS_IDS.map((id) => {
+    const cats = MATTER_LENS_CATEGORIES[id];
     const matched = items.filter((i) => cats.includes(i.category));
     const ranked = rankedLenses.find((l) => l.id === id);
     const status =
@@ -156,7 +154,7 @@ export class MatterService {
 
   private async waitForEnabledConnectors(): Promise<void> {
     const runtime = this.getRuntime();
-    const needed = getEnabledMatterServerIds(runtime.sources);
+    const needed = getEnabledMatterServerIds(runtime.sources, this.mcpManager);
     if (needed.length === 0) return;
 
     const started = Date.now();
@@ -210,7 +208,7 @@ export class MatterService {
 
   getRuntime(): MatterRuntimeConfig {
     const config = configStore.getAll();
-    return config.matterRuntime || DEFAULT_MATTER_RUNTIME;
+    return normalizeMatterRuntimeConfig(config.matterRuntime || DEFAULT_MATTER_RUNTIME);
   }
 
   updateRuntime(partial: Partial<MatterRuntimeConfig>): MatterRuntimeConfig {
@@ -221,6 +219,10 @@ export class MatterService {
       sources: {
         ...current.sources,
         ...(partial.sources || {}),
+      },
+      sourcePrompts: {
+        ...current.sourcePrompts,
+        ...(partial.sourcePrompts || {}),
       },
     };
     configStore.update({ matterRuntime: next, matterEnabled: next.enabled });
@@ -343,6 +345,7 @@ export class MatterService {
         signals: filteredSignals,
         maxItems: runtime.maxActiveItems,
         sensitivity: runtime.sensitivity,
+        sourcePrompts: runtime.sourcePrompts,
       });
 
       // Hard boosts for pinned
@@ -730,18 +733,23 @@ export class MatterService {
         continue;
       }
 
-      // Urgency refresh as dueAt approaches between scans
+      // Urgency refresh as dueAt approaches between scans — rank still pulls inward
       if (item.dueAt != null && !item.pinned) {
         const urgency = urgencyFromDueAt(item.dueAt, now);
         if (urgency) {
           const rankFloor = Math.max(item.rankScore, urgency.rankBoost);
+          const nextOrbit = orbitFromRankScore(rankFloor, {
+            dueAt: item.dueAt,
+            now,
+            fallbackOrbit: urgency.orbit,
+          });
           if (
-            item.orbit !== urgency.orbit ||
+            item.orbit !== nextOrbit ||
             item.severity !== urgency.severity ||
             item.rankScore < rankFloor
           ) {
             this.store.updateItem(item.id, {
-              orbit: urgency.orbit,
+              orbit: nextOrbit,
               severity: urgency.severity,
               rankScore: rankFloor,
             });

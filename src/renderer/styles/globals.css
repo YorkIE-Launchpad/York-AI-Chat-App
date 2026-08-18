@@ -157,6 +157,20 @@
 }
 
 @layer utilities {
+  /* Matter focus lenses — related highlight must stay visible on CSS-variable colors */
+  .matter-focus-lens-related {
+    border-color: var(--color-accent);
+    background-color: color-mix(in srgb, var(--color-accent) 16%, transparent);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent) 45%, transparent);
+  }
+
+  .matter-focus-lens-selected,
+  .matter-focus-lens.is-selected {
+    border-color: var(--color-accent);
+    background-color: color-mix(in srgb, var(--color-accent) 22%, transparent);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent) 55%, transparent);
+  }
+
   /* Window drag region for custom titlebar */
   .titlebar-drag {
     -webkit-app-region: drag;

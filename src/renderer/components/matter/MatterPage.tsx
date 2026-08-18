@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { RefreshCw, Settings, X, Radio, Activity, Gauge, Plug, Clock3 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import type {
-  MatterItem,
-  MatterLensId,
-  MatterSeverity,
-  MatterSnapshot,
+import {
+  DEFAULT_MATTER_RUNTIME,
+  MATTER_DEFAULT_SNOOZE_MS,
+  relatedMatterLensId,
+  type MatterItem,
+  type MatterLensId,
+  type MatterSeverity,
+  type MatterSnapshot,
 } from '../../../shared/matter';
-import { DEFAULT_MATTER_RUNTIME, MATTER_DEFAULT_SNOOZE_MS } from '../../../shared/matter';
 import { buildMatterSessionTitle } from '../../../shared/matter-chat';
 import { useAppStore } from '../../store';
 import { useIPC } from '../../hooks/useIPC';
@@ -133,10 +135,10 @@ export function MatterPage({ onClose }: MatterPageProps) {
     [snapshot.items, selectedId]
   );
 
-  const relatedLensId = useMemo(() => {
-    if (!selectedId) return null;
-    return snapshot.lenses.find((l) => l.itemIds.includes(selectedId))?.id ?? null;
-  }, [selectedId, snapshot.lenses]);
+  const relatedLensId = useMemo(
+    () => relatedMatterLensId(selectedItem, snapshot.lenses),
+    [selectedItem, snapshot.lenses]
+  );
 
   useEffect(() => {
     if (selectedId && !selectedItem) {

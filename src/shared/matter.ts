@@ -36,6 +36,35 @@ export type MatterSensitivity = 'calm' | 'balanced' | 'hyper';
 export type MatterLensId = 'delivery' | 'people' | 'clients' | 'comms' | 'time' | 'team';
 export type MatterLensStatus = 'ACTIVE' | 'MONITORING' | 'CLEAR' | 'COORDINATING';
 
+export const MATTER_LENS_IDS: readonly MatterLensId[] = [
+  'delivery',
+  'people',
+  'clients',
+  'comms',
+  'time',
+  'team',
+] as const;
+
+/** Categories that populate each focus lens. */
+export const MATTER_LENS_CATEGORIES: Record<MatterLensId, readonly MatterCategory[]> = {
+  delivery: ['delivery'],
+  people: ['people'],
+  clients: ['client'],
+  comms: ['comms'],
+  time: ['time'],
+  team: ['people', 'admin'],
+};
+
+/** Primary lens for a signal category (`client` → `clients`, `admin` → `team`). */
+export const MATTER_CATEGORY_PRIMARY_LENS: Record<MatterCategory, MatterLensId> = {
+  delivery: 'delivery',
+  people: 'people',
+  client: 'clients',
+  comms: 'comms',
+  time: 'time',
+  admin: 'team',
+};
+
 export const MATTER_SOURCE_IDS = [
   'calendar',
   'slack',
@@ -142,6 +171,20 @@ export interface MatterSourcesConfig {
   launchpad: boolean;
 }
 
+export type MatterSourcePrompts = Record<MatterConfigurableSource, string>;
+
+export const MATTER_SOURCE_PROMPT_MAX_CHARS = 2000;
+
+export const DEFAULT_MATTER_SOURCE_PROMPTS: MatterSourcePrompts = {
+  calendar: '',
+  slack: '',
+  gmail: '',
+  jira: '',
+  hub: '',
+  meeting: '',
+  launchpad: '',
+};
+
 export interface MatterRuntimeConfig {
   enabled: boolean;
   windowStartHour: number;
@@ -153,6 +196,7 @@ export interface MatterRuntimeConfig {
   endOfDayWrapEnabled: boolean;
   autoOpenOnLaunch: boolean;
   sources: MatterSourcesConfig;
+  sourcePrompts: MatterSourcePrompts;
 }
 
 export const DEFAULT_MATTER_SOURCES: MatterSourcesConfig = {
@@ -171,11 +215,12 @@ export const DEFAULT_MATTER_RUNTIME: MatterRuntimeConfig = {
   windowEndHour: 21,
   intervalMinutes: 60,
   sensitivity: 'balanced',
-  maxActiveItems: 25,
+  maxActiveItems: 40,
   morningBriefEnabled: true,
   endOfDayWrapEnabled: false,
   autoOpenOnLaunch: false,
   sources: { ...DEFAULT_MATTER_SOURCES },
+  sourcePrompts: { ...DEFAULT_MATTER_SOURCE_PROMPTS },
 };
 
 /** Normalize text for Matter content equality (dismiss change detection). */
@@ -221,6 +266,17 @@ export interface MatterLens {
   summary: string;
   itemIds: string[];
   count: number;
+}
+
+/** Focus lens to passively highlight when a signal is selected (does not filter). */
+export function relatedMatterLensId(
+  item: Pick<MatterItem, 'id' | 'category'> | null | undefined,
+  lenses: MatterLens[] = []
+): MatterLensId | null {
+  if (!item) return null;
+  const primary = MATTER_CATEGORY_PRIMARY_LENS[item.category];
+  if (primary) return primary;
+  return lenses.find((lens) => lens.itemIds.includes(item.id))?.id ?? null;
 }
 
 export interface MatterConnectorHealth {

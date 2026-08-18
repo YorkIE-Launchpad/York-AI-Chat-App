@@ -14,6 +14,8 @@ if (!accessToken.startsWith('xoxp-') && !accessToken.startsWith('xoxe.xoxp-')) {
 const client = new WebClient(accessToken);
 const CHANNEL_TYPES = 'public_channel,private_channel,mpim,im';
 const SLACK_CHANNEL_ID_RE = /^[CGD][A-Z0-9]+$/;
+const SLACK_USER_ID_RE = /^[UW][A-Z0-9]{8,}$/i;
+const SLACK_OPAQUE_ID_RE = /^[UWCGD][A-Z0-9]{8,}$/i;
 
 type ChannelSummary = {
   id: string;
@@ -59,10 +61,51 @@ function formatChannelLabel(channel: {
   name?: string | null;
   is_private?: boolean;
 }): string {
-  if (channel.name) {
+  if (channel.name && !SLACK_OPAQUE_ID_RE.test(channel.name)) {
     return channel.is_private ? channel.name : `#${channel.name}`;
   }
   return channel.id;
+}
+
+function pickUserDisplayName(user: {
+  real_name?: string | null;
+  name?: string | null;
+  profile?: { display_name?: string | null; real_name?: string | null } | null;
+} | null | undefined): string {
+  const display = user?.profile?.display_name?.trim() || '';
+  const real = user?.real_name?.trim() || user?.profile?.real_name?.trim() || '';
+  const name = user?.name?.trim() || '';
+  const picked = display || real || name;
+  return picked && !SLACK_OPAQUE_ID_RE.test(picked) ? picked : '';
+}
+
+const userLabelCache = new Map<string, string>();
+
+async function resolveUserLabel(userId: string): Promise<string> {
+  const id = userId.trim();
+  if (!SLACK_USER_ID_RE.test(id)) return id;
+  const cached = userLabelCache.get(id);
+  if (cached) return cached;
+  try {
+    const response = await client.users.info({ user: id });
+    const label = pickUserDisplayName(response.user) || id;
+    userLabelCache.set(id, label);
+    return label;
+  } catch {
+    userLabelCache.set(id, id);
+    return id;
+  }
+}
+
+async function humanizeSlackLabel(value: string): Promise<string> {
+  const trimmed = value.trim().replace(/^#/, '');
+  if (!trimmed) return '';
+  if (SLACK_USER_ID_RE.test(trimmed)) {
+    const resolved = await resolveUserLabel(trimmed);
+    return SLACK_OPAQUE_ID_RE.test(resolved) ? '' : resolved;
+  }
+  if (SLACK_OPAQUE_ID_RE.test(trimmed)) return '';
+  return trimmed;
 }
 
 function formatSlackError(error: unknown, context: string): Error {
@@ -197,9 +240,14 @@ function formatSearchMatchLine(message: {
   const id = message.channelId.trim() || 'unknown';
   const rawName = message.channelName.trim().replace(/^#/, '');
   const isIm = /^D/i.test(id);
-  const namePart = rawName ? (isIm ? rawName : `#${rawName}`) : '';
+  const safeName = rawName && !SLACK_OPAQUE_ID_RE.test(rawName) ? rawName : '';
+  const namePart = safeName ? (isIm ? safeName : `#${safeName}`) : '';
   const channelToken = namePart ? `${id}|${namePart}` : id;
-  const base = `${channelToken} [${message.ts || ''}] ${message.username || 'unknown'}: ${message.text || ''}`;
+  const username =
+    message.username && !SLACK_OPAQUE_ID_RE.test(message.username)
+      ? message.username
+      : 'unknown';
+  const base = `${channelToken} [${message.ts || ''}] ${username}: ${message.text || ''}`;
   return message.permalink ? `${base}\nLink: ${message.permalink}` : base;
 }
 
@@ -401,7 +449,7 @@ async function main() {
         } catch (error) {
           throw formatSlackError(error, 'Searching Slack messages');
         }
-        const matches = (response.messages?.matches ?? []).map((message) => {
+        const rawMatches = (response.messages?.matches ?? []).map((message) => {
           const channelId =
             typeof message.channel === 'object' && message.channel && 'id' in message.channel
               ? String((message.channel as { id?: string }).id || '')
@@ -424,10 +472,23 @@ async function main() {
             text: message.text,
             channelId,
             channelName,
-            username: message.username || message.user,
+            username: String(message.username || message.user || ''),
             permalink,
           };
         });
+        const idsToResolve = new Set<string>();
+        for (const match of rawMatches) {
+          if (SLACK_USER_ID_RE.test(match.channelName.trim())) idsToResolve.add(match.channelName.trim());
+          if (SLACK_USER_ID_RE.test(match.username.trim())) idsToResolve.add(match.username.trim());
+        }
+        await Promise.all([...idsToResolve].map((id) => resolveUserLabel(id)));
+        const matches = await Promise.all(
+          rawMatches.map(async (match) => ({
+            ...match,
+            channelName: await humanizeSlackLabel(match.channelName),
+            username: (await humanizeSlackLabel(match.username)) || 'unknown',
+          }))
+        );
         return makeMemoryEnvelope({
           externalId: `slack:search:${query}`,
           title: `Slack search: ${query}`,

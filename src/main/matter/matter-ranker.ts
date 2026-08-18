@@ -5,13 +5,20 @@ import { logWarn } from '../utils/logger';
 import type { WelcomeProfile } from '../../shared/welcome-actions';
 import type {
   MatterCategory,
+  MatterConfigurableSource,
   MatterItem,
   MatterOrbit,
   MatterSensitivity,
   MatterSeverity,
   MatterSource,
+  MatterSourcePrompts,
 } from '../../shared/matter';
-import { deriveMatterTimeFields, urgencyFromDueAt } from '../../shared/matter-time';
+import { MATTER_SOURCE_IDS } from '../../shared/matter';
+import {
+  deriveMatterTimeFields,
+  orbitFromRankScore,
+  urgencyFromDueAt,
+} from '../../shared/matter-time';
 import type { RawMatterSignal } from './matter-collector';
 import {
   isAllDayCalendarEvent,
@@ -24,26 +31,35 @@ import {
 const MATTER_RANKER_MODEL = 'gpt-5.6-luna';
 
 /** Max Slack items on the Matter radar so calendar/jira/gmail/hub stay visible. */
-export const MATTER_RADAR_SLACK_CAP = 6;
+export const MATTER_RADAR_SLACK_CAP = 8;
 
 /** Max Slack signals in the ranker pool (LLM + heuristic input). */
-export const MATTER_RANKER_SLACK_POOL_CAP = 10;
+export const MATTER_RANKER_SLACK_POOL_CAP = 12;
+
+/** Max Hub signals in the ranker pool so calendar/jira/gmail cannot crowd them out. */
+export const MATTER_RANKER_HUB_POOL_CAP = 12;
+
+/** Default ranker input pool — large enough for Hub + Slack + other sources. */
+export const MATTER_RANKER_POOL_SIZE = 64;
 
 const MATTER_RADAR_SOURCE_CAPS: Partial<Record<MatterSource, number>> = {
   slack: MATTER_RADAR_SLACK_CAP,
 };
 
 /**
- * Build a balanced signal pool for ranking — never let Slack unreads crowd out other sources.
+ * Build a balanced signal pool for ranking — never let Slack unreads crowd out other sources,
+ * and always reserve Hub slots regardless of collector arrival order.
  */
 export function selectSignalsForRanker(
   signals: RawMatterSignal[],
-  poolSize = 40
+  poolSize = MATTER_RANKER_POOL_SIZE
 ): RawMatterSignal[] {
-  const nonSlack = signals.filter((s) => s.source !== 'slack');
   const slack = signals.filter((s) => s.source === 'slack').slice(0, MATTER_RANKER_SLACK_POOL_CAP);
-  const otherTake = Math.min(nonSlack.length, Math.max(0, poolSize - slack.length));
-  return [...nonSlack.slice(0, otherTake), ...slack].slice(0, poolSize);
+  const hub = signals.filter((s) => s.source === 'hub').slice(0, MATTER_RANKER_HUB_POOL_CAP);
+  const other = signals.filter((s) => s.source !== 'slack' && s.source !== 'hub');
+  const reserved = slack.length + hub.length;
+  const otherTake = Math.min(other.length, Math.max(0, poolSize - reserved));
+  return [...other.slice(0, otherTake), ...hub, ...slack].slice(0, poolSize);
 }
 
 /** Apply per-source caps after rank-score sort (Slack capped; others compete for remaining slots). */
@@ -73,6 +89,7 @@ const SYSTEM_PROMPT = `You are Matter Ranker for York IE VECOS — personal ACTI
 Given the employee's Hub profile and raw signals, keep ONLY items that need THIS person's action now.
 People triage their own unreads / feeds in Gmail and Calendar — Matter is not those inboxes.
 Exception — Slack: KEEP each individual unread DM or channel message as a comms item. Do not drop Slack unreads because they are also visible in Slack.
+Exception — Hub: KEEP Hub kudos, unsubmitted timesheet drafts, pending leave/WFH/timesheet approvals, Hub requests, and announcements as individual items. Do not drop them as native-app triage.
 
 Return ONLY valid JSON (no markdown):
 {
@@ -106,6 +123,7 @@ Return ONLY valid JSON (no markdown):
 Rules:
 - KEEP only action-needed items: reply/approve/unblock/prep-for-imminent-meeting/complete assigned work.
 - KEEP Slack unread DMs and channel messages as individual comms items (open or mark handled).
+- KEEP Hub kudos, timesheet drafts, and Hub inbox items (leave/WFH/timesheet approvals, requests, announcements) as individual items.
 - DROP awareness-only for other sources: unread counts, FYI, OOO lists, "on your calendar this week", generic triage.
 - DROP personal calendar holds: Break, block, focus/OOO/lunch/PTO and similar solo holds — Matter is not a calendar reminder for free time.
 - DROP daily recurring series (daily standup/sync, RRULE FREQ=DAILY) — not one-off action items.
@@ -119,8 +137,42 @@ Rules:
 - warning = action due today. signal = lighter but still an action.
 - For calendar items with a "## Meeting prep" rawDetails / prep note: KEEP them as prep-for-imminent-meeting actions; use that prep context for summary and whyItMatters; keep the collector title when it already names people or a topic.
 - rankScore and confidence MUST be JSON numbers (e.g. 60, 0.7), never words like "sixty".
+- orbit MUST match rankScore bands so high-rank items sit closer to the radar center: rankScore >= 75 → now (inner), >= 50 → today, >= 25 → week, else watching (outer). Imminent due dates still use now even if score is lower.
 - Never use JSON keys, schema fragments, or path arrays as titles.
 - If nothing needs action, return empty items and a calm pulse.`;
+
+const SOURCE_PROMPT_LABELS: Record<MatterConfigurableSource, string> = {
+  calendar: 'Google Calendar',
+  slack: 'Slack',
+  gmail: 'Gmail',
+  jira: 'Jira',
+  hub: 'York Hub',
+  meeting: 'Meetings',
+  launchpad: 'R&D Launchpad',
+};
+
+/**
+ * Built-in ranker prompt plus optional per-source overrides from Matter settings.
+ * Empty prompts are omitted. Overrides apply only for sources present in the pool.
+ */
+export function buildMatterRankerSystemPrompt(
+  sourcePrompts?: MatterSourcePrompts | null,
+  sourcesInPool?: Iterable<MatterSource>
+): string {
+  const present = sourcesInPool ? new Set(sourcesInPool) : null;
+  const lines: string[] = [];
+  for (const key of MATTER_SOURCE_IDS) {
+    const text = sourcePrompts?.[key]?.trim();
+    if (!text) continue;
+    if (present && !present.has(key)) continue;
+    lines.push(`- ${SOURCE_PROMPT_LABELS[key]}: ${text}`);
+  }
+  if (!lines.length) return SYSTEM_PROMPT;
+  return `${SYSTEM_PROMPT}
+
+Source overrides from the employee (apply on top of the rules above; never invent rollup titles):
+${lines.join('\n')}`;
+}
 
 const WORD_NUMBERS: Record<string, number> = {
   zero: 0,
@@ -353,7 +405,13 @@ export function heuristicRank(
       if (isDailySeriesMeeting(s.title, calText)) return false;
       if (isAllDayCalendarEvent(s.summary || '', calText)) return false;
     }
-    if (s.source === 'meeting' || s.source === 'fused' || s.source === 'jira' || s.source === 'slack')
+    if (
+      s.source === 'meeting' ||
+      s.source === 'fused' ||
+      s.source === 'jira' ||
+      s.source === 'slack' ||
+      s.source === 'hub'
+    )
       return true;
     if (s.severityHint === 'critical' || s.severityHint === 'warning') return true;
     const blob = `${s.title} ${s.summary} ${s.suggestedAction || ''} ${s.whyHint || ''}`;
@@ -375,8 +433,10 @@ export function heuristicRank(
         });
         const urgency = urgencyFromDueAt(times.dueAt);
         const severity = urgency?.severity || s.severityHint || 'signal';
-        const orbit = urgency?.orbit || s.orbitHint || (severity === 'critical' ? 'now' : 'today');
+        const hintOrbit =
+          urgency?.orbit || s.orbitHint || (severity === 'critical' ? 'now' : 'today');
         const rankBoost = urgency?.rankBoost ?? 0;
+        const rankScore = (severityBoost[severity] ?? 10) + rankBoost * 0.25;
         return {
           fingerprint: s.fingerprint,
           title: s.title.slice(0, 90),
@@ -387,12 +447,15 @@ export function heuristicRank(
               ? `Needs your action as ${profile.title}.`
               : 'Needs your action from connected work tools.'),
           severity,
-          orbit,
+          orbit: orbitFromRankScore(rankScore, {
+            dueAt: times.dueAt,
+            fallbackOrbit: hintOrbit,
+          }),
           category: s.categoryHint || 'comms',
           source: s.source,
           confidence: 0.55,
           suggestedAction: s.suggestedAction || null,
-          rankScore: (severityBoost[severity] ?? 10) + rankBoost * 0.25,
+          rankScore,
           sourceRef: enrichSourceRef(s.sourceRef || {}, s.rawDetails || s.rawExcerpt),
           rawDetails: s.rawDetails || s.rawExcerpt || null,
           dueAt: times.dueAt,
@@ -462,20 +525,21 @@ export async function rankMatterSignals(options: {
   signals: RawMatterSignal[];
   maxItems: number;
   sensitivity: MatterSensitivity;
+  sourcePrompts?: MatterSourcePrompts | null;
 }): Promise<RankedMatterResult> {
-  const { config, profile, signals, maxItems, sensitivity } = options;
+  const { config, profile, signals, maxItems, sensitivity, sourcePrompts } = options;
   if (signals.length === 0) {
     return heuristicRank([], profile, maxItems);
   }
 
   const softMax =
     sensitivity === 'calm'
-      ? Math.min(maxItems, 12)
+      ? Math.min(maxItems, 20)
       : sensitivity === 'hyper'
         ? maxItems
-        : Math.min(maxItems, 18);
+        : Math.min(maxItems, 32);
 
-  const rankerPool = selectSignalsForRanker(signals, 40);
+  const rankerPool = selectSignalsForRanker(signals, MATTER_RANKER_POOL_SIZE);
 
   try {
     const creds = applyBackendManagedCredentials({
@@ -523,8 +587,13 @@ export async function rankMatterSignals(options: {
       2
     );
 
+    const systemPrompt = buildMatterRankerSystemPrompt(
+      sourcePrompts,
+      rankerPool.map((s) => s.source)
+    );
+
     // No temperature / maxTokens — model defaults only.
-    const result = await runPiAiOneShot(userPrompt, SYSTEM_PROMPT, oneShotConfig, {
+    const result = await runPiAiOneShot(userPrompt, systemPrompt, oneShotConfig, {
       usageFeature: 'matter_scan',
       usageSessionId: 'matter_scan',
     });
@@ -568,6 +637,11 @@ export async function rankMatterSignals(options: {
         typeof item.sourceRef === 'object' && item.sourceRef !== null
           ? (item.sourceRef as MatterItem['sourceRef'])
           : baseItem.sourceRef;
+      const rankScore =
+        typeof item.rankScore === 'number' && Number.isFinite(item.rankScore)
+          ? item.rankScore
+          : baseItem.rankScore;
+      const overlayOrbit = item.orbit != null ? asOrbit(item.orbit) : baseItem.orbit;
       return {
         ...baseItem,
         title,
@@ -582,7 +656,10 @@ export async function rankMatterSignals(options: {
             ? item.whyItMatters
             : baseItem.whyItMatters,
         severity: item.severity != null ? asSeverity(item.severity) : baseItem.severity,
-        orbit: item.orbit != null ? asOrbit(item.orbit) : baseItem.orbit,
+        orbit: orbitFromRankScore(rankScore, {
+          dueAt: baseItem.dueAt,
+          fallbackOrbit: overlayOrbit,
+        }),
         category: item.category != null ? asCategory(item.category) : baseItem.category,
         confidence:
           typeof item.confidence === 'number' && Number.isFinite(item.confidence)
@@ -592,10 +669,7 @@ export async function rankMatterSignals(options: {
           typeof item.suggestedAction === 'string'
             ? item.suggestedAction
             : baseItem.suggestedAction,
-        rankScore:
-          typeof item.rankScore === 'number' && Number.isFinite(item.rankScore)
-            ? item.rankScore
-            : baseItem.rankScore,
+        rankScore,
         sourceRef,
         // Preserve collector-derived times; never let LLM override deadlines.
         dueAt: baseItem.dueAt,

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import {
   DEFAULT_MATTER_RUNTIME,
   MATTER_SOURCE_IDS,
+  type MatterConfigurableSource,
   type MatterRuntimeConfig,
   type MatterSensitivity,
 } from '../../../shared/matter';
@@ -14,14 +15,22 @@ function ToggleField({
   hint,
   checked,
   onChange,
+  bare,
 }: {
   label: string;
   hint?: string;
   checked: boolean;
   onChange: (checked: boolean) => void;
+  bare?: boolean;
 }) {
   return (
-    <label className="flex items-center justify-between gap-3 rounded-lg border border-border-muted bg-background/70 px-3 py-2.5">
+    <label
+      className={
+        bare
+          ? 'flex items-center justify-between gap-3'
+          : 'flex items-center justify-between gap-3 rounded-lg border border-border-muted bg-background/70 px-3 py-2.5'
+      }
+    >
       <div className="min-w-0">
         <span className="text-sm text-text-primary">{label}</span>
         {hint ? <p className="mt-1 text-xs text-text-muted">{hint}</p> : null}
@@ -36,6 +45,54 @@ function ToggleField({
   );
 }
 
+function SourcePromptField({
+  source,
+  checked,
+  prompt,
+  disabled,
+  onToggle,
+  onPromptSave,
+}: {
+  source: MatterConfigurableSource;
+  checked: boolean;
+  prompt: string;
+  disabled?: boolean;
+  onToggle: (checked: boolean) => void;
+  onPromptSave: (prompt: string) => void;
+}) {
+  const { t } = useTranslation();
+  const [local, setLocal] = useState(prompt);
+  useEffect(() => {
+    setLocal(prompt);
+  }, [prompt]);
+
+  return (
+    <div className="rounded-lg border border-border-muted bg-background/70 px-3 py-2.5 space-y-2">
+      <ToggleField
+        label={t(`matter.source.${source}`)}
+        checked={checked}
+        onChange={onToggle}
+        bare
+      />
+      <label className="block">
+        <span className="text-xs text-text-muted">{t('matter.sourcePrompt')}</span>
+        <textarea
+          value={local}
+          disabled={disabled}
+          rows={2}
+          placeholder={t(`matter.sourcePromptPlaceholder.${source}`)}
+          onChange={(event) => setLocal(event.target.value)}
+          onBlur={() => {
+            const next = local.trim();
+            if (next !== prompt.trim()) onPromptSave(next);
+          }}
+          className="mt-1 w-full resize-y rounded-lg border border-border-muted bg-background px-3 py-2 text-sm text-text-primary placeholder:text-text-muted"
+        />
+      </label>
+    </div>
+  );
+}
+
 export function SettingsMatter() {
   const { t } = useTranslation();
   const setAppConfig = useAppStore((s) => s.setAppConfig);
@@ -44,6 +101,7 @@ export function SettingsMatter() {
   const [draft, setDraft] = useState<MatterRuntimeConfig>({
     ...DEFAULT_MATTER_RUNTIME,
     sources: { ...DEFAULT_MATTER_RUNTIME.sources },
+    sourcePrompts: { ...DEFAULT_MATTER_RUNTIME.sourcePrompts },
   });
   const [status, setStatus] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -54,6 +112,7 @@ export function SettingsMatter() {
       setDraft({
         ...snap.settings,
         sources: { ...snap.settings.sources },
+        sourcePrompts: { ...DEFAULT_MATTER_RUNTIME.sourcePrompts, ...snap.settings.sourcePrompts },
       });
     });
   }, []);
@@ -64,7 +123,7 @@ export function SettingsMatter() {
     setStatus(null);
     try {
       const saved = await window.electronAPI.matter.updateSettings(next);
-      setDraft({ ...saved, sources: { ...saved.sources } });
+      setDraft({ ...saved, sources: { ...saved.sources }, sourcePrompts: { ...saved.sourcePrompts } });
       // Keep renderer config in sync so sidebar / nav react immediately.
       if (window.electronAPI.config?.get) {
         const config = await window.electronAPI.config.get();
@@ -98,6 +157,10 @@ export function SettingsMatter() {
       sources: {
         ...draft.sources,
         ...(partial.sources || {}),
+      },
+      sourcePrompts: {
+        ...draft.sourcePrompts,
+        ...(partial.sourcePrompts || {}),
       },
     };
     setDraft(next);
@@ -182,7 +245,7 @@ export function SettingsMatter() {
             <input
               type="number"
               min={5}
-              max={50}
+              max={80}
               value={draft.maxActiveItems}
               onChange={(e) => patch({ maxActiveItems: Number(e.target.value) })}
               className="mt-1 w-full rounded-lg border border-border-muted bg-background px-3 py-2 text-sm"
@@ -207,13 +270,20 @@ export function SettingsMatter() {
         title={t('matter.settingsSources')}
         description={t('matter.settingsSourcesDesc')}
       >
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <div className="space-y-3">
           {MATTER_SOURCE_IDS.map((source) => (
-            <ToggleField
+            <SourcePromptField
               key={source}
-              label={t(`matter.source.${source}`)}
+              source={source}
               checked={draft.sources[source]}
-              onChange={(checked) => patch({ sources: { ...draft.sources, [source]: checked } })}
+              prompt={draft.sourcePrompts[source] || ''}
+              disabled={saving}
+              onToggle={(checked) =>
+                patch({ sources: { ...draft.sources, [source]: checked } })
+              }
+              onPromptSave={(prompt) =>
+                patch({ sourcePrompts: { ...draft.sourcePrompts, [source]: prompt } })
+              }
             />
           ))}
         </div>

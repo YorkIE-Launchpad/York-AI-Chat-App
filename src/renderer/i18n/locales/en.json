@@ -870,7 +870,8 @@
     "settingsCadence": "Cadence",
     "settingsCadenceDesc": "Scan window (local time) and refresh interval.",
     "settingsSources": "Sources",
-    "settingsSourcesDesc": "Choose which connectors feed your radar.",
+    "settingsSourcesDesc": "Choose which connectors feed your radar. Optional prompts steer ranking for that source.",
+    "sourcePrompt": "Custom prompt (optional)",
     "enabled": "Enable Matter",
     "enabledHint": "When off, Matter hides from the sidebar, stops scanning, and clears alerts.",
     "disabledBanner": "Matter is disabled. Turn it back on in Settings → Matter.",
@@ -898,6 +899,15 @@
       "hub": "York Hub",
       "meeting": "Meetings",
       "launchpad": "R&D Launchpad"
+    },
+    "sourcePromptPlaceholder": {
+      "calendar": "e.g. Ignore focus blocks; keep client meetings that need prep.",
+      "slack": "e.g. Only keep DMs from my squad; ignore standup pings.",
+      "gmail": "e.g. Keep invoices and approvals; drop newsletters.",
+      "jira": "e.g. Only P0/P1 issues assigned to me.",
+      "hub": "e.g. Keep leave approvals; drop kudos.",
+      "meeting": "e.g. Only action items assigned to me.",
+      "launchpad": "e.g. Keep blocked releases; drop healthy ones."
     },
     "detailTitle": "Signal detail",
     "detailSummary": "Summary",
