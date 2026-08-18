@@ -46,9 +46,10 @@ export {
 } from './matter-calendar-enrichment';
 
 const MAX_PER_SOURCE = 8;
-/** Slack unreads are first-class Matter items; allow more than other sources. */
-const MAX_SLACK_PER_SCAN = 40;
-const SLACK_SEARCH_LIMIT = 40;
+/** Slack unreads: cap per bucket so other Matter sources still get radar slots. */
+const MAX_SLACK_DMS_PER_SCAN = 6;
+const MAX_SLACK_CHANNELS_PER_SCAN = 4;
+const SLACK_SEARCH_LIMIT = 20;
 const RAW_CAP = 4000;
 
 /** Exact / near-exact titles that are personal holds, not collaborative meetings. */
@@ -751,7 +752,7 @@ function slackMessageToSignal(msg: ParsedSlackSearchMessage): RawMatterSignal {
     title,
     summary: cleanDisplayText(msg.text).slice(0, 280) || `Unread from ${userLabel}`,
     raw: msg,
-    severityHint: 'warning',
+    severityHint: 'signal',
     orbitHint: 'today',
     categoryHint: 'comms',
     whyHint: 'Unread Slack message — open or mark handled.',
@@ -797,7 +798,10 @@ async function collectSlack(mcpManager: MCPManager): Promise<RawMatterSignal[]> 
     }
   }
 
-  const messages = [...dms, ...channels].slice(0, MAX_SLACK_PER_SCAN);
+  const messages = [
+    ...dms.slice(0, MAX_SLACK_DMS_PER_SCAN),
+    ...channels.slice(0, MAX_SLACK_CHANNELS_PER_SCAN),
+  ];
   return messages.map(slackMessageToSignal);
 }
 

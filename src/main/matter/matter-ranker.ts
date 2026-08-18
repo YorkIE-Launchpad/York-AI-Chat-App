@@ -9,6 +9,7 @@ import type {
   MatterOrbit,
   MatterSensitivity,
   MatterSeverity,
+  MatterSource,
 } from '../../shared/matter';
 import { deriveMatterTimeFields, urgencyFromDueAt } from '../../shared/matter-time';
 import type { RawMatterSignal } from './matter-collector';
@@ -21,6 +22,51 @@ import {
 
 /** Fixed model for Matter ranking (OpenAI via backend proxy). */
 const MATTER_RANKER_MODEL = 'gpt-5.6-luna';
+
+/** Max Slack items on the Matter radar so calendar/jira/gmail/hub stay visible. */
+export const MATTER_RADAR_SLACK_CAP = 6;
+
+/** Max Slack signals in the ranker pool (LLM + heuristic input). */
+export const MATTER_RANKER_SLACK_POOL_CAP = 10;
+
+const MATTER_RADAR_SOURCE_CAPS: Partial<Record<MatterSource, number>> = {
+  slack: MATTER_RADAR_SLACK_CAP,
+};
+
+/**
+ * Build a balanced signal pool for ranking — never let Slack unreads crowd out other sources.
+ */
+export function selectSignalsForRanker(
+  signals: RawMatterSignal[],
+  poolSize = 40
+): RawMatterSignal[] {
+  const nonSlack = signals.filter((s) => s.source !== 'slack');
+  const slack = signals.filter((s) => s.source === 'slack').slice(0, MATTER_RANKER_SLACK_POOL_CAP);
+  const otherTake = Math.min(nonSlack.length, Math.max(0, poolSize - slack.length));
+  return [...nonSlack.slice(0, otherTake), ...slack].slice(0, poolSize);
+}
+
+/** Apply per-source caps after rank-score sort (Slack capped; others compete for remaining slots). */
+export function capRankedItemsBySource<T extends { source: MatterSource; rankScore: number }>(
+  items: T[],
+  maxItems: number,
+  sourceCaps: Partial<Record<MatterSource, number>> = MATTER_RADAR_SOURCE_CAPS
+): T[] {
+  const sorted = [...items].sort((a, b) => b.rankScore - a.rankScore);
+  const counts = new Map<MatterSource, number>();
+  const out: T[] = [];
+  for (const item of sorted) {
+    if (out.length >= maxItems) break;
+    const cap = sourceCaps[item.source];
+    if (cap != null) {
+      const used = counts.get(item.source) ?? 0;
+      if (used >= cap) continue;
+      counts.set(item.source, used + 1);
+    }
+    out.push(item);
+  }
+  return out;
+}
 
 const SYSTEM_PROMPT = `You are Matter Ranker for York IE VECOS — personal ACTION radar only.
 
@@ -318,43 +364,45 @@ export function heuristicRank(
     );
   });
 
-  const items = actionable
-    .slice(0, maxItems)
-    .map((s, index) => {
-      const dueAt = s.dueAt ?? s.occurredAt ?? null;
-      const times = deriveMatterTimeFields({
-        dueAt,
-        expiresAt: s.expiresAt ?? null,
-        source: s.source,
-      });
-      const urgency = urgencyFromDueAt(times.dueAt);
-      const severity = urgency?.severity || s.severityHint || 'signal';
-      const orbit = urgency?.orbit || s.orbitHint || (severity === 'critical' ? 'now' : 'today');
-      const rankBoost = urgency?.rankBoost ?? 0;
-      return {
-        fingerprint: s.fingerprint,
-        title: s.title.slice(0, 90),
-        summary: s.summary,
-        whyItMatters:
-          s.whyHint ||
-          (profile?.title
-            ? `Needs your action as ${profile.title}.`
-            : 'Needs your action from connected work tools.'),
-        severity,
-        orbit,
-        category: s.categoryHint || 'comms',
-        source: s.source,
-        confidence: 0.55,
-        suggestedAction: s.suggestedAction || null,
-        rankScore: (severityBoost[severity] ?? 10) + Math.max(0, 20 - index) + rankBoost * 0.25,
-        sourceRef: enrichSourceRef(s.sourceRef || {}, s.rawDetails || s.rawExcerpt),
-        rawDetails: s.rawDetails || s.rawExcerpt || null,
-        dueAt: times.dueAt,
-        remindAt: times.remindAt,
-        expiresAt: times.expiresAt,
-      };
-    })
-    .sort((a, b) => b.rankScore - a.rankScore);
+  const items = capRankedItemsBySource(
+    actionable
+      .map((s) => {
+        const dueAt = s.dueAt ?? s.occurredAt ?? null;
+        const times = deriveMatterTimeFields({
+          dueAt,
+          expiresAt: s.expiresAt ?? null,
+          source: s.source,
+        });
+        const urgency = urgencyFromDueAt(times.dueAt);
+        const severity = urgency?.severity || s.severityHint || 'signal';
+        const orbit = urgency?.orbit || s.orbitHint || (severity === 'critical' ? 'now' : 'today');
+        const rankBoost = urgency?.rankBoost ?? 0;
+        return {
+          fingerprint: s.fingerprint,
+          title: s.title.slice(0, 90),
+          summary: s.summary,
+          whyItMatters:
+            s.whyHint ||
+            (profile?.title
+              ? `Needs your action as ${profile.title}.`
+              : 'Needs your action from connected work tools.'),
+          severity,
+          orbit,
+          category: s.categoryHint || 'comms',
+          source: s.source,
+          confidence: 0.55,
+          suggestedAction: s.suggestedAction || null,
+          rankScore: (severityBoost[severity] ?? 10) + rankBoost * 0.25,
+          sourceRef: enrichSourceRef(s.sourceRef || {}, s.rawDetails || s.rawExcerpt),
+          rawDetails: s.rawDetails || s.rawExcerpt || null,
+          dueAt: times.dueAt,
+          remindAt: times.remindAt,
+          expiresAt: times.expiresAt,
+        };
+      })
+      .sort((a, b) => b.rankScore - a.rankScore),
+    maxItems
+  );
 
   const critical = items.filter((i) => i.severity === 'critical').length;
   const warning = items.filter((i) => i.severity === 'warning').length;
@@ -427,6 +475,8 @@ export async function rankMatterSignals(options: {
         ? maxItems
         : Math.min(maxItems, 18);
 
+  const rankerPool = selectSignalsForRanker(signals, 40);
+
   try {
     const creds = applyBackendManagedCredentials({
       provider: 'openai',
@@ -455,7 +505,7 @@ export async function rankMatterSignals(options: {
               department: profile.department,
             }
           : null,
-        signals: signals.slice(0, 40).map((s) => ({
+        signals: rankerPool.map((s) => ({
           fingerprint: s.fingerprint,
           source: s.source,
           title: s.title,
@@ -486,8 +536,8 @@ export async function rankMatterSignals(options: {
       lenses?: unknown;
     };
 
-    const known = new Map(signals.map((s) => [s.fingerprint, s]));
-    const base = heuristicRank(signals, profile, softMax);
+    const known = new Map(rankerPool.map((s) => [s.fingerprint, s]));
+    const base = heuristicRank(rankerPool, profile, softMax);
     const itemsRaw = Array.isArray(parsed.items) ? parsed.items : [];
     const llmByFp = new Map<string, Record<string, unknown>>();
     for (const raw of itemsRaw) {
@@ -555,16 +605,19 @@ export async function rankMatterSignals(options: {
     });
 
     if (items.length === 0) {
-      return heuristicRank(signals, profile, softMax);
+      return heuristicRank(rankerPool, profile, softMax);
     }
 
     const itemsWithRaw = attachRawFromSignals(
-      items.sort((a, b) => b.rankScore - a.rankScore),
+      capRankedItemsBySource(
+        items.sort((a, b) => b.rankScore - a.rankScore),
+        softMax
+      ),
       signals
     );
 
     const lensesRaw = Array.isArray(parsed.lenses) ? parsed.lenses : [];
-    const lenses = heuristicRank(signals, profile, softMax).lenses.map((fallback) => {
+    const lenses = heuristicRank(rankerPool, profile, softMax).lenses.map((fallback) => {
       const match = lensesRaw.find(
         (l) => typeof l === 'object' && l && (l as { id?: string }).id === fallback.id
       ) as { status?: string; summary?: string } | undefined;
@@ -588,13 +641,13 @@ export async function rankMatterSignals(options: {
       pulse:
         typeof parsed.pulse === 'string' && parsed.pulse.trim()
           ? parsed.pulse.trim()
-          : heuristicRank(signals, profile, softMax).pulse,
+          : heuristicRank(rankerPool, profile, softMax).pulse,
       brief: typeof parsed.brief === 'string' ? parsed.brief.trim() : null,
       items: itemsWithRaw,
       lenses,
     };
   } catch (error) {
     logWarn('[Matter] Ranker LLM failed, using heuristic:', error);
-    return heuristicRank(signals, profile, softMax);
+    return heuristicRank(rankerPool, profile, softMax);
   }
 }

@@ -4,7 +4,7 @@ import {
   parseSlackSearchBody,
   type RawMatterSignal,
 } from '../src/main/matter/matter-collector';
-import { heuristicRank } from '../src/main/matter/matter-ranker';
+import { heuristicRank, capRankedItemsBySource, selectSignalsForRanker } from '../src/main/matter/matter-ranker';
 import type { MCPManager } from '../src/main/mcp/mcp-manager';
 import { DEFAULT_SLACK_MCP_SERVER_ID } from '../src/shared/mcp-defaults';
 import type { MatterSourcesConfig } from '../src/shared/matter';
@@ -125,12 +125,12 @@ describe('collectMatterSignals Slack unreads', () => {
     expect(calls).toHaveLength(2);
     expect(calls[0]).toMatchObject({
       query: 'is:unread is:dm',
-      limit: 40,
+      limit: 20,
       sort: 'timestamp',
     });
     expect(calls[1]).toMatchObject({
       query: 'is:unread -is:dm',
-      limit: 40,
+      limit: 20,
       sort: 'timestamp',
     });
 
@@ -157,6 +157,82 @@ describe('collectMatterSignals Slack unreads', () => {
     expect(calls).toHaveLength(0);
     expect(result.sourcesSkipped).toContain('slack');
     expect(result.signals.filter((s) => s.source === 'slack')).toHaveLength(0);
+  });
+});
+
+describe('Matter ranker source balancing', () => {
+  it('selectSignalsForRanker reserves pool slots for non-Slack sources', () => {
+    const slack = Array.from({ length: 30 }, (_, i) => ({
+      fingerprint: `slack:${i}`,
+      source: 'slack' as const,
+      title: `Slack ${i}`,
+      summary: 'unread',
+      rawExcerpt: '',
+      severityHint: 'signal' as const,
+      orbitHint: 'today' as const,
+      categoryHint: 'comms' as const,
+      muteKeys: [],
+    }));
+    const jira = Array.from({ length: 5 }, (_, i) => ({
+      fingerprint: `jira:${i}`,
+      source: 'jira' as const,
+      title: `Jira ${i}`,
+      summary: 'blocked',
+      rawExcerpt: '',
+      severityHint: 'critical' as const,
+      orbitHint: 'now' as const,
+      categoryHint: 'delivery' as const,
+      muteKeys: [],
+    }));
+    const pool = selectSignalsForRanker([...slack, ...jira], 40);
+    expect(pool.filter((s) => s.source === 'jira')).toHaveLength(5);
+    expect(pool.filter((s) => s.source === 'slack').length).toBeLessThanOrEqual(10);
+    expect(pool.length).toBe(15);
+  });
+
+  it('capRankedItemsBySource limits Slack on the radar while keeping higher-priority sources', () => {
+    const items = [
+      ...Array.from({ length: 12 }, (_, i) => ({
+        source: 'slack' as const,
+        rankScore: 50 - i,
+        fingerprint: `slack:${i}`,
+      })),
+      { source: 'jira' as const, rankScore: 45, fingerprint: 'jira:1' },
+      { source: 'calendar' as const, rankScore: 44, fingerprint: 'cal:1' },
+    ];
+    const capped = capRankedItemsBySource(items, 10);
+    expect(capped.filter((i) => i.source === 'slack').length).toBeLessThanOrEqual(6);
+    expect(capped.some((i) => i.source === 'jira')).toBe(true);
+    expect(capped.some((i) => i.source === 'calendar')).toBe(true);
+    expect(capped.length).toBe(8);
+  });
+
+  it('heuristicRank keeps Jira visible when many Slack unreads are present', () => {
+    const slackSignals: RawMatterSignal[] = Array.from({ length: 15 }, (_, i) => ({
+      fingerprint: `slack:msg:C:${i}`,
+      source: 'slack',
+      title: `Slack unread ${i}`,
+      summary: 'ping',
+      rawExcerpt: 'ping',
+      severityHint: 'signal',
+      orbitHint: 'today',
+      categoryHint: 'comms',
+      muteKeys: ['source:slack'],
+    }));
+    const jiraSignal: RawMatterSignal = {
+      fingerprint: 'jira:PROJ-1',
+      source: 'jira',
+      title: 'Release blocked on QA',
+      summary: 'QA failing on checkout',
+      rawExcerpt: 'blocked',
+      severityHint: 'critical',
+      orbitHint: 'now',
+      categoryHint: 'delivery',
+      muteKeys: [],
+    };
+    const ranked = heuristicRank([...slackSignals, jiraSignal], null, 10);
+    expect(ranked.items.some((i) => i.source === 'jira')).toBe(true);
+    expect(ranked.items.filter((i) => i.source === 'slack').length).toBeLessThanOrEqual(6);
   });
 });
 
