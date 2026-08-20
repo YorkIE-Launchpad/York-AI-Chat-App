@@ -1323,7 +1323,9 @@ ${hints.join('\n')}
     return tools.map((tool) => {
       const originalExecute = tool.execute;
 
-      if (tool.name === 'bash') {
+      const toolName = tool.name.toLowerCase();
+
+      if (toolName === 'bash') {
         return {
           ...tool,
           execute: async (
@@ -1341,7 +1343,7 @@ ${hints.join('\n')}
         } as ToolDefinition;
       }
 
-      if (tool.name === 'write' || tool.name === 'edit' || tool.name === 'read') {
+      if (toolName === 'write' || toolName === 'edit' || toolName === 'read') {
         return {
           ...tool,
           execute: async (

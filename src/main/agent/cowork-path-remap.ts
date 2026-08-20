@@ -1,4 +1,8 @@
-import { COWORK_VIRTUAL_ROOTS } from '../../shared/workspace-path';
+import {
+  COWORK_VIRTUAL_ROOTS,
+  extractOutputsRelativePath,
+  remapOutsideOutputsAbsolutePath,
+} from '../../shared/workspace-path';
 
 /**
  * Claude Cowork / Desktop skills and sandbox prompts often hardcode virtual
@@ -21,6 +25,13 @@ export function remapCoworkVirtualPath(inputPath: string, workspaceRoot: string)
     }
   }
 
+  // Agents often invent `/Users/<name>/outputs/file.html` while the real
+  // working folder is the session cwd. Keep writes inside that folder.
+  const outsideOutputs = remapOutsideOutputsAbsolutePath(trimmed, workspaceRoot);
+  if (outsideOutputs) {
+    return extractOutputsRelativePath(trimmed) ?? outsideOutputs;
+  }
+
   return inputPath;
 }
 
@@ -39,6 +50,15 @@ export function remapCoworkVirtualPathsInCommand(command: string, workspaceRoot:
     const pattern = new RegExp(`${escapeRegExp(root)}(?=$|[/\\s'"\`])`, 'g');
     rewritten = rewritten.replace(pattern, workspaceRoot);
   }
+
+  rewritten = rewritten.replace(
+    /(^|[\s'"=`])((?:\/|[A-Za-z]:[\\/])[^\s'"`]*[/\\]outputs[/\\][^\s'"`]+)/g,
+    (full, prefix: string, filePath: string) => {
+      const mapped = remapOutsideOutputsAbsolutePath(filePath, workspaceRoot);
+      return mapped ? `${prefix}${mapped}` : full;
+    }
+  );
+
   return rewritten;
 }
 

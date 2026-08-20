@@ -69,7 +69,7 @@ function pathLooksUnderRoot(candidate: string, root: string): boolean {
   return candidateNorm === rootNorm || candidateNorm.startsWith(`${rootNorm}/`);
 }
 
-function remapOutsideOutputsAbsolutePath(
+export function remapOutsideOutputsAbsolutePath(
   pathValue: string,
   workspacePath?: string | null
 ): string | null {
@@ -88,11 +88,14 @@ function remapOutsideOutputsAbsolutePath(
 
 export function resolvePathAgainstWorkspace(
   pathValue: string,
-  workspacePath?: string | null
+  workspacePath?: string | null,
+  options?: { remapOutsideOutputs?: boolean }
 ): string {
   if (!pathValue) {
     return pathValue;
   }
+
+  const remapOutsideOutputs = options?.remapOutsideOutputs !== false;
 
   if (isWindowsDrivePath(pathValue) || isUncPath(pathValue) || pathValue.startsWith('/')) {
     const coworkRemapped = remapCoworkAbsolutePath(pathValue, workspacePath);
@@ -103,9 +106,11 @@ export function resolvePathAgainstWorkspace(
       const relativePart = pathValue.replace(/^[A-Za-z]:[/\\]workspace[/\\]/i, '');
       return workspacePath ? joinRelativePath(workspacePath, relativePart) : pathValue;
     }
-    const outputsRemapped = remapOutsideOutputsAbsolutePath(pathValue, workspacePath);
-    if (outputsRemapped !== null) {
-      return outputsRemapped;
+    if (remapOutsideOutputs) {
+      const outputsRemapped = remapOutsideOutputsAbsolutePath(pathValue, workspacePath);
+      if (outputsRemapped !== null) {
+        return outputsRemapped;
+      }
     }
     return pathValue;
   }

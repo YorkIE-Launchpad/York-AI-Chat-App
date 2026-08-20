@@ -35,6 +35,16 @@ describe('remapCoworkVirtualPath', () => {
     expect(remapCoworkVirtualPath('/tmp/other.md', cwd)).toBe('/tmp/other.md');
   });
 
+  it('maps invented home outputs paths onto the session workspace', () => {
+    expect(remapCoworkVirtualPath('/Users/kalravparsana/outputs/sarkhej-police-letter.html', cwd)).toBe(
+      'outputs/sarkhej-police-letter.html'
+    );
+  });
+
+  it('leaves outputs paths already under the workspace unchanged', () => {
+    expect(remapCoworkVirtualPath(`${cwd}/outputs/deck.html`, cwd)).toBe(`${cwd}/outputs/deck.html`);
+  });
+
   it('does not treat /workspace-evil as /workspace', () => {
     expect(remapCoworkVirtualPath('/workspace-evil/secret', cwd)).toBe('/workspace-evil/secret');
   });
@@ -66,6 +76,15 @@ describe('remapCoworkVirtualPathsInCommand', () => {
 
   it('leaves commands without virtual roots unchanged', () => {
     expect(remapCoworkVirtualPathsInCommand('ls outputs', cwd)).toBe('ls outputs');
+  });
+
+  it('rewrites invented home outputs paths in bash onto the session cwd', () => {
+    expect(
+      remapCoworkVirtualPathsInCommand(
+        'cat /Users/kalravparsana/outputs/sarkhej-police-letter.html',
+        cwd
+      )
+    ).toBe('cat /Users/demo/project/outputs/sarkhej-police-letter.html');
   });
 
   it('does not rewrite longer paths that only share a prefix', () => {

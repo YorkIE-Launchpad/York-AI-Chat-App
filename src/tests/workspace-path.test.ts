@@ -131,4 +131,14 @@ describe('resolvePathAgainstWorkspace', () => {
       )
     ).toBe('/Users/demo/project/outputs/report.html');
   });
+
+  it('can keep the original outside-outputs path when remapping is disabled', () => {
+    expect(
+      resolvePathAgainstWorkspace(
+        '/Users/kalravparsana/outputs/sarkhej-police-letter.html',
+        '/Users/demo/default_working_dir',
+        { remapOutsideOutputs: false }
+      )
+    ).toBe('/Users/kalravparsana/outputs/sarkhej-police-letter.html');
+  });
 });

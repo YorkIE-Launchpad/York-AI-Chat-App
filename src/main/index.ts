@@ -211,6 +211,7 @@ import {
   isDevLogsEnabled,
 } from './utils/logger';
 import { listRecentWorkspaceFiles } from './utils/recent-workspace-files';
+import { resolveWorkspaceLocalPath } from './utils/resolve-workspace-local-path';
 import { isPathWithinRoot } from './tools/path-containment';
 import { buildDiagnosticsSummary } from './utils/diagnostics-summary';
 import {
@@ -3049,7 +3050,15 @@ async function revealFileInFolder(filePath: string, cwd?: string): Promise<boole
     cwd && isAbsolute(cwd)
       ? cwd
       : defaultWorkingDir || userDataDefaultWorkingDir || app.getPath('home');
-  normalizedPath = resolvePathAgainstWorkspace(normalizedPath, baseDir);
+  const existingResolved = resolveAppWorkspaceLocalPath(
+    normalizedPath,
+    cwd && isAbsolute(cwd) ? cwd : undefined
+  );
+  if (!('error' in existingResolved)) {
+    normalizedPath = existingResolved.path;
+  } else {
+    normalizedPath = resolvePathAgainstWorkspace(normalizedPath, baseDir);
+  }
   if (
     !isAbsolute(normalizedPath) &&
     !isWindowsDrivePath(normalizedPath) &&
@@ -3161,80 +3170,15 @@ ipcMain.handle(
 
 const MAX_HTML_PREVIEW_BYTES = 2 * 1024 * 1024; // 2MB cap for srcDoc previews
 
-/**
- * Resolve a user/agent path into an absolute path that is inside an allowed
- * workspace root. Remaps virtual Cowork roots and outside `.../outputs/...`
- * absolute paths, then falls back to basename discovery under those roots.
- */
-function resolveWorkspaceLocalPath(
+function resolveAppWorkspaceLocalPath(
   filePath: string,
   preferredBaseDir?: string
 ): { path: string; baseDir: string } | { error: string } {
-  const defaultWorkingDir = getWorkingDir() || '';
-  const userDataDefaultWorkingDir = join(app.getPath('userData'), 'default_working_dir');
-  const baseDir =
-    preferredBaseDir && isAbsolute(preferredBaseDir)
-      ? preferredBaseDir
-      : defaultWorkingDir || userDataDefaultWorkingDir || '';
-
-  if (!baseDir) {
-    return { error: 'No workspace directory' };
-  }
-
-  const caseInsensitive = process.platform === 'win32';
-  const searchRoots = buildRevealSearchRoots({
-    cwd: preferredBaseDir,
-    defaultWorkingDir,
-    userDataDefaultWorkingDir,
+  return resolveWorkspaceLocalPath(filePath, {
+    preferredBaseDir,
+    defaultWorkingDir: getWorkingDir() || '',
+    userDataDefaultWorkingDir: join(app.getPath('userData'), 'default_working_dir'),
   });
-  if (searchRoots.length === 0) {
-    searchRoots.push(resolve(baseDir));
-  }
-
-  const isAllowed = (candidate: string): boolean =>
-    searchRoots.some((root) => isPathWithinRoot(candidate, root, caseInsensitive));
-
-  const toAbsolute = (value: string, root: string): string => {
-    let normalized = resolvePathAgainstWorkspace(value.trim(), root);
-    if (
-      !isAbsolute(normalized) &&
-      !isWindowsDrivePath(normalized) &&
-      !isUncPath(normalized)
-    ) {
-      normalized = resolve(root, normalized);
-    }
-    if (!isUncPath(normalized)) {
-      normalized = resolve(normalized);
-    }
-    return normalized;
-  };
-
-  let normalizedPath = toAbsolute(filePath, baseDir);
-
-  if (!isAllowed(normalizedPath) || !fs.existsSync(normalizedPath)) {
-    // Prefer remapping against each allowed root so outside agent
-    // absolute paths still land on a real workspace file when present.
-    for (const root of searchRoots) {
-      const candidate = toAbsolute(filePath, root);
-      if (isAllowed(candidate) && fs.existsSync(candidate)) {
-        normalizedPath = candidate;
-        break;
-      }
-    }
-  }
-
-  if (!isAllowed(normalizedPath) || !fs.existsSync(normalizedPath)) {
-    const discovered = findFileByNameInRoots(basename(normalizedPath), searchRoots);
-    if (discovered && isAllowed(discovered) && fs.existsSync(discovered)) {
-      normalizedPath = discovered;
-    }
-  }
-
-  if (!isAllowed(normalizedPath)) {
-    return { error: 'Path outside workspace' };
-  }
-
-  return { path: normalizedPath, baseDir };
 }
 
 ipcMain.handle(
@@ -3249,7 +3193,7 @@ ipcMain.handle(
         return { success: false, error: 'Invalid path' };
       }
 
-      const resolved = resolveWorkspaceLocalPath(
+      const resolved = resolveAppWorkspaceLocalPath(
         filePath.trim(),
         cwd && typeof cwd === 'string' && isAbsolute(cwd) ? cwd : undefined
       );
@@ -3286,7 +3230,7 @@ ipcMain.handle('shell.openPath', async (_event, filePath: string, cwd?: string) 
     if (typeof filePath !== 'string' || !filePath.trim()) {
       return { success: false, error: 'Invalid path' };
     }
-    const resolved = resolveWorkspaceLocalPath(
+    const resolved = resolveAppWorkspaceLocalPath(
       filePath.trim(),
       cwd && typeof cwd === 'string' && isAbsolute(cwd) ? cwd : undefined
     );
