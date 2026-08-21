@@ -2,7 +2,8 @@
  * @module main/agent/mcp-tool-budget
  *
  * OpenAI-compatible APIs reject requests with more than 128 tools.
- * When the flattened MCP tool set would exceed that budget, expose
+ * Anthropic accepts large tool sets but each schema burns context tokens.
+ * When the flattened set exceeds the relevant budget, expose
  * mcp_search_tools + mcp_call_tool so the parent (and children) discover and
  * invoke MCP tools without listing every flat tool.
  */
@@ -27,6 +28,12 @@ import {
 } from '../config/mcp-write-access-store';
 import type { OnLaunchPadProgressRecord } from './launchpad-turn-progress';
 export const OPENAI_MAX_TOOLS = 128;
+/**
+ * Anthropic has no hard tool-count cap, but full MCP schemas routinely cost
+ * tens of thousands of tokens. Switch to meta tools once the flat set exceeds
+ * this threshold (built-ins + MCP + extensions).
+ */
+export const ANTHROPIC_MCP_META_THRESHOLD = 32;
 export const MCP_SEARCH_TOOLS_NAME = 'mcp_search_tools';
 export const MCP_CALL_TOOL_NAME = 'mcp_call_tool';
 export const MCP_RUN_TOOL_NAME = 'mcp_run';
@@ -67,7 +74,26 @@ export function needsOpenAIToolBudget(api: string | undefined | null): boolean {
   return api === 'openai-completions' || api === 'openai-responses';
 }
 
+export function needsAnthropicToolBudget(api: string | undefined | null): boolean {
+  return api === 'anthropic-messages';
+}
+
+/**
+ * Max flat tools before switching to mcp_search_tools + mcp_call_tool.
+ * OpenAI: hard 128 API limit. Anthropic: softer context-token threshold.
+ */
+export function toolBudgetLimitForApi(api: string | undefined | null): number | null {
+  if (needsOpenAIToolBudget(api)) return OPENAI_MAX_TOOLS;
+  if (needsAnthropicToolBudget(api)) return ANTHROPIC_MCP_META_THRESHOLD;
+  return null;
+}
+
 export function buildMcpToolsSignature(mode: McpToolExposureMode, mcpToolNames: string[]): string {
+  // Meta mode only exposes search+call; underlying MCP catalog changes must not
+  // recreate the pi session (that dumps cold-start history and busts prompt cache).
+  if (mode === 'meta') {
+    return 'meta';
+  }
   const sorted = [...mcpToolNames].sort();
   return `${mode}:${sorted.join(',')}`;
 }
@@ -397,12 +423,13 @@ export function selectCustomToolsForModel(input: {
   } = input;
   const mcpNames = mcpTools.map((t) => t.name);
   const totalIfFlat = builtInToolCount + mcpTools.length + extensionTools.length;
+  const budgetLimit = toolBudgetLimitForApi(api);
 
   const useMeta =
-    needsOpenAIToolBudget(api) &&
+    budgetLimit != null &&
     Boolean(mcpManager) &&
     mcpTools.length > 0 &&
-    totalIfFlat > OPENAI_MAX_TOOLS;
+    totalIfFlat > budgetLimit;
 
   if (!useMeta || !mcpManager) {
     return {
@@ -432,8 +459,11 @@ export function selectCustomToolsForModel(input: {
     allowedToolNames && allowedToolNames.size > 0
       ? mcpManager.getTools().filter((tool) => allowedToolNames.has(tool.name))
       : mcpManager.getTools();
+  const budgetLabel = needsOpenAIToolBudget(api)
+    ? 'OpenAI tool budget'
+    : 'Anthropic MCP schema budget';
   log(
-    `[McpToolBudget] OpenAI tool budget exceeded (${totalIfFlat} > ${OPENAI_MAX_TOOLS}). ` +
+    `[McpToolBudget] ${budgetLabel} exceeded (${totalIfFlat} > ${budgetLimit}). ` +
       `Switching to meta tools (${totalWithMeta} total: ${metaTools.map((t) => t.name).join(', ')}). ` +
       `Dropped flat MCP tools by server: ${summarizeDroppedByServer(droppedSource)}`
   );

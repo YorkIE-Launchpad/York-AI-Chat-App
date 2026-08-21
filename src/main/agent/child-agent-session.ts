@@ -42,6 +42,10 @@ import {
   resolvePiRouteProtocol,
   resolveSyntheticPiModelFallback,
 } from './pi-model-resolution';
+import {
+  applyOpenRouterClaudeCacheHints,
+  enableLongAnthropicPromptCache,
+} from './prompt-cache';
 import { getSharedAuthStorage, ModelRegistry } from './shared-auth';
 import { fetchBackendModels } from '../config/backend-client';
 import {
@@ -545,6 +549,12 @@ export async function runChildAgentSession(
       appendSystemPrompt: childSystemPrompt,
     });
     await resourceLoader.reload();
+
+    enableLongAnthropicPromptCache();
+    piModel = applyOpenRouterClaudeCacheHints(
+      piModel,
+      input.parentSessionId || subagentId
+    );
 
     const { session: childSession } = await createAgentSession({
       model: piModel,

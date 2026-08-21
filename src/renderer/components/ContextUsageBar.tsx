@@ -63,7 +63,14 @@ export function ContextUsageBar() {
 
   if (!usage) return null;
 
-  const { tokens, contextWindow, percent, projectedTurnsRemaining } = usage;
+  const {
+    tokens,
+    contextWindow,
+    percent,
+    projectedTurnsRemaining,
+    cacheHitPercent,
+    cacheRead,
+  } = usage;
   const showCompactButton = percent > 50;
   const isUrgent = percent > 80;
 
@@ -89,6 +96,18 @@ export function ContextUsageBar() {
 
         <span className={`text-xs whitespace-nowrap ${textColor}`}>
           {Math.round(percent)}% · {formatTokens(tokens)}/{formatTokens(contextWindow)}
+          {cacheHitPercent !== null && (
+            <span
+              className="text-text-muted ml-1"
+              title={
+                cacheRead != null
+                  ? `Prompt cache read ${formatTokens(cacheRead)} tokens`
+                  : 'Prompt cache hit rate'
+              }
+            >
+              · cache {cacheHitPercent}%
+            </span>
+          )}
           {projectedTurnsRemaining !== null && (
             <span className="text-text-muted ml-1">
               · ~{projectedTurnsRemaining} {t('compaction.turnsLeft')}

@@ -1854,6 +1854,11 @@ export class ConfigStore {
     delete process.env.GEMINI_BASE_URL;
     delete process.env.AGENT_CLI_PATH;
     delete process.env.YORK_IE_WORKDIR;
+    // Prefer 1h Anthropic prompt-cache TTL for long agent loops (pi-ai reads this).
+    // Cleared only when explicitly set to "none" by the user/environment.
+    if (process.env.PI_CACHE_RETENTION !== 'none') {
+      process.env.PI_CACHE_RETENTION = 'long';
+    }
 
     const useOpenAI =
       projectedConfig.provider === 'openai' ||

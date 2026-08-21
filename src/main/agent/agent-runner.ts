@@ -56,6 +56,8 @@ import { getDefaultShell } from '../utils/shell-resolver';
 import { PluginRuntimeService } from '../skills/plugin-runtime-service';
 import type { SkillsAdapter } from '../skills/skills-adapter';
 import {
+  LAUNCHPAD_SKILL_NAME,
+  YORK_OS_SKILL_NAME,
   expandLaunchPadSkillIntent,
   expandYorkOsSkillIntent,
 } from '../skills/skill-intent-expand';
@@ -108,6 +110,16 @@ import {
   resolvePiRouteProtocol,
   resolveSyntheticPiModelFallback,
 } from './pi-model-resolution';
+import {
+  applyOpenRouterClaudeCacheHints,
+  enableLongAnthropicPromptCache,
+} from './prompt-cache';
+import {
+  injectAnthropicContextEditing,
+  pruneMessagesForLiveTurn,
+  supportsAnthropicContextEditing,
+  withAnthropicContextManagementBeta,
+} from './live-context-prune';
 import { formatAutoRouteLabel, resolveAutoModelIfNeeded } from './auto-model-resolve';
 import { AUTO_MODEL_ID } from '../../shared/auto-model';
 import {
@@ -117,7 +129,6 @@ import {
   filterModelsForDivision,
   generalWorkspaceOpenRouterOnlyMessage,
   isProviderAllowedInDivision,
-  normalizeSessionDivision,
   type SessionDivisionFields,
 } from '../../shared/workspace-division';
 import { applyProjectScopedMcpResultFilter } from '../../shared/project-mcp-scope';
@@ -241,8 +252,17 @@ export function serializeMessageContentForHistory(content: ContentBlock[]): stri
         break;
       }
       case 'thinking': {
+        // Cold-start preamble: keep a short stub so providers that need
+        // reasoning continuity know thinking happened, without re-billing
+        // the full chain-of-thought.
         const thinking = block.thinking ?? '';
-        if (thinking.length > 0) parts.push(`<thinking>${escapeXmlText(thinking)}</thinking>`);
+        if (thinking.length > 0) {
+          const stub =
+            thinking.length > 200
+              ? `${escapeXmlText(thinking.slice(0, 200))}…[thinking truncated]`
+              : escapeXmlText(thinking);
+          parts.push(`<thinking>${stub}</thinking>`);
+        }
         break;
       }
       case 'tool_use': {
@@ -284,6 +304,11 @@ export function serializeMessageContentForHistory(content: ContentBlock[]): stri
         // Compress JSON tool dumps (TOON / spillover) so cold-start history
         // cannot re-inject multi-MB Hub analytics payloads into the prompt.
         text = compressToolResultTextForModel(text);
+        // Hard cap for cold-start history — full results are still in the
+        // live session; the preamble only needs a short outcome stub.
+        if (text.length > 2000) {
+          text = `${text.slice(0, 2000)}…[tool_result truncated for history]`;
+        }
         parts.push(
           `<tool_result tool_use_id="${escapeXmlAttr(id)}"${errAttr}>${escapeXmlText(text)}</tool_result>`
         );
@@ -649,6 +674,12 @@ function normalizeTokenUsage(usage: unknown): Message['tokenUsage'] | undefined 
     output_tokens?: unknown;
     inputTokens?: unknown;
     outputTokens?: unknown;
+    cacheRead?: unknown;
+    cacheWrite?: unknown;
+    cache_read?: unknown;
+    cache_write?: unknown;
+    cache_read_input_tokens?: unknown;
+    cache_creation_input_tokens?: unknown;
   };
 
   const input = raw.input ?? raw.input_tokens ?? raw.inputTokens;
@@ -658,7 +689,31 @@ function normalizeTokenUsage(usage: unknown): Message['tokenUsage'] | undefined 
     return undefined;
   }
 
-  return { input, output };
+  const cacheRead =
+    typeof raw.cacheRead === 'number'
+      ? raw.cacheRead
+      : typeof raw.cache_read === 'number'
+        ? raw.cache_read
+        : typeof raw.cache_read_input_tokens === 'number'
+          ? raw.cache_read_input_tokens
+          : undefined;
+  const cacheWrite =
+    typeof raw.cacheWrite === 'number'
+      ? raw.cacheWrite
+      : typeof raw.cache_write === 'number'
+        ? raw.cache_write
+        : typeof raw.cache_creation_input_tokens === 'number'
+          ? raw.cache_creation_input_tokens
+          : undefined;
+
+  const result: NonNullable<Message['tokenUsage']> = { input, output };
+  if (typeof cacheRead === 'number' && Number.isFinite(cacheRead)) {
+    result.cacheRead = cacheRead;
+  }
+  if (typeof cacheWrite === 'number' && Number.isFinite(cacheWrite)) {
+    result.cacheWrite = cacheWrite;
+  }
+  return result;
 }
 
 interface AgentRunnerOptions {
@@ -687,6 +742,8 @@ interface CachedPiSession {
   ollamaNumCtx?: { value: number };
   /** Whether SDK auto-compaction is enabled for overflow recovery. */
   compactionEnabled: boolean;
+  /** Skill names whose full body was already injected once this session. */
+  injectedSkillBodies?: Set<string>;
 }
 
 /**
@@ -1085,6 +1142,73 @@ ${hints.join('\n')}
    * the backend, but the renderer's loading spinner may not clear. This is
    * a renderer-side issue tracked as a follow-up.
    */
+  /**
+   * Install live tool-result pruning + Anthropic context editing.
+   * Runs every turn (not only at compact) so long agent loops stop re-billing
+   * giant Hub/MCP dumps. Safe to call once per new pi session.
+   */
+  private installLiveContextHooks(
+    piSession: PiAgentSession,
+    api: string | undefined | null
+  ): void {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const agent = (piSession as any).agent;
+    if (!agent) {
+      logWarn('[CoworkAgentRunner] No agent on pi session — skipping live context hooks');
+      return;
+    }
+
+    // Live prune: shrink old tool_result text before each model call.
+    const previousTransform = agent.transformContext;
+    agent.transformContext = async (
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      messages: any[],
+      signal?: AbortSignal
+    ) => {
+      let next = messages;
+      if (typeof previousTransform === 'function') {
+        next = await previousTransform.call(agent, messages, signal);
+      }
+      if (Array.isArray(next)) {
+        pruneMessagesForLiveTurn(next);
+      }
+      return next;
+    };
+
+    if (!supportsAnthropicContextEditing(api)) {
+      log('[CoworkAgentRunner] Live tool-result prune installed (non-Anthropic API)');
+      return;
+    }
+
+    // Anthropic clear_tool_uses via onPayload + beta header on the model.
+    if (!('_onPayload' in agent)) {
+      logWarn(
+        '[CoworkAgentRunner] SDK agent does not expose _onPayload — skipping context editing'
+      );
+      return;
+    }
+
+    const originalOnPayload = agent._onPayload as
+      | ((payload: Record<string, unknown>, modelArg: unknown) => unknown)
+      | undefined;
+
+    agent._onPayload = (payload: Record<string, unknown>, modelArg: unknown) => {
+      let nextPayload = payload;
+      if (typeof originalOnPayload === 'function') {
+        const maybe = originalOnPayload.call(agent, payload, modelArg);
+        if (maybe && typeof maybe === 'object') {
+          nextPayload = maybe as Record<string, unknown>;
+        }
+      }
+      if (nextPayload && typeof nextPayload === 'object') {
+        injectAnthropicContextEditing(nextPayload);
+      }
+      return nextPayload;
+    };
+
+    log('[CoworkAgentRunner] Live prune + Anthropic context editing installed');
+  }
+
   private installPermissionHook(piSession: PiAgentSession, sessionId: string): void {
     if (!this.requestPermission) {
       log('[CoworkAgentRunner] No requestPermission callback — skipping permission hook');
@@ -2010,6 +2134,16 @@ ${hints.join('\n')}
       }
       let activePiModel = piModel;
 
+      // Prefer 1h Anthropic prompt-cache TTL; pin OpenRouter Claude cache + session affinity.
+      enableLongAnthropicPromptCache();
+      activePiModel = applyOpenRouterClaudeCacheHints(activePiModel, session.id);
+      if (supportsAnthropicContextEditing(activePiModel.api)) {
+        activePiModel = {
+          ...activePiModel,
+          headers: withAnthropicContextManagementBeta(activePiModel.headers),
+        } as typeof activePiModel;
+      }
+
       // For Ollama: query actual context window from /api/show if user hasn't configured one
       const provider = resolvedProvider || 'anthropic';
       if (provider === 'ollama' && !runtimeConfig.contextWindow) {
@@ -2321,12 +2455,31 @@ ${hints.join('\n')}
 
       // Expand /skill-name, /skill:name, or @skill-name mentions BEFORE history /
       // promptPrefix are prepended — pi only expands when the full string starts
-      // with `/skill:`. Also auto-inject LaunchPad skill: always in Project
-      // workspace (mandatory), otherwise on NL delivery intent so weaker models
-      // cannot skip loading the playbook.
+      // with `/skill:`. Intent-based LaunchPad / york-os body injection is
+      // one-shot per session (not every Project turn) so history doesn't grow
+      // by a full SKILL.md each message — pi already lists skills in available_skills.
       let expandedUserPrompt = prompt;
+      /** Skills injected this turn before the pi session exists (cold start). */
+      const pendingInjectedSkills = new Set<string>();
       try {
         const expandableSkills = discoverSkillsFromPaths(skillPaths);
+        const alreadyInjected = cachedSession?.injectedSkillBodies;
+        const historyHasSkillBody = (skillName: string): boolean => {
+          if (alreadyInjected?.has(skillName)) return true;
+          if (pendingInjectedSkills.has(skillName)) return true;
+          const needle = `<skill name="${skillName}"`;
+          return existingMessages.some((msg) =>
+            msg.content.some(
+              (c) =>
+                (c as { type?: string; text?: string }).type === 'text' &&
+                String((c as { text?: string }).text || '').includes(needle)
+            )
+          );
+        };
+        const markInjected = (skillName: string) => {
+          alreadyInjected?.add(skillName);
+          pendingInjectedSkills.add(skillName);
+        };
         const expansion = expandSlashSkillPrompt(prompt, expandableSkills);
         if (expansion.expanded) {
           expandedUserPrompt = expansion.text;
@@ -2338,27 +2491,22 @@ ${hints.join('\n')}
             log(
               `[CoworkAgentRunner] Expanded @skill mentions (${atExpansion.skillNames.join(', ')}) before preamble`
             );
-          } else {
-            const forceLaunchpadSkill =
-              normalizeSessionDivision(session).division === 'project';
-            const launchpadExpansion = expandLaunchPadSkillIntent(prompt, expandableSkills, {
-              force: forceLaunchpadSkill,
-            });
+          } else if (!historyHasSkillBody(LAUNCHPAD_SKILL_NAME)) {
+            // Intent-only (no force every Project turn) — one-shot body dump.
+            const launchpadExpansion = expandLaunchPadSkillIntent(prompt, expandableSkills);
             if (launchpadExpansion.expanded) {
               expandedUserPrompt = launchpadExpansion.text;
-              const why =
-                launchpadExpansion.reason === 'force'
-                  ? 'project workspace (mandatory)'
-                  : 'delivery intent';
+              markInjected(LAUNCHPAD_SKILL_NAME);
               log(
-                `[CoworkAgentRunner] Auto-injected LaunchPad skill /${launchpadExpansion.skillName} for ${why}`
+                `[CoworkAgentRunner] Auto-injected LaunchPad skill /${launchpadExpansion.skillName} for delivery intent (one-shot)`
               );
-            } else {
+            } else if (!historyHasSkillBody(YORK_OS_SKILL_NAME)) {
               const yorkOsExpansion = expandYorkOsSkillIntent(prompt, expandableSkills);
               if (yorkOsExpansion.expanded) {
                 expandedUserPrompt = yorkOsExpansion.text;
+                markInjected(YORK_OS_SKILL_NAME);
                 log(
-                  `[CoworkAgentRunner] Auto-injected York OS skill /${yorkOsExpansion.skillName} for Confluence/wiki document intent`
+                  `[CoworkAgentRunner] Auto-injected York OS skill /${yorkOsExpansion.skillName} for Confluence/wiki document intent (one-shot)`
                 );
               }
             }
@@ -2394,7 +2542,14 @@ ${hints.join('\n')}
         if (historyMessages.length > 0) {
           // Content-aware chars-per-token estimation (CJK text uses ~1.5 chars/token vs ~4 for English)
           const contextWindow = activePiModel.contextWindow || 128000;
-          const historyBudgetRatio = provider === 'ollama' && contextWindow < 16384 ? 0.15 : 0.3;
+          // Anthropic: keep cold-start history lean (tool schemas already large).
+          // Ollama tiny contexts: even leaner. Others: ~30%.
+          const historyBudgetRatio =
+            provider === 'ollama' && contextWindow < 16384
+              ? 0.15
+              : activePiModel.api === 'anthropic-messages'
+                ? 0.15
+                : 0.3;
           const historyTokenBudget = Math.floor(contextWindow * historyBudgetRatio);
 
           // Sample recent messages to estimate chars-per-token ratio. Sampling the
@@ -2608,6 +2763,9 @@ ${hints.join('\n')}
             ? buildWorkspaceTopLevelListing(sandboxPath)
             : '';
 
+      // Static path rules stay in the system prompt (cache-stable). Directory
+      // listing + live config go in the per-turn user block so they don't bust
+      // Anthropic's tools→system→messages cache prefix every turn.
       const workspaceInfoPrompt =
         useSandboxIsolation && sandboxPath
           ? `<workspace_info>
@@ -2616,7 +2774,6 @@ This is an isolated sandbox environment. Use ${VIRTUAL_WORKSPACE_PATH} as the ro
 Prefer relative paths under this workspace (e.g. outputs/my-file.md). Do not invent other absolute roots outside ${VIRTUAL_WORKSPACE_PATH}.
 Do not write to /mnt/user-data or other absolute mount paths — save generated documents under this workspace (e.g. outputs/).
 This folder is for local files only. LaunchPad implement/preview and other remote connector work use MCP tools — not this folder — and do not require a separate "implementation workspace".
-${workspaceListing ? `\nTop-level entries in the workspace:\n${workspaceListing}\nUse this listing when deciding relative paths for read/write/edit/bash. If you need deeper structure, list or read paths under this root.` : ''}
 </workspace_info>`
           : workingDir
             ? `<workspace_info>
@@ -2624,21 +2781,32 @@ Your current workspace is: ${workingDir}
 Use this folder (or relative paths under it) for local file reads and writes. Prefer relative paths like outputs/my-file.md.
 Do NOT use /workspace, /mnt/user-data, /mnt/workspace, or any other absolute virtual roots — they are not the workspace. Do not invent absolute directories outside this folder.
 This folder is for local files only. LaunchPad implement/preview and other remote connector work use MCP tools — not this folder — and do not require a separate "implementation workspace".
-${workspaceListing ? `\nTop-level entries in the workspace:\n${workspaceListing}\nUse this listing when deciding relative paths for read/write/edit/bash. If you need deeper structure, list or read paths under this root.` : ''}
 </workspace_info>`
             : '';
 
-      // Build a concise summary of the agent's own runtime configuration.
-      // Intentionally excludes API keys, base URLs, and any other sensitive data.
-      const configSummaryPrompt = `<your_configuration>
-- Model: ${activePiModel.id}
-- Provider: ${provider}
-- Context Window: ${activePiModel.contextWindow || 'unknown'} tokens
-- Max Output Tokens: ${activePiModel.maxTokens || 'default'}
-- Thinking: ${enableThinking ? `enabled (${thinkingLevel})` : 'disabled'}
-- Sandbox: ${runtimeConfig.sandboxEnabled ? 'enabled' : 'disabled'}
-- Memory: ${runtimeConfig.memoryEnabled ? 'enabled' : 'disabled'}
-</your_configuration>`;
+      const todayIso = new Date().toISOString().slice(0, 10);
+      const turnRuntimeContext = [
+        `<turn_context>`,
+        `Today (UTC): ${todayIso}`,
+        `<your_configuration>`,
+        `- Model: ${activePiModel.id}`,
+        `- Provider: ${provider}`,
+        `- Context Window: ${activePiModel.contextWindow || 'unknown'} tokens`,
+        `- Max Output Tokens: ${activePiModel.maxTokens || 'default'}`,
+        `- Thinking: ${enableThinking ? `enabled (${thinkingLevel})` : 'disabled'}`,
+        `- Sandbox: ${runtimeConfig.sandboxEnabled ? 'enabled' : 'disabled'}`,
+        `- Memory: ${runtimeConfig.memoryEnabled ? 'enabled' : 'disabled'}`,
+        `</your_configuration>`,
+        workspaceListing
+          ? `Top-level entries in the workspace:\n${workspaceListing}\nUse this listing when deciding relative paths for read/write/edit/bash. If you need deeper structure, list or read paths under the workspace root.`
+          : '',
+        `</turn_context>`,
+      ]
+        .filter((line) => Boolean(line && String(line).trim()))
+        .join('\n');
+
+      // Per-turn dynamism stays out of the cached system prefix.
+      contextualPrompt = `${turnRuntimeContext}\n\n${contextualPrompt}`;
 
       const divisionKind =
         session.division === 'hub' ||
@@ -2679,10 +2847,9 @@ ${workspaceListing ? `\nTop-level entries in the workspace:\n${workspaceListing}
 9. York company/work asks (meetings, agendas/prep, people, leave, client or project status, delivery, promises/follow-ups): load the york-os skill and use connected connectors as it directs. Do not answer from a single connector when the ask implies prep, brief, status, or enrich.
 10. Multi-source company asks: form a short tool-call plan (phases + cross-tool join keys such as emails, clientId, projectId, eventId), then execute; chain ids/emails from one tool into the next; never re-ask the user for values tools already returned. In mcp_search_tools meta mode, search narrowly by connector/keyword and call mcp_call_tool immediately after discovery.
 11. HTML-FIRST CREATIONS: When the user asks to create a presentation, deck, one-pager, report page, dashboard mock, landing page, interactive handout, or similar visual deliverable — and they have NOT explicitly requested an Office/PDF format (pptx, docx, xlsx, pdf, PowerPoint, Word, Excel) or a Confluence/wiki/Atlassian page — write a self-contained HTML file under outputs/ (e.g. outputs/client-update.html). Load the html-artifact skill. After writing, emit a compact \`\`\`artifact block with JSON {"path":"outputs/...html","name":"...","type":"html"} so the in-app preview can open. Do not default to pptx/docx/xlsx/pdf skills unless the user named those formats. When the user names Confluence, wiki, or Atlassian, do NOT default to HTML — use Confluence MCP (createConfluencePage / updateConfluencePage) per york-os on the first actionable turn.
-12. LAUNCHPAD DELIVERY: In Project workspace, the rnd-launchpad-mcp-sdlc skill is mandatory every turn (auto-injected). Elsewhere: on LaunchPad implement / preview / release / feature / bug / QA asks, follow that skill and use LaunchPad MCP tools. "On preview" / LaunchPad preview ⇒ start_scope_implement with target platform (never development or Backend Code unless the user explicitly names that surface). After any start tool, keep polling status tools until terminal — do not stop mid-job or ask the user to wait. On terminal implement for a preview ask, call start_preview next; after lock settles, seed the new active. Never claim a local "implementation workspace" is missing — platform work is MCP-remote. Call tools (mcp_call_tool immediately after mcp_search_tools in meta mode).
+12. LAUNCHPAD DELIVERY: In Project workspace, load the rnd-launchpad-mcp-sdlc skill (via Read on its skill path from available_skills, or /skill:) before delivery work. Elsewhere: on LaunchPad implement / preview / release / feature / bug / QA asks, follow that skill and use LaunchPad MCP tools. "On preview" / LaunchPad preview ⇒ start_scope_implement with target platform (never development or Backend Code unless the user explicitly names that surface). After any start tool, keep polling status tools until terminal — do not stop mid-job or ask the user to wait. On terminal implement for a preview ask, call start_preview next; after lock settles, seed the new active. Never claim a local "implementation workspace" is missing — platform work is MCP-remote. Call tools (mcp_call_tool immediately after mcp_search_tools in meta mode).
 13. GOAL LOOPS: When the message is a goal tick ("Continue working toward this goal"), mentions GOAL_STATUS, or the user asks to keep going until done / finish a goal, load the goal-runner skill. Auto-detect goal type (including launchpad for LaunchPad release/migrate/preview/fidelity), take concrete next steps, and end every such reply with exactly GOAL_STATUS: complete or GOAL_STATUS: in_progress. Only complete with evidence; never mark complete for a plan alone. After any start tool, keep the turn alive and poll to terminal (same as rule 12 for LaunchPad) — do not park solely because a job "started" or wait for the next goal interval. If forced to park mid long job, emit RESUME: projectId=… releaseId=… … step=… next=<status_tool> before in_progress. Resume RESUME: lines on the next tick first. LaunchPad domain work must also load rnd-launchpad-mcp-sdlc.${workspaceScopeRule}`,
         profileInstructionsPrompt,
-        configSummaryPrompt,
         workspaceInfoPrompt,
         `<citation_requirements>
 When your answer uses data from MCP tools (or other linkable tool results), you MUST end with a "Sources:" section.
@@ -2826,6 +2993,12 @@ ${
 
         logCtx('[CoworkAgentRunner] Reusing cached pi session for:', session.id);
         logTiming('agent session reused', runStartTime);
+        if (!cachedSession.injectedSkillBodies) {
+          cachedSession.injectedSkillBodies = new Set();
+        }
+        for (const name of pendingInjectedSkills) {
+          cachedSession.injectedSkillBodies.add(name);
+        }
       } else {
         // First query in this session — create new agent session
         // ResourceLoader + ModelRegistry only needed for session creation — skip on reuse
@@ -2906,9 +3079,8 @@ ${
         });
         piSession = newPiSession;
 
-        // Install permission-gating hook via the SDK's tool_call extension event.
-        // This must happen once per new session — the hook persists across reuses.
         this.installPermissionHook(piSession, session.id);
+        this.installLiveContextHooks(piSession, activePiModel.api);
 
         // Store session for reuse — evict oldest if cache is full
         if (this.piSessions.size >= CoworkAgentRunner.MAX_CACHED_SESSIONS) {
@@ -2934,6 +3106,7 @@ ${
           skillsSignature,
           toolsSignature: effectiveToolsSignature,
           compactionEnabled: compactionSettings.enabled,
+          injectedSkillBodies: pendingInjectedSkills,
         });
 
         // Ollama: wrap _onPayload to inject num_ctx into every request
@@ -3432,6 +3605,22 @@ ${
                         },
                         2
                       )
+                    );
+                  }
+                  if (
+                    tokenUsage &&
+                    ((tokenUsage.cacheRead ?? 0) > 0 || (tokenUsage.cacheWrite ?? 0) > 0)
+                  ) {
+                    const cacheable =
+                      (tokenUsage.input || 0) +
+                      (tokenUsage.cacheRead || 0) +
+                      (tokenUsage.cacheWrite || 0);
+                    const hitPct =
+                      cacheable > 0
+                        ? Math.round(((tokenUsage.cacheRead || 0) / cacheable) * 100)
+                        : 0;
+                    log(
+                      `[CoworkAgentRunner] Prompt cache: read=${tokenUsage.cacheRead || 0} write=${tokenUsage.cacheWrite || 0} hit~${hitPct}% mode=${mcpToolMode} tools=${customTools.length}`
                     );
                   }
                   const assistantMsg: Message = {

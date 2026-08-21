@@ -129,6 +129,10 @@ export interface ThinkingContent {
 export interface TokenUsage {
   input: number;
   output: number;
+  /** Anthropic/OpenRouter prompt-cache read tokens (0.10× price when hit). */
+  cacheRead?: number;
+  /** Anthropic prompt-cache write / creation tokens. */
+  cacheWrite?: number;
 }
 
 // Trace types for visualization

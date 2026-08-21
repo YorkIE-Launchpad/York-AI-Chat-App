@@ -374,6 +374,25 @@ export function applyPiModelRuntimeOverrides(
     }
   }
 
+  // OpenRouter Claude: keep anthropic/ id prefix so pi-ai injects cache_control.
+  if (effectiveProvider === 'openrouter') {
+    const id = String(nextModel.id || '');
+    const looksClaude =
+      /(^|\/)claude[-/]/i.test(id) || id.toLowerCase().startsWith('anthropic/');
+    if (looksClaude) {
+      if (!id.startsWith('anthropic/') && !id.includes('/')) {
+        nextModel = {
+          ...nextModel,
+          id: `anthropic/${id}`,
+          name: nextModel.name || `anthropic/${id}`,
+        } as typeof nextModel;
+      }
+      if (nextModel.provider !== 'openrouter') {
+        nextModel = { ...nextModel, provider: 'openrouter' } as typeof nextModel;
+      }
+    }
+  }
+
   return nextModel;
 }
 

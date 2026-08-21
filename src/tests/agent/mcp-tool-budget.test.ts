@@ -2,14 +2,17 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ToolDefinition } from '@mariozechner/pi-coding-agent';
 import type { MCPManager, MCPTool } from '../../main/mcp/mcp-manager';
 import {
+  ANTHROPIC_MCP_META_THRESHOLD,
   MCP_CALL_TOOL_NAME,
   MCP_RUN_TOOL_NAME,
   MCP_SEARCH_TOOLS_NAME,
   OPENAI_MAX_TOOLS,
   buildMcpMetaTools,
+  needsAnthropicToolBudget,
   needsOpenAIToolBudget,
   searchMcpTools,
   selectCustomToolsForModel,
+  toolBudgetLimitForApi,
 } from '../../main/agent/mcp-tool-budget';
 import {
   MCP_WRITE_DISABLED_MESSAGE,
@@ -71,6 +74,21 @@ describe('needsOpenAIToolBudget', () => {
     expect(needsOpenAIToolBudget('openai-responses')).toBe(true);
     expect(needsOpenAIToolBudget('anthropic-messages')).toBe(false);
     expect(needsOpenAIToolBudget(undefined)).toBe(false);
+  });
+});
+
+describe('needsAnthropicToolBudget / toolBudgetLimitForApi', () => {
+  it('detects Anthropic Messages API', () => {
+    expect(needsAnthropicToolBudget('anthropic-messages')).toBe(true);
+    expect(needsAnthropicToolBudget('openai-completions')).toBe(false);
+  });
+
+  it('returns the right flat-tool threshold per API', () => {
+    expect(toolBudgetLimitForApi('openai-completions')).toBe(OPENAI_MAX_TOOLS);
+    expect(toolBudgetLimitForApi('openai-responses')).toBe(OPENAI_MAX_TOOLS);
+    expect(toolBudgetLimitForApi('anthropic-messages')).toBe(ANTHROPIC_MCP_META_THRESHOLD);
+    expect(toolBudgetLimitForApi('google-generative-ai')).toBeNull();
+    expect(toolBudgetLimitForApi(undefined)).toBeNull();
   });
 });
 
@@ -236,8 +254,8 @@ describe('selectCustomToolsForModel', () => {
     ]);
   });
 
-  it('keeps flat tools on Anthropic even when over 128', () => {
-    const mcpTools = Array.from({ length: 400 }, (_, i) => makeToolDef(`mcp__Launchpad__t${i}`));
+  it('keeps flat tools on Anthropic when under the schema budget', () => {
+    const mcpTools = Array.from({ length: 10 }, (_, i) => makeToolDef(`mcp__Launchpad__t${i}`));
     const manager = makeMcpManager(
       mcpTools.map((t) => makeMcpTool({ name: t.name, serverName: 'Launchpad' }))
     );
@@ -247,11 +265,37 @@ describe('selectCustomToolsForModel', () => {
       builtInToolCount: 4,
       mcpManager: manager,
       mcpTools,
-      extensionTools,
+      extensionTools: [],
     });
 
     expect(result.mode).toBe('flat');
-    expect(result.customTools).toHaveLength(402);
+    expect(result.customTools).toHaveLength(10);
+  });
+
+  it('switches to meta tools on Anthropic when over the schema budget', () => {
+    const overBudget = ANTHROPIC_MCP_META_THRESHOLD; // 4 built-ins + N mcp > 32 when N >= 29
+    const mcpCount = overBudget; // 4 + mcpCount > 32 when mcpCount > 28
+    const mcpTools = Array.from({ length: mcpCount }, (_, i) =>
+      makeToolDef(`mcp__Launchpad__t${i}`)
+    );
+    const manager = makeMcpManager(
+      mcpTools.map((t) => makeMcpTool({ name: t.name, serverName: 'Launchpad' }))
+    );
+
+    const result = selectCustomToolsForModel({
+      api: 'anthropic-messages',
+      builtInToolCount: 4,
+      mcpManager: manager,
+      mcpTools,
+      extensionTools: [],
+      useSearchCallMeta: true,
+    });
+
+    expect(result.mode).toBe('meta');
+    expect(result.customTools.map((t) => t.name)).toEqual([
+      MCP_SEARCH_TOOLS_NAME,
+      MCP_CALL_TOOL_NAME,
+    ]);
   });
 });
 

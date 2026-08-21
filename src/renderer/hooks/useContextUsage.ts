@@ -7,6 +7,15 @@ export interface ContextUsageInfo {
   contextWindow: number;
   percent: number;
   projectedTurnsRemaining: number | null;
+  /** Last-turn prompt-cache read tokens (when provider reports them). */
+  cacheRead: number | null;
+  /** Last-turn prompt-cache write tokens. */
+  cacheWrite: number | null;
+  /**
+   * Approximate cache hit rate for the last turn:
+   * cacheRead / (input + cacheRead) when cache fields are present.
+   */
+  cacheHitPercent: number | null;
 }
 
 /**
@@ -27,9 +36,14 @@ export function useContextUsage(): ContextUsageInfo | null {
 
     // Find last message with token usage to get current context occupation
     let lastInput = 0;
+    let cacheRead: number | null = null;
+    let cacheWrite: number | null = null;
     for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i].tokenUsage?.input) {
-        lastInput = messages[i].tokenUsage!.input;
+      const usage = messages[i].tokenUsage;
+      if (usage?.input) {
+        lastInput = usage.input;
+        if (typeof usage.cacheRead === 'number') cacheRead = usage.cacheRead;
+        if (typeof usage.cacheWrite === 'number') cacheWrite = usage.cacheWrite;
         break;
       }
     }
@@ -50,11 +64,24 @@ export function useContextUsage(): ContextUsageInfo | null {
       }
     }
 
+    let cacheHitPercent: number | null = null;
+    if (cacheRead != null && cacheRead > 0) {
+      const denom = lastInput + cacheRead;
+      if (denom > 0) {
+        cacheHitPercent = Math.min(100, Math.round((cacheRead / denom) * 100));
+      }
+    } else if (cacheRead === 0 || cacheWrite != null) {
+      cacheHitPercent = cacheRead === 0 ? 0 : null;
+    }
+
     return {
       tokens: lastInput,
       contextWindow,
       percent,
       projectedTurnsRemaining,
+      cacheRead,
+      cacheWrite,
+      cacheHitPercent,
     };
   }, [activeSessionId, contextWindow, messages]);
 }
