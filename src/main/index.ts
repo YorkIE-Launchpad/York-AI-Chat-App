@@ -212,7 +212,6 @@ import {
 } from './utils/logger';
 import { listRecentWorkspaceFiles } from './utils/recent-workspace-files';
 import { resolveWorkspaceLocalPath } from './utils/resolve-workspace-local-path';
-import { isPathWithinRoot } from './tools/path-containment';
 import { buildDiagnosticsSummary } from './utils/diagnostics-summary';
 import {
   parseHeadlessArgs,

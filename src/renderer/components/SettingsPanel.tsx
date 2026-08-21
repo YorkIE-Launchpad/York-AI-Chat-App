@@ -183,7 +183,7 @@ export function SettingsPanel({ onClose, initialTab = 'connectors' }: SettingsPa
         className={`${compactSidebar ? 'w-14' : 'w-52 lg:w-60'} bg-background-secondary/88 border-r border-border-muted flex flex-col flex-shrink-0`}
       >
         {!compactSidebar && (
-          <div className="px-4 pt-5 pb-4 border-b border-border-muted">
+          <div className="px-4 pt-5 pb-4 border-b border-border-muted flex-shrink-0">
             <p className="text-[11px] uppercase tracking-[0.16em] text-text-muted">
               {t('settings.title')}
             </p>
@@ -193,7 +193,9 @@ export function SettingsPanel({ onClose, initialTab = 'connectors' }: SettingsPa
             <p className="mt-1 text-[11px] leading-4 text-text-muted">{t('settings.panelDesc')}</p>
           </div>
         )}
-        <div className={`flex-1 ${compactSidebar ? 'p-1.5 space-y-1' : 'p-3 space-y-1.5'}`}>
+        <div
+          className={`flex-1 min-h-0 overflow-y-auto ${compactSidebar ? 'p-1.5 space-y-1' : 'p-3 space-y-1.5'}`}
+        >
           {tabs.map((tab) => (
             <button
               key={tab.id}
@@ -220,8 +222,9 @@ export function SettingsPanel({ onClose, initialTab = 'connectors' }: SettingsPa
             </button>
           ))}
         </div>
-        <div className={`${compactSidebar ? 'p-1.5' : 'p-4'} border-t border-border-muted`}>
-          <button
+        <div
+          className={`${compactSidebar ? 'p-1.5' : 'p-4'} border-t border-border-muted flex-shrink-0`}
+        >          <button
             onClick={onClose}
             className={`w-full py-2 ${compactSidebar ? 'px-2' : 'px-4'} rounded-lg bg-background hover:bg-background transition-colors text-text-secondary text-sm`}
             title={compactSidebar ? t('common.close') : undefined}
