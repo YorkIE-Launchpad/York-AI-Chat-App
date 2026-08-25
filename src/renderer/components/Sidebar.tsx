@@ -626,55 +626,24 @@ export function Sidebar() {
           <DivisionSwitcher compact />
         </div>
 
-        <div className="relative mt-3 h-9" onMouseLeave={() => setHoveredAction(null)}>
-          {hoveredAction && (
-            <div
-              aria-hidden
-              className={`pointer-events-none absolute inset-0 z-0 flex items-center justify-center gap-1.5 rounded-xl border bg-background text-text-primary ${
-                hoveredAction === 'incognito'
-                  ? 'border-dashed border-border-subtle'
-                  : 'border-border-subtle'
-              }`}
-            >
-              {hoveredAction === 'new' ? (
-                <Plus className="w-4 h-4 flex-shrink-0" />
-              ) : hoveredAction === 'incognito' ? (
-                <Ghost className="w-4 h-4 flex-shrink-0" />
-              ) : (
-                <FileDown className={`w-4 h-4 flex-shrink-0 ${importing ? 'animate-pulse' : ''}`} />
-              )}
-              <span className="text-xs font-medium whitespace-nowrap">
-                {hoveredAction === 'new'
-                  ? t('sidebar.newTask')
-                  : hoveredAction === 'incognito'
-                    ? t('sidebar.incognitoTask')
-                    : t('sidebar.importChat')}
-              </span>
-            </div>
-          )}
-
-          <div className="relative z-10 flex h-full gap-1.5">
+        <div className="mt-3">
+          <div
+            className="flex h-9 gap-1.5"
+            onMouseLeave={() => setHoveredAction(null)}
+          >
             <button
               onClick={handleNewSession}
               onMouseEnter={() => setHoveredAction('new')}
-              className={`flex-1 h-full rounded-xl flex items-center justify-center transition-colors ${
-                hoveredAction
-                  ? 'border border-transparent bg-transparent text-transparent'
-                  : 'bg-background text-text-primary border border-border-subtle hover:bg-surface-hover'
-              }`}
-              title={t('sidebar.newTask')}
+              className="flex h-full flex-1 items-center justify-center rounded-xl border border-border-subtle bg-background text-text-primary transition-colors hover:bg-surface-hover"
+              aria-label={t('sidebar.newTask')}
             >
               <Plus className="w-4 h-4" />
             </button>
             <button
               onClick={handleIncognitoSession}
               onMouseEnter={() => setHoveredAction('incognito')}
-              className={`flex-1 h-full rounded-xl flex items-center justify-center transition-colors ${
-                hoveredAction
-                  ? 'border border-transparent bg-transparent text-transparent'
-                  : 'bg-background/60 text-text-secondary border border-dashed border-border-subtle hover:bg-surface-hover hover:text-text-primary'
-              }`}
-              title={t('sidebar.incognitoTaskHint')}
+              className="flex h-full flex-1 items-center justify-center rounded-xl border border-dashed border-border-subtle bg-background/60 text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+              aria-label={t('sidebar.incognitoTask')}
             >
               <Ghost className="w-4 h-4" />
             </button>
@@ -682,16 +651,26 @@ export function Sidebar() {
               onClick={() => void handleImportChat()}
               onMouseEnter={() => setHoveredAction('import')}
               disabled={!isElectron || importing}
-              className={`flex-1 h-full rounded-xl flex items-center justify-center transition-colors disabled:opacity-50 ${
-                hoveredAction
-                  ? 'border border-transparent bg-transparent text-transparent'
-                  : 'bg-background/60 text-text-secondary border border-border-subtle hover:bg-surface-hover hover:text-text-primary'
-              }`}
-              title={t('sidebar.importChatHint')}
+              className="flex h-full flex-1 items-center justify-center rounded-xl border border-border-subtle bg-background/60 text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary disabled:opacity-50"
+              aria-label={t('sidebar.importChat')}
             >
               <FileDown className={`w-4 h-4 ${importing ? 'animate-pulse' : ''}`} />
             </button>
           </div>
+          <p
+            className={`mt-1.5 h-4 text-center text-[11px] font-medium tracking-wide transition-opacity ${
+              hoveredAction ? 'text-text-muted opacity-100' : 'opacity-0'
+            }`}
+            aria-live="polite"
+          >
+            {hoveredAction === 'new'
+              ? t('sidebar.newTask')
+              : hoveredAction === 'incognito'
+                ? t('sidebar.incognitoTask')
+                : hoveredAction === 'import'
+                  ? t('sidebar.importChat')
+                  : '\u00a0'}
+          </p>
         </div>
 
         {divisionSessions.length > 0 && (
