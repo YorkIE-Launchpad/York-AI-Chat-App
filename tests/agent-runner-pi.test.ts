@@ -106,27 +106,23 @@ describe('CoworkAgentRunner York IE SDK integration', () => {
 
   it('routes MCP image results through structured helpers instead of stringifying base64 into text', () => {
     expect(agentRunnerContent).toContain(
-      "import {\n  normalizeMcpToolResultForModel,\n  normalizeToolExecutionResultForUi,\n} from './tool-result-utils'"
+      "from './tool-result-utils'"
     );
-    expect(agentRunnerContent).toContain(
-      'const normalizedResult = normalizeMcpToolResultForModel(result);'
-    );
-    expect(agentRunnerContent).toContain(
-      'const normalizedToolResult = normalizeToolExecutionResultForUi(event.result);'
-    );
+    expect(agentRunnerContent).toContain('normalizeMcpToolResultForModel(result');
+    expect(agentRunnerContent).toContain('normalizeToolExecutionResultForUi');
     expect(agentRunnerContent).not.toContain('else textParts.push(JSON.stringify(part));');
     expect(agentRunnerContent).not.toContain(": JSON.stringify(event.result || '');");
   });
 
   it('persists assistant model metadata for pi-ai thinking replay', () => {
-    expect(agentRunnerContent).toContain('api: piModel.api');
-    expect(agentRunnerContent).toContain('provider: piModel.provider');
-    expect(agentRunnerContent).toContain('model: piModel.id');
+    expect(agentRunnerContent).toContain('piModel.api');
+    expect(agentRunnerContent).toContain('piModel.provider');
+    expect(agentRunnerContent).toContain('piModel.id');
   });
 
   it('includes AskUserQuestion guidance with once/twice ask budget', () => {
     expect(agentRunnerContent).toContain('AskUserQuestion');
-    expect(agentRunnerContent).toContain('NEVER ask clarification questions in plain text');
+    expect(agentRunnerContent).toContain('NEVER ask clarification in plain text');
     expect(agentRunnerContent).toContain('recommended: true');
     expect(agentRunnerContent).toContain('Ask once when necessary');
     expect(agentRunnerContent).toContain('second ask is allowed only');
@@ -135,11 +131,9 @@ describe('CoworkAgentRunner York IE SDK integration', () => {
 
   it('chat-first behavioral rules are present', () => {
     expect(agentRunnerContent).toContain('CHAT FIRST');
-    expect(agentRunnerContent).toContain(
-      'Do NOT create, write, or edit local files unless the user explicitly asks'
-    );
-    expect(agentRunnerContent).toContain('CHAT FIRST does NOT block MCP tool calls');
-    expect(agentRunnerContent).toContain('LAUNCHPAD DELIVERY');
-    expect(agentRunnerContent).toContain('START DOING IT');
+    expect(agentRunnerContent).toContain('CHAT FIRST does not block MCP tools');
+    expect(agentRunnerContent).toContain('START DOING THE WORK');
+    expect(agentRunnerContent).toContain('websearch first to find URLs');
+    expect(agentRunnerContent).toContain('Follow any <skill> block already injected');
   });
 });

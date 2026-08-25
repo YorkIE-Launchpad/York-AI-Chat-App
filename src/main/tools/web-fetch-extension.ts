@@ -18,7 +18,7 @@ function createWebFetchTool(): AgentRuntimeCustomTool {
     label: 'webfetch',
     description:
       'Fetch a web page over HTTP/HTTPS and return its text/HTML content for research. ' +
-      'Use this for reading page content without opening a browser. Prefer Chrome MCP tools ' +
+      'Use websearch first to find URLs, then this tool to read them. Prefer Chrome MCP tools ' +
       '(mcp__Chrome__*) only when interactive navigation, clicking, screenshots, or login flows are needed.',
     parameters: Type.Object({
       url: Type.String({

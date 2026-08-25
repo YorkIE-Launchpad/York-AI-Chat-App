@@ -74,6 +74,11 @@ export const SubagentProgress = memo(function SubagentProgress({ state }: Subage
         <span className="text-xs font-medium text-text-secondary truncate flex-1 min-w-0">
           {t('subagent.label')}: &ldquo;{expanded ? state.task : taskPreview}&rdquo;
         </span>
+        {state.model && (
+          <span className="text-[10px] text-text-muted flex-shrink-0 font-mono truncate max-w-[140px]">
+            {state.model}
+          </span>
+        )}
 
         {/* Duration */}
         {state.durationMs != null && (

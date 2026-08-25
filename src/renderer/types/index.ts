@@ -772,6 +772,7 @@ export type ServerEvent =
         text?: string;
         error?: string;
         durationMs?: number;
+        model?: string;
       };
     }
   | {

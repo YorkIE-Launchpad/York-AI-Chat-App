@@ -56,8 +56,12 @@ import { getDefaultShell } from '../utils/shell-resolver';
 import { PluginRuntimeService } from '../skills/plugin-runtime-service';
 import type { SkillsAdapter } from '../skills/skills-adapter';
 import {
+  GOAL_RUNNER_SKILL_NAME,
+  HTML_ARTIFACT_SKILL_NAME,
   LAUNCHPAD_SKILL_NAME,
   YORK_OS_SKILL_NAME,
+  expandGoalRunnerSkillIntent,
+  expandHtmlArtifactSkillIntent,
   expandLaunchPadSkillIntent,
   expandYorkOsSkillIntent,
 } from '../skills/skill-intent-expand';
@@ -2491,24 +2495,40 @@ ${hints.join('\n')}
             log(
               `[CoworkAgentRunner] Expanded @skill mentions (${atExpansion.skillNames.join(', ')}) before preamble`
             );
-          } else if (!historyHasSkillBody(LAUNCHPAD_SKILL_NAME)) {
-            // Intent-only (no force every Project turn) — one-shot body dump.
-            const launchpadExpansion = expandLaunchPadSkillIntent(prompt, expandableSkills);
-            if (launchpadExpansion.expanded) {
-              expandedUserPrompt = launchpadExpansion.text;
-              markInjected(LAUNCHPAD_SKILL_NAME);
+          } else {
+            // Intent injections are independent (LaunchPad + york-os can both apply).
+            // One-shot per session so history doesn't grow by a full SKILL.md each message.
+            const intentExpansions = [
+              {
+                name: LAUNCHPAD_SKILL_NAME,
+                expand: () => expandLaunchPadSkillIntent(prompt, expandableSkills),
+                logLabel: 'LaunchPad delivery',
+              },
+              {
+                name: YORK_OS_SKILL_NAME,
+                expand: () => expandYorkOsSkillIntent(prompt, expandableSkills),
+                logLabel: 'York OS company',
+              },
+              {
+                name: HTML_ARTIFACT_SKILL_NAME,
+                expand: () => expandHtmlArtifactSkillIntent(prompt, expandableSkills),
+                logLabel: 'HTML artifact',
+              },
+              {
+                name: GOAL_RUNNER_SKILL_NAME,
+                expand: () => expandGoalRunnerSkillIntent(prompt, expandableSkills),
+                logLabel: 'goal-runner',
+              },
+            ];
+            for (const item of intentExpansions) {
+              if (historyHasSkillBody(item.name)) continue;
+              const expansion = item.expand();
+              if (!expansion.expanded || !expansion.block) continue;
+              expandedUserPrompt = `${expansion.block}\n\n${expandedUserPrompt}`;
+              markInjected(item.name);
               log(
-                `[CoworkAgentRunner] Auto-injected LaunchPad skill /${launchpadExpansion.skillName} for delivery intent (one-shot)`
+                `[CoworkAgentRunner] Auto-injected ${item.logLabel} skill /${expansion.skillName} (one-shot)`
               );
-            } else if (!historyHasSkillBody(YORK_OS_SKILL_NAME)) {
-              const yorkOsExpansion = expandYorkOsSkillIntent(prompt, expandableSkills);
-              if (yorkOsExpansion.expanded) {
-                expandedUserPrompt = yorkOsExpansion.text;
-                markInjected(YORK_OS_SKILL_NAME);
-                log(
-                  `[CoworkAgentRunner] Auto-injected York OS skill /${yorkOsExpansion.skillName} for Confluence/wiki document intent (one-shot)`
-                );
-              }
             }
           }
         }
@@ -2836,19 +2856,12 @@ This folder is for local files only. LaunchPad implement/preview and other remot
         buildDivisionSystemPrompt(session, { folderInstructions }),
         thinkingModePrompt,
         `CRITICAL BEHAVIORAL RULES:
-1. CHAT FIRST: By default, respond to the user in plain text within the conversation. Do NOT create, write, or edit local files unless the user explicitly asks you to (e.g., "create a file", "write this to...", "edit the code", "save as...", mentions a specific file path, or describes code changes they want applied locally). For questions, summaries, explanations, analysis, and general conversation — always reply directly in chat text. CHAT FIRST does NOT block MCP tool calls (Hub, LaunchPad, Slack, Gmail, Calendar, etc.). When the user asks to implement, build, fix, or preview via LaunchPad, use LaunchPad MCP tools immediately.
-2. NEVER ask clarification questions in plain text. When a request is actionable, proceed immediately with reasonable assumptions. If you truly cannot proceed without user input, you MUST use the AskUserQuestion tool — never write questions as regular assistant text.
-3. For relative time windows like "within two days" in browsing or research tasks, assume the most recent two relevant publication days unless the user explicitly defines another date range.
-4. For bracketed placeholders like [Agent], [Topic], etc., treat the word inside brackets as the literal search keyword unless the user says otherwise.
-5. When given a task, START DOING IT. Do not restate the task, do not list what you will do, do not ask for confirmation. Just execute.
-6. York IE people named in the request: resolve via Hub (list_employees / search_organization) before asking. Do not ask the user for their company email when Hub can resolve the name.
-7. Never use AskUserQuestion for meta permission ("can I ask…", "may I proceed…", "should I look up…"). Ask only for a concrete missing detail that would make the next action wrong.
-8. Google Calendar create/update/delete: call the tool when available (approval UI may prompt). Do not refuse and hand the user a copy-paste invite instead.
-9. York company/work asks (meetings, agendas/prep, people, leave, client or project status, delivery, promises/follow-ups): load the york-os skill and use connected connectors as it directs. Do not answer from a single connector when the ask implies prep, brief, status, or enrich.
-10. Multi-source company asks: form a short tool-call plan (phases + cross-tool join keys such as emails, clientId, projectId, eventId), then execute; chain ids/emails from one tool into the next; never re-ask the user for values tools already returned. In mcp_search_tools meta mode, search narrowly by connector/keyword and call mcp_call_tool immediately after discovery.
-11. HTML-FIRST CREATIONS: When the user asks to create a presentation, deck, one-pager, report page, dashboard mock, landing page, interactive handout, or similar visual deliverable — and they have NOT explicitly requested an Office/PDF format (pptx, docx, xlsx, pdf, PowerPoint, Word, Excel) or a Confluence/wiki/Atlassian page — write a self-contained HTML file under outputs/ (e.g. outputs/client-update.html). Load the html-artifact skill. After writing, emit a compact \`\`\`artifact block with JSON {"path":"outputs/...html","name":"...","type":"html"} so the in-app preview can open. Do not default to pptx/docx/xlsx/pdf skills unless the user named those formats. When the user names Confluence, wiki, or Atlassian, do NOT default to HTML — use Confluence MCP (createConfluencePage / updateConfluencePage) per york-os on the first actionable turn.
-12. LAUNCHPAD DELIVERY: In Project workspace, load the rnd-launchpad-mcp-sdlc skill (via Read on its skill path from available_skills, or /skill:) before delivery work. Elsewhere: on LaunchPad implement / preview / release / feature / bug / QA asks, follow that skill and use LaunchPad MCP tools. "On preview" / LaunchPad preview ⇒ start_scope_implement with target platform (never development or Backend Code unless the user explicitly names that surface). After any start tool, keep polling status tools until terminal — do not stop mid-job or ask the user to wait. On terminal implement for a preview ask, call start_preview next; after lock settles, seed the new active. Never claim a local "implementation workspace" is missing — platform work is MCP-remote. Call tools (mcp_call_tool immediately after mcp_search_tools in meta mode).
-13. GOAL LOOPS: When the message is a goal tick ("Continue working toward this goal"), mentions GOAL_STATUS, or the user asks to keep going until done / finish a goal, load the goal-runner skill. Auto-detect goal type (including launchpad for LaunchPad release/migrate/preview/fidelity), take concrete next steps, and end every such reply with exactly GOAL_STATUS: complete or GOAL_STATUS: in_progress. Only complete with evidence; never mark complete for a plan alone. After any start tool, keep the turn alive and poll to terminal (same as rule 12 for LaunchPad) — do not park solely because a job "started" or wait for the next goal interval. If forced to park mid long job, emit RESUME: projectId=… releaseId=… … step=… next=<status_tool> before in_progress. Resume RESUME: lines on the next tick first. LaunchPad domain work must also load rnd-launchpad-mcp-sdlc.${workspaceScopeRule}`,
+1. CHAT FIRST: Reply in conversation text unless the user asked to create, edit, or save a local file. CHAT FIRST does not block MCP tools (Hub, LaunchPad, Slack, Gmail, Calendar, etc.).
+2. NEVER ask clarification in plain text. When a request is actionable, proceed immediately with reasonable assumptions. If you truly cannot proceed, use AskUserQuestion. Never ask meta permission ("may I…", "should I look up…").
+3. START DOING THE WORK. No restating the task, no "here is my plan" preamble, no waiting for confirmation.
+4. Follow any <skill> block already injected in this turn. Do not skip it or re-Read the same SKILL.md.
+5. Named York people: Hub-resolve email first. Calendar create/update/delete: call the tool (approval UI may prompt) — do not hand a copy-paste invite.
+6. Research: websearch first to find URLs, then webfetch the best pages. Chrome MCP is only for interactive login/click/screenshot flows. For relative time windows like "within two days", assume the most recent two relevant publication days unless the user specifies otherwise.${workspaceScopeRule}`,
         profileInstructionsPrompt,
         workspaceInfoPrompt,
         `<citation_requirements>
@@ -2878,13 +2891,11 @@ AskUserQuestion:
 ${
   mcpToolMode === 'meta'
     ? `MCP tool access (budget mode):
-- Connected MCP servers expose too many tools to list directly for this model API.
-- Use mcp_search_tools to find tools by keyword and/or server, then mcp_call_tool with the exact tool name and arguments.
-- After mcp_search_tools returns matches, you MUST immediately call mcp_call_tool in the same turn with the exact name and arguments. Do not end the turn with only a plan or thinking after discovery.
-- Prefer a tight query and/or server filter, and a small limit, so search results stay short.
-- Prefer webfetch for reading http/https page content; use Chrome MCP only for interactive browser work.`
+- High-value Hub, Calendar, Slack, Gmail, LaunchPad, Drive, Jira, and Confluence tools may already be listed by name — call those directly.
+- For other MCP tools, use mcp_search_tools then immediately mcp_call_tool in the same turn. Do not stop after discovery.
+- Prefer websearch to find URLs, then webfetch. Chrome MCP only for interactive browser work.`
     : `Tool routing:
-- Prefer webfetch for reading or fetching http/https page content (no browser window).
+- Prefer websearch to find URLs, then webfetch to read http/https pages (no browser window).
 - Prefer Chrome MCP tools (mcp__Chrome__*) only when the user asks for interactive browser work (navigate, click, screenshot, login flows).`
 }
 </tool_behavior>`,

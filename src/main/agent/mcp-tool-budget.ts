@@ -27,23 +27,28 @@ import {
   isMcpWriteAccessDenied,
 } from '../config/mcp-write-access-store';
 import type { OnLaunchPadProgressRecord } from './launchpad-turn-progress';
+import {
+  MCP_PINBOARD_MAX_ANTHROPIC,
+  MCP_PINBOARD_MAX_OPENAI,
+  pickPinboardMcpTools,
+} from './mcp-tool-pinboard';
 export const OPENAI_MAX_TOOLS = 128;
 /**
  * Anthropic has no hard tool-count cap, but full MCP schemas routinely cost
  * tens of thousands of tokens. Switch to meta tools once the flat set exceeds
  * this threshold (built-ins + MCP + extensions).
  */
-export const ANTHROPIC_MCP_META_THRESHOLD = 32;
+export const ANTHROPIC_MCP_META_THRESHOLD = 48;
 export const MCP_SEARCH_TOOLS_NAME = 'mcp_search_tools';
 export const MCP_CALL_TOOL_NAME = 'mcp_call_tool';
 export const MCP_RUN_TOOL_NAME = 'mcp_run';
 export const MCP_META_TOOL_BEHAVIOR = `<tool_behavior>
 MCP tool access (budget mode):
-- Connected MCP servers expose too many tools to list directly for this model API.
-- Use mcp_search_tools to find tools by keyword and/or server, then mcp_call_tool with the exact tool name and arguments.
+- High-value Hub, Calendar, Slack, Gmail, LaunchPad, Drive, Jira, and Confluence tools may already be listed by name — call those directly.
+- For other MCP servers, use mcp_search_tools to find tools by keyword and/or server, then mcp_call_tool with the exact tool name and arguments.
 - After mcp_search_tools returns matches, you MUST immediately call mcp_call_tool in the same turn with the exact name and arguments. Do not end the turn with only a plan or thinking after discovery.
 - Prefer a tight query and/or server filter, and a small limit, so search results stay short.
-- Prefer webfetch for reading http/https page content; use Chrome MCP only for interactive browser work.
+- Prefer websearch to find URLs, then webfetch to read http/https page content. Use Chrome MCP only for interactive browser work.
 </tool_behavior>`;
 
 const DEFAULT_SEARCH_LIMIT = 20;
@@ -88,11 +93,16 @@ export function toolBudgetLimitForApi(api: string | undefined | null): number | 
   return null;
 }
 
-export function buildMcpToolsSignature(mode: McpToolExposureMode, mcpToolNames: string[]): string {
-  // Meta mode only exposes search+call; underlying MCP catalog changes must not
-  // recreate the pi session (that dumps cold-start history and busts prompt cache).
+export function buildMcpToolsSignature(
+  mode: McpToolExposureMode,
+  mcpToolNames: string[],
+  pinboardNames: string[] = []
+): string {
+  // Meta mode: catalog churn must not dump history, but pinboard membership
+  // (Hub connecting, etc.) should recreate so those tools appear by name.
   if (mode === 'meta') {
-    return 'meta';
+    const pin = [...pinboardNames].sort().join(',');
+    return pin ? `meta:${pin}` : 'meta';
   }
   const sorted = [...mcpToolNames].sort();
   return `${mode}:${sorted.join(',')}`;
@@ -454,7 +464,22 @@ export function selectCustomToolsForModel(input: {
     metaTools = parentMetaTools;
   }
 
-  const totalWithMeta = builtInToolCount + metaTools.length + extensionTools.length;
+  const pinboardMax = needsOpenAIToolBudget(api)
+    ? MCP_PINBOARD_MAX_OPENAI
+    : MCP_PINBOARD_MAX_ANTHROPIC;
+  let pinboard = pickPinboardMcpTools(mcpManager, mcpTools, pinboardMax);
+  if (needsOpenAIToolBudget(api)) {
+    while (
+      pinboard.length > 0 &&
+      builtInToolCount + pinboard.length + metaTools.length + extensionTools.length >
+        OPENAI_MAX_TOOLS
+    ) {
+      pinboard = pinboard.slice(0, -1);
+    }
+  }
+
+  const totalWithMeta =
+    builtInToolCount + pinboard.length + metaTools.length + extensionTools.length;
   const droppedSource =
     allowedToolNames && allowedToolNames.size > 0
       ? mcpManager.getTools().filter((tool) => allowedToolNames.has(tool.name))
@@ -462,15 +487,17 @@ export function selectCustomToolsForModel(input: {
   const budgetLabel = needsOpenAIToolBudget(api)
     ? 'OpenAI tool budget'
     : 'Anthropic MCP schema budget';
+  const pinboardNames = pinboard.map((t) => t.name);
   log(
     `[McpToolBudget] ${budgetLabel} exceeded (${totalIfFlat} > ${budgetLimit}). ` +
-      `Switching to meta tools (${totalWithMeta} total: ${metaTools.map((t) => t.name).join(', ')}). ` +
+      `Switching to meta tools (${totalWithMeta} total: ${[...pinboardNames, ...metaTools.map((t) => t.name)].join(', ')}). ` +
+      `Pinboard: ${pinboardNames.length ? pinboardNames.join(', ') : '(none)'}. ` +
       `Dropped flat MCP tools by server: ${summarizeDroppedByServer(droppedSource)}`
   );
 
   return {
-    customTools: [...metaTools, ...extensionTools],
+    customTools: [...pinboard, ...metaTools, ...extensionTools],
     mode: 'meta',
-    toolsSignature: buildMcpToolsSignature('meta', mcpNames),
+    toolsSignature: buildMcpToolsSignature('meta', mcpNames, pinboardNames),
   };
 }

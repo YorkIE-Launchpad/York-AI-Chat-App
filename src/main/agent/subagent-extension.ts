@@ -21,7 +21,7 @@ interface SubagentParams {
   result_format?: string;
   allowed_tools?: string[];
   timeout_seconds?: number;
-  /** Default 'free' (OpenRouter free / eco). Pass 'inherit' to use parent model routing. */
+  /** Default 'inherit' (parent quality model). Pass 'free' for cheap bulk fan-out. */
   model?: 'free' | 'inherit';
 }
 
@@ -44,7 +44,7 @@ function createSpawnSubagentTool(
       'Spawn a child agent only when you need isolated context or true parallel sub-tasks. ' +
       'Prefer completing MCP and routine work yourself with available tools (including mcp_search_tools / mcp_call_tool) — ' +
       'child agents add latency. The child inherits your tools but not conversation history and cannot spawn further subagents. ' +
-      'Default model is free OpenRouter; pass model="inherit" for the parent quality model.',
+      'Default model is the parent quality model. Pass model="free" only for cheap bulk fan-out.',
     parameters: Type.Object({
       task: Type.String({
         description:
@@ -73,7 +73,7 @@ function createSpawnSubagentTool(
       model: Type.Optional(
         Type.Union([Type.Literal('free'), Type.Literal('inherit')], {
           description:
-            'Child model routing. Default "free" (OpenRouter free / eco). Use "inherit" for the parent quality model.',
+            'Child model routing. Default "inherit" (parent quality model). Use "free" for OpenRouter free / eco bulk work.',
         })
       ),
     }),
@@ -109,7 +109,7 @@ function createSpawnSubagentTool(
         task,
         resultFormat: result_format,
         timeoutMs,
-        modelMode: model === 'inherit' ? 'inherit' : 'free',
+        modelMode: model === 'free' ? 'free' : 'inherit',
         includeCodingTools: true,
         mcpToolsMode: 'flat',
         allowedTools: allowed_tools,

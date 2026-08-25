@@ -111,7 +111,7 @@ export function getPermissionRules(): PermissionRule[] {
  *      OpenAI budget meta-tools (`mcp_run`, and child-only `mcp_search_tools` / `mcp_call_tool`),
  *      first-party meeting tools (`meeting_search`, `meeting_read`),
  *      first-party wiki tools (`wiki_*` except mutations like `wiki_write`),
- *      and the first-party `webfetch` tool
+ *      and the first-party `webfetch` / `websearch` tools
  *   4. Default: 'ask' for unknown tools (conservative)
  *
  * Defence-in-depth: even though `setPermissionRules` sanitizes input, we
@@ -160,6 +160,7 @@ export function decidePermission(
   if (lowered === 'meeting_read') return 'allow';
   if (isAutoAllowedWikiTool(toolName)) return 'allow';
   if (lowered === 'webfetch') return 'allow';
+  if (lowered === 'websearch') return 'allow';
   if (lowered === 'mcp_run') return 'allow';
   if (lowered === 'mcp_search_tools') return 'allow';
   if (lowered === 'mcp_call_tool') return 'allow';

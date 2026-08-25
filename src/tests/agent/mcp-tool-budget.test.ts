@@ -297,6 +297,46 @@ describe('selectCustomToolsForModel', () => {
       MCP_CALL_TOOL_NAME,
     ]);
   });
+
+  it('keeps pinboard Hub/Calendar tools listed by name in Anthropic meta mode', () => {
+    const filler = Array.from({ length: ANTHROPIC_MCP_META_THRESHOLD }, (_, i) =>
+      makeToolDef(`mcp__Launchpad__t${i}`)
+    );
+    const hub = makeToolDef('mcp__York_IE_HUB__list_employees');
+    const cal = makeToolDef('mcp__Google_Calendar__list_events');
+    const mcpTools = [...filler, hub, cal];
+    const manager = makeMcpManager([
+      ...filler.map((t) => makeMcpTool({ name: t.name, serverName: 'Launchpad' })),
+      makeMcpTool({
+        name: hub.name,
+        originalName: 'list_employees',
+        serverName: 'York IE HUB',
+      }),
+      makeMcpTool({
+        name: cal.name,
+        originalName: 'list_events',
+        serverName: 'Google Calendar',
+      }),
+    ]);
+
+    const result = selectCustomToolsForModel({
+      api: 'anthropic-messages',
+      builtInToolCount: 4,
+      mcpManager: manager,
+      mcpTools,
+      extensionTools: [],
+      useSearchCallMeta: true,
+    });
+
+    expect(result.mode).toBe('meta');
+    expect(result.customTools.map((t) => t.name)).toEqual([
+      hub.name,
+      cal.name,
+      MCP_SEARCH_TOOLS_NAME,
+      MCP_CALL_TOOL_NAME,
+    ]);
+    expect(result.toolsSignature).toContain(hub.name);
+  });
 });
 
 describe('buildMcpMetaTools', () => {

@@ -68,6 +68,7 @@ import { ConfigExtension } from './config/config-extension';
 import { SubagentExtension } from './agent/subagent-extension';
 import { AgentRuntimeExtensionManager } from './extensions/agent-runtime-extension-manager';
 import { WebFetchExtension } from './tools/web-fetch-extension';
+import { WebSearchExtension } from './tools/web-search-extension';
 import { AskUserQuestionExtension } from './tools/ask-user-question-extension';
 import { WikiService } from './wiki/wiki-service';
 import { WikiExtension } from './wiki/wiki-extension';
@@ -380,6 +381,7 @@ function buildExtensionList(
     new WorkflowExtension(workflowService),
     new ConfigExtension(configStore),
     new WebFetchExtension(),
+    new WebSearchExtension(),
     askUserQuestionExtension,
     new SubagentExtension(
       () => sessionManager?.getMCPManager() ?? null,

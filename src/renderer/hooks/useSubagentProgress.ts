@@ -27,6 +27,7 @@ export interface SubagentState {
   durationMs?: number;
   startedAt: number;
   completedAt?: number;
+  model?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -62,6 +63,7 @@ export function handleSubagentProgressEvent(payload: {
   text?: string;
   error?: string;
   durationMs?: number;
+  model?: string;
 }) {
   const { parentSessionId, subagentId, event } = payload;
 
@@ -76,6 +78,7 @@ export function handleSubagentProgressEvent(payload: {
         activeToolName: null,
         accumulatedText: '',
         startedAt: Date.now(),
+        model: payload.model,
       });
       break;
     }
@@ -136,13 +139,29 @@ export function handleSubagentProgressEvent(payload: {
     }
 
     case 'failed': {
-      const state = subagentStates.get(subagentId);
-      if (!state) return;
+      const existing = subagentStates.get(subagentId);
+      const state =
+        existing ??
+        ({
+          subagentId,
+          parentSessionId,
+          task: payload.task || '',
+          status: 'failed',
+          tools: [],
+          activeToolName: null,
+          accumulatedText: '',
+          startedAt: Date.now(),
+          model: payload.model,
+        } as SubagentState);
+      if (!existing) {
+        subagentStates.set(subagentId, state);
+      }
       state.status = 'failed';
       state.error = payload.error;
       state.durationMs = payload.durationMs;
       state.completedAt = Date.now();
       state.activeToolName = null;
+      if (payload.model) state.model = payload.model;
 
       // Clear existing timer if duplicate event
       const existingTimerF = cleanupTimers.get(subagentId);

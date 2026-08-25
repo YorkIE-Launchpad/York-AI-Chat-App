@@ -297,6 +297,11 @@ describe('permission-rules-store', () => {
       expect(decidePermission(SESSION_A, 'WebFetch', { url: 'https://example.com' })).toBe('allow');
     });
 
+    it('returns allow for websearch by default', () => {
+      expect(decidePermission(SESSION_A, 'websearch', { query: 'york ie' })).toBe('allow');
+      expect(decidePermission(SESSION_A, 'WebSearch', { query: 'york ie' })).toBe('allow');
+    });
+
     it('returns allow for meeting tools by default', () => {
       expect(decidePermission(SESSION_A, 'meeting_search', { query: 'standup' })).toBe('allow');
       expect(decidePermission(SESSION_A, 'meeting_read', { id: 'm1' })).toBe('allow');

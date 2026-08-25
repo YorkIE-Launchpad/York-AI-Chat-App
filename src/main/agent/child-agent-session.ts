@@ -440,16 +440,6 @@ export async function runChildAgentSession(
       payload: { subagentId, task: task.slice(0, 500) },
     }).id ?? null;
 
-  if (emitProgress && input.parentSessionId) {
-    safeSendEvent(
-      input.sendEvent,
-      buildProgressEvent(input.parentSessionId, subagentId, {
-        event: 'started',
-        task: task.slice(0, 200),
-      })
-    );
-  }
-
   try {
     log(
       `[ChildAgent] Spawning ${subagentId} modelMode=${modelMode} task="${task.slice(0, 100)}..."`
@@ -465,16 +455,40 @@ export async function runChildAgentSession(
       const blockedInGeneral =
         (input.division?.division === 'general' || input.division?.division === 'folder') &&
         !isProviderAllowedInDivision(configStore.getAll().provider, input.division);
+      const errorText = blockedInGeneral
+        ? `Error: ${generalWorkspaceOpenRouterOnlyMessage()}`
+        : needsOrKey && !hasOpenRouterUserApiKey(configStore.getAll().openRouterUserApiKey)
+          ? `Error: ${openRouterKeyRequiredMessage()}`
+          : 'Error: could not resolve model for subagent. Check provider/model config.';
+      if (emitProgress && input.parentSessionId) {
+        safeSendEvent(
+          input.sendEvent,
+          buildProgressEvent(input.parentSessionId, subagentId, {
+            event: 'failed',
+            task: task.slice(0, 200),
+            error: errorText,
+            durationMs: Date.now() - startTime,
+            model: modelMode,
+          })
+        );
+      }
       return {
-        text: blockedInGeneral
-          ? `Error: ${generalWorkspaceOpenRouterOnlyMessage()}`
-          : needsOrKey && !hasOpenRouterUserApiKey(configStore.getAll().openRouterUserApiKey)
-            ? `Error: ${openRouterKeyRequiredMessage()}`
-            : 'Error: could not resolve model for subagent. Check provider/model config.',
+        text: errorText,
         subagentId,
         durationMs: Date.now() - startTime,
         error: 'model',
       };
+    }
+
+    if (emitProgress && input.parentSessionId) {
+      safeSendEvent(
+        input.sendEvent,
+        buildProgressEvent(input.parentSessionId, subagentId, {
+          event: 'started',
+          task: task.slice(0, 200),
+          model: resolved.piModel.id,
+        })
+      );
     }
 
     let { piModel } = resolved;
