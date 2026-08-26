@@ -231,6 +231,15 @@ function createDatabaseInstance(db: Database.Database): DatabaseInstance {
       listAll: vi.fn(() => []),
       delete: vi.fn(),
     },
+    matterMeetings: {
+      create: vi.fn(),
+      update: vi.fn(),
+      get: vi.fn(),
+      getByFingerprint: vi.fn(),
+      listAll: vi.fn(() => []),
+      delete: vi.fn(),
+      deleteAbsent: vi.fn(() => 0),
+    },
     matterActions: {
       create: vi.fn(),
       listMuteRules: vi.fn(() => []),

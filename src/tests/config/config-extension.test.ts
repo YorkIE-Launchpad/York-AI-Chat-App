@@ -88,6 +88,7 @@ function createMockConfigStore(overrides: Partial<AppConfig> = {}) {
       windowStartHour: 8,
       windowEndHour: 21,
       intervalMinutes: 60,
+      meetingsIntervalMinutes: 15,
       sensitivity: 'balanced' as const,
       maxActiveItems: 25,
       morningBriefEnabled: true,

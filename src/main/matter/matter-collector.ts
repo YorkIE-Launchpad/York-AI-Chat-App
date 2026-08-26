@@ -916,7 +916,7 @@ export async function collectCalendarMeetings(
           title: ev.title,
           when: whenLabel,
           startMs: startMs ?? null,
-          endMs: endFromWhen,
+          endMs: endFromWhen ?? null,
           summary,
           htmlLink: htmlLink || null,
           rawDetails: rawText || null,
