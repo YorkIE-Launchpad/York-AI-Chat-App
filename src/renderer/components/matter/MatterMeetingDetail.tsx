@@ -191,12 +191,12 @@ export function MatterMeetingDetail({
       {prepFullscreen && isPrepNote && rawDetails
         ? createPortal(
             <div
-              className="fixed inset-0 z-[80] flex flex-col bg-background animate-fade-in"
+              className="titlebar-no-drag fixed inset-x-0 top-10 bottom-0 z-[100] flex flex-col bg-background animate-fade-in"
               role="dialog"
               aria-modal="true"
               aria-labelledby="matter-prep-fullscreen-title"
             >
-              <header className="shrink-0 flex items-start gap-3 border-b border-border-muted px-4 py-3 sm:px-6">
+              <header className="shrink-0 flex items-center gap-3 border-b border-border-muted px-4 py-3 sm:px-6">
                 <div className="min-w-0 flex-1">
                   <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-text-muted">
                     {t('matter.detailPrepNote')}
@@ -213,7 +213,7 @@ export function MatterMeetingDetail({
                     </p>
                   ) : null}
                 </div>
-                <div className="flex items-center gap-1.5 shrink-0">
+                <div className="flex flex-wrap items-center justify-end gap-1.5 shrink-0 relative z-10">
                   <DetailAction
                     icon={
                       prepLoading ? (
@@ -241,7 +241,7 @@ export function MatterMeetingDetail({
                   <button
                     type="button"
                     onClick={() => setPrepFullscreen(false)}
-                    className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border-subtle px-2.5 text-[11px] font-medium text-text-secondary hover:text-text-primary hover:bg-surface-hover"
+                    className="titlebar-no-drag inline-flex h-9 items-center gap-1.5 rounded-lg border border-border-subtle px-3 text-[11px] font-medium text-text-secondary hover:text-text-primary hover:bg-surface-hover"
                     title={t('matter.prepExitFullscreen')}
                     aria-label={t('matter.prepExitFullscreen')}
                   >
@@ -251,7 +251,7 @@ export function MatterMeetingDetail({
                   <button
                     type="button"
                     onClick={() => setPrepFullscreen(false)}
-                    className="h-8 w-8 rounded-lg flex items-center justify-center text-text-muted hover:text-text-primary hover:bg-surface-hover"
+                    className="titlebar-no-drag h-9 w-9 rounded-lg flex items-center justify-center text-text-muted hover:text-text-primary hover:bg-surface-hover"
                     title={t('common.close')}
                     aria-label={t('common.close')}
                   >
@@ -309,7 +309,7 @@ function DetailAction({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-[11px] font-medium transition-colors disabled:opacity-60 disabled:pointer-events-none ${
+      className={`titlebar-no-drag inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-[11px] font-medium transition-colors disabled:opacity-60 disabled:pointer-events-none ${
         primary
           ? 'border-accent/40 bg-accent/15 text-accent hover:bg-accent/25'
           : 'border-border-subtle text-text-secondary hover:text-text-primary hover:bg-surface-hover'
