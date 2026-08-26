@@ -25,6 +25,14 @@ import { MatterMeetingDetail } from './MatterMeetingDetail';
 type MatterSeverityFilter = Extract<MatterSeverity, 'critical' | 'warning' | 'healthy'>;
 type MatterLeftTab = 'signals' | 'calendar';
 
+function briefLabelKey(
+  hour: number
+): 'matter.morningBrief' | 'matter.afternoonBrief' | 'matter.eveningBrief' {
+  if (hour < 12) return 'matter.morningBrief';
+  if (hour < 17) return 'matter.afternoonBrief';
+  return 'matter.eveningBrief';
+}
+
 const SEVERITY_FILTERS: Array<{
   id: MatterSeverityFilter;
   label: string;
@@ -186,6 +194,8 @@ export function MatterPage({ onClose }: MatterPageProps) {
     () => relatedMatterLensId(selectedItem, snapshot.lenses),
     [selectedItem, snapshot.lenses]
   );
+
+  const briefLabel = t(briefLabelKey(new Date().getHours()));
 
   useEffect(() => {
     if (selectedId && !selectedItem) {
@@ -427,9 +437,9 @@ export function MatterPage({ onClose }: MatterPageProps) {
       ) : null}
 
       {snapshot.morningBrief && snapshot.items.length > 0 ? (
-        <div className="shrink-0 mx-4 mt-3 rounded-xl border border-accent/20 bg-accent-muted/10 px-3 py-2 text-[12px] text-text-secondary">
-          <span className="font-semibold text-accent mr-2">{t('matter.morningBrief')}</span>
-          {snapshot.morningBrief}
+        <div className="shrink-0 mx-4 mt-3 rounded-xl border border-accent/40 bg-accent-muted/25 px-4 py-3 text-sm text-text-primary">
+          <span className="font-semibold text-accent mr-2">{briefLabel}</span>
+          <span className="font-medium leading-snug">{snapshot.morningBrief}</span>
         </div>
       ) : null}
 

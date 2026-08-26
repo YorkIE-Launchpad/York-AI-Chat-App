@@ -878,6 +878,8 @@
     "meetingsEmpty": "No upcoming meetings in the next 7 days.",
     "meetingsSourceOff": "Turn on Google Calendar under Matter sources to list meetings here.",
     "morningBrief": "Morning brief",
+    "afternoonBrief": "Afternoon brief",
+    "eveningBrief": "Evening brief",
     "emptyTitle": "Radar is clear",
     "emptyNoConnectors": "Wire Slack, Gmail, Calendar, or Jira to light up what matters.",
     "emptyQuiet": "No open loops right now — enjoy the calm, or scan again.",
