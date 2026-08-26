@@ -78,7 +78,7 @@ Rules:
 | Hiring pipeline                                             | `list_hiring_positions`                                               | candidates → interviews                                                                                                 |
 | Team goals                                                  | `get_team_mbo_statuses` (year)                                        | `list_mbos` / `get_mbo`                                                                                                 |
 | Hardware / SaaS                                             | `list_inventory_items` / `list_software_subscriptions`                | get + history/metrics                                                                                                   |
-| Product idea / bug for Hub                                  | `create_hub_request`                                                  | list/stats/upvote/comment                                                                                               |
+| Product idea / bug for Hub                                  | `create_hub_request`                                                  | upvote/comment only if asked; **avoid** `list_hub_requests` unless user asks to browse/search the board               |
 | Thank a peer                                                | resolve email                                                         | `send_kudos` (message + category)                                                                                       |
 | Client / quote lookup                                       | `list_clients` / `list_quotations`                                    | get + items + linked projects                                                                                           |
 | KPIs / red flags                                            | `get_analytics_dashboard_catalog`                                     | specific `get_*_analytics`                                                                                              |
@@ -121,6 +121,12 @@ Rules:
   priority `low`\|`moderate`\|`high`\|`critical`.
 - Create needs **business_reason**; `finalize` when ready for notifications.
 - Comments: requester, assignee, or moderator only.
+- **Discourage `list_hub_requests`:** do not call it for greetings, catch-me-up,
+  briefs, Matter-style triage, leave/timesheet inboxes, or general Hub status.
+  Use it only when the user explicitly asks to list, search, or browse Hub
+  product-feedback requests (enhancement/issue board). Prefer
+  `get_hub_request` / `get_hub_request_stats` when they name a specific id or
+  ask for counts.
 
 ### Announcements
 

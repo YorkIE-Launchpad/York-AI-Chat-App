@@ -4814,6 +4814,27 @@ ipcMain.handle('matter.applyAction', (_event, input: MatterItemActionInput): Mat
   return matterService.applyItemAction(input);
 });
 
+ipcMain.handle('matter.prepMeeting', async (_event, meetingId: string): Promise<MatterSnapshot> => {
+  if (!matterService) {
+    throw new Error('Matter service not initialized');
+  }
+  if (!meetingId || typeof meetingId !== 'string') {
+    throw new Error('meetingId is required');
+  }
+  matterService.setMcpManager(sessionManager?.getMCPManager() ?? null);
+  matterService.setMeetingService(meetingService);
+  return matterService.prepMeeting(meetingId);
+});
+
+ipcMain.handle('matter.refreshMeetings', async (): Promise<MatterSnapshot> => {
+  if (!matterService) {
+    throw new Error('Matter service not initialized');
+  }
+  matterService.setMcpManager(sessionManager?.getMCPManager() ?? null);
+  matterService.setMeetingService(meetingService);
+  return matterService.fetchMeetings({ reason: 'manual', force: true });
+});
+
 ipcMain.handle('matter.clearNowOrbit', (): MatterSnapshot => {
   if (!matterService) {
     throw new Error('Matter service not initialized');

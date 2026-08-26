@@ -78,6 +78,16 @@ export interface DatabaseInstance {
     list: (limit?: number) => MatterScanRow[];
   };
 
+  matterMeetings: {
+    create: (meeting: MatterMeetingRow) => void;
+    update: (id: string, updates: Partial<MatterMeetingRow>) => void;
+    get: (id: string) => MatterMeetingRow | undefined;
+    getByFingerprint: (fingerprint: string) => MatterMeetingRow | undefined;
+    listAll: () => MatterMeetingRow[];
+    delete: (id: string) => void;
+    deleteAbsent: (keepFingerprints: string[]) => number;
+  };
+
   // For compatibility with old interface
   prepare: (sql: string) => Database.Statement;
   exec: (sql: string) => void;
@@ -230,6 +240,22 @@ export interface MatterScanRow {
   warning_count: number;
   error: string | null;
   brief: string | null;
+}
+
+export interface MatterMeetingRow {
+  id: string;
+  fingerprint: string;
+  event_id: string;
+  title: string;
+  when_label: string;
+  start_ms: number | null;
+  end_ms: number | null;
+  summary: string;
+  html_link: string | null;
+  raw_details: string | null;
+  suggested_action: string | null;
+  updated_at: number;
+  last_seen_at: number;
 }
 
 let db: DatabaseInstance | null = null;
@@ -625,6 +651,29 @@ function initializeSchema(database: Database.Database): void {
     ON matter_scans(started_at DESC)
   `);
 
+    database.exec(`
+    CREATE TABLE IF NOT EXISTS matter_meetings (
+      id TEXT PRIMARY KEY,
+      fingerprint TEXT NOT NULL UNIQUE,
+      event_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      when_label TEXT NOT NULL DEFAULT '',
+      start_ms INTEGER,
+      end_ms INTEGER,
+      summary TEXT NOT NULL DEFAULT '',
+      html_link TEXT,
+      raw_details TEXT,
+      suggested_action TEXT,
+      updated_at INTEGER NOT NULL,
+      last_seen_at INTEGER NOT NULL
+    )
+  `);
+
+    database.exec(`
+    CREATE INDEX IF NOT EXISTS idx_matter_meetings_start
+    ON matter_meetings(start_ms ASC)
+  `);
+
     // Memory Wiki pages (M1) — SQLite primary; Markdown vault is mirrored on disk
     database.exec(`
     CREATE TABLE IF NOT EXISTS wiki_pages (
@@ -953,6 +1002,22 @@ export function initDatabase(): DatabaseInstance {
   const listMatterScansStmt = rawDb.prepare(`
     SELECT * FROM matter_scans ORDER BY started_at DESC LIMIT ?
   `);
+
+  const insertMatterMeeting = rawDb.prepare(`
+    INSERT OR REPLACE INTO matter_meetings (
+      id, fingerprint, event_id, title, when_label, start_ms, end_ms, summary,
+      html_link, raw_details, suggested_action, updated_at, last_seen_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const getMatterMeetingStmt = rawDb.prepare(`SELECT * FROM matter_meetings WHERE id = ?`);
+  const getMatterMeetingByFingerprintStmt = rawDb.prepare(
+    `SELECT * FROM matter_meetings WHERE fingerprint = ?`
+  );
+  const listMatterMeetingsStmt = rawDb.prepare(`
+    SELECT * FROM matter_meetings
+    ORDER BY COALESCE(start_ms, 9223372036854775807) ASC, updated_at DESC
+  `);
+  const deleteMatterMeetingStmt = rawDb.prepare(`DELETE FROM matter_meetings WHERE id = ?`);
 
   const insertFolder = rawDb.prepare(`
     INSERT OR REPLACE INTO folders (id, name, instructions, created_at, updated_at)
@@ -1359,6 +1424,73 @@ export function initDatabase(): DatabaseInstance {
 
       list: (limit = 20): MatterScanRow[] => {
         return listMatterScansStmt.all(limit) as MatterScanRow[];
+      },
+    },
+
+    matterMeetings: {
+      create: (meeting: MatterMeetingRow) => {
+        insertMatterMeeting.run(
+          meeting.id,
+          meeting.fingerprint,
+          meeting.event_id,
+          meeting.title,
+          meeting.when_label,
+          meeting.start_ms,
+          meeting.end_ms,
+          meeting.summary,
+          meeting.html_link,
+          meeting.raw_details,
+          meeting.suggested_action,
+          meeting.updated_at,
+          meeting.last_seen_at
+        );
+      },
+
+      update: (id: string, updates: Partial<MatterMeetingRow>) => {
+        const setClauses: string[] = [];
+        const values: unknown[] = [];
+        for (const [key, value] of Object.entries(updates)) {
+          if (value !== undefined) {
+            validateIdentifier(key);
+            setClauses.push(`${key} = ?`);
+            values.push(value);
+          }
+        }
+        if (setClauses.length === 0) return;
+        setClauses.push('updated_at = ?');
+        values.push(Date.now());
+        values.push(id);
+        rawDb
+          .prepare(`UPDATE matter_meetings SET ${setClauses.join(', ')} WHERE id = ?`)
+          .run(...values);
+      },
+
+      get: (id: string): MatterMeetingRow | undefined => {
+        return getMatterMeetingStmt.get(id) as MatterMeetingRow | undefined;
+      },
+
+      getByFingerprint: (fingerprint: string): MatterMeetingRow | undefined => {
+        return getMatterMeetingByFingerprintStmt.get(fingerprint) as MatterMeetingRow | undefined;
+      },
+
+      listAll: (): MatterMeetingRow[] => {
+        return listMatterMeetingsStmt.all() as MatterMeetingRow[];
+      },
+
+      delete: (id: string) => {
+        deleteMatterMeetingStmt.run(id);
+      },
+
+      deleteAbsent: (keepFingerprints: string[]): number => {
+        const keep = new Set(keepFingerprints);
+        const rows = listMatterMeetingsStmt.all() as MatterMeetingRow[];
+        let removed = 0;
+        for (const row of rows) {
+          if (keep.has(row.fingerprint)) continue;
+          deleteMatterMeetingStmt.run(row.id);
+          removed += 1;
+        }
+        return removed;
       },
     },
 

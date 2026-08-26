@@ -20,6 +20,39 @@ export interface MatterUrgency {
   rankBoost: number;
 }
 
+export function calendarOrbitSeverity(startMs: number | undefined | null): {
+  orbit: MatterOrbit;
+  severity: MatterSeverity;
+  hoursUntil: number;
+} {
+  if (startMs == null || !Number.isFinite(startMs)) {
+    return { orbit: 'week', severity: 'signal', hoursUntil: 999 };
+  }
+  const hoursUntil = (startMs - Date.now()) / 36e5;
+  const start = new Date(startMs);
+  const now = new Date();
+  const sameDay =
+    start.getFullYear() === now.getFullYear() &&
+    start.getMonth() === now.getMonth() &&
+    start.getDate() === now.getDate();
+
+  if (hoursUntil <= 2) {
+    return {
+      orbit: 'now',
+      severity: hoursUntil <= 1 ? 'critical' : 'warning',
+      hoursUntil,
+    };
+  }
+  if (sameDay || hoursUntil <= 24) {
+    return {
+      orbit: 'today',
+      severity: hoursUntil <= 3 ? 'warning' : 'signal',
+      hoursUntil,
+    };
+  }
+  return { orbit: 'week', severity: 'signal', hoursUntil };
+}
+
 /**
  * Build due/remind/expires from a signal deadline.
  * - remindAt = dueAt − 15m (null if dueAt already in the past)
@@ -179,6 +212,96 @@ export function formatDueRelative(dueAt: number, now = Date.now()): string {
   const hours = Math.floor(mins / 60);
   if (hours < 24) return `in ${hours}h`;
   return `in ${Math.floor(hours / 24)}d`;
+}
+
+function formatClockTime(ms: number): string {
+  return new Date(ms).toLocaleTimeString(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
+function formatMeetingDate(ms: number): string {
+  return new Date(ms).toLocaleDateString(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  });
+}
+
+function sameCalendarDay(a: number, b: number): boolean {
+  const da = new Date(a);
+  const db = new Date(b);
+  return (
+    da.getFullYear() === db.getFullYear() &&
+    da.getMonth() === db.getMonth() &&
+    da.getDate() === db.getDate()
+  );
+}
+
+/**
+ * Human meeting when-line: date + hours:minutes (no ISO / seconds).
+ * Examples: "Wed, Aug 26 · 2:00–2:30 PM", "Wed, Aug 26 · 2:00 PM"
+ */
+export function formatMeetingWhen(
+  startMs: number | null | undefined,
+  endMs?: number | null,
+  fallback?: string | null
+): string {
+  if (startMs == null || !Number.isFinite(startMs)) {
+    return (fallback || '').trim();
+  }
+  const date = formatMeetingDate(startMs);
+  const startClock = formatClockTime(startMs);
+  if (endMs != null && Number.isFinite(endMs) && endMs > startMs) {
+    if (sameCalendarDay(startMs, endMs)) {
+      return `${date} · ${startClock}–${formatClockTime(endMs)}`;
+    }
+    return `${date}, ${startClock} → ${formatMeetingDate(endMs)}, ${formatClockTime(endMs)}`;
+  }
+  return `${date} · ${startClock}`;
+}
+
+/**
+ * Soonest upcoming (or in-progress) calendar meeting for persistent chrome.
+ */
+export function pickNextUpMeeting<T extends { startMs: number | null; endMs: number | null }>(
+  meetings: T[],
+  now = Date.now()
+): T | null {
+  const candidates = meetings.filter((m) => {
+    if (m.endMs != null && Number.isFinite(m.endMs)) return m.endMs > now;
+    if (m.startMs != null && Number.isFinite(m.startMs)) {
+      // No end time: keep for ~2h after start so “next up” doesn’t vanish mid-call.
+      return m.startMs + 2 * 60 * 60 * 1000 > now;
+    }
+    return true;
+  });
+  if (!candidates.length) return null;
+  candidates.sort((a, b) => {
+    const as = a.startMs ?? Number.MAX_SAFE_INTEGER;
+    const bs = b.startMs ?? Number.MAX_SAFE_INTEGER;
+    return as - bs;
+  });
+  return candidates[0] ?? null;
+}
+
+/** Relative label for Next up: “in 5m”, “now” while live, else overdue after start. */
+export function formatNextUpRelative(
+  startMs: number | null | undefined,
+  endMs: number | null | undefined,
+  now = Date.now()
+): string {
+  if (startMs == null || !Number.isFinite(startMs)) return '';
+  if (endMs != null && Number.isFinite(endMs) && startMs <= now && now < endMs) {
+    return 'now';
+  }
+  if (startMs <= now && (endMs == null || !Number.isFinite(endMs))) {
+    const mins = Math.round((now - startMs) / 60_000);
+    if (mins < 1) return 'now';
+    if (mins < 120) return 'now';
+  }
+  return formatDueRelative(startMs, now);
 }
 
 export function isDueUrgent(dueAt: number, now = Date.now()): boolean {

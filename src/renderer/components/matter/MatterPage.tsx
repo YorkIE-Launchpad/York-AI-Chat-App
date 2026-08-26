@@ -7,6 +7,7 @@ import {
   relatedMatterLensId,
   type MatterItem,
   type MatterLensId,
+  type MatterMeeting,
   type MatterSeverity,
   type MatterSnapshot,
 } from '../../../shared/matter';
@@ -18,8 +19,11 @@ import { MatterSignalCard } from './MatterSignalCard';
 import { MatterLenses } from './MatterLenses';
 import { MatterAskBar } from './MatterAskBar';
 import { MatterItemDetail } from './MatterItemDetail';
+import { MatterMeetingCard } from './MatterMeetingCard';
+import { MatterMeetingDetail } from './MatterMeetingDetail';
 
 type MatterSeverityFilter = Extract<MatterSeverity, 'critical' | 'warning' | 'healthy'>;
+type MatterLeftTab = 'signals' | 'calendar';
 
 const SEVERITY_FILTERS: Array<{
   id: MatterSeverityFilter;
@@ -53,6 +57,9 @@ const SEVERITY_FILTERS: Array<{
 
 const EMPTY_SNAPSHOT: MatterSnapshot = {
   items: [],
+  meetings: [],
+  meetingsLastFetch: null,
+  meetingsFetching: false,
   lenses: [],
   focusScore: 100,
   criticalCount: 0,
@@ -82,13 +89,24 @@ export function MatterPage({ onClose }: MatterPageProps) {
   const setShowSettings = useAppStore((s) => s.setShowSettings);
   const setMatterBadgeCount = useAppStore((s) => s.setMatterBadgeCount);
   const setMatterChatDraft = useAppStore((s) => s.setMatterChatDraft);
+  const matterFocusMeetingId = useAppStore((s) => s.matterFocusMeetingId);
+  const matterFocusPrepFullscreen = useAppStore((s) => s.matterFocusPrepFullscreen);
+  const setMatterFocusMeetingId = useAppStore((s) => s.setMatterFocusMeetingId);
 
   const [snapshot, setSnapshot] = useState<MatterSnapshot>(EMPTY_SNAPSHOT);
+  const [leftTab, setLeftTab] = useState<MatterLeftTab>('signals');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedMeetingId, setSelectedMeetingId] = useState<string | null>(null);
+  const [openPrepFullscreen, setOpenPrepFullscreen] = useState(false);
+  const clearOpenPrepFullscreen = useCallback(() => setOpenPrepFullscreen(false), []);
   const [activeLens, setActiveLens] = useState<MatterLensId | null>(null);
   const [activeSeverity, setActiveSeverity] = useState<MatterSeverityFilter | null>(null);
   const [clearingNow, setClearingNow] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [prepLoadingId, setPrepLoadingId] = useState<string | null>(null);
+  const matterPrepLoadingId = useAppStore((s) => s.matterPrepLoadingId);
+  const setMatterPrepLoadingId = useAppStore((s) => s.setMatterPrepLoadingId);
+  const activePrepLoadingId = matterPrepLoadingId || prepLoadingId;
 
   const applySnapshot = useCallback(
     (next: MatterSnapshot) => {
@@ -111,6 +129,30 @@ export function MatterPage({ onClose }: MatterPageProps) {
     if (!window.electronAPI?.matter) return;
     return window.electronAPI.matter.onUpdated(applySnapshot);
   }, [refresh, applySnapshot]);
+
+  useEffect(() => {
+    if (!matterFocusMeetingId) return;
+    const exists = snapshot.meetings.some((m) => m.id === matterFocusMeetingId);
+    if (exists) {
+      setLeftTab('calendar');
+      setSelectedMeetingId(matterFocusMeetingId);
+      setSelectedId(null);
+      setOpenPrepFullscreen(matterFocusPrepFullscreen);
+      setMatterFocusMeetingId(null);
+      return;
+    }
+    // Wait for first meetings payload before giving up on the focus id.
+    if (snapshot.meetingsLastFetch == null && snapshot.meetings.length === 0) return;
+    setLeftTab('calendar');
+    setOpenPrepFullscreen(false);
+    setMatterFocusMeetingId(null);
+  }, [
+    matterFocusMeetingId,
+    matterFocusPrepFullscreen,
+    snapshot.meetings,
+    snapshot.meetingsLastFetch,
+    setMatterFocusMeetingId,
+  ]);
 
   const filteredItems = useMemo(() => {
     let items = snapshot.items;
@@ -135,6 +177,11 @@ export function MatterPage({ onClose }: MatterPageProps) {
     [snapshot.items, selectedId]
   );
 
+  const selectedMeeting = useMemo(
+    () => snapshot.meetings.find((m) => m.id === selectedMeetingId) ?? null,
+    [snapshot.meetings, selectedMeetingId]
+  );
+
   const relatedLensId = useMemo(
     () => relatedMatterLensId(selectedItem, snapshot.lenses),
     [selectedItem, snapshot.lenses]
@@ -145,6 +192,12 @@ export function MatterPage({ onClose }: MatterPageProps) {
       setSelectedId(null);
     }
   }, [selectedId, selectedItem]);
+
+  useEffect(() => {
+    if (selectedMeetingId && !selectedMeeting) {
+      setSelectedMeetingId(null);
+    }
+  }, [selectedMeetingId, selectedMeeting]);
 
   const runAction = async (
     item: MatterItem,
@@ -200,6 +253,38 @@ export function MatterPage({ onClose }: MatterPageProps) {
     } finally {
       setBusy(false);
     }
+  };
+
+  const prepMeeting = async (meeting: MatterMeeting) => {
+    if (!window.electronAPI?.matter?.prepMeeting) return;
+    setPrepLoadingId(meeting.id);
+    setMatterPrepLoadingId(meeting.id);
+    try {
+      const next = await window.electronAPI.matter.prepMeeting(meeting.id);
+      applySnapshot(next);
+    } catch (error) {
+      console.error('[Matter] Prep failed:', error);
+    } finally {
+      setPrepLoadingId(null);
+      setMatterPrepLoadingId(null);
+    }
+  };
+
+  const refreshMeetings = async () => {
+    if (!window.electronAPI?.matter?.refreshMeetings || !matterEnabled) return;
+    setBusy(true);
+    try {
+      const next = await window.electronAPI.matter.refreshMeetings();
+      applySnapshot(next);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const openMeetingLink = async (meeting: MatterMeeting) => {
+    const url = meeting.htmlLink?.trim();
+    if (!url || !window.electronAPI?.openExternal) return;
+    await window.electronAPI.openExternal(url);
   };
 
   /** Ask bar: user already typed intent — build prompt and run immediately. */
@@ -349,53 +434,135 @@ export function MatterPage({ onClose }: MatterPageProps) {
 
       <div className="flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-[280px_minmax(0,1fr)_280px] gap-0">
         <section className="min-h-0 border-r border-border-muted flex flex-col px-3 py-3">
-          <div className="flex items-center justify-between px-1 mb-3">
-            <h2 className="text-[11px] font-semibold tracking-[0.18em] text-text-muted uppercase">
+          <div className="flex items-center gap-1 mb-3 rounded-lg border border-border-subtle p-0.5 bg-background/50">
+            <button
+              type="button"
+              onClick={() => setLeftTab('signals')}
+              className={`flex-1 rounded-md px-2 py-1.5 text-[11px] font-semibold uppercase tracking-wide transition-colors ${
+                leftTab === 'signals'
+                  ? 'bg-surface text-text-primary'
+                  : 'text-text-muted hover:text-text-secondary'
+              }`}
+            >
               {t('matter.signals')}
-            </h2>
-            <span className="text-[10px] rounded-full border border-border-subtle px-2 py-0.5 text-text-muted">
-              {filteredItems.length}
-            </span>
+              <span className="ml-1 text-[10px] opacity-70">{filteredItems.length}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setLeftTab('calendar')}
+              className={`flex-1 rounded-md px-2 py-1.5 text-[11px] font-semibold uppercase tracking-wide transition-colors ${
+                leftTab === 'calendar'
+                  ? 'bg-surface text-text-primary'
+                  : 'text-text-muted hover:text-text-secondary'
+              }`}
+            >
+              {t('matter.calendarTab')}
+              <span className="ml-1 text-[10px] opacity-70">{snapshot.meetings.length}</span>
+            </button>
           </div>
-          <div className="flex-1 min-h-0 overflow-y-auto space-y-2 pr-1">
-            {filteredItems.length === 0 ? (
-              <EmptySignals
-                connectedCount={snapshot.connectedCount}
-                onConnectors={() => {
-                  setSettingsTab('connectors');
-                  setShowSettings(true);
-                }}
-              />
-            ) : (
-              filteredItems.map((item) => (
-                <MatterSignalCard
-                  key={item.id}
-                  item={item}
-                  selected={selectedId === item.id}
-                  onSelect={() => setSelectedId(item.id)}
-                  onDone={() => void runAction(item, 'done')}
-                  onDismiss={(mute) => void runAction(item, 'dismiss', mute)}
-                  onSnooze={() => void runAction(item, 'snooze')}
-                  onPin={() => void runAction(item, item.pinned ? 'unpin' : 'pin')}
-                  onOpen={() => void runAction(item, 'open')}
-                  onHandleChat={() => void openSignalChat(item)}
+
+          {leftTab === 'calendar' ? (
+            <>
+              <div className="flex items-center justify-between px-1 mb-2">
+                <p className="text-[10px] text-text-muted">
+                  {snapshot.meetingsFetching
+                    ? t('matter.meetingsRefreshing')
+                    : snapshot.meetingsLastFetch
+                      ? t('matter.meetingsLastFetch', {
+                          when: `${Math.max(
+                            0,
+                            Math.round((Date.now() - snapshot.meetingsLastFetch) / 60000)
+                          )}m ago`,
+                        })
+                      : t('matter.meetingsNeverFetched')}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void refreshMeetings()}
+                  disabled={!matterEnabled || busy || snapshot.meetingsFetching}
+                  className="text-[10px] font-semibold text-accent hover:underline disabled:opacity-50"
+                >
+                  {t('matter.meetingsRefresh')}
+                </button>
+              </div>
+              <div className="flex-1 min-h-0 overflow-y-auto space-y-2 pr-1">
+                {!snapshot.settings.sources.calendar ? (
+                  <p className="text-[12px] text-text-muted px-1 py-4">
+                    {t('matter.meetingsSourceOff')}
+                  </p>
+                ) : snapshot.meetings.length === 0 ? (
+                  <p className="text-[12px] text-text-muted px-1 py-4">
+                    {t('matter.meetingsEmpty')}
+                  </p>
+                ) : (
+                  snapshot.meetings.map((meeting) => (
+                    <MatterMeetingCard
+                      key={meeting.id}
+                      meeting={meeting}
+                      selected={selectedMeetingId === meeting.id}
+                      onSelect={() => {
+                        setSelectedMeetingId(meeting.id);
+                        setSelectedId(null);
+                      }}
+                    />
+                  ))
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="flex-1 min-h-0 overflow-y-auto space-y-2 pr-1">
+              {filteredItems.length === 0 ? (
+                <EmptySignals
+                  connectedCount={snapshot.connectedCount}
+                  onConnectors={() => {
+                    setSettingsTab('connectors');
+                    setShowSettings(true);
+                  }}
                 />
-              ))
-            )}
-          </div>
+              ) : (
+                filteredItems.map((item) => (
+                  <MatterSignalCard
+                    key={item.id}
+                    item={item}
+                    selected={selectedId === item.id}
+                    onSelect={() => {
+                      setSelectedId(item.id);
+                      setSelectedMeetingId(null);
+                    }}
+                    onDone={() => void runAction(item, 'done')}
+                    onDismiss={(mute) => void runAction(item, 'dismiss', mute)}
+                    onSnooze={() => void runAction(item, 'snooze')}
+                    onPin={() => void runAction(item, item.pinned ? 'unpin' : 'pin')}
+                    onOpen={() => void runAction(item, 'open')}
+                    onHandleChat={() => void openSignalChat(item)}
+                  />
+                ))
+              )}
+            </div>
+          )}
         </section>
 
         <section className="min-h-0 flex flex-col items-center px-4 py-4 relative overflow-y-auto">
           <div
-            className={`w-full flex flex-col items-center ${selectedItem ? 'shrink-0' : 'flex-1 justify-center'}`}
+            className={`w-full flex flex-col items-center ${
+              selectedItem || selectedMeeting ? 'shrink-0' : 'flex-1 justify-center'
+            }`}
           >
-            <div className={selectedItem ? 'w-full max-w-[280px]' : 'w-full max-w-[420px]'}>
+            <div
+              className={
+                selectedItem || selectedMeeting ? 'w-full max-w-[280px]' : 'w-full max-w-[420px]'
+              }
+            >
               <MatterRadar
                 items={snapshot.items}
                 selectedId={selectedId}
                 highlightedIds={filterActive ? highlightedIds : new Set()}
                 pulse={snapshot.pulse}
-                onSelect={setSelectedId}
+                onSelect={(id) => {
+                  setSelectedId(id);
+                  setSelectedMeetingId(null);
+                  setLeftTab('signals');
+                }}
               />
             </div>
             <div
@@ -427,7 +594,22 @@ export function MatterPage({ onClose }: MatterPageProps) {
             </div>
           </div>
 
-          {selectedItem ? (
+          {selectedMeeting ? (
+            <div className="mt-4 w-full flex justify-center pb-2">
+              <MatterMeetingDetail
+                meeting={selectedMeeting}
+                onClose={() => {
+                  setSelectedMeetingId(null);
+                  setOpenPrepFullscreen(false);
+                }}
+                onOpen={() => void openMeetingLink(selectedMeeting)}
+                onPrep={() => void prepMeeting(selectedMeeting)}
+                prepLoading={activePrepLoadingId === selectedMeeting.id}
+                autoPrepFullscreen={openPrepFullscreen}
+                onAutoPrepFullscreenConsumed={clearOpenPrepFullscreen}
+              />
+            </div>
+          ) : selectedItem ? (
             <div className="mt-4 w-full flex justify-center pb-2">
               <MatterItemDetail
                 item={selectedItem}

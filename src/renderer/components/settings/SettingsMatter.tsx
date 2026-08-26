@@ -239,6 +239,22 @@ export function SettingsMatter() {
               onChange={(e) => patch({ intervalMinutes: Number(e.target.value) })}
               className="mt-1 w-full rounded-lg border border-border-muted bg-background px-3 py-2 text-sm"
             />
+            <span className="mt-1 block text-xs text-text-muted">{t('matter.intervalHint')}</span>
+          </label>
+          <label className="text-sm text-text-primary">
+            {t('matter.meetingsInterval')}
+            <input
+              type="number"
+              min={5}
+              max={240}
+              step={5}
+              value={draft.meetingsIntervalMinutes}
+              onChange={(e) => patch({ meetingsIntervalMinutes: Number(e.target.value) })}
+              className="mt-1 w-full rounded-lg border border-border-muted bg-background px-3 py-2 text-sm"
+            />
+            <span className="mt-1 block text-xs text-text-muted">
+              {t('matter.meetingsIntervalHint')}
+            </span>
           </label>
           <label className="text-sm text-text-primary">
             {t('matter.maxItems')}

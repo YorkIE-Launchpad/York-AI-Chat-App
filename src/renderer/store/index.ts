@@ -124,6 +124,12 @@ interface AppState {
   showWorkflows: boolean;
   settingsTab: string | null;
   matterBadgeCount: number;
+  /** When opening Matter, switch to Calendar and select this meeting id. */
+  matterFocusMeetingId: string | null;
+  /** When true with focus meeting, open prep note fullscreen. */
+  matterFocusPrepFullscreen: boolean;
+  /** Meeting id currently running Prep (sidebar + Matter detail share this). */
+  matterPrepLoadingId: string | null;
   /** Global “Ask Growth OS” overlay open state. */
   askGrowthOSOpen: boolean;
   /** Session id bound to the Ask Growth OS popup (multi-turn while open). */
@@ -231,6 +237,12 @@ interface AppState {
   setShowWorkflows: (show: boolean) => void;
   setSettingsTab: (tab: string | null) => void;
   setMatterBadgeCount: (count: number) => void;
+  setMatterFocusMeetingId: (meetingId: string | null) => void;
+  openMatterToMeeting: (
+    meetingId: string,
+    options?: { prepFullscreen?: boolean }
+  ) => void;
+  setMatterPrepLoadingId: (meetingId: string | null) => void;
   setAskGrowthOSOpen: (open: boolean) => void;
   toggleAskGrowthOS: () => void;
   setAskGrowthOSSessionId: (sessionId: string | null) => void;
@@ -331,6 +343,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   showWorkflows: false,
   settingsTab: null,
   matterBadgeCount: 0,
+  matterFocusMeetingId: null,
+  matterFocusPrepFullscreen: false,
+  matterPrepLoadingId: null,
   askGrowthOSOpen: false,
   askGrowthOSSessionId: null,
   pendingPermission: null,
@@ -819,6 +834,22 @@ export const useAppStore = create<AppState>((set, get) => ({
     ),
   setSettingsTab: (tab) => set({ settingsTab: tab }),
   setMatterBadgeCount: (count) => set({ matterBadgeCount: Math.max(0, count) }),
+  setMatterFocusMeetingId: (meetingId) =>
+    set(
+      meetingId == null
+        ? { matterFocusMeetingId: null, matterFocusPrepFullscreen: false }
+        : { matterFocusMeetingId: meetingId }
+    ),
+  openMatterToMeeting: (meetingId, options) =>
+    set({
+      matterFocusMeetingId: meetingId,
+      matterFocusPrepFullscreen: Boolean(options?.prepFullscreen),
+      showMatter: true,
+      showSettings: false,
+      showWorkflows: false,
+      activeSessionId: null,
+    }),
+  setMatterPrepLoadingId: (meetingId) => set({ matterPrepLoadingId: meetingId }),
   setHubUsage: (snapshot) => set({ hubUsage: snapshot }),
   setAskGrowthOSOpen: (open) =>
     set((state) =>

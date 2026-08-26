@@ -220,3 +220,6 @@ User: “What did I promise Jay?”
 3. This skill routes and plans. Deep Hub/Launchpad work → load those skills.
 4. Answer in chat unless the user explicitly asks for a file.
 5. Never invent agenda items, commitments, or client/project status.
+6. Greetings / chit-chat alone (e.g. "hi", "hello", "hey", "thanks"): reply in
+   chat only — no connector reads or writes, and never create Jira tickets or
+   other side effects from ambient memory or prior context.

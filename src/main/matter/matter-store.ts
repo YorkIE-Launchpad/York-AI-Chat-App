@@ -3,17 +3,20 @@ import type {
   DatabaseInstance,
   MatterActionRow,
   MatterItemRow,
+  MatterMeetingRow,
   MatterScanRow,
 } from '../db/database';
 import type {
   MatterActionType,
   MatterItem,
   MatterItemStatus,
+  MatterMeeting,
   MatterMuteRule,
   MatterScan,
   MatterSourceRef,
 } from '../../shared/matter';
 import { MATTER_DEFAULT_SNOOZE_MS } from '../../shared/matter';
+import { isMeetingPrepNote, preserveMeetingPrepRawDetails } from './matter-calendar-enrichment';
 
 /**
  * Status when re-upserting a ranked signal onto an existing row.
@@ -114,6 +117,24 @@ export function mapMatterScanRow(row: MatterScanRow): MatterScan {
   };
 }
 
+export function mapMatterMeetingRow(row: MatterMeetingRow): MatterMeeting {
+  return {
+    id: row.id,
+    fingerprint: row.fingerprint,
+    eventId: row.event_id,
+    title: row.title,
+    when: row.when_label,
+    startMs: row.start_ms,
+    endMs: row.end_ms,
+    summary: row.summary,
+    htmlLink: row.html_link,
+    rawDetails: row.raw_details,
+    suggestedAction: row.suggested_action,
+    updatedAt: row.updated_at,
+    lastSeenAt: row.last_seen_at,
+  };
+}
+
 export interface MatterStore {
   listVisibleItems: (now?: number) => MatterItem[];
   listActiveItems: () => MatterItem[];
@@ -144,7 +165,26 @@ export interface MatterStore {
   expireAbsentItems: (keepFingerprints: string[], now?: number) => number;
   /** Persist temporal expiry for items whose expiresAt has passed (no OS notify). */
   expireTimedItems: (now?: number) => MatterItem[];
+  /** Expire leftover calendar radar signals (calendar is meetings-only now). */
+  expireCalendarSourceItems: (now?: number) => number;
   updateItem: (id: string, updates: Partial<MatterItem>) => MatterItem | null;
+  listMeetings: () => MatterMeeting[];
+  getMeeting: (id: string) => MatterMeeting | null;
+  upsertMeetings: (
+    meetings: Array<{
+      fingerprint: string;
+      eventId: string;
+      title: string;
+      when: string;
+      startMs: number | null;
+      endMs: number | null;
+      summary: string;
+      htmlLink: string | null;
+      rawDetails: string | null;
+      suggestedAction: string | null;
+    }>
+  ) => MatterMeeting[];
+  updateMeeting: (id: string, updates: Partial<MatterMeeting>) => MatterMeeting | null;
   recordAction: (input: {
     itemId?: string | null;
     fingerprint?: string | null;
@@ -283,19 +323,30 @@ export function createMatterStore(db: DatabaseInstance): MatterStore {
           const dueChanged = (existing.due_at ?? null) !== (incoming.dueAt ?? null);
           const remindChanged = (existing.remind_at ?? null) !== (incoming.remindAt ?? null);
           const expiresChanged = (existing.expires_at ?? null) !== (incoming.expiresAt ?? null);
+          const nextRawDetails = preserveMeetingPrepRawDetails(
+            existing.raw_details,
+            incoming.rawDetails
+          );
+          // Keep prep-oriented suggested action when preserving a prep note.
+          const nextSuggestedAction =
+            isMeetingPrepNote(nextRawDetails) &&
+            !isMeetingPrepNote(incoming.rawDetails) &&
+            existing.suggested_action
+              ? existing.suggested_action
+              : incoming.suggestedAction;
 
           db.matterItems.update(existing.id, {
             title: incoming.title,
             summary: incoming.summary,
             why_it_matters: incoming.whyItMatters,
-            raw_details: incoming.rawDetails,
+            raw_details: nextRawDetails,
             severity: incoming.severity,
             orbit: incoming.pinned || existing.pinned === 1 ? 'now' : incoming.orbit,
             category: incoming.category,
             source: incoming.source,
             source_ref: JSON.stringify(incoming.sourceRef || {}),
             confidence: incoming.confidence,
-            suggested_action: incoming.suggestedAction,
+            suggested_action: nextSuggestedAction,
             status: nextStatus,
             due_at: incoming.dueAt ?? null,
             remind_at: incoming.remindAt ?? null,
@@ -384,6 +435,19 @@ export function createMatterStore(db: DatabaseInstance): MatterStore {
       return expired;
     },
 
+    expireCalendarSourceItems: (now = Date.now()) => {
+      let count = 0;
+      for (const row of db.matterItems.listActive()) {
+        if (row.source !== 'calendar') continue;
+        db.matterItems.update(row.id, {
+          status: 'expired',
+          resolved_at: now,
+        });
+        count += 1;
+      }
+      return count;
+    },
+
     updateItem: (id, updates) => {
       const mapped: Partial<MatterItemRow> = {};
       if (updates.title !== undefined) mapped.title = updates.title;
@@ -415,6 +479,86 @@ export function createMatterStore(db: DatabaseInstance): MatterStore {
       db.matterItems.update(id, mapped);
       const row = db.matterItems.get(id);
       return row ? mapMatterItemRow(row) : null;
+    },
+
+    listMeetings: () => db.matterMeetings.listAll().map(mapMatterMeetingRow),
+
+    getMeeting: (id) => {
+      const row = db.matterMeetings.get(id);
+      return row ? mapMatterMeetingRow(row) : null;
+    },
+
+    upsertMeetings: (meetings) => {
+      const now = Date.now();
+      const result: MatterMeeting[] = [];
+      const keep: string[] = [];
+      for (const incoming of meetings) {
+        keep.push(incoming.fingerprint);
+        const existing = db.matterMeetings.getByFingerprint(incoming.fingerprint);
+        if (existing) {
+          const nextRaw = preserveMeetingPrepRawDetails(
+            existing.raw_details,
+            incoming.rawDetails
+          );
+          const nextSuggested =
+            isMeetingPrepNote(nextRaw) &&
+            !isMeetingPrepNote(incoming.rawDetails) &&
+            existing.suggested_action
+              ? existing.suggested_action
+              : incoming.suggestedAction;
+          db.matterMeetings.update(existing.id, {
+            event_id: incoming.eventId,
+            title: incoming.title,
+            when_label: incoming.when,
+            start_ms: incoming.startMs,
+            end_ms: incoming.endMs,
+            summary: incoming.summary,
+            html_link: incoming.htmlLink,
+            raw_details: nextRaw,
+            suggested_action: nextSuggested,
+            last_seen_at: now,
+          });
+          const updated = db.matterMeetings.get(existing.id);
+          if (updated) result.push(mapMatterMeetingRow(updated));
+        } else {
+          const row: MatterMeetingRow = {
+            id: uuidv4(),
+            fingerprint: incoming.fingerprint,
+            event_id: incoming.eventId,
+            title: incoming.title,
+            when_label: incoming.when,
+            start_ms: incoming.startMs,
+            end_ms: incoming.endMs,
+            summary: incoming.summary,
+            html_link: incoming.htmlLink,
+            raw_details: incoming.rawDetails,
+            suggested_action: incoming.suggestedAction,
+            updated_at: now,
+            last_seen_at: now,
+          };
+          db.matterMeetings.create(row);
+          result.push(mapMatterMeetingRow(row));
+        }
+      }
+      db.matterMeetings.deleteAbsent(keep);
+      return result;
+    },
+
+    updateMeeting: (id, updates) => {
+      const mapped: Partial<MatterMeetingRow> = {};
+      if (updates.eventId !== undefined) mapped.event_id = updates.eventId;
+      if (updates.title !== undefined) mapped.title = updates.title;
+      if (updates.when !== undefined) mapped.when_label = updates.when;
+      if (updates.startMs !== undefined) mapped.start_ms = updates.startMs;
+      if (updates.endMs !== undefined) mapped.end_ms = updates.endMs;
+      if (updates.summary !== undefined) mapped.summary = updates.summary;
+      if (updates.htmlLink !== undefined) mapped.html_link = updates.htmlLink;
+      if (updates.rawDetails !== undefined) mapped.raw_details = updates.rawDetails;
+      if (updates.suggestedAction !== undefined) mapped.suggested_action = updates.suggestedAction;
+      if (updates.lastSeenAt !== undefined) mapped.last_seen_at = updates.lastSeenAt;
+      db.matterMeetings.update(id, mapped);
+      const row = db.matterMeetings.get(id);
+      return row ? mapMatterMeetingRow(row) : null;
     },
 
     recordAction: (input) => {

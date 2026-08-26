@@ -4,6 +4,8 @@ import { log } from '../utils/logger';
 export interface MatterSchedulerOptions {
   getRuntime: () => MatterRuntimeConfig;
   onTick: (reason: 'interval' | 'startup' | 'manual') => void;
+  /** Dedicated calendar meetings list refresh (separate from signal scans). */
+  onMeetingsTick?: (reason: 'interval' | 'startup' | 'manual') => void;
   onMorningBrief: () => void;
   onEndOfDay: () => void;
   /** Fired every minute while Matter is enabled (reminders / expiry). */
@@ -13,6 +15,7 @@ export interface MatterSchedulerOptions {
 
 export class MatterScheduler {
   private timer: ReturnType<typeof setInterval> | null = null;
+  private meetingsTimer: ReturnType<typeof setInterval> | null = null;
   private minuteTimer: ReturnType<typeof setInterval> | null = null;
   private readonly now: () => number;
 
@@ -23,6 +26,7 @@ export class MatterScheduler {
   start(): void {
     this.stop();
     this.armInterval();
+    this.armMeetingsInterval();
     this.minuteTimer = setInterval(() => this.onMinute(), 60 * 1000);
     log('[Matter] Scheduler started');
   }
@@ -32,6 +36,10 @@ export class MatterScheduler {
       clearInterval(this.timer);
       this.timer = null;
     }
+    if (this.meetingsTimer) {
+      clearInterval(this.meetingsTimer);
+      this.meetingsTimer = null;
+    }
     if (this.minuteTimer) {
       clearInterval(this.minuteTimer);
       this.minuteTimer = null;
@@ -40,6 +48,7 @@ export class MatterScheduler {
 
   reschedule(): void {
     this.armInterval();
+    this.armMeetingsInterval();
   }
 
   isInScanWindow(runtime?: MatterRuntimeConfig): boolean {
@@ -68,6 +77,24 @@ export class MatterScheduler {
       if (!this.options.getRuntime().enabled) return;
       if (!this.isInScanWindow()) return;
       this.options.onTick('interval');
+    }, ms);
+  }
+
+  private armMeetingsInterval(): void {
+    if (this.meetingsTimer) {
+      clearInterval(this.meetingsTimer);
+      this.meetingsTimer = null;
+    }
+    const runtime = this.options.getRuntime();
+    if (!runtime.enabled || !this.options.onMeetingsTick) return;
+    const minutes = Math.max(5, runtime.meetingsIntervalMinutes || 15);
+    const ms = minutes * 60 * 1000;
+    this.meetingsTimer = setInterval(() => {
+      const cfg = this.options.getRuntime();
+      if (!cfg.enabled) return;
+      if (!cfg.sources.calendar) return;
+      if (!this.isInScanWindow(cfg)) return;
+      this.options.onMeetingsTick?.('interval');
     }, ms);
   }
 

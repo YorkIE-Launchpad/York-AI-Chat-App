@@ -38,6 +38,11 @@ export function normalizeMatterRuntimeConfig(raw: unknown): MatterRuntimeConfig 
       typeof value.intervalMinutes === 'number' && Number.isFinite(value.intervalMinutes)
         ? Math.max(15, Math.min(240, Math.round(value.intervalMinutes)))
         : DEFAULT_MATTER_RUNTIME.intervalMinutes,
+    meetingsIntervalMinutes:
+      typeof value.meetingsIntervalMinutes === 'number' &&
+      Number.isFinite(value.meetingsIntervalMinutes)
+        ? Math.max(5, Math.min(240, Math.round(value.meetingsIntervalMinutes)))
+        : DEFAULT_MATTER_RUNTIME.meetingsIntervalMinutes,
     sensitivity:
       value.sensitivity === 'calm' ||
       value.sensitivity === 'hyper' ||

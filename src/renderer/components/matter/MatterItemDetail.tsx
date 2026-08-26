@@ -1,8 +1,9 @@
 import type { ReactNode } from 'react';
-import { Check, Clock3, MessageSquare, Pin, PinOff, X, ExternalLink, Ban } from 'lucide-react';
+import { Check, Clock3, MessageSquare, Pin, PinOff, X, ExternalLink, Ban, Sparkles, Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { MEETING_PREP_MARKER, type MatterItem } from '../../../shared/matter';
 import { formatDueRelative, isDueUrgent } from '../../../shared/matter-time';
+import { MessageMarkdown } from '../MessageMarkdown';
 
 const SEVERITY_CLASS: Record<string, string> = {
   critical: 'text-red-400 border-red-400/30 bg-red-400/10',
@@ -20,6 +21,8 @@ interface MatterItemDetailProps {
   onPin: () => void;
   onOpen: () => void;
   onHandleChat: () => void;
+  onPrep?: () => void;
+  prepLoading?: boolean;
 }
 
 export function MatterItemDetail({
@@ -31,6 +34,8 @@ export function MatterItemDetail({
   onPin,
   onOpen,
   onHandleChat,
+  onPrep,
+  prepLoading = false,
 }: MatterItemDetailProps) {
   const { t } = useTranslation();
   const sourceLabel = item.sourceRef.label || item.source;
@@ -39,6 +44,7 @@ export function MatterItemDetail({
   const isPrepNote = rawDetails.startsWith(MEETING_PREP_MARKER);
   const prettyRaw = formatRawDetails(rawDetails);
   const isJsonRaw = prettyRaw.kind === 'json';
+  const canPrep = item.source === 'calendar' && typeof onPrep === 'function';
 
   return (
     <div className="w-full max-w-xl rounded-2xl border border-border-muted bg-surface/90 shadow-lg overflow-hidden">
@@ -152,7 +158,11 @@ export function MatterItemDetail({
                 : t('matter.detailRaw')}
           </p>
           {prettyRaw.text ? (
-            isJsonRaw ? (
+            isPrepNote ? (
+              <div className="rounded-xl border border-border-subtle bg-background px-3 py-2.5 max-h-72 overflow-y-auto text-[12px] leading-relaxed text-text-secondary">
+                <MessageMarkdown normalizedText={prettyRaw.text} />
+              </div>
+            ) : isJsonRaw ? (
               <div className="rounded-xl border border-border-subtle bg-background overflow-hidden max-h-56 overflow-y-auto">
                 {prettyRaw.rows ? (
                   <dl className="divide-y divide-border-subtle">
@@ -214,6 +224,27 @@ export function MatterItemDetail({
       </div>
 
       <div className="flex flex-wrap gap-1.5 px-4 py-3 border-t border-border-subtle bg-background/40">
+        {canPrep ? (
+          <DetailAction
+            icon={
+              prepLoading ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="w-3.5 h-3.5" />
+              )
+            }
+            label={
+              prepLoading
+                ? t('matter.action.prepping')
+                : isPrepNote
+                  ? t('matter.action.reprep')
+                  : t('matter.action.prep')
+            }
+            onClick={onPrep!}
+            disabled={prepLoading}
+            primary
+          />
+        ) : null}
         <DetailAction
           icon={<Check className="w-3.5 h-3.5" />}
           label={t('matter.action.done')}
@@ -287,20 +318,27 @@ function DetailAction({
   label,
   onClick,
   danger,
+  primary,
+  disabled,
 }: {
   icon: ReactNode;
   label: string;
   onClick: () => void;
   danger?: boolean;
+  primary?: boolean;
+  disabled?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-[11px] font-medium transition-colors ${
+      disabled={disabled}
+      className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-[11px] font-medium transition-colors disabled:opacity-60 disabled:pointer-events-none ${
         danger
           ? 'border-error/30 text-error hover:bg-error/10'
-          : 'border-border-subtle text-text-secondary hover:text-text-primary hover:bg-surface-hover'
+          : primary
+            ? 'border-accent/40 bg-accent/15 text-accent hover:bg-accent/25'
+            : 'border-border-subtle text-text-secondary hover:text-text-primary hover:bg-surface-hover'
       }`}
     >
       {icon}

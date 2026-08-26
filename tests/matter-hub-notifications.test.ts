@@ -146,7 +146,6 @@ describe('collectMatterSignals Hub inbox', () => {
         ]),
       list_pending_timesheet_reviews: () =>
         hubEnvelope([{ id: 'ts-9', title: 'Sam timesheet week of Aug 10', status: 'SUBMITTED' }]),
-      list_hub_requests: () => envelopeResult(''),
       list_announcements: () =>
         hubEnvelope([{ id: 'a-1', title: 'Office closed Friday', type: 'announcement' }]),
     });
@@ -160,6 +159,7 @@ describe('collectMatterSignals Hub inbox', () => {
 
     const toolsCalled = calls.map((c) => c.name.split('__').pop());
     expect(toolsCalled).not.toContain('list_notifications');
+    expect(toolsCalled).not.toContain('list_hub_requests');
     expect(toolsCalled).toContain('list_kudos');
     expect(toolsCalled).toContain('list_my_timesheet_drafts');
     expect(toolsCalled).toContain('list_pending_leave_wfh_requests');
@@ -194,7 +194,6 @@ describe('collectMatterSignals Hub inbox', () => {
         list_my_timesheet_drafts: () => envelopeResult(''),
         list_pending_leave_wfh_requests: () => envelopeResult(''),
         list_pending_timesheet_reviews: () => envelopeResult(''),
-        list_hub_requests: () => envelopeResult(''),
       },
       { serverId: 'migrated-hub-id', name: DEFAULT_HUB_MCP_NAME }
     );

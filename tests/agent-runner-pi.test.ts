@@ -132,7 +132,9 @@ describe('CoworkAgentRunner York IE SDK integration', () => {
   it('chat-first behavioral rules are present', () => {
     expect(agentRunnerContent).toContain('CHAT FIRST');
     expect(agentRunnerContent).toContain('CHAT FIRST does not block MCP tools');
-    expect(agentRunnerContent).toContain('START DOING THE WORK');
+    expect(agentRunnerContent).toContain('GREETINGS / CHIT-CHAT ONLY');
+    expect(agentRunnerContent).toContain('do NOT invent or execute tasks from memory or prior context');
+    expect(agentRunnerContent).toContain('START DOING THE WORK — only when the user asked for something actionable');
     expect(agentRunnerContent).toContain('websearch first to find URLs');
     expect(agentRunnerContent).toContain('Follow any <skill> block already injected');
   });

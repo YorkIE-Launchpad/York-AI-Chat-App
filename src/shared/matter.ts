@@ -82,8 +82,11 @@ export const MATTER_SOURCE_IDS = [
 export const MATTER_DEFAULT_SNOOZE_MS = 24 * 60 * 60 * 1000;
 export const MATTER_MIN_SNOOZE_MS = 60 * 60 * 1000;
 
-/** Stable marker for calendar prep notes stored in MatterItem.rawDetails. */
+/** Stable marker for calendar prep notes stored in MatterMeeting.rawDetails. */
 export const MEETING_PREP_MARKER = '## Meeting prep';
+
+/** Dedicated meetings list poll — independent of Matter signal `intervalMinutes`. */
+export const DEFAULT_MATTER_MEETINGS_INTERVAL_MINUTES = 15;
 
 export type MatterConfigurableSource = (typeof MATTER_SOURCE_IDS)[number];
 
@@ -189,7 +192,13 @@ export interface MatterRuntimeConfig {
   enabled: boolean;
   windowStartHour: number;
   windowEndHour: number;
+  /** Signal radar scan interval (minutes). */
   intervalMinutes: number;
+  /**
+   * Calendar meetings list refresh interval (minutes).
+   * Independent of signal scans — default 15.
+   */
+  meetingsIntervalMinutes: number;
   sensitivity: MatterSensitivity;
   maxActiveItems: number;
   morningBriefEnabled: boolean;
@@ -214,14 +223,35 @@ export const DEFAULT_MATTER_RUNTIME: MatterRuntimeConfig = {
   windowStartHour: 8,
   windowEndHour: 21,
   intervalMinutes: 60,
+  meetingsIntervalMinutes: DEFAULT_MATTER_MEETINGS_INTERVAL_MINUTES,
   sensitivity: 'balanced',
-  maxActiveItems: 40,
+  maxActiveItems: 50,
   morningBriefEnabled: true,
   endOfDayWrapEnabled: false,
   autoOpenOnLaunch: false,
   sources: { ...DEFAULT_MATTER_SOURCES },
   sourcePrompts: { ...DEFAULT_MATTER_SOURCE_PROMPTS },
 };
+
+/**
+ * Upcoming Google Calendar meetings on the Matter page — peer to Signals, not radar items.
+ */
+export interface MatterMeeting {
+  id: string;
+  fingerprint: string;
+  eventId: string;
+  title: string;
+  when: string;
+  startMs: number | null;
+  endMs: number | null;
+  summary: string;
+  htmlLink: string | null;
+  /** Invite excerpt and/or `## Meeting prep` note after Prep. */
+  rawDetails: string | null;
+  suggestedAction: string | null;
+  updatedAt: number;
+  lastSeenAt: number;
+}
 
 /** Normalize text for Matter content equality (dismiss change detection). */
 export function normalizeMatterContentText(text: string | null | undefined): string {
@@ -288,6 +318,10 @@ export interface MatterConnectorHealth {
 
 export interface MatterSnapshot {
   items: MatterItem[];
+  /** Upcoming calendar meetings (not signals). */
+  meetings: MatterMeeting[];
+  meetingsLastFetch: number | null;
+  meetingsFetching: boolean;
   lenses: MatterLens[];
   focusScore: number;
   criticalCount: number;

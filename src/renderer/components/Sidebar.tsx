@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import type { Session } from '../types';
 import { DivisionSwitcher } from './DivisionSwitcher';
+import { NextUpMeeting } from './matter/NextUpMeeting';
 import { sessionMatchesActiveDivision } from '../../shared/workspace-division';
 import { useUpdaterStatus } from '../hooks/useUpdaterStatus';
 
@@ -619,11 +620,14 @@ export function Sidebar() {
           </button>
         </div>
 
-        <div className="mt-3 space-y-1.5">
-          <p className="px-0.5 text-[11px] font-medium tracking-[0.04em] text-text-muted">
-            Choose Workspace
-          </p>
-          <DivisionSwitcher compact />
+        <div className="mt-3 space-y-3">
+          <NextUpMeeting />
+          <div className="space-y-1.5">
+            <p className="px-0.5 text-[11px] font-medium tracking-[0.04em] text-text-muted">
+              Choose Workspace
+            </p>
+            <DivisionSwitcher compact />
+          </div>
         </div>
 
         <div className="mt-3">

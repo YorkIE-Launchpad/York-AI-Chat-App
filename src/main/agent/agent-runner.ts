@@ -2856,12 +2856,13 @@ This folder is for local files only. LaunchPad implement/preview and other remot
         buildDivisionSystemPrompt(session, { folderInstructions }),
         thinkingModePrompt,
         `CRITICAL BEHAVIORAL RULES:
-1. CHAT FIRST: Reply in conversation text unless the user asked to create, edit, or save a local file. CHAT FIRST does not block MCP tools (Hub, LaunchPad, Slack, Gmail, Calendar, etc.).
-2. NEVER ask clarification in plain text. When a request is actionable, proceed immediately with reasonable assumptions. If you truly cannot proceed, use AskUserQuestion. Never ask meta permission ("may I…", "should I look up…").
-3. START DOING THE WORK. No restating the task, no "here is my plan" preamble, no waiting for confirmation.
-4. Follow any <skill> block already injected in this turn. Do not skip it or re-Read the same SKILL.md.
-5. Named York people: Hub-resolve email first. Calendar create/update/delete: call the tool (approval UI may prompt) — do not hand a copy-paste invite.
-6. Research: websearch first to find URLs, then webfetch the best pages. Chrome MCP is only for interactive login/click/screenshot flows. For relative time windows like "within two days", assume the most recent two relevant publication days unless the user specifies otherwise.${workspaceScopeRule}`,
+1. CHAT FIRST: Reply in conversation text unless the user asked to create, edit, or save a local file. CHAT FIRST does not block MCP tools (Hub, LaunchPad, Slack, Gmail, Calendar, etc.) when the user actually asked for work.
+2. GREETINGS / CHIT-CHAT ONLY: If the user's message is only a greeting or small talk (e.g. "hi", "hello", "hey", "good morning", "thanks", "ok") with no work request, reply briefly in chat. Do NOT call MCP tools (read or write), do NOT create Jira/Confluence/Calendar/Slack/email/Drive side effects, and do NOT invent or execute tasks from memory or prior context.
+3. NEVER ask clarification in plain text. When a request is actionable, proceed immediately with reasonable assumptions. If you truly cannot proceed, use AskUserQuestion. Never ask meta permission ("may I…", "should I look up…").
+4. START DOING THE WORK — only when the user asked for something actionable. No restating the task, no "here is my plan" preamble, no waiting for confirmation.
+5. Follow any <skill> block already injected in this turn. Do not skip it or re-Read the same SKILL.md.
+6. Named York people: Hub-resolve email first. Calendar create/update/delete: call the tool (approval UI may prompt) — do not hand a copy-paste invite.
+7. Research: websearch first to find URLs, then webfetch the best pages. Chrome MCP is only for interactive login/click/screenshot flows. For relative time windows like "within two days", assume the most recent two relevant publication days unless the user specifies otherwise.${workspaceScopeRule}`,
         profileInstructionsPrompt,
         workspaceInfoPrompt,
         `<citation_requirements>
@@ -2880,8 +2881,9 @@ Rules:
         `<tool_behavior>
 AskUserQuestion:
 - ONLY use AskUserQuestion when you absolutely cannot proceed without user input AND the missing detail would make the next action likely wrong.
-- Prefer assumptions when safe. Never ask for confirmation or write "before I start" preambles in plain text.
+- Prefer assumptions when safe on actionable requests. Never ask for confirmation or write "before I start" preambles in plain text.
 - Never ask meta questions (permission to ask, permission to look up, permission to proceed).
+- Greetings / chit-chat with no work request: no tools — reply in chat only.
 - For named York IE people: Hub-resolve email first; do not AskUserQuestion for their email if Hub matched.
 - When asking: provide 2–4 options (A/B/C/D) and mark exactly one option with recommended: true.
 - Ask once when necessary. A second ask is allowed only if the first answer still leaves a critical fork.

@@ -226,7 +226,7 @@ assignee / moderator.
 
 | Tool                        | R/W | Description                                                                                      |
 | --------------------------- | --- | ------------------------------------------------------------------------------------------------ |
-| `list_hub_requests`         | R   | Board list; filters: type enhancement\|issue, status, priority, module, assignee, mine, search   |
+| `list_hub_requests`         | R   | Board list; filters: type enhancement\|issue, status, priority, module, assignee, mine, search. **Discourage** — call only when the user explicitly asks to list/search/browse Hub product-feedback requests; never for greetings, briefs, or approval inboxes. |
 | `get_hub_request_stats`     | R   | KPI counts (open / in progress / completed)                                                      |
 | `get_hub_request`           | R   | Detail: status, votes, timeline                                                                  |
 | `list_hub_request_comments` | R   | Discussion thread                                                                                |
@@ -292,6 +292,7 @@ stronger). Personas/AI insights are Hub UI only.
 | “Team MBO status”               | `get_team_mbo_statuses` (+ year)                                               |
 | “Laptop / license for …”        | `list_inventory_items` / `list_software_subscriptions`                         |
 | “File a Hub idea”               | `create_hub_request`                                                           |
+| “List / search Hub requests”    | `list_hub_requests` (only when explicitly asked — otherwise avoid)             |
 | “Send kudos”                    | resolve email → `send_kudos`                                                   |
 | “Show utilization / red flags”  | analytics catalog → specific `get_*_analytics`                                 |
 

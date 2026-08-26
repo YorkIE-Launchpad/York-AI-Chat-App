@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   deriveMatterTimeFields,
   formatDueRelative,
+  formatMeetingWhen,
   MATTER_REMIND_LEAD_MS,
   orbitFromRankScore,
+  pickNextUpMeeting,
   shouldFireExpiry,
   shouldFireReminder,
   urgencyFromDueAt,
@@ -174,5 +176,70 @@ describe('formatDueRelative', () => {
     expect(formatDueRelative(now + 45 * 60 * 1000, now)).toBe('in 45m');
     expect(formatDueRelative(now - 20 * 60 * 1000, now)).toBe('overdue 20m');
     expect(formatDueRelative(now, now)).toBe('due now');
+  });
+});
+
+describe('formatMeetingWhen', () => {
+  it('uses date and hour:minute without seconds/ISO', () => {
+    // Local timezone — assert shape, not fixed offset string.
+    const start = Date.parse('2026-08-26T14:00:00.000Z');
+    const end = Date.parse('2026-08-26T14:30:00.000Z');
+    const label = formatMeetingWhen(start, end);
+    expect(label).not.toMatch(/T\d{2}:\d{2}:\d{2}/);
+    expect(label).not.toContain('.000');
+    expect(label).toMatch(/\d/);
+    expect(label).toContain('·');
+    expect(label).toContain('–');
+  });
+
+  it('falls back when start is missing', () => {
+    expect(formatMeetingWhen(null, null, 'fallback')).toBe('fallback');
+  });
+});
+
+describe('pickNextUpMeeting', () => {
+  const now = Date.parse('2026-08-26T12:00:00.000Z');
+
+  it('picks the soonest not-yet-ended meeting', () => {
+    const next = pickNextUpMeeting(
+      [
+        {
+          id: 'past',
+          startMs: now - 2 * 3600_000,
+          endMs: now - 3600_000,
+        },
+        {
+          id: 'later',
+          startMs: now + 3 * 3600_000,
+          endMs: now + 3.5 * 3600_000,
+        },
+        {
+          id: 'soon',
+          startMs: now + 30 * 60_000,
+          endMs: now + 60 * 60_000,
+        },
+      ],
+      now
+    );
+    expect(next?.id).toBe('soon');
+  });
+
+  it('keeps an in-progress meeting as next up', () => {
+    const next = pickNextUpMeeting(
+      [
+        {
+          id: 'live',
+          startMs: now - 10 * 60_000,
+          endMs: now + 20 * 60_000,
+        },
+        {
+          id: 'later',
+          startMs: now + 60 * 60_000,
+          endMs: now + 90 * 60_000,
+        },
+      ],
+      now
+    );
+    expect(next?.id).toBe('live');
   });
 });

@@ -21,7 +21,13 @@ import {
 import { normalizeMatterRuntimeConfig } from './matter-config';
 import { log, logError, logWarn } from '../utils/logger';
 import { createMatterStore, type MatterStore } from './matter-store';
-import { collectMatterSignals, getEnabledMatterServerIds } from './matter-collector';
+import { collectCalendarMeetings, collectMatterSignals, getEnabledMatterServerIds } from './matter-collector';
+import {
+  enrichCalendarMeeting,
+  isMeetingPrepNote,
+  parseEventAttendees,
+} from './matter-calendar-enrichment';
+import { DEFAULT_GOOGLE_CALENDAR_MCP_SERVER_ID } from '../../shared/mcp-defaults';
 import { rankMatterSignals } from './matter-ranker';
 import { MatterScheduler } from './matter-scheduler';
 import { notifyMatterBrief, notifyMatterItem } from './matter-notifications';
@@ -86,6 +92,8 @@ export class MatterService {
   private readonly store: MatterStore;
   private readonly scheduler: MatterScheduler;
   private scanning = false;
+  private meetingsFetching = false;
+  private meetingsLastFetch: number | null = null;
   private lastPulse = 'Matter is warming up.';
   private lastBrief: string | null = null;
   private lastLenses: MatterSnapshot['lenses'] = [];
@@ -95,6 +103,7 @@ export class MatterService {
   private getMainWindow: (() => BrowserWindow | null) | null = null;
   /** Post-collect hook (e.g. Memory Wiki compiler). Background profile feature. */
   private postScanHandler: ((snapshot: MatterSnapshot) => void) | null = null;
+  private clearedLegacyCalendarSignals = false;
 
   constructor(
     db: DatabaseInstance,
@@ -106,6 +115,9 @@ export class MatterService {
       getRuntime: () => this.getRuntime(),
       onTick: (reason) => {
         void this.runScan({ reason, notify: reason !== 'interval' });
+      },
+      onMeetingsTick: (reason) => {
+        void this.fetchMeetings({ reason, force: reason === 'manual' });
       },
       onMorningBrief: () => this.maybeMorningBrief(),
       onEndOfDay: () => this.maybeEndOfDay(),
@@ -149,7 +161,10 @@ export class MatterService {
     const runtime = this.getRuntime();
     if (!runtime.enabled || !this.scheduler.isInScanWindow()) return;
     await this.waitForEnabledConnectors();
-    await this.runScan({ reason: 'startup', notify: false });
+    await Promise.all([
+      this.runScan({ reason: 'startup', notify: false }),
+      this.fetchMeetings({ reason: 'startup', force: true }),
+    ]);
   }
 
   private async waitForEnabledConnectors(): Promise<void> {
@@ -257,6 +272,9 @@ export class MatterService {
 
     return {
       items: normalized,
+      meetings: this.store.listMeetings(),
+      meetingsLastFetch: this.meetingsLastFetch,
+      meetingsFetching: this.meetingsFetching,
       lenses: buildLenses(normalized, this.lastLenses),
       focusScore: computeFocusScore(normalized, clearedToday),
       criticalCount,
@@ -273,6 +291,56 @@ export class MatterService {
       settings: runtime,
       profileSummary: this.lastProfileSummary,
     };
+  }
+
+  /**
+   * Refresh the Calendar meetings list (not signal radar).
+   * Cadence is `meetingsIntervalMinutes`, gated by `sources.calendar`.
+   */
+  async fetchMeetings(options?: {
+    reason?: string;
+    force?: boolean;
+  }): Promise<MatterSnapshot> {
+    if (this.meetingsFetching) {
+      return this.getSnapshot();
+    }
+    const runtime = this.getRuntime();
+    if (!runtime.enabled) {
+      return this.getSnapshot();
+    }
+    if (!runtime.sources.calendar) {
+      this.store.upsertMeetings([]);
+      this.meetingsLastFetch = Date.now();
+      this.pushSnapshot();
+      return this.getSnapshot();
+    }
+    if (!options?.force && !this.scheduler.isInScanWindow()) {
+      return this.getSnapshot();
+    }
+    if (!this.mcpManager) {
+      return this.getSnapshot();
+    }
+
+    this.meetingsFetching = true;
+    this.pushSnapshot();
+    try {
+      if (!this.clearedLegacyCalendarSignals) {
+        this.store.expireCalendarSourceItems();
+        this.clearedLegacyCalendarSignals = true;
+      }
+      const drafts = await collectCalendarMeetings(this.mcpManager);
+      this.store.upsertMeetings(drafts);
+      this.meetingsLastFetch = Date.now();
+      log(
+        `[Matter] Calendar meetings fetch (${options?.reason || 'manual'}): ${drafts.length} events`
+      );
+    } catch (error) {
+      logError('[Matter] Calendar meetings fetch failed:', error);
+    } finally {
+      this.meetingsFetching = false;
+      this.pushSnapshot();
+    }
+    return this.getSnapshot();
   }
 
   async runScan(options?: {
@@ -542,6 +610,102 @@ export class MatterService {
         action: 'open',
       });
     }
+
+    this.pushSnapshot();
+    return this.getSnapshot();
+  }
+
+  /**
+   * On-click meeting prep: fan out across connected MCPs and write a prep note
+   * onto the Matter calendar meeting (not a radar signal). Never runs on fetch.
+   */
+  async prepMeeting(meetingId: string): Promise<MatterSnapshot> {
+    const meeting = this.store.getMeeting(meetingId);
+    if (!meeting) {
+      throw new Error('Meeting not found');
+    }
+    if (!this.mcpManager) {
+      throw new Error('Connectors are not ready yet');
+    }
+
+    const eventId = meeting.eventId?.trim();
+    if (!eventId) {
+      throw new Error('Calendar event id is missing');
+    }
+
+    let inviteBody = meeting.rawDetails || '';
+    let when = meeting.when || meeting.summary || '';
+    let eventUrl = meeting.htmlLink || undefined;
+    let title = meeting.title;
+
+    try {
+      const tools = this.mcpManager.getTools().filter(
+        (t) => t.serverId === DEFAULT_GOOGLE_CALENDAR_MCP_SERVER_ID
+      );
+      const getTool = tools.find((t) => {
+        const original = (t.originalName || '').toLowerCase();
+        const name = t.name.toLowerCase();
+        return (
+          original === 'get_event' ||
+          original.includes('get_event') ||
+          name.includes('get_event')
+        );
+      });
+      if (getTool) {
+        const result = await this.mcpManager.callTool(getTool.name, { event_id: eventId });
+        const text =
+          typeof result === 'string'
+            ? result
+            : Array.isArray((result as { content?: Array<{ text?: string }> })?.content)
+              ? ((result as { content: Array<{ text?: string }> }).content || [])
+                  .map((c) => c.text || '')
+                  .join('\n')
+              : JSON.stringify(result);
+        if (text) {
+          inviteBody = text;
+          try {
+            const parsed = JSON.parse(text) as Record<string, unknown>;
+            if (typeof parsed.body === 'string') inviteBody = parsed.body;
+            if (typeof parsed.title === 'string' && parsed.title.trim()) {
+              title = parsed.title.trim();
+            }
+          } catch {
+            /* plain body */
+          }
+          const whenMatch = inviteBody.match(/\(([^)]+→[^)]+)\)/);
+          if (whenMatch?.[1]) when = whenMatch[1].trim();
+          const urlMatch = inviteBody.match(/https?:\/\/[^\s"'<>]+/i);
+          if (urlMatch?.[0]) eventUrl = urlMatch[0].replace(/[),.;]+$/, '');
+        }
+      }
+    } catch (error) {
+      logWarn('[Matter] get_event for prep failed:', error);
+    }
+
+    const attendeeSource = isMeetingPrepNote(inviteBody) ? meeting.summary || '' : inviteBody;
+    const attendees = parseEventAttendees(attendeeSource || inviteBody);
+
+    const enriched = await enrichCalendarMeeting({
+      mcpManager: this.mcpManager,
+      meetingService: this.meetingService,
+      originalTitle: title,
+      when,
+      attendees,
+      eventUrl,
+      inviteBody,
+    });
+
+    this.store.updateMeeting(meeting.id, {
+      summary: enriched.summary || meeting.summary,
+      suggestedAction: enriched.suggestedAction,
+      rawDetails: enriched.prepNote,
+      htmlLink: eventUrl || meeting.htmlLink,
+    });
+    this.store.recordAction({
+      fingerprint: meeting.fingerprint,
+      action: 'open',
+      meta: { prep: true, meetingId: meeting.id, connectors: enriched.connectors },
+    });
 
     this.pushSnapshot();
     return this.getSnapshot();

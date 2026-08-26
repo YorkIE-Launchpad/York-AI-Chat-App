@@ -678,6 +678,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     scanNow: (): Promise<MatterSnapshot> => ipcRenderer.invoke('matter.scanNow'),
     applyAction: (input: MatterItemActionInput): Promise<MatterSnapshot> =>
       ipcRenderer.invoke('matter.applyAction', input),
+    prepMeeting: (meetingId: string): Promise<MatterSnapshot> =>
+      ipcRenderer.invoke('matter.prepMeeting', meetingId),
+    refreshMeetings: (): Promise<MatterSnapshot> =>
+      ipcRenderer.invoke('matter.refreshMeetings'),
     clearNowOrbit: (): Promise<MatterSnapshot> => ipcRenderer.invoke('matter.clearNowOrbit'),
     updateSettings: (partial: Partial<MatterRuntimeConfig>): Promise<MatterRuntimeConfig> =>
       ipcRenderer.invoke('matter.updateSettings', partial),
@@ -1272,6 +1276,8 @@ declare global {
         getSnapshot: () => Promise<MatterSnapshot>;
         scanNow: () => Promise<MatterSnapshot>;
         applyAction: (input: MatterItemActionInput) => Promise<MatterSnapshot>;
+        prepMeeting: (meetingId: string) => Promise<MatterSnapshot>;
+        refreshMeetings: () => Promise<MatterSnapshot>;
         clearNowOrbit: () => Promise<MatterSnapshot>;
         updateSettings: (partial: Partial<MatterRuntimeConfig>) => Promise<MatterRuntimeConfig>;
         clearMute: (key: string) => Promise<MatterSnapshot>;
