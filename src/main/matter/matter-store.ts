@@ -513,7 +513,8 @@ export function createMatterStore(db: DatabaseInstance): MatterStore {
             start_ms: incoming.startMs,
             end_ms: incoming.endMs,
             summary: incoming.summary,
-            html_link: incoming.htmlLink,
+            // Keep prior calendar link when a list-only refresh omits it.
+            html_link: incoming.htmlLink?.trim() ? incoming.htmlLink : existing.html_link,
             raw_details: nextRaw,
             suggested_action: nextSuggested,
             last_seen_at: now,

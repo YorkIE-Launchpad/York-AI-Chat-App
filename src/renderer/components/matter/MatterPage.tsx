@@ -272,12 +272,13 @@ export function MatterPage({ onClose }: MatterPageProps) {
 
   const refreshMeetings = async () => {
     if (!window.electronAPI?.matter?.refreshMeetings || !matterEnabled) return;
-    setBusy(true);
+    // Do not set global `busy` — that locks Scan Now / Ask while meetings
+    // refresh. Main already pushes `meetingsFetching` via snapshot updates.
     try {
       const next = await window.electronAPI.matter.refreshMeetings();
       applySnapshot(next);
-    } finally {
-      setBusy(false);
+    } catch (error) {
+      console.error('[Matter] Meetings refresh failed:', error);
     }
   };
 
@@ -479,7 +480,7 @@ export function MatterPage({ onClose }: MatterPageProps) {
                 <button
                   type="button"
                   onClick={() => void refreshMeetings()}
-                  disabled={!matterEnabled || busy || snapshot.meetingsFetching}
+                  disabled={!matterEnabled || snapshot.meetingsFetching}
                   className="text-[10px] font-semibold text-accent hover:underline disabled:opacity-50"
                 >
                   {t('matter.meetingsRefresh')}

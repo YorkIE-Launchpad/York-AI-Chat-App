@@ -103,6 +103,47 @@ function summarizeEvent(event: Record<string, unknown>): string {
   return [id ? `${id}:` : '', summary, when ? `(${when})` : ''].filter(Boolean).join(' ');
 }
 
+/** Compact event fields for Matter list refresh (avoids N+1 get_event calls). */
+function compactListEvent(event: Record<string, unknown>): Record<string, unknown> {
+  const start = event.start as { dateTime?: string; date?: string } | undefined;
+  const end = event.end as { dateTime?: string; date?: string } | undefined;
+  const startLabel = start?.dateTime || start?.date || '';
+  const endLabel = end?.dateTime || end?.date || '';
+  const when = [startLabel, endLabel].filter(Boolean).join(' → ');
+  const title =
+    typeof event.summary === 'string' && event.summary.trim() ? event.summary.trim() : '(no title)';
+  const attendeeRows = Array.isArray(event.attendees)
+    ? (event.attendees as Array<Record<string, unknown>>)
+    : [];
+  const attendeeLabels = attendeeRows
+    .map((attendee) => {
+      const email =
+        typeof attendee.email === 'string' ? attendee.email.trim().toLowerCase() : '';
+      const displayName =
+        typeof attendee.displayName === 'string' ? attendee.displayName.trim() : '';
+      if (displayName && email) return `${displayName} <${email}>`;
+      if (email) return email;
+      if (displayName) return displayName;
+      return '';
+    })
+    .filter(Boolean);
+  const recurrence = Array.isArray(event.recurrence)
+    ? (event.recurrence as unknown[]).filter((r): r is string => typeof r === 'string')
+    : [];
+  return {
+    id: typeof event.id === 'string' ? event.id : '',
+    title,
+    when,
+    start: startLabel,
+    end: endLabel,
+    htmlLink: typeof event.htmlLink === 'string' ? event.htmlLink : null,
+    attendeesLine: attendeeLabels.length ? `Attendees: ${attendeeLabels.join(', ')}` : null,
+    recurrence,
+    recurringEventId:
+      typeof event.recurringEventId === 'string' ? event.recurringEventId.trim() : null,
+  };
+}
+
 function buildEnvelope(input: {
   externalId: string;
   title: string;
@@ -483,19 +524,24 @@ async function main() {
           ? (payload.items as Record<string, unknown>[])
           : [];
         const lines = items.map(summarizeEvent);
-        return buildEnvelope({
-          externalId: `calendar:list:${calendarId}:${timeMin}:${timeMax}`,
-          title: `Calendar events (${calendarId}) ${timeMin} → ${timeMax}`,
-          summary: `Found ${items.length} calendar events`,
-          body: lines.join('\n'),
-          occurredAt: now,
-          keywords: [
-            'calendar',
-            'events',
-            calendarId,
-            ...(typeof args.query === 'string' ? [args.query] : []),
-          ],
-        });
+        return {
+          ...buildEnvelope({
+            externalId: `calendar:list:${calendarId}:${timeMin}:${timeMax}`,
+            title: `Calendar events (${calendarId}) ${timeMin} → ${timeMax}`,
+            summary: `Found ${items.length} calendar events`,
+            body: lines.join('\n'),
+            occurredAt: now,
+            keywords: [
+              'calendar',
+              'events',
+              calendarId,
+              ...(typeof args.query === 'string' ? [args.query] : []),
+            ],
+          }),
+          // Structured events so Matter can refresh the calendar list in one
+          // round-trip without fan-out get_event calls (which blocked the UI).
+          events: items.map(compactListEvent),
+        };
       },
       search_events: async (args) => {
         const calendarId = resolveCalendarId(args.calendar_id);
@@ -524,14 +570,17 @@ async function main() {
           ? (payload.items as Record<string, unknown>[])
           : [];
         const lines = items.map(summarizeEvent);
-        return buildEnvelope({
-          externalId: `calendar:search:${calendarId}:${query}`,
-          title: `Calendar search (${calendarId}): ${query}`,
-          summary: `Found ${items.length} calendar events`,
-          body: lines.join('\n'),
-          occurredAt: now,
-          keywords: ['calendar', 'search', calendarId, ...query.split(/\s+/).filter(Boolean)],
-        });
+        return {
+          ...buildEnvelope({
+            externalId: `calendar:search:${calendarId}:${query}`,
+            title: `Calendar search (${calendarId}): ${query}`,
+            summary: `Found ${items.length} calendar events`,
+            body: lines.join('\n'),
+            occurredAt: now,
+            keywords: ['calendar', 'search', calendarId, ...query.split(/\s+/).filter(Boolean)],
+          }),
+          events: items.map(compactListEvent),
+        };
       },
       get_event: async (args) => {
         const calendarId = resolveCalendarId(args.calendar_id);

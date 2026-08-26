@@ -842,9 +842,75 @@ export interface CalendarMeetingDraft {
   suggestedAction: string | null;
 }
 
+type StructuredCalendarListEvent = {
+  id?: unknown;
+  title?: unknown;
+  when?: unknown;
+  start?: unknown;
+  end?: unknown;
+  htmlLink?: unknown;
+  attendeesLine?: unknown;
+  recurrence?: unknown;
+  recurringEventId?: unknown;
+};
+
+function parseStructuredCalendarEvents(text: string): StructuredCalendarListEvent[] | null {
+  const parsed = parseJsonLoose(text);
+  if (!parsed || typeof parsed !== 'object') return null;
+  const events = (parsed as { events?: unknown }).events;
+  if (!Array.isArray(events) || events.length === 0) return null;
+  return events as StructuredCalendarListEvent[];
+}
+
+function draftFromCalendarFields(input: {
+  id: string;
+  title: string;
+  when: string;
+  startIso?: string;
+  endIso?: string;
+  htmlLink?: string | null;
+  detailBody?: string;
+}): CalendarMeetingDraft | null {
+  const startMs =
+    parseIsoMs(input.startIso) ?? parseIsoMs(input.when.split('→')[0]?.trim()) ?? null;
+  const endMs =
+    parseIsoMs(input.endIso) ??
+    (() => {
+      const parts = input.when.split('→');
+      if (parts.length >= 2) return parseIsoMs(parts[1]?.trim()) ?? null;
+      return null;
+    })();
+  const hoursUntil = startMs != null ? (startMs - Date.now()) / 36e5 : 999;
+  if (hoursUntil < -0.25) return null;
+  if (isPersonalCalendarHold(input.title)) return null;
+  const rawText = input.detailBody || '';
+  if (isDailySeriesMeeting(input.title, rawText)) return null;
+  if (isAllDayCalendarEvent(input.when, rawText)) return null;
+
+  const attendeeLine = formatAttendeeSummary(rawText);
+  const whenLabel = formatMeetingWhen(startMs, endMs, input.when);
+  const summary = [whenLabel, attendeeLine].filter(Boolean).join(' · ');
+
+  return {
+    fingerprint: `calendar:event:${input.id}`,
+    eventId: input.id,
+    title: input.title,
+    when: whenLabel,
+    startMs,
+    endMs,
+    summary,
+    htmlLink: input.htmlLink?.trim() || null,
+    rawDetails: rawText || null,
+    suggestedAction: 'Click Prep to gather Slack, email, and related context.',
+  };
+}
+
 /**
  * Fetch upcoming Google Calendar meetings for the Matter Calendar panel.
  * Not radar signals — peer list with its own refresh cadence.
+ *
+ * Uses a single list_events call (structured `events` when available). Avoids
+ * fan-out get_event calls that blocked the Matter UI during refresh.
  */
 export async function collectCalendarMeetings(
   mcpManager: MCPManager
@@ -864,67 +930,62 @@ export async function collectCalendarMeetings(
   });
   if (!text) return [];
 
+  const structured = parseStructuredCalendarEvents(text);
+  if (structured) {
+    const drafts = structured
+      .map((ev): CalendarMeetingDraft | null => {
+        const id = typeof ev.id === 'string' ? ev.id.trim() : '';
+        const title = typeof ev.title === 'string' ? ev.title.trim() : '';
+        if (!id || !title) return null;
+        const when = typeof ev.when === 'string' ? ev.when.trim() : '';
+        const start = typeof ev.start === 'string' ? ev.start.trim() : '';
+        const end = typeof ev.end === 'string' ? ev.end.trim() : '';
+        const htmlLink = typeof ev.htmlLink === 'string' ? ev.htmlLink : null;
+        const attendeesLine = typeof ev.attendeesLine === 'string' ? ev.attendeesLine : '';
+        const recurrence = Array.isArray(ev.recurrence)
+          ? ev.recurrence.filter((r): r is string => typeof r === 'string')
+          : [];
+        const recurringEventId =
+          typeof ev.recurringEventId === 'string' ? ev.recurringEventId.trim() : '';
+        const detailBody = [
+          when ? `${title} (${when})` : title,
+          htmlLink ? `Link: ${htmlLink}` : '',
+          attendeesLine,
+          recurringEventId ? `RecurringEventId: ${recurringEventId}` : '',
+          recurrence.length ? `Recurrence:\n${recurrence.join('\n')}` : '',
+        ]
+          .filter(Boolean)
+          .join('\n\n');
+        return draftFromCalendarFields({
+          id,
+          title,
+          when: when || [start, end].filter(Boolean).join(' → '),
+          startIso: start || undefined,
+          endIso: end || undefined,
+          htmlLink,
+          detailBody,
+        });
+      })
+      .filter((d): d is CalendarMeetingDraft => !!d);
+    return drafts.slice(0, MAX_CALENDAR_PER_SCAN);
+  }
+
+  // Fallback for connectors that only return line summaries (no structured events).
   const body = envelopeBody(text);
   const events = parseCalendarLines(body).slice(0, 40);
   if (!events.length) return [];
 
-  const getTool = findToolName(mcpManager, DEFAULT_GOOGLE_CALENDAR_MCP_SERVER_ID, ['get_event']);
-  const drafts = (
-    await Promise.all(
-      events.map(async (ev): Promise<CalendarMeetingDraft | null> => {
-        let htmlLink: string | undefined;
-        let startIso: string | undefined;
-        let raw: unknown = ev;
-        let detailBody = '';
-        if (getTool && !ev.id.startsWith('line-')) {
-          const detailText = await safeCallTool(mcpManager, getTool, { event_id: ev.id });
-          if (detailText) {
-            const parsed = parseJsonLoose(detailText) as Record<string, unknown> | null;
-            const nested = parsed && typeof parsed === 'object' ? parsed : null;
-            htmlLink = extractUrl(detailText);
-            const bodyStr = typeof nested?.body === 'string' ? nested.body : detailText;
-            detailBody = bodyStr;
-            const whenMatch = bodyStr.match(/\(([^)]+→[^)]+)\)/);
-            startIso = whenMatch?.[1]?.split('→')[0]?.trim() || ev.when.split('→')[0]?.trim();
-            if (typeof nested?.title === 'string' && nested.title.trim()) {
-              ev.title = nested.title.trim();
-            }
-            raw = nested || detailText;
-          }
-        }
-        const startMs = parseIsoMs(startIso) ?? parseIsoMs(ev.when.split('→')[0]?.trim());
-        const endFromWhen = (() => {
-          const range = startIso && startIso.includes('→') ? startIso : ev.when;
-          const parts = range.split('→');
-          if (parts.length >= 2) return parseIsoMs(parts[1]?.trim());
-          return null;
-        })();
-        const hoursUntil = startMs != null ? (startMs - Date.now()) / 36e5 : 999;
-        if (hoursUntil < -0.25) return null;
-        if (isPersonalCalendarHold(ev.title)) return null;
-        const rawText = detailBody || (typeof raw === 'string' ? raw : truncate(raw));
-        if (isDailySeriesMeeting(ev.title, rawText)) return null;
-        if (isAllDayCalendarEvent(ev.when, rawText)) return null;
-
-        const attendeeLine = formatAttendeeSummary(rawText);
-        const whenLabel = formatMeetingWhen(startMs, endFromWhen, ev.when);
-        const summary = [whenLabel, attendeeLine].filter(Boolean).join(' · ');
-
-        return {
-          fingerprint: `calendar:event:${ev.id}`,
-          eventId: ev.id,
-          title: ev.title,
-          when: whenLabel,
-          startMs: startMs ?? null,
-          endMs: endFromWhen ?? null,
-          summary,
-          htmlLink: htmlLink || null,
-          rawDetails: rawText || null,
-          suggestedAction: 'Click Prep to gather Slack, email, and related context.',
-        };
+  const drafts = events
+    .map((ev) =>
+      draftFromCalendarFields({
+        id: ev.id,
+        title: ev.title,
+        when: ev.when,
+        startIso: ev.when.split('→')[0]?.trim(),
+        endIso: ev.when.split('→')[1]?.trim(),
       })
     )
-  ).filter((d): d is CalendarMeetingDraft => !!d);
+    .filter((d): d is CalendarMeetingDraft => !!d);
 
   return drafts.slice(0, MAX_CALENDAR_PER_SCAN);
 }
