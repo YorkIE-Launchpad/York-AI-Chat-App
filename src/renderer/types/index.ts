@@ -660,6 +660,7 @@ export type ClientEvent =
   | { type: 'sudo.password.response'; payload: { toolUseId: string; password: string | null } }
   | { type: 'settings.update'; payload: Record<string, unknown> }
   | { type: 'folder.select'; payload: Record<string, never> }
+  | { type: 'skill.selectFile'; payload: Record<string, never> }
   | { type: 'workdir.get'; payload: Record<string, never> }
   | { type: 'workdir.set'; payload: { path: string; sessionId?: string } }
   | { type: 'workdir.select'; payload: { sessionId?: string; currentPath?: string } };

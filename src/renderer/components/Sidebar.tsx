@@ -385,13 +385,17 @@ export function Sidebar() {
     ]
   );
 
-  const handleNewSession = () => {
+  const handleGoHome = () => {
     discardActiveIncognitoIfLeaving(null);
     setIncognitoDraft(false);
     setActiveSession(null);
     setShowSettings(false);
     setShowMatter(false);
     setShowWorkflows(false);
+  };
+
+  const handleNewSession = () => {
+    handleGoHome();
   };
 
   const handleIncognitoSession = () => {
@@ -427,11 +431,13 @@ export function Sidebar() {
       const result = await importSession();
       if (result.cancelled) return;
       if (result.success && result.session) {
+        const count = result.importedCount || result.sessions?.length || 1;
         setGlobalNotice({
           id: `notice-import-${Date.now()}`,
           type: 'success',
           message: '',
-          messageKey: 'sidebar.importSuccess',
+          messageKey: count > 1 ? 'sidebar.importSuccessCount' : 'sidebar.importSuccess',
+          messageValues: count > 1 ? { count } : undefined,
         });
       } else {
         setGlobalNotice({
@@ -481,6 +487,19 @@ export function Sidebar() {
     return (
       <aside className="relative z-20 flex w-[4.5rem] shrink-0 flex-col overflow-hidden border-r border-border-muted bg-surface/96">
         <div className="px-3 pt-4 pb-3 flex flex-col items-center gap-2 border-b border-border-muted">
+          <button
+            type="button"
+            onClick={handleGoHome}
+            className="w-9 h-9 rounded-2xl flex items-center justify-center hover:bg-surface-hover transition-colors overflow-hidden"
+            title={t('sidebar.home')}
+            aria-label={t('sidebar.home')}
+          >
+            <img
+              src={sidebarLogoSrc}
+              alt=""
+              className="w-7 h-7 object-contain"
+            />
+          </button>
           <button
             onClick={toggleSidebar}
             className="w-9 h-9 rounded-2xl flex items-center justify-center hover:bg-surface-hover transition-colors text-text-secondary"
@@ -599,7 +618,13 @@ export function Sidebar() {
     <aside className="relative z-20 flex w-[17.5rem] shrink-0 flex-col overflow-hidden border-r border-border-muted bg-surface/96">
       <div className="px-4 pt-5 pb-4 border-b border-border-muted">
         <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0 flex items-center gap-3">
+          <button
+            type="button"
+            onClick={handleGoHome}
+            className="min-w-0 flex items-center gap-3 rounded-xl text-left hover:opacity-90 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+            title={t('sidebar.home')}
+            aria-label={t('sidebar.home')}
+          >
             <img
               src={sidebarLogoSrc}
               alt={t('common.appLogoAlt')}
@@ -610,7 +635,7 @@ export function Sidebar() {
                 York GrowthOS
               </h1>
             </div>
-          </div>
+          </button>
           <button
             onClick={toggleSidebar}
             className="w-8 h-8 rounded-xl flex items-center justify-center hover:bg-surface-hover transition-colors text-text-secondary flex-shrink-0"

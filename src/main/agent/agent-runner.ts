@@ -1234,6 +1234,17 @@ ${hints.join('\n')}
       return;
     }
 
+    // Sequential tools: each MCP write (e.g. Slack post_message per channel) gets its
+    // own Allow prompt and completes before the next ask — avoids orphaned popups when
+    // multiple channel posts are prepared in one turn.
+    try {
+      if ('toolExecution' in agent) {
+        agent.toolExecution = 'sequential';
+      }
+    } catch (err) {
+      logWarn('[CoworkAgentRunner] Could not set sequential toolExecution:', err);
+    }
+
     // Capture the SDK's hook before we overwrite it
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sdkBeforeToolCall: ((ctx: any, signal?: AbortSignal) => Promise<any>) | undefined =
@@ -2885,6 +2896,7 @@ AskUserQuestion:
 - Never ask meta questions (permission to ask, permission to look up, permission to proceed).
 - Greetings / chit-chat with no work request: no tools — reply in chat only.
 - For named York IE people: Hub-resolve email first; do not AskUserQuestion for their email if Hub matched.
+- Hub timesheets critical fork: if “last N hours” is ambiguous between (A) calendar/wall-clock window vs (B) most recent logged work totaling ~N hours, AskUserQuestion once. When the user said “hours logged” / “logged on the project”, recommend (B) logged-quantity and prefer that assumption if you must proceed without asking. Never treat “N hours” as “N days”.
 - When asking: provide 2–4 options (A/B/C/D) and mark exactly one option with recommended: true.
 - Ask once when necessary. A second ask is allowed only if the first answer still leaves a critical fork.
 - Bundle related decisions into a single AskUserQuestion call (multi-question form), not a chain of asks.

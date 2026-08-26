@@ -83,6 +83,7 @@ const ALLOWED_CLIENT_EVENTS: ReadonlySet<string> = new Set<ClientEvent['type']>(
   'sudo.password.response',
   'settings.update',
   'folder.select',
+  'skill.selectFile',
   'workdir.get',
   'workdir.set',
   'workdir.select',
@@ -180,6 +181,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     import: (): Promise<{
       success: boolean;
       session?: Session;
+      sessions?: Session[];
+      importedCount?: number;
+      source?: string;
       error?: string;
       cancelled?: boolean;
     }> => ipcRenderer.invoke('session.import'),
@@ -935,6 +939,9 @@ declare global {
         import: () => Promise<{
           success: boolean;
           session?: Session;
+          sessions?: Session[];
+          importedCount?: number;
+          source?: string;
           error?: string;
           cancelled?: boolean;
         }>;

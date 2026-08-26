@@ -107,6 +107,8 @@ export class SessionManager {
     Array<{ prompt: string; content?: ContentBlock[]; broadcastUserMessage?: boolean }>
   > = new Map();
   private pendingPermissions: Map<string, (result: PermissionResult) => void> = new Map();
+  /** Serialize permission UI prompts so a second ask cannot orphan the first in the renderer. */
+  private permissionAskChain: Promise<void> = Promise.resolve();
   private pendingSudoPasswords: Map<
     string,
     { sessionId: string; resolve: (password: string | null) => void }
@@ -1868,21 +1870,34 @@ export class SessionManager {
     toolName: string,
     input: Record<string, unknown>
   ): Promise<PermissionResult> {
-    return new Promise((resolve) => {
-      const timeoutId = setTimeout(() => {
-        this.pendingPermissions.delete(toolUseId);
-        resolve('deny');
-        this.sendToRenderer({ type: 'permission.dismiss', payload: { toolUseId } });
-      }, 60_000);
-      this.pendingPermissions.set(toolUseId, (result: PermissionResult) => {
-        clearTimeout(timeoutId);
-        resolve(result);
-      });
-      this.sendToRenderer({
-        type: 'permission.request',
-        payload: { toolUseId, toolName, input, sessionId },
-      });
+    // Only one Allow dialog in flight at a time — queue subsequent asks behind it.
+    let releaseGate!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      releaseGate = resolve;
     });
+    const previous = this.permissionAskChain;
+    this.permissionAskChain = previous.then(() => gate);
+    await previous;
+
+    try {
+      return await new Promise<PermissionResult>((resolve) => {
+        const timeoutId = setTimeout(() => {
+          this.pendingPermissions.delete(toolUseId);
+          resolve('deny');
+          this.sendToRenderer({ type: 'permission.dismiss', payload: { toolUseId } });
+        }, 60_000);
+        this.pendingPermissions.set(toolUseId, (result: PermissionResult) => {
+          clearTimeout(timeoutId);
+          resolve(result);
+        });
+        this.sendToRenderer({
+          type: 'permission.request',
+          payload: { toolUseId, toolName, input, sessionId },
+        });
+      });
+    } finally {
+      releaseGate();
+    }
   }
 
   // Request sudo password from the user

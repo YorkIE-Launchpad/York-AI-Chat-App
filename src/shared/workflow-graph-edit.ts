@@ -108,7 +108,7 @@ export function addNode(
       id: nextIdForPrefix(g.nodes, 'tool'),
       type: 'tool',
       label: options?.label?.trim() || 'Tool step',
-      toolName: options?.toolName?.trim() || 'placeholder_tool',
+      toolName: options?.toolName?.trim() || '',
       x,
       y,
     };

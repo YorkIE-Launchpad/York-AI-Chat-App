@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useIPC } from '../hooks/useIPC';
+import { useAppStore } from '../store';
 import type { PermissionRequest } from '../types';
 import { Shield, X, Check, AlertTriangle } from 'lucide-react';
 
@@ -12,6 +13,7 @@ export function PermissionDialog({ permission }: PermissionDialogProps) {
   const { t } = useTranslation();
   const { respondToPermission } = useIPC();
   const [pendingAlwaysAllow, setPendingAlwaysAllow] = useState(false);
+  const queuedCount = useAppStore((s) => s.permissionQueue.length);
 
   const getToolDescription = (toolName: string): string => {
     const key = `permission.toolDescriptions.${toolName}`;
@@ -57,6 +59,11 @@ export function PermissionDialog({ permission }: PermissionDialogProps) {
             <p className="text-sm text-text-secondary mt-1">
               {getToolDescription(permission.toolName)}
             </p>
+            {queuedCount > 0 ? (
+              <p className="text-xs text-text-muted mt-1">
+                {t('permission.moreQueued', { count: queuedCount })}
+              </p>
+            ) : null}
           </div>
         </div>
 

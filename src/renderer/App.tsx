@@ -463,7 +463,12 @@ function AuthenticatedApp() {
       <AskGrowthOSPopup />
 
       {/* Permission Dialog — above Ask popup */}
-      {pendingPermission && <PermissionDialog permission={pendingPermission} />}
+      {pendingPermission && (
+        <PermissionDialog
+          key={pendingPermission.toolUseId}
+          permission={pendingPermission}
+        />
+      )}
 
       {/* Sudo Password Dialog */}
       {pendingSudoPassword && <SudoPasswordDialog request={pendingSudoPassword} />}

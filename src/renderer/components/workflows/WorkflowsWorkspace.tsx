@@ -645,6 +645,13 @@ export function WorkflowsWorkspace() {
                           variant="primary"
                           icon={Check}
                           label="Enable"
+                          title={
+                            graphDirty
+                              ? 'Save the graph before enabling'
+                              : busy
+                                ? 'Busy…'
+                                : undefined
+                          }
                         />
                       ) : (
                         <ActionButton
@@ -661,6 +668,13 @@ export function WorkflowsWorkspace() {
                         variant="secondary"
                         icon={Play}
                         label="Run now"
+                        title={
+                          graphDirty
+                            ? 'Save the graph before running'
+                            : busy
+                              ? 'Busy…'
+                              : undefined
+                        }
                       />
                       <ActionButton
                         onClick={() => void remove()}
@@ -674,6 +688,18 @@ export function WorkflowsWorkspace() {
                 </header>
 
                 <div className="flex-1 space-y-4 overflow-y-auto p-4 sm:p-5">
+                  {busy ? (
+                    <div className="flex items-center gap-2 rounded-xl border border-accent/30 bg-accent/10 px-3 py-2 text-xs text-accent">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
+                      Saving or running… fields are temporarily locked.
+                    </div>
+                  ) : null}
+                  {graphDirty ? (
+                    <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
+                      Unsaved graph changes — click <strong>Save graph</strong> before Enable or Run
+                      now.
+                    </div>
+                  ) : null}
                   {activeGraph ? (
                     <div className="space-y-2">
                       <div className="flex items-center justify-between gap-2">
@@ -814,12 +840,14 @@ function ActionButton({
   variant,
   icon: Icon,
   label,
+  title,
 }: {
   onClick: () => void;
   disabled?: boolean;
   variant: 'primary' | 'secondary' | 'ghost' | 'danger';
   icon: typeof Play;
   label: string;
+  title?: string;
 }) {
   const styles =
     variant === 'primary'
@@ -834,6 +862,7 @@ function ActionButton({
       type="button"
       onClick={onClick}
       disabled={disabled}
+      title={title}
       className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${styles}`}
     >
       <Icon className="h-3.5 w-3.5" />
@@ -1013,6 +1042,7 @@ function NodeInspector({
   const [prompt, setPrompt] = useState('');
   const [message, setMessage] = useState('');
   const [toolName, setToolName] = useState('');
+  const [toolFilter, setToolFilter] = useState('');
   const [argsText, setArgsText] = useState('');
   const [argsError, setArgsError] = useState<string | null>(null);
   const [inputFields, setInputFields] = useState<WorkflowInputField[]>([]);
@@ -1033,9 +1063,11 @@ function NodeInspector({
     );
     if (node.type === 'tool') {
       setToolName(node.toolName || '');
+      setToolFilter('');
       setArgsText(formatToolArgs(node.args));
     } else {
       setToolName('');
+      setToolFilter('');
       setArgsText('');
     }
     if (node.type === 'input') {
@@ -1080,6 +1112,16 @@ function NodeInspector({
       .catch(() => setMcpTools([]));
   }, []);
 
+  const filteredMcpTools = useMemo(() => {
+    const q = toolFilter.trim().toLowerCase();
+    if (!q) return mcpTools;
+    return mcpTools.filter(
+      (t) =>
+        t.name.toLowerCase().includes(q) ||
+        (t.serverName || '').toLowerCase().includes(q)
+    );
+  }, [mcpTools, toolFilter]);
+
   if (!node) return null;
   const meta = NODE_META[node.type];
   const Icon = meta.icon;
@@ -1089,7 +1131,6 @@ function NodeInspector({
     (node.type !== 'agent' || agentCount > 1);
   const canSplit =
     node.type === 'agent' && (prompt.includes('\n\n') || prompt.trim().length > 80);
-  const toolDatalistId = `workflow-tool-names-${node.id}`;
 
   const save = async () => {
     if (node.type === 'agent') {
@@ -1268,37 +1309,60 @@ function NodeInspector({
 
         {node.type === 'tool' ? (
           <>
-            <label className="block space-y-1">
+            <div className="space-y-2">
               <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-text-muted">
                 Tool
               </span>
               <input
-                list={toolDatalistId}
-                value={toolName}
+                value={toolFilter}
                 disabled={busy}
-                placeholder="Select or type a tool name"
+                placeholder="Filter MCP tools…"
+                onChange={(e) => setToolFilter(e.target.value)}
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-text-primary focus:border-accent/40 focus:outline-none focus:ring-2 focus:ring-accent/15 disabled:opacity-60"
+              />
+              <select
+                value={mcpTools.some((t) => t.name === toolName) ? toolName : ''}
+                disabled={busy}
                 onChange={(e) => {
-                  setToolName(e.target.value);
+                  const next = e.target.value;
+                  if (!next) return;
+                  setToolName(next);
                   setArgsError(null);
                   setDirty(true);
                 }}
                 className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-text-primary focus:border-accent/40 focus:outline-none focus:ring-2 focus:ring-accent/15 disabled:opacity-60"
-              />
-              <datalist id={toolDatalistId}>
-                {mcpTools.map((t) => (
-                  <option
-                    key={`${t.serverName || 'mcp'}:${t.name}`}
-                    value={t.name}
-                    label={t.serverName ? `${t.name} · ${t.serverName}` : t.name}
-                  />
+              >
+                <option value="">
+                  {mcpTools.length > 0 ? 'Select an MCP tool…' : 'No MCP tools loaded'}
+                </option>
+                {filteredMcpTools.map((t) => (
+                  <option key={`${t.serverName || 'mcp'}:${t.name}`} value={t.name}>
+                    {t.serverName ? `${t.name} · ${t.serverName}` : t.name}
+                  </option>
                 ))}
-              </datalist>
+              </select>
+              <label className="block space-y-1">
+                <span className="text-[10px] font-medium text-text-muted">
+                  Or type a custom tool name
+                </span>
+                <input
+                  value={toolName}
+                  disabled={busy}
+                  placeholder="e.g. list_employees"
+                  onChange={(e) => {
+                    setToolName(e.target.value);
+                    setArgsError(null);
+                    setDirty(true);
+                  }}
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-text-primary focus:border-accent/40 focus:outline-none focus:ring-2 focus:ring-accent/15 disabled:opacity-60"
+                />
+              </label>
               <p className="text-[11px] leading-4 text-text-muted">
                 {mcpTools.length > 0
-                  ? `${mcpTools.length} connected MCP tool${mcpTools.length === 1 ? '' : 's'} available — or type any tool name.`
-                  : 'Type a tool name (MCP tools appear here when connectors are ready).'}
+                  ? `${mcpTools.length} connected MCP tool${mcpTools.length === 1 ? '' : 's'} — pick one or type any name. Save step, then Save graph.`
+                  : 'Type a tool name (MCP tools appear when connectors are ready). Save step, then Save graph.'}
               </p>
-            </label>
+            </div>
             <label className="block space-y-1">
               <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-text-muted">
                 Arguments (JSON)
@@ -1575,6 +1639,13 @@ function NodeInspector({
               type="button"
               disabled={busy || !dirty}
               onClick={() => void save()}
+              title={
+                busy
+                  ? 'Busy…'
+                  : !dirty
+                    ? 'Edit a field to enable Save step'
+                    : 'Apply step changes to the draft graph'
+              }
               className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-2.5 py-1.5 text-xs font-medium text-white disabled:opacity-50"
             >
               <Check className="h-3.5 w-3.5" />

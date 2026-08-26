@@ -40,18 +40,23 @@ export interface MessageMarkdownProps {
   normalizedText: string;
   isStreaming?: boolean;
   components?: Record<string, unknown>;
+  /** Visual tone — thinking uses muted sans; output keeps primary serif prose. */
+  tone?: 'output' | 'thinking';
 }
 
 export const MessageMarkdown = memo(function MessageMarkdown({
   normalizedText,
   isStreaming,
   components,
+  tone = 'output',
 }: MessageMarkdownProps) {
+  const proseClass =
+    tone === 'thinking'
+      ? 'prose-thinking max-w-none text-text-secondary text-start'
+      : 'prose-chat max-w-none text-text-primary text-start';
+
   return (
-    <div
-      {...AUTO_TEXT_DIRECTION_PROPS}
-      className="prose-chat max-w-none text-text-primary text-start"
-    >
+    <div {...AUTO_TEXT_DIRECTION_PROPS} className={proseClass}>
       <ReactMarkdown
         remarkPlugins={
           REMARK_PLUGINS as unknown as Parameters<typeof ReactMarkdown>[0]['remarkPlugins']

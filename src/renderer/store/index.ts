@@ -135,8 +135,9 @@ interface AppState {
   /** Session id bound to the Ask Growth OS popup (multi-turn while open). */
   askGrowthOSSessionId: string | null;
 
-  // Permission
+  // Permission — head of queue is pendingPermission; remainder in permissionQueue
   pendingPermission: PermissionRequest | null;
+  permissionQueue: PermissionRequest[];
 
   // AskUserQuestion — keyed by sessionId so concurrent sessions cannot clobber each other
   pendingQuestionsBySessionId: Record<string, UserQuestionRequest>;
@@ -248,6 +249,10 @@ interface AppState {
   setAskGrowthOSSessionId: (sessionId: string | null) => void;
 
   setPendingPermission: (permission: PermissionRequest | null) => void;
+  /** Enqueue a permission ask; shows immediately if none is active. */
+  enqueuePermission: (permission: PermissionRequest) => void;
+  /** Resolve/dismiss by toolUseId and surface the next queued ask. */
+  dequeuePermission: (toolUseId: string) => void;
 
   setPendingQuestion: (question: UserQuestionRequest) => void;
   clearPendingQuestion: (sessionId: string, questionId?: string) => void;
@@ -349,6 +354,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   askGrowthOSOpen: false,
   askGrowthOSSessionId: null,
   pendingPermission: null,
+  permissionQueue: [],
   pendingQuestionsBySessionId: {},
   pendingSudoPassword: null,
   settings: defaultSettings,
@@ -863,8 +869,47 @@ export const useAppStore = create<AppState>((set, get) => ({
     ),
   setAskGrowthOSSessionId: (sessionId) => set({ askGrowthOSSessionId: sessionId }),
 
-  // Permission actions
-  setPendingPermission: (permission) => set({ pendingPermission: permission }),
+  // Permission actions — queue so multi-tool asks (e.g. Slack posts to N channels)
+  // are not overwritten when several permission.request events arrive.
+  setPendingPermission: (permission) =>
+    set(
+      permission
+        ? { pendingPermission: permission }
+        : { pendingPermission: null, permissionQueue: [] }
+    ),
+  enqueuePermission: (permission) =>
+    set((state) => {
+      const activeId = state.pendingPermission?.toolUseId;
+      if (activeId === permission.toolUseId) {
+        return { pendingPermission: permission };
+      }
+      if (
+        state.permissionQueue.some((p) => p.toolUseId === permission.toolUseId)
+      ) {
+        return {
+          permissionQueue: state.permissionQueue.map((p) =>
+            p.toolUseId === permission.toolUseId ? permission : p
+          ),
+        };
+      }
+      if (!state.pendingPermission) {
+        return { pendingPermission: permission };
+      }
+      return { permissionQueue: [...state.permissionQueue, permission] };
+    }),
+  dequeuePermission: (toolUseId) =>
+    set((state) => {
+      if (state.pendingPermission?.toolUseId === toolUseId) {
+        const [next, ...rest] = state.permissionQueue;
+        return {
+          pendingPermission: next ?? null,
+          permissionQueue: rest,
+        };
+      }
+      return {
+        permissionQueue: state.permissionQueue.filter((p) => p.toolUseId !== toolUseId),
+      };
+    }),
 
   // AskUserQuestion actions
   setPendingQuestion: (question) =>

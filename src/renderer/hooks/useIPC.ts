@@ -275,14 +275,11 @@ export function useIPC() {
             break;
 
           case 'permission.request':
-            store.setPendingPermission(event.payload);
+            store.enqueuePermission(event.payload);
             break;
 
           case 'permission.dismiss': {
-            const currentPermission = useAppStore.getState().pendingPermission;
-            if (currentPermission?.toolUseId === event.payload.toolUseId) {
-              store.setPendingPermission(null);
-            }
+            store.dequeuePermission(event.payload.toolUseId);
             break;
           }
 
@@ -509,7 +506,8 @@ export function useIPC() {
         const mainStatus = resolveMainSessionStatus(sessions ?? undefined, sessionId);
         const awaitingUserInput = Boolean(
           latest.pendingQuestionsBySessionId[sessionId] ||
-          latest.pendingPermission?.sessionId === sessionId
+          latest.pendingPermission?.sessionId === sessionId ||
+          latest.permissionQueue.some((p) => p.sessionId === sessionId)
         );
         const decision = decideStaleTurnAction({ quietMs, mainStatus, awaitingUserInput });
         if (decision.action === 'none') continue;
@@ -610,7 +608,7 @@ export function useIPC() {
   const updateSession = useAppStore((s) => s.updateSession);
   const addMessage = useAppStore((s) => s.addMessage);
   const setLoading = useAppStore((s) => s.setLoading);
-  const setPendingPermission = useAppStore((s) => s.setPendingPermission);
+  const dequeuePermission = useAppStore((s) => s.dequeuePermission);
   const clearPendingQuestion = useAppStore((s) => s.clearPendingQuestion);
   const clearActiveTurn = useAppStore((s) => s.clearActiveTurn);
   const activateNextTurn = useAppStore((s) => s.activateNextTurn);
@@ -1165,6 +1163,9 @@ export function useIPC() {
   const importSession = useCallback(async (): Promise<{
     success: boolean;
     session?: Session;
+    sessions?: Session[];
+    importedCount?: number;
+    source?: string;
     error?: string;
     cancelled?: boolean;
   }> => {
@@ -1172,30 +1173,50 @@ export function useIPC() {
       return { success: false, error: 'Import is only available in the desktop app' };
     }
     const result = await window.electronAPI.session.import();
-    if (!result.success || !result.session) {
+    if (!result.success) {
       return result;
     }
 
-    const session = result.session;
-    const existing = useAppStore.getState().sessions.some((s) => s.id === session.id);
-    if (!existing) {
-      addSession(session);
+    const sessions =
+      result.sessions && result.sessions.length > 0
+        ? result.sessions
+        : result.session
+          ? [result.session]
+          : [];
+    if (sessions.length === 0) {
+      return { success: false, error: result.error || 'Import failed' };
     }
-    useAppStore.getState().setActiveSession(session.id);
+
+    for (const session of sessions) {
+      const existing = useAppStore.getState().sessions.some((s) => s.id === session.id);
+      if (!existing) {
+        addSession(session);
+      }
+    }
+
+    const active = sessions[sessions.length - 1];
+    useAppStore.getState().setActiveSession(active.id);
     useAppStore.getState().setShowSettings(false);
+    useAppStore.getState().setShowMatter(false);
+    useAppStore.getState().setShowWorkflows(false);
 
     try {
       const [messages, traceSteps] = await Promise.all([
-        invoke<Message[]>({ type: 'session.getMessages', payload: { sessionId: session.id } }),
-        invoke<TraceStep[]>({ type: 'session.getTraceSteps', payload: { sessionId: session.id } }),
+        invoke<Message[]>({ type: 'session.getMessages', payload: { sessionId: active.id } }),
+        invoke<TraceStep[]>({ type: 'session.getTraceSteps', payload: { sessionId: active.id } }),
       ]);
-      useAppStore.getState().setMessages(session.id, messages || []);
-      useAppStore.getState().setTraceSteps(session.id, traceSteps || []);
+      useAppStore.getState().setMessages(active.id, messages || []);
+      useAppStore.getState().setTraceSteps(active.id, traceSteps || []);
     } catch (err) {
       console.error('[useIPC] Failed to load imported session history:', err);
     }
 
-    return result;
+    return {
+      ...result,
+      session: active,
+      sessions,
+      importedCount: sessions.length,
+    };
   }, [addSession, invoke]);
 
   const respondToPermission = useCallback(
@@ -1204,9 +1225,9 @@ export function useIPC() {
         type: 'permission.response',
         payload: { toolUseId, result },
       });
-      setPendingPermission(null);
+      dequeuePermission(toolUseId);
     },
-    [send, setPendingPermission]
+    [send, dequeuePermission]
   );
 
   const respondToQuestion = useCallback(

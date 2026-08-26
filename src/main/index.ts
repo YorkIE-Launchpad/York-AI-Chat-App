@@ -1800,7 +1800,11 @@ app
 
         startRpcLoop(async (event) => {
           // Guard GUI-only operations in headless mode
-          if (event.type === 'folder.select' || event.type === 'workdir.select') {
+          if (
+            event.type === 'folder.select' ||
+            event.type === 'skill.selectFile' ||
+            event.type === 'workdir.select'
+          ) {
             throw new Error(`${event.type} is not supported in headless mode`);
           }
           return handleClientEvent(event);
@@ -4467,7 +4471,10 @@ ipcMain.handle('session.import', async () => {
       title: 'Import Chat',
       properties: ['openFile'],
       filters: [
+        { name: 'Chat exports', extensions: ['yorkchat', 'zip', 'json', 'md', 'markdown', 'txt', 'pdf'] },
         { name: 'York Chat', extensions: ['yorkchat', 'zip'] },
+        { name: 'ChatGPT / Claude JSON', extensions: ['json', 'zip'] },
+        { name: 'Transcript', extensions: ['md', 'markdown', 'txt', 'pdf'] },
         { name: 'All Files', extensions: ['*'] },
       ],
     });
@@ -4476,21 +4483,71 @@ ipcMain.handle('session.import', async () => {
       return { success: false, error: 'User cancelled', cancelled: true };
     }
 
+    const sourcePath = openResult.filePaths[0];
+    const cwd = currentWorkingDir || configStore.get('defaultWorkdir') || undefined;
+    const lower = sourcePath.toLowerCase();
+
+    const { convertExternalChatFile } = await import('./session/external-chat-import');
+    const external = await convertExternalChatFile(sourcePath);
+
+    if (external && external.payloads.length > 0) {
+      const sessions = [];
+      for (const payload of external.payloads) {
+        const session = sessionManager.importSessionFromPayload(
+          payload,
+          new Map(),
+          { cwd }
+        );
+        sessions.push(session);
+      }
+      log(
+        `[Session] Imported ${sessions.length} chat(s) from ${external.source} export`
+      );
+      return {
+        success: true,
+        session: sessions[0],
+        sessions,
+        importedCount: sessions.length,
+        source: external.source,
+      };
+    }
+
+    const looksLikeYorkPackage =
+      lower.endsWith('.yorkchat') || lower.endsWith('.zip');
+    if (!looksLikeYorkPackage) {
+      return {
+        success: false,
+        error:
+          'Unrecognized chat export. Use a .yorkchat file, ChatGPT/Claude conversations.json (or zip), Markdown transcript, or PDF.',
+      };
+    }
+
     const { importSessionFromPath } = await import('./session/session-transfer');
     const importResult = await importSessionFromPath(
       {
         importSession: (payload, attachmentFiles, options) =>
           sessionManager!.importSessionFromPayload(payload, attachmentFiles, options),
       },
-      openResult.filePaths[0],
-      { cwd: currentWorkingDir || configStore.get('defaultWorkdir') || undefined }
+      sourcePath,
+      { cwd }
     );
 
     if (!importResult.success || !importResult.session) {
-      return { success: false, error: importResult.error || 'Import failed' };
+      return {
+        success: false,
+        error:
+          importResult.error ||
+          'Unrecognized chat export. Use a .yorkchat file, ChatGPT/Claude conversations.json, Markdown transcript, or PDF.',
+      };
     }
 
-    return { success: true, session: importResult.session };
+    return {
+      success: true,
+      session: importResult.session,
+      sessions: [importResult.session],
+      importedCount: 1,
+      source: 'yorkchat',
+    };
   } catch (error) {
     logError('[Session] Error importing chat:', error);
     return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
@@ -5611,6 +5668,21 @@ async function handleClientEvent(event: ClientEvent): Promise<unknown> {
           payload: { path: folderResult.filePaths[0] },
         });
         return folderResult.filePaths[0];
+      }
+      return null;
+    }
+
+    case 'skill.selectFile': {
+      const skillFileResult = await dialog.showOpenDialog(mainWindow!, {
+        properties: ['openFile'],
+        title: 'Select Skill Package',
+        filters: [
+          { name: 'Skill packages', extensions: ['skill', 'zip', 'md'] },
+          { name: 'All Files', extensions: ['*'] },
+        ],
+      });
+      if (!skillFileResult.canceled && skillFileResult.filePaths.length > 0) {
+        return skillFileResult.filePaths[0];
       }
       return null;
     }

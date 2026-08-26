@@ -328,6 +328,36 @@ export function SettingsSkills({ isActive }: { isActive: boolean }) {
     }
   }
 
+  async function handleInstallFromFile() {
+    try {
+      const filePath = await window.electronAPI.invoke<string | null>({
+        type: 'skill.selectFile',
+        payload: {},
+      });
+      if (!filePath) return;
+
+      setIsLoading(true);
+      const validation = await window.electronAPI.skills.validate(filePath);
+
+      if (!validation.valid) {
+        setError({ text: `Invalid skill file: ${validation.errors.join(', ')}` });
+        return;
+      }
+
+      const result = await window.electronAPI.skills.install(filePath);
+      if (result.success) {
+        await loadSkills();
+        setError(null);
+        setSuccess({ text: t('skills.installFromFileSuccess') });
+        setTimeout(() => setSuccess(null), 5000);
+      }
+    } catch (err) {
+      setError({ text: err instanceof Error ? err.message : t('skills.failedToInstall') });
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
   async function handleSelectStoragePath() {
     try {
       const folderPath = await window.electronAPI.invoke<string | null>({
@@ -604,7 +634,7 @@ export function SettingsSkills({ isActive }: { isActive: boolean }) {
         title={t('skills.pluginsTitle')}
         description={t('skills.pluginsDesc')}
       >
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
           <button
             onClick={handleBrowsePlugins}
             disabled={isLoading || isPluginLoading}
@@ -624,6 +654,14 @@ export function SettingsSkills({ isActive }: { isActive: boolean }) {
           >
             <Plus className="w-5 h-5" />
             {t('skills.installSkillFromFolder')}
+          </button>
+          <button
+            onClick={() => void handleInstallFromFile()}
+            disabled={isLoading}
+            className="w-full py-3 px-4 rounded-lg border-2 border-dashed border-border-subtle hover:border-accent hover:bg-accent/5 transition-all flex items-center justify-center gap-2 text-text-secondary hover:text-accent disabled:opacity-50"
+          >
+            <Plus className="w-5 h-5" />
+            {t('skills.installSkillFromFile')}
           </button>
         </div>
       </SettingsContentSection>

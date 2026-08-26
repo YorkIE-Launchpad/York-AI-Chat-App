@@ -11,14 +11,18 @@
  *
  * Dependencies: config-store, database, chokidar
  */
+import { randomUUID } from 'crypto';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { app } from 'electron';
 import chokidar, { type FSWatcher } from 'chokidar';
+import extract from 'extract-zip';
 import type { Skill, PluginInstallResult } from '../../renderer/types';
 import type { DatabaseInstance } from '../db/database';
 import { log, logError, logWarn } from '../utils/logger';
 import { isPathWithinRoot } from '../tools/path-containment';
+import { resolveExtractedSkillRoot } from './hub-skills-library-service';
 
 /** Written next to SKILL.md when installing from the Hub skills library. */
 export const HUB_SKILL_ORIGIN_FILENAME = '.york-hub-origin.json';
@@ -849,48 +853,122 @@ export class SkillsManager {
   }
 
   /**
+   * Resolve a skill folder, `.skill`/`.zip` package, or lone `.md`/`SKILL.md`
+   * into a directory that contains SKILL.md (may be a temp dir).
+   */
+  async resolveInstallableSkillFolder(sourcePath: string): Promise<{
+    folderPath: string;
+    cleanup?: () => void;
+  }> {
+    if (!fs.existsSync(sourcePath)) {
+      throw new Error('Path does not exist');
+    }
+
+    const stat = fs.statSync(sourcePath);
+    if (stat.isDirectory()) {
+      return { folderPath: sourcePath };
+    }
+
+    if (!stat.isFile()) {
+      throw new Error('Path must be a skill folder, .skill package, or .md file');
+    }
+
+    const ext = path.extname(sourcePath).toLowerCase();
+    const baseName = path.basename(sourcePath).toLowerCase();
+
+    if (ext === '.skill' || ext === '.zip') {
+      const tempRoot = path.join(os.tmpdir(), `york-skill-pack-${randomUUID()}`);
+      const extractDir = path.join(tempRoot, 'extracted');
+      await fs.promises.mkdir(extractDir, { recursive: true });
+      try {
+        await extract(sourcePath, { dir: extractDir });
+        const folderPath = await resolveExtractedSkillRoot(extractDir);
+        return {
+          folderPath,
+          cleanup: () => {
+            try {
+              fs.rmSync(tempRoot, { recursive: true, force: true });
+            } catch {
+              /* ignore */
+            }
+          },
+        };
+      } catch (err) {
+        try {
+          fs.rmSync(tempRoot, { recursive: true, force: true });
+        } catch {
+          /* ignore */
+        }
+        throw err instanceof Error ? err : new Error('Failed to extract skill package');
+      }
+    }
+
+    if (ext === '.md' || baseName === 'skill.md') {
+      const tempRoot = path.join(os.tmpdir(), `york-skill-md-${randomUUID()}`);
+      await fs.promises.mkdir(tempRoot, { recursive: true });
+      const dest = path.join(tempRoot, 'SKILL.md');
+      await fs.promises.copyFile(sourcePath, dest);
+      return {
+        folderPath: tempRoot,
+        cleanup: () => {
+          try {
+            fs.rmSync(tempRoot, { recursive: true, force: true });
+          } catch {
+            /* ignore */
+          }
+        },
+      };
+    }
+
+    throw new Error(
+      'Unsupported skill file. Use a folder with SKILL.md, a .skill/.zip package, or a .md file.'
+    );
+  }
+
+  /**
    * Validate skill folder structure and SKILL.md
    */
   async validateSkillFolder(skillPath: string): Promise<{ valid: boolean; errors: string[] }> {
     const errors: string[] = [];
 
-    // Check if path exists
-    if (!fs.existsSync(skillPath)) {
-      return { valid: false, errors: ['Path does not exist'] };
-    }
-
-    // Check if it's a directory
-    const stat = fs.statSync(skillPath);
-    if (!stat.isDirectory()) {
-      return { valid: false, errors: ['Path is not a directory'] };
-    }
-
-    // Check for SKILL.md
-    const skillMdPath = path.join(skillPath, 'SKILL.md');
-    if (!fs.existsSync(skillMdPath)) {
-      return { valid: false, errors: ['SKILL.md not found'] };
-    }
-
-    // Parse SKILL.md frontmatter
+    let resolved: { folderPath: string; cleanup?: () => void };
     try {
-      const content = fs.readFileSync(skillMdPath, 'utf-8');
-      const frontMatterMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-      const frontMatter = frontMatterMatch ? frontMatterMatch[1] : content;
-
-      const nameMatch = frontMatter.match(/name:\s*["']?([^"'\r\n]+)["']?/);
-      const descMatch = frontMatter.match(/description:\s*["']?([^"'\r\n]+)["']?/);
-
-      if (!nameMatch) {
-        errors.push('SKILL.md missing "name" in frontmatter');
-      }
-      if (!descMatch) {
-        errors.push('SKILL.md missing "description" in frontmatter');
-      }
+      resolved = await this.resolveInstallableSkillFolder(skillPath);
     } catch (err) {
-      errors.push('Failed to parse SKILL.md');
+      return {
+        valid: false,
+        errors: [err instanceof Error ? err.message : 'Invalid skill path'],
+      };
     }
 
-    return { valid: errors.length === 0, errors };
+    try {
+      const skillMdPath = path.join(resolved.folderPath, 'SKILL.md');
+      if (!fs.existsSync(skillMdPath)) {
+        return { valid: false, errors: ['SKILL.md not found'] };
+      }
+
+      try {
+        const content = fs.readFileSync(skillMdPath, 'utf-8');
+        const frontMatterMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+        const frontMatter = frontMatterMatch ? frontMatterMatch[1] : content;
+
+        const nameMatch = frontMatter.match(/name:\s*["']?([^"'\r\n]+)["']?/);
+        const descMatch = frontMatter.match(/description:\s*["']?([^"'\r\n]+)["']?/);
+
+        if (!nameMatch) {
+          errors.push('SKILL.md missing "name" in frontmatter');
+        }
+        if (!descMatch) {
+          errors.push('SKILL.md missing "description" in frontmatter');
+        }
+      } catch {
+        errors.push('Failed to parse SKILL.md');
+      }
+
+      return { valid: errors.length === 0, errors };
+    } finally {
+      resolved.cleanup?.();
+    }
   }
 
   /**
@@ -1031,73 +1109,85 @@ export class SkillsManager {
   }
 
   /**
-   * Install a skill from a directory
+   * Install a skill from a directory, `.skill`/`.zip` package, or lone `.md` file.
    */
   async installSkill(skillPath: string): Promise<Skill> {
-    // Validate skill folder
-    const validation = await this.validateSkillFolder(skillPath);
-    if (!validation.valid) {
-      throw new Error(`Invalid skill folder: ${validation.errors.join(', ')}`);
-    }
-
-    // Get skill metadata
-    const metadata = this.getSkillMetadata(skillPath);
-    if (!metadata) {
-      throw new Error('Failed to read skill metadata from SKILL.md');
-    }
-
-    // Validate skill name is safe for filesystem operations
-    validateSkillName(metadata.name);
-
-    // Load global skills to check for existing
-    await this.loadGlobalSkills();
-
-    // Check if skill with same name already exists in global directory
-    // Use app-specific skills directory to avoid conflicts with user settings
-    const globalSkillsPath = this.getGlobalSkillsPath();
-    const targetPath = path.join(globalSkillsPath, metadata.name);
-
-    const normalizedSkillName = metadata.name.toLowerCase();
-    for (const [skillId, skill] of this.loadedSkills.entries()) {
-      if (skill.name.toLowerCase() === normalizedSkillName) {
-        this.loadedSkills.delete(skillId);
-        log(`Removing existing skill: ${skill.name} (${skillId})`);
+    const resolved = await this.resolveInstallableSkillFolder(skillPath);
+    try {
+      const errors: string[] = [];
+      const skillMdPath = path.join(resolved.folderPath, 'SKILL.md');
+      if (!fs.existsSync(skillMdPath)) {
+        throw new Error('Invalid skill folder: SKILL.md not found');
       }
-    }
-
-    if (isDanglingSymlink(targetPath)) {
       try {
-        fs.unlinkSync(targetPath);
-        log(`Removed dangling symlink at: ${targetPath}`);
+        const content = fs.readFileSync(skillMdPath, 'utf-8');
+        const frontMatterMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+        const frontMatter = frontMatterMatch ? frontMatterMatch[1] : content;
+        if (!frontMatter.match(/name:\s*["']?([^"'\r\n]+)["']?/)) {
+          errors.push('SKILL.md missing "name" in frontmatter');
+        }
+        if (!frontMatter.match(/description:\s*["']?([^"'\r\n]+)["']?/)) {
+          errors.push('SKILL.md missing "description" in frontmatter');
+        }
       } catch {
-        if (isDanglingSymlink(targetPath))
-          throw new Error(`Cannot remove dangling symlink: ${targetPath}`);
+        errors.push('Failed to parse SKILL.md');
       }
-    } else if (fs.existsSync(targetPath)) {
-      // Delete existing directory
-      fs.rmSync(targetPath, { recursive: true, force: true });
-      log(`Deleted existing skill directory: ${targetPath}`);
+      if (errors.length) {
+        throw new Error(`Invalid skill folder: ${errors.join(', ')}`);
+      }
+
+      const metadata = this.getSkillMetadata(resolved.folderPath);
+      if (!metadata) {
+        throw new Error('Failed to read skill metadata from SKILL.md');
+      }
+
+      validateSkillName(metadata.name);
+
+      await this.loadGlobalSkills();
+
+      const globalSkillsPath = this.getGlobalSkillsPath();
+      const targetPath = path.join(globalSkillsPath, metadata.name);
+
+      const normalizedSkillName = metadata.name.toLowerCase();
+      for (const [skillId, skill] of this.loadedSkills.entries()) {
+        if (skill.name.toLowerCase() === normalizedSkillName) {
+          this.loadedSkills.delete(skillId);
+          log(`Removing existing skill: ${skill.name} (${skillId})`);
+        }
+      }
+
+      if (isDanglingSymlink(targetPath)) {
+        try {
+          fs.unlinkSync(targetPath);
+          log(`Removed dangling symlink at: ${targetPath}`);
+        } catch {
+          if (isDanglingSymlink(targetPath))
+            throw new Error(`Cannot remove dangling symlink: ${targetPath}`);
+        }
+      } else if (fs.existsSync(targetPath)) {
+        fs.rmSync(targetPath, { recursive: true, force: true });
+        log(`Deleted existing skill directory: ${targetPath}`);
+      }
+
+      await this.copySkillToGlobal(resolved.folderPath, metadata.name);
+
+      this.invalidateGlobalSkillsCache();
+      const globalSkills = await this.loadGlobalSkills();
+      const installedSkill = globalSkills.find(
+        (skill) => skill.name.toLowerCase() === normalizedSkillName
+      );
+
+      if (!installedSkill) {
+        throw new Error(`Installed skill not found after reload: ${metadata.name}`);
+      }
+
+      this.saveSkill(installedSkill);
+
+      log(`Installed skill: ${installedSkill.name} (${installedSkill.id})`);
+      return installedSkill;
+    } finally {
+      resolved.cleanup?.();
     }
-
-    // Copy skill to global directory
-    await this.copySkillToGlobal(skillPath, metadata.name);
-
-    // Reload from global directory and return canonical global skill entry.
-    this.invalidateGlobalSkillsCache();
-    const globalSkills = await this.loadGlobalSkills();
-    const installedSkill = globalSkills.find(
-      (skill) => skill.name.toLowerCase() === normalizedSkillName
-    );
-
-    if (!installedSkill) {
-      throw new Error(`Installed skill not found after reload: ${metadata.name}`);
-    }
-
-    // Save canonical skill entry (stable id: global-<folderName>)
-    this.saveSkill(installedSkill);
-
-    log(`Installed skill: ${installedSkill.name} (${installedSkill.id})`);
-    return installedSkill;
   }
 
   /**

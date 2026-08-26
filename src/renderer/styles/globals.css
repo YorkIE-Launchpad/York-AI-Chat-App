@@ -199,6 +199,34 @@
     letter-spacing: -0.01em;
   }
 
+  /* Thinking blocks — muted sans, visually distinct from answer prose */
+  .prose-thinking {
+    font-family:
+      ui-sans-serif,
+      system-ui,
+      -apple-system,
+      BlinkMacSystemFont,
+      'Segoe UI',
+      sans-serif;
+    font-size: 0.875rem;
+    line-height: 1.55;
+    letter-spacing: 0;
+    font-style: italic;
+  }
+
+  .prose-thinking p {
+    margin-bottom: 0.5rem;
+  }
+
+  .prose-thinking p:last-child {
+    margin-bottom: 0;
+  }
+
+  .prose-thinking strong {
+    font-weight: 600;
+    font-style: normal;
+  }
+
   .prose-chat p {
     margin-bottom: 0.75rem;
   }

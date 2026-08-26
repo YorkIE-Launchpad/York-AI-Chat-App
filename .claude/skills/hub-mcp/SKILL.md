@@ -71,6 +71,8 @@ Rules:
 | Who is staffed                                              | `list_project_allocations`                                            | `get_project_allocation_timeline` (project id + email; **employee-scoped**)                                             |
 | Find bench people                                           | `send_project_bench_suggestions_chat` or project/position bench tools | Use returned emails with employee tools                                                                                 |
 | Log my hours                                                | `list_my_timesheet_drafts`                                            | `bulk_save_timesheets` → `submit_timesheet_draft`                                                                       |
+| Show / list hours **in a calendar window** (“hours logged yesterday / this week / last 10 days”) | `list_projects` (if project named) → `list_timesheets` or `generate_timesheet_summary` | Pass `YYYY-MM-DD` start/end for that calendar range; filter by project id when named |
+| Show **last N hours logged** (“last 24 hours logged”, “last 10 hours logged on the project”) | `list_projects` → `list_timesheets` (wide recent date range + project) | Sort newest first; **accumulate row `hours` until ≥ N**; report those rows. Do **not** treat N as wall-clock hours or as N days. Do **not** use a 24h calendar window for “24 hours logged”. Prefer `list_timesheets` over summary-only when the user wants the entries. |
 | Approve hours                                               | `list_pending_timesheet_reviews`                                      | `bulk_approve_timesheets_by_filters` (`approved_by` email)                                                              |
 | Book leave                                                  | `list_my_leave_requests` / calendar                                   | `apply_for_leave`                                                                                                       |
 | Book WFH                                                    | `get_wfh_summary` / calendar                                          | `apply_for_work_from_home` (`reason` ≥ 10 chars)                                                                        |
@@ -93,6 +95,11 @@ Rules:
 - `bulk_save_timesheets` = atomic multi-row for **current user only**.
 - Work-item configs = admin labels for logging taxonomy.
 - AI helpers draft description/summary; they do not submit.
+- **Logged-hours quantity vs calendar:** Hub date filters are day-granular
+  (`YYYY-MM-DD`). Phrases like “last N hours **logged**” mean the most recent
+  timesheet rows whose `hours` sum to ~N — fetch recent rows and accumulate.
+  Phrases like “hours logged **in the last N days / this week**” mean a
+  calendar start/end window. Never map “10 hours” to “10 days”.
 
 ### Leave & WFH
 

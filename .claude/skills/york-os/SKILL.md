@@ -173,6 +173,16 @@ summary in the description.”
 → Reply with created event details
 ```
 
+**Contrast — logged quantity, not calendar days:** User: “Show the last 10 hours
+logged on project X” (or “last 24 hours logged”).
+
+```text
+→ Hub list_projects → project id for X
+→ Hub list_timesheets(project, wide recent start/end) — NOT a 10-day or 24h calendar-only window
+→ Sort newest first; accumulate row hours until ≥ 10 (or 24); report those entries
+→ Never map “10 hours” → “10 days” or empty summary from a too-narrow day filter
+```
+
 ### Ask rules (scheduling)
 
 - Never AskUserQuestion for meta permission (“may I ask…”, “can I proceed…”).

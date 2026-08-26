@@ -26,6 +26,7 @@ export const MCP_PINBOARD_ORIGINAL_NAMES = new Set([
   'search_organization',
   'get_leave_wfh_calendar',
   'generate_timesheet_summary',
+  'list_timesheets',
   'list_projects',
   'get_project',
   'list_clients',

@@ -96,13 +96,16 @@ export const ThinkingBlock = memo(function ThinkingBlock({
 
       {expanded && (
         <div className="border-t border-border/50 px-4 py-3 animate-fade-in">
-          <div className="text-sm text-text-secondary leading-relaxed prose-chat max-w-none">
+          <div className="text-sm text-text-secondary leading-relaxed max-w-none">
             <PanelErrorBoundary
               name="ThinkingMarkdown"
               fallback={<div className="whitespace-pre-wrap">{text}</div>}
             >
               <Suspense fallback={<div className="whitespace-pre-wrap">{text}</div>}>
-                <MessageMarkdown normalizedText={escapeThinkTags(text)} />
+                <MessageMarkdown
+                  normalizedText={escapeThinkTags(text)}
+                  tone="thinking"
+                />
               </Suspense>
             </PanelErrorBoundary>
           </div>
