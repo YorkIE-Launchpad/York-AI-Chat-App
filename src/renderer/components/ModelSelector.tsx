@@ -485,7 +485,7 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
                     </span>
                     {budgetRequiresByok && (
                       <span className="shrink-0 text-[10px] font-medium tracking-[0.02em] text-text-muted">
-                        {t('workspace.models.byokRequired', 'key required')}
+                        {t('workspace.models.byokRequired')}
                       </span>
                     )}
                     {showOpenRouterCue && !rowDisabled && (
@@ -570,9 +570,20 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
 
             {!isLoading && models.length === 0 && (
               <div className="px-4 py-2 text-[11px] leading-snug text-text-muted">
-                {t('workspace.models.noProviderKeys', 'No provider keys configured')}
+                {activeDivision?.kind === 'hub' || activeDivision?.kind === 'project'
+                  ? t('workspace.models.askManager')
+                  : t('workspace.models.noProviderKeys')}
               </div>
             )}
+            {!isLoading &&
+              models.length > 0 &&
+              !hasOpenRouterKey &&
+              (activeDivision?.kind === 'hub' || activeDivision?.kind === 'project') &&
+              models.some((m) => m.provider !== 'openrouter' && m.hasBudget === false) && (
+                <div className="border-t border-border-subtle px-4 py-2 text-[11px] leading-snug text-text-muted">
+                  {t('workspace.models.askManager')}
+                </div>
+              )}
             {!isLoading && models.some((m) => m.provider === 'openrouter') && (
               <div className="border-t border-border-subtle px-4 py-2 text-[11px] leading-snug text-text-muted">
                 {hasOpenRouterKey

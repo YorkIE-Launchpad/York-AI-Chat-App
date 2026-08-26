@@ -92,7 +92,11 @@ export function OpenRouterKeyGateBanner({
               ? t('workspace.budget.noYorkAllowance')
               : t('workspace.openRouter.gateBody')}
           </p>
-          {!noYorkAllowance && (
+          {noYorkAllowance ? (
+            <p className="text-xs leading-relaxed text-text-muted">
+              {t('workspace.budget.askManager')}
+            </p>
+          ) : (
             <p className="text-xs leading-relaxed text-text-muted">
               {t('workspace.openRouter.gateAlt')}
             </p>

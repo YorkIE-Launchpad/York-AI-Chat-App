@@ -90,6 +90,7 @@ export function HubBudgetUsageCard() {
       <div className="space-y-2 rounded-lg border border-border bg-surface p-4">
         <UsageHeader refreshing={refreshing} onRefresh={() => void onRefresh()} />
         <p className="text-sm text-text-secondary">{t('workspace.budget.noYorkAllowance')}</p>
+        <p className="text-xs text-text-secondary">{t('workspace.budget.askManager')}</p>
         {!hasKey && (
           <p className="text-xs text-amber-600 dark:text-amber-400">
             {t('workspace.budget.byokCue')}
