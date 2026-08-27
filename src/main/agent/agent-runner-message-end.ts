@@ -36,6 +36,17 @@ export const USAGE_LIMIT_USER_MESSAGE =
 export const CONTEXT_OVERFLOW_USER_MESSAGE =
   'Context window exceeded: the conversation (plus tools/files) is too large for this model. Compact the session or start a new chat, then retry.';
 
+export const MODEL_RESPONSE_TIMEOUT_USER_MESSAGE =
+  'Model response timed out: no upstream response for a long time. Please retry later or check the current model/gateway load.';
+
+/**
+ * Matches the pi SDK `_isRetryableError` transient patterns (timeouts, network,
+ * 5xx, overloaded, rate limit). Context overflow is handled separately via
+ * compaction — do not treat it as a simple auto-retry here.
+ */
+const SDK_RETRYABLE_TRANSIENT_RE =
+  /overloaded|provider.?returned.?error|rate.?limit|too many requests|429|500|502|503|504|service.?unavailable|server.?error|internal.?error|network.?error|connection.?error|connection.?refused|connection.?reset|connection.?closed|other side closed|fetch failed|upstream.?connect|upstream.?idle|idle.?timeout|reset before headers|socket hang up|timed? out|timeout|terminated|retry delay/i;
+
 export interface TerminalErrorEmissionDetails {
   partialText: string;
   messageText: string;
@@ -109,10 +120,35 @@ export function isSdkRecoverableContextOverflowError(errorText: string): boolean
   return matchesSdkOverflowPatterns(errorText);
 }
 
+/**
+ * True when the pi SDK will auto-retry this error (do not emit/abort yet).
+ * Aligns with `_isRetryableError` in @mariozechner/pi-coding-agent.
+ */
+export function isSdkRetryableTransientError(errorText: string): boolean {
+  if (!errorText) return false;
+  // Overflow uses compaction, not the simple retry path.
+  if (matchesSdkOverflowPatterns(errorText)) return false;
+  if (isContextOverflowError(errorText) && !isRateLimitError(errorText)) return false;
+  return SDK_RETRYABLE_TRANSIENT_RE.test(errorText);
+}
+
+export function isUpstreamIdleOrResponseTimeout(errorText: string): boolean {
+  const lower = errorText.toLowerCase();
+  return (
+    lower.includes('first_response_timeout') ||
+    lower.includes('upstream idle timeout') ||
+    lower.includes('idle timeout exceeded') ||
+    (lower.includes('idle timeout') && lower.includes('upstream')) ||
+    (lower.includes('timed out') && (lower.includes('upstream') || lower.includes('idle'))) ||
+    lower === 'timeout' ||
+    lower.includes('request timed out')
+  );
+}
+
 export function toUserFacingErrorText(errorText: string): string {
   const lower = errorText.toLowerCase();
-  if (lower.includes('first_response_timeout')) {
-    return 'Model response timed out: no upstream response for a long time. Please retry later or check the current model/gateway load.';
+  if (isUpstreamIdleOrResponseTimeout(errorText) || lower.includes('first_response_timeout')) {
+    return MODEL_RESPONSE_TIMEOUT_USER_MESSAGE;
   }
   if (lower.includes('empty_success_result')) {
     return 'The model returned an empty success result. The current model or gateway may have compatibility issues. Please retry or switch protocols.';
@@ -153,7 +189,7 @@ export function toUserFacingErrorText(errorText: string): string {
     lower.includes('service unavailable') ||
     lower.includes('overloaded')
   ) {
-    return `Upstream service error. The model service may be overloaded or temporarily unavailable. The SDK will retry automatically.\nOriginal error: ${errorText}`;
+    return `Upstream service error. The model service may be overloaded or temporarily unavailable. Please retry later.\nOriginal error: ${errorText}`;
   }
   if (
     lower.includes('terminated') ||
@@ -167,7 +203,7 @@ export function toUserFacingErrorText(errorText: string): string {
     lower.includes('upstream connect') ||
     lower.includes('retry delay')
   ) {
-    return `Network connection interrupted (${errorText}). The proxy/gateway may be unstable. The SDK will retry automatically.`;
+    return `Network connection interrupted (${errorText}). The proxy/gateway may be unstable. Please retry.`;
   }
   return errorText;
 }
@@ -181,7 +217,9 @@ export function resolveAssistantStreamErrorText(
 
 export function buildTerminalErrorMessage(errorText: string, partialText = ''): string {
   const normalizedPartial = partialText.trimEnd();
-  let hint = '_Agent is retrying automatically, please wait..._';
+  // Default is for *final* failures (after auto-retry exhausted). In-progress
+  // retry UX is shown via the thinking trace (auto_retry_start), not this bubble.
+  let hint = '_Please retry. If this keeps happening, try again later or switch models._';
   const lower = errorText.toLowerCase();
   // OpenRouter BYOK limits are user-owned — never tell them to contact York admin.
   if (
@@ -200,6 +238,8 @@ export function buildTerminalErrorMessage(errorText: string, partialText = ''): 
     hint = '_Use Compact in the context bar, or start a new chat._';
   } else if (isClientOutdatedError(errorText)) {
     hint = `_${CLIENT_OUTDATED_UPDATE_HINT}_`;
+  } else if (isUpstreamIdleOrResponseTimeout(errorText) || lower.includes('timed out')) {
+    hint = '_Please retry later or check the current model/gateway load._';
   } else if (FOUR_XX_ERROR_RE.test(errorText)) {
     hint = '_Please check your configuration and retry._';
   }

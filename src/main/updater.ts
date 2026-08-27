@@ -8,8 +8,18 @@ import type { UpdaterStatus, UpdaterStatusKind } from '../shared/updater-types';
 export const UPDATE_FEED_URL =
   'https://york-internal-apps.s3.ap-south-1.amazonaws.com/york-workos/latest';
 
-export const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
+/** Base cadence between background update checks (1 hour). */
+export const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 export const UPDATE_CHECK_INITIAL_DELAY_MS = 8_000;
+
+/**
+ * Random delay in [0, interval) so installs don't hit the feed in lockstep.
+ * Combined with a fixed hourly interval after the first check, each install
+ * settles on its own offset within the hour.
+ */
+export function nextUpdateCheckDelayMs(random: () => number = Math.random): number {
+  return Math.floor(random() * UPDATE_CHECK_INTERVAL_MS);
+}
 
 export function shouldEnableAutoUpdater(opts: {
   isPackaged: boolean;
@@ -44,7 +54,7 @@ let currentStatus: UpdaterStatus = {
 };
 
 let installingUpdate = false;
-let checkTimer: ReturnType<typeof setInterval> | null = null;
+let checkTimer: ReturnType<typeof setTimeout> | null = null;
 let started = false;
 let autoUpdaterInstance: typeof import('electron-updater').autoUpdater | null = null;
 
@@ -226,8 +236,21 @@ export async function startAutoUpdater(
       });
     };
 
-    setTimeout(runCheck, UPDATE_CHECK_INITIAL_DELAY_MS);
-    checkTimer = setInterval(runCheck, UPDATE_CHECK_INTERVAL_MS);
+    const scheduleNextCheck = (delayMs: number) => {
+      if (checkTimer) clearTimeout(checkTimer);
+      checkTimer = setTimeout(() => {
+        runCheck();
+        // Steady hourly cadence after the staggered first recurring check.
+        scheduleNextCheck(UPDATE_CHECK_INTERVAL_MS);
+      }, delayMs);
+    };
+
+    // Quick first check, then resume at a random offset within the hour so
+    // installs don't poll the feed at the same wall-clock time.
+    checkTimer = setTimeout(() => {
+      runCheck();
+      scheduleNextCheck(nextUpdateCheckDelayMs());
+    }, UPDATE_CHECK_INITIAL_DELAY_MS);
     log('[AutoUpdater] Started — feed:', UPDATE_FEED_URL);
   } catch (err) {
     log('[AutoUpdater] Failed to load electron-updater:', err);
@@ -240,7 +263,7 @@ export async function startAutoUpdater(
 
 export function stopAutoUpdater(): void {
   if (checkTimer) {
-    clearInterval(checkTimer);
+    clearTimeout(checkTimer);
     checkTimer = null;
   }
 }

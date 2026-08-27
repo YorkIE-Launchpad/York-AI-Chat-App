@@ -8,8 +8,10 @@ import {
   resolveMessageEndPayload,
   shouldPreserveExistingTrace,
   toUserFacingErrorText,
+  isSdkRetryableTransientError,
   CONTEXT_OVERFLOW_USER_MESSAGE,
   USAGE_LIMIT_USER_MESSAGE,
+  MODEL_RESPONSE_TIMEOUT_USER_MESSAGE,
 } from '../src/main/agent/agent-runner-message-end';
 import {
   CLIENT_OUTDATED_UPDATE_HINT,
@@ -47,9 +49,7 @@ describe('resolveMessageEndPayload', () => {
     expect(result.nextStreamedText).toBe('');
     expect(result.shouldEmitMessage).toBe(false);
     expect(result.effectiveContent).toEqual([]);
-    expect(result.errorText).toBe(
-      'Model response timed out: no upstream response for a long time. Please retry later or check the current model/gateway load.'
-    );
+    expect(result.errorText).toBe(MODEL_RESPONSE_TIMEOUT_USER_MESSAGE);
   });
 
   it('surfaces empty_success_result when message_end has no content and no streamed fallback', () => {
@@ -226,16 +226,29 @@ describe('toUserFacingErrorText', () => {
   });
 
   it('still maps first_response_timeout correctly (regression)', () => {
-    expect(toUserFacingErrorText('first_response_timeout')).toBe(
-      'Model response timed out: no upstream response for a long time. Please retry later or check the current model/gateway load.'
+    expect(toUserFacingErrorText('first_response_timeout')).toBe(MODEL_RESPONSE_TIMEOUT_USER_MESSAGE);
+  });
+
+  it('maps Upstream idle timeout exceeded to timeout copy', () => {
+    expect(toUserFacingErrorText('Upstream idle timeout exceeded')).toBe(
+      MODEL_RESPONSE_TIMEOUT_USER_MESSAGE
     );
+    expect(toUserFacingErrorText('Error: Upstream idle timeout exceeded')).toBe(
+      MODEL_RESPONSE_TIMEOUT_USER_MESSAGE
+    );
+  });
+
+  it('maps idle timeout exceeded without Upstream prefix to timeout copy', () => {
+    expect(toUserFacingErrorText('idle timeout exceeded')).toBe(MODEL_RESPONSE_TIMEOUT_USER_MESSAGE);
   });
 
   it('maps 5xx server errors to upstream service hint', () => {
     const result = toUserFacingErrorText('HTTP 502: Bad Gateway');
     expect(result).toContain('Upstream service error');
+    expect(result).toContain('Please retry later');
     expect(result).toContain('Original error:');
     expect(result).toContain('502');
+    expect(result).not.toContain('SDK will retry automatically');
   });
 
   it('maps "server error" to upstream service hint', () => {
@@ -252,6 +265,8 @@ describe('toUserFacingErrorText', () => {
     const result = toUserFacingErrorText('terminated');
     expect(result).toContain('Network connection interrupted');
     expect(result).toContain('terminated');
+    expect(result).toContain('Please retry');
+    expect(result).not.toContain('SDK will retry automatically');
   });
 
   it('maps "connection error" to network connection hint', () => {
@@ -295,6 +310,30 @@ describe('toUserFacingErrorText', () => {
   it('maps bare HTTP 426 Upgrade Required to app update copy', () => {
     const result = toUserFacingErrorText('426 Upgrade Required');
     expect(result).toBe(CLIENT_OUTDATED_USER_MESSAGE);
+  });
+});
+
+describe('isSdkRetryableTransientError', () => {
+  it('returns true for idle timeout / timeout / network / 5xx / overloaded / rate limit', () => {
+    expect(isSdkRetryableTransientError('Upstream idle timeout exceeded')).toBe(true);
+    expect(isSdkRetryableTransientError('first_response_timeout')).toBe(true);
+    expect(isSdkRetryableTransientError('connection reset')).toBe(true);
+    expect(isSdkRetryableTransientError('fetch failed')).toBe(true);
+    expect(isSdkRetryableTransientError('HTTP 503 Service Unavailable')).toBe(true);
+    expect(isSdkRetryableTransientError('overloaded_error')).toBe(true);
+    expect(isSdkRetryableTransientError('429 Too Many Requests')).toBe(true);
+    expect(isSdkRetryableTransientError('terminated')).toBe(true);
+  });
+
+  it('returns false for auth, bad request, empty success, and context overflow', () => {
+    expect(isSdkRetryableTransientError('401 Unauthorized')).toBe(false);
+    expect(isSdkRetryableTransientError('HTTP 400: bad request')).toBe(false);
+    expect(isSdkRetryableTransientError('empty_success_result')).toBe(false);
+    expect(isSdkRetryableTransientError('prompt is too long: 1047685 tokens > 1000000 maximum')).toBe(
+      false
+    );
+    expect(isSdkRetryableTransientError('413 Payload Too Large')).toBe(false);
+    expect(isSdkRetryableTransientError('')).toBe(false);
   });
 });
 
@@ -376,9 +415,16 @@ describe('buildTerminalErrorMessage', () => {
     expect(result).toContain('_Please check your configuration and retry._');
   });
 
-  it('uses the retry hint for non-4xx terminal errors', () => {
+  it('uses a final retry hint for non-4xx terminal errors (not in-progress auto-retry)', () => {
     const result = buildTerminalErrorMessage('connection reset');
-    expect(result).toContain('_Agent is retrying automatically, please wait..._');
+    expect(result).toContain('_Please retry. If this keeps happening, try again later or switch models._');
+    expect(result).not.toContain('_Agent is retrying automatically, please wait..._');
+  });
+
+  it('uses a timeout-specific final hint for idle timeout errors', () => {
+    const result = buildTerminalErrorMessage(MODEL_RESPONSE_TIMEOUT_USER_MESSAGE);
+    expect(result).toContain('_Please retry later or check the current model/gateway load._');
+    expect(result).not.toContain('_Agent is retrying automatically, please wait..._');
   });
 
   it('uses the admin hint for usage-limit terminal errors', () => {
@@ -473,7 +519,10 @@ describe('buildTerminalErrorEmissionDetails', () => {
     });
 
     expect(result.partialText).toBe('');
-    expect(result.messageText).toContain('_Agent is retrying automatically, please wait..._');
+    expect(result.messageText).toContain(
+      '_Please retry. If this keeps happening, try again later or switch models._'
+    );
+    expect(result.messageText).not.toContain('_Agent is retrying automatically, please wait..._');
   });
 });
 

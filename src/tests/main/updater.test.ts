@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { resolveAutoUpdater, shouldEnableAutoUpdater, UPDATE_FEED_URL } from '../../main/updater';
+import {
+  nextUpdateCheckDelayMs,
+  resolveAutoUpdater,
+  shouldEnableAutoUpdater,
+  UPDATE_CHECK_INTERVAL_MS,
+  UPDATE_FEED_URL,
+} from '../../main/updater';
 
 describe('shouldEnableAutoUpdater', () => {
   it('enables only for packaged macOS', () => {
@@ -39,5 +45,17 @@ describe('UPDATE_FEED_URL', () => {
     expect(UPDATE_FEED_URL).toBe(
       'https://york-internal-apps.s3.ap-south-1.amazonaws.com/york-workos/latest'
     );
+  });
+});
+
+describe('update check scheduling', () => {
+  it('uses a 1-hour base interval', () => {
+    expect(UPDATE_CHECK_INTERVAL_MS).toBe(60 * 60 * 1000);
+  });
+
+  it('picks a random delay within the hour', () => {
+    expect(nextUpdateCheckDelayMs(() => 0)).toBe(0);
+    expect(nextUpdateCheckDelayMs(() => 0.5)).toBe(Math.floor(0.5 * UPDATE_CHECK_INTERVAL_MS));
+    expect(nextUpdateCheckDelayMs(() => 0.999)).toBeLessThan(UPDATE_CHECK_INTERVAL_MS);
   });
 });

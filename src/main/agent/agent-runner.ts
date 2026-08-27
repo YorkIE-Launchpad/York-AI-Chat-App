@@ -101,6 +101,7 @@ import {
   buildTerminalErrorEmissionDetails,
   buildTerminalErrorMessage,
   isSdkRecoverableContextOverflowError,
+  isSdkRetryableTransientError,
   resolveAbortDisposition,
   resolveAssistantStreamErrorText,
   resolveMessageEndPayload,
@@ -3181,6 +3182,10 @@ ${
       let compactionStepId: string | undefined;
       let hasEmittedError = false;
       let terminalErrorText: string | undefined;
+      // SDK-retryable transient errors (idle timeout, network, 5xx): defer terminal
+      // emit until auto_retry_end fails or prompt() returns with no recovery.
+      let pendingRetryableError: string | undefined;
+      let emittedAssistantContentThisPrompt = false;
       const promptStartedAt = Date.now();
       const streamEventCounts = new Map<string, number>();
 
@@ -3463,6 +3468,19 @@ ${
                   }
                   break;
                 }
+                // Transient upstream failures (idle timeout, network, 5xx): let the
+                // SDK auto-retry. Do NOT abort — that mutes subscribe and hides recovery.
+                if (isSdkRetryableTransientError(rawStreamError)) {
+                  pendingRetryableError = rawStreamError;
+                  log(
+                    '[CoworkAgentRunner] Deferring retryable stream error to SDK auto-retry:',
+                    rawStreamError.substring(0, 200)
+                  );
+                  this.sendTraceUpdate(session.id, thinkingStepId, {
+                    title: 'Upstream interrupted — waiting for automatic retry…',
+                  });
+                  break;
+                }
                 const userFacing = isOpenRouterAccountLimitError(resolvedProvider, rawStreamError)
                   ? openRouterLimitUserMessage(true)
                   : resolveAssistantStreamErrorText(ame);
@@ -3531,6 +3549,18 @@ ${
                       logWarn('[CoworkAgentRunner] openrouter-limit abort failed:', abortErr);
                     }
                   }
+                  break;
+                }
+                // Transient upstream failures: defer until auto_retry_end or prompt returns.
+                if (isSdkRetryableTransientError(rawError)) {
+                  pendingRetryableError = rawError;
+                  log(
+                    '[CoworkAgentRunner] Deferring retryable message_end error to SDK auto-retry:',
+                    rawError.substring(0, 200)
+                  );
+                  this.sendTraceUpdate(session.id, thinkingStepId, {
+                    title: 'Upstream interrupted — waiting for automatic retry…',
+                  });
                   break;
                 }
                 const userFacing = isOpenRouterAccountLimitError(resolvedProvider, rawError)
@@ -3675,7 +3705,14 @@ ${
                     latencyMs: Date.now() - promptStartedAt,
                     status: 'ok',
                   });
+                  // Recovery succeeded — clear deferred transient error so the turn
+                  // is not marked failed and incomplete-turn steering can still run.
+                  pendingRetryableError = undefined;
+                  emittedAssistantContentThisPrompt = true;
                   this.sendMessage(session.id, assistantMsg);
+                } else {
+                  // Artifact extraction stripped all text and no thinking/tool blocks remain.
+                  emitTerminalError(toUserFacingErrorText('empty_success_result'));
                 }
               }
               break;
@@ -3820,6 +3857,39 @@ ${
               }
               break;
             }
+
+            case 'auto_retry_start': {
+              log(
+                `[CoworkAgentRunner] Auto-retry start: attempt ${event.attempt}/${event.maxAttempts} delayMs=${event.delayMs}`
+              );
+              if (event.errorMessage) {
+                pendingRetryableError = event.errorMessage;
+              }
+              this.sendTraceUpdate(session.id, thinkingStepId, {
+                title: `Retrying after upstream error (${event.attempt}/${event.maxAttempts})…`,
+              });
+              break;
+            }
+
+            case 'auto_retry_end': {
+              log(
+                `[CoworkAgentRunner] Auto-retry end: success=${event.success} attempt=${event.attempt}`
+              );
+              if (event.success) {
+                pendingRetryableError = undefined;
+                this.sendTraceUpdate(session.id, thinkingStepId, {
+                  title: 'Processing request...',
+                });
+              } else {
+                const finalRaw =
+                  (typeof event.finalError === 'string' && event.finalError.trim()) ||
+                  pendingRetryableError ||
+                  'upstream_retry_exhausted';
+                pendingRetryableError = undefined;
+                emitTerminalError(toUserFacingErrorText(finalRaw));
+              }
+              break;
+            }
           }
         } catch (subscribeErr) {
           logError('[CoworkAgentRunner] Error in subscribe callback:', subscribeErr);
@@ -3893,6 +3963,8 @@ ${
           abortedByStreamError = false;
           hasEmittedError = false;
           terminalErrorText = undefined;
+          pendingRetryableError = undefined;
+          emittedAssistantContentThisPrompt = false;
           streamedText = '';
 
           // General / personal folders cannot fall back to York-paid models.
@@ -4018,6 +4090,21 @@ ${
               }
             }
           }
+        }
+
+        // Safety net: deferred retryable error never cleared (SDK retry disabled,
+        // or auto_retry_end missed) and no assistant content was recovered.
+        if (pendingRetryableError && !emittedAssistantContentThisPrompt && !hasEmittedError) {
+          const raw = pendingRetryableError;
+          pendingRetryableError = undefined;
+          logWarn(
+            '[CoworkAgentRunner] Emitting deferred retryable error after prompt returned:',
+            raw.substring(0, 200)
+          );
+          emitTerminalError(toUserFacingErrorText(raw));
+        } else if (pendingRetryableError && emittedAssistantContentThisPrompt) {
+          // Recovered mid-turn; do not fail the turn.
+          pendingRetryableError = undefined;
         }
 
         // ── Incomplete-turn recovery ──
