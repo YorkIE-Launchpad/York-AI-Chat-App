@@ -187,6 +187,21 @@ describe('serializeMessageContentForHistory', () => {
     expect(serializeMessageContentForHistory(blocks)).toBe('');
   });
 
+  it('stubs external_reference blocks as a labeled attachment', () => {
+    const blocks: ContentBlock[] = [
+      {
+        type: 'external_reference',
+        source: 'jira',
+        externalId: 'PLAT-12',
+        title: 'Fix login',
+        url: 'https://yorkblack.atlassian.net/browse/PLAT-12',
+      },
+    ];
+    expect(serializeMessageContentForHistory(blocks)).toBe(
+      '[Attached jira: Fix login — https://yorkblack.atlassian.net/browse/PLAT-12]'
+    );
+  });
+
   it('XML-escapes thinking content so </thinking> or & literals cannot break the envelope', () => {
     const blocks: ContentBlock[] = [
       { type: 'thinking', thinking: 'I read </thinking> then ran A & B with <foo>' },

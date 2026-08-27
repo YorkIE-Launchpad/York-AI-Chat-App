@@ -37,6 +37,14 @@ import type {
   Session,
 } from '../renderer/types';
 import type { DiagnosticInput, DiagnosticResult } from '../renderer/types';
+import type { ChatSearchHit } from '../shared/chat-search';
+import type {
+  ExternalReferenceConnectorStatus,
+  ExternalReferenceResolveResult,
+  ExternalReferenceSearchItem,
+  ExternalReferenceSearchResult,
+  ExternalReferenceSource,
+} from '../shared/external-reference';
 import type { UpdaterStatus } from '../shared/updater-types';
 import type { WhatsNewPayload } from '../shared/whats-new-types';
 import type {
@@ -79,6 +87,7 @@ const ALLOWED_CLIENT_EVENTS: ReadonlySet<string> = new Set<ClientEvent['type']>(
   'session.getTraceSteps',
   'session.compact',
   'session.getContextUsage',
+  'session.searchChats',
   'permission.response',
   'sudo.password.response',
   'settings.update',
@@ -173,6 +182,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
       invoke({
         type: 'session.getContextUsage',
         payload: { sessionId },
+      }),
+    searchChats: (query: string, limit?: number): Promise<ChatSearchHit[]> =>
+      invoke({
+        type: 'session.searchChats',
+        payload: { query, limit },
       }),
     export: (
       sessionId: string
@@ -903,6 +917,24 @@ contextBridge.exposeInMainWorld('electronAPI', {
     }): Promise<{ success: boolean }> => ipcRenderer.invoke('meetings.autoStartResult', result),
   },
 
+  references: {
+    getStatus: (): Promise<ExternalReferenceConnectorStatus> =>
+      ipcRenderer.invoke('references.getStatus'),
+    search: (payload: {
+      source: ExternalReferenceSource;
+      query: string;
+    }): Promise<ExternalReferenceSearchResult> => ipcRenderer.invoke('references.search', payload),
+    resolve: (payload: {
+      source: ExternalReferenceSource;
+      externalId: string;
+      title?: string;
+      url?: string;
+      meta?: Record<string, string>;
+    }): Promise<ExternalReferenceResolveResult> => ipcRenderer.invoke('references.resolve', payload),
+    lookupUrl: (url: string): Promise<ExternalReferenceSearchItem | null> =>
+      ipcRenderer.invoke('references.lookupUrl', url),
+  },
+
   dictation: {
     createRealtimeSession: (payload?: {
       targetLanguage?: string;
@@ -933,6 +965,7 @@ declare global {
           contextWindow: number;
           percent: number | null;
         } | null>;
+        searchChats: (query: string, limit?: number) => Promise<ChatSearchHit[]>;
         export: (
           sessionId: string
         ) => Promise<{ success: boolean; path?: string; error?: string; cancelled?: boolean }>;
@@ -1442,6 +1475,21 @@ declare global {
           ok: boolean;
           error?: string;
         }) => Promise<{ success: boolean }>;
+      };
+      references: {
+        getStatus: () => Promise<ExternalReferenceConnectorStatus>;
+        search: (payload: {
+          source: ExternalReferenceSource;
+          query: string;
+        }) => Promise<ExternalReferenceSearchResult>;
+        resolve: (payload: {
+          source: ExternalReferenceSource;
+          externalId: string;
+          title?: string;
+          url?: string;
+          meta?: Record<string, string>;
+        }) => Promise<ExternalReferenceResolveResult>;
+        lookupUrl: (url: string) => Promise<ExternalReferenceSearchItem | null>;
       };
       dictation: {
         createRealtimeSession: (payload?: {

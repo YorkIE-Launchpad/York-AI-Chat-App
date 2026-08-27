@@ -24,6 +24,7 @@ import type {
   TraceStep,
   FileAttachmentContent,
   MeetingAttachmentContent,
+  ExternalReferenceContent,
 } from '../../renderer/types';
 import type { DatabaseInstance, TraceStepRow } from '../db/database';
 import type { MeetingService } from '../meetings/meeting-service';
@@ -70,6 +71,8 @@ import {
   isUnusableSessionCwd,
   resolveWritableSessionCwd,
 } from './resolve-session-cwd';
+import type { ChatSearchHit } from '../../shared/chat-search';
+import { resolveExternalReference } from '../references/reference-service';
 
 interface AgentRunner {
   run(session: Session, prompt: string, existingMessages: Message[]): Promise<void>;
@@ -682,6 +685,10 @@ export class SessionManager {
     return this.loadSession(sessionId);
   }
 
+  searchChats(query: string, limit?: number): ChatSearchHit[] {
+    return this.db.chatSearch.search(query, limit);
+  }
+
   /**
    * Import a portable chat payload as a new local session.
    * Clears provider resume IDs so the agent cold-starts from message history.
@@ -1185,6 +1192,39 @@ export class SessionManager {
             if (meetingBlocks.length > 0) {
               enhancedPrompt = `${enhancedPrompt}\n\n[Attached meetings — use only for this request]:\n${meetingBlocks.join('\n\n')}`;
               logCtx('[SessionManager] Enhanced prompt with meeting attachments');
+            }
+          }
+
+          const externalReferences = messageContent.filter(
+            (c) => c.type === 'external_reference'
+          ) as ExternalReferenceContent[];
+          if (externalReferences.length > 0) {
+            const referenceBlocks: string[] = [];
+            for (const attachment of externalReferences) {
+              try {
+                const resolved = await resolveExternalReference(this.mcpManager, attachment);
+                const header = [
+                  attachment.source.toUpperCase(),
+                  attachment.title,
+                  resolved.url || attachment.url,
+                ]
+                  .filter(Boolean)
+                  .join(' — ');
+                const body = resolved.error
+                  ? `(Could not load content: ${resolved.error})`
+                  : resolved.text || '(No content returned)';
+                referenceBlocks.push(`- ${header}\n${body}`);
+              } catch (error) {
+                referenceBlocks.push(
+                  `- ${attachment.source.toUpperCase()} — ${attachment.title}\n(Could not load content: ${
+                    error instanceof Error ? error.message : String(error)
+                  })`
+                );
+              }
+            }
+            if (referenceBlocks.length > 0) {
+              enhancedPrompt = `${enhancedPrompt}\n\n[Attached references — use only for this request]:\n${referenceBlocks.join('\n\n')}`;
+              logCtx('[SessionManager] Enhanced prompt with external references');
             }
           }
 

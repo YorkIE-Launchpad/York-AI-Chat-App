@@ -25,7 +25,11 @@ function previewText(message: Message): string {
   if (text) return text;
 
   const attachmentCount = blocks.filter(
-    (b) => b.type === 'image' || b.type === 'file_attachment' || b.type === 'meeting_attachment'
+    (b) =>
+      b.type === 'image' ||
+      b.type === 'file_attachment' ||
+      b.type === 'meeting_attachment' ||
+      b.type === 'external_reference'
   ).length;
   if (attachmentCount > 0) {
     return attachmentCount === 1 ? 'Attachment' : `${attachmentCount} attachments`;

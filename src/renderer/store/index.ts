@@ -21,6 +21,7 @@ import {
   loadActiveDivisionFromStorage,
   saveActiveDivisionToStorage,
   sessionMatchesActiveDivision,
+  activeDivisionFromSession,
 } from '../../shared/workspace-division';
 
 export type GlobalNoticeType = 'info' | 'warning' | 'error' | 'success';
@@ -275,6 +276,7 @@ interface AppState {
 
   // Workspace division
   setActiveDivision: (division: ActiveDivision | null) => void;
+  openSessionWithDivision: (sessionId: string) => boolean;
 
   // Sandbox setup actions
   setSandboxSetupProgress: (progress: SandboxSetupProgress | null) => void;
@@ -985,6 +987,16 @@ export const useAppStore = create<AppState>((set, get) => ({
       };
     }),
 
+  openSessionWithDivision: (sessionId) => {
+    const session = useAppStore.getState().sessions.find((item) => item.id === sessionId);
+    if (!session) return false;
+    const division = activeDivisionFromSession(session);
+    saveActiveDivisionToStorage(division);
+    useAppStore.setState({ activeDivision: division });
+    useAppStore.getState().setActiveSession(sessionId);
+    return true;
+  },
+
   // Sandbox setup actions
   setSandboxSetupProgress: (progress) => set({ sandboxSetupProgress: progress }),
   setSandboxSetupComplete: (complete) => set({ isSandboxSetupComplete: complete }),
@@ -1099,7 +1111,7 @@ if (typeof window !== 'undefined') {
       store.setShowMatter(false);
       store.setShowWorkflows(false);
       store.setAskGrowthOSOpen(false);
-      store.setActiveSession(sessionId);
+      store.openSessionWithDivision(sessionId);
     }
     return true;
   };

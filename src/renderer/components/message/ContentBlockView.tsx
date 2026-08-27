@@ -27,6 +27,7 @@ import type {
   ToolResultContent,
   FileAttachmentContent,
   MeetingAttachmentContent,
+  ExternalReferenceContent,
 } from '../../types';
 import { Mic } from 'lucide-react';
 import { CodeBlock } from './CodeBlock';
@@ -34,7 +35,7 @@ import { ThinkingBlock, escapeThinkTags } from './ThinkingBlock';
 import { ToolUseBlock } from './ToolUseBlock';
 import { ToolResultBlock } from './ToolResultBlock';
 import type { ContentBlockViewProps } from './types';
-import { AttachmentImageThumb } from '../attachments';
+import { AttachmentImageThumb, ExternalReferenceChip } from '../attachments';
 import { ALLOWED_IMAGE_MIME_TYPES } from '../../utils/attachment-preview';
 import { FileAttachmentBlock } from './FileAttachmentBlock';
 import { MemorySourceDetailPanel } from './MemorySourceDetailPanel';
@@ -427,6 +428,10 @@ export const ContentBlockView = memo(function ContentBlockView({
           </div>
         </div>
       );
+    }
+
+    case 'external_reference': {
+      return <ExternalReferenceChip reference={block as ExternalReferenceContent} />;
     }
 
     case 'tool_use':

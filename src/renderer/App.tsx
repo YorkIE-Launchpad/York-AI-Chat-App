@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useRef, useCallback } from 'react';
+import { Suspense, lazy, useEffect, useRef, useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { RefreshCw } from 'lucide-react';
 import { useAppStore } from './store';
@@ -26,6 +26,7 @@ import { SandboxSyncToast } from './components/SandboxSyncToast';
 import { GlobalNoticeToast } from './components/GlobalNoticeToast';
 import { WhatsNewModal } from './components/WhatsNewModal';
 import { AskGrowthOSPopup } from './components/AskGrowthOSPopup';
+import { ChatSearchModal, useChatSearchHotkey } from './components/ChatSearchModal';
 import { useWhatsNew } from './hooks/useWhatsNew';
 import { useAskGrowthOSHotkey } from './hooks/useAskGrowthOSHotkey';
 import {
@@ -135,7 +136,7 @@ function AuthenticatedApp() {
   const setContextPanelCollapsed = useAppStore((s) => s.setContextPanelCollapsed);
   const openHtmlPreview = useAppStore((s) => s.openHtmlPreview);
 
-  const { listSessions, isElectron } = useIPC();
+  const { listSessions, getSessionMessages, getSessionTraceSteps, isElectron } = useIPC();
   const { ready: toolsReady } = useToolsReady(isElectron);
   const { width } = useWindowSize();
   const { payload: whatsNewPayload, dismiss: dismissWhatsNew } = useWhatsNew();
@@ -144,6 +145,13 @@ function AuthenticatedApp() {
   const initialized = useRef(false);
   const sidebarBeforeSettings = useRef(false);
   const lastHtmlPreviewSig = useRef<string | null>(null);
+  const [chatSearchOpen, setChatSearchOpen] = useState(false);
+  const openSessionWithDivision = useAppStore((s) => s.openSessionWithDivision);
+  const setMessages = useAppStore((s) => s.setMessages);
+  const setTraceSteps = useAppStore((s) => s.setTraceSteps);
+  const setIncognitoDraft = useAppStore((s) => s.setIncognitoDraft);
+
+  useChatSearchHotkey(() => setChatSearchOpen(true), true);
 
   useEffect(() => {
     // Only run once on mount
@@ -461,6 +469,25 @@ function AuthenticatedApp() {
 
       {/* Ask Growth OS global popup */}
       <AskGrowthOSPopup />
+
+      <ChatSearchModal
+        open={chatSearchOpen}
+        onClose={() => setChatSearchOpen(false)}
+        onSelect={(hit) => {
+          setShowSettings(false);
+          setShowMatter(false);
+          setShowWorkflows(false);
+          setIncognitoDraft(false);
+          if (!openSessionWithDivision(hit.sessionId)) return;
+          if (!isElectron) return;
+          void getSessionMessages(hit.sessionId).then((messages) => {
+            if (messages?.length) setMessages(hit.sessionId, messages);
+          });
+          void getSessionTraceSteps(hit.sessionId).then((steps) => {
+            setTraceSteps(hit.sessionId, steps || []);
+          });
+        }}
+      />
 
       {/* Permission Dialog — above Ask popup */}
       {pendingPermission && (

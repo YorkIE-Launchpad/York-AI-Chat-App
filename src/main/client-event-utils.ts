@@ -15,6 +15,7 @@ export function eventRequiresSessionManager(event: ClientEvent): boolean {
     case 'session.getTraceSteps':
     case 'session.compact':
     case 'session.getContextUsage':
+    case 'session.searchChats':
     case 'permission.response':
       return true;
     default:

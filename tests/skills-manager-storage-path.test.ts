@@ -34,6 +34,7 @@ function createDbMock(): DatabaseInstance {
     messages: {} as unknown as DatabaseInstance['messages'],
     traceSteps: {} as unknown as DatabaseInstance['traceSteps'],
     scheduledTasks: {} as unknown as DatabaseInstance['scheduledTasks'],
+    chatSearch: { search: vi.fn(() => []) },
     prepare: vi.fn(() => statement as unknown as ReturnType<DatabaseInstance['prepare']>),
     exec: vi.fn(),
     pragma: vi.fn(),

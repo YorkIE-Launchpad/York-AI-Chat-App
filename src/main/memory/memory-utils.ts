@@ -178,6 +178,10 @@ export function extractTextFromContent(content: ContentBlock[]): string {
           return `${block.name} ${JSON.stringify(block.input)}`;
         case 'file_attachment':
           return `[file] ${block.filename}`;
+        case 'meeting_attachment':
+          return `[meeting] ${block.title}`;
+        case 'external_reference':
+          return `[${block.source}] ${block.title}`;
         case 'image':
           return '[image]';
         default:

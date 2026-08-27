@@ -1,4 +1,7 @@
 import type { WorkspaceDivisionKind } from '../../shared/workspace-division';
+import type { ExternalReferenceContent } from '../../shared/external-reference';
+
+export type { ExternalReferenceContent, ExternalReferenceSource } from '../../shared/external-reference';
 
 // Session types
 export interface Session {
@@ -68,6 +71,7 @@ export type ContentBlock =
   | ImageContent
   | FileAttachmentContent
   | MeetingAttachmentContent
+  | ExternalReferenceContent
   | ToolUseContent
   | ToolResultContent
   | ThinkingContent;
@@ -655,6 +659,7 @@ export type ClientEvent =
       payload: { sessionId: string; customInstructions?: string };
     }
   | { type: 'session.getContextUsage'; payload: { sessionId: string } }
+  | { type: 'session.searchChats'; payload: { query: string; limit?: number } }
   | { type: 'permission.response'; payload: { toolUseId: string; result: PermissionResult } }
   | { type: 'question.response'; payload: UserQuestionResponse }
   | { type: 'sudo.password.response'; payload: { toolUseId: string; password: string | null } }

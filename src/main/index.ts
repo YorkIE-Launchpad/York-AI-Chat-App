@@ -62,6 +62,12 @@ import { MemoryExtension } from './memory/memory-extension';
 import { bindConnectorMemoryService, bindConnectorWikiIngest } from './connectors/connector-memory';
 import { connectorManager } from './connectors/connector-manager';
 import { MeetingService } from './meetings/meeting-service';
+import {
+  getExternalReferenceStatus,
+  lookupExternalReferenceFromUrl,
+  resolveExternalReference,
+  searchExternalReferences,
+} from './references/reference-service';
 import { MeetingExtension } from './meetings/meeting-extension';
 import { createRealtimeTranslationSession } from './dictation/dictation-service';
 import { ConfigExtension } from './config/config-extension';
@@ -5390,6 +5396,59 @@ ipcMain.handle('meetings.search', (_event, query: string, limit?: number) => {
   return meetingService.search(query, limit);
 });
 
+ipcMain.handle('references.getStatus', () => {
+  if (!sessionManager) {
+    return { drive: false, slack: false, jira: false };
+  }
+  return getExternalReferenceStatus(sessionManager.getMCPManager());
+});
+
+ipcMain.handle(
+  'references.search',
+  async (_event, payload: { source: 'drive' | 'slack' | 'jira'; query: string }) => {
+    if (!sessionManager) {
+      throw new Error('Session manager not initialized');
+    }
+    return searchExternalReferences(
+      sessionManager.getMCPManager(),
+      payload.source,
+      payload.query || ''
+    );
+  }
+);
+
+ipcMain.handle(
+  'references.resolve',
+  async (
+    _event,
+    payload: {
+      source: 'drive' | 'slack' | 'jira';
+      externalId: string;
+      title?: string;
+      url?: string;
+      meta?: Record<string, string>;
+    }
+  ) => {
+    if (!sessionManager) {
+      throw new Error('Session manager not initialized');
+    }
+    return resolveExternalReference(sessionManager.getMCPManager(), {
+      source: payload.source,
+      externalId: payload.externalId,
+      title: payload.title || payload.externalId,
+      url: payload.url,
+      meta: payload.meta,
+    });
+  }
+);
+
+ipcMain.handle('references.lookupUrl', async (_event, url: string) => {
+  if (!sessionManager) {
+    throw new Error('Session manager not initialized');
+  }
+  return lookupExternalReferenceFromUrl(sessionManager.getMCPManager(), url);
+});
+
 ipcMain.handle('meetings.delete', (_event, id: string) => {
   if (!meetingService) {
     throw new Error('Meeting service not initialized');
@@ -5639,6 +5698,9 @@ async function handleClientEvent(event: ClientEvent): Promise<unknown> {
 
     case 'session.getContextUsage':
       return sm.getContextUsage(event.payload.sessionId);
+
+    case 'session.searchChats':
+      return sm.searchChats(event.payload.query, event.payload.limit);
 
     case 'permission.response': {
       const pending = pendingWorkflowApprovals.get(event.payload.toolUseId);

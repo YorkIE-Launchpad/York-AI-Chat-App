@@ -8,6 +8,12 @@ import { app } from 'electron';
 import { join } from 'path';
 import { existsSync, mkdirSync, statSync, renameSync, openSync, readSync, closeSync } from 'fs';
 import { log, logError, logWarn } from '../utils/logger';
+import {
+  CHAT_FTS_TITLE_STUB_ID,
+  extractSearchableText,
+  toFtsMatchQuery,
+  type ChatSearchHit,
+} from '../../shared/chat-search';
 
 export interface DatabaseInstance {
   // Raw database access (for advanced queries)
@@ -86,6 +92,10 @@ export interface DatabaseInstance {
     listAll: () => MatterMeetingRow[];
     delete: (id: string) => void;
     deleteAbsent: (keepFingerprints: string[]) => number;
+  };
+
+  chatSearch: {
+    search: (query: string, limit?: number) => ChatSearchHit[];
   };
 
   // For compatibility with old interface
@@ -457,6 +467,12 @@ function initializeSchema(database: Database.Database): void {
     ON messages(session_id, timestamp)
   `);
 
+    try {
+      initializeChatFts(database);
+    } catch (error) {
+      logError('[Database] chat_fts unavailable; chat search will be empty', error);
+    }
+
     database.exec(`
     CREATE INDEX IF NOT EXISTS idx_trace_steps_session_id
     ON trace_steps(session_id)
@@ -798,6 +814,219 @@ function initializeSchema(database: Database.Database): void {
   }
 }
 
+const CHAT_FTS_DDL = `
+    CREATE VIRTUAL TABLE IF NOT EXISTS chat_fts USING fts5(
+      session_id UNINDEXED,
+      message_id UNINDEXED,
+      title,
+      body,
+      timestamp UNINDEXED,
+      tokenize = 'unicode61'
+    )
+  `;
+
+function initializeChatFts(database: Database.Database): void {
+  database.exec(CHAT_FTS_DDL);
+  backfillChatFts(database);
+}
+
+function chatFtsCount(database: Database.Database): number {
+  try {
+    const row = database.prepare(`SELECT COUNT(*) as c FROM chat_fts`).get() as { c: number };
+    return row?.c ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
+function backfillChatFts(database: Database.Database): void {
+  const existing = chatFtsCount(database);
+  if (existing > 0) return;
+
+  const messageCount = (
+    database.prepare(`SELECT COUNT(*) as c FROM messages`).get() as { c: number }
+  ).c;
+  const sessionCount = (
+    database.prepare(`SELECT COUNT(*) as c FROM sessions`).get() as { c: number }
+  ).c;
+  if (messageCount === 0 && sessionCount === 0) return;
+
+  log('[Database] Backfilling chat_fts…');
+  const insert = database.prepare(
+    `INSERT INTO chat_fts (session_id, message_id, title, body, timestamp) VALUES (?, ?, ?, ?, ?)`
+  );
+  const sessions = database
+    .prepare(`SELECT id, title, created_at FROM sessions`)
+    .all() as Array<{ id: string; title: string; created_at: number }>;
+  const messages = database
+    .prepare(`SELECT id, session_id, content, timestamp FROM messages`)
+    .all() as Array<{ id: string; session_id: string; content: string; timestamp: number }>;
+  const titleBySession = new Map(sessions.map((s) => [s.id, s.title]));
+
+  const tx = database.transaction(() => {
+    for (const session of sessions) {
+      insert.run(
+        session.id,
+        CHAT_FTS_TITLE_STUB_ID,
+        session.title,
+        '',
+        session.created_at
+      );
+    }
+    for (const message of messages) {
+      insert.run(
+        message.session_id,
+        message.id,
+        titleBySession.get(message.session_id) || '',
+        extractSearchableText(message.content),
+        message.timestamp
+      );
+    }
+  });
+  tx();
+  log('[Database] chat_fts backfill complete:', chatFtsCount(database), 'rows');
+}
+
+function upsertChatFtsRow(
+  database: Database.Database,
+  row: {
+    sessionId: string;
+    messageId: string;
+    title: string;
+    body: string;
+    timestamp: number;
+  }
+): void {
+  try {
+    database
+      .prepare(`DELETE FROM chat_fts WHERE session_id = ? AND message_id = ?`)
+      .run(row.sessionId, row.messageId);
+    database
+      .prepare(
+        `INSERT INTO chat_fts (session_id, message_id, title, body, timestamp) VALUES (?, ?, ?, ?, ?)`
+      )
+      .run(row.sessionId, row.messageId, row.title, row.body, row.timestamp);
+  } catch (error) {
+    logWarn('[Database] chat_fts upsert failed', error);
+  }
+}
+
+function deleteChatFtsMessage(database: Database.Database, messageId: string): void {
+  try {
+    database.prepare(`DELETE FROM chat_fts WHERE message_id = ?`).run(messageId);
+  } catch {
+    /* table may be missing */
+  }
+}
+
+function deleteChatFtsSession(database: Database.Database, sessionId: string): void {
+  try {
+    database.prepare(`DELETE FROM chat_fts WHERE session_id = ?`).run(sessionId);
+  } catch {
+    /* table may be missing */
+  }
+}
+
+function updateChatFtsTitle(database: Database.Database, sessionId: string, title: string): void {
+  try {
+    database.prepare(`UPDATE chat_fts SET title = ? WHERE session_id = ?`).run(title, sessionId);
+  } catch (error) {
+    logWarn('[Database] FTS title update failed; rewriting title stub', error);
+    const session = database
+      .prepare(`SELECT created_at FROM sessions WHERE id = ?`)
+      .get(sessionId) as { created_at: number } | undefined;
+    upsertChatFtsRow(database, {
+      sessionId,
+      messageId: CHAT_FTS_TITLE_STUB_ID,
+      title,
+      body: '',
+      timestamp: session?.created_at ?? Date.now(),
+    });
+  }
+}
+
+function searchChatFts(database: Database.Database, query: string, limit = 40): ChatSearchHit[] {
+  const match = toFtsMatchQuery(query);
+  if (!match) return [];
+  const capped = Math.min(Math.max(limit, 1), 80);
+  try {
+    const rows = database
+      .prepare(
+        `SELECT
+            f.session_id AS session_id,
+            f.message_id AS message_id,
+            s.title AS title,
+            snippet(chat_fts, 3, '', '', '…', 24) AS snippet,
+            f.timestamp AS hit_timestamp,
+            s.updated_at AS updated_at,
+            s.pinned AS pinned,
+            s.division AS division,
+            s.hub_project_id AS hub_project_id,
+            s.hub_project_name AS hub_project_name,
+            s.launchpad_project_id AS launchpad_project_id,
+            s.launchpad_project_name AS launchpad_project_name,
+            s.folder_id AS folder_id,
+            s.folder_name AS folder_name,
+            s.project_canonical_key AS project_canonical_key,
+            bm25(chat_fts) AS rank
+          FROM chat_fts f
+          JOIN sessions s ON s.id = f.session_id
+          WHERE chat_fts MATCH ?
+          ORDER BY s.pinned DESC, rank ASC, s.updated_at DESC
+          LIMIT ?`
+      )
+      .all(match, capped * 4) as Array<{
+      session_id: string;
+      message_id: string;
+      title: string;
+      snippet: string;
+      hit_timestamp: number;
+      updated_at: number;
+      pinned: number;
+      division: string;
+      hub_project_id: string | null;
+      hub_project_name: string | null;
+      launchpad_project_id: number | null;
+      launchpad_project_name: string | null;
+      folder_id: string | null;
+      folder_name: string | null;
+      project_canonical_key: string | null;
+    }>;
+
+    const seen = new Set<string>();
+    const hits: ChatSearchHit[] = [];
+    for (const row of rows) {
+      if (seen.has(row.session_id)) continue;
+      seen.add(row.session_id);
+      const snippet =
+        row.snippet && row.snippet.replace(/\s+/g, ' ').trim()
+          ? row.snippet.replace(/\s+/g, ' ').trim()
+          : row.title;
+      hits.push({
+        sessionId: row.session_id,
+        messageId: row.message_id === CHAT_FTS_TITLE_STUB_ID ? null : row.message_id,
+        title: row.title,
+        snippet,
+        timestamp: row.hit_timestamp || row.updated_at,
+        pinned: row.pinned === 1,
+        division: row.division || 'general',
+        hubProjectId: row.hub_project_id,
+        hubProjectName: row.hub_project_name,
+        launchpadProjectId: row.launchpad_project_id,
+        launchpadProjectName: row.launchpad_project_name,
+        folderId: row.folder_id,
+        folderName: row.folder_name,
+        projectCanonicalKey: row.project_canonical_key,
+      });
+      if (hits.length >= capped) break;
+    }
+    return hits;
+  } catch (error) {
+    logWarn('[Database] chat_fts MATCH failed', error);
+    return [];
+  }
+}
+
 function validateIdentifier(name: string): string {
   if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
     throw new Error(`Invalid SQL identifier: ${name}`);
@@ -1055,6 +1284,13 @@ export function initDatabase(): DatabaseInstance {
           session.created_at,
           session.updated_at
         );
+        upsertChatFtsRow(rawDb, {
+          sessionId: session.id,
+          messageId: CHAT_FTS_TITLE_STUB_ID,
+          title: session.title,
+          body: '',
+          timestamp: session.created_at,
+        });
       },
 
       update: (id: string, updates: Partial<SessionRow>) => {
@@ -1083,6 +1319,9 @@ export function initDatabase(): DatabaseInstance {
 
         const sql = `UPDATE sessions SET ${setClauses.join(', ')} WHERE id = ?`;
         rawDb.prepare(sql).run(...values);
+        if (typeof updates.title === 'string') {
+          updateChatFtsTitle(rawDb, id, updates.title);
+        }
       },
 
       get: (id: string): SessionRow | undefined => {
@@ -1094,6 +1333,7 @@ export function initDatabase(): DatabaseInstance {
       },
 
       delete: (id: string) => {
+        deleteChatFtsSession(rawDb, id);
         // Messages will be deleted automatically due to ON DELETE CASCADE
         deleteSessionStmt.run(id);
       },
@@ -1145,6 +1385,14 @@ export function initDatabase(): DatabaseInstance {
           message.token_usage,
           message.execution_time_ms ?? null
         );
+        const session = getSessionStmt.get(message.session_id) as SessionRow | undefined;
+        upsertChatFtsRow(rawDb, {
+          sessionId: message.session_id,
+          messageId: message.id,
+          title: session?.title || '',
+          body: extractSearchableText(message.content),
+          timestamp: message.timestamp,
+        });
       },
 
       update: (id: string, updates: Partial<Pick<MessageRow, 'execution_time_ms'>>) => {
@@ -1158,11 +1406,23 @@ export function initDatabase(): DatabaseInstance {
       },
 
       delete: (id: string) => {
+        deleteChatFtsMessage(rawDb, id);
         deleteMessageStmt.run(id);
       },
 
       deleteBySessionId: (sessionId: string) => {
+        deleteChatFtsSession(rawDb, sessionId);
         deleteMessagesBySessionStmt.run(sessionId);
+        const session = getSessionStmt.get(sessionId) as SessionRow | undefined;
+        if (session) {
+          upsertChatFtsRow(rawDb, {
+            sessionId,
+            messageId: CHAT_FTS_TITLE_STUB_ID,
+            title: session.title,
+            body: '',
+            timestamp: session.created_at,
+          });
+        }
       },
     },
 
@@ -1492,6 +1752,10 @@ export function initDatabase(): DatabaseInstance {
         }
         return removed;
       },
+    },
+
+    chatSearch: {
+      search: (query: string, limit?: number) => searchChatFts(rawDb, query, limit),
     },
 
     // Compatibility layer for old interface

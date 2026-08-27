@@ -27,7 +27,12 @@ import {
 import type { Session } from '../types';
 import { DivisionSwitcher } from './DivisionSwitcher';
 import { NextUpMeeting } from './matter/NextUpMeeting';
-import { sessionMatchesActiveDivision } from '../../shared/workspace-division';
+import {
+  activeDivisionFromSession,
+  divisionLabel,
+  sessionMatchesActiveDivision,
+} from '../../shared/workspace-division';
+import type { ChatSearchHit } from '../../shared/chat-search';
 import { useUpdaterStatus } from '../hooks/useUpdaterStatus';
 
 import sidebarLogoSrc from '../assets/logo.png';
@@ -166,6 +171,7 @@ export function Sidebar() {
   const activeSessionId = useAppStore((s) => s.activeSessionId);
   const settings = useAppStore((s) => s.settings);
   const setActiveSession = useAppStore((s) => s.setActiveSession);
+  const openSessionWithDivision = useAppStore((s) => s.openSessionWithDivision);
   const setIncognitoDraft = useAppStore((s) => s.setIncognitoDraft);
   const setMessages = useAppStore((s) => s.setMessages);
   const setTraceSteps = useAppStore((s) => s.setTraceSteps);
@@ -198,21 +204,66 @@ export function Sidebar() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [importing, setImporting] = useState(false);
   const [hoveredAction, setHoveredAction] = useState<'new' | 'incognito' | 'import' | null>(null);
+  const [searchHits, setSearchHits] = useState<ChatSearchHit[]>([]);
+  const [searchBusy, setSearchBusy] = useState(false);
 
   const normalizedQuery = useMemo(() => searchQuery.trim().toLowerCase(), [searchQuery]);
+  const isSearching = normalizedQuery.length > 0;
   const divisionSessions = useMemo(
     () => sessions.filter((session) => sessionMatchesActiveDivision(session, activeDivision)),
     [sessions, activeDivision]
   );
+
+  useEffect(() => {
+    const q = searchQuery.trim();
+    if (!q) {
+      setSearchHits([]);
+      setSearchBusy(false);
+      return;
+    }
+    if (typeof window === 'undefined' || !window.electronAPI?.session?.searchChats) {
+      setSearchHits([]);
+      return;
+    }
+    let cancelled = false;
+    setSearchBusy(true);
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const hits = await window.electronAPI.session.searchChats(q, 40);
+          if (!cancelled) setSearchHits(hits);
+        } catch {
+          if (!cancelled) setSearchHits([]);
+        } finally {
+          if (!cancelled) setSearchBusy(false);
+        }
+      })();
+    }, 180);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [searchQuery]);
+
+  const snippetBySessionId = useMemo(() => {
+    const map = new Map<string, ChatSearchHit>();
+    for (const hit of searchHits) map.set(hit.sessionId, hit);
+    return map;
+  }, [searchHits]);
+
   const filteredSessions = useMemo(() => {
-    return normalizedQuery
-      ? divisionSessions.filter((session) => session.title.toLowerCase().includes(normalizedQuery))
-      : divisionSessions;
-  }, [divisionSessions, normalizedQuery]);
+    if (!isSearching) return divisionSessions;
+    const found: Session[] = [];
+    for (const hit of searchHits) {
+      const session = sessions.find((item) => item.id === hit.sessionId);
+      if (session) found.push(session);
+    }
+    return found;
+  }, [divisionSessions, isSearching, searchHits, sessions]);
 
   const groupedSessions = useMemo(
-    () => groupSessionsByDate(filteredSessions, t),
-    [filteredSessions, t]
+    () => (isSearching ? [] : groupSessionsByDate(filteredSessions, t)),
+    [filteredSessions, isSearching, t]
   );
 
   // Exit select mode when sidebar collapses
@@ -332,7 +383,7 @@ export function Sidebar() {
       if (!alreadyActive) {
         discardActiveIncognitoIfLeaving(sessionId);
         setIncognitoDraft(false);
-        setActiveSession(sessionId);
+        openSessionWithDivision(sessionId);
       }
 
       if (!isElectron) return;
@@ -375,7 +426,7 @@ export function Sidebar() {
       getSessionMessages,
       getSessionTraceSteps,
       isElectron,
-      setActiveSession,
+      openSessionWithDivision,
       setIncognitoDraft,
       setMessages,
       setShowMatter,
@@ -702,7 +753,7 @@ export function Sidebar() {
           </p>
         </div>
 
-        {divisionSessions.length > 0 && (
+        {sessions.length > 0 && (
           <div className="mt-2 flex items-center gap-2">
             <div className="relative flex-1 min-w-0">
               <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-muted" />
@@ -736,7 +787,7 @@ export function Sidebar() {
       </div>
 
       <div className="flex-1 overflow-y-auto px-3 py-4">
-        {groupedSessions.length === 0 ? (
+        {groupedSessions.length === 0 && !isSearching ? (
           <div className="px-3 py-6">
             <p className="text-sm text-text-secondary">
               {activeDivision?.kind === 'hub'
@@ -751,9 +802,19 @@ export function Sidebar() {
             </p>
             <p className="mt-1 text-xs leading-5 text-text-muted">{t('sidebar.noTasksHint')}</p>
           </div>
+        ) : isSearching && filteredSessions.length === 0 ? (
+          <div className="px-3 py-6">
+            <p className="text-sm text-text-secondary">
+              {searchBusy ? t('common.loading') : t('sidebar.searchNoResults')}
+            </p>
+            <p className="mt-1 text-xs leading-5 text-text-muted">{t('sidebar.searchAllHint')}</p>
+          </div>
         ) : (
           <div className="space-y-3">
-            {groupedSessions.map((group) => (
+            {(isSearching
+              ? [{ key: 'search', label: t('sidebar.searchResults'), sessions: filteredSessions }]
+              : groupedSessions
+            ).map((group) => (
               <section key={group.key}>
                 <div className="px-3 pb-2 text-[11px] font-medium tracking-[0.04em] text-text-muted">
                   {group.label}
@@ -820,9 +881,23 @@ export function Sidebar() {
                             </span>
                           )}
                           <div className="min-w-0 flex-1">
-                            <div className="text-[13px] font-medium leading-5 text-text-primary truncate">
-                              {session.title}
+                            <div className="flex items-center gap-2">
+                              <div className="text-[13px] font-medium leading-5 text-text-primary truncate">
+                                {session.title}
+                              </div>
+                              {isSearching && (
+                                <span className="flex-shrink-0 rounded-md bg-background px-1.5 py-0.5 text-[10px] font-medium text-text-muted">
+                                  {divisionLabel(activeDivisionFromSession(session))}
+                                </span>
+                              )}
                             </div>
+                            {isSearching &&
+                              snippetBySessionId.get(session.id)?.snippet &&
+                              snippetBySessionId.get(session.id)?.snippet !== session.title && (
+                                <div className="mt-0.5 line-clamp-2 text-[11px] leading-4 text-text-muted">
+                                  {snippetBySessionId.get(session.id)?.snippet}
+                                </div>
+                              )}
                           </div>
                         </div>
 

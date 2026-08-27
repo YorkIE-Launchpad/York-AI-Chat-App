@@ -294,6 +294,9 @@ function createDatabaseInstance(db: Database.Database): DatabaseInstance {
       getLatest: vi.fn(),
       list: vi.fn(() => []),
     },
+    chatSearch: {
+      search: vi.fn(() => []),
+    },
     prepare: (sql: string) => db.prepare(sql),
     exec: (sql: string) => db.exec(sql),
     pragma: (pragma: string) => db.pragma(pragma),

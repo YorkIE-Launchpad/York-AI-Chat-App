@@ -329,6 +329,15 @@ export function serializeMessageContentForHistory(content: ContentBlock[]): stri
         parts.push(`[Attached meeting: ${title}${id ? ` (${id})` : ''}]`);
         break;
       }
+      case 'external_reference': {
+        const title = (block as { title?: string }).title || 'Reference';
+        const source = (block as { source?: string }).source || '';
+        const url = (block as { url?: string }).url || '';
+        parts.push(
+          `[Attached ${source || 'reference'}: ${title}${url ? ` — ${url}` : ''}]`
+        );
+        break;
+      }
     }
   }
   return parts.join('\n');

@@ -35,6 +35,9 @@ import {
   Ghost,
   Package,
   FileUp,
+  FileText,
+  Hash,
+  MessageSquare,
 } from 'lucide-react';
 import { isScrollNearBottom, resolveSessionScrollTop } from '../utils/chat-scroll-position';
 import {
@@ -44,6 +47,9 @@ import {
 } from '../hooks/useSlashCommands';
 import { applySkillTriggerSelection } from '../../shared/skill-composer-trigger';
 import { MeetingPicker, type AttachedMeeting } from './MeetingPicker';
+import { ConnectorReferencePicker } from './ConnectorReferencePicker';
+import type { ExternalReferenceContent } from '../../shared/external-reference';
+import { parseExternalReferenceUrl } from '../../shared/external-reference-urls';
 import { ChatLoopPanel } from './ChatLoopPanel';
 import {
   formatInterval,
@@ -58,7 +64,7 @@ import {
   hasStreamingText,
   resolveActiveTurnStatusLabel,
 } from '../utils/active-turn';
-import { AttachmentImageThumb, FileAttachmentChip } from './attachments';
+import { AttachmentImageThumb, FileAttachmentChip, ExternalReferenceChip } from './attachments';
 import { isImageExtension } from '../utils/attachment-preview';
 import {
   isBrowserFileImage,
@@ -141,6 +147,10 @@ export function ChatView() {
   >([]);
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const [attachedMeetings, setAttachedMeetings] = useState<AttachedMeeting[]>([]);
+  const [attachedReferences, setAttachedReferences] = useState<ExternalReferenceContent[]>([]);
+  const [referencePickerSource, setReferencePickerSource] = useState<
+    ExternalReferenceContent['source'] | null
+  >(null);
   const [meetingPickerOpen, setMeetingPickerOpen] = useState(false);
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
   const [loopMenuOpen, setLoopMenuOpen] = useState(false);
@@ -454,9 +464,67 @@ export function ChatView() {
   // Handle paste event for images
   const handlePaste = async (e: React.ClipboardEvent) => {
     const items = e.clipboardData?.items;
+    const pastedText = e.clipboardData?.getData('text/plain')?.trim() ?? '';
+    const parsedRef = pastedText ? parseExternalReferenceUrl(pastedText) : null;
+    const imageItems = items
+      ? Array.from(items).filter((item) => item.type.startsWith('image/'))
+      : [];
+
+    if (parsedRef && imageItems.length === 0) {
+      e.preventDefault();
+      try {
+        const lookedUp = window.electronAPI?.references?.lookupUrl
+          ? await window.electronAPI.references.lookupUrl(pastedText)
+          : null;
+        const next: ExternalReferenceContent = lookedUp
+          ? {
+              type: 'external_reference',
+              source: lookedUp.source,
+              externalId: lookedUp.externalId,
+              title: lookedUp.title,
+              url: lookedUp.url,
+              subtitle: lookedUp.subtitle,
+              meta: lookedUp.meta,
+            }
+          : {
+              type: 'external_reference',
+              source: parsedRef.source,
+              externalId: parsedRef.externalId,
+              title: parsedRef.title || parsedRef.externalId,
+              url: parsedRef.url,
+              subtitle: parsedRef.subtitle,
+              meta: parsedRef.meta,
+            };
+        setAttachedReferences((prev) =>
+          prev.some((item) => item.source === next.source && item.externalId === next.externalId)
+            ? prev
+            : [...prev, next]
+        );
+      } catch {
+        setAttachedReferences((prev) =>
+          prev.some(
+            (item) => item.source === parsedRef.source && item.externalId === parsedRef.externalId
+          )
+            ? prev
+            : [
+                ...prev,
+                {
+                  type: 'external_reference',
+                  source: parsedRef.source,
+                  externalId: parsedRef.externalId,
+                  title: parsedRef.title || parsedRef.externalId,
+                  url: parsedRef.url,
+                  subtitle: parsedRef.subtitle,
+                  meta: parsedRef.meta,
+                },
+              ]
+        );
+      }
+      return;
+    }
+
     if (!items) return;
 
-    const imageItems = Array.from(items).filter((item) => item.type.startsWith('image/'));
     if (imageItems.length === 0) return;
 
     e.preventDefault();
@@ -963,7 +1031,8 @@ export function ChatView() {
       (!currentPrompt.trim() &&
         pastedImages.length === 0 &&
         attachedFiles.length === 0 &&
-        attachedMeetings.length === 0) ||
+        attachedMeetings.length === 0 &&
+        attachedReferences.length === 0) ||
       !activeSessionId ||
       isSubmitting ||
       openRouterKeyRequired
@@ -1084,6 +1153,10 @@ export function ChatView() {
         });
       });
 
+      attachedReferences.forEach((reference) => {
+        contentBlocks.push(reference);
+      });
+
       // Add text if present — Matter drafts attach signal context only on first send
       let textToSend = currentPrompt.trim();
       const pendingMatterDraft = matterChatDraft;
@@ -1121,6 +1194,7 @@ export function ChatView() {
       setPastedImages([]);
       setAttachedFiles([]);
       setAttachedMeetings([]);
+      setAttachedReferences([]);
     } finally {
       setIsSubmitting(false);
     }
@@ -1558,6 +1632,39 @@ export function ChatView() {
               </div>
             )}
 
+            {attachedReferences.length > 0 && (
+              <div className="space-y-2 mb-3">
+                {attachedReferences.map((reference) => (
+                  <ExternalReferenceChip
+                    key={`${reference.source}:${reference.externalId}`}
+                    reference={reference}
+                    className="group"
+                    removeButton={
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setAttachedReferences((prev) =>
+                            prev.filter(
+                              (item) =>
+                                !(
+                                  item.source === reference.source &&
+                                  item.externalId === reference.externalId
+                                )
+                            )
+                          )
+                        }
+                        title={t('references.remove')}
+                        aria-label={t('references.remove')}
+                        className="w-6 h-6 rounded-full bg-error/10 hover:bg-error/20 text-error flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    }
+                  />
+                ))}
+              </div>
+            )}
+
             <div
               className={`relative flex min-w-0 items-center gap-1.5 p-2.5 rounded-[1.5rem] bg-background/88 border border-border-muted shadow-soft transition-colors ${
                 isDragging ? 'ring-2 ring-accent bg-accent/5' : ''
@@ -1634,6 +1741,46 @@ export function ChatView() {
                             {t('meetings.attachMeeting')}
                           </span>
                         </button>
+                      )}
+                      {isElectron && (
+                        <>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => {
+                              setAttachMenuOpen(false);
+                              setReferencePickerSource('drive');
+                            }}
+                            className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
+                          >
+                            <FileText className="h-4 w-4 text-accent" />
+                            <span className="text-[13px] font-medium">{t('references.drive')}</span>
+                          </button>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => {
+                              setAttachMenuOpen(false);
+                              setReferencePickerSource('slack');
+                            }}
+                            className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
+                          >
+                            <MessageSquare className="h-4 w-4 text-accent" />
+                            <span className="text-[13px] font-medium">{t('references.slack')}</span>
+                          </button>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => {
+                              setAttachMenuOpen(false);
+                              setReferencePickerSource('jira');
+                            }}
+                            className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
+                          >
+                            <Hash className="h-4 w-4 text-accent" />
+                            <span className="text-[13px] font-medium">{t('references.jira')}</span>
+                          </button>
+                        </>
                       )}
                     </div>
                   </div>
@@ -1784,7 +1931,8 @@ export function ChatView() {
                       !textareaRef.current?.value.trim() &&
                       pastedImages.length === 0 &&
                       attachedFiles.length === 0 &&
-                      attachedMeetings.length === 0) ||
+                      attachedMeetings.length === 0 &&
+                      attachedReferences.length === 0) ||
                     isSubmitting
                   }
                   className="w-8 h-8 rounded-xl flex items-center justify-center bg-accent text-background disabled:opacity-50 disabled:cursor-not-allowed hover:bg-accent-hover transition-colors"
@@ -1812,6 +1960,30 @@ export function ChatView() {
         onSelect={(meeting) => {
           setAttachedMeetings((prev) =>
             prev.some((item) => item.meetingId === meeting.meetingId) ? prev : [...prev, meeting]
+          );
+        }}
+      />
+      <ConnectorReferencePicker
+        open={referencePickerSource !== null}
+        source={referencePickerSource}
+        onClose={() => setReferencePickerSource(null)}
+        excludeIds={attachedReferences.map((item) => item.externalId)}
+        onSelect={(item) => {
+          setAttachedReferences((prev) =>
+            prev.some((ref) => ref.source === item.source && ref.externalId === item.externalId)
+              ? prev
+              : [
+                  ...prev,
+                  {
+                    type: 'external_reference',
+                    source: item.source,
+                    externalId: item.externalId,
+                    title: item.title,
+                    url: item.url,
+                    subtitle: item.subtitle,
+                    meta: item.meta,
+                  },
+                ]
           );
         }}
       />

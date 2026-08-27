@@ -24,6 +24,8 @@ function makeEvent(type: ClientEvent['type']): ClientEvent {
       return { type, payload: { sessionId: 'session-1', pinned: true } };
     case 'session.compact':
       return { type, payload: { sessionId: 'session-1' } };
+    case 'session.searchChats':
+      return { type, payload: { query: 'hello' } };
     case 'session.list':
     case 'settings.update':
     case 'folder.select':
@@ -61,6 +63,7 @@ describe('eventRequiresSessionManager', () => {
       'session.list',
       'session.getMessages',
       'session.getTraceSteps',
+      'session.searchChats',
       'permission.response',
     ];
 
