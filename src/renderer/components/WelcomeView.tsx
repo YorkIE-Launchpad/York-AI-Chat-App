@@ -160,6 +160,8 @@ export function WelcomeView() {
   const actionsMenuRef = useRef<HTMLDivElement>(null);
   const { startSession, changeWorkingDir, isElectron } = useIPC();
   const workingDir = useAppStore((state) => state.workingDir);
+  const defaultWorkingDir = useAppStore((state) => state.defaultWorkingDir);
+  const sessionWorkdir = workingDir || defaultWorkingDir || undefined;
   const activeDivision = useAppStore((state) => state.activeDivision);
   const appConfig = useAppStore((state) => state.appConfig);
   const hubUsage = useAppStore((state) => state.hubUsage);
@@ -328,7 +330,7 @@ export function WelcomeView() {
       }
       const contentBlocks: ContentBlock[] = [{ type: 'text', text: input.prompt }];
       const sessionTitle = getInitialSessionTitle(input.prompt);
-      const session = await startSession(sessionTitle, contentBlocks, workingDir || undefined, {
+      const session = await startSession(sessionTitle, contentBlocks, sessionWorkdir, {
         incognito: incognitoDraft || undefined,
       });
       if (!session?.id) {
@@ -360,7 +362,7 @@ export function WelcomeView() {
       clearComposer();
       setLoopMenuOpen(false);
     },
-    [clearComposer, incognitoDraft, isElectron, setGlobalNotice, startSession, t, workingDir]
+    [clearComposer, incognitoDraft, isElectron, sessionWorkdir, setGlobalNotice, startSession, t]
   );
 
   const handleSelectFolder = async () => {
@@ -774,14 +776,14 @@ export function WelcomeView() {
       });
     }
 
-    // Use the global working directory (always available after app startup)
+    // Prefer selected folder, else app default working directory.
     setIsSubmitting(true);
     try {
       const sessionTitle = getInitialSessionTitle(
         currentPrompt,
         attachedFiles[0]?.name || attachedMeetings[0]?.title
       );
-      const session = await startSession(sessionTitle, contentBlocks, workingDir || undefined, {
+      const session = await startSession(sessionTitle, contentBlocks, sessionWorkdir, {
         incognito: incognitoDraft || undefined,
       });
       if (session) {
@@ -1164,9 +1166,7 @@ export function WelcomeView() {
                             }}
                             className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
                           >
-                            <FolderOpen
-                              className={`h-4 w-4 ${workingDir ? 'text-text-muted' : 'text-accent'}`}
-                            />
+                            <FolderOpen className="h-4 w-4 text-text-muted" />
                             <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
                               {workingDir
                                 ? workingDir.split(/[/\\]/).pop()

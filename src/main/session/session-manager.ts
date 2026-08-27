@@ -66,6 +66,10 @@ import {
   type SessionDivisionFields,
 } from '../../shared/workspace-division';
 import type { ChatExportPayload } from './session-transfer';
+import {
+  isUnusableSessionCwd,
+  resolveWritableSessionCwd,
+} from './resolve-session-cwd';
 
 interface AgentRunner {
   run(session: Session, prompt: string, existingMessages: Message[]): Promise<void>;
@@ -157,6 +161,62 @@ export class SessionManager {
 
   setMeetingService(service: MeetingService | null): void {
     this.meetingService = service;
+  }
+
+  /**
+   * Prefer session cwd, then config/env/app default. Never use `/` (Electron
+   * Finder launches often have process.cwd() === '/') — that yields `/.tmp`.
+   */
+  private resolveSessionCwd(cwd?: string | null): string {
+    let userDataDefault: string | undefined;
+    try {
+      // Lazy require keeps unit tests that don't boot Electron happier.
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { app } = require('electron') as typeof import('electron');
+      if (app?.getPath) {
+        userDataDefault = path.join(app.getPath('userData'), 'default_working_dir');
+      }
+    } catch {
+      // non-electron / test harness
+    }
+    return resolveWritableSessionCwd([
+      cwd,
+      configStore.get('defaultWorkdir'),
+      process.env.YORK_IE_WORKDIR,
+      process.env.WORKDIR,
+      process.env.DEFAULT_CWD,
+      userDataDefault,
+      process.cwd(),
+    ]);
+  }
+
+  /** Stage attachments under `<writable-cwd>/.tmp`, healing unusable session.cwd. */
+  private ensureSessionTmpDir(session: Session): string {
+    const base = this.resolveSessionCwd(session.cwd);
+    if (!session.cwd || isUnusableSessionCwd(session.cwd) || path.resolve(session.cwd) !== base) {
+      session.cwd = base;
+      session.mountedPaths = this.buildMountedPaths(base);
+      if (!session.incognito) {
+        try {
+          this.db.sessions.update(session.id, {
+            cwd: base,
+            mounted_paths: JSON.stringify(session.mountedPaths),
+            updated_at: Date.now(),
+          });
+        } catch (error) {
+          logWarn('[SessionManager] Failed to persist healed session cwd:', error);
+        }
+      }
+    }
+    if (!fs.existsSync(base)) {
+      fs.mkdirSync(base, { recursive: true });
+    }
+    const tmpDir = path.join(base, '.tmp');
+    if (!fs.existsSync(tmpDir)) {
+      fs.mkdirSync(tmpDir, { recursive: true });
+      log('[SessionManager] Created .tmp directory:', tmpDir);
+    }
+    return tmpDir;
   }
 
   /**
@@ -422,9 +482,8 @@ export class SessionManager {
     }
   ): Session {
     const now = Date.now();
-    // Prefer frontend-provided cwd; fallback to env vars if provided
-    const envCwd = process.env.YORK_IE_WORKDIR || process.env.WORKDIR || process.env.DEFAULT_CWD;
-    const effectiveCwd = cwd || envCwd;
+    // Prefer frontend-provided cwd; never leave sessions on `/` (see resolveSessionCwd).
+    const effectiveCwd = this.resolveSessionCwd(cwd);
     const isIncognito = options?.incognito === true;
     const resolvedMemoryEnabled = isIncognito
       ? false
@@ -660,10 +719,7 @@ export class SessionManager {
 
     this.saveSession(session);
 
-    const tmpDir = path.join(session.cwd || process.cwd(), '.tmp');
-    if (!fs.existsSync(tmpDir)) {
-      fs.mkdirSync(tmpDir, { recursive: true });
-    }
+    const tmpDir = this.ensureSessionTmpDir(session);
 
     const importedMessages: Message[] = [];
 
@@ -916,12 +972,7 @@ export class SessionManager {
         const fileBlock = block as FileAttachmentContent;
 
         try {
-          // Create .tmp directory if it doesn't exist
-          const tmpDir = path.join(session.cwd || process.cwd(), '.tmp');
-          if (!fs.existsSync(tmpDir)) {
-            fs.mkdirSync(tmpDir, { recursive: true });
-            log('[SessionManager] Created .tmp directory:', tmpDir);
-          }
+          const tmpDir = this.ensureSessionTmpDir(session);
 
           // Get source file path from the file attachment
           const sourcePath = (fileBlock.relativePath || '').trim(); // This is the full path from Electron

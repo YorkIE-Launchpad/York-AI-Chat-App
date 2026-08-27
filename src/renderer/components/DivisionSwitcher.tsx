@@ -353,7 +353,7 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
               <MenuItem
                 icon={Building2}
                 label="Hub"
-                description="People & HR · York-managed models (no OpenRouter key)"
+                description="People & HR · your OpenRouter API key"
                 active={activeDivision?.kind === 'hub'}
                 onClick={() => void selectDivision({ kind: 'hub' })}
               />

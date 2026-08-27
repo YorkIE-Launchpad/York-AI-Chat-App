@@ -20,6 +20,7 @@ import type {
 } from '../../renderer/types';
 import type { WorkspaceDivisionKind } from '../../shared/workspace-division';
 import { log, logError, logWarn } from '../utils/logger';
+import { resolveWritableSessionCwd } from './resolve-session-cwd';
 
 export const YORK_CHAT_FORMAT = 'york-chat' as const;
 export const YORK_CHAT_VERSION = 1 as const;
@@ -86,7 +87,7 @@ function resolveAttachmentDiskPath(session: Session, block: FileAttachmentConten
   if (path.isAbsolute(rel) && fs.existsSync(rel)) {
     return rel;
   }
-  const cwd = session.cwd || process.cwd();
+  const cwd = resolveWritableSessionCwd([session.cwd, process.cwd()]);
   const candidate = path.join(cwd, rel);
   if (fs.existsSync(candidate)) {
     return candidate;

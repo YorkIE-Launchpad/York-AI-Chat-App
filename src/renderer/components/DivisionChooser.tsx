@@ -234,7 +234,7 @@ export function DivisionChooser() {
       </h2>
       <p className="mb-6 text-center text-sm text-text-muted">
         Each workspace has its own chats and experience memory. General needs your own OpenRouter
-        API key; Hub and Project use York-managed models.
+        API key; Hub uses your personal York allowance; Project uses York-managed models.
       </p>
       <div className="grid gap-3 sm:grid-cols-3">
         <ChooserCard
@@ -262,7 +262,7 @@ export function DivisionChooser() {
         <ChooserCard
           icon={Building2}
           title="Hub"
-          description="People, culture, and HRMS — York-managed models, no OpenRouter key needed"
+          description="People, culture, and HRMS — personal York models, no OpenRouter key needed"
           onClick={() => setActiveDivision({ kind: 'hub' })}
         />
         <ChooserCard
@@ -274,7 +274,7 @@ export function DivisionChooser() {
       </div>
       {!hasOpenRouterKey && (
         <p className="mt-4 text-center text-xs text-text-muted">
-          Prefer company models without your own key? Start with Hub or Project.
+          Prefer York models without your own key? Start with Hub (personal) or Project.
         </p>
       )}
     </div>

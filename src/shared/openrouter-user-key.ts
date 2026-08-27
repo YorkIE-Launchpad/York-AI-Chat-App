@@ -3,8 +3,8 @@
  * as a dedicated header (Cognito JWT stays in Authorization).
  *
  * Product rule: General workspace and personal Folders only use OpenRouter with
- * this key — not York-billed Anthropic/OpenAI/Gemini. Hub and Project workspaces
- * use York-managed models without it.
+ * this key — not York-billed Anthropic/OpenAI/Gemini. Hub uses your personal
+ * York allowance; Project uses York-managed models — neither needs this key.
  */
 
 export const YORK_OPENROUTER_USER_KEY_HEADER = 'x-york-openrouter-key';
