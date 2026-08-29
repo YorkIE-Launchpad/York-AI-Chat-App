@@ -449,7 +449,7 @@ function sanitizeDiagnosticBaseUrl(value: string | undefined): string | null {
 
 async function verifyGeminiRuntimeForSmokeTest(): Promise<void> {
   const { completeSimple, getModel } = await import('@mariozechner/pi-ai');
-  const model = getModel('google', 'gemini-2.5-flash');
+  const model = getModel('google', 'gemini-3.6-flash');
   if (!model) {
     throw new Error('Gemini smoke-test model is missing from the pi-ai registry');
   }

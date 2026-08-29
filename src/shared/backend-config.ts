@@ -73,7 +73,9 @@ export function getBackendProxyBaseUrl(
     case 'openai':
       return `${base}/openai/v1`;
     case 'gemini':
-      return `${base}/gemini`;
+      // pi-ai/@google/genai clears apiVersion when baseUrl is set, so the version
+      // must live on the base URL (same pattern as openai → /openai/v1).
+      return `${base}/gemini/v1beta`;
     case 'openrouter':
       return `${base}/openrouter/v1`;
     default:

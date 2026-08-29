@@ -45,9 +45,9 @@ describe('pi model resolution helpers', () => {
       resolvePiModelString({
         provider: 'custom',
         customProtocol: 'gemini',
-        model: 'gemini-3-flash-preview',
+        model: 'gemini-3.6-flash',
       })
-    ).toBe('gemini/gemini-3-flash-preview');
+    ).toBe('gemini/gemini-3.6-flash');
     expect(
       resolvePiModelString({
         provider: 'anthropic',

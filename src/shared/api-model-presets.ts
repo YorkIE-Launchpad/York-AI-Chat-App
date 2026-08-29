@@ -70,6 +70,8 @@ export const API_PROVIDER_PRESETS: SharedProviderPresets = {
       // { id: 'openai/gpt-5.6-sol', name: 'openai/gpt-5.6-sol' },
       // { id: 'openai/gpt-5.6-terra', name: 'openai/gpt-5.6-terra' },
       { id: 'openai/gpt-5.6-luna', name: 'openai/gpt-5.6-luna' },
+      { id: 'google/gemini-3.7-flash', name: 'google/gemini-3.7-flash' },
+      { id: 'google/gemini-3.6-flash', name: 'google/gemini-3.6-flash' },
       { id: 'google/gemini-3.5-flash', name: 'google/gemini-3.5-flash' },
       { id: 'google/gemini-3.1-pro-preview', name: 'google/gemini-3.1-pro-preview' },
     ],
@@ -114,12 +116,12 @@ export const API_PROVIDER_PRESETS: SharedProviderPresets = {
     name: 'Gemini',
     baseUrl: 'https://generativelanguage.googleapis.com',
     models: [
+      { id: 'gemini-3.7-flash', name: 'gemini-3.7-flash' },
+      { id: 'gemini-3.6-flash', name: 'gemini-3.6-flash' },
       { id: 'gemini-3.5-flash', name: 'gemini-3.5-flash' },
+      { id: 'gemini-3.5-flash-lite', name: 'gemini-3.5-flash-lite' },
       { id: 'gemini-3.1-pro-preview', name: 'gemini-3.1-pro-preview' },
-      { id: 'gemini-3.1-flash-lite-preview', name: 'gemini-3.1-flash-lite-preview' },
-      { id: 'gemini-3-flash-preview', name: 'gemini-3-flash-preview' },
-      { id: 'gemini-2.5-pro', name: 'gemini-2.5-pro' },
-      { id: 'gemini-2.5-flash', name: 'gemini-2.5-flash' },
+      { id: 'gemini-3.1-flash-lite', name: 'gemini-3.1-flash-lite' },
     ],
     keyPlaceholder: 'AIza...',
     keyHint: 'Get from aistudio.google.com',
@@ -182,6 +184,8 @@ export const PI_AI_CURATED_PRESETS: Record<string, { piProvider: string; pick: s
       // 'openai/gpt-5.6-sol',
       // 'openai/gpt-5.6-terra',
       'openai/gpt-5.6-luna',
+      'google/gemini-3.7-flash',
+      'google/gemini-3.6-flash',
       'google/gemini-3.5-flash',
       'google/gemini-3.1-pro-preview',
     ],
@@ -217,12 +221,12 @@ export const PI_AI_CURATED_PRESETS: Record<string, { piProvider: string; pick: s
   gemini: {
     piProvider: 'google',
     pick: [
+      'gemini-3.7-flash',
+      'gemini-3.6-flash',
       'gemini-3.5-flash',
+      'gemini-3.5-flash-lite',
       'gemini-3.1-pro-preview',
-      'gemini-3.1-flash-lite-preview',
-      'gemini-3-flash-preview',
-      'gemini-2.5-pro',
-      'gemini-2.5-flash',
+      'gemini-3.1-flash-lite',
     ],
   },
 };
@@ -233,7 +237,7 @@ export function getModelInputGuidance(
 ): ModelInputGuidance {
   if (provider === 'openrouter') {
     return {
-      placeholder: 'openai/gpt-5.6-luna, anthropic/claude-sonnet-5, google/gemini-3.5-flash',
+      placeholder: 'openai/gpt-5.6-luna, anthropic/claude-sonnet-5, google/gemini-3.6-flash',
       hint: 'Use the exact model ID for the selected protocol or endpoint.',
     };
   }
@@ -247,7 +251,7 @@ export function getModelInputGuidance(
 
   if (provider === 'custom' && customProtocol === 'gemini') {
     return {
-      placeholder: 'gemini-3.5-flash, gemini-3.1-pro-preview, gemini-2.5-flash',
+      placeholder: 'gemini-3.7-flash, gemini-3.6-flash, gemini-3.1-pro-preview',
       hint: 'Use the exact model ID for the selected protocol or endpoint.',
     };
   }
@@ -275,7 +279,7 @@ export function getModelInputGuidance(
 
   if (provider === 'gemini') {
     return {
-      placeholder: 'gemini-3.5-flash, gemini-3.1-pro-preview, gemini-2.5-flash',
+      placeholder: 'gemini-3.7-flash, gemini-3.6-flash, gemini-3.1-pro-preview',
       hint: 'Use the exact model ID for the selected protocol or endpoint.',
     };
   }

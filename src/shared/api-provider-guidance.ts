@@ -120,7 +120,7 @@ export const COMMON_PROVIDER_SETUPS: CommonProviderSetup[] = [
     applyProvider: 'custom',
     recommendedProtocol: 'gemini',
     recommendedBaseUrl: 'https://generativelanguage.googleapis.com',
-    exampleModel: 'gemini-2.5-flash',
+    exampleModel: 'gemini-3.6-flash',
     matcher: {
       hosts: ['generativelanguage.googleapis.com'],
     },

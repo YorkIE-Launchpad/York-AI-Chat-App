@@ -40,10 +40,12 @@ export const AUTO_MODEL_TIERS: Record<AutoModelTier, AutoModelCandidate[]> = {
     { provider: 'openrouter', id: 'nvidia/nemotron-3-nano-30b-a3b:free', supportsVision: false },
     { provider: 'openrouter', id: 'poolside/laguna-xs-2.1:free', supportsVision: false },
     { provider: 'anthropic', id: 'claude-haiku-4-5', supportsVision: true },
-    { provider: 'gemini', id: 'gemini-3.5-flash', supportsVision: true },
+    { provider: 'gemini', id: 'gemini-3.6-flash', supportsVision: true },
     { provider: 'openai', id: 'gpt-5.4-mini', supportsVision: true },
-    { provider: 'gemini', id: 'gemini-3.1-flash-lite-preview', supportsVision: true },
+    { provider: 'gemini', id: 'gemini-3.5-flash-lite', supportsVision: true },
+    { provider: 'gemini', id: 'gemini-3.1-flash-lite', supportsVision: true },
     { provider: 'openrouter', id: 'anthropic/claude-haiku-4.5', supportsVision: true },
+    { provider: 'openrouter', id: 'google/gemini-3.6-flash', supportsVision: true },
     { provider: 'openrouter', id: 'google/gemini-3.5-flash', supportsVision: true },
   ],
   balanced: [
@@ -53,9 +55,12 @@ export const AUTO_MODEL_TIERS: Record<AutoModelTier, AutoModelCandidate[]> = {
     { provider: 'anthropic', id: 'claude-sonnet-5', supportsVision: true },
     // Temporarily hidden — re-enable later: gpt-5.6
     { provider: 'openai', id: 'gpt-5.6-luna', supportsVision: true },
+    { provider: 'gemini', id: 'gemini-3.7-flash', supportsVision: true },
+    { provider: 'gemini', id: 'gemini-3.5-flash', supportsVision: true },
     { provider: 'gemini', id: 'gemini-3.1-pro-preview', supportsVision: true },
     { provider: 'openrouter', id: 'anthropic/claude-sonnet-5', supportsVision: true },
     // Temporarily hidden — re-enable later: openai/gpt-5.6-sol
+    { provider: 'openrouter', id: 'google/gemini-3.7-flash', supportsVision: true },
     { provider: 'openrouter', id: 'google/gemini-3.1-pro-preview', supportsVision: true },
   ],
   frontier: [

@@ -329,7 +329,7 @@ const defaultProfiles: Record<ProviderProfileKey, ProviderProfile> = {
   gemini: {
     apiKey: '',
     baseUrl: 'https://generativelanguage.googleapis.com',
-    model: 'gemini-3.5-flash',
+    model: 'gemini-3.6-flash',
   },
   'custom:anthropic': {
     apiKey: '',
@@ -344,7 +344,7 @@ const defaultProfiles: Record<ProviderProfileKey, ProviderProfile> = {
   'custom:gemini': {
     apiKey: '',
     baseUrl: 'https://generativelanguage.googleapis.com',
-    model: 'gemini-2.5-flash',
+    model: 'gemini-3.6-flash',
   },
 };
 
@@ -772,6 +772,26 @@ export class ConfigStore {
     if (orProfile?.baseUrl === 'https://openrouter.ai/api') {
       orProfile.baseUrl = 'https://openrouter.ai/api/v1';
     }
+    // Fix York Gemini proxy baseUrl: /gemini → /gemini/v1beta (pi-ai omits apiVersion)
+    const rewriteGeminiProxyBase = (url: string | undefined): string | undefined => {
+      if (!url) return url;
+      const trimmed = url.replace(/\/+$/, '');
+      if (/\/gemini$/i.test(trimmed)) {
+        return `${trimmed}/v1beta`;
+      }
+      return url;
+    };
+    for (const key of ['gemini', 'custom:gemini'] as const) {
+      const profile = config.profiles?.[key];
+      if (profile?.baseUrl) {
+        const next = rewriteGeminiProxyBase(profile.baseUrl);
+        if (next) profile.baseUrl = next;
+      }
+    }
+    if (config.baseUrl) {
+      const next = rewriteGeminiProxyBase(config.baseUrl);
+      if (next) config.baseUrl = next;
+    }
     // Fix openrouter model IDs: dashes → dots for claude models
     // Registry uses "anthropic/claude-sonnet-4.5", old config had "anthropic/claude-sonnet-4-5"
     if (orProfile?.model) {
@@ -783,6 +803,30 @@ export class ConfigStore {
     // Also fix the flat model field (legacy compat)
     if (config.model?.startsWith('gemini/')) {
       config.model = config.model.slice('gemini/'.length);
+    }
+    // Retired Gemini models → current GA IDs
+    const retireGeminiModel = (model: string | undefined): string | undefined => {
+      if (!model) return model;
+      const map: Record<string, string> = {
+        'gemini-3.1-flash-lite-preview': 'gemini-3.1-flash-lite',
+        'google/gemini-3.1-flash-lite-preview': 'google/gemini-3.1-flash-lite',
+        'gemini-2.5-flash': 'gemini-3.6-flash',
+        'google/gemini-2.5-flash': 'google/gemini-3.6-flash',
+        'gemini-2.5-pro': 'gemini-3.1-pro-preview',
+        'google/gemini-2.5-pro': 'google/gemini-3.1-pro-preview',
+        'gemini-3-flash-preview': 'gemini-3.6-flash',
+        'google/gemini-3-flash-preview': 'google/gemini-3.6-flash',
+      };
+      return map[model] || model;
+    };
+    if (config.model) {
+      config.model = retireGeminiModel(config.model) || config.model;
+    }
+    for (const key of Object.keys(config.profiles || {}) as ProviderProfileKey[]) {
+      const profile = config.profiles?.[key];
+      if (profile?.model) {
+        profile.model = retireGeminiModel(profile.model) || profile.model;
+      }
     }
     // Fix flat baseUrl for openrouter
     if (config.baseUrl === 'https://openrouter.ai/api' && config.provider === 'openrouter') {

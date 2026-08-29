@@ -172,7 +172,7 @@ describe('ConfigStore provider profiles', () => {
     const geminiView = store.getAll();
     expect(geminiView.provider).toBe('gemini');
     expect(geminiView.apiKey).toBe('AIza-official');
-    expect(geminiView.model).toBe('gemini-2.5-flash');
+    expect(geminiView.model).toBe('gemini-3.6-flash');
   });
 
   it('treats global configured state as any set usable while active set can still be unusable', () => {
