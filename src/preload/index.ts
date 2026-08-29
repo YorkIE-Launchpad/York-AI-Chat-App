@@ -62,7 +62,6 @@ import type {
   PairedUser,
   PairingRequest,
   RemoteSessionMapping,
-  WelcomeQuickActionsResponse,
 } from '../shared/ipc-types';
 import type { AuthStatusResponse, AuthUser, AuthOAuthDebugInfo } from '../shared/auth-types';
 import type { AllocatedHubProject, PersonalFolder } from '../shared/workspace-division';
@@ -474,13 +473,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('connectors.connect', connectorId),
     disconnect: (connectorId: ConnectorId): Promise<{ success: boolean; error?: string }> =>
       ipcRenderer.invoke('connectors.disconnect', connectorId),
-  },
-
-  welcome: {
-    getQuickActions: (): Promise<WelcomeQuickActionsResponse> =>
-      ipcRenderer.invoke('welcome.getQuickActions'),
-    regenerateQuickActions: (): Promise<WelcomeQuickActionsResponse> =>
-      ipcRenderer.invoke('welcome.regenerateQuickActions'),
   },
 
   // Skills methods
@@ -1158,10 +1150,6 @@ declare global {
           connectorId: ConnectorId
         ) => Promise<{ success: boolean; status?: ConnectorStatus; error?: string }>;
         disconnect: (connectorId: ConnectorId) => Promise<{ success: boolean; error?: string }>;
-      };
-      welcome: {
-        getQuickActions: () => Promise<WelcomeQuickActionsResponse>;
-        regenerateQuickActions: () => Promise<WelcomeQuickActionsResponse>;
       };
       skills: {
         getAll: () => Promise<Skill[]>;

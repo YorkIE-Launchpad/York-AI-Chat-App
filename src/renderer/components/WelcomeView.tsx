@@ -1,30 +1,14 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../store';
 import { useIPC } from '../hooks/useIPC';
 import type { ContentBlock, Skill } from '../types';
 import { getInitialSessionTitle } from '../../shared/session-title';
-import type { WelcomeActionIcon, WelcomeQuickAction } from '../../shared/welcome-actions';
 import { DivisionChooser } from './DivisionChooser';
 import {
-  FileText,
-  BarChart3,
-  FolderOpen,
   ArrowRight,
-  Mail,
   X,
   Paperclip,
-  BookOpen,
-  FileSearch,
-  Users,
-  Briefcase,
-  Rocket,
-  Calendar,
-  ClipboardList,
-  Target,
-  Presentation,
-  Search,
-  Shuffle,
   Mic,
   RefreshCw,
   Plus,
@@ -32,7 +16,8 @@ import {
   Package,
   Hash,
   MessageSquare,
-  type LucideIcon,
+  FolderOpen,
+  FileText,
 } from 'lucide-react';
 
 type AttachedFile = {
@@ -80,73 +65,12 @@ import {
 import { DEFAULT_GOAL_MAX_ITERATIONS } from '../../shared/loop/types';
 import { needsOpenRouterUserKey } from '../../shared/openrouter-user-key';
 import { divisionBudgetCheckKey } from '../../shared/fe-budget-gate';
-
-const WELCOME_ICON_MAP: Record<WelcomeActionIcon, LucideIcon> = {
-  FileText,
-  BarChart3,
-  FolderOpen,
-  Mail,
-  BookOpen,
-  FileSearch,
-  Users,
-  Briefcase,
-  Rocket,
-  Calendar,
-  ClipboardList,
-  Target,
-  Presentation,
-  Search,
-};
-
-function buildI18nFallbackChips(t: (key: string) => string): WelcomeQuickAction[] {
-  return [
-    {
-      id: 'draft-ic-memo',
-      label: t('welcome.draftIcMemo'),
-      prompt: t('welcome.quickPromptDraftIcMemo'),
-      icon: 'FileText',
-    },
-    {
-      id: 'prep-diligence',
-      label: t('welcome.prepDiligence'),
-      prompt: t('welcome.quickPromptPrepDiligence'),
-      icon: 'ClipboardList',
-    },
-    {
-      id: 'hub-timesheet',
-      label: t('welcome.logHubTimesheet'),
-      prompt: t('welcome.quickPromptHubTimesheet'),
-      icon: 'Calendar',
-      requiresConnectorName: 'York IE HUB',
-    },
-    {
-      id: 'launchpad-release',
-      label: t('welcome.checkLaunchpadRelease'),
-      prompt: t('welcome.quickPromptLaunchpadRelease'),
-      icon: 'Rocket',
-      requiresConnectorName: 'R&D Launchpad',
-    },
-    {
-      id: 'gtm-pipeline',
-      label: t('welcome.gtmPipelineSnapshot'),
-      prompt: t('welcome.quickPromptGtmPipeline'),
-      icon: 'Target',
-      requiresConnectorName: 'GTM Pulse',
-    },
-    {
-      id: 'client-deck',
-      label: t('welcome.buildClientDeck'),
-      prompt: t('welcome.quickPromptClientDeck'),
-      icon: 'Presentation',
-    },
-  ];
-}
+import { WelcomeMatterBriefing } from './matter/WelcomeMatterBriefing';
 
 export function WelcomeView() {
   const { t } = useTranslation();
   const [prompt, setPrompt] = useState('');
   const [cursorIndex, setCursorIndex] = useState(0);
-  const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const isComposingRef = useRef(false);
   const [pastedImages, setPastedImages] = useState<
@@ -162,9 +86,6 @@ export function WelcomeView() {
   const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
   const [loopMenuOpen, setLoopMenuOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
-  const [quickActions, setQuickActions] = useState<WelcomeQuickAction[] | null>(null);
-  const [welcomeTagline, setWelcomeTagline] = useState<string | null>(null);
-  const [isShufflingActions, setIsShufflingActions] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const actionsMenuRef = useRef<HTMLDivElement>(null);
   const { startSession, changeWorkingDir, isElectron } = useIPC();
@@ -204,58 +125,6 @@ export function WelcomeView() {
     meetingsReferenceAllowed,
     trigger: skillTrigger,
   } = useSlashCommands(prompt, cursorIndex);
-
-  const fallbackChips = useMemo(() => buildI18nFallbackChips(t), [t]);
-  const displayChips = quickActions ?? fallbackChips;
-  const displayTagline = welcomeTagline ?? t('welcome.title');
-
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      try {
-        const api = window.electronAPI?.welcome;
-        if (!api?.getQuickActions) return;
-        const result = await api.getQuickActions();
-        if (cancelled) return;
-        if (result?.chips?.length) {
-          setQuickActions(result.chips);
-        }
-        if (result?.tagline?.trim()) {
-          setWelcomeTagline(result.tagline.trim());
-        }
-      } catch {
-        // Keep i18n fallback chips / tagline
-      }
-    };
-    void load();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const handleShuffleQuickActions = useCallback(async () => {
-    const api = window.electronAPI?.welcome;
-    if (!api?.regenerateQuickActions || isShufflingActions) return;
-    setIsShufflingActions(true);
-    setSelectedTag(null);
-    try {
-      const result = await api.regenerateQuickActions();
-      if (result?.chips?.length) {
-        setQuickActions(result.chips);
-      }
-      if (result?.tagline?.trim()) {
-        setWelcomeTagline(result.tagline.trim());
-      }
-    } catch {
-      setGlobalNotice({
-        id: `notice-welcome-shuffle-${Date.now()}`,
-        type: 'warning',
-        message: t('welcome.shuffleActionsFailed'),
-      });
-    } finally {
-      setIsShufflingActions(false);
-    }
-  }, [isShufflingActions, setGlobalNotice, t]);
 
   const handleSelectSlashSkill = useCallback(
     (skill: Skill) => {
@@ -867,18 +736,6 @@ export function WelcomeView() {
     }
   };
 
-  const handleTagClick = (tag: string, tagPrompt: string) => {
-    setSelectedTag(tag === selectedTag ? null : tag);
-    if (tag !== selectedTag) {
-      setPrompt(tagPrompt);
-      if (textareaRef.current) {
-        textareaRef.current.value = tagPrompt;
-        // Trigger height adjustment
-        adjustTextareaHeight();
-      }
-    }
-  };
-
   // Auto-adjust textarea height based on content
   const adjustTextareaHeight = () => {
     const textarea = textareaRef.current;
@@ -913,16 +770,8 @@ export function WelcomeView() {
   });
 
   return (
-    <div
-      className={`flex-1 min-h-0 flex flex-col items-center px-5 py-10 md:px-8 md:py-14 ${
-        !activeDivision ? 'overflow-hidden' : 'overflow-y-auto'
-      }`}
-    >
-      <div
-        className={`max-w-[840px] w-full animate-fade-in ${
-          !activeDivision ? 'flex min-h-0 flex-1 flex-col space-y-7' : 'my-auto space-y-7'
-        }`}
-      >
+    <div className="flex flex-1 min-h-0 flex-col items-center overflow-hidden px-5 py-10 md:px-8 md:py-14">
+      <div className="flex min-h-0 w-full max-w-[840px] flex-1 animate-fade-in flex-col">
         <div className="shrink-0 space-y-4 text-center">
           <div className="flex items-center justify-center gap-4">
             <img
@@ -940,11 +789,7 @@ export function WelcomeView() {
             <p className="heading-serif text-[1.15rem] md:text-[1.45rem] font-medium tracking-[-0.02em] text-text-secondary text-center">
               Pick a workspace to get started
             </p>
-          ) : (
-            <p className="heading-serif text-[1.15rem] md:text-[1.45rem] font-medium tracking-[-0.02em] text-text-secondary text-center">
-              {displayTagline}
-            </p>
-          )}
+          ) : null}
           {incognitoDraft && (
             <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-dashed border-border-subtle bg-background/70 px-3 py-1.5 text-xs text-text-secondary">
               <Ghost className="w-3.5 h-3.5 text-text-muted" />
@@ -964,52 +809,18 @@ export function WelcomeView() {
         </div>
 
         {!activeDivision ? (
-          <DivisionChooser />
+          <div className="mt-7 min-h-0 flex-1">
+            <DivisionChooser />
+          </div>
         ) : (
           <>
-            <OpenRouterKeyGateBanner />
-            {/* Quick Action Tags */}
-            <div className="flex flex-wrap gap-2 justify-center items-center px-3">
-              {displayChips.map((tag) => {
-                const Icon = WELCOME_ICON_MAP[tag.icon] ?? FileText;
-                const connectorBadge = tag.requiresConnectorName?.trim() || null;
-                return (
-                  <button
-                    key={tag.id}
-                    type="button"
-                    onClick={() => handleTagClick(tag.id, tag.prompt)}
-                    disabled={isShufflingActions}
-                    className={`inline-flex items-center gap-2 rounded-full border px-3 py-2 text-sm transition-colors ${
-                      selectedTag === tag.id
-                        ? 'border-accent/30 bg-accent-muted text-accent'
-                        : 'border-border-subtle bg-background/65 text-text-secondary hover:bg-surface-hover hover:text-text-primary'
-                    } ${connectorBadge ? 'relative' : ''} ${isShufflingActions ? 'opacity-60' : ''}`}
-                  >
-                    <Icon
-                      className={`w-4 h-4 ${selectedTag === tag.id ? 'text-accent' : 'text-text-muted'}`}
-                    />
-                    <span>{tag.label}</span>
-                    {connectorBadge && (
-                      <span className="ml-1 px-1.5 py-px text-[9px] rounded bg-surface-active text-text-muted">
-                        {connectorBadge}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-              <button
-                type="button"
-                onClick={() => void handleShuffleQuickActions()}
-                disabled={isShufflingActions}
-                title={t('welcome.shuffleActions')}
-                aria-label={t('welcome.shuffleActions')}
-                className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-border-subtle bg-background/65 text-text-muted hover:bg-surface-hover hover:text-text-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <Shuffle className={`w-3.5 h-3.5 ${isShufflingActions ? 'animate-spin' : ''}`} />
-              </button>
+            <div className="mt-7 min-h-0 flex-1 space-y-7 overflow-y-auto">
+              <OpenRouterKeyGateBanner />
+              <WelcomeMatterBriefing />
             </div>
 
-            {/* Main Input Card - Right aligned */}
+            <div className="mt-auto shrink-0 pt-7">
+            {/* Main Input Card */}
             <form
               onSubmit={handleSubmit}
               onDragOver={handleDragOver}
@@ -1458,6 +1269,7 @@ export function WelcomeView() {
             {dictationStatus === 'error' && dictationErrorKind === 'client_outdated' ? (
               <ClientOutdatedUpdateActions className="mt-3" />
             ) : null}
+            </div>
           </>
         )}
       </div>

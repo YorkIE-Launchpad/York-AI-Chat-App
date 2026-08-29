@@ -5,10 +5,10 @@ import path from 'node:path';
 const welcomeViewPath = path.resolve(process.cwd(), 'src/renderer/components/WelcomeView.tsx');
 
 describe('WelcomeView Claude-style layout', () => {
-  it('uses a narrower editorial landing column with York IE eyebrow', () => {
+  it('uses a narrower editorial landing column with York GrowthOS branding', () => {
     const source = fs.readFileSync(welcomeViewPath, 'utf8');
     expect(source).toContain('max-w-[840px]');
-    expect(source).toContain('York IE');
+    expect(source).toContain('York GrowthOS');
   });
 
   it('uses a softer rounded composer shell instead of the previous generic card class', () => {
@@ -23,25 +23,17 @@ describe('WelcomeView Claude-style layout', () => {
     expect(source).toContain('<ModelSelector />');
   });
 
-  it('loads dynamic quick actions via welcome IPC and shows connector badges', () => {
+  it('shows Matter briefings instead of connector quick-action chips', () => {
     const source = fs.readFileSync(welcomeViewPath, 'utf8');
-    expect(source).toContain('electronAPI?.welcome');
-    expect(source).toContain('getQuickActions');
-    expect(source).toContain('requiresConnectorName');
-    expect(source).toContain('WELCOME_ICON_MAP');
+    expect(source).toContain('WelcomeMatterBriefing');
+    expect(source).not.toContain('getQuickActions');
+    expect(source).not.toContain('regenerateQuickActions');
+    expect(source).not.toContain('WELCOME_ICON_MAP');
   });
 
-  it('renders a dynamic welcome tagline from generation results', () => {
+  it('pins the welcome composer to the bottom of the viewport', () => {
     const source = fs.readFileSync(welcomeViewPath, 'utf8');
-    expect(source).toContain('welcomeTagline');
-    expect(source).toContain('displayTagline');
-    expect(source).toContain('result?.tagline');
-  });
-
-  it('exposes a shuffle control to regenerate welcome quick actions', () => {
-    const source = fs.readFileSync(welcomeViewPath, 'utf8');
-    expect(source).toContain('regenerateQuickActions');
-    expect(source).toContain('Shuffle');
-    expect(source).toContain('handleShuffleQuickActions');
+    expect(source).toContain('mt-auto shrink-0 pt-7');
+    expect(source).not.toContain('my-auto space-y-7');
   });
 });
