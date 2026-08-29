@@ -25,6 +25,8 @@ const DEFAULT_RUNTIME: MeetingsRuntimeConfig = {
   recentMeetingCount: 5,
   processDetectEnabled: true,
   storageRoot: '',
+  liveAssistInstructions: '',
+  liveAssistIntervalMs: 120_000,
 };
 
 function cloneRuntime(runtime?: MeetingsRuntimeConfig): MeetingsRuntimeConfig {
@@ -51,11 +53,13 @@ function ToggleField({
   hint,
   checked,
   onChange,
+  disabled = false,
 }: {
   label: string;
   hint?: string;
   checked: boolean;
   onChange: (checked: boolean) => void;
+  disabled?: boolean;
 }) {
   return (
     <label className="flex items-center justify-between gap-3 rounded-lg border border-border-muted bg-background/70 px-3 py-2.5">
@@ -66,8 +70,9 @@ function ToggleField({
       <input
         type="checkbox"
         checked={checked}
+        disabled={disabled}
         onChange={(event) => onChange(event.target.checked)}
-        className="h-4 w-4 shrink-0 accent-accent"
+        className="h-4 w-4 shrink-0 accent-accent disabled:opacity-50"
       />
     </label>
   );
@@ -92,6 +97,9 @@ export function SettingsMeetings() {
   const [isBusy, setIsBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [showRaw, setShowRaw] = useState(false);
+  const [liveAssistForCapture, setLiveAssistForCapture] = useState(false);
+  const [liveAssistActive, setLiveAssistActive] = useState(false);
+  const openSessionWithDivision = useAppStore((state) => state.openSessionWithDivision);
 
   const enabled = overview?.enabled ?? appConfig?.meetingsEnabled ?? true;
   const zoomConnected = overview?.zoomConnected ?? false;
@@ -137,6 +145,7 @@ export function SettingsMeetings() {
           setOverview(nextOverview);
           setCaptureStatus(nextOverview.capture);
           setLiveTranscript(nextOverview.capture.liveTranscript || '');
+          setLiveAssistActive(nextOverview.liveAssistEnabled === true);
           setHistory(items);
         }
       } catch (error) {
@@ -150,6 +159,9 @@ export function SettingsMeetings() {
     const offStatus = window.electronAPI.meetings.onStatus((next) => {
       setCaptureStatus(next);
       setLiveTranscript(next.liveTranscript || '');
+      void window.electronAPI.meetings.getLiveAssist().then((status) => {
+        setLiveAssistActive(status.enabled);
+      });
     });
     const offSegment = window.electronAPI.meetings.onSegment((payload) => {
       setLiveTranscript(payload.liveTranscript);
@@ -235,14 +247,45 @@ export function SettingsMeetings() {
     setIsBusy(true);
     setStatus(null);
     try {
-      await startMeetingCapture();
+      await startMeetingCapture(undefined, {
+        liveAssist: liveAssistForCapture,
+        liveAssistInstructions: runtimeDraft.liveAssistInstructions,
+      });
       setLiveTranscript('');
+      setLiveAssistActive(liveAssistForCapture);
       await refreshOverview();
       setStatus(t('meetings.captureStarted'));
     } catch (error) {
       setStatus(error instanceof Error ? error.message : String(error));
     } finally {
       setIsBusy(false);
+    }
+  };
+
+  const handleToggleLiveAssist = async (enabled: boolean) => {
+    setIsBusy(true);
+    setStatus(null);
+    try {
+      const result = await window.electronAPI.meetings.setLiveAssist({
+        enabled,
+        instructions: runtimeDraft.liveAssistInstructions,
+        focusChat: enabled,
+      });
+      setLiveAssistActive(result.enabled);
+      await refreshOverview();
+      setStatus(enabled ? t('meetings.liveAssistEnabledStatus') : t('meetings.liveAssistDisabledStatus'));
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
+  const handleOpenLiveAssistChat = () => {
+    const sessionId = overview?.liveAssistSessionId;
+    if (sessionId) {
+      openSessionWithDivision(sessionId);
+      setShowSettings(false);
     }
   };
 
@@ -382,6 +425,37 @@ export function SettingsMeetings() {
       ) : null}
 
       <SettingsContentSection
+        title={t('meetings.liveAssistDefaults')}
+        description={t('meetings.liveAssistDefaultsDesc')}
+      >
+        <div className="space-y-3">
+          <label className="block text-sm text-text-secondary">
+            {t('meetings.liveAssistInstructions')}
+            <textarea
+              value={runtimeDraft.liveAssistInstructions || ''}
+              onChange={(event) =>
+                setRuntimeDraft((prev) => ({
+                  ...prev,
+                  liveAssistInstructions: event.target.value,
+                }))
+              }
+              rows={3}
+              placeholder={t('meetings.liveAssistInstructionsPlaceholder')}
+              className="mt-1 w-full rounded-md border border-border-muted bg-background px-2 py-2 text-sm text-text-primary"
+            />
+          </label>
+          <button
+            type="button"
+            disabled={isBusy}
+            onClick={() => void handleSaveRuntime()}
+            className="rounded-lg bg-accent px-3.5 py-2 text-sm font-medium text-white hover:bg-accent/90"
+          >
+            {t('meetings.saveRuntime')}
+          </button>
+        </div>
+      </SettingsContentSection>
+
+      <SettingsContentSection
         title={t('meetings.chatContext')}
         description={t('meetings.chatContextDesc')}
       >
@@ -490,6 +564,35 @@ export function SettingsMeetings() {
 
       <SettingsContentSection title={t('meetings.capture')} description={t('meetings.captureDesc')}>
         <p className="mb-3 text-xs text-text-muted">{t('meetings.headphonesTip')}</p>
+        <p className="mb-3 text-xs text-text-muted">{t('meetings.captureTranscriptOnlyHint')}</p>
+        {!recording ? (
+          <ToggleField
+            label={t('meetings.liveAssistForMeeting')}
+            hint={t('meetings.liveAssistForMeetingHint')}
+            checked={liveAssistForCapture}
+            disabled={!enabled}
+            onChange={setLiveAssistForCapture}
+          />
+        ) : (
+          <div className="mb-3 space-y-2">
+            <ToggleField
+              label={t('meetings.liveAssistForMeeting')}
+              hint={t('meetings.liveAssistForMeetingHint')}
+              checked={liveAssistActive}
+              disabled={isBusy}
+              onChange={(checked) => void handleToggleLiveAssist(checked)}
+            />
+            {liveAssistActive && overview?.liveAssistSessionId ? (
+              <button
+                type="button"
+                onClick={handleOpenLiveAssistChat}
+                className="text-sm text-accent underline"
+              >
+                {t('meetings.openLiveAssistChat')}
+              </button>
+            ) : null}
+          </div>
+        )}
         <div className="flex flex-wrap items-center gap-3">
           {!recording ? (
             <button

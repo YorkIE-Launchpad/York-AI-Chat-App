@@ -19,10 +19,13 @@ import type { MemoryService } from '../memory/memory-service';
 import type {
   MeetingCaptureStatus,
   MeetingListItem,
+  MeetingLiveAssist,
+  MeetingLiveAssistStatus,
   MeetingOverview,
   MeetingPermissionStatus,
   MeetingSegment,
   MeetingSession,
+  MeetingStartOptions,
   MeetingTranscriptionModel,
 } from './meeting-types';
 
@@ -58,6 +61,8 @@ function defaultRuntime(): MeetingsRuntimeConfig {
     recentMeetingCount: 5,
     processDetectEnabled: true,
     storageRoot: '',
+    liveAssistInstructions: '',
+    liveAssistIntervalMs: 120_000,
   };
 }
 
@@ -505,6 +510,67 @@ export class MeetingService {
     return this.store.get(id);
   }
 
+  getLiveAssistStatus(): MeetingLiveAssistStatus {
+    const meetingId = this.activeMeetingId;
+    if (!meetingId) {
+      return { meetingId: null, enabled: false, sessionId: null };
+    }
+    const meeting = this.store.get(meetingId);
+    if (!meeting?.liveAssist?.enabled) {
+      return { meetingId, enabled: false, sessionId: meeting?.liveAssist?.sessionId ?? null };
+    }
+    return {
+      meetingId,
+      enabled: true,
+      sessionId: meeting.liveAssist.sessionId ?? null,
+    };
+  }
+
+  setLiveAssist(options: {
+    enabled: boolean;
+    instructions?: string;
+  }): MeetingSession | null {
+    if (!this.activeMeetingId) {
+      return null;
+    }
+    const meeting = this.store.get(this.activeMeetingId);
+    if (!meeting) {
+      return null;
+    }
+    const defaults = this.getRuntime();
+    const next: MeetingLiveAssist = {
+      enabled: options.enabled,
+      instructions:
+        options.instructions?.trim() ||
+        meeting.liveAssist?.instructions?.trim() ||
+        defaults.liveAssistInstructions?.trim() ||
+        '',
+      sessionId: meeting.liveAssist?.sessionId ?? null,
+    };
+    if (!options.enabled) {
+      next.sessionId = meeting.liveAssist?.sessionId ?? null;
+    }
+    meeting.liveAssist = next;
+    meeting.updatedAt = Date.now();
+    this.store.save(meeting);
+    return meeting;
+  }
+
+  patchLiveAssist(meetingId: string, patch: Partial<MeetingLiveAssist>): MeetingSession | null {
+    const meeting = this.store.get(meetingId);
+    if (!meeting) {
+      return null;
+    }
+    meeting.liveAssist = {
+      enabled: patch.enabled ?? meeting.liveAssist?.enabled ?? false,
+      instructions: patch.instructions ?? meeting.liveAssist?.instructions,
+      sessionId: patch.sessionId ?? meeting.liveAssist?.sessionId ?? null,
+    };
+    meeting.updatedAt = Date.now();
+    this.store.save(meeting);
+    return meeting;
+  }
+
   search(query: string, limit?: number): MeetingListItem[] {
     return this.store.search(query, limit);
   }
@@ -569,7 +635,7 @@ export class MeetingService {
     return lines.join('\n');
   }
 
-  async start(title?: string): Promise<MeetingSession> {
+  async start(_title?: string, options?: MeetingStartOptions): Promise<MeetingSession> {
     if (!this.isEnabled()) {
       throw new Error('Meeting capture is disabled in Settings');
     }
@@ -586,9 +652,10 @@ export class MeetingService {
 
     const now = Date.now();
     const calendar = await findCurrentCalendarMeeting(now);
+    const zoomTitle = await this.resolveZoomLiveTitle();
     const meeting: MeetingSession = {
       id: randomUUID(),
-      title: title?.trim() || calendar?.title || `Meeting ${new Date(now).toLocaleString()}`,
+      title: zoomTitle || '',
       status: 'recording',
       createdAt: now,
       startedAt: now,
@@ -597,7 +664,20 @@ export class MeetingService {
       updatedAt: now,
       attendees: calendar?.attendees?.length ? calendar.attendees : undefined,
       zoomMeetingId: calendar?.zoomMeetingId ?? undefined,
+      calendarEventId: calendar?.eventId || undefined,
     };
+
+    if (options?.liveAssist) {
+      const defaults = this.getRuntime();
+      meeting.liveAssist = {
+        enabled: true,
+        instructions:
+          options.liveAssistInstructions?.trim() ||
+          defaults.liveAssistInstructions?.trim() ||
+          '',
+        sessionId: null,
+      };
+    }
 
     this.store.save(meeting);
     this.activeMeetingId = meeting.id;
@@ -680,6 +760,21 @@ export class MeetingService {
     }
   }
 
+  private async resolveZoomLiveTitle(): Promise<string | null> {
+    if (!this.isZoomConnected()) {
+      return null;
+    }
+    try {
+      const zoomToken = await connectorManager.ensureFreshAccessToken('zoom');
+      const live = await this.zoomRtms.findLiveMeeting(zoomToken.accessToken);
+      const topic = live?.topic?.trim();
+      return topic || null;
+    } catch (error) {
+      logWarn('[Meetings] Failed to resolve Zoom meeting title', error);
+      return null;
+    }
+  }
+
   private async bootstrapZoomRtms(
     yorkMeetingId: string,
     calendar?: CalendarMeetingMatch | null
@@ -701,8 +796,9 @@ export class MeetingService {
         if (current) {
           if (zoomMeetingId) current.zoomMeetingId = zoomMeetingId;
           if (zoomMeetingUuid) current.zoomMeetingUuid = zoomMeetingUuid;
-          if (live && (!current.title || current.title.startsWith('Meeting '))) {
-            current.title = live.topic;
+          const zoomTopic = live?.topic?.trim();
+          if (zoomTopic) {
+            current.title = zoomTopic;
           }
           current.updatedAt = Date.now();
           this.store.save(current);
@@ -1139,9 +1235,11 @@ export class MeetingService {
       current.segments = Array.isArray(current.segments) ? current.segments : [];
 
       const notes = await this.notes.generateNotes(current);
+      const storedTitle =
+        current.title?.trim() || notes.title?.trim() || 'Untitled meeting';
       // Always persist notes object on ready — never leave notes undefined.
       current.notes = {
-        title: notes.title?.trim() || `Meeting ${new Date(current.startedAt).toLocaleString()}`,
+        title: storedTitle,
         summary:
           notes.summary?.trim() ||
           current.transcriptText.slice(0, 500) ||
@@ -1150,7 +1248,7 @@ export class MeetingService {
         keyTopics: Array.isArray(notes.keyTopics) ? notes.keyTopics : [],
         generatedAt: notes.generatedAt || Date.now(),
       };
-      current.title = current.notes.title;
+      current.title = storedTitle;
       current.status = 'ready';
       current.updatedAt = Date.now();
       this.store.save(current);
@@ -1173,7 +1271,7 @@ export class MeetingService {
       // Even on failure, try to persist fallback Granola artifacts.
       current.transcriptText = current.transcriptText || '';
       current.notes = {
-        title: current.title || `Meeting ${new Date(current.startedAt).toLocaleString()}`,
+        title: current.title?.trim() || 'Untitled meeting',
         summary:
           current.transcriptText.slice(0, 500) ||
           'Notes generation failed; raw transcript was saved.',
@@ -1181,7 +1279,6 @@ export class MeetingService {
         keyTopics: [],
         generatedAt: Date.now(),
       };
-      current.title = current.notes.title;
       current.status = 'error';
       current.error = error instanceof Error ? error.message : String(error);
       current.updatedAt = Date.now();

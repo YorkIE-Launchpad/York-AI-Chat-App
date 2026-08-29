@@ -216,6 +216,10 @@ export interface MeetingsRuntimeConfig {
   recentMeetingCount: number;
   processDetectEnabled: boolean;
   storageRoot?: string;
+  /** Default instructions when Live Assist is enabled for a meeting. */
+  liveAssistInstructions?: string;
+  /** Debounce interval between automatic suggestion turns (ms). */
+  liveAssistIntervalMs?: number;
 }
 
 const DEFAULT_CONFIG_SET_ID = 'default';
@@ -419,6 +423,8 @@ const defaultConfig: AppConfig = {
     recentMeetingCount: 5,
     processDetectEnabled: true,
     storageRoot: '',
+    liveAssistInstructions: '',
+    liveAssistIntervalMs: 120_000,
   },
   matterEnabled: true,
   matterRuntime: {
@@ -622,6 +628,15 @@ function normalizeMeetingsRuntimeConfig(raw: unknown): MeetingsRuntimeConfig {
       typeof value.storageRoot === 'string'
         ? value.storageRoot
         : defaultConfig.meetingsRuntime.storageRoot,
+    liveAssistInstructions:
+      typeof value.liveAssistInstructions === 'string'
+        ? value.liveAssistInstructions
+        : defaultConfig.meetingsRuntime.liveAssistInstructions ?? '',
+    liveAssistIntervalMs:
+      typeof value.liveAssistIntervalMs === 'number' &&
+      Number.isFinite(value.liveAssistIntervalMs)
+        ? Math.max(30_000, Math.min(300_000, Math.round(value.liveAssistIntervalMs)))
+        : (defaultConfig.meetingsRuntime.liveAssistIntervalMs ?? 90_000),
   };
 }
 

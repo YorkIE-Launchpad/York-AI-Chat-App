@@ -399,6 +399,15 @@ export function useIPC() {
             store.setChatLoopStatus(event.payload.sessionId, event.payload.status);
             break;
 
+          case 'liveAssist.sessionStarted': {
+            store.addSession(event.payload.session);
+            store.setActiveSession(event.payload.sessionId);
+            store.setShowSettings(false);
+            store.setShowMatter(false);
+            store.setAskGrowthOSOpen(false);
+            break;
+          }
+
           case 'notice': {
             const noticeType = event.payload.noticeType || 'warning';
             if (event.payload.code === 'PROJECT_SCOPE_VIOLATION') {

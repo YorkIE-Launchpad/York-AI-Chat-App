@@ -25,14 +25,27 @@ function asStringArray(value: unknown): string[] {
   return value.map((item) => String(item || '').trim()).filter(Boolean);
 }
 
+function resolveNotesTitle(meeting: MeetingSession, llmTitle?: string): string {
+  const zoomTitle = meeting.title?.trim();
+  if (zoomTitle) {
+    return zoomTitle;
+  }
+  const generated = llmTitle?.trim();
+  if (generated) {
+    return generated;
+  }
+  return 'Untitled meeting';
+}
+
 export class MeetingNotesService {
   constructor(private readonly llm = new MemoryLLMClient()) {}
 
   async generateNotes(meeting: MeetingSession): Promise<MeetingNotes> {
+    const zoomTitle = meeting.title?.trim();
     const transcript = meeting.transcriptText.trim();
     if (!transcript) {
       return {
-        title: meeting.title || 'Untitled meeting',
+        title: resolveNotesTitle(meeting),
         summary: 'No speech was transcribed for this meeting.',
         actionItems: [],
         keyTopics: [],
@@ -40,15 +53,22 @@ export class MeetingNotesService {
       };
     }
 
+    const jsonKeys = zoomTitle
+      ? 'summary (string), actionItems (string[]), keyTopics (string[])'
+      : 'title (string, short descriptive meeting title), summary (string), actionItems (string[]), keyTopics (string[])';
+
     try {
       const response = await this.llm.complete({
         systemPrompt: [
           'You turn meeting transcripts into concise notes.',
           'Transcript lines may be speaker-labeled as "Name: text" — preserve who said what in action items when relevant.',
-          'Return ONLY valid JSON with keys: title (string), summary (string), actionItems (string[]), keyTopics (string[]).',
+          `Return ONLY valid JSON with keys: ${jsonKeys}.`,
           'Keep summary under 180 words. Action items should be concrete and short.',
         ].join(' '),
         userPrompt: [
+          zoomTitle
+            ? `Meeting: ${zoomTitle}`
+            : 'Meeting has no Zoom title — generate a short title from the transcript.',
           `Meeting started at: ${new Date(meeting.startedAt).toISOString()}`,
           meeting.attendees?.length ? `Attendees: ${meeting.attendees.join(', ')}` : '',
           'Transcript:',
@@ -62,11 +82,9 @@ export class MeetingNotesService {
 
       const parsed = extractJsonObject(response.text);
       if (parsed) {
+        const llmTitle = typeof parsed.title === 'string' ? parsed.title : undefined;
         return {
-          title:
-            typeof parsed.title === 'string' && parsed.title.trim()
-              ? parsed.title.trim()
-              : meeting.title || 'Meeting notes',
+          title: resolveNotesTitle(meeting, llmTitle),
           summary:
             typeof parsed.summary === 'string' && parsed.summary.trim()
               ? parsed.summary.trim()
@@ -81,7 +99,7 @@ export class MeetingNotesService {
     }
 
     return {
-      title: meeting.title || 'Meeting notes',
+      title: resolveNotesTitle(meeting),
       summary: transcript.slice(0, 500),
       actionItems: [],
       keyTopics: [],

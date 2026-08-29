@@ -98,11 +98,11 @@ export function NextUpMeeting() {
   if (!matterEnabled || !next) return null;
 
   return (
-    <div className="space-y-1.5">
-      <p className="px-0.5 text-[11px] font-medium tracking-[0.04em] text-text-muted">
+    <div className="space-y-1">
+      <p className="px-0.5 text-[10px] font-medium tracking-[0.04em] text-text-muted">
         {t('matter.nextUp')}
       </p>
-      <div className="rounded-xl border border-border-subtle bg-background/80 px-2.5 py-2">
+      <div className="rounded-lg border border-border-subtle bg-background/80 px-2 py-1.5">
         <button
           type="button"
           onClick={handleOpen}
@@ -134,14 +134,14 @@ export function NextUpMeeting() {
             ) : null}
           </div>
         </button>
-        <div className="mt-2 flex items-center gap-1.5">
+        <div className="mt-1.5 flex items-center gap-1">
           {hasPrep ? (
             <>
               <button
                 type="button"
                 onClick={handleSeeNote}
                 disabled={prepLoading}
-                className="inline-flex h-7 flex-1 items-center justify-center gap-1 rounded-lg border border-border-subtle bg-surface px-2 text-[11px] font-semibold text-text-primary hover:bg-surface-hover disabled:opacity-60"
+                className="inline-flex h-6 flex-1 items-center justify-center gap-1 rounded-md border border-border-subtle bg-surface px-1.5 text-[10px] font-semibold text-text-primary hover:bg-surface-hover disabled:opacity-60"
                 title={t('matter.action.seeNote')}
               >
                 <FileText className="h-3 w-3" />
@@ -151,7 +151,7 @@ export function NextUpMeeting() {
                 type="button"
                 onClick={(e) => void handlePrep(e)}
                 disabled={prepLoading}
-                className="inline-flex h-7 flex-1 items-center justify-center gap-1 rounded-lg border border-accent/35 bg-accent/10 px-2 text-[11px] font-semibold text-accent hover:bg-accent/15 disabled:opacity-60"
+                className="inline-flex h-6 flex-1 items-center justify-center gap-1 rounded-md border border-accent/35 bg-accent/10 px-1.5 text-[10px] font-semibold text-accent hover:bg-accent/15 disabled:opacity-60"
                 title={t('matter.action.reprep')}
               >
                 {prepLoading ? (
@@ -167,7 +167,7 @@ export function NextUpMeeting() {
               type="button"
               onClick={(e) => void handlePrep(e)}
               disabled={prepLoading}
-              className="inline-flex h-7 flex-1 items-center justify-center gap-1 rounded-lg border border-accent/35 bg-accent/10 px-2 text-[11px] font-semibold text-accent hover:bg-accent/15 disabled:opacity-60"
+              className="inline-flex h-6 flex-1 items-center justify-center gap-1 rounded-md border border-accent/35 bg-accent/10 px-1.5 text-[10px] font-semibold text-accent hover:bg-accent/15 disabled:opacity-60"
               title={t('matter.action.prepHint')}
             >
               {prepLoading ? (

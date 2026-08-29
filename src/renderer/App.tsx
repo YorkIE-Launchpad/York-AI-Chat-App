@@ -218,9 +218,9 @@ function AuthenticatedApp() {
             message: '',
             messageKey: 'meetings.autoRecordingNotification',
             messageValues: { apps: 'Zoom' },
-            actionLabelKey: 'meetings.stopCaptureAction',
-            action: 'stop-meeting-capture',
-            durationMs: 5_000,
+            actionLabelKey: 'meetings.enableLiveAssistAction',
+            action: 'enable-live-assist',
+            durationMs: 8_000,
           });
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
@@ -351,6 +351,13 @@ function AuthenticatedApp() {
         void stopMeetingCapture().catch((error) => {
           console.warn('[Meetings] Manual stop from toast failed', error);
         });
+      }
+      if (action === 'enable-live-assist') {
+        void window.electronAPI?.meetings
+          ?.setLiveAssist({ enabled: true, focusChat: true })
+          .catch((error) => {
+            console.warn('[Meetings] Enable Live Assist from toast failed', error);
+          });
       }
       clearGlobalNotice();
     },

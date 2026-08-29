@@ -155,7 +155,7 @@ function SidebarUpdateButton({ compact = false }: { compact?: boolean }) {
       type="button"
       onClick={() => void quitAndInstall()}
       disabled={updaterInstalling}
-      className="mt-2 w-full inline-flex items-center justify-center gap-1.5 rounded-xl bg-accent px-3 py-2 text-[13px] font-medium text-white hover:opacity-90 disabled:opacity-50 transition-opacity"
+      className="mt-1 w-full inline-flex items-center justify-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-[12px] font-medium text-white hover:opacity-90 disabled:opacity-50 transition-opacity"
     >
       <RefreshCw className={`w-3.5 h-3.5 ${updaterInstalling ? 'animate-spin' : ''}`} />
       {t('sidebar.restartToUpdate')}
@@ -203,7 +203,6 @@ export function Sidebar() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [importing, setImporting] = useState(false);
-  const [hoveredAction, setHoveredAction] = useState<'new' | 'incognito' | 'import' | null>(null);
   const [searchHits, setSearchHits] = useState<ChatSearchHit[]>([]);
   const [searchBusy, setSearchBusy] = useState(false);
 
@@ -537,7 +536,7 @@ export function Sidebar() {
   if (sidebarCollapsed) {
     return (
       <aside className="relative z-20 flex w-[4.5rem] shrink-0 flex-col overflow-hidden border-r border-border-muted bg-surface/96">
-        <div className="px-3 pt-4 pb-3 flex flex-col items-center gap-2 border-b border-border-muted">
+        <div className="px-3 pt-3 pb-2 flex flex-col items-center gap-1.5 border-b border-border-muted">
           <button
             type="button"
             onClick={handleGoHome}
@@ -592,7 +591,7 @@ export function Sidebar() {
           </button>
         </div>
 
-        <div className="px-3 py-3 border-t border-border-muted flex flex-col items-center gap-2">
+        <div className="px-3 py-2 border-t border-border-muted flex flex-col items-center gap-1.5">
           {matterEnabled ? (
             <button
               type="button"
@@ -667,102 +666,85 @@ export function Sidebar() {
 
   return (
     <aside className="relative z-20 flex w-[17.5rem] shrink-0 flex-col overflow-hidden border-r border-border-muted bg-surface/96">
-      <div className="px-4 pt-5 pb-4 border-b border-border-muted">
-        <div className="flex items-start justify-between gap-3">
+      <div className="px-3 pt-3 pb-2 border-b border-border-muted">
+        <div className="flex items-start justify-between gap-2">
           <button
             type="button"
             onClick={handleGoHome}
-            className="min-w-0 flex items-center gap-3 rounded-xl text-left hover:opacity-90 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+            className="min-w-0 flex items-center gap-2 rounded-lg text-left hover:opacity-90 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
             title={t('sidebar.home')}
             aria-label={t('sidebar.home')}
           >
             <img
               src={sidebarLogoSrc}
               alt={t('common.appLogoAlt')}
-              className="w-10 h-10 object-contain flex-shrink-0"
+              className="w-8 h-8 object-contain flex-shrink-0"
             />
             <div className="min-w-0">
-              <h1 className="text-[1.34rem] leading-none font-semibold tracking-[-0.035em] text-text-primary">
+              <h1 className="text-[1.125rem] leading-tight font-semibold tracking-[-0.03em] text-text-primary">
                 York GrowthOS
               </h1>
             </div>
           </button>
           <button
             onClick={toggleSidebar}
-            className="w-8 h-8 rounded-xl flex items-center justify-center hover:bg-surface-hover transition-colors text-text-secondary flex-shrink-0"
+            className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-surface-hover transition-colors text-text-secondary flex-shrink-0"
             title={t('context.collapsePanel')}
           >
             <ChevronLeft className="w-4 h-4" />
           </button>
         </div>
 
-        <div className="mt-3 space-y-3">
+        <div className="mt-2 space-y-2">
           <NextUpMeeting />
-          <div className="space-y-1.5">
-            <p className="px-0.5 text-[11px] font-medium tracking-[0.04em] text-text-muted">
+          <div>
+            <p className="px-0.5 mb-1 text-[10px] font-medium tracking-[0.04em] text-text-muted">
               Choose Workspace
             </p>
             <DivisionSwitcher compact />
           </div>
         </div>
 
-        <div className="mt-3">
-          <div
-            className="flex h-9 gap-1.5"
-            onMouseLeave={() => setHoveredAction(null)}
-          >
+        <div className="mt-2">
+          <div className="flex h-8 gap-1">
             <button
               onClick={handleNewSession}
-              onMouseEnter={() => setHoveredAction('new')}
-              className="flex h-full flex-1 items-center justify-center rounded-xl border border-border-subtle bg-background text-text-primary transition-colors hover:bg-surface-hover"
+              className="flex h-full flex-1 items-center justify-center rounded-lg border border-border-subtle bg-background text-text-primary transition-colors hover:bg-surface-hover"
               aria-label={t('sidebar.newTask')}
+              title={t('sidebar.newTask')}
             >
               <Plus className="w-4 h-4" />
             </button>
             <button
               onClick={handleIncognitoSession}
-              onMouseEnter={() => setHoveredAction('incognito')}
-              className="flex h-full flex-1 items-center justify-center rounded-xl border border-dashed border-border-subtle bg-background/60 text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+              className="flex h-full flex-1 items-center justify-center rounded-lg border border-dashed border-border-subtle bg-background/60 text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
               aria-label={t('sidebar.incognitoTask')}
+              title={t('sidebar.incognitoTask')}
             >
               <Ghost className="w-4 h-4" />
             </button>
             <button
               onClick={() => void handleImportChat()}
-              onMouseEnter={() => setHoveredAction('import')}
               disabled={!isElectron || importing}
-              className="flex h-full flex-1 items-center justify-center rounded-xl border border-border-subtle bg-background/60 text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary disabled:opacity-50"
+              className="flex h-full flex-1 items-center justify-center rounded-lg border border-border-subtle bg-background/60 text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary disabled:opacity-50"
               aria-label={t('sidebar.importChat')}
+              title={t('sidebar.importChat')}
             >
               <FileDown className={`w-4 h-4 ${importing ? 'animate-pulse' : ''}`} />
             </button>
           </div>
-          <p
-            className={`mt-1.5 h-4 text-center text-[11px] font-medium tracking-wide transition-opacity ${
-              hoveredAction ? 'text-text-muted opacity-100' : 'opacity-0'
-            }`}
-            aria-live="polite"
-          >
-            {hoveredAction === 'new'
-              ? t('sidebar.newTask')
-              : hoveredAction === 'incognito'
-                ? t('sidebar.incognitoTask')
-                : hoveredAction === 'import'
-                  ? t('sidebar.importChat')
-                  : '\u00a0'}
-          </p>
         </div>
 
         {sessions.length > 0 && (
-          <div className="mt-2 flex items-center gap-2">
+          <div className="mt-1.5 flex items-center gap-1.5">
             <div className="relative flex-1 min-w-0">
-              <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-muted" />
+              <SearchIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-muted" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder={t('sidebar.search')}
-                className="w-full rounded-xl border border-transparent bg-background pl-9 pr-3 py-2 text-[13px] text-text-primary placeholder:text-text-muted focus:outline-none focus:border-border transition-colors"
+                className="w-full h-8 rounded-lg border border-transparent bg-background pl-8 pr-2.5 text-[12px] text-text-primary placeholder:text-text-muted focus:outline-none focus:border-border transition-colors"
               />
             </div>
             <button
@@ -773,7 +755,7 @@ export function Sidebar() {
                   setIsSelectMode(true);
                 }
               }}
-              className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 transition-colors ${
+              className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors ${
                 isSelectMode
                   ? 'bg-accent text-white'
                   : 'text-text-secondary hover:text-text-primary hover:bg-surface-hover'
@@ -786,7 +768,7 @@ export function Sidebar() {
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto px-3 py-4">
+      <div className="flex-1 overflow-y-auto px-2 py-2">
         {groupedSessions.length === 0 && !isSearching ? (
           <div className="px-3 py-6">
             <p className="text-sm text-text-secondary">
@@ -810,13 +792,13 @@ export function Sidebar() {
             <p className="mt-1 text-xs leading-5 text-text-muted">{t('sidebar.searchAllHint')}</p>
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-2">
             {(isSearching
               ? [{ key: 'search', label: t('sidebar.searchResults'), sessions: filteredSessions }]
               : groupedSessions
             ).map((group) => (
               <section key={group.key}>
-                <div className="px-3 pb-2 text-[11px] font-medium tracking-[0.04em] text-text-muted">
+                <div className="px-2 pb-1 text-[10px] font-medium tracking-[0.04em] text-text-muted">
                   {group.label}
                 </div>
                 <div className="space-y-0.5">
@@ -838,7 +820,7 @@ export function Sidebar() {
                         }}
                         onMouseEnter={() => setHoveredSession(session.id)}
                         onMouseLeave={() => setHoveredSession(null)}
-                        className={`group relative cursor-pointer rounded-lg px-2.5 py-1.5 transition-colors ${
+                        className={`group relative cursor-pointer rounded-lg px-2 py-1 transition-colors ${
                           isSelectMode && isSelected
                             ? 'bg-accent-muted/20'
                             : isActive && !isSelectMode
@@ -940,7 +922,7 @@ export function Sidebar() {
       </div>
 
       {isSelectMode ? (
-        <div className="px-3 py-3 border-t border-border-muted">
+        <div className="px-2 py-2 border-t border-border-muted">
           {showDeleteConfirm ? (
             <div className="border border-error/30 bg-error/10 rounded-lg px-3 py-3">
               <p className="text-[13px] text-text-primary mb-3">
@@ -994,75 +976,65 @@ export function Sidebar() {
           )}
         </div>
       ) : (
-        <div className="px-3 py-3 border-t border-border-muted space-y-2">
+        <div className="px-2 py-2 border-t border-border-muted space-y-1.5">
           {matterEnabled ? (
             <button
               type="button"
               onClick={handleOpenMatter}
-              className={`w-full rounded-2xl px-3 py-2.5 flex items-center gap-2.5 text-left transition-colors border ${
+              className={`w-full rounded-xl px-2.5 py-2 flex items-center gap-2 text-left transition-colors border ${
                 showMatter
                   ? 'bg-accent/15 text-accent border-accent/40'
                   : 'bg-background text-text-primary border-border-subtle hover:bg-surface-hover hover:border-accent/30'
               }`}
-              title={t('sidebar.matter')}
+              title={t('sidebar.matterHint')}
             >
               <span
-                className={`relative flex h-8 w-8 shrink-0 items-center justify-center rounded-xl ${
+                className={`relative flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${
                   showMatter ? 'bg-accent/20' : 'bg-accent/10'
                 }`}
               >
-                <Radar className="w-4 h-4 text-accent" />
+                <Radar className="w-3.5 h-3.5 text-accent" />
                 {matterBadgeCount > 0 ? (
-                  <span className="absolute -top-1 -right-1 min-w-[16px] h-[16px] px-0.5 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center">
+                  <span className="absolute -top-1 -right-1 min-w-[14px] h-[14px] px-0.5 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center">
                     {matterBadgeCount > 9 ? '9+' : matterBadgeCount}
                   </span>
                 ) : null}
               </span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-[13px] font-semibold leading-tight">
-                  {t('sidebar.matter')}
-                </span>
-                <span className="block text-[11px] text-text-muted leading-tight mt-0.5 truncate">
-                  {t('sidebar.matterHint')}
-                </span>
+              <span className="min-w-0 flex-1 text-[12px] font-semibold leading-tight truncate">
+                {t('sidebar.matter')}
               </span>
             </button>
           ) : null}
           <button
             type="button"
             onClick={handleOpenWorkflows}
-            className={`w-full rounded-2xl px-3 py-2.5 flex items-center gap-2.5 text-left transition-colors border ${
+            className={`w-full rounded-xl px-2.5 py-2 flex items-center gap-2 text-left transition-colors border ${
               showWorkflows
                 ? 'bg-accent/15 text-accent border-accent/40'
                 : 'bg-background text-text-primary border-border-subtle hover:bg-surface-hover hover:border-accent/30'
             }`}
-            title={t('sidebar.workflows')}
+            title={t('sidebar.workflowsHint')}
           >
             <span
-              className={`relative flex h-8 w-8 shrink-0 items-center justify-center rounded-xl ${
+              className={`relative flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${
                 showWorkflows ? 'bg-accent/20' : 'bg-accent/10'
               }`}
             >
-              <Workflow className="w-4 h-4 text-accent" />
+              <Workflow className="w-3.5 h-3.5 text-accent" />
             </span>
-            <span className="min-w-0 flex-1">
-              <span className="block text-[13px] font-semibold leading-tight">
-                {t('sidebar.workflows')}
-              </span>
-              <span className="block text-[11px] text-text-muted leading-tight mt-0.5 truncate">
-                {t('sidebar.workflowsHint')}
-              </span>
+            <span className="min-w-0 flex-1 text-[12px] font-semibold leading-tight truncate">
+              {t('sidebar.workflows')}
             </span>
           </button>
-          <div className="flex items-center gap-2 rounded-2xl bg-background/50 px-3 py-2">
+          <div className="flex items-center gap-1.5 rounded-xl bg-background/50 px-2 py-1.5">
             {user ? (
               <>
-                <SidebarUserAvatar name={user.name} image={user.image} />
+                <SidebarUserAvatar name={user.name} image={user.image} className="w-7 h-7 text-[10px]" />
                 <div className="min-w-0 flex-1">
-                  <div className="text-[13px] font-medium text-text-primary truncate">
+                  <div className="text-[12px] font-medium text-text-primary truncate leading-tight">
                     {user.name}
                   </div>
-                  <div className="text-[11px] text-text-muted truncate">{user.email}</div>
+                  <div className="text-[10px] text-text-muted truncate leading-tight">{user.email}</div>
                 </div>
               </>
             ) : (
@@ -1071,15 +1043,15 @@ export function Sidebar() {
             <button
               type="button"
               onClick={handleOpenSettings}
-              className="w-8 h-8 rounded-xl flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-surface-hover transition-colors flex-shrink-0"
+              className="w-7 h-7 rounded-lg flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-surface-hover transition-colors flex-shrink-0"
               title={t('sidebar.settings')}
             >
-              <Settings className="w-4 h-4" />
+              <Settings className="w-3.5 h-3.5" />
             </button>
             <button
               type="button"
               onClick={toggleTheme}
-              className="w-8 h-8 rounded-xl flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-surface-hover transition-colors flex-shrink-0"
+              className="w-7 h-7 rounded-lg flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-surface-hover transition-colors flex-shrink-0"
               title={t('sidebar.themeToggle')}
             >
               {themeIcon}
@@ -1088,10 +1060,10 @@ export function Sidebar() {
               <button
                 type="button"
                 onClick={() => void logout()}
-                className="w-8 h-8 rounded-xl flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-surface-hover transition-colors flex-shrink-0"
+                className="w-7 h-7 rounded-lg flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-surface-hover transition-colors flex-shrink-0"
                 title={t('sidebar.signOut')}
               >
-                <LogOut className="w-4 h-4" />
+                <LogOut className="w-3.5 h-3.5" />
               </button>
             ) : null}
           </div>

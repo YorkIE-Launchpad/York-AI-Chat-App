@@ -1867,6 +1867,26 @@ export class SessionManager {
     log('[SessionManager] Message saved:', message.id, 'role:', message.role);
   }
 
+  /** Post a completed assistant message to a session (e.g. Live Assist subagent result). */
+  publishAssistantText(sessionId: string, text: string): void {
+    const trimmed = text.trim();
+    if (!trimmed) {
+      return;
+    }
+    const message: Message = {
+      id: uuidv4(),
+      sessionId,
+      role: 'assistant',
+      content: [{ type: 'text', text: trimmed }],
+      timestamp: Date.now(),
+    };
+    this.saveMessage(message);
+    this.sendToRenderer({
+      type: 'stream.message',
+      payload: { sessionId, message },
+    });
+  }
+
   private readMessagesFromDb(sessionId: string): Message[] {
     const rows = this.db.messages.getBySessionId(sessionId);
     return rows.map((row) => ({

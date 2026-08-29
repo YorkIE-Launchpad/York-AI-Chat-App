@@ -7,6 +7,7 @@ const mockState = vi.hoisted(() => ({
   tempRoot: '',
   micStatus: 'granted' as 'granted' | 'denied' | 'not-determined' | 'restricted' | 'unknown',
   screenStatus: 'granted' as 'granted' | 'denied' | 'not-determined' | 'restricted' | 'unknown',
+  zoomConnected: true,
   config: {
     meetingsEnabled: true,
     memoryEnabled: true,
@@ -87,10 +88,12 @@ vi.mock('../../main/meetings/meeting-transcript-english', () => ({
 
 vi.mock('../../main/connectors/connector-manager', () => ({
   connectorManager: {
-    isConnected: () => false,
-    ensureFreshAccessToken: async () => {
-      throw new Error('not connected');
-    },
+    isConnected: (connectorId: string) =>
+      connectorId === 'zoom' ? mockState.zoomConnected : false,
+    ensureFreshAccessToken: async () => ({
+      accessToken: 'zoom-token',
+      accountId: 'zoom-account',
+    }),
   },
 }));
 
@@ -102,7 +105,7 @@ vi.mock('../../main/meetings/zoom-rtms-client', () => ({
   ZoomRtmsDesktopClient: class {
     hasReceivedSegments = false;
     async findLiveMeeting() {
-      return null;
+      return { id: '123456789', uuid: 'zoom-uuid', topic: 'Test meeting' };
     }
     async startParticipantRtms() {
       return false;
@@ -128,6 +131,7 @@ describe('MeetingService', () => {
     mockState.tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'meetings-test-'));
     mockState.micStatus = 'granted';
     mockState.screenStatus = 'granted';
+    mockState.zoomConnected = true;
     mockState.config.meetingsEnabled = true;
     mockState.config.memoryEnabled = true;
     mockState.config.meetingsRuntime = {
@@ -144,7 +148,7 @@ describe('MeetingService', () => {
     fs.rmSync(mockState.tempRoot, { recursive: true, force: true });
   });
 
-  it('finalizes with raw transcript, auto title, and auto summary', async () => {
+  it('finalizes with raw transcript and keeps the Zoom meeting title', async () => {
     const service = new MeetingService();
     const meeting = await service.start('Test meeting');
     await service.appendChunk({
@@ -156,8 +160,8 @@ describe('MeetingService', () => {
     const finalized = await service.stop();
     expect(finalized?.status).toBe('ready');
     expect(finalized?.transcriptText).toContain('hello from the meeting');
-    expect(finalized?.title).toBe('Sync notes');
-    expect(finalized?.notes?.title).toBe('Sync notes');
+    expect(finalized?.title).toBe('Test meeting');
+    expect(finalized?.notes?.title).toBe('Test meeting');
     expect(finalized?.notes?.summary).toContain('launch');
     expect(finalized?.notes).toBeDefined();
   });
@@ -180,7 +184,7 @@ describe('MeetingService', () => {
     });
     const finalized = await service.stop();
     const withoutTranscript = service.formatMeetingForPrompt(finalized!, false);
-    expect(withoutTranscript).toContain('Sync notes');
+    expect(withoutTranscript).toContain('Test meeting');
     expect(withoutTranscript).not.toContain('Transcript (speaker-labeled)');
     const withTranscript = service.formatMeetingForPrompt(finalized!, true);
     expect(withTranscript).toContain('Transcript (speaker-labeled)');
@@ -196,7 +200,24 @@ describe('MeetingService', () => {
     ).toBe('Alice: hello\nworld');
   });
 
+  it('uses LLM-generated title when Zoom provides no meeting topic', async () => {
+    mockState.zoomConnected = false;
+    const service = new MeetingService();
+    const meeting = await service.start();
+    expect(meeting.title).toBe('');
+    await service.appendChunk({
+      meetingId: meeting.id,
+      data: Buffer.alloc(2048, 1),
+      mimeType: 'audio/webm',
+      rms: 0.05,
+    });
+    const finalized = await service.stop();
+    expect(finalized?.title).toBe('Sync notes');
+    expect(finalized?.notes?.title).toBe('Sync notes');
+  });
+
   it('reports zoomConnected false in overview when Zoom is disconnected', async () => {
+    mockState.zoomConnected = false;
     const service = new MeetingService();
     const overview = await service.getOverview();
     expect(overview.zoomConnected).toBe(false);
@@ -226,7 +247,7 @@ describe('MeetingService', () => {
       tools[1].execute as (...args: unknown[]) => Promise<{ content: Array<{ text?: string }> }>
     )('2', { id: meeting.id, includeTranscript: true });
     const readText = read.content[0]?.text || '';
-    expect(readText).toContain('Sync notes');
+    expect(readText).toContain('Test meeting');
     expect(readText).toContain('hello from the meeting');
   });
 
@@ -264,7 +285,7 @@ describe('MeetingService', () => {
       expect.objectContaining({
         id: finalized!.id,
         notes: expect.objectContaining({
-          title: 'Sync notes',
+          title: 'Test meeting',
           summary: expect.stringContaining('launch'),
         }),
       })
@@ -323,7 +344,7 @@ describe('MeetingService', () => {
         id: finalized!.id,
         title: finalized!.title,
         startedAt: finalized!.startedAt,
-        notes: expect.objectContaining({ title: 'Sync notes' }),
+        notes: expect.objectContaining({ title: 'Test meeting' }),
       })
     );
   });

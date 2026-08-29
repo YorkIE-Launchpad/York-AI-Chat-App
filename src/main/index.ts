@@ -62,6 +62,7 @@ import { MemoryExtension } from './memory/memory-extension';
 import { bindConnectorMemoryService, bindConnectorWikiIngest } from './connectors/connector-memory';
 import { connectorManager } from './connectors/connector-manager';
 import { MeetingService } from './meetings/meeting-service';
+import { LiveAssistService } from './meetings/live-assist-service';
 import {
   getExternalReferenceStatus,
   lookupExternalReferenceFromUrl,
@@ -284,6 +285,7 @@ let skillsManager: SkillsManager | null = null;
 let pluginRuntimeService: PluginRuntimeService | null = null;
 let memoryService: MemoryService | null = null;
 let meetingService: MeetingService | null = null;
+let liveAssistService: LiveAssistService | null = null;
 let wikiService: WikiService | null = null;
 let summaryTreeService: SummaryTreeService | null = null;
 let checkpointService: CheckpointService | null = null;
@@ -922,6 +924,39 @@ function sendMeetingsAutoStartToRenderer(): void {
     return;
   }
   mainWindow.webContents.send('meetings:requestAutoStart');
+}
+
+function initLiveAssistService(): void {
+  if (!sessionManager || !meetingService || liveAssistService) {
+    return;
+  }
+
+  liveAssistService = new LiveAssistService({
+    sessionManager,
+    meetingService,
+    mcpManager: sessionManager.getMCPManager(),
+    sendToRenderer,
+    resolveMatterPrep: (eventId) => {
+      if (!matterService || !eventId.trim()) {
+        return null;
+      }
+      const matterMeeting = matterService
+        .getSnapshot()
+        .meetings.find((item) => item.eventId === eventId);
+      if (!matterMeeting) {
+        return null;
+      }
+      const parts: string[] = [];
+      if (matterMeeting.suggestedAction?.trim()) {
+        parts.push(`Suggested action: ${matterMeeting.suggestedAction.trim()}`);
+      }
+      if (matterMeeting.rawDetails?.trim()) {
+        parts.push(matterMeeting.rawDetails.trim());
+      }
+      return parts.length ? parts.join('\n\n') : null;
+    },
+  });
+  liveAssistService.attach();
 }
 
 function wireMeetingServiceEvents(service: MeetingService): void {
@@ -1594,6 +1629,7 @@ app
         headlessAskUserQuestionExtension
       );
       sessionManager.setMeetingService(meetingService);
+      initLiveAssistService();
 
       skillsManager = new SkillsManager(db, {
         getConfiguredGlobalSkillsPath: () => configStore.get('globalSkillsPath') || '',
@@ -2031,6 +2067,7 @@ app
       askUserQuestionExtension
     );
     sessionManager.setMeetingService(meetingService);
+    initLiveAssistService();
     skillsManager = new SkillsManager(db, {
       getConfiguredGlobalSkillsPath: () => configStore.get('globalSkillsPath') || '',
       setConfiguredGlobalSkillsPath: (nextPath: string) => {
@@ -5302,7 +5339,17 @@ ipcMain.handle('meetings.getOverview', async () => {
   if (!meetingService) {
     throw new Error('Meeting service not initialized');
   }
-  return meetingService.getOverview();
+  const overview = await meetingService.getOverview();
+  const liveAssist = liveAssistService?.getLiveAssistStatus() ?? {
+    meetingId: null,
+    enabled: false,
+    sessionId: null,
+  };
+  return {
+    ...overview,
+    liveAssistSessionId: liveAssist.sessionId,
+    liveAssistEnabled: liveAssist.enabled,
+  };
 });
 
 ipcMain.handle('meetings.setEnabled', (_event, enabled: boolean) => {
@@ -5320,11 +5367,23 @@ ipcMain.handle('meetings.setEnabled', (_event, enabled: boolean) => {
   return result;
 });
 
-ipcMain.handle('meetings.start', async (_event, title?: string) => {
+ipcMain.handle(
+  'meetings.start',
+  async (
+    _event,
+    title?: string,
+    options?: { liveAssist?: boolean; liveAssistInstructions?: string }
+  ) => {
   if (!meetingService) {
     throw new Error('Meeting service not initialized');
   }
-  const meeting = await meetingService.start(title);
+  const meeting = await meetingService.start(title, options);
+  if (meeting.liveAssist?.enabled && liveAssistService) {
+    await liveAssistService.enableForMeeting(meeting.id, {
+      instructions: meeting.liveAssist.instructions,
+      focusChat: true,
+    });
+  }
   showMeetingOsNotification({
     title: 'Live capture in progress',
     body: meeting.title
@@ -5332,6 +5391,41 @@ ipcMain.handle('meetings.start', async (_event, title?: string) => {
       : 'York is capturing this call. Notes will save to History when it ends.',
   });
   return meeting;
+});
+
+ipcMain.handle(
+  'meetings.setLiveAssist',
+  async (
+    _event,
+    payload: { enabled: boolean; instructions?: string; focusChat?: boolean }
+  ) => {
+    if (!meetingService || !liveAssistService) {
+      throw new Error('Meeting service not initialized');
+    }
+    const meeting = meetingService.setLiveAssist({
+      enabled: payload.enabled,
+      instructions: payload.instructions,
+    });
+    if (!meeting) {
+      throw new Error('No active meeting capture');
+    }
+    if (payload.enabled) {
+      await liveAssistService.enableForMeeting(meeting.id, {
+        instructions: meeting.liveAssist?.instructions,
+        focusChat: payload.focusChat !== false,
+      });
+    } else {
+      await liveAssistService.disableForMeeting(meeting.id, { farewell: false });
+    }
+    return meetingService.getLiveAssistStatus();
+  }
+);
+
+ipcMain.handle('meetings.getLiveAssist', () => {
+  if (!meetingService) {
+    throw new Error('Meeting service not initialized');
+  }
+  return meetingService.getLiveAssistStatus();
 });
 
 ipcMain.handle('meetings.stop', async () => {

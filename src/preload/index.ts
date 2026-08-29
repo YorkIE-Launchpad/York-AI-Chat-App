@@ -34,6 +34,7 @@ import type {
   MeetingCaptureStatus,
   MeetingPermissionStatus,
   MeetingSegment,
+  MeetingLiveAssistStatus,
   Session,
 } from '../renderer/types';
 import type { DiagnosticInput, DiagnosticResult } from '../renderer/types';
@@ -830,7 +831,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getOverview: (): Promise<MeetingOverview> => ipcRenderer.invoke('meetings.getOverview'),
     setEnabled: (enabled: boolean): Promise<{ success: boolean; enabled: boolean }> =>
       ipcRenderer.invoke('meetings.setEnabled', enabled),
-    start: (title?: string): Promise<MeetingSession> => ipcRenderer.invoke('meetings.start', title),
+    start: (
+      title?: string,
+      options?: { liveAssist?: boolean; liveAssistInstructions?: string }
+    ): Promise<MeetingSession> => ipcRenderer.invoke('meetings.start', title, options),
+    setLiveAssist: (payload: {
+      enabled: boolean;
+      instructions?: string;
+      focusChat?: boolean;
+    }): Promise<MeetingLiveAssistStatus> =>
+      ipcRenderer.invoke('meetings.setLiveAssist', payload),
+    getLiveAssist: (): Promise<MeetingLiveAssistStatus> =>
+      ipcRenderer.invoke('meetings.getLiveAssist'),
     stop: (): Promise<MeetingSession | null> => ipcRenderer.invoke('meetings.stop'),
     getStatus: (): Promise<MeetingCaptureStatus> => ipcRenderer.invoke('meetings.getStatus'),
     appendChunk: (payload: {
@@ -1431,7 +1443,16 @@ declare global {
       meetings: {
         getOverview: () => Promise<MeetingOverview>;
         setEnabled: (enabled: boolean) => Promise<{ success: boolean; enabled: boolean }>;
-        start: (title?: string) => Promise<MeetingSession>;
+        start: (
+          title?: string,
+          options?: { liveAssist?: boolean; liveAssistInstructions?: string }
+        ) => Promise<MeetingSession>;
+        setLiveAssist: (payload: {
+          enabled: boolean;
+          instructions?: string;
+          focusChat?: boolean;
+        }) => Promise<MeetingLiveAssistStatus>;
+        getLiveAssist: () => Promise<MeetingLiveAssistStatus>;
         stop: () => Promise<MeetingSession | null>;
         getStatus: () => Promise<MeetingCaptureStatus>;
         appendChunk: (payload: {

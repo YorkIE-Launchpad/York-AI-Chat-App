@@ -24,6 +24,23 @@ export interface MeetingNotes {
   generatedAt: number;
 }
 
+export interface MeetingLiveAssist {
+  enabled: boolean;
+  instructions?: string;
+  sessionId?: string | null;
+}
+
+export interface MeetingStartOptions {
+  liveAssist?: boolean;
+  liveAssistInstructions?: string;
+}
+
+export interface MeetingLiveAssistStatus {
+  meetingId: string | null;
+  enabled: boolean;
+  sessionId: string | null;
+}
+
 export interface MeetingSession {
   id: string;
   title: string;
@@ -41,6 +58,8 @@ export interface MeetingSession {
   attendees?: string[];
   zoomMeetingUuid?: string | null;
   zoomMeetingId?: string | null;
+  calendarEventId?: string | null;
+  liveAssist?: MeetingLiveAssist;
 }
 
 export interface MeetingListItem {
@@ -84,6 +103,8 @@ export interface MeetingOverview {
   permissions: MeetingPermissionStatus;
   capture: MeetingCaptureStatus;
   detectedMeetingApps: string[];
+  liveAssistSessionId?: string | null;
+  liveAssistEnabled?: boolean;
 }
 
 export interface MeetingPromptContext {

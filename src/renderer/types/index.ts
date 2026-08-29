@@ -796,6 +796,10 @@ export type ServerEvent =
       payload: { sessionId: string; status: ChatLoopStatus | null };
     }
   | {
+      type: 'liveAssist.sessionStarted';
+      payload: { session: Session; sessionId: string };
+    }
+  | {
       type: 'notice';
       payload: {
         message: string;
@@ -922,6 +926,8 @@ export interface MeetingsRuntimeConfig {
   recentMeetingCount: number;
   processDetectEnabled: boolean;
   storageRoot?: string;
+  liveAssistInstructions?: string;
+  liveAssistIntervalMs?: number;
 }
 
 export type {
@@ -973,6 +979,25 @@ export interface MeetingSession {
   attendees?: string[];
   zoomMeetingUuid?: string | null;
   zoomMeetingId?: string | null;
+  calendarEventId?: string | null;
+  liveAssist?: MeetingLiveAssist;
+}
+
+export interface MeetingLiveAssist {
+  enabled: boolean;
+  instructions?: string;
+  sessionId?: string | null;
+}
+
+export interface MeetingStartOptions {
+  liveAssist?: boolean;
+  liveAssistInstructions?: string;
+}
+
+export interface MeetingLiveAssistStatus {
+  meetingId: string | null;
+  enabled: boolean;
+  sessionId: string | null;
 }
 
 export interface MeetingListItem {
@@ -1015,6 +1040,8 @@ export interface MeetingOverview {
   permissions: MeetingPermissionStatus;
   capture: MeetingCaptureStatus;
   detectedMeetingApps: string[];
+  liveAssistSessionId?: string | null;
+  liveAssistEnabled?: boolean;
 }
 
 export interface AppConfig {

@@ -1,4 +1,4 @@
-import type { MeetingSession } from '../types';
+import type { MeetingSession, MeetingStartOptions } from '../types';
 import { MeetingAudioCapture, type MeetingAudioLevelListener } from './MeetingAudioCapture';
 
 const capture = new MeetingAudioCapture();
@@ -17,13 +17,16 @@ export function isMeetingAudioActive(): boolean {
   return capture.isActive;
 }
 
-export async function startMeetingCapture(title?: string): Promise<MeetingSession> {
+export async function startMeetingCapture(
+  title?: string,
+  options?: MeetingStartOptions
+): Promise<MeetingSession> {
   if (capture.isActive || startInFlight) {
     throw new Error('Meeting capture is already active');
   }
   startInFlight = true;
   try {
-    const meeting = await window.electronAPI.meetings.start(title);
+    const meeting = await window.electronAPI.meetings.start(title, options);
     await capture.start(meeting.id);
     return meeting;
   } catch (error) {
@@ -49,10 +52,6 @@ export async function stopMeetingCapture(): Promise<MeetingSession | null> {
   stopInFlight = true;
   try {
     await capture.stop();
-    const status = await window.electronAPI.meetings.getStatus();
-    if (!status.active) {
-      return null;
-    }
     return await window.electronAPI.meetings.stop();
   } finally {
     stopInFlight = false;

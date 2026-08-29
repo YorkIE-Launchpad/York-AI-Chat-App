@@ -295,7 +295,7 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
           setProjectQuery('');
         }}
         className={`flex w-full items-center gap-2 rounded-lg border border-border bg-background text-left text-text-primary hover:bg-surface-hover transition-colors ${
-          compact ? 'px-2 py-1.5 text-xs' : 'px-3 py-2 text-sm'
+          compact ? 'h-8 px-2 text-[12px]' : 'px-3 py-2 text-sm'
         }`}
         title="Switch workspace"
       >
