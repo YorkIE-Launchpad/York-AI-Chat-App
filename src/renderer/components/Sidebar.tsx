@@ -977,55 +977,57 @@ export function Sidebar() {
         </div>
       ) : (
         <div className="px-2 py-2 border-t border-border-muted space-y-1.5">
-          {matterEnabled ? (
+          <div className="flex items-center gap-1.5">
+            {matterEnabled ? (
+              <button
+                type="button"
+                onClick={handleOpenMatter}
+                className={`min-w-0 flex-1 rounded-xl px-2 py-1.5 flex items-center gap-1.5 text-left transition-colors border ${
+                  showMatter
+                    ? 'bg-accent/15 text-accent border-accent/40'
+                    : 'bg-background text-text-primary border-border-subtle hover:bg-surface-hover hover:border-accent/30'
+                }`}
+                title={t('sidebar.matterHint')}
+              >
+                <span
+                  className={`relative flex h-6 w-6 shrink-0 items-center justify-center rounded-md ${
+                    showMatter ? 'bg-accent/20' : 'bg-accent/10'
+                  }`}
+                >
+                  <Radar className="w-3.5 h-3.5 text-accent" />
+                  {matterBadgeCount > 0 ? (
+                    <span className="absolute -top-1 -right-1 min-w-[14px] h-[14px] px-0.5 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center">
+                      {matterBadgeCount > 9 ? '9+' : matterBadgeCount}
+                    </span>
+                  ) : null}
+                </span>
+                <span className="min-w-0 flex-1 text-[11px] font-semibold leading-tight truncate">
+                  {t('sidebar.matter')}
+                </span>
+              </button>
+            ) : null}
             <button
               type="button"
-              onClick={handleOpenMatter}
-              className={`w-full rounded-xl px-2.5 py-2 flex items-center gap-2 text-left transition-colors border ${
-                showMatter
+              onClick={handleOpenWorkflows}
+              className={`min-w-0 flex-1 rounded-xl px-2 py-1.5 flex items-center gap-1.5 text-left transition-colors border ${
+                showWorkflows
                   ? 'bg-accent/15 text-accent border-accent/40'
                   : 'bg-background text-text-primary border-border-subtle hover:bg-surface-hover hover:border-accent/30'
               }`}
-              title={t('sidebar.matterHint')}
+              title={t('sidebar.workflowsHint')}
             >
               <span
-                className={`relative flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${
-                  showMatter ? 'bg-accent/20' : 'bg-accent/10'
+                className={`relative flex h-6 w-6 shrink-0 items-center justify-center rounded-md ${
+                  showWorkflows ? 'bg-accent/20' : 'bg-accent/10'
                 }`}
               >
-                <Radar className="w-3.5 h-3.5 text-accent" />
-                {matterBadgeCount > 0 ? (
-                  <span className="absolute -top-1 -right-1 min-w-[14px] h-[14px] px-0.5 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center">
-                    {matterBadgeCount > 9 ? '9+' : matterBadgeCount}
-                  </span>
-                ) : null}
+                <Workflow className="w-3.5 h-3.5 text-accent" />
               </span>
-              <span className="min-w-0 flex-1 text-[12px] font-semibold leading-tight truncate">
-                {t('sidebar.matter')}
+              <span className="min-w-0 flex-1 text-[11px] font-semibold leading-tight truncate">
+                {t('sidebar.workflows')}
               </span>
             </button>
-          ) : null}
-          <button
-            type="button"
-            onClick={handleOpenWorkflows}
-            className={`w-full rounded-xl px-2.5 py-2 flex items-center gap-2 text-left transition-colors border ${
-              showWorkflows
-                ? 'bg-accent/15 text-accent border-accent/40'
-                : 'bg-background text-text-primary border-border-subtle hover:bg-surface-hover hover:border-accent/30'
-            }`}
-            title={t('sidebar.workflowsHint')}
-          >
-            <span
-              className={`relative flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${
-                showWorkflows ? 'bg-accent/20' : 'bg-accent/10'
-              }`}
-            >
-              <Workflow className="w-3.5 h-3.5 text-accent" />
-            </span>
-            <span className="min-w-0 flex-1 text-[12px] font-semibold leading-tight truncate">
-              {t('sidebar.workflows')}
-            </span>
-          </button>
+          </div>
           <div className="flex items-center gap-1.5 rounded-xl bg-background/50 px-2 py-1.5">
             {user ? (
               <>

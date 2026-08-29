@@ -83,7 +83,7 @@ function createDeps() {
       liveTranscript: meeting.transcriptText,
     }),
     get: vi.fn(() => meeting),
-    patchLiveAssist: vi.fn((meetingId: string, patch: Partial<NonNullable<MeetingSession['liveAssist']>>) => {
+    patchLiveAssist: vi.fn((_meetingId: string, patch: Partial<NonNullable<MeetingSession['liveAssist']>>) => {
       meeting = {
         ...meeting,
         liveAssist: {
