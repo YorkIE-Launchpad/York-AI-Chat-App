@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../store';
 import { useIPC } from '../hooks/useIPC';
@@ -8,6 +8,7 @@ import {
   ChevronRight,
   Trash2,
   Pin,
+  Pencil,
   Moon,
   Sun,
   Monitor,
@@ -191,6 +192,7 @@ export function Sidebar() {
     deleteSession,
     batchDeleteSessions,
     setSessionPinned,
+    setSessionTitle,
     getSessionMessages,
     getSessionTraceSteps,
     importSession,
@@ -198,6 +200,9 @@ export function Sidebar() {
   } = useIPC();
   const setGlobalNotice = useAppStore((s) => s.setGlobalNotice);
   const [hoveredSession, setHoveredSession] = useState<string | null>(null);
+  const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState('');
+  const skipRenameCommitRef = useRef(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [isSelectMode, setIsSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -518,6 +523,35 @@ export function Sidebar() {
     setSessionPinned(session.id, !session.pinned);
   };
 
+  const handleStartRename = (e: React.MouseEvent, session: Session) => {
+    e.stopPropagation();
+    skipRenameCommitRef.current = false;
+    setRenamingSessionId(session.id);
+    setRenameDraft(session.title);
+  };
+
+  const handleCancelRename = () => {
+    skipRenameCommitRef.current = true;
+    setRenamingSessionId(null);
+    setRenameDraft('');
+  };
+
+  const handleCommitRename = (session: Session) => {
+    if (skipRenameCommitRef.current) {
+      skipRenameCommitRef.current = false;
+      return;
+    }
+    const trimmed = renameDraft.trim();
+    if (!trimmed || trimmed === session.title) {
+      setRenamingSessionId(null);
+      setRenameDraft('');
+      return;
+    }
+    setSessionTitle(session.id, trimmed);
+    setRenamingSessionId(null);
+    setRenameDraft('');
+  };
+
   const toggleTheme = () => {
     const next =
       settings.theme === 'dark' ? 'light' : settings.theme === 'light' ? 'system' : 'dark';
@@ -806,12 +840,14 @@ export function Sidebar() {
                     const isActive = activeSessionId === session.id;
                     const isSelected = selectedIds.has(session.id);
                     const isIncognito = session.incognito === true;
+                    const isRenaming = renamingSessionId === session.id;
                     const loopStatus = chatLoopBySessionId[session.id];
                     const isActiveLoop = Boolean(loopStatus && !loopStatus.stopReason);
                     return (
                       <div
                         key={session.id}
                         onClick={() => {
+                          if (isRenaming) return;
                           if (isSelectMode) {
                             toggleSelectSession(session.id);
                           } else {
@@ -828,7 +864,11 @@ export function Sidebar() {
                               : 'hover:bg-surface-hover/60'
                         } ${isIncognito ? 'border border-dashed border-border-subtle/80' : ''}`}
                       >
-                        <div className={`flex items-center gap-2 ${!isSelectMode ? 'pr-14' : ''}`}>
+                        <div
+                          className={`flex items-center gap-2 ${
+                            !isSelectMode && !isRenaming ? 'pr-20' : ''
+                          }`}
+                        >
                           {isSelectMode && (
                             <div
                               className={`w-4 h-4 rounded flex items-center justify-center flex-shrink-0 transition-colors ${
@@ -864,16 +904,43 @@ export function Sidebar() {
                           )}
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2">
-                              <div className="text-[13px] font-medium leading-5 text-text-primary truncate">
-                                {session.title}
-                              </div>
-                              {isSearching && (
+                              {isRenaming ? (
+                                <input
+                                  autoFocus
+                                  value={renameDraft}
+                                  onChange={(e) => setRenameDraft(e.target.value)}
+                                  onClick={(e) => e.stopPropagation()}
+                                  onBlur={() => handleCommitRename(session)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      e.preventDefault();
+                                      handleCommitRename(session);
+                                    } else if (e.key === 'Escape') {
+                                      e.preventDefault();
+                                      handleCancelRename();
+                                    }
+                                  }}
+                                  className="w-full min-w-0 rounded-md border border-border-muted bg-background px-1.5 py-0.5 text-[13px] font-medium leading-5 text-text-primary outline-none focus:border-accent"
+                                  aria-label={t('sidebar.rename')}
+                                />
+                              ) : (
+                                <div
+                                  className="text-[13px] font-medium leading-5 text-text-primary truncate"
+                                  onDoubleClick={(e) => {
+                                    if (!isSelectMode) handleStartRename(e, session);
+                                  }}
+                                >
+                                  {session.title}
+                                </div>
+                              )}
+                              {isSearching && !isRenaming && (
                                 <span className="flex-shrink-0 rounded-md bg-background px-1.5 py-0.5 text-[10px] font-medium text-text-muted">
                                   {divisionLabel(activeDivisionFromSession(session))}
                                 </span>
                               )}
                             </div>
                             {isSearching &&
+                              !isRenaming &&
                               snippetBySessionId.get(session.id)?.snippet &&
                               snippetBySessionId.get(session.id)?.snippet !== session.title && (
                                 <div className="mt-0.5 line-clamp-2 text-[11px] leading-4 text-text-muted">
@@ -883,8 +950,17 @@ export function Sidebar() {
                           </div>
                         </div>
 
-                        {!isSelectMode && (
+                        {!isSelectMode && !isRenaming && (
                           <>
+                            {hoveredSession === session.id && (
+                              <button
+                                onClick={(e) => handleStartRename(e, session)}
+                                className="absolute right-[3.625rem] top-1/2 -translate-y-1/2 w-6 h-6 rounded-lg flex items-center justify-center text-text-muted hover:text-text-primary hover:bg-surface-active transition-colors"
+                                title={t('sidebar.rename')}
+                              >
+                                <Pencil className="w-3 h-3" />
+                              </button>
+                            )}
                             {hoveredSession === session.id && (
                               <button
                                 onClick={(e) => handleDeleteSession(e, session.id)}

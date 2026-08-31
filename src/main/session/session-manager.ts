@@ -1726,6 +1726,19 @@ export class SessionManager {
     return true;
   }
 
+  setSessionTitle(sessionId: string, title: string): boolean {
+    const trimmed = title.trim();
+    if (!trimmed) {
+      log('[SessionManager] Skip empty title update for session:', sessionId);
+      return false;
+    }
+    const updated = this.updateSessionTitle(sessionId, trimmed);
+    if (updated) {
+      log('[SessionManager] Session title updated:', sessionId, '->', trimmed);
+    }
+    return updated;
+  }
+
   setSessionPinned(sessionId: string, pinned: boolean): boolean {
     if (this.ephemeralSessions.has(sessionId)) {
       log('[SessionManager] Skip pin update for incognito session:', sessionId);

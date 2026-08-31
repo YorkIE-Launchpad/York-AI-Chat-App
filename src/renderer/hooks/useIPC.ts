@@ -1133,6 +1133,18 @@ export function useIPC() {
     [send]
   );
 
+  const setSessionTitle = useCallback(
+    (sessionId: string, title: string) => {
+      const trimmed = title.trim();
+      if (!trimmed) return;
+      useAppStore.getState().updateSession(sessionId, { title: trimmed });
+      if (isElectron) {
+        send({ type: 'session.setTitle', payload: { sessionId, title: trimmed } });
+      }
+    },
+    [send]
+  );
+
   const listSessions = useCallback(() => {
     if (!isElectron) return;
     send({ type: 'session.list', payload: {} });
@@ -1326,6 +1338,7 @@ export function useIPC() {
     deleteSession,
     batchDeleteSessions,
     setSessionPinned,
+    setSessionTitle,
     listSessions,
     getSessionMessages,
     getSessionTraceSteps,

@@ -22,6 +22,8 @@ function makeEvent(type: ClientEvent['type']): ClientEvent {
       return { type, payload: { sessionIds: ['session-1'] } };
     case 'session.setPinned':
       return { type, payload: { sessionId: 'session-1', pinned: true } };
+    case 'session.setTitle':
+      return { type, payload: { sessionId: 'session-1', title: 'Renamed' } };
     case 'session.compact':
       return { type, payload: { sessionId: 'session-1' } };
     case 'session.searchChats':
@@ -60,6 +62,7 @@ describe('eventRequiresSessionManager', () => {
       'session.delete',
       'session.batchDelete',
       'session.setPinned',
+      'session.setTitle',
       'session.list',
       'session.getMessages',
       'session.getTraceSteps',

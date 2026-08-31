@@ -354,6 +354,90 @@ describe('SessionManager.handleSudoPasswordResponse', () => {
 });
 
 // ------------------------------------------------------------------
+// setSessionTitle
+// ------------------------------------------------------------------
+describe('SessionManager.setSessionTitle', () => {
+  const existingRow = {
+    id: 's1',
+    title: 'Old title',
+    claude_session_id: null,
+    openai_thread_id: null,
+    status: 'idle',
+    cwd: null,
+    mounted_paths: '[]',
+    allowed_tools: '[]',
+    memory_enabled: 0,
+    model: null,
+    division: 'general',
+    hub_project_id: null,
+    hub_project_name: null,
+    pinned: 0,
+    created_at: 1000,
+    updated_at: 2000,
+  };
+
+  it('trims title, writes to the database, and emits session.update', () => {
+    const update = vi.fn();
+    const sendToRenderer = vi.fn();
+    const db = makeDb({
+      sessions: {
+        create: vi.fn(),
+        get: vi.fn(() => existingRow),
+        getAll: vi.fn(() => []),
+        update,
+        delete: vi.fn(),
+      } as unknown,
+    });
+
+    const manager = new SessionManager(db, sendToRenderer);
+    const ok = manager.setSessionTitle('s1', '  New title  ');
+
+    expect(ok).toBe(true);
+    expect(update).toHaveBeenCalledWith('s1', { title: 'New title' });
+    expect(sendToRenderer).toHaveBeenCalledWith({
+      type: 'session.update',
+      payload: { sessionId: 's1', updates: { title: 'New title' } },
+    });
+  });
+
+  it('returns false for empty or whitespace-only titles', () => {
+    const update = vi.fn();
+    const sendToRenderer = vi.fn();
+    const db = makeDb({
+      sessions: {
+        create: vi.fn(),
+        get: vi.fn(() => existingRow),
+        getAll: vi.fn(() => []),
+        update,
+        delete: vi.fn(),
+      } as unknown,
+    });
+
+    const manager = new SessionManager(db, sendToRenderer);
+    expect(manager.setSessionTitle('s1', '   ')).toBe(false);
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('returns false when session is missing', () => {
+    const update = vi.fn();
+    const sendToRenderer = vi.fn();
+    const db = makeDb({
+      sessions: {
+        create: vi.fn(),
+        get: vi.fn(() => null),
+        getAll: vi.fn(() => []),
+        update,
+        delete: vi.fn(),
+      } as unknown,
+    });
+
+    const manager = new SessionManager(db, sendToRenderer);
+    expect(manager.setSessionTitle('missing', 'Hello')).toBe(false);
+    expect(update).not.toHaveBeenCalled();
+  });
+});
+
+// ------------------------------------------------------------------
 // setSessionPinned
 // ------------------------------------------------------------------
 describe('SessionManager.setSessionPinned', () => {
