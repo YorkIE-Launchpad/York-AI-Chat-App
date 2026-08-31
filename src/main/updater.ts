@@ -21,6 +21,58 @@ export function nextUpdateCheckDelayMs(random: () => number = Math.random): numb
   return Math.floor(random() * UPDATE_CHECK_INTERVAL_MS);
 }
 
+/** Delay before re-checking the feed for a newer release after one is downloaded. */
+export const READY_STATE_RECHECK_DELAY_MS = 3_000;
+
+export function isVersionNewer(candidate: string, baseline: string): boolean {
+  const parse = (version: string) => version.split('.').map((part) => parseInt(part, 10) || 0);
+  const left = parse(candidate);
+  const right = parse(baseline);
+  const length = Math.max(left.length, right.length);
+  for (let i = 0; i < length; i++) {
+    const diff = (left[i] ?? 0) - (right[i] ?? 0);
+    if (diff !== 0) return diff > 0;
+  }
+  return false;
+}
+
+/** Keep "restart to update" UI when a downloaded build is still pending install. */
+export function shouldPreserveReadyStatus(opts: {
+  pendingDownloadVersion: string | null;
+  currentVersion: string;
+}): boolean {
+  if (!opts.pendingDownloadVersion) return false;
+  return isVersionNewer(opts.pendingDownloadVersion, opts.currentVersion);
+}
+
+export function shouldPreserveReadyOnNotAvailable(opts: {
+  pendingDownloadVersion: string | null;
+  currentVersion: string;
+  feedVersion?: string;
+}): boolean {
+  if (!shouldPreserveReadyStatus(opts)) return false;
+  // Feed may already match the downloaded build while a newer release exists;
+  // keep ready UI and schedule another check instead of clearing to idle.
+  if (opts.feedVersion && isVersionNewer(opts.feedVersion, opts.pendingDownloadVersion!)) {
+    return false;
+  }
+  return true;
+}
+
+export function shouldPreserveReadyOnChecking(opts: {
+  pendingDownloadVersion: string | null;
+  currentVersion: string;
+}): boolean {
+  return shouldPreserveReadyStatus(opts);
+}
+
+export function shouldPreserveReadyOnError(opts: {
+  pendingDownloadVersion: string | null;
+  currentVersion: string;
+}): boolean {
+  return shouldPreserveReadyStatus(opts);
+}
+
 export function shouldEnableAutoUpdater(opts: {
   isPackaged: boolean;
   platform: NodeJS.Platform;
@@ -55,8 +107,11 @@ let currentStatus: UpdaterStatus = {
 
 let installingUpdate = false;
 let checkTimer: ReturnType<typeof setTimeout> | null = null;
+let readyRecheckTimer: ReturnType<typeof setTimeout> | null = null;
 let started = false;
 let autoUpdaterInstance: typeof import('electron-updater').autoUpdater | null = null;
+/** Version downloaded to disk and awaiting user-triggered install. */
+let pendingDownloadVersion: string | null = null;
 
 const listeners = new Set<StatusListener>();
 
@@ -95,6 +150,29 @@ function broadcastToWindows(status: UpdaterStatus): void {
   }
 }
 
+function restoreReadyStatus(): void {
+  if (!pendingDownloadVersion) return;
+  setStatus({
+    status: 'ready',
+    version: pendingDownloadVersion,
+    percent: 100,
+    message: undefined,
+  });
+}
+
+function scheduleRecheckForNewerRelease(
+  runCheck: (background: boolean) => void,
+  log: (...args: unknown[]) => void
+): void {
+  if (!pendingDownloadVersion) return;
+  if (readyRecheckTimer) clearTimeout(readyRecheckTimer);
+  readyRecheckTimer = setTimeout(() => {
+    readyRecheckTimer = null;
+    log('[AutoUpdater] Re-checking feed for newer release (pending:', pendingDownloadVersion, ')');
+    runCheck(true);
+  }, READY_STATE_RECHECK_DELAY_MS);
+}
+
 export function getUpdaterStatus(): UpdaterStatus {
   return { ...currentStatus };
 }
@@ -110,16 +188,33 @@ export function onUpdaterStatus(listener: StatusListener): () => void {
   };
 }
 
-export async function checkForAppUpdates(): Promise<UpdaterStatus> {
+export async function checkForAppUpdates(opts?: { background?: boolean }): Promise<UpdaterStatus> {
   if (!autoUpdaterInstance) {
     return getUpdaterStatus();
   }
+  const preserveReady =
+    opts?.background &&
+    shouldPreserveReadyOnChecking({
+      pendingDownloadVersion,
+      currentVersion: getCurrentVersion(),
+    });
   try {
-    setStatus({ status: 'checking', message: undefined });
+    if (!preserveReady) {
+      setStatus({ status: 'checking', message: undefined });
+    }
     await autoUpdaterInstance.checkForUpdates();
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    setStatus({ status: 'error', message });
+    if (
+      shouldPreserveReadyOnError({
+        pendingDownloadVersion,
+        currentVersion: getCurrentVersion(),
+      })
+    ) {
+      restoreReadyStatus();
+    } else {
+      setStatus({ status: 'error', message });
+    }
   }
   return getUpdaterStatus();
 }
@@ -183,7 +278,21 @@ export async function startAutoUpdater(
       url: UPDATE_FEED_URL,
     });
 
+    const runCheck = (background = false) => {
+      void checkForAppUpdates({ background }).catch((err: unknown) => {
+        log('[AutoUpdater] Check failed:', err);
+      });
+    };
+
     autoUpdater.on('checking-for-update', () => {
+      if (
+        shouldPreserveReadyOnChecking({
+          pendingDownloadVersion,
+          currentVersion: getCurrentVersion(),
+        })
+      ) {
+        return;
+      }
       setStatus({ status: 'checking', message: undefined, percent: undefined });
     });
 
@@ -197,7 +306,18 @@ export async function startAutoUpdater(
       log('[AutoUpdater] Update available:', info.version);
     });
 
-    autoUpdater.on('update-not-available', () => {
+    autoUpdater.on('update-not-available', (info) => {
+      if (
+        shouldPreserveReadyOnNotAvailable({
+          pendingDownloadVersion,
+          currentVersion: getCurrentVersion(),
+          feedVersion: info?.version,
+        })
+      ) {
+        restoreReadyStatus();
+        return;
+      }
+      pendingDownloadVersion = null;
       setStatus({
         status: 'idle',
         version: undefined,
@@ -215,6 +335,7 @@ export async function startAutoUpdater(
     });
 
     autoUpdater.on('update-downloaded', (info) => {
+      pendingDownloadVersion = info.version;
       setStatus({
         status: 'ready',
         version: info.version,
@@ -222,35 +343,38 @@ export async function startAutoUpdater(
         message: undefined,
       });
       log('[AutoUpdater] Update downloaded:', info.version);
+      scheduleRecheckForNewerRelease(runCheck, log);
     });
 
     autoUpdater.on('error', (err) => {
       const message = err instanceof Error ? err.message : String(err);
       log('[AutoUpdater] Error:', message);
-      setStatus({ status: 'error', message });
+      if (
+        shouldPreserveReadyOnError({
+          pendingDownloadVersion,
+          currentVersion: getCurrentVersion(),
+        })
+      ) {
+        restoreReadyStatus();
+        return;
+      }
     });
-
-    const runCheck = () => {
-      void checkForAppUpdates().catch((err: unknown) => {
-        log('[AutoUpdater] Check failed:', err);
-      });
-    };
 
     const scheduleNextCheck = (delayMs: number) => {
       if (checkTimer) clearTimeout(checkTimer);
       checkTimer = setTimeout(() => {
-        runCheck();
+        runCheck(Boolean(pendingDownloadVersion));
         // Steady hourly cadence after the staggered first recurring check.
         scheduleNextCheck(UPDATE_CHECK_INTERVAL_MS);
       }, delayMs);
     };
 
-    // Quick first check, then resume at a random offset within the hour so
-    // installs don't poll the feed at the same wall-clock time.
-    checkTimer = setTimeout(() => {
-      runCheck();
-      scheduleNextCheck(nextUpdateCheckDelayMs());
-    }, UPDATE_CHECK_INITIAL_DELAY_MS);
+    // Check immediately on startup (e.g. after restart-to-upgrade) so a newer
+    // feed release is detected without waiting for the staggered poll.
+    runCheck();
+
+    // Stagger recurring checks so installs don't poll the feed in lockstep.
+    scheduleNextCheck(nextUpdateCheckDelayMs());
     log('[AutoUpdater] Started — feed:', UPDATE_FEED_URL);
   } catch (err) {
     log('[AutoUpdater] Failed to load electron-updater:', err);
@@ -265,5 +389,9 @@ export function stopAutoUpdater(): void {
   if (checkTimer) {
     clearTimeout(checkTimer);
     checkTimer = null;
+  }
+  if (readyRecheckTimer) {
+    clearTimeout(readyRecheckTimer);
+    readyRecheckTimer = null;
   }
 }

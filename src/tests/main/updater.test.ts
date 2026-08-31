@@ -1,8 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
+  isVersionNewer,
   nextUpdateCheckDelayMs,
+  READY_STATE_RECHECK_DELAY_MS,
   resolveAutoUpdater,
   shouldEnableAutoUpdater,
+  shouldPreserveReadyOnChecking,
+  shouldPreserveReadyOnError,
+  shouldPreserveReadyOnNotAvailable,
+  shouldPreserveReadyStatus,
   UPDATE_CHECK_INTERVAL_MS,
   UPDATE_FEED_URL,
 } from '../../main/updater';
@@ -57,5 +63,58 @@ describe('update check scheduling', () => {
     expect(nextUpdateCheckDelayMs(() => 0)).toBe(0);
     expect(nextUpdateCheckDelayMs(() => 0.5)).toBe(Math.floor(0.5 * UPDATE_CHECK_INTERVAL_MS));
     expect(nextUpdateCheckDelayMs(() => 0.999)).toBeLessThan(UPDATE_CHECK_INTERVAL_MS);
+  });
+
+  it('rechecks soon after a download completes', () => {
+    expect(READY_STATE_RECHECK_DELAY_MS).toBe(3_000);
+  });
+});
+
+describe('ready-state preservation', () => {
+  it('compares semver versions', () => {
+    expect(isVersionNewer('1.2.0', '1.1.0')).toBe(true);
+    expect(isVersionNewer('1.1.0', '1.2.0')).toBe(false);
+    expect(isVersionNewer('1.1.0', '1.1.0')).toBe(false);
+  });
+
+  it('preserves ready when a newer build is downloaded but not installed', () => {
+    expect(
+      shouldPreserveReadyStatus({
+        pendingDownloadVersion: '1.2.0',
+        currentVersion: '1.1.0',
+      })
+    ).toBe(true);
+    expect(
+      shouldPreserveReadyStatus({
+        pendingDownloadVersion: null,
+        currentVersion: '1.1.0',
+      })
+    ).toBe(false);
+  });
+
+  it('does not preserve ready on update-not-available when feed has a newer release', () => {
+    expect(
+      shouldPreserveReadyOnNotAvailable({
+        pendingDownloadVersion: '1.2.0',
+        currentVersion: '1.1.0',
+        feedVersion: '1.3.0',
+      })
+    ).toBe(false);
+  });
+
+  it('preserves ready on update-not-available when feed matches the downloaded build', () => {
+    expect(
+      shouldPreserveReadyOnNotAvailable({
+        pendingDownloadVersion: '1.2.0',
+        currentVersion: '1.1.0',
+        feedVersion: '1.2.0',
+      })
+    ).toBe(true);
+  });
+
+  it('preserves ready UI during background rechecks and transient errors', () => {
+    const args = { pendingDownloadVersion: '1.2.0', currentVersion: '1.1.0' };
+    expect(shouldPreserveReadyOnChecking(args)).toBe(true);
+    expect(shouldPreserveReadyOnError(args)).toBe(true);
   });
 });
