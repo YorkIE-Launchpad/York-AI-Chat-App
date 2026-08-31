@@ -63,6 +63,9 @@ function createMeeting(overrides: Partial<MeetingSession> = {}): MeetingSession 
 
 function createDeps() {
   const statusListeners = new Set<(status: MeetingCaptureStatus) => void>();
+  const segmentListeners = new Set<
+    (payload: { meetingId: string; segment: MeetingSession['segments'][0]; liveTranscript: string }) => void
+  >();
   let meeting = createMeeting();
 
   const meetingService = {
@@ -70,7 +73,16 @@ function createDeps() {
       statusListeners.add(listener);
       return () => statusListeners.delete(listener);
     },
-    onSegment: vi.fn(() => () => undefined),
+    onSegment: (
+      listener: (payload: {
+        meetingId: string;
+        segment: MeetingSession['segments'][0];
+        liveTranscript: string;
+      }) => void
+    ) => {
+      segmentListeners.add(listener);
+      return () => segmentListeners.delete(listener);
+    },
     getCaptureStatus: () => ({
       active: Boolean(meeting.status === 'recording'),
       meetingId: meeting.status === 'recording' ? meeting.id : null,
@@ -111,6 +123,15 @@ function createDeps() {
         listener(status);
       }
     },
+    emitSegment(payload: {
+      meetingId: string;
+      segment: MeetingSession['segments'][0];
+      liveTranscript: string;
+    }) {
+      for (const listener of segmentListeners) {
+        listener(payload);
+      }
+    },
   };
 
   const sessionManager = {
@@ -129,6 +150,9 @@ function createDeps() {
     continueSession: vi.fn(async () => undefined),
     getSession: vi.fn(() => ({ id: 'session-live-1', status: 'idle' })),
     publishAssistantText: vi.fn(),
+    publishMeetingTranscript: vi.fn(() => true),
+    publishLiveAssistActivity: vi.fn(() => 'activity-msg-1'),
+    updatePublishedMessage: vi.fn(),
   };
 
   const sendToRenderer = vi.fn();
@@ -226,6 +250,49 @@ describe('LiveAssistService per-meeting', () => {
 
     expect(deps.sessionManager.startSession).not.toHaveBeenCalled();
     expect(deps.sendToRenderer).not.toHaveBeenCalled();
+  });
+
+  it('publishes transcript segments to chat', async () => {
+    const deps = createDeps();
+    deps.setMeeting(
+      createMeeting({
+        liveAssist: { enabled: true, sessionId: 'session-live-1' },
+        segments: [
+          {
+            id: 'seg-1',
+            text: 'What is our Q3 revenue?',
+            startedAt: Date.now(),
+            endedAt: Date.now(),
+            createdAt: Date.now(),
+            speaker: 'Sam',
+          },
+        ],
+      })
+    );
+    const service = new LiveAssistService({
+      sessionManager: deps.sessionManager as never,
+      meetingService: deps.meetingService as never,
+      mcpManager: {} as never,
+      sendToRenderer: deps.sendToRenderer,
+    });
+    service.attach();
+    await service.enableForMeeting('meeting-1', { focusChat: false });
+
+    deps.meetingService.emitSegment({
+      meetingId: 'meeting-1',
+      liveTranscript: 'Sam: What is our Q3 revenue?',
+      segment: {
+        id: 'seg-2',
+        text: 'Thanks everyone',
+        startedAt: Date.now(),
+        endedAt: Date.now(),
+        createdAt: Date.now(),
+        speaker: 'Alex',
+      },
+    });
+    await Promise.resolve();
+
+    expect(deps.sessionManager.publishMeetingTranscript).toHaveBeenCalled();
   });
 
   it('builds kickoff prompt for live Q&A', () => {

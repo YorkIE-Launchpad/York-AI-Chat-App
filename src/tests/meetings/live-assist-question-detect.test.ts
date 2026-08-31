@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 import {
   MAX_ANSWERS_PER_MEETING,
   MIN_QUESTION_HEURISTIC_CHARS,
-  QUESTION_COOLDOWN_MS,
+  QUESTION_DEDUP_MS,
   findQuestionCandidateInWindow,
+  hashQuestionForDedup,
   matchesQuestionHeuristic,
+  stripSpeakerPrefix,
 } from '../../main/meetings/live-assist-question-detect';
 import {
   buildLiveAssistAnswerPlanPrompt,
@@ -15,10 +17,19 @@ import { truncateTranscriptWindow } from '../../main/meetings/live-assist-servic
 describe('live-assist-question-detect', () => {
   it('matches common question patterns', () => {
     expect(matchesQuestionHeuristic('What is the timeline for launch?')).toBe(true);
+    expect(matchesQuestionHeuristic('Sam: What is the timeline for launch?')).toBe(true);
+    expect(matchesQuestionHeuristic('Tell me about the launch timeline')).toBe(true);
     expect(matchesQuestionHeuristic('ok')).toBe(false);
     expect('x'.repeat(MIN_QUESTION_HEURISTIC_CHARS).length).toBeGreaterThanOrEqual(
       MIN_QUESTION_HEURISTIC_CHARS
     );
+  });
+
+  it('strips speaker prefix before matching', () => {
+    const stripped = stripSpeakerPrefix('Alex: What is our Q3 revenue?');
+    expect(stripped.speaker).toBe('Alex');
+    expect(stripped.text).toBe('What is our Q3 revenue?');
+    expect(matchesQuestionHeuristic('Alex: What is our Q3 revenue?')).toBe(true);
   });
 
   it('finds the latest question line in a transcript window', () => {
@@ -26,9 +37,15 @@ describe('live-assist-question-detect', () => {
     expect(findQuestionCandidateInWindow(window)).toBe('Sam: What is our Q3 revenue?');
   });
 
+  it('hashes questions for dedup', () => {
+    const a = hashQuestionForDedup('What is Q3 revenue?');
+    const b = hashQuestionForDedup('Sam: What is Q3 revenue?');
+    expect(a).toBe(b);
+  });
+
   it('exports cost guard constants', () => {
     expect(MAX_ANSWERS_PER_MEETING).toBe(8);
-    expect(QUESTION_COOLDOWN_MS).toBeGreaterThan(0);
+    expect(QUESTION_DEDUP_MS).toBeGreaterThan(0);
     expect(truncateTranscriptWindow('abc', 2)).toBe('bc');
   });
 });

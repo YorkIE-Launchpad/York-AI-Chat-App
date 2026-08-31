@@ -39,7 +39,10 @@ export interface DatabaseInstance {
   // Message operations
   messages: {
     create: (message: MessageRow) => void;
-    update: (id: string, updates: Partial<Pick<MessageRow, 'execution_time_ms'>>) => void;
+    update: (
+      id: string,
+      updates: Partial<Pick<MessageRow, 'execution_time_ms' | 'content'>>
+    ) => void;
     getBySessionId: (sessionId: string) => MessageRow[];
     delete: (id: string) => void;
     deleteBySessionId: (sessionId: string) => void;
@@ -1139,6 +1142,10 @@ export function initDatabase(): DatabaseInstance {
     UPDATE messages SET execution_time_ms = ? WHERE id = ?
   `);
 
+  const updateMessageContentStmt = rawDb.prepare(`
+    UPDATE messages SET content = ? WHERE id = ?
+  `);
+
   const deleteMessageStmt = rawDb.prepare(`
     DELETE FROM messages WHERE id = ?
   `);
@@ -1395,9 +1402,28 @@ export function initDatabase(): DatabaseInstance {
         });
       },
 
-      update: (id: string, updates: Partial<Pick<MessageRow, 'execution_time_ms'>>) => {
+      update: (
+        id: string,
+        updates: Partial<Pick<MessageRow, 'execution_time_ms' | 'content'>>
+      ) => {
         if (updates.execution_time_ms !== undefined) {
           updateMessageStmt.run(updates.execution_time_ms, id);
+        }
+        if (updates.content !== undefined) {
+          updateMessageContentStmt.run(updates.content, id);
+          const row = rawDb.prepare(`SELECT session_id, timestamp FROM messages WHERE id = ?`).get(id) as
+            | { session_id: string; timestamp: number }
+            | undefined;
+          if (row) {
+            const session = getSessionStmt.get(row.session_id) as SessionRow | undefined;
+            upsertChatFtsRow(rawDb, {
+              sessionId: row.session_id,
+              messageId: id,
+              title: session?.title || '',
+              body: extractSearchableText(updates.content),
+              timestamp: row.timestamp,
+            });
+          }
         }
       },
 

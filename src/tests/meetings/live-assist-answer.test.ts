@@ -47,6 +47,7 @@ describe('live-assist-answer', () => {
   });
 
   it('plans MCP calls, executes in parallel, and summarizes', async () => {
+    const onProgress = vi.fn();
     const mcpManager = makeMcpManager([
       { name: 'mcp__Hub__list_projects', serverName: 'Hub', description: 'List projects' },
     ]);
@@ -56,11 +57,15 @@ describe('live-assist-answer', () => {
       transcriptWindow: 'Sam: What is our Q3 revenue?',
       meetingTitle: 'Finance sync',
       mcpManager: mcpManager as never,
+      onProgress,
     });
 
     expect(answer).toBe('Q3 revenue grew 12% to $4.2M.');
     expect(runPiAiOneShotMock).toHaveBeenCalledTimes(2);
     expect(callToolMock).toHaveBeenCalledWith('mcp__Hub__list_projects', { limit: 5 });
+    expect(onProgress).toHaveBeenCalledWith('planning');
+    expect(onProgress).toHaveBeenCalledWith('mcp', 'mcp__Hub__list_projects');
+    expect(onProgress).toHaveBeenCalledWith('summarizing');
   });
 
   it('caps planned MCP calls at MAX_MCP_CALLS', () => {

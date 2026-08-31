@@ -31,7 +31,13 @@ export const MessageCard = memo(function MessageCard({
       ? (rawContent as ContentBlock[])
       : [{ type: 'text', text: String(rawContent ?? '') } as ContentBlock];
   }, [message.content]);
-  const [copied, setCopied] = useState(false);
+  const isMeetingTranscriptMessage = useMemo(
+    () =>
+      isUser &&
+      contentBlocks.length > 0 &&
+      contentBlocks.every((block) => block.type === 'meeting_transcript'),
+    [contentBlocks, isUser]
+  );
 
   // Build a set of tool_result IDs that have a matching tool_use (for merging)
   const mergedResultIds = useMemo(() => {
@@ -104,7 +110,18 @@ export const MessageCard = memo(function MessageCard({
 
   return (
     <div className="min-w-0 max-w-full animate-fade-in">
-      {isUser ? (
+      {isUser && isMeetingTranscriptMessage ? (
+        <div className="flex min-w-0 max-w-full flex-col items-start gap-1.5">
+          {contentBlocks.map((block, index) => (
+            <ContentBlockView
+              key={`block-${block.type}-${index}`}
+              block={block}
+              isUser={false}
+              isStreaming={isStreaming}
+            />
+          ))}
+        </div>
+      ) : isUser ? (
         // User message - compact styling with smaller padding and radius
         <div className="flex min-w-0 max-w-full flex-col items-end gap-1.5">
           {isCancelled && (

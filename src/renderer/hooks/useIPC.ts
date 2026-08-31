@@ -216,6 +216,12 @@ export function useIPC() {
             }
             break;
 
+          case 'stream.messageUpdate':
+            store.updateMessage(event.payload.sessionId, event.payload.message.id, {
+              content: event.payload.message.content,
+            });
+            break;
+
           case 'stream.partial':
             bufferPartial(event.payload.sessionId, event.payload.delta);
             break;

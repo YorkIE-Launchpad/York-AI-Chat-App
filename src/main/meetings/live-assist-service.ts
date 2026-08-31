@@ -1,17 +1,19 @@
+import { randomUUID } from 'node:crypto';
 import { configStore } from '../config/config-store';
 import type { MCPManager } from '../mcp/mcp-manager';
 import { log, logWarn } from '../utils/logger';
 import type { SessionManager } from '../session/session-manager';
-import type { ServerEvent } from '../../renderer/types';
+import type { LiveAssistActivityPhase, ServerEvent } from '../../renderer/types';
 import type { MeetingCaptureStatus, MeetingSegment, MeetingSession } from './meeting-types';
 import type { MeetingService } from './meeting-service';
 import { answerLiveAssistQuestion } from './live-assist-answer';
 import {
   MAX_ANSWERS_PER_MEETING,
-  QUESTION_COOLDOWN_MS,
   QUESTION_DEBOUNCE_MS,
+  QUESTION_DEDUP_MS,
   classifyLiveQuestion,
   findQuestionCandidateInWindow,
+  hashQuestionForDedup,
   matchesQuestionHeuristic,
 } from './live-assist-question-detect';
 
@@ -83,12 +85,13 @@ export class LiveAssistService {
   private liveTranscript = '';
   private lastSegmentText = '';
   private questionDebounceTimer: ReturnType<typeof setTimeout> | null = null;
-  private lastQuestionAt = 0;
   private answerCount = 0;
   private starting = false;
   private focusedSessionId: string | null = null;
   private detachListeners: (() => void) | null = null;
   private inFlightAnswers = 0;
+  private publishedSegmentIds = new Set<string>();
+  private answeredQuestionAt = new Map<string, number>();
 
   constructor(private readonly deps: LiveAssistDeps) {}
 
@@ -176,10 +179,11 @@ export class LiveAssistService {
     this.activeMeetingId = null;
     this.liveTranscript = '';
     this.lastSegmentText = '';
-    this.lastQuestionAt = 0;
     this.answerCount = 0;
     this.inFlightAnswers = 0;
     this.focusedSessionId = null;
+    this.publishedSegmentIds.clear();
+    this.answeredQuestionAt.clear();
   }
 
   private emitSessionStarted(sessionId: string): void {
@@ -226,6 +230,26 @@ export class LiveAssistService {
     }
   }
 
+  private publishTranscriptSegment(sessionId: string, segment: MeetingSegment): void {
+    if (!segment.text?.trim() || this.publishedSegmentIds.has(segment.id)) {
+      return;
+    }
+    const published = this.deps.sessionManager.publishMeetingTranscript(sessionId, {
+      id: segment.id,
+      speaker: segment.speaker,
+      text: segment.text,
+    });
+    if (published) {
+      this.publishedSegmentIds.add(segment.id);
+    }
+  }
+
+  private backfillTranscript(sessionId: string, meeting: MeetingSession): void {
+    for (const segment of meeting.segments) {
+      this.publishTranscriptSegment(sessionId, segment);
+    }
+  }
+
   private async handleSegment(payload: {
     meetingId: string;
     segment: MeetingSegment;
@@ -250,11 +274,14 @@ export class LiveAssistService {
       return;
     }
 
-    if (!matchesQuestionHeuristic(this.lastSegmentText)) {
-      return;
+    const sessionId = await this.ensureSessionForMeeting(payload.meetingId);
+    if (sessionId) {
+      this.publishTranscriptSegment(sessionId, payload.segment);
     }
 
-    this.scheduleQuestionCheck(payload.meetingId);
+    if (this.lastSegmentText) {
+      this.scheduleQuestionCheck(payload.meetingId);
+    }
   }
 
   private clearQuestionDebounce(): void {
@@ -272,14 +299,24 @@ export class LiveAssistService {
     }, QUESTION_DEBOUNCE_MS);
   }
 
+  private wasQuestionAnsweredRecently(question: string): boolean {
+    const hash = hashQuestionForDedup(question);
+    const answeredAt = this.answeredQuestionAt.get(hash);
+    if (!answeredAt) {
+      return false;
+    }
+    return Date.now() - answeredAt < QUESTION_DEDUP_MS;
+  }
+
+  private markQuestionAnswered(question: string): void {
+    this.answeredQuestionAt.set(hashQuestionForDedup(question), Date.now());
+  }
+
   private async runQuestionPipeline(meetingId: string): Promise<void> {
     if (!this.isLiveAssistEnabledForMeeting(meetingId)) {
       return;
     }
     if (this.answerCount >= MAX_ANSWERS_PER_MEETING) {
-      return;
-    }
-    if (Date.now() - this.lastQuestionAt < QUESTION_COOLDOWN_MS) {
       return;
     }
 
@@ -301,13 +338,17 @@ export class LiveAssistService {
       return;
     }
 
+    if (this.wasQuestionAnsweredRecently(classification.question)) {
+      return;
+    }
+
     const sessionId = await this.ensureSessionForMeeting(meetingId);
     if (!sessionId) {
       return;
     }
 
-    this.lastQuestionAt = Date.now();
     this.answerCount += 1;
+    this.markQuestionAnswered(classification.question);
     this.spawnAnswer({
       meetingId,
       meeting,
@@ -315,6 +356,27 @@ export class LiveAssistService {
       question: classification.question,
       transcriptWindow,
     });
+  }
+
+  private updateActivityMessage(
+    sessionId: string,
+    messageId: string,
+    activityId: string,
+    question: string,
+    phase: LiveAssistActivityPhase,
+    status: 'running' | 'completed' | 'failed',
+    detail?: string
+  ): void {
+    this.deps.sessionManager.updatePublishedMessage(sessionId, messageId, [
+      {
+        type: 'live_assist_activity',
+        activityId,
+        phase,
+        question,
+        detail,
+        status,
+      },
+    ]);
   }
 
   private spawnAnswer(options: {
@@ -325,6 +387,13 @@ export class LiveAssistService {
     transcriptWindow: string;
   }): void {
     const prepContext = this.resolvePrepContext(options.meeting);
+    const activityId = randomUUID();
+    const activityMessageId = this.deps.sessionManager.publishLiveAssistActivity(options.sessionId, {
+      activityId,
+      phase: 'detected',
+      question: options.question,
+      status: 'running',
+    });
 
     this.inFlightAnswers += 1;
     void answerLiveAssistQuestion({
@@ -334,15 +403,54 @@ export class LiveAssistService {
       prepContext,
       customInstructions: this.getCustomInstructions(options.meetingId),
       mcpManager: this.deps.mcpManager,
+      onProgress: (phase, detail) => {
+        const activityPhase: LiveAssistActivityPhase =
+          phase === 'planning' ? 'planning' : phase === 'mcp' ? 'mcp' : 'summarizing';
+        this.updateActivityMessage(
+          options.sessionId,
+          activityMessageId,
+          activityId,
+          options.question,
+          activityPhase,
+          'running',
+          detail
+        );
+      },
     })
       .then((answer) => {
         if (answer && !answer.startsWith('Error:')) {
-          const header = `**Live Assist · question**\n> ${options.question}\n\n`;
-          this.deps.sessionManager.publishAssistantText(options.sessionId, `${header}${answer}`);
+          this.updateActivityMessage(
+            options.sessionId,
+            activityMessageId,
+            activityId,
+            options.question,
+            'done',
+            'completed'
+          );
+          this.deps.sessionManager.publishAssistantText(options.sessionId, answer);
+        } else {
+          this.updateActivityMessage(
+            options.sessionId,
+            activityMessageId,
+            activityId,
+            options.question,
+            'failed',
+            'failed',
+            answer || 'No answer generated'
+          );
         }
       })
       .catch((error) => {
         logWarn('[LiveAssist] Answer pipeline failed:', error);
+        this.updateActivityMessage(
+          options.sessionId,
+          activityMessageId,
+          activityId,
+          options.question,
+          'failed',
+          'failed',
+          error instanceof Error ? error.message : String(error)
+        );
       })
       .finally(() => {
         this.inFlightAnswers = Math.max(0, this.inFlightAnswers - 1);
@@ -365,6 +473,9 @@ export class LiveAssistService {
 
     const existingSessionId = meeting.liveAssist.sessionId?.trim();
     if (existingSessionId && this.deps.sessionManager.getSession(existingSessionId)) {
+      if (this.publishedSegmentIds.size === 0) {
+        this.backfillTranscript(existingSessionId, meeting);
+      }
       return existingSessionId;
     }
 
@@ -388,6 +499,7 @@ export class LiveAssistService {
         sessionId: session.id,
       });
 
+      this.backfillTranscript(session.id, meeting);
       this.emitSessionStarted(session.id);
 
       log(`[LiveAssist] Started session ${session.id} for meeting ${meetingId}`);

@@ -27,6 +27,8 @@ import type {
   ToolResultContent,
   FileAttachmentContent,
   MeetingAttachmentContent,
+  MeetingTranscriptContent,
+  LiveAssistActivityContent,
   ExternalReferenceContent,
 } from '../../types';
 import { Mic } from 'lucide-react';
@@ -39,6 +41,8 @@ import { AttachmentImageThumb, ExternalReferenceChip } from '../attachments';
 import { ALLOWED_IMAGE_MIME_TYPES } from '../../utils/attachment-preview';
 import { FileAttachmentBlock } from './FileAttachmentBlock';
 import { MemorySourceDetailPanel } from './MemorySourceDetailPanel';
+import { MeetingTranscriptBubble } from './MeetingTranscriptBubble';
+import { LiveAssistActivityBlock } from './LiveAssistActivityBlock';
 
 const MessageMarkdown = lazy(() =>
   import('../MessageMarkdown').then((module) => ({ default: module.MessageMarkdown }))
@@ -414,6 +418,12 @@ export const ContentBlockView = memo(function ContentBlockView({
       const fileBlock = block as FileAttachmentContent;
       return <FileAttachmentBlock block={fileBlock} isUser={isUser} message={message} />;
     }
+
+    case 'meeting_transcript':
+      return <MeetingTranscriptBubble block={block as MeetingTranscriptContent} />;
+
+    case 'live_assist_activity':
+      return <LiveAssistActivityBlock block={block as LiveAssistActivityContent} />;
 
     case 'meeting_attachment': {
       const meetingBlock = block as MeetingAttachmentContent;

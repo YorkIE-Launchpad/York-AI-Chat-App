@@ -13,6 +13,8 @@ export const MCP_CALL_TIMEOUT_MS = 15_000;
 export const PIPELINE_TIMEOUT_MS = 30_000;
 const RESULT_MAX_CHARS = 3_000;
 
+export type LiveAssistProgressPhase = 'planning' | 'mcp' | 'summarizing';
+
 export interface LiveAssistAnswerOptions {
   question: string;
   transcriptWindow: string;
@@ -20,6 +22,7 @@ export interface LiveAssistAnswerOptions {
   prepContext?: string | null;
   customInstructions?: string;
   mcpManager: MCPManager;
+  onProgress?: (phase: LiveAssistProgressPhase, detail?: string) => void;
 }
 
 export interface LiveAssistMcpCall {
@@ -187,6 +190,7 @@ export async function answerLiveAssistQuestion(
   const availableNames = new Set(options.mcpManager.getTools().map((tool) => tool.name));
 
   let calls: LiveAssistMcpCall[] = [];
+  options.onProgress?.('planning');
   try {
     const planResult = await runPiAiOneShot(
       buildLiveAssistAnswerPlanPrompt(options, catalogText),
@@ -210,6 +214,7 @@ export async function answerLiveAssistQuestion(
 
     const settled = await Promise.allSettled(
       calls.map(async (call) => {
+        options.onProgress?.('mcp', call.tool_name);
         const text = await callToolWithTimeout(
           options.mcpManager,
           call.tool_name,
@@ -234,6 +239,7 @@ export async function answerLiveAssistQuestion(
   }
 
   try {
+    options.onProgress?.('summarizing');
     const answerResult = await runPiAiOneShot(
       buildLiveAssistSummarizePrompt(options, toolResults),
       'Answer concisely in at most 8 sentences. Do not invent facts.',

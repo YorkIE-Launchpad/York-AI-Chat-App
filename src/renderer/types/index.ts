@@ -71,6 +71,8 @@ export type ContentBlock =
   | ImageContent
   | FileAttachmentContent
   | MeetingAttachmentContent
+  | MeetingTranscriptContent
+  | LiveAssistActivityContent
   | ExternalReferenceContent
   | ToolUseContent
   | ToolResultContent
@@ -104,6 +106,30 @@ export interface MeetingAttachmentContent {
   meetingId: string;
   title: string;
   includeTranscript?: boolean;
+}
+
+export interface MeetingTranscriptContent {
+  type: 'meeting_transcript';
+  segmentId: string;
+  speaker?: string | null;
+  text: string;
+}
+
+export type LiveAssistActivityPhase =
+  | 'detected'
+  | 'planning'
+  | 'mcp'
+  | 'summarizing'
+  | 'done'
+  | 'failed';
+
+export interface LiveAssistActivityContent {
+  type: 'live_assist_activity';
+  activityId: string;
+  phase: LiveAssistActivityPhase;
+  question: string;
+  detail?: string;
+  status: 'running' | 'completed' | 'failed';
 }
 
 export interface ToolUseContent {
@@ -710,6 +736,7 @@ export interface SandboxSyncStatus {
 
 export type ServerEvent =
   | { type: 'stream.message'; payload: { sessionId: string; message: Message } }
+  | { type: 'stream.messageUpdate'; payload: { sessionId: string; message: Message } }
   | { type: 'stream.partial'; payload: { sessionId: string; delta: string } }
   | { type: 'stream.thinking'; payload: { sessionId: string; delta: string } }
   | {

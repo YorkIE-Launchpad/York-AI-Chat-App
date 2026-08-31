@@ -25,6 +25,7 @@ import type {
   FileAttachmentContent,
   MeetingAttachmentContent,
   ExternalReferenceContent,
+  LiveAssistActivityPhase,
 } from '../../renderer/types';
 import type { DatabaseInstance, TraceStepRow } from '../db/database';
 import type { MeetingService } from '../meetings/meeting-service';
@@ -1867,7 +1868,7 @@ export class SessionManager {
     log('[SessionManager] Message saved:', message.id, 'role:', message.role);
   }
 
-  /** Post a completed assistant message to a session (e.g. Live Assist subagent result). */
+  /** Post a completed assistant message to a session (e.g. Live Assist answer). */
   publishAssistantText(sessionId: string, text: string): void {
     const trimmed = text.trim();
     if (!trimmed) {
@@ -1884,6 +1885,113 @@ export class SessionManager {
     this.sendToRenderer({
       type: 'stream.message',
       payload: { sessionId, message },
+    });
+  }
+
+  /** Post a live meeting transcript segment to a session (deduped by segmentId). */
+  publishMeetingTranscript(
+    sessionId: string,
+    segment: { id: string; speaker?: string | null; text: string }
+  ): boolean {
+    const text = segment.text.trim();
+    if (!text) {
+      return false;
+    }
+
+    const messages = this.getMessages(sessionId);
+    const alreadyPublished = messages.some((message) =>
+      message.content.some(
+        (block) =>
+          block.type === 'meeting_transcript' &&
+          (block as { segmentId?: string }).segmentId === segment.id
+      )
+    );
+    if (alreadyPublished) {
+      return false;
+    }
+
+    const message: Message = {
+      id: uuidv4(),
+      sessionId,
+      role: 'user',
+      content: [
+        {
+          type: 'meeting_transcript',
+          segmentId: segment.id,
+          speaker: segment.speaker ?? null,
+          text,
+        },
+      ],
+      timestamp: Date.now(),
+    };
+    this.saveMessage(message);
+    this.sendToRenderer({
+      type: 'stream.message',
+      payload: { sessionId, message },
+    });
+    return true;
+  }
+
+  /** Publish a Live Assist activity card (returns message id). */
+  publishLiveAssistActivity(
+    sessionId: string,
+    activity: {
+      activityId: string;
+      phase: LiveAssistActivityPhase;
+      question: string;
+      detail?: string;
+      status: 'running' | 'completed' | 'failed';
+    }
+  ): string {
+    const message: Message = {
+      id: uuidv4(),
+      sessionId,
+      role: 'assistant',
+      content: [
+        {
+          type: 'live_assist_activity',
+          activityId: activity.activityId,
+          phase: activity.phase,
+          question: activity.question,
+          detail: activity.detail,
+          status: activity.status,
+        },
+      ],
+      timestamp: Date.now(),
+    };
+    this.saveMessage(message);
+    this.sendToRenderer({
+      type: 'stream.message',
+      payload: { sessionId, message },
+    });
+    return message.id;
+  }
+
+  /** Update a previously published message's content blocks. */
+  updatePublishedMessage(sessionId: string, messageId: string, content: ContentBlock[]): void {
+    const messages = this.getMessages(sessionId);
+    const existing = messages.find((message) => message.id === messageId);
+    if (!existing) {
+      return;
+    }
+
+    const updated: Message = { ...existing, content };
+    const isIncognito = this.ephemeralSessions.has(sessionId);
+    if (!isIncognito) {
+      this.db.messages.update(messageId, { content: JSON.stringify(content) });
+    }
+
+    const cached = this.messageCache.get(sessionId);
+    if (cached) {
+      const idx = cached.findIndex((message) => message.id === messageId);
+      if (idx >= 0) {
+        cached[idx] = updated;
+      }
+    }
+
+    this.sendToRenderer({
+      type: 'stream.messageUpdate',
+      payload: { sessionId, message: updated },
     });
   }
 
