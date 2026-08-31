@@ -381,6 +381,7 @@ function craftAgentPrompt(step: string, fullDescription: string): string {
     'Follow the instruction carefully. Prefer connected company tools (Hub, Calendar, Slack, Gmail, meetings) over inventing data.',
     'Be concise. If something is blocked (auth, missing connector), report it clearly and stop that step.',
     'Do NOT call workflow_propose or invent new workflows — complete this step only.',
+    'Do not use AskUserQuestion with "Enter X" / "Skip" option pairs to collect text. Use prior Input-step answers when available, or ask with no options so the UI shows a text field.',
     '',
     'Instruction:',
     step,

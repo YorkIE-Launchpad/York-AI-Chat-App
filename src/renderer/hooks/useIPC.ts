@@ -400,7 +400,12 @@ export function useIPC() {
             break;
 
           case 'liveAssist.sessionStarted': {
-            store.addSession(event.payload.session);
+            const existing = store.sessions.find((s) => s.id === event.payload.sessionId);
+            if (existing) {
+              store.updateSession(event.payload.sessionId, event.payload.session);
+            } else {
+              store.addSession(event.payload.session);
+            }
             store.setActiveSession(event.payload.sessionId);
             store.setShowSettings(false);
             store.setShowMatter(false);

@@ -32,4 +32,11 @@ describe('AskUserQuestion UI rendering', () => {
     expect(messageCardContent).toContain('QuestionItem');
     expect(messageCardContent).toContain('freeTextPlaceholder');
   });
+
+  it('shows inline text input for custom-entry options like Enter topic', () => {
+    expect(messageCardContent).toContain('isCustomInputOption');
+    expect(messageCardContent).toContain('showCustomInput');
+    expect(messageCardContent).toContain('customText');
+    expect(messageCardContent).toContain('buildAskUserQuestionAnswers');
+  });
 });

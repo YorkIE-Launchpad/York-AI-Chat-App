@@ -5,6 +5,11 @@ import { HelpCircle, Check, CheckCircle2, Send } from 'lucide-react';
 import type { ToolUseContent, QuestionItem, Message } from '../../types';
 import { useAppStore } from '../../store';
 import { useIPC } from '../../hooks/useIPC';
+import {
+  buildAskUserQuestionAnswers,
+  isCustomInputOption,
+  isQuestionAnswered,
+} from './ask-user-question-utils';
 
 interface AskUserQuestionBlockProps {
   block: ToolUseContent;
@@ -39,6 +44,7 @@ export function AskUserQuestionBlock({ block, message }: AskUserQuestionBlockPro
   const isPending = Boolean(pendingQuestion && pendingQuestion.toolUseId === block.id);
   const [selections, setSelections] = useState<Record<number, string[]>>({});
   const [freeText, setFreeText] = useState<Record<number, string>>({});
+  const [customText, setCustomText] = useState<Record<number, string>>({});
   const [submitted, setSubmitted] = useState(false);
 
   // Prefill recommended options when this block becomes the pending question
@@ -72,27 +78,14 @@ export function AskUserQuestionBlock({ block, message }: AskUserQuestionBlockPro
   const canSubmit =
     isPending &&
     !submitted &&
-    questions.every((q, idx) => {
-      if (q.options && q.options.length > 0) {
-        return (selections[idx] || []).length > 0;
-      }
-      return (freeText[idx] || '').trim().length > 0;
-    });
+    questions.every((q, idx) => isQuestionAnswered(q, idx, selections, freeText, customText));
 
   const handleSubmit = () => {
     if (!pendingQuestion || !sessionId || submitted || !canSubmit) {
       return;
     }
 
-    const answers: Record<number, string[]> = { ...selections };
-    questions.forEach((q, idx) => {
-      if (!q.options || q.options.length === 0) {
-        const text = (freeText[idx] || '').trim();
-        if (text) {
-          answers[idx] = [text];
-        }
-      }
-    });
+    const answers = buildAskUserQuestionAnswers(questions, selections, freeText, customText);
 
     respondToQuestion(sessionId, pendingQuestion.questionId, JSON.stringify(answers));
     setSubmitted(true);
@@ -127,87 +120,113 @@ export function AskUserQuestionBlock({ block, message }: AskUserQuestionBlockPro
       </div>
 
       <div className="p-4 space-y-5">
-        {questions.map((q, qIdx) => (
-          <div key={qIdx} className="space-y-2">
-            {q.header && (
-              <span className="inline-block px-2 py-0.5 bg-accent/10 text-accent text-xs font-semibold rounded uppercase tracking-wide">
-                {q.header}
-              </span>
-            )}
-            <p className="text-text-primary font-medium text-sm">{q.question}</p>
-            {q.options && q.options.length > 0 ? (
-              <div className="space-y-1.5 mt-2">
-                {q.options.map((option, optIdx) => {
-                  const isSelected = (selections[qIdx] || []).includes(option.label);
-                  const letter = getOptionLetter(optIdx);
+        {questions.map((q, qIdx) => {
+          const selectedLabel = (selections[qIdx] || [])[0];
+          const showCustomInput =
+            q.options &&
+            q.options.length > 0 &&
+            selectedLabel &&
+            isCustomInputOption(selectedLabel);
 
-                  return (
-                    <button
-                      key={optIdx}
-                      type="button"
-                      onClick={() => handleOptionToggle(qIdx, option.label, q.multiSelect || false)}
-                      disabled={isReadOnly}
-                      className={`w-full p-3 rounded-lg border text-left transition-all ${
-                        isReadOnly
-                          ? isSelected
-                            ? 'border-accent/50 bg-accent/10 cursor-default'
-                            : 'border-border-subtle bg-surface-muted cursor-default opacity-60'
-                          : isSelected
-                            ? 'border-accent bg-accent/10 hover:bg-accent/15'
-                            : 'border-border-subtle bg-surface hover:border-border hover:bg-surface-muted'
-                      }`}
-                    >
-                      <div className="flex items-start gap-2.5">
-                        <div
-                          className={`w-6 h-6 rounded flex items-center justify-center flex-shrink-0 text-xs font-semibold ${
-                            isSelected
-                              ? 'bg-accent text-white'
-                              : 'bg-border-subtle text-text-secondary'
-                          }`}
-                        >
-                          {isSelected ? <Check className="w-3.5 h-3.5" /> : letter}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span
-                              className={`text-sm ${
-                                isSelected ? 'text-accent font-medium' : 'text-text-primary'
-                              }`}
-                            >
-                              {option.label}
-                            </span>
-                            {option.recommended && (
-                              <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-accent/15 text-accent">
-                                {t('messageCard.recommended')}
+          return (
+            <div key={qIdx} className="space-y-2">
+              {q.header && (
+                <span className="inline-block px-2 py-0.5 bg-accent/10 text-accent text-xs font-semibold rounded uppercase tracking-wide">
+                  {q.header}
+                </span>
+              )}
+              <p className="text-text-primary font-medium text-sm">{q.question}</p>
+              {q.options && q.options.length > 0 ? (
+                <div className="space-y-1.5 mt-2">
+                  {q.options.map((option, optIdx) => {
+                    const isSelected = (selections[qIdx] || []).includes(option.label);
+                    const letter = getOptionLetter(optIdx);
+
+                    return (
+                      <button
+                        key={optIdx}
+                        type="button"
+                        onClick={() =>
+                          handleOptionToggle(qIdx, option.label, q.multiSelect || false)
+                        }
+                        disabled={isReadOnly}
+                        className={`w-full p-3 rounded-lg border text-left transition-all ${
+                          isReadOnly
+                            ? isSelected
+                              ? 'border-accent/50 bg-accent/10 cursor-default'
+                              : 'border-border-subtle bg-surface-muted cursor-default opacity-60'
+                            : isSelected
+                              ? 'border-accent bg-accent/10 hover:bg-accent/15'
+                              : 'border-border-subtle bg-surface hover:border-border hover:bg-surface-muted'
+                        }`}
+                      >
+                        <div className="flex items-start gap-2.5">
+                          <div
+                            className={`w-6 h-6 rounded flex items-center justify-center flex-shrink-0 text-xs font-semibold ${
+                              isSelected
+                                ? 'bg-accent text-white'
+                                : 'bg-border-subtle text-text-secondary'
+                            }`}
+                          >
+                            {isSelected ? <Check className="w-3.5 h-3.5" /> : letter}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span
+                                className={`text-sm ${
+                                  isSelected ? 'text-accent font-medium' : 'text-text-primary'
+                                }`}
+                              >
+                                {option.label}
                               </span>
+                              {option.recommended && (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-accent/15 text-accent">
+                                  {t('messageCard.recommended')}
+                                </span>
+                              )}
+                            </div>
+                            {option.description && (
+                              <p className="text-xs text-text-muted mt-0.5">{option.description}</p>
                             )}
                           </div>
-                          {option.description && (
-                            <p className="text-xs text-text-muted mt-0.5">{option.description}</p>
-                          )}
                         </div>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            ) : (
-              <textarea
-                value={freeText[qIdx] || ''}
-                onChange={(e) =>
-                  setFreeText((prev) => ({
-                    ...prev,
-                    [qIdx]: e.target.value,
-                  }))
-                }
-                disabled={isReadOnly}
-                rows={3}
-                placeholder={t('messageCard.freeTextPlaceholder')}
-                className="w-full mt-2 p-3 rounded-lg border border-border-subtle bg-surface text-sm text-text-primary placeholder:text-text-muted disabled:opacity-60 disabled:cursor-default focus:outline-none focus:border-accent"
-              />
-            )}
-          </div>
-        ))}
+                      </button>
+                    );
+                  })}
+                  {showCustomInput ? (
+                    <textarea
+                      value={customText[qIdx] || ''}
+                      onChange={(e) =>
+                        setCustomText((prev) => ({
+                          ...prev,
+                          [qIdx]: e.target.value,
+                        }))
+                      }
+                      disabled={isReadOnly}
+                      rows={3}
+                      placeholder={t('messageCard.freeTextPlaceholder')}
+                      className="w-full mt-2 p-3 rounded-lg border border-border-subtle bg-surface text-sm text-text-primary placeholder:text-text-muted disabled:opacity-60 disabled:cursor-default focus:outline-none focus:border-accent"
+                    />
+                  ) : null}
+                </div>
+              ) : (
+                <textarea
+                  value={freeText[qIdx] || ''}
+                  onChange={(e) =>
+                    setFreeText((prev) => ({
+                      ...prev,
+                      [qIdx]: e.target.value,
+                    }))
+                  }
+                  disabled={isReadOnly}
+                  rows={3}
+                  placeholder={t('messageCard.freeTextPlaceholder')}
+                  className="w-full mt-2 p-3 rounded-lg border border-border-subtle bg-surface text-sm text-text-primary placeholder:text-text-muted disabled:opacity-60 disabled:cursor-default focus:outline-none focus:border-accent"
+                />
+              )}
+            </div>
+          );
+        })}
       </div>
 
       {isPending && !submitted && (

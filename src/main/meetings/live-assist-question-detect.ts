@@ -1,11 +1,10 @@
 import { configStore } from '../config/config-store';
 import { runPiAiOneShot } from '../agent/sdk-one-shot';
 import { logWarn } from '../utils/logger';
-import { truncateTranscriptWindow } from './live-assist-service';
 
 export const QUESTION_DEBOUNCE_MS = 4_000;
 export const QUESTION_COOLDOWN_MS = 45_000;
-export const MAX_SUBAGENT_ANSWERS_PER_MEETING = 8;
+export const MAX_ANSWERS_PER_MEETING = 8;
 export const MIN_QUESTION_HEURISTIC_CHARS = 12;
 
 const QUESTION_PATTERNS = [
@@ -92,40 +91,4 @@ export async function classifyLiveQuestion(
     }
     return null;
   }
-}
-
-export function buildLiveAssistSubagentTask(options: {
-  question: string;
-  transcriptWindow: string;
-  prepContext?: string | null;
-  customInstructions?: string;
-  meetingTitle: string;
-}): string {
-  const sections = [
-    'You are a background research subagent for York IE Live Assist during a live meeting.',
-    'Answer the detected meeting question concisely and accurately.',
-    'Use MCP tools (Hub, Slack, Gmail, Calendar, past meetings) when internal company context is needed.',
-    'Use webSearch only when internal sources are insufficient.',
-    'Do not invent facts. If uncertain, say what is known and what is missing.',
-    'Keep the final answer under 8 sentences.',
-    '',
-    `Meeting: ${options.meetingTitle}`,
-    `Question: ${options.question}`,
-  ];
-
-  if (options.prepContext?.trim()) {
-    sections.push('', 'Meeting prep:', options.prepContext.trim());
-  }
-
-  if (options.customInstructions?.trim()) {
-    sections.push('', 'User instructions:', options.customInstructions.trim());
-  }
-
-  sections.push(
-    '',
-    'Recent transcript window:',
-    truncateTranscriptWindow(options.transcriptWindow)
-  );
-
-  return sections.join('\n');
 }

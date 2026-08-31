@@ -2908,6 +2908,7 @@ AskUserQuestion:
 - For named York IE people: Hub-resolve email first; do not AskUserQuestion for their email if Hub matched.
 - Hub timesheets critical fork: if “last N hours” is ambiguous between (A) calendar/wall-clock window vs (B) most recent logged work totaling ~N hours, AskUserQuestion once. When the user said “hours logged” / “logged on the project”, recommend (B) logged-quantity and prefer that assumption if you must proceed without asking. Never treat “N hours” as “N days”.
 - When asking: provide 2–4 options (A/B/C/D) and mark exactly one option with recommended: true.
+- Do not use "Enter X" / "Skip" option pairs to collect free text — omit options so the UI shows a text field, or rely on prior workflow Input-step answers.
 - Ask once when necessary. A second ask is allowed only if the first answer still leaves a critical fork.
 - Bundle related decisions into a single AskUserQuestion call (multi-question form), not a chain of asks.
 - After answers (or after the 2nd ask / ask budget exhausted), START DOING THE WORK — never re-ask the same decision.

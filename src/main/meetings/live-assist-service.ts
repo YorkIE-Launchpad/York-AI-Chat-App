@@ -1,16 +1,15 @@
 import { configStore } from '../config/config-store';
-import { runChildAgentSession } from '../agent/child-agent-session';
 import type { MCPManager } from '../mcp/mcp-manager';
 import { log, logWarn } from '../utils/logger';
 import type { SessionManager } from '../session/session-manager';
 import type { ServerEvent } from '../../renderer/types';
 import type { MeetingCaptureStatus, MeetingSegment, MeetingSession } from './meeting-types';
 import type { MeetingService } from './meeting-service';
+import { answerLiveAssistQuestion } from './live-assist-answer';
 import {
-  MAX_SUBAGENT_ANSWERS_PER_MEETING,
+  MAX_ANSWERS_PER_MEETING,
   QUESTION_COOLDOWN_MS,
   QUESTION_DEBOUNCE_MS,
-  buildLiveAssistSubagentTask,
   classifyLiveQuestion,
   findQuestionCandidateInWindow,
   matchesQuestionHeuristic,
@@ -48,8 +47,8 @@ export function buildLiveAssistKickoffPrompt(options: {
   const sections = [
     'You are York IE Live Assist for an ongoing meeting.',
     'Your job: help the user during this live call — answer questions detected in the transcript and respond when the user asks here.',
-    'Background subagents research answers using York tools (Hub, Slack, Gmail, Calendar, past meetings) and web search when needed.',
-    'Keep your own replies brief. When a subagent posts an answer, you may add a one-line summary if helpful.',
+    'Background research uses York tools (Hub, Slack, Gmail, Calendar, past meetings) to post concise answers here.',
+    'Keep your own replies brief. When a researched answer appears, you may add a one-line summary if helpful.',
     '',
     `Meeting: ${options.meetingTitle}`,
     attendeeLine,
@@ -85,10 +84,11 @@ export class LiveAssistService {
   private lastSegmentText = '';
   private questionDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private lastQuestionAt = 0;
-  private subagentAnswerCount = 0;
+  private answerCount = 0;
   private starting = false;
+  private focusedSessionId: string | null = null;
   private detachListeners: (() => void) | null = null;
-  private inFlightSubagents = 0;
+  private inFlightAnswers = 0;
 
   constructor(private readonly deps: LiveAssistDeps) {}
 
@@ -158,14 +158,8 @@ export class LiveAssistService {
     this.activeMeetingId = meetingId;
     this.liveTranscript = meeting.transcriptText || this.liveTranscript;
 
-    if (options?.focusChat !== false) {
-      const session = this.deps.sessionManager.getSession(sessionId);
-      if (session) {
-        this.deps.sendToRenderer({
-          type: 'liveAssist.sessionStarted',
-          payload: { session, sessionId },
-        });
-      }
+    if (options?.focusChat === true) {
+      this.emitSessionStarted(sessionId);
     }
 
     return sessionId;
@@ -183,8 +177,24 @@ export class LiveAssistService {
     this.liveTranscript = '';
     this.lastSegmentText = '';
     this.lastQuestionAt = 0;
-    this.subagentAnswerCount = 0;
-    this.inFlightSubagents = 0;
+    this.answerCount = 0;
+    this.inFlightAnswers = 0;
+    this.focusedSessionId = null;
+  }
+
+  private emitSessionStarted(sessionId: string): void {
+    if (this.focusedSessionId === sessionId) {
+      return;
+    }
+    const session = this.deps.sessionManager.getSession(sessionId);
+    if (!session) {
+      return;
+    }
+    this.focusedSessionId = sessionId;
+    this.deps.sendToRenderer({
+      type: 'liveAssist.sessionStarted',
+      payload: { session, sessionId },
+    });
   }
 
   private isLiveAssistEnabledForMeeting(meetingId: string): boolean {
@@ -204,10 +214,9 @@ export class LiveAssistService {
   private async handleStatus(status: MeetingCaptureStatus): Promise<void> {
     if (status.active && status.meetingId) {
       this.liveTranscript = status.liveTranscript || this.liveTranscript;
+      this.activeMeetingId = status.meetingId;
       if (this.isLiveAssistEnabledForMeeting(status.meetingId)) {
-        await this.enableForMeeting(status.meetingId, { focusChat: true });
-      } else {
-        this.activeMeetingId = status.meetingId;
+        await this.ensureSessionForMeeting(status.meetingId);
       }
       return;
     }
@@ -267,7 +276,7 @@ export class LiveAssistService {
     if (!this.isLiveAssistEnabledForMeeting(meetingId)) {
       return;
     }
-    if (this.subagentAnswerCount >= MAX_SUBAGENT_ANSWERS_PER_MEETING) {
+    if (this.answerCount >= MAX_ANSWERS_PER_MEETING) {
       return;
     }
     if (Date.now() - this.lastQuestionAt < QUESTION_COOLDOWN_MS) {
@@ -298,8 +307,8 @@ export class LiveAssistService {
     }
 
     this.lastQuestionAt = Date.now();
-    this.subagentAnswerCount += 1;
-    this.spawnAnswerSubagent({
+    this.answerCount += 1;
+    this.spawnAnswer({
       meetingId,
       meeting,
       sessionId,
@@ -308,7 +317,7 @@ export class LiveAssistService {
     });
   }
 
-  private spawnAnswerSubagent(options: {
+  private spawnAnswer(options: {
     meetingId: string;
     meeting: MeetingSession;
     sessionId: string;
@@ -316,38 +325,27 @@ export class LiveAssistService {
     transcriptWindow: string;
   }): void {
     const prepContext = this.resolvePrepContext(options.meeting);
-    const task = buildLiveAssistSubagentTask({
+
+    this.inFlightAnswers += 1;
+    void answerLiveAssistQuestion({
       question: options.question,
       transcriptWindow: options.transcriptWindow,
+      meetingTitle: options.meeting.title,
       prepContext,
       customInstructions: this.getCustomInstructions(options.meetingId),
-      meetingTitle: options.meeting.title,
-    });
-
-    this.inFlightSubagents += 1;
-    void runChildAgentSession({
-      task,
-      modelMode: 'free',
-      includeCodingTools: false,
-      mcpToolsMode: 'meta-only',
       mcpManager: this.deps.mcpManager,
-      sendEvent: this.deps.sendToRenderer,
-      parentSessionId: options.sessionId,
-      emitProgress: true,
-      usageFeature: 'live_assist',
     })
-      .then((result) => {
-        const answer = result.text?.trim();
+      .then((answer) => {
         if (answer && !answer.startsWith('Error:')) {
           const header = `**Live Assist · question**\n> ${options.question}\n\n`;
           this.deps.sessionManager.publishAssistantText(options.sessionId, `${header}${answer}`);
         }
       })
       .catch((error) => {
-        logWarn('[LiveAssist] Subagent answer failed:', error);
+        logWarn('[LiveAssist] Answer pipeline failed:', error);
       })
       .finally(() => {
-        this.inFlightSubagents = Math.max(0, this.inFlightSubagents - 1);
+        this.inFlightAnswers = Math.max(0, this.inFlightAnswers - 1);
       });
   }
 
@@ -390,10 +388,7 @@ export class LiveAssistService {
         sessionId: session.id,
       });
 
-      this.deps.sendToRenderer({
-        type: 'liveAssist.sessionStarted',
-        payload: { session, sessionId: session.id },
-      });
+      this.emitSessionStarted(session.id);
 
       log(`[LiveAssist] Started session ${session.id} for meeting ${meetingId}`);
       return session.id;

@@ -28,12 +28,8 @@ vi.mock('../../main/config/config-store', () => ({
   },
 }));
 
-vi.mock('../../main/agent/child-agent-session', () => ({
-  runChildAgentSession: vi.fn(async () => ({
-    text: 'Revenue grew 12% in Q3.',
-    subagentId: 'sub-1',
-    durationMs: 100,
-  })),
+vi.mock('../../main/meetings/live-assist-answer', () => ({
+  answerLiveAssistQuestion: vi.fn(async () => 'Revenue grew 12% in Q3.'),
 }));
 
 vi.mock('../../main/meetings/live-assist-question-detect', async (importOriginal) => {
@@ -200,6 +196,38 @@ describe('LiveAssistService per-meeting', () => {
     );
   });
 
+  it('does not re-emit sessionStarted on repeated status ticks', async () => {
+    const deps = createDeps();
+    deps.setMeeting(
+      createMeeting({
+        liveAssist: { enabled: true, instructions: 'Focus', sessionId: 'session-live-1' },
+      })
+    );
+    const service = new LiveAssistService({
+      sessionManager: deps.sessionManager as never,
+      meetingService: deps.meetingService as never,
+      mcpManager: {} as never,
+      sendToRenderer: deps.sendToRenderer,
+    });
+    service.attach();
+
+    const status: MeetingCaptureStatus = {
+      active: true,
+      meetingId: 'meeting-1',
+      startedAt: Date.now(),
+      segmentCount: 1,
+      liveTranscript: 'Alex: hello',
+    };
+
+    deps.meetingService.emitStatus(status);
+    deps.meetingService.emitStatus(status);
+    deps.meetingService.emitStatus(status);
+    await Promise.resolve();
+
+    expect(deps.sessionManager.startSession).not.toHaveBeenCalled();
+    expect(deps.sendToRenderer).not.toHaveBeenCalled();
+  });
+
   it('builds kickoff prompt for live Q&A', () => {
     const prompt = buildLiveAssistKickoffPrompt({
       meetingTitle: 'Client review',
@@ -207,7 +235,8 @@ describe('LiveAssistService per-meeting', () => {
       prepContext: 'Prep note',
       customInstructions: 'Watch pricing',
     });
-    expect(prompt).toContain('Background subagents');
+    expect(prompt).toContain('Background research');
+    expect(prompt).not.toContain('subagent');
     expect(prompt).toContain('Client review');
     expect(prompt).toContain('Prep note');
   });

@@ -70,6 +70,22 @@ describe('AskUserQuestion sanitize/normalize', () => {
     const normalized = normalizeAskUserAnswers(JSON.stringify({ 0: ['A', 'C'] }), questions);
     expect(normalized).toEqual({ '0': ['A', 'C'] });
   });
+
+  it('accepts free-text values that do not match option labels', () => {
+    const questions = sanitizeAskUserQuestions({
+      questions: [
+        {
+          question: 'What is the main topic?',
+          options: [{ label: 'Enter topic', recommended: true }, { label: 'Skip' }],
+        },
+      ],
+    });
+    const normalized = normalizeAskUserAnswers(
+      JSON.stringify({ 0: ['WordPress automation tips'] }),
+      questions
+    );
+    expect(normalized).toEqual({ '0': ['WordPress automation tips'] });
+  });
 });
 
 describe('AskUserQuestionExtension', () => {
