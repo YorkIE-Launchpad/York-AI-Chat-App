@@ -38,6 +38,7 @@ export const MessageCard = memo(function MessageCard({
       contentBlocks.every((block) => block.type === 'meeting_transcript'),
     [contentBlocks, isUser]
   );
+  const [copied, setCopied] = useState(false);
 
   // Build a set of tool_result IDs that have a matching tool_use (for merging)
   const mergedResultIds = useMemo(() => {
