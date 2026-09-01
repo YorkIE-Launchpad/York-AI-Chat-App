@@ -284,6 +284,7 @@
     "transcription": "Transcription",
     "transcriptionDesc": "Named speakers come from Zoom RTMS when available. Local speech-to-text is a fallback via the York backend.",
     "transcriptionModel": "Fallback transcription model",
+    "realtimeTranscriptionDelay": "Live transcription latency",
     "transcriptionReady": "Backend transcription is ready",
     "transcriptionNotReady": "Sign in to enable meeting transcription through the York backend.",
     "openConnectors": "Open Connectors / API settings",

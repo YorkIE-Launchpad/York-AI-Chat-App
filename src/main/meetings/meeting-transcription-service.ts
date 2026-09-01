@@ -4,8 +4,9 @@ import { BACKEND_PROXY_PLACEHOLDER_KEY, getBackendProxyBaseUrl } from '../../sha
 import { appVersionHeaders } from '../../shared/client-version';
 import { isAuthenticated } from '../auth/session';
 import { getClientAppVersion, resolveBackendClientApiKey } from '../config/backend-auth';
-import type { MeetingTranscriptionModel } from './meeting-types';
 import { log, logWarn } from '../utils/logger';
+
+export type MeetingTranscriptionModel = 'gpt-4o-transcribe' | 'whisper-1';
 
 export interface TranscriptionReadiness {
   ready: boolean;

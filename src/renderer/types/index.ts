@@ -945,10 +945,15 @@ export interface MemoryRuntimeConfig {
   promptIterationRounds?: number;
 }
 
-export type MeetingTranscriptionModel = 'gpt-4o-transcribe' | 'whisper-1';
+export type RealtimeTranscriptionDelay =
+  | 'minimal'
+  | 'low'
+  | 'medium'
+  | 'high'
+  | 'xhigh';
 
 export interface MeetingsRuntimeConfig {
-  transcriptionModel: MeetingTranscriptionModel;
+  realtimeTranscriptionDelay: RealtimeTranscriptionDelay;
   allowChatReference: boolean;
   ingestIntoGlobalMemory: boolean;
   recentMeetingCount: number;
@@ -1060,7 +1065,7 @@ export interface MeetingOverview {
   zoomConnected: boolean;
   allowChatReference: boolean;
   processDetectEnabled: boolean;
-  transcriptionModel: MeetingTranscriptionModel;
+  realtimeTranscriptionDelay: RealtimeTranscriptionDelay;
   storageRoot: string;
   meetingCount: number;
   transcriptionReady: boolean;

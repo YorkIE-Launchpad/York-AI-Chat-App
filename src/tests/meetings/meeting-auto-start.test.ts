@@ -39,7 +39,7 @@ vi.mock('../../main/config/config-store', () => ({
       if (key === 'meetingsEnabled') return true;
       if (key === 'meetingsRuntime') {
         return {
-          transcriptionModel: 'gpt-4o-transcribe',
+          realtimeTranscriptionDelay: 'low',
           allowChatReference: true,
           ingestIntoGlobalMemory: true,
           recentMeetingCount: 5,

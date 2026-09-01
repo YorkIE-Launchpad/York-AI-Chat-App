@@ -8,7 +8,8 @@ import { findCurrentCalendarMeeting, type CalendarMeetingMatch } from './calenda
 import { MeetingNotesService } from './meeting-notes-service';
 import { detectMeetingApps, detectZoomMicUsage } from './meeting-mic-detector';
 import { MeetingStore } from './meeting-store';
-import { MeetingTranscriptionService } from './meeting-transcription-service';
+import { sanitizeTranscriptText } from './meeting-transcription-service';
+import { getRealtimeTranscriptionReadiness } from './meeting-realtime-transcription-service';
 import { normalizeTranscriptToEnglish } from './meeting-transcript-english';
 import {
   ZoomRtmsDesktopClient,
@@ -26,7 +27,6 @@ import type {
   MeetingSegment,
   MeetingSession,
   MeetingStartOptions,
-  MeetingTranscriptionModel,
 } from './meeting-types';
 
 type StatusListener = (status: MeetingCaptureStatus) => void;
@@ -43,6 +43,7 @@ type TitleChangeListener = (payload: { meetingId: string; title: string }) => vo
 type NotesListener = (meeting: MeetingSession) => void;
 type DetectionListener = (payload: { apps: string[]; newlyDetected: string[] }) => void;
 type AutoCaptureListener = (options?: { showOsNotification?: boolean }) => void;
+type LocalSttListener = () => void;
 
 /** Prefer Zoom topic, then calendar summary, never an empty string. */
 export function resolveMeetingDisplayTitle(
@@ -72,7 +73,7 @@ const RTMS_START_RETRY_MS = 12_000;
 
 function defaultRuntime(): MeetingsRuntimeConfig {
   return {
-    transcriptionModel: 'gpt-4o-transcribe',
+    realtimeTranscriptionDelay: 'low',
     allowChatReference: true,
     ingestIntoGlobalMemory: true,
     recentMeetingCount: 5,
@@ -111,7 +112,6 @@ function mediaAccessStatus(
  */
 export class MeetingService {
   private readonly store = new MeetingStore();
-  private readonly transcription = new MeetingTranscriptionService();
   private readonly notes = new MeetingNotesService();
   private memoryService: MemoryService | null = null;
   private wikiIngest:
@@ -134,6 +134,8 @@ export class MeetingService {
   private detectionListeners = new Set<DetectionListener>();
   private autoStartListeners = new Set<AutoCaptureListener>();
   private autoStopListeners = new Set<AutoCaptureListener>();
+  private localSttActivatedListeners = new Set<LocalSttListener>();
+  private localSttDeactivatedListeners = new Set<LocalSttListener>();
   private lastDetectedApps: string[] = [];
   private detectionTimer: ReturnType<typeof setInterval> | null = null;
   private detectionBootstrapped = false;
@@ -146,12 +148,11 @@ export class MeetingService {
   private lastAutoStartAttemptAt = 0;
   private detectionPollMs = DETECTION_POLL_MS;
   private micProbeUnavailableLogged = false;
-  /** Raw audio kept for finalize retry when live STT produced no text. */
-  private pendingAudioChunks: Array<{ buffer: Buffer; mimeType: string }> = [];
-  private pendingTranscriptions = new Set<Promise<unknown>>();
+  private partialLiveText = '';
+  private pendingRealtimeSegments = new Set<Promise<unknown>>();
   private pendingRtmsIngests = new Set<Promise<unknown>>();
   private readonly zoomRtms = new ZoomRtmsDesktopClient();
-  /** When true, local Whisper chunks are accepted (RTMS timed out or unavailable). */
+  /** When true, local realtime STT segments are accepted (RTMS timed out or unavailable). */
   private localSttFallbackActive = false;
   private rtmsFallbackTimer: ReturnType<typeof setTimeout> | null = null;
   private rtmsStartRetryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -266,6 +267,56 @@ export class MeetingService {
   onAutoStopRequested(listener: AutoCaptureListener): () => void {
     this.autoStopListeners.add(listener);
     return () => this.autoStopListeners.delete(listener);
+  }
+
+  onLocalSttActivated(listener: LocalSttListener): () => void {
+    this.localSttActivatedListeners.add(listener);
+    return () => this.localSttActivatedListeners.delete(listener);
+  }
+
+  onLocalSttDeactivated(listener: LocalSttListener): () => void {
+    this.localSttDeactivatedListeners.add(listener);
+    return () => this.localSttDeactivatedListeners.delete(listener);
+  }
+
+  private emitLocalSttActivated(): void {
+    for (const listener of this.localSttActivatedListeners) {
+      try {
+        listener();
+      } catch (error) {
+        logWarn('[Meetings] Local STT activated listener failed', error);
+      }
+    }
+  }
+
+  private emitLocalSttDeactivated(): void {
+    for (const listener of this.localSttDeactivatedListeners) {
+      try {
+        listener();
+      } catch (error) {
+        logWarn('[Meetings] Local STT deactivated listener failed', error);
+      }
+    }
+  }
+
+  private activateLocalSttFallback(reason?: string): void {
+    if (this.localSttFallbackActive) {
+      return;
+    }
+    this.localSttFallbackActive = true;
+    if (reason) {
+      log(`[Meetings] ${reason}`);
+    }
+    this.emitLocalSttActivated();
+  }
+
+  private deactivateLocalSttFallback(): void {
+    if (!this.localSttFallbackActive) {
+      return;
+    }
+    this.localSttFallbackActive = false;
+    this.partialLiveText = '';
+    this.emitLocalSttDeactivated();
   }
 
   /** Start/stop background meeting-app detection based on Zoom connection. */
@@ -401,7 +452,7 @@ export class MeetingService {
 
   async getOverview(): Promise<MeetingOverview> {
     const runtime = this.getRuntime();
-    const readiness = this.transcription.getReadiness();
+    const readiness = getRealtimeTranscriptionReadiness();
     const zoomConnected = this.isZoomConnected();
     const detectedMeetingApps = zoomConnected
       ? this.lastDetectedApps.length
@@ -414,7 +465,7 @@ export class MeetingService {
       zoomConnected,
       allowChatReference: runtime.allowChatReference !== false,
       processDetectEnabled: runtime.processDetectEnabled !== false,
-      transcriptionModel: runtime.transcriptionModel || 'gpt-4o-transcribe',
+      realtimeTranscriptionDelay: runtime.realtimeTranscriptionDelay || 'low',
       storageRoot: this.store.getStorageRoot(),
       meetingCount: this.store.list().length,
       transcriptionReady: readiness.ready,
@@ -698,7 +749,7 @@ export class MeetingService {
       throw new Error('A meeting capture is already active');
     }
 
-    const readiness = this.transcription.getReadiness();
+    const readiness = getRealtimeTranscriptionReadiness();
     if (!readiness.ready) {
       throw new Error(readiness.reason || 'Transcription is not configured');
     }
@@ -739,8 +790,8 @@ export class MeetingService {
     this.activeStartedAt = now;
     this.liveTranscript = '';
     this.captureError = undefined;
-    this.pendingAudioChunks = [];
-    this.pendingTranscriptions.clear();
+    this.partialLiveText = '';
+    this.pendingRealtimeSegments.clear();
     this.zoomAbsentPolls = 0;
     this.pendingRendererAutoStop = false;
     this.clearPendingAutoStart();
@@ -748,6 +799,9 @@ export class MeetingService {
     this.clearRtmsFallbackTimer();
     this.clearRtmsStartRetryTimer();
     this.emitStatus();
+    if (this.localSttFallbackActive) {
+      this.emitLocalSttActivated();
+    }
     if (this.shouldAutoDetect()) {
       this.restartDetectionTimer(DETECTION_POLL_ACTIVE_MS);
     }
@@ -758,8 +812,7 @@ export class MeetingService {
         if (!this.activeMeetingId || this.activeMeetingId !== meeting.id) return;
         if (this.zoomRtms.hasReceivedSegments) return;
         this.clearRtmsStartRetryTimer();
-        this.localSttFallbackActive = true;
-        log('[Meetings] RTMS silent — enabling local STT fallback');
+        this.activateLocalSttFallback('RTMS silent — enabling local realtime STT fallback');
       }, RTMS_FALLBACK_MS);
     }
 
@@ -898,7 +951,7 @@ export class MeetingService {
       });
     } catch (error) {
       logWarn('[Meetings] bootstrapZoomRtms failed — local STT fallback', error);
-      this.localSttFallbackActive = true;
+      this.activateLocalSttFallback();
     }
   }
 
@@ -1031,7 +1084,7 @@ export class MeetingService {
       return;
     }
 
-    this.localSttFallbackActive = false;
+    this.deactivateLocalSttFallback();
     this.clearRtmsFallbackTimer();
     this.clearRtmsStartRetryTimer();
     const withSpeaker = rtmsSegments.filter((item) => !!item.speaker?.trim()).length;
@@ -1104,34 +1157,30 @@ export class MeetingService {
     this.emitStatus();
   }
 
-  async appendChunk(payload: {
+  private rebuildLiveTranscript(meeting: MeetingSession): string {
+    const base = buildTranscriptText(meeting.segments);
+    const partial = this.partialLiveText.trim();
+    if (!partial) {
+      return base;
+    }
+    if (!base) {
+      return partial;
+    }
+    return `${base}\n${partial}`;
+  }
+
+  async appendRealtimeTranscriptPreview(payload: {
     meetingId: string;
-    data: ArrayBuffer | Buffer | Uint8Array;
-    mimeType?: string;
-    rms?: number;
-  }): Promise<{ accepted: boolean; text?: string }> {
+    itemId?: string;
+    partialText: string;
+  }): Promise<{ accepted: boolean }> {
     if (!this.isEnabled()) {
       return { accepted: false };
     }
     if (!this.activeMeetingId || payload.meetingId !== this.activeMeetingId) {
       return { accepted: false };
     }
-
-    // Prefer Zoom RTMS named transcripts; buffer audio until fallback activates.
     if (!this.localSttFallbackActive) {
-      const bufferEarly = Buffer.isBuffer(payload.data)
-        ? payload.data
-        : Buffer.from(
-            payload.data instanceof ArrayBuffer ? new Uint8Array(payload.data) : payload.data
-          );
-      if (bufferEarly.byteLength >= 1500) {
-        this.bufferAudioChunk(bufferEarly, payload.mimeType || 'audio/webm');
-      }
-      return { accepted: false };
-    }
-
-    // Skip near-silent chunks — Whisper often hallucinates on quiet audio.
-    if (typeof payload.rms === 'number' && payload.rms < 0.02) {
       return { accepted: false };
     }
 
@@ -1140,52 +1189,59 @@ export class MeetingService {
       return { accepted: false };
     }
 
-    const buffer = Buffer.isBuffer(payload.data)
-      ? payload.data
-      : Buffer.from(
-          payload.data instanceof ArrayBuffer ? new Uint8Array(payload.data) : payload.data
-        );
+    this.partialLiveText = payload.partialText.trim();
+    this.liveTranscript = this.rebuildLiveTranscript(meeting);
+    this.emitStatus();
+    return { accepted: true };
+  }
 
-    // ~5s webm/opus segments should be larger; tiny blobs are usually empty.
-    if (buffer.byteLength < 1500) {
+  async appendRealtimeSegment(payload: {
+    meetingId: string;
+    text: string;
+    itemId?: string;
+    startedAt?: number;
+    endedAt?: number;
+  }): Promise<{ accepted: boolean; text?: string }> {
+    if (!this.isEnabled()) {
+      return { accepted: false };
+    }
+    if (!this.activeMeetingId || payload.meetingId !== this.activeMeetingId) {
+      return { accepted: false };
+    }
+    if (!this.localSttFallbackActive) {
       return { accepted: false };
     }
 
-    const mimeType = payload.mimeType || 'audio/webm';
-    this.bufferAudioChunk(buffer, mimeType);
+    const meeting = this.store.get(payload.meetingId);
+    if (!meeting || meeting.status !== 'recording') {
+      return { accepted: false };
+    }
 
-    const task = this.transcribeAndAttach(meeting.id, buffer, mimeType);
-    this.pendingTranscriptions.add(task);
-    void task.finally(() => this.pendingTranscriptions.delete(task));
+    const task = this.attachRealtimeSegment(meeting.id, payload);
+    this.pendingRealtimeSegments.add(task);
+    void task.finally(() => this.pendingRealtimeSegments.delete(task));
     return task;
   }
 
-  private bufferAudioChunk(buffer: Buffer, mimeType: string): void {
-    this.pendingAudioChunks.push({ buffer, mimeType });
-    // Cap retained audio to avoid unbounded memory (~last ~5 minutes of 2s chunks).
-    const maxChunks = 150;
-    if (this.pendingAudioChunks.length > maxChunks) {
-      this.pendingAudioChunks.splice(0, this.pendingAudioChunks.length - maxChunks);
-    }
-  }
-
-  private async transcribeAndAttach(
+  private async attachRealtimeSegment(
     meetingId: string,
-    buffer: Buffer,
-    mimeType: string
+    payload: {
+      text: string;
+      itemId?: string;
+      startedAt?: number;
+      endedAt?: number;
+    }
   ): Promise<{ accepted: boolean; text?: string }> {
     const meeting = this.store.get(meetingId);
     if (!meeting || (meeting.status !== 'recording' && meeting.status !== 'finalizing')) {
       return { accepted: false };
     }
 
-    const runtime = this.getRuntime();
-    const model = (runtime.transcriptionModel || 'gpt-4o-transcribe') as MeetingTranscriptionModel;
-
     try {
-      const rawText = await this.transcription.transcribeChunk(buffer, mimeType, model);
-      const text = rawText ? await normalizeTranscriptToEnglish(rawText) : '';
+      const sanitized = sanitizeTranscriptText(payload.text);
+      const text = sanitized ? await normalizeTranscriptToEnglish(sanitized) : '';
       if (!text) {
+        this.partialLiveText = '';
         return { accepted: false };
       }
 
@@ -1194,20 +1250,22 @@ export class MeetingService {
         return { accepted: false };
       }
 
-      const now = Date.now();
+      const endedAt = payload.endedAt ?? Date.now();
+      const startedAt = payload.startedAt ?? endedAt - 2000;
       const segment: MeetingSegment = {
-        id: randomUUID(),
+        id: payload.itemId?.trim() || randomUUID(),
         text,
-        startedAt: now - 5_000,
-        endedAt: now,
-        createdAt: now,
+        startedAt,
+        endedAt,
+        createdAt: Date.now(),
         source: 'local-stt',
       };
 
       latest.segments.push(segment);
       latest.transcriptText = buildTranscriptText(latest.segments);
-      latest.updatedAt = now;
+      latest.updatedAt = Date.now();
       this.store.save(latest);
+      this.partialLiveText = '';
       this.liveTranscript = latest.transcriptText;
       this.captureError = undefined;
 
@@ -1227,7 +1285,7 @@ export class MeetingService {
     } catch (error) {
       this.captureError = error instanceof Error ? error.message : String(error);
       this.emitStatus();
-      logWarn('[Meetings] Chunk transcription failed', error);
+      logWarn('[Meetings] Realtime segment attach failed', error);
       return { accepted: false };
     }
   }
@@ -1250,13 +1308,14 @@ export class MeetingService {
     this.zoomAbsentPolls = 0;
     this.pendingRendererAutoStop = false;
     this.localSttFallbackActive = false;
+    this.partialLiveText = '';
+    this.emitLocalSttDeactivated();
     this.emitStatus();
     if (this.shouldAutoDetect()) {
       this.restartDetectionTimer(DETECTION_POLL_MS);
     }
 
     if (!meeting) {
-      this.pendingAudioChunks = [];
       void this.zoomRtms.unregister();
       return null;
     }
@@ -1268,9 +1327,9 @@ export class MeetingService {
     meeting.updatedAt = endedAt;
     this.store.save(meeting);
 
-    // Wait for in-flight live STT / RTMS English-normalize, then pull final speaker labels.
-    if (this.pendingTranscriptions.size > 0 || this.pendingRtmsIngests.size > 0) {
-      await Promise.allSettled([...this.pendingTranscriptions, ...this.pendingRtmsIngests]);
+    // Wait for in-flight realtime STT / RTMS English-normalize, then pull final speaker labels.
+    if (this.pendingRealtimeSegments.size > 0 || this.pendingRtmsIngests.size > 0) {
+      await Promise.allSettled([...this.pendingRealtimeSegments, ...this.pendingRtmsIngests]);
     }
 
     try {
@@ -1281,18 +1340,8 @@ export class MeetingService {
 
     void this.zoomRtms.unregister();
 
-    let current = this.store.get(meetingId) || meeting;
-    if (!current.transcriptText.trim() && this.pendingAudioChunks.length > 0) {
-      log(
-        `[Meetings] Live transcript empty — retrying ${this.pendingAudioChunks.length} buffered chunk(s)`
-      );
-      for (const chunk of this.pendingAudioChunks) {
-        await this.transcribeAndAttach(meetingId, chunk.buffer, chunk.mimeType);
-      }
-      current = this.store.get(meetingId) || current;
-    }
-    this.pendingAudioChunks = [];
-    this.pendingTranscriptions.clear();
+    const current = this.store.get(meetingId) || meeting;
+    this.pendingRealtimeSegments.clear();
     this.pendingRtmsIngests.clear();
 
     try {

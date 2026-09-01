@@ -4,6 +4,8 @@ import { MeetingAudioCapture, type MeetingAudioLevelListener } from './MeetingAu
 const capture = new MeetingAudioCapture();
 let startInFlight = false;
 let stopInFlight = false;
+let localSttUnsubscribe: (() => void) | null = null;
+let localSttDeactivatedUnsubscribe: (() => void) | null = null;
 
 export function getMeetingAudioCapture(): MeetingAudioCapture {
   return capture;
@@ -17,6 +19,28 @@ export function isMeetingAudioActive(): boolean {
   return capture.isActive;
 }
 
+function clearRealtimeListeners(): void {
+  if (localSttUnsubscribe) {
+    localSttUnsubscribe();
+    localSttUnsubscribe = null;
+  }
+  if (localSttDeactivatedUnsubscribe) {
+    localSttDeactivatedUnsubscribe();
+    localSttDeactivatedUnsubscribe = null;
+  }
+}
+
+async function tryStartRealtimeTranscription(): Promise<void> {
+  if (!capture.isActive) {
+    return;
+  }
+  try {
+    await capture.startRealtimeTranscription();
+  } catch (error) {
+    console.warn('[Meetings] Failed to start realtime transcription', error);
+  }
+}
+
 export async function startMeetingCapture(
   title?: string,
   options?: MeetingStartOptions
@@ -28,8 +52,23 @@ export async function startMeetingCapture(
   try {
     const meeting = await window.electronAPI.meetings.start(title, options);
     await capture.start(meeting.id);
+
+    clearRealtimeListeners();
+    localSttUnsubscribe = window.electronAPI.meetings.onLocalSttActivated(() => {
+      void tryStartRealtimeTranscription();
+    });
+    localSttDeactivatedUnsubscribe = window.electronAPI.meetings.onLocalSttDeactivated(() => {
+      void capture.stopRealtimeTranscription();
+    });
+
+    const overview = await window.electronAPI.meetings.getOverview();
+    if (!overview.zoomConnected) {
+      await tryStartRealtimeTranscription();
+    }
+
     return meeting;
   } catch (error) {
+    clearRealtimeListeners();
     await capture.stop();
     try {
       const status = await window.electronAPI.meetings.getStatus();
@@ -51,6 +90,7 @@ export async function stopMeetingCapture(): Promise<MeetingSession | null> {
   }
   stopInFlight = true;
   try {
+    clearRealtimeListeners();
     await capture.stop();
     return await window.electronAPI.meetings.stop();
   } finally {

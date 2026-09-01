@@ -7,7 +7,7 @@ import type {
   MeetingOverview,
   MeetingSession,
   MeetingsRuntimeConfig,
-  MeetingTranscriptionModel,
+  RealtimeTranscriptionDelay,
 } from '../../types';
 import { useAppStore } from '../../store';
 import {
@@ -19,7 +19,7 @@ import {
 import { SettingsContentSection } from './shared';
 
 const DEFAULT_RUNTIME: MeetingsRuntimeConfig = {
-  transcriptionModel: 'gpt-4o-transcribe',
+  realtimeTranscriptionDelay: 'low',
   allowChatReference: true,
   ingestIntoGlobalMemory: true,
   recentMeetingCount: 5,
@@ -537,19 +537,22 @@ export function SettingsMeetings() {
           </div>
         )}
         <label className="block text-sm text-text-secondary">
-          {t('meetings.transcriptionModel')}
+          {t('meetings.realtimeTranscriptionDelay')}
           <select
-            value={runtimeDraft.transcriptionModel}
+            value={runtimeDraft.realtimeTranscriptionDelay}
             onChange={(e) =>
               setRuntimeDraft((prev) => ({
                 ...prev,
-                transcriptionModel: e.target.value as MeetingTranscriptionModel,
+                realtimeTranscriptionDelay: e.target.value as RealtimeTranscriptionDelay,
               }))
             }
             className="mt-1 w-full rounded-md border border-border-muted bg-background px-2 py-2 text-sm text-text-primary"
           >
-            <option value="gpt-4o-transcribe">gpt-4o-transcribe</option>
-            <option value="whisper-1">whisper-1</option>
+            <option value="minimal">minimal</option>
+            <option value="low">low</option>
+            <option value="medium">medium</option>
+            <option value="high">high</option>
+            <option value="xhigh">xhigh</option>
           </select>
         </label>
         <button

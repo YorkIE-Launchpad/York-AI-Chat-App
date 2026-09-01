@@ -838,13 +838,22 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('meetings.getLiveAssist'),
     stop: (): Promise<MeetingSession | null> => ipcRenderer.invoke('meetings.stop'),
     getStatus: (): Promise<MeetingCaptureStatus> => ipcRenderer.invoke('meetings.getStatus'),
-    appendChunk: (payload: {
+    createRealtimeTranscriptionSession: (): Promise<{ clientSecret: string }> =>
+      ipcRenderer.invoke('meetings.createRealtimeTranscriptionSession'),
+    appendRealtimeSegment: (payload: {
       meetingId: string;
-      data: ArrayBuffer;
-      mimeType?: string;
-      rms?: number;
+      text: string;
+      itemId?: string;
+      startedAt?: number;
+      endedAt?: number;
     }): Promise<{ accepted: boolean; text?: string }> =>
-      ipcRenderer.invoke('meetings.appendChunk', payload),
+      ipcRenderer.invoke('meetings.appendRealtimeSegment', payload),
+    appendRealtimeTranscriptPreview: (payload: {
+      meetingId: string;
+      itemId?: string;
+      partialText: string;
+    }): Promise<{ accepted: boolean }> =>
+      ipcRenderer.invoke('meetings.appendRealtimeTranscriptPreview', payload),
     list: (): Promise<MeetingListItem[]> => ipcRenderer.invoke('meetings.list'),
     get: (id: string): Promise<MeetingSession | null> => ipcRenderer.invoke('meetings.get', id),
     search: (query: string, limit?: number): Promise<MeetingListItem[]> =>
@@ -910,6 +919,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
       const listener = () => callback();
       ipcRenderer.on('meetings:requestAutoStop', listener);
       return () => ipcRenderer.removeListener('meetings:requestAutoStop', listener);
+    },
+    onLocalSttActivated: (callback: () => void): (() => void) => {
+      const listener = () => callback();
+      ipcRenderer.on('meetings:localSttActivated', listener);
+      return () => ipcRenderer.removeListener('meetings:localSttActivated', listener);
+    },
+    onLocalSttDeactivated: (callback: () => void): (() => void) => {
+      const listener = () => callback();
+      ipcRenderer.on('meetings:localSttDeactivated', listener);
+      return () => ipcRenderer.removeListener('meetings:localSttDeactivated', listener);
     },
     onOpenSettings: (callback: () => void): (() => void) => {
       const listener = () => callback();
@@ -1444,12 +1463,19 @@ declare global {
         getLiveAssist: () => Promise<MeetingLiveAssistStatus>;
         stop: () => Promise<MeetingSession | null>;
         getStatus: () => Promise<MeetingCaptureStatus>;
-        appendChunk: (payload: {
+        createRealtimeTranscriptionSession: () => Promise<{ clientSecret: string }>;
+        appendRealtimeSegment: (payload: {
           meetingId: string;
-          data: ArrayBuffer;
-          mimeType?: string;
-          rms?: number;
+          text: string;
+          itemId?: string;
+          startedAt?: number;
+          endedAt?: number;
         }) => Promise<{ accepted: boolean; text?: string }>;
+        appendRealtimeTranscriptPreview: (payload: {
+          meetingId: string;
+          itemId?: string;
+          partialText: string;
+        }) => Promise<{ accepted: boolean }>;
         list: () => Promise<MeetingListItem[]>;
         get: (id: string) => Promise<MeetingSession | null>;
         search: (query: string, limit?: number) => Promise<MeetingListItem[]>;
@@ -1480,6 +1506,8 @@ declare global {
         ) => () => void;
         onRequestAutoStart: (callback: () => void) => () => void;
         onRequestAutoStop: (callback: () => void) => () => void;
+        onLocalSttActivated: (callback: () => void) => () => void;
+        onLocalSttDeactivated: (callback: () => void) => () => void;
         onOpenSettings: (callback: () => void) => () => void;
         reportAutoStartResult: (result: {
           ok: boolean;

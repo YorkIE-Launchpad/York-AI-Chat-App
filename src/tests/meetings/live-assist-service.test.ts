@@ -10,7 +10,7 @@ const mockState = vi.hoisted(() => ({
   config: {
     meetingsEnabled: true,
     meetingsRuntime: {
-      transcriptionModel: 'gpt-4o-transcribe' as const,
+      realtimeTranscriptionDelay: 'low' as const,
       allowChatReference: true,
       ingestIntoGlobalMemory: true,
       recentMeetingCount: 5,

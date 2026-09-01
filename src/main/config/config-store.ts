@@ -210,7 +210,7 @@ export interface MemoryRuntimeConfig {
 }
 
 export interface MeetingsRuntimeConfig {
-  transcriptionModel: 'gpt-4o-transcribe' | 'whisper-1';
+  realtimeTranscriptionDelay: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
   allowChatReference: boolean;
   ingestIntoGlobalMemory: boolean;
   recentMeetingCount: number;
@@ -417,7 +417,7 @@ const defaultConfig: AppConfig = {
   },
   meetingsEnabled: true,
   meetingsRuntime: {
-    transcriptionModel: 'gpt-4o-transcribe',
+    realtimeTranscriptionDelay: 'low',
     allowChatReference: true,
     ingestIntoGlobalMemory: true,
     recentMeetingCount: 5,
@@ -596,12 +596,17 @@ function normalizeMemoryRuntimeConfig(raw: unknown): MemoryRuntimeConfig {
 function normalizeMeetingsRuntimeConfig(raw: unknown): MeetingsRuntimeConfig {
   const value =
     typeof raw === 'object' && raw !== null
-      ? (raw as Partial<MeetingsRuntimeConfig> & { injectIntoChat?: boolean })
+      ? (raw as Partial<MeetingsRuntimeConfig> & {
+          injectIntoChat?: boolean;
+          transcriptionModel?: string;
+        })
       : {};
-  const model =
-    value.transcriptionModel === 'whisper-1' || value.transcriptionModel === 'gpt-4o-transcribe'
-      ? value.transcriptionModel
-      : defaultConfig.meetingsRuntime.transcriptionModel;
+  const delayOptions = ['minimal', 'low', 'medium', 'high', 'xhigh'] as const;
+  const delay =
+    delayOptions.find((option) => option === value.realtimeTranscriptionDelay) ??
+    (value.transcriptionModel === 'whisper-1' || value.transcriptionModel === 'gpt-4o-transcribe'
+      ? 'low'
+      : defaultConfig.meetingsRuntime.realtimeTranscriptionDelay);
   // Migrate legacy injectIntoChat → allowChatReference
   const allowChatReference =
     value.allowChatReference !== undefined
@@ -610,7 +615,7 @@ function normalizeMeetingsRuntimeConfig(raw: unknown): MeetingsRuntimeConfig {
         ? toBoolean(value.injectIntoChat, defaultConfig.meetingsRuntime.allowChatReference)
         : defaultConfig.meetingsRuntime.allowChatReference;
   return {
-    transcriptionModel: model,
+    realtimeTranscriptionDelay: delay,
     allowChatReference,
     ingestIntoGlobalMemory: toBoolean(
       value.ingestIntoGlobalMemory,

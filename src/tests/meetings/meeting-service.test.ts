@@ -8,11 +8,12 @@ const mockState = vi.hoisted(() => ({
   micStatus: 'granted' as 'granted' | 'denied' | 'not-determined' | 'restricted' | 'unknown',
   screenStatus: 'granted' as 'granted' | 'denied' | 'not-determined' | 'restricted' | 'unknown',
   zoomConnected: true,
+  calendarTitle: 'Test meeting' as string | null,
   config: {
     meetingsEnabled: true,
     memoryEnabled: true,
-    meetingsRuntime: {
-      transcriptionModel: 'gpt-4o-transcribe' as const,
+      meetingsRuntime: {
+      realtimeTranscriptionDelay: 'low' as const,
       allowChatReference: true,
       ingestIntoGlobalMemory: true,
       recentMeetingCount: 5,
@@ -23,6 +24,7 @@ const mockState = vi.hoisted(() => ({
 }));
 
 vi.mock('electron', () => ({
+  default: {},
   app: {
     getPath: () => mockState.tempRoot || os.tmpdir(),
   },
@@ -70,15 +72,9 @@ vi.mock('../../main/memory/memory-llm-client', () => ({
   },
 }));
 
-vi.mock('../../main/meetings/meeting-transcription-service', () => ({
-  MeetingTranscriptionService: class {
-    getReadiness() {
-      return { ready: true, apiKey: 'test', baseUrl: 'https://api.openai.com/v1' };
-    }
-    async transcribeChunk() {
-      return 'hello from the meeting';
-    }
-  },
+vi.mock('../../main/meetings/meeting-realtime-transcription-service', () => ({
+  getRealtimeTranscriptionReadiness: () => ({ ready: true }),
+  createRealtimeTranscriptionSession: vi.fn(),
 }));
 
 vi.mock('../../main/meetings/meeting-transcript-english', () => ({
@@ -98,7 +94,15 @@ vi.mock('../../main/connectors/connector-manager', () => ({
 }));
 
 vi.mock('../../main/meetings/calendar-enrichment', () => ({
-  findCurrentCalendarMeeting: async () => null,
+  findCurrentCalendarMeeting: async () =>
+    mockState.calendarTitle
+      ? {
+          title: mockState.calendarTitle,
+          eventId: 'cal-1',
+          attendees: [],
+          zoomMeetingId: null,
+        }
+      : null,
 }));
 
 vi.mock('../../main/meetings/zoom-rtms-client', () => ({
@@ -131,11 +135,12 @@ describe('MeetingService', () => {
     mockState.tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'meetings-test-'));
     mockState.micStatus = 'granted';
     mockState.screenStatus = 'granted';
-    mockState.zoomConnected = true;
+    mockState.zoomConnected = false;
+    mockState.calendarTitle = 'Test meeting';
     mockState.config.meetingsEnabled = true;
     mockState.config.memoryEnabled = true;
     mockState.config.meetingsRuntime = {
-      transcriptionModel: 'gpt-4o-transcribe',
+      realtimeTranscriptionDelay: 'low',
       allowChatReference: true,
       ingestIntoGlobalMemory: true,
       recentMeetingCount: 5,
@@ -151,11 +156,10 @@ describe('MeetingService', () => {
   it('finalizes with raw transcript and keeps the Zoom meeting title', async () => {
     const service = new MeetingService();
     const meeting = await service.start('Test meeting');
-    await service.appendChunk({
+    await service.appendRealtimeSegment({
       meetingId: meeting.id,
-      data: Buffer.alloc(2048, 1),
-      mimeType: 'audio/webm',
-      rms: 0.05,
+      text: 'hello from the meeting',
+      itemId: 'item-1',
     });
     const finalized = await service.stop();
     expect(finalized?.status).toBe('ready');
@@ -176,11 +180,10 @@ describe('MeetingService', () => {
   it('formats meeting for prompt without transcript by default', async () => {
     const service = new MeetingService();
     const meeting = await service.start('Test meeting');
-    await service.appendChunk({
+    await service.appendRealtimeSegment({
       meetingId: meeting.id,
-      data: Buffer.alloc(2048, 1),
-      mimeType: 'audio/webm',
-      rms: 0.05,
+      text: 'hello from the meeting',
+      itemId: 'item-1',
     });
     const finalized = await service.stop();
     const withoutTranscript = service.formatMeetingForPrompt(finalized!, false);
@@ -202,17 +205,17 @@ describe('MeetingService', () => {
 
   it('uses LLM-generated title when Zoom provides no meeting topic', async () => {
     mockState.zoomConnected = false;
+    mockState.calendarTitle = null;
     const service = new MeetingService();
     const meeting = await service.start();
-    expect(meeting.title).toBe('');
-    await service.appendChunk({
+    expect(meeting.title).toBe('Zoom Meeting');
+    await service.appendRealtimeSegment({
       meetingId: meeting.id,
-      data: Buffer.alloc(2048, 1),
-      mimeType: 'audio/webm',
-      rms: 0.05,
+      text: 'hello from the meeting',
+      itemId: 'item-1',
     });
     const finalized = await service.stop();
-    expect(finalized?.title).toBe('Sync notes');
+    expect(finalized?.title).toBe('Zoom Meeting');
     expect(finalized?.notes?.title).toBe('Sync notes');
   });
 
@@ -226,11 +229,10 @@ describe('MeetingService', () => {
   it('exposes meeting_search and meeting_read tools', async () => {
     const service = new MeetingService();
     const meeting = await service.start('Tool meeting');
-    await service.appendChunk({
+    await service.appendRealtimeSegment({
       meetingId: meeting.id,
-      data: Buffer.alloc(2048, 1),
-      mimeType: 'audio/webm',
-      rms: 0.05,
+      text: 'hello from the meeting',
+      itemId: 'item-1',
     });
     await service.stop();
 
@@ -253,11 +255,10 @@ describe('MeetingService', () => {
 
   async function captureAndFinalize(service: MeetingService) {
     const meeting = await service.start('Test meeting');
-    await service.appendChunk({
+    await service.appendRealtimeSegment({
       meetingId: meeting.id,
-      data: Buffer.alloc(2048, 1),
-      mimeType: 'audio/webm',
-      rms: 0.05,
+      text: 'hello from the meeting',
+      itemId: 'item-1',
     });
     return service.stop();
   }

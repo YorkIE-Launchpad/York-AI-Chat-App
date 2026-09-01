@@ -75,7 +75,7 @@ function createMockConfigStore(overrides: Partial<AppConfig> = {}) {
     },
     meetingsEnabled: true,
     meetingsRuntime: {
-      transcriptionModel: 'gpt-4o-transcribe',
+      realtimeTranscriptionDelay: 'low',
       allowChatReference: true,
       ingestIntoGlobalMemory: true,
       recentMeetingCount: 5,

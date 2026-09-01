@@ -71,6 +71,7 @@ import {
 } from './references/reference-service';
 import { MeetingExtension } from './meetings/meeting-extension';
 import { createRealtimeTranslationSession } from './dictation/dictation-service';
+import { createRealtimeTranscriptionSession } from './meetings/meeting-realtime-transcription-service';
 import { ConfigExtension } from './config/config-extension';
 import { SubagentExtension } from './agent/subagent-extension';
 import { AgentRuntimeExtensionManager } from './extensions/agent-runtime-extension-manager';
@@ -990,6 +991,16 @@ function wireMeetingServiceEvents(service: MeetingService): void {
       title: 'Saving meeting notes',
       body: 'Call ended — generating notes for History…',
     });
+  });
+  service.onLocalSttActivated(() => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('meetings:localSttActivated');
+    }
+  });
+  service.onLocalSttDeactivated(() => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('meetings:localSttDeactivated');
+    }
   });
   service.syncDetectionPolling();
 }
@@ -5411,20 +5422,47 @@ ipcMain.handle('meetings.getStatus', () => {
 });
 
 ipcMain.handle(
-  'meetings.appendChunk',
+  'meetings.createRealtimeTranscriptionSession',
+  async () => {
+    if (!meetingService) {
+      throw new Error('Meeting service not initialized');
+    }
+    const runtime = meetingService.getRuntime();
+    return createRealtimeTranscriptionSession({
+      delay: runtime.realtimeTranscriptionDelay,
+    });
+  }
+);
+
+ipcMain.handle(
+  'meetings.appendRealtimeSegment',
   async (
     _event,
     payload: {
       meetingId: string;
-      data: ArrayBuffer | Uint8Array;
-      mimeType?: string;
-      rms?: number;
+      text: string;
+      itemId?: string;
+      startedAt?: number;
+      endedAt?: number;
     }
   ) => {
     if (!meetingService) {
       throw new Error('Meeting service not initialized');
     }
-    return meetingService.appendChunk(payload);
+    return meetingService.appendRealtimeSegment(payload);
+  }
+);
+
+ipcMain.handle(
+  'meetings.appendRealtimeTranscriptPreview',
+  async (
+    _event,
+    payload: { meetingId: string; itemId?: string; partialText: string }
+  ) => {
+    if (!meetingService) {
+      throw new Error('Meeting service not initialized');
+    }
+    return meetingService.appendRealtimeTranscriptPreview(payload);
   }
 );
 

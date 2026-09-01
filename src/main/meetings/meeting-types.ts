@@ -1,6 +1,11 @@
 export type MeetingStatus = 'recording' | 'finalizing' | 'ready' | 'error';
 
-export type MeetingTranscriptionModel = 'gpt-4o-transcribe' | 'whisper-1';
+export type RealtimeTranscriptionDelay =
+  | 'minimal'
+  | 'low'
+  | 'medium'
+  | 'high'
+  | 'xhigh';
 
 export type MeetingSegmentSource = 'zoom-rtms' | 'local-stt';
 
@@ -95,7 +100,7 @@ export interface MeetingOverview {
   zoomConnected: boolean;
   allowChatReference: boolean;
   processDetectEnabled: boolean;
-  transcriptionModel: MeetingTranscriptionModel;
+  realtimeTranscriptionDelay: RealtimeTranscriptionDelay;
   storageRoot: string;
   meetingCount: number;
   transcriptionReady: boolean;
