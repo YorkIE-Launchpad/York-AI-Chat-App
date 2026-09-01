@@ -3,6 +3,8 @@ import {
   MAX_MCP_CALLS,
   answerLiveAssistQuestion,
   buildLiveAssistAnswerPlanPrompt,
+  buildLiveAssistFarewellPrompt,
+  summarizeLiveAssistMeeting,
 } from '../../main/meetings/live-assist-answer';
 
 const runPiAiOneShotMock = vi.hoisted(() => vi.fn());
@@ -104,5 +106,26 @@ describe('live-assist-answer', () => {
 
     expect(answer).toBe('No internal data found.');
     expect(callToolMock).not.toHaveBeenCalled();
+  });
+
+  it('builds farewell prompt with transcript and summarizes', async () => {
+    const prompt = buildLiveAssistFarewellPrompt({
+      meetingTitle: 'Weekly sync',
+      transcriptWindow: 'Sam: ship by Friday?\nAlex: yes.',
+      prepContext: 'Roadmap review',
+    });
+    expect(prompt).toContain('Weekly sync');
+    expect(prompt).toContain('ship by Friday');
+    expect(prompt).toContain('Roadmap review');
+
+    runPiAiOneShotMock.mockReset();
+    runPiAiOneShotMock.mockResolvedValueOnce({
+      text: 'Follow-up: confirm Friday ship.',
+    });
+    const summary = await summarizeLiveAssistMeeting({
+      meetingTitle: 'Weekly sync',
+      transcriptWindow: 'Sam: ship by Friday?\nAlex: yes.',
+    });
+    expect(summary).toBe('Follow-up: confirm Friday ship.');
   });
 });

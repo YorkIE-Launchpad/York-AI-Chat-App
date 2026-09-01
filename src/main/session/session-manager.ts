@@ -1901,26 +1901,46 @@ export class SessionManager {
     });
   }
 
-  /** Post a live meeting transcript segment to a session (deduped by segmentId). */
+  /** Post a user-visible text bubble (e.g. Live Assist meeting ended). */
+  publishUserText(sessionId: string, text: string): void {
+    const trimmed = text.trim();
+    if (!trimmed) {
+      return;
+    }
+    const message: Message = {
+      id: uuidv4(),
+      sessionId,
+      role: 'user',
+      content: [{ type: 'text', text: trimmed }],
+      timestamp: Date.now(),
+    };
+    this.saveMessage(message);
+    this.sendToRenderer({
+      type: 'stream.message',
+      payload: { sessionId, message },
+    });
+  }
+
+  /** Post a live meeting transcript segment to a session (deduped by segmentId). Returns message id. */
   publishMeetingTranscript(
     sessionId: string,
     segment: { id: string; speaker?: string | null; text: string }
-  ): boolean {
+  ): string | null {
     const text = segment.text.trim();
     if (!text) {
-      return false;
+      return null;
     }
 
     const messages = this.getMessages(sessionId);
-    const alreadyPublished = messages.some((message) =>
+    const existing = messages.find((message) =>
       message.content.some(
         (block) =>
           block.type === 'meeting_transcript' &&
           (block as { segmentId?: string }).segmentId === segment.id
       )
     );
-    if (alreadyPublished) {
-      return false;
+    if (existing) {
+      return existing.id;
     }
 
     const message: Message = {
@@ -1942,7 +1962,7 @@ export class SessionManager {
       type: 'stream.message',
       payload: { sessionId, message },
     });
-    return true;
+    return message.id;
   }
 
   /** Publish a Live Assist activity card (returns message id). */

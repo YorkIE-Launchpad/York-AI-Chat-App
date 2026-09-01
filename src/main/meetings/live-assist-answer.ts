@@ -181,6 +181,50 @@ async function callToolWithTimeout(
   }
 }
 
+export function buildLiveAssistFarewellPrompt(options: {
+  meetingTitle: string;
+  transcriptWindow: string;
+  prepContext?: string | null;
+}): string {
+  const sections = [
+    'The live meeting capture has ended.',
+    'Summarize open questions, commitments, and suggested follow-ups from the transcript below.',
+    'Keep it concise and actionable (at most 10 short bullets or sentences).',
+    'Do not invent facts. If the transcript is thin, say what little is known.',
+    '',
+    `Meeting: ${options.meetingTitle}`,
+  ];
+  if (options.prepContext?.trim()) {
+    sections.push('', 'Meeting prep:', options.prepContext.trim());
+  }
+  sections.push(
+    '',
+    'Transcript:',
+    truncateTranscriptWindow(options.transcriptWindow) || '(empty)'
+  );
+  return sections.join('\n');
+}
+
+export async function summarizeLiveAssistMeeting(options: {
+  meetingTitle: string;
+  transcriptWindow: string;
+  prepContext?: string | null;
+}): Promise<string | null> {
+  try {
+    const result = await runPiAiOneShot(
+      buildLiveAssistFarewellPrompt(options),
+      'Write a concise meeting wrap-up. Do not invent facts.',
+      configStore.getAll(),
+      { maxTokens: 512, temperature: 0 }
+    );
+    const text = result.text.trim();
+    return text || null;
+  } catch (error) {
+    logWarn('[LiveAssist] Farewell summarize failed:', error);
+    return null;
+  }
+}
+
 export async function answerLiveAssistQuestion(
   options: LiveAssistAnswerOptions
 ): Promise<string | null> {

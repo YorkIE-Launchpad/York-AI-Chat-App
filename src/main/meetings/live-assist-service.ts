@@ -3,10 +3,14 @@ import { configStore } from '../config/config-store';
 import type { MCPManager } from '../mcp/mcp-manager';
 import { log, logWarn } from '../utils/logger';
 import type { SessionManager } from '../session/session-manager';
-import type { LiveAssistActivityPhase, ServerEvent } from '../../renderer/types';
+import type {
+  LiveAssistActivityPhase,
+  MeetingTranscriptContent,
+  ServerEvent,
+} from '../../renderer/types';
 import type { MeetingCaptureStatus, MeetingSegment, MeetingSession } from './meeting-types';
 import type { MeetingService } from './meeting-service';
-import { answerLiveAssistQuestion } from './live-assist-answer';
+import { answerLiveAssistQuestion, summarizeLiveAssistMeeting } from './live-assist-answer';
 import {
   MAX_ANSWERS_PER_MEETING,
   QUESTION_DEBOUNCE_MS,
@@ -72,12 +76,9 @@ export function buildLiveAssistKickoffPrompt(options: {
   return sections.join('\n');
 }
 
-export function buildLiveAssistFarewellPrompt(): string {
-  return [
-    'The live meeting capture has ended.',
-    'Summarize open questions, commitments, and suggested follow-ups from this conversation.',
-    'Keep it concise and actionable.',
-  ].join('\n');
+export function buildLiveAssistSessionTitle(meetingTitle: string): string {
+  const trimmed = meetingTitle.trim() || 'Zoom Meeting';
+  return `Live Assist · ${trimmed}`;
 }
 
 export class LiveAssistService {
@@ -91,7 +92,10 @@ export class LiveAssistService {
   private detachListeners: (() => void) | null = null;
   private inFlightAnswers = 0;
   private publishedSegmentIds = new Set<string>();
+  /** segmentId -> chat message id for speaker patches */
+  private segmentMessageIds = new Map<string, string>();
   private answeredQuestionAt = new Map<string, number>();
+  private syncedSessionTitle: string | null = null;
 
   constructor(private readonly deps: LiveAssistDeps) {}
 
@@ -106,10 +110,18 @@ export class LiveAssistService {
     const offSegment = this.deps.meetingService.onSegment((payload) => {
       void this.handleSegment(payload);
     });
+    const offSpeaker = this.deps.meetingService.onSpeakerUpdate((payload) => {
+      this.handleSpeakerUpdates(payload);
+    });
+    const offTitle = this.deps.meetingService.onTitleChange((payload) => {
+      this.syncMeetingTitle(payload.meetingId, payload.title);
+    });
 
     this.detachListeners = () => {
       offStatus();
       offSegment();
+      offSpeaker();
+      offTitle();
     };
 
     const current = this.deps.meetingService.getCaptureStatus();
@@ -160,6 +172,7 @@ export class LiveAssistService {
 
     this.activeMeetingId = meetingId;
     this.liveTranscript = meeting.transcriptText || this.liveTranscript;
+    this.syncMeetingTitle(meetingId, meeting.title);
 
     if (options?.focusChat === true) {
       this.emitSessionStarted(sessionId);
@@ -183,7 +196,9 @@ export class LiveAssistService {
     this.inFlightAnswers = 0;
     this.focusedSessionId = null;
     this.publishedSegmentIds.clear();
+    this.segmentMessageIds.clear();
     this.answeredQuestionAt.clear();
+    this.syncedSessionTitle = null;
   }
 
   private emitSessionStarted(sessionId: string): void {
@@ -199,6 +214,25 @@ export class LiveAssistService {
       type: 'liveAssist.sessionStarted',
       payload: { session, sessionId },
     });
+  }
+
+  private syncMeetingTitle(meetingId: string, title: string): void {
+    const meeting = this.deps.meetingService.get(meetingId);
+    if (!meeting?.liveAssist?.enabled) {
+      return;
+    }
+    const sessionId = meeting.liveAssist.sessionId?.trim();
+    if (!sessionId || !this.deps.sessionManager.getSession(sessionId)) {
+      return;
+    }
+    const nextTitle = buildLiveAssistSessionTitle(title);
+    if (this.syncedSessionTitle === nextTitle) {
+      return;
+    }
+    if (this.deps.sessionManager.setSessionTitle(sessionId, nextTitle)) {
+      this.syncedSessionTitle = nextTitle;
+      log(`[LiveAssist] Session title synced: ${nextTitle}`);
+    }
   }
 
   private isLiveAssistEnabledForMeeting(meetingId: string): boolean {
@@ -221,6 +255,10 @@ export class LiveAssistService {
       this.activeMeetingId = status.meetingId;
       if (this.isLiveAssistEnabledForMeeting(status.meetingId)) {
         await this.ensureSessionForMeeting(status.meetingId);
+        const meeting = this.deps.meetingService.get(status.meetingId);
+        if (meeting?.title?.trim()) {
+          this.syncMeetingTitle(status.meetingId, meeting.title);
+        }
       }
       return;
     }
@@ -234,13 +272,63 @@ export class LiveAssistService {
     if (!segment.text?.trim() || this.publishedSegmentIds.has(segment.id)) {
       return;
     }
-    const published = this.deps.sessionManager.publishMeetingTranscript(sessionId, {
+    const messageId = this.deps.sessionManager.publishMeetingTranscript(sessionId, {
       id: segment.id,
       speaker: segment.speaker,
       text: segment.text,
     });
-    if (published) {
+    if (messageId) {
       this.publishedSegmentIds.add(segment.id);
+      this.segmentMessageIds.set(segment.id, messageId);
+    }
+  }
+
+  private handleSpeakerUpdates(payload: {
+    meetingId: string;
+    updates: Array<{ segmentId: string; speaker: string }>;
+  }): void {
+    if (!this.isLiveAssistEnabledForMeeting(payload.meetingId)) {
+      return;
+    }
+    const meeting = this.deps.meetingService.get(payload.meetingId);
+    const sessionId = meeting?.liveAssist?.sessionId?.trim();
+    if (!sessionId) {
+      return;
+    }
+
+    for (const update of payload.updates) {
+      const speaker = update.speaker.trim();
+      if (!speaker) continue;
+
+      let messageId = this.segmentMessageIds.get(update.segmentId);
+      if (!messageId) {
+        const messages = this.deps.sessionManager.getMessages(sessionId);
+        const found = messages.find((message) =>
+          message.content.some(
+            (block) =>
+              block.type === 'meeting_transcript' &&
+              (block as MeetingTranscriptContent).segmentId === update.segmentId
+          )
+        );
+        if (!found) continue;
+        messageId = found.id;
+        this.segmentMessageIds.set(update.segmentId, messageId);
+        this.publishedSegmentIds.add(update.segmentId);
+      }
+
+      const messages = this.deps.sessionManager.getMessages(sessionId);
+      const message = messages.find((item) => item.id === messageId);
+      if (!message) continue;
+      const block = message.content.find(
+        (item): item is MeetingTranscriptContent =>
+          item.type === 'meeting_transcript' &&
+          (item as MeetingTranscriptContent).segmentId === update.segmentId
+      );
+      if (!block || block.speaker?.trim() === speaker) continue;
+
+      this.deps.sessionManager.updatePublishedMessage(sessionId, messageId, [
+        { ...block, speaker },
+      ]);
     }
   }
 
@@ -476,6 +564,7 @@ export class LiveAssistService {
       if (this.publishedSegmentIds.size === 0) {
         this.backfillTranscript(existingSessionId, meeting);
       }
+      this.syncMeetingTitle(meetingId, meeting.title);
       return existingSessionId;
     }
 
@@ -485,9 +574,9 @@ export class LiveAssistService {
 
     this.starting = true;
     try {
-      const title = `Live Assist · ${meeting.title}`;
+      const title = buildLiveAssistSessionTitle(meeting.title);
       const kickoffPrompt = buildLiveAssistKickoffPrompt({
-        meetingTitle: meeting.title,
+        meetingTitle: meeting.title || 'Zoom Meeting',
         attendees: meeting.attendees,
         prepContext: this.resolvePrepContext(meeting),
         customInstructions: this.getCustomInstructions(meetingId),
@@ -498,6 +587,7 @@ export class LiveAssistService {
         enabled: true,
         sessionId: session.id,
       });
+      this.syncedSessionTitle = title;
 
       this.backfillTranscript(session.id, meeting);
       this.emitSessionStarted(session.id);
@@ -524,6 +614,10 @@ export class LiveAssistService {
 
     const meeting = this.deps.meetingService.get(meetingId);
     const sessionId = meeting?.liveAssist?.sessionId ?? null;
+    const transcriptWindow =
+      meeting?.transcriptText?.trim() || this.liveTranscript.trim() || '';
+    const prepContext = meeting ? this.resolvePrepContext(meeting) : null;
+    const meetingTitle = meeting?.title?.trim() || 'Zoom Meeting';
 
     this.resetMeetingState();
 
@@ -531,20 +625,27 @@ export class LiveAssistService {
       return;
     }
 
-    const session = this.deps.sessionManager.getSession(sessionId);
-    if (!session || session.status === 'running') {
+    if (!this.deps.sessionManager.getSession(sessionId)) {
       return;
     }
 
     try {
-      await this.deps.sessionManager.continueSession(
-        sessionId,
-        buildLiveAssistFarewellPrompt(),
-        [{ type: 'text', text: 'Live Assist · meeting ended' }],
-        { broadcastUserMessage: true }
-      );
+      this.deps.sessionManager.publishUserText(sessionId, 'Live Assist · meeting ended');
+      const summary = await summarizeLiveAssistMeeting({
+        meetingTitle,
+        transcriptWindow,
+        prepContext,
+      });
+      if (summary) {
+        this.deps.sessionManager.publishAssistantText(sessionId, summary);
+      } else {
+        this.deps.sessionManager.publishAssistantText(
+          sessionId,
+          'Meeting ended. I could not generate a wrap-up from the transcript — open questions and follow-ups may still be in the chat above.'
+        );
+      }
     } catch (error) {
-      logWarn('[LiveAssist] Farewell turn failed:', error);
+      logWarn('[LiveAssist] Farewell summary failed:', error);
     }
   }
 }

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   LiveAssistService,
   buildLiveAssistKickoffPrompt,
+  buildLiveAssistSessionTitle,
 } from '../../main/meetings/live-assist-service';
 import type { MeetingCaptureStatus, MeetingSession } from '../../main/meetings/meeting-types';
 
@@ -21,6 +22,10 @@ const mockState = vi.hoisted(() => ({
   },
 }));
 
+const summarizeLiveAssistMeetingMock = vi.hoisted(() =>
+  vi.fn(async () => 'Commitments: ship the roadmap. Follow-ups: sync with design.')
+);
+
 vi.mock('../../main/config/config-store', () => ({
   configStore: {
     get: (key: keyof typeof mockState.config) => mockState.config[key],
@@ -30,6 +35,7 @@ vi.mock('../../main/config/config-store', () => ({
 
 vi.mock('../../main/meetings/live-assist-answer', () => ({
   answerLiveAssistQuestion: vi.fn(async () => 'Revenue grew 12% in Q3.'),
+  summarizeLiveAssistMeeting: summarizeLiveAssistMeetingMock,
 }));
 
 vi.mock('../../main/meetings/live-assist-question-detect', async (importOriginal) => {
@@ -64,8 +70,19 @@ function createMeeting(overrides: Partial<MeetingSession> = {}): MeetingSession 
 function createDeps() {
   const statusListeners = new Set<(status: MeetingCaptureStatus) => void>();
   const segmentListeners = new Set<
-    (payload: { meetingId: string; segment: MeetingSession['segments'][0]; liveTranscript: string }) => void
+    (payload: {
+      meetingId: string;
+      segment: MeetingSession['segments'][0];
+      liveTranscript: string;
+    }) => void
   >();
+  const speakerListeners = new Set<
+    (payload: {
+      meetingId: string;
+      updates: Array<{ segmentId: string; speaker: string }>;
+    }) => void
+  >();
+  const titleListeners = new Set<(payload: { meetingId: string; title: string }) => void>();
   let meeting = createMeeting();
 
   const meetingService = {
@@ -82,6 +99,19 @@ function createDeps() {
     ) => {
       segmentListeners.add(listener);
       return () => segmentListeners.delete(listener);
+    },
+    onSpeakerUpdate: (
+      listener: (payload: {
+        meetingId: string;
+        updates: Array<{ segmentId: string; speaker: string }>;
+      }) => void
+    ) => {
+      speakerListeners.add(listener);
+      return () => speakerListeners.delete(listener);
+    },
+    onTitleChange: (listener: (payload: { meetingId: string; title: string }) => void) => {
+      titleListeners.add(listener);
+      return () => titleListeners.delete(listener);
     },
     getCaptureStatus: () => ({
       active: Boolean(meeting.status === 'recording'),
@@ -132,7 +162,25 @@ function createDeps() {
         listener(payload);
       }
     },
+    emitSpeakerUpdate(payload: {
+      meetingId: string;
+      updates: Array<{ segmentId: string; speaker: string }>;
+    }) {
+      for (const listener of speakerListeners) {
+        listener(payload);
+      }
+    },
+    emitTitleChange(payload: { meetingId: string; title: string }) {
+      for (const listener of titleListeners) {
+        listener(payload);
+      }
+    },
   };
+
+  const messages: Array<{
+    id: string;
+    content: Array<{ type: string; segmentId?: string; speaker?: string | null; text?: string }>;
+  }> = [];
 
   const sessionManager = {
     startSession: vi.fn(async (title: string, prompt: string) => ({
@@ -150,9 +198,35 @@ function createDeps() {
     continueSession: vi.fn(async () => undefined),
     getSession: vi.fn(() => ({ id: 'session-live-1', status: 'idle' })),
     publishAssistantText: vi.fn(),
-    publishMeetingTranscript: vi.fn(() => true),
+    publishUserText: vi.fn(),
+    publishMeetingTranscript: vi.fn(
+      (_sessionId: string, segment: { id: string; speaker?: string | null; text: string }) => {
+        const id = `msg-${segment.id}`;
+        messages.push({
+          id,
+          content: [
+            {
+              type: 'meeting_transcript',
+              segmentId: segment.id,
+              speaker: segment.speaker ?? null,
+              text: segment.text,
+            },
+          ],
+        });
+        return id;
+      }
+    ),
     publishLiveAssistActivity: vi.fn(() => 'activity-msg-1'),
-    updatePublishedMessage: vi.fn(),
+    updatePublishedMessage: vi.fn(
+      (_sessionId: string, messageId: string, content: typeof messages[0]['content']) => {
+        const existing = messages.find((message) => message.id === messageId);
+        if (existing) {
+          existing.content = content;
+        }
+      }
+    ),
+    getMessages: vi.fn(() => messages),
+    setSessionTitle: vi.fn(() => true),
   };
 
   const sendToRenderer = vi.fn();
@@ -161,9 +235,11 @@ function createDeps() {
     meetingService,
     sessionManager,
     sendToRenderer,
+    messages,
     setMeeting(next: MeetingSession) {
       meeting = next;
     },
+    getMeeting: () => meeting,
   };
 }
 
@@ -198,7 +274,7 @@ describe('LiveAssistService per-meeting', () => {
     expect(deps.sessionManager.startSession).not.toHaveBeenCalled();
   });
 
-  it('starts a session when live assist is enabled for the meeting', async () => {
+  it('starts a session with a named Live Assist title', async () => {
     const deps = createDeps();
     deps.setMeeting(
       createMeeting({
@@ -214,9 +290,41 @@ describe('LiveAssistService per-meeting', () => {
 
     const sessionId = await service.enableForMeeting('meeting-1', { focusChat: true });
     expect(sessionId).toBe('session-live-1');
-    expect(deps.sessionManager.startSession).toHaveBeenCalledTimes(1);
+    expect(deps.sessionManager.startSession).toHaveBeenCalledWith(
+      'Live Assist · Weekly sync',
+      expect.any(String)
+    );
     expect(deps.sendToRenderer).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'liveAssist.sessionStarted' })
+    );
+  });
+
+  it('syncs session title when meeting title changes', async () => {
+    const deps = createDeps();
+    deps.setMeeting(
+      createMeeting({
+        title: '',
+        liveAssist: { enabled: true, sessionId: 'session-live-1' },
+      })
+    );
+    const service = new LiveAssistService({
+      sessionManager: deps.sessionManager as never,
+      meetingService: deps.meetingService as never,
+      mcpManager: {} as never,
+      sendToRenderer: deps.sendToRenderer,
+    });
+    service.attach();
+    await service.enableForMeeting('meeting-1', { focusChat: false });
+
+    deps.setMeeting({
+      ...deps.getMeeting(),
+      title: 'AI Roadmap Sync',
+    });
+    deps.meetingService.emitTitleChange({ meetingId: 'meeting-1', title: 'AI Roadmap Sync' });
+
+    expect(deps.sessionManager.setSessionTitle).toHaveBeenCalledWith(
+      'session-live-1',
+      'Live Assist · AI Roadmap Sync'
     );
   });
 
@@ -252,21 +360,11 @@ describe('LiveAssistService per-meeting', () => {
     expect(deps.sendToRenderer).not.toHaveBeenCalled();
   });
 
-  it('publishes transcript segments to chat', async () => {
+  it('publishes transcript segments and patches speaker names later', async () => {
     const deps = createDeps();
     deps.setMeeting(
       createMeeting({
         liveAssist: { enabled: true, sessionId: 'session-live-1' },
-        segments: [
-          {
-            id: 'seg-1',
-            text: 'What is our Q3 revenue?',
-            startedAt: Date.now(),
-            endedAt: Date.now(),
-            createdAt: Date.now(),
-            speaker: 'Sam',
-          },
-        ],
       })
     );
     const service = new LiveAssistService({
@@ -280,19 +378,36 @@ describe('LiveAssistService per-meeting', () => {
 
     deps.meetingService.emitSegment({
       meetingId: 'meeting-1',
-      liveTranscript: 'Sam: What is our Q3 revenue?',
+      liveTranscript: 'What is our Q3 revenue?',
       segment: {
         id: 'seg-2',
-        text: 'Thanks everyone',
+        text: 'What is our Q3 revenue?',
         startedAt: Date.now(),
         endedAt: Date.now(),
         createdAt: Date.now(),
-        speaker: 'Alex',
+        speaker: null,
       },
     });
     await Promise.resolve();
 
     expect(deps.sessionManager.publishMeetingTranscript).toHaveBeenCalled();
+
+    deps.meetingService.emitSpeakerUpdate({
+      meetingId: 'meeting-1',
+      updates: [{ segmentId: 'seg-2', speaker: 'Sam Patel' }],
+    });
+
+    expect(deps.sessionManager.updatePublishedMessage).toHaveBeenCalledWith(
+      'session-live-1',
+      'msg-seg-2',
+      [
+        expect.objectContaining({
+          type: 'meeting_transcript',
+          segmentId: 'seg-2',
+          speaker: 'Sam Patel',
+        }),
+      ]
+    );
   });
 
   it('builds kickoff prompt for live Q&A', () => {
@@ -306,13 +421,15 @@ describe('LiveAssistService per-meeting', () => {
     expect(prompt).not.toContain('subagent');
     expect(prompt).toContain('Client review');
     expect(prompt).toContain('Prep note');
+    expect(buildLiveAssistSessionTitle('')).toBe('Live Assist · Zoom Meeting');
   });
 
-  it('sends farewell when capture stops', async () => {
+  it('publishes farewell user pill and one-shot summary when capture stops', async () => {
     const deps = createDeps();
     deps.setMeeting(
       createMeeting({
         liveAssist: { enabled: true, sessionId: 'session-live-1' },
+        transcriptText: 'Sam: What is the timeline?\nAlex: End of Q3.',
       })
     );
     const service = new LiveAssistService({
@@ -332,7 +449,17 @@ describe('LiveAssistService per-meeting', () => {
       liveTranscript: '',
     });
     await Promise.resolve();
+    await Promise.resolve();
 
-    expect(deps.sessionManager.continueSession).toHaveBeenCalled();
+    expect(deps.sessionManager.continueSession).not.toHaveBeenCalled();
+    expect(deps.sessionManager.publishUserText).toHaveBeenCalledWith(
+      'session-live-1',
+      'Live Assist · meeting ended'
+    );
+    expect(summarizeLiveAssistMeetingMock).toHaveBeenCalled();
+    expect(deps.sessionManager.publishAssistantText).toHaveBeenCalledWith(
+      'session-live-1',
+      expect.stringContaining('Commitments')
+    );
   });
 });

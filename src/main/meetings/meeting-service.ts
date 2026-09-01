@@ -35,9 +35,26 @@ type SegmentListener = (payload: {
   segment: MeetingSegment;
   liveTranscript: string;
 }) => void;
+type SpeakerUpdateListener = (payload: {
+  meetingId: string;
+  updates: Array<{ segmentId: string; speaker: string }>;
+}) => void;
+type TitleChangeListener = (payload: { meetingId: string; title: string }) => void;
 type NotesListener = (meeting: MeetingSession) => void;
 type DetectionListener = (payload: { apps: string[]; newlyDetected: string[] }) => void;
 type AutoCaptureListener = (options?: { showOsNotification?: boolean }) => void;
+
+/** Prefer Zoom topic, then calendar summary, never an empty string. */
+export function resolveMeetingDisplayTitle(
+  zoomTitle?: string | null,
+  calendarTitle?: string | null
+): string {
+  const zoom = zoomTitle?.trim();
+  if (zoom) return zoom;
+  const calendar = calendarTitle?.trim();
+  if (calendar) return calendar;
+  return 'Zoom Meeting';
+}
 
 const DETECTION_POLL_MS = 12_000;
 /** Poll faster while capturing so leaving a Zoom call is noticed sooner. */
@@ -111,6 +128,8 @@ export class MeetingService {
   private captureError?: string;
   private statusListeners = new Set<StatusListener>();
   private segmentListeners = new Set<SegmentListener>();
+  private speakerUpdateListeners = new Set<SpeakerUpdateListener>();
+  private titleChangeListeners = new Set<TitleChangeListener>();
   private notesListeners = new Set<NotesListener>();
   private detectionListeners = new Set<DetectionListener>();
   private autoStartListeners = new Set<AutoCaptureListener>();
@@ -191,6 +210,42 @@ export class MeetingService {
   onSegment(listener: SegmentListener): () => void {
     this.segmentListeners.add(listener);
     return () => this.segmentListeners.delete(listener);
+  }
+
+  onSpeakerUpdate(listener: SpeakerUpdateListener): () => void {
+    this.speakerUpdateListeners.add(listener);
+    return () => this.speakerUpdateListeners.delete(listener);
+  }
+
+  onTitleChange(listener: TitleChangeListener): () => void {
+    this.titleChangeListeners.add(listener);
+    return () => this.titleChangeListeners.delete(listener);
+  }
+
+  private emitTitleChange(meetingId: string, title: string): void {
+    const trimmed = title.trim();
+    if (!trimmed) return;
+    for (const listener of this.titleChangeListeners) {
+      try {
+        listener({ meetingId, title: trimmed });
+      } catch (error) {
+        logWarn('[Meetings] Title change listener failed', error);
+      }
+    }
+  }
+
+  private emitSpeakerUpdates(
+    meetingId: string,
+    updates: Array<{ segmentId: string; speaker: string }>
+  ): void {
+    if (updates.length === 0) return;
+    for (const listener of this.speakerUpdateListeners) {
+      try {
+        listener({ meetingId, updates });
+      } catch (error) {
+        logWarn('[Meetings] Speaker update listener failed', error);
+      }
+    }
   }
 
   onNotesReady(listener: NotesListener): () => void {
@@ -655,7 +710,7 @@ export class MeetingService {
     const zoomTitle = await this.resolveZoomLiveTitle();
     const meeting: MeetingSession = {
       id: randomUUID(),
-      title: zoomTitle || '',
+      title: resolveMeetingDisplayTitle(zoomTitle, calendar?.title),
       status: 'recording',
       createdAt: now,
       startedAt: now,
@@ -797,11 +852,16 @@ export class MeetingService {
           if (zoomMeetingId) current.zoomMeetingId = zoomMeetingId;
           if (zoomMeetingUuid) current.zoomMeetingUuid = zoomMeetingUuid;
           const zoomTopic = live?.topic?.trim();
-          if (zoomTopic) {
-            current.title = zoomTopic;
+          const nextTitle = resolveMeetingDisplayTitle(zoomTopic, calendar?.title || current.title);
+          const titleChanged = nextTitle !== current.title.trim();
+          if (titleChanged) {
+            current.title = nextTitle;
           }
           current.updatedAt = Date.now();
           this.store.save(current);
+          if (titleChanged) {
+            this.emitTitleChange(yorkMeetingId, nextTitle);
+          }
         }
       }
 
@@ -853,7 +913,7 @@ export class MeetingService {
     }
 
     const byId = new Map(current.segments.map((segment) => [segment.id, segment]));
-    let patched = 0;
+    const patchedUpdates: Array<{ segmentId: string; speaker: string }> = [];
     for (const update of updates) {
       const segment = byId.get(update.id);
       if (!segment) continue;
@@ -864,10 +924,10 @@ export class MeetingService {
       if (update.speakerUserId) {
         segment.speakerUserId = update.speakerUserId;
       }
-      patched += 1;
+      patchedUpdates.push({ segmentId: segment.id, speaker: name });
     }
 
-    if (patched === 0) {
+    if (patchedUpdates.length === 0) {
       return;
     }
 
@@ -878,9 +938,10 @@ export class MeetingService {
     log(
       '[Meetings] applyRtmsSpeakerUpdates',
       `meetingId=${meetingId}`,
-      `patched=${patched}`,
+      `patched=${patchedUpdates.length}`,
       `updates=${updates.length}`
     );
+    this.emitSpeakerUpdates(meetingId, patchedUpdates);
     this.emitStatus();
   }
 
@@ -902,6 +963,7 @@ export class MeetingService {
     const byId = new Map(current.segments.map((segment) => [segment.id, segment]));
     let patched = 0;
     let appended = 0;
+    const speakerPatches: Array<{ segmentId: string; speaker: string }> = [];
 
     for (const remote of serverSegments) {
       const local = byId.get(remote.id);
@@ -911,6 +973,7 @@ export class MeetingService {
           local.speaker = name;
           local.speakerUserId = remote.speakerUserId;
           patched += 1;
+          speakerPatches.push({ segmentId: local.id, speaker: name });
         } else if (!local.speakerUserId && remote.speakerUserId) {
           local.speakerUserId = remote.speakerUserId;
         }
@@ -943,6 +1006,9 @@ export class MeetingService {
     current.updatedAt = Date.now();
     this.store.save(current);
     this.liveTranscript = current.transcriptText;
+    if (speakerPatches.length > 0) {
+      this.emitSpeakerUpdates(meetingId, speakerPatches);
+    }
     log(
       '[Meetings] resyncRtmsFromServer',
       `meetingId=${meetingId}`,
