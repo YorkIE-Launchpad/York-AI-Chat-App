@@ -26,7 +26,8 @@ export interface RealtimeTranscriptionReadiness {
   reason?: string;
 }
 
-const REALTIME_TRANSCRIBE_MODEL = 'gpt-live-transcribe';
+const PRIMARY_TRANSCRIBE_MODEL = 'gpt-live-transcribe';
+const FALLBACK_TRANSCRIBE_MODEL = 'gpt-realtime-whisper';
 const DEFAULT_DELAY: RealtimeTranscriptionDelay = 'low';
 
 function resolveSafetyIdentifier(userKey: string | undefined): string {
@@ -71,35 +72,40 @@ export function getRealtimeTranscriptionReadiness(): RealtimeTranscriptionReadin
   return { ready: true };
 }
 
-/**
- * Mint a short-lived OpenAI Realtime transcription client secret via the York
- * Cognito → `/openai` HTTP proxy. The renderer uses the secret for WebRTC only.
- */
-export async function createRealtimeTranscriptionSession(
-  options: CreateRealtimeTranscriptionSessionOptions = {}
-): Promise<CreateRealtimeTranscriptionSessionResult> {
-  const readiness = getRealtimeTranscriptionReadiness();
-  if (!readiness.ready) {
-    throw new Error(readiness.reason || 'Transcription is not configured');
+function buildTranscriptionSessionBody(
+  model: string,
+  delay: RealtimeTranscriptionDelay
+): Record<string, unknown> {
+  const transcription: Record<string, unknown> = {
+    model,
+    prompt: REALTIME_TRANSCRIPTION_PROMPT,
+    languages: ['en'],
+  };
+  if (model === PRIMARY_TRANSCRIBE_MODEL) {
+    transcription.delay = delay;
   }
 
-  const delay = resolveRealtimeTranscriptionDelay(options.delay);
+  return {
+    session: {
+      type: 'transcription',
+      audio: {
+        input: {
+          transcription,
+          noise_reduction: { type: 'far_field' },
+          turn_detection: { type: 'server_vad' },
+        },
+      },
+    },
+  };
+}
+
+async function mintClientSecret(
+  apiKey: string,
+  safetyUserKey: string,
+  body: Record<string, unknown>
+): Promise<{ ok: true; clientSecret: string } | { ok: false; status: number; message: string }> {
   const baseUrl = getBackendProxyBaseUrl('openai');
-  const apiKey = await resolveBackendClientApiKey({
-    provider: 'openai',
-    apiKey: BACKEND_PROXY_PLACEHOLDER_KEY,
-  });
-
-  let safetyUserKey = 'anonymous';
-  try {
-    const session = await ensureAuthenticatedSession();
-    safetyUserKey = String(session.user?.id || session.user?.email || 'authenticated');
-  } catch {
-    // Still mint with anonymous safety id if session details are unavailable.
-  }
-
   const url = `${baseUrl}/realtime/client_secrets`;
-  log(`[Meetings] Minting realtime transcription session (delay=${delay})`);
 
   let response: Response;
   try {
@@ -111,27 +117,15 @@ export async function createRealtimeTranscriptionSession(
         'OpenAI-Safety-Identifier': resolveSafetyIdentifier(safetyUserKey),
         [YORK_APP_VERSION_HEADER]: getClientAppVersion(),
       },
-      body: JSON.stringify({
-        session: {
-          type: 'transcription',
-          audio: {
-            input: {
-              transcription: {
-                model: REALTIME_TRANSCRIBE_MODEL,
-                prompt: REALTIME_TRANSCRIPTION_PROMPT,
-                languages: ['en'],
-                delay,
-              },
-              noise_reduction: { type: 'far_field' },
-              turn_detection: { type: 'server_vad' },
-            },
-          },
-        },
-      }),
+      body: JSON.stringify(body),
     });
   } catch (error) {
     logWarn('[Meetings] Failed to reach backend for realtime transcription session', error);
-    throw new Error('Could not start live transcription. Check your connection and try again.');
+    return {
+      ok: false,
+      status: 0,
+      message: 'Could not start live transcription. Check your connection and try again.',
+    };
   }
 
   const rawText = await response.text();
@@ -151,10 +145,7 @@ export async function createRealtimeTranscriptionSession(
       rawText
     );
     if (outdatedMessage) {
-      logWarn('[Meetings] Realtime transcription session blocked — app update required', {
-        status: response.status,
-      });
-      throw new Error(outdatedMessage);
+      return { ok: false, status: response.status, message: outdatedMessage };
     }
     const message =
       payload &&
@@ -162,17 +153,76 @@ export async function createRealtimeTranscriptionSession(
       typeof (payload as { error?: { message?: string } }).error?.message === 'string'
         ? (payload as { error: { message: string } }).error.message
         : rawText || `HTTP ${response.status}`;
-    logWarn('[Meetings] Realtime transcription session mint failed', {
-      status: response.status,
-      message,
-    });
-    throw new Error(message || 'Could not start live transcription.');
+    return { ok: false, status: response.status, message };
   }
 
   const clientSecret = extractClientSecret(payload);
   if (!clientSecret) {
-    throw new Error('Realtime session response did not include a client secret.');
+    return {
+      ok: false,
+      status: response.status,
+      message: 'Realtime session response did not include a client secret.',
+    };
   }
 
-  return { clientSecret };
+  return { ok: true, clientSecret };
+}
+
+/**
+ * Mint a short-lived OpenAI Realtime transcription client secret via the York
+ * Cognito → `/openai` HTTP proxy. The renderer uses the secret for WebRTC only.
+ */
+export async function createRealtimeTranscriptionSession(
+  options: CreateRealtimeTranscriptionSessionOptions = {}
+): Promise<CreateRealtimeTranscriptionSessionResult> {
+  const readiness = getRealtimeTranscriptionReadiness();
+  if (!readiness.ready) {
+    throw new Error(readiness.reason || 'Transcription is not configured');
+  }
+
+  const delay = resolveRealtimeTranscriptionDelay(options.delay);
+  const apiKey = await resolveBackendClientApiKey({
+    provider: 'openai',
+    apiKey: BACKEND_PROXY_PLACEHOLDER_KEY,
+  });
+
+  let safetyUserKey = 'anonymous';
+  try {
+    const session = await ensureAuthenticatedSession();
+    safetyUserKey = String(session.user?.id || session.user?.email || 'authenticated');
+  } catch {
+    // Still mint with anonymous safety id if session details are unavailable.
+  }
+
+  log(`[Meetings] Minting realtime transcription session (delay=${delay})`);
+
+  const primary = await mintClientSecret(
+    apiKey,
+    safetyUserKey,
+    buildTranscriptionSessionBody(PRIMARY_TRANSCRIBE_MODEL, delay)
+  );
+  if (primary.ok) {
+    return { clientSecret: primary.clientSecret };
+  }
+
+  logWarn('[Meetings] Primary realtime transcription model failed, trying fallback', {
+    model: PRIMARY_TRANSCRIBE_MODEL,
+    status: primary.status,
+    message: primary.message,
+  });
+
+  const fallback = await mintClientSecret(
+    apiKey,
+    safetyUserKey,
+    buildTranscriptionSessionBody(FALLBACK_TRANSCRIBE_MODEL, delay)
+  );
+  if (fallback.ok) {
+    return { clientSecret: fallback.clientSecret };
+  }
+
+  logWarn('[Meetings] Realtime transcription session mint failed', {
+    status: fallback.status,
+    message: fallback.message,
+  });
+  throw new Error(fallback.message || 'Could not start live transcription.');
 }

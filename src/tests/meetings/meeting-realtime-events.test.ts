@@ -32,6 +32,21 @@ describe('parseRealtimeTranscriptionEvent', () => {
     });
   });
 
+  it('parses session.input_transcript deltas', () => {
+    const parsed = parseRealtimeTranscriptionEvent(
+      JSON.stringify({
+        type: 'session.input_transcript.delta',
+        item_id: 'item_2',
+        delta: 'Hi',
+      })
+    );
+    expect(parsed).toEqual({
+      kind: 'delta',
+      itemId: 'item_2',
+      delta: 'Hi',
+    });
+  });
+
   it('ignores unknown events', () => {
     expect(
       parseRealtimeTranscriptionEvent(JSON.stringify({ type: 'session.updated' }))

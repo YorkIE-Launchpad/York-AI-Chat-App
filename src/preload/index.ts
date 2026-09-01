@@ -838,6 +838,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('meetings.getLiveAssist'),
     stop: (): Promise<MeetingSession | null> => ipcRenderer.invoke('meetings.stop'),
     getStatus: (): Promise<MeetingCaptureStatus> => ipcRenderer.invoke('meetings.getStatus'),
+    reportCaptureError: (error: string): Promise<{ success: boolean }> =>
+      ipcRenderer.invoke('meetings.reportCaptureError', error),
     createRealtimeTranscriptionSession: (): Promise<{ clientSecret: string }> =>
       ipcRenderer.invoke('meetings.createRealtimeTranscriptionSession'),
     appendRealtimeSegment: (payload: {
@@ -1463,6 +1465,7 @@ declare global {
         getLiveAssist: () => Promise<MeetingLiveAssistStatus>;
         stop: () => Promise<MeetingSession | null>;
         getStatus: () => Promise<MeetingCaptureStatus>;
+        reportCaptureError: (error: string) => Promise<{ success: boolean }>;
         createRealtimeTranscriptionSession: () => Promise<{ clientSecret: string }>;
         appendRealtimeSegment: (payload: {
           meetingId: string;

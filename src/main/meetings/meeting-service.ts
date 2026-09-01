@@ -388,8 +388,18 @@ export class MeetingService {
         ? this.store.get(this.activeMeetingId)?.segments.length || 0
         : 0,
       liveTranscript: this.liveTranscript,
+      localSttFallbackActive: this.localSttFallbackActive,
       error: this.captureError,
     };
+  }
+
+  reportCaptureError(error: string): void {
+    const message = error.trim();
+    if (!message) {
+      return;
+    }
+    this.captureError = message;
+    this.emitStatus();
   }
 
   private emitStatus(): void {
@@ -1084,7 +1094,6 @@ export class MeetingService {
       return;
     }
 
-    this.deactivateLocalSttFallback();
     this.clearRtmsFallbackTimer();
     this.clearRtmsStartRetryTimer();
     const withSpeaker = rtmsSegments.filter((item) => !!item.speaker?.trim()).length;
@@ -1134,6 +1143,8 @@ export class MeetingService {
     if (appended.length === 0) {
       return;
     }
+
+    this.deactivateLocalSttFallback();
 
     current.transcriptText = buildTranscriptText(current.segments);
     current.updatedAt = Date.now();

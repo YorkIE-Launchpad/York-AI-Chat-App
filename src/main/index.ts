@@ -5421,6 +5421,14 @@ ipcMain.handle('meetings.getStatus', () => {
   return meetingService.getCaptureStatus();
 });
 
+ipcMain.handle('meetings.reportCaptureError', (_event, error: string) => {
+  if (!meetingService) {
+    throw new Error('Meeting service not initialized');
+  }
+  meetingService.reportCaptureError(error);
+  return { success: true };
+});
+
 ipcMain.handle(
   'meetings.createRealtimeTranscriptionSession',
   async () => {

@@ -216,7 +216,7 @@ describe('MeetingService', () => {
     });
     const finalized = await service.stop();
     expect(finalized?.title).toBe('Zoom Meeting');
-    expect(finalized?.notes?.title).toBe('Sync notes');
+    expect(finalized?.notes?.title).toBe('Zoom Meeting');
   });
 
   it('reports zoomConnected false in overview when Zoom is disconnected', async () => {

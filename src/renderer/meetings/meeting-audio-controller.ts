@@ -37,7 +37,20 @@ async function tryStartRealtimeTranscription(): Promise<void> {
   try {
     await capture.startRealtimeTranscription();
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     console.warn('[Meetings] Failed to start realtime transcription', error);
+    try {
+      await window.electronAPI.meetings.reportCaptureError(message);
+    } catch {
+      // ignore secondary IPC errors
+    }
+  }
+}
+
+async function ensureRealtimeTranscriptionIfNeeded(): Promise<void> {
+  const status = await window.electronAPI.meetings.getStatus();
+  if (status.localSttFallbackActive) {
+    await tryStartRealtimeTranscription();
   }
 }
 
@@ -61,10 +74,8 @@ export async function startMeetingCapture(
       void capture.stopRealtimeTranscription();
     });
 
-    const overview = await window.electronAPI.meetings.getOverview();
-    if (!overview.zoomConnected) {
-      await tryStartRealtimeTranscription();
-    }
+    // Start after listeners are registered — start() may have emitted localSttActivated early.
+    await ensureRealtimeTranscriptionIfNeeded();
 
     return meeting;
   } catch (error) {

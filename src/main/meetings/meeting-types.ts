@@ -86,6 +86,8 @@ export interface MeetingCaptureStatus {
   startedAt: number | null;
   segmentCount: number;
   liveTranscript: string;
+  /** True when local realtime STT is active (RTMS unavailable or timed out). */
+  localSttFallbackActive?: boolean;
   error?: string;
 }
 

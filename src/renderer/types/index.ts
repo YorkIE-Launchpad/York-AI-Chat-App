@@ -1052,6 +1052,7 @@ export interface MeetingCaptureStatus {
   startedAt: number | null;
   segmentCount: number;
   liveTranscript: string;
+  localSttFallbackActive?: boolean;
   error?: string;
 }
 
