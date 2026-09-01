@@ -18,6 +18,7 @@ import {
   MessageSquare,
   FolderOpen,
   FileText,
+  BookOpen,
 } from 'lucide-react';
 
 type AttachedFile = {
@@ -1181,6 +1182,20 @@ export function WelcomeView() {
                                 <Hash className="h-4 w-4 text-accent" />
                                 <span className="text-[13px] font-medium">
                                   {t('references.jira')}
+                                </span>
+                              </button>
+                              <button
+                                type="button"
+                                role="menuitem"
+                                onClick={() => {
+                                  setActionsMenuOpen(false);
+                                  setReferencePickerSource('confluence');
+                                }}
+                                className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
+                              >
+                                <BookOpen className="h-4 w-4 text-accent" />
+                                <span className="text-[13px] font-medium">
+                                  {t('references.confluence')}
                                 </span>
                               </button>
                             </>

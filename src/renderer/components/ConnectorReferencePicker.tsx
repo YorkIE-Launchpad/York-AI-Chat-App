@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import { FileText, Hash, Loader2, MessageSquare, Search, X } from 'lucide-react';
+import { FileText, Hash, Loader2, MessageSquare, Search, X, BookOpen } from 'lucide-react';
 import type {
   ExternalReferenceSearchItem,
   ExternalReferenceSource,
@@ -36,6 +36,12 @@ const SOURCE_META: Record<
     titleKey: 'references.jiraTitle',
     descKey: 'references.jiraDesc',
     placeholderKey: 'references.jiraPlaceholder',
+  },
+  confluence: {
+    icon: BookOpen,
+    titleKey: 'references.confluenceTitle',
+    descKey: 'references.confluenceDesc',
+    placeholderKey: 'references.confluencePlaceholder',
   },
 };
 

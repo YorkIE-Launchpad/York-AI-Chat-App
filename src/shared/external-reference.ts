@@ -2,7 +2,7 @@
  * Composer / transcript types for Drive, Slack, and Jira references.
  */
 
-export type ExternalReferenceSource = 'drive' | 'slack' | 'jira';
+export type ExternalReferenceSource = 'drive' | 'slack' | 'jira' | 'confluence';
 
 export interface ExternalReferenceContent {
   type: 'external_reference';
@@ -40,6 +40,7 @@ export interface ExternalReferenceConnectorStatus {
   drive: boolean;
   slack: boolean;
   jira: boolean;
+  confluence: boolean;
 }
 
 export const EXTERNAL_REFERENCE_PROMPT_CAP = 12_000;

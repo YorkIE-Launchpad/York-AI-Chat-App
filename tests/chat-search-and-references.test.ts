@@ -52,6 +52,13 @@ describe('parseExternalReferenceUrl', () => {
     const jira = parseExternalReferenceUrl('https://yorkblack.atlassian.net/browse/PLAT-42');
     expect(jira?.source).toBe('jira');
     expect(jira?.externalId).toBe('PLAT-42');
+    const confluence = parseExternalReferenceUrl(
+      'https://yorkblack.atlassian.net/wiki/spaces/ENG/pages/123456789/Architecture'
+    );
+    expect(confluence?.source).toBe('confluence');
+    expect(confluence?.externalId).toBe('123456789');
+    expect(confluence?.meta?.cloudId).toBe('yorkblack.atlassian.net');
+    expect(confluence?.meta?.spaceKey).toBe('ENG');
   });
 
   it('returns null for unrelated text', () => {

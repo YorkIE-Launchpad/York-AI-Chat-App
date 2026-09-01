@@ -1,16 +1,18 @@
 import type { ReactNode } from 'react';
-import { ExternalLink, FileText, Hash, MessageSquare } from 'lucide-react';
+import { ExternalLink, FileText, Hash, MessageSquare, BookOpen } from 'lucide-react';
 import type { ExternalReferenceContent, ExternalReferenceSource } from '../../../shared/external-reference';
 
 const SOURCE_LABEL: Record<ExternalReferenceSource, string> = {
   drive: 'Drive',
   slack: 'Slack',
   jira: 'Jira',
+  confluence: 'Confluence',
 };
 
 function SourceIcon({ source }: { source: ExternalReferenceSource }) {
   if (source === 'slack') return <MessageSquare className="h-4 w-4 text-accent flex-shrink-0" />;
   if (source === 'jira') return <Hash className="h-4 w-4 text-accent flex-shrink-0" />;
+  if (source === 'confluence') return <BookOpen className="h-4 w-4 text-accent flex-shrink-0" />;
   return <FileText className="h-4 w-4 text-accent flex-shrink-0" />;
 }
 

@@ -1,9 +1,11 @@
 import type { MCPManager } from '../mcp/mcp-manager';
 import {
+  DEFAULT_CONFLUENCE_MCP_SERVER_ID,
   DEFAULT_GOOGLE_DRIVE_MCP_SERVER_ID,
   DEFAULT_JIRA_MCP_SERVER_ID,
   DEFAULT_SLACK_MCP_SERVER_ID,
 } from '../../shared/mcp-defaults';
+import { confluencePageUrl, confluenceSiteOriginFromUrl } from '../../shared/confluence-urls';
 import { extractJiraIssueKeys, jiraBrowseUrl, jiraSiteOriginFromUrl } from '../../shared/jira-urls';
 import type {
   ExternalReferenceConnectorStatus,
@@ -111,11 +113,19 @@ async function callToolText(
 function serverIdForSource(source: ExternalReferenceSource): string {
   if (source === 'drive') return DEFAULT_GOOGLE_DRIVE_MCP_SERVER_ID;
   if (source === 'slack') return DEFAULT_SLACK_MCP_SERVER_ID;
+  if (source === 'confluence') return DEFAULT_CONFLUENCE_MCP_SERVER_ID;
   return DEFAULT_JIRA_MCP_SERVER_ID;
 }
 
 function disconnectedResult(source: ExternalReferenceSource): ExternalReferenceSearchResult {
-  const label = source === 'drive' ? 'Google Drive' : source === 'slack' ? 'Slack' : 'Jira';
+  const label =
+    source === 'drive'
+      ? 'Google Drive'
+      : source === 'slack'
+        ? 'Slack'
+        : source === 'confluence'
+          ? 'Confluence'
+          : 'Jira';
   return {
     items: [],
     disconnected: true,
@@ -271,11 +281,169 @@ function jiraJql(userQuery: string): string {
   return `text ~ "${escaped}" ORDER BY updated DESC`;
 }
 
+function confluenceCql(userQuery: string): string {
+  const trimmed = userQuery.trim();
+  if (/^\d+$/.test(trimmed)) {
+    return `id = "${trimmed}" AND type = page`;
+  }
+  const escaped = trimmed.replace(/"/g, '\\"').slice(0, 80);
+  if (!escaped) {
+    return 'type = page ORDER BY lastModified DESC';
+  }
+  return `title ~ "${escaped}" AND type = page ORDER BY lastModified DESC`;
+}
+
+function parseConfluenceSearch(text: string): ExternalReferenceSearchItem[] {
+  const parsed = parseJsonLoose(text);
+  const bag: Array<Record<string, unknown>> = [];
+  const walk = (node: unknown, depth = 0) => {
+    if (!node || depth > 6) return;
+    if (Array.isArray(node)) {
+      for (const item of node) walk(item, depth + 1);
+      return;
+    }
+    if (typeof node === 'object') {
+      const obj = node as Record<string, unknown>;
+      const id =
+        (typeof obj.id === 'string' && obj.id) ||
+        (typeof obj.pageId === 'string' && obj.pageId) ||
+        (typeof obj.id === 'number' && String(obj.id)) ||
+        (typeof obj.pageId === 'number' && String(obj.pageId));
+      const title =
+        (typeof obj.title === 'string' && obj.title) ||
+        (typeof obj.name === 'string' && obj.name);
+      if (id && title) {
+        bag.push(obj);
+        return;
+      }
+      for (const v of Object.values(obj)) walk(v, depth + 1);
+    }
+  };
+  walk(parsed);
+
+  if (bag.length) {
+    return bag.slice(0, 25).map((page) => {
+      const pageId =
+        String(page.pageId ?? page.id ?? '').trim() ||
+        (typeof page.id === 'number' ? String(page.id) : '');
+      const title =
+        (typeof page.title === 'string' && page.title) ||
+        (typeof page.name === 'string' && page.name) ||
+        pageId;
+      const spaceKey =
+        typeof page.spaceKey === 'string'
+          ? page.spaceKey
+          : typeof page.space === 'object' &&
+              page.space &&
+              typeof (page.space as { key?: string }).key === 'string'
+            ? (page.space as { key: string }).key
+            : undefined;
+      const url =
+        (typeof page.url === 'string' && page.url) ||
+        (typeof page._links === 'object' &&
+        page._links &&
+        typeof (page._links as { webui?: string }).webui === 'string'
+          ? (page._links as { webui: string }).webui
+          : undefined);
+      const siteOrigin =
+        (url && confluenceSiteOriginFromUrl(url)) ||
+        (typeof page.cloudId === 'string' && page.cloudId.includes('.')
+          ? `https://${page.cloudId}`
+          : undefined);
+      const cloudId =
+        (typeof page.cloudId === 'string' && page.cloudId) ||
+        (siteOrigin ? new URL(siteOrigin).hostname : undefined);
+      return {
+        source: 'confluence' as const,
+        externalId: pageId,
+        title,
+        subtitle: spaceKey ? `${spaceKey} · Confluence` : 'Confluence',
+        url:
+          url ||
+          (pageId && siteOrigin
+            ? confluencePageUrl(pageId, siteOrigin, spaceKey, title)
+            : undefined),
+        meta: {
+          pageId,
+          ...(cloudId ? { cloudId } : {}),
+          ...(spaceKey ? { spaceKey } : {}),
+        },
+      };
+    });
+  }
+
+  const items: ExternalReferenceSearchItem[] = [];
+  for (const line of envelopeBody(text).split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const idTitle = trimmed.match(/^(\d+)\s*[-–:]\s*(.+)$/);
+    if (idTitle) {
+      items.push({
+        source: 'confluence',
+        externalId: idTitle[1],
+        title: idTitle[2].trim(),
+        subtitle: 'Confluence',
+        meta: { pageId: idTitle[1] },
+      });
+      continue;
+    }
+    const urlMatch = trimmed.match(/(https?:\/\/[^\s]+\/wiki\/[^\s]+)/i);
+    if (urlMatch) {
+      const pageUrl = urlMatch[1];
+      const pageIdMatch = pageUrl.match(/\/pages\/(\d+)/) || pageUrl.match(/pageId=(\d+)/);
+      if (pageIdMatch) {
+        const pageId = pageIdMatch[1];
+        const siteOrigin = confluenceSiteOriginFromUrl(pageUrl);
+        items.push({
+          source: 'confluence',
+          externalId: pageId,
+          title: trimmed.replace(urlMatch[0], '').trim() || `Page ${pageId}`,
+          subtitle: 'Confluence',
+          url: pageUrl,
+          meta: {
+            pageId,
+            ...(siteOrigin ? { cloudId: new URL(siteOrigin).hostname } : {}),
+          },
+        });
+      }
+    }
+  }
+  return items.slice(0, 25);
+}
+
+function confluenceBodyFromResult(text: string): string {
+  const parsed = parseJsonLoose(text);
+  if (parsed && typeof parsed === 'object' && parsed !== null) {
+    const obj = parsed as Record<string, unknown>;
+    const body =
+      (typeof obj.body === 'string' && obj.body) ||
+      (typeof obj.content === 'string' && obj.content) ||
+      (typeof obj.markdown === 'string' && obj.markdown) ||
+      (obj.body &&
+      typeof obj.body === 'object' &&
+      typeof (obj.body as { markdown?: string }).markdown === 'string'
+        ? (obj.body as { markdown: string }).markdown
+        : undefined);
+    if (body) return body;
+  }
+  return envelopeBody(text);
+}
+
+function confluenceTitleFromResult(text: string, fallback: string): string {
+  const parsed = parseJsonLoose(text);
+  if (parsed && typeof parsed === 'object' && parsed !== null) {
+    const obj = parsed as Record<string, unknown>;
+    if (typeof obj.title === 'string' && obj.title.trim()) return obj.title.trim();
+  }
+  return envelopeTitle(text) || fallback;
+}
+
 export function getExternalReferenceStatus(mcpManager: MCPManager): ExternalReferenceConnectorStatus {
   return {
     drive: isServerConnected(mcpManager, DEFAULT_GOOGLE_DRIVE_MCP_SERVER_ID),
     slack: isServerConnected(mcpManager, DEFAULT_SLACK_MCP_SERVER_ID),
     jira: isServerConnected(mcpManager, DEFAULT_JIRA_MCP_SERVER_ID),
+    confluence: isServerConnected(mcpManager, DEFAULT_CONFLUENCE_MCP_SERVER_ID),
   };
 }
 
@@ -307,6 +475,20 @@ export async function searchExternalReferences(
       if (!tool) return { items: [], error: 'Slack search is not available yet.' };
       const text = await callToolText(mcpManager, tool, { query: trimmed, limit: 20, sort: 'score' });
       return { items: parseSlackSearch(envelopeBody(text)).slice(0, 20) };
+    }
+
+    if (source === 'confluence') {
+      const tool = findToolName(mcpManager, DEFAULT_CONFLUENCE_MCP_SERVER_ID, [
+        'searchConfluenceUsingCql',
+        'searchconfluence',
+      ]);
+      if (!tool) return { items: [], error: 'Confluence search is not available yet.' };
+      const text = await callToolText(mcpManager, tool, {
+        cql: confluenceCql(query),
+        limit: 15,
+        maxResults: 15,
+      });
+      return { items: parseConfluenceSearch(text).slice(0, 20) };
     }
 
     const tool = findToolName(mcpManager, DEFAULT_JIRA_MCP_SERVER_ID, [
@@ -388,6 +570,40 @@ export async function resolveExternalReference(
         text: capPrompt(envelopeBody(text)),
         title: envelopeTitle(text) || reference.title,
         url: reference.url,
+      };
+    }
+
+    if (source === 'confluence') {
+      const pageId = reference.meta?.pageId || reference.externalId;
+      const cloudId = reference.meta?.cloudId;
+      const tool =
+        findToolName(mcpManager, DEFAULT_CONFLUENCE_MCP_SERVER_ID, ['getConfluencePage']) ||
+        findToolName(mcpManager, DEFAULT_CONFLUENCE_MCP_SERVER_ID, ['fetchAtlassian']);
+      if (!tool) {
+        return {
+          text: '',
+          title: reference.title,
+          url: reference.url,
+          error: 'Confluence is not available.',
+        };
+      }
+      const text = await callToolText(mcpManager, tool, {
+        pageId,
+        cloudId,
+        contentFormat: 'markdown',
+        id: pageId,
+      });
+      const title = confluenceTitleFromResult(text, reference.title);
+      const siteOrigin =
+        (reference.url && confluenceSiteOriginFromUrl(reference.url)) ||
+        (cloudId && cloudId.includes('.') ? `https://${cloudId}` : undefined);
+      const spaceKey = reference.meta?.spaceKey;
+      return {
+        text: capPrompt(confluenceBodyFromResult(text)),
+        title,
+        url:
+          reference.url ||
+          (siteOrigin ? confluencePageUrl(pageId, siteOrigin, spaceKey, title) : undefined),
       };
     }
 

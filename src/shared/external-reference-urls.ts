@@ -2,6 +2,7 @@
  * Parse Drive / Slack / Jira permalinks pasted into the composer.
  */
 
+import { parseConfluenceUrl } from './confluence-urls';
 import { jiraIssueKeyFromUrl, DEFAULT_JIRA_SITE_ORIGIN } from './jira-urls';
 import type { ExternalReferenceContent, ExternalReferenceSource } from './external-reference';
 
@@ -46,6 +47,24 @@ export function parseExternalReferenceUrl(raw: string): ParsedExternalReferenceU
       url: candidate,
       title: jiraKey,
       subtitle: 'Jira',
+    };
+  }
+
+  const confluence = parseConfluenceUrl(candidate);
+  if (confluence) {
+    const cloudId = new URL(confluence.siteOrigin).hostname;
+    return {
+      source: 'confluence',
+      externalId: confluence.pageId,
+      url: candidate,
+      title: 'Confluence page',
+      subtitle: 'Confluence',
+      meta: {
+        pageId: confluence.pageId,
+        cloudId,
+        ...(confluence.spaceKey ? { spaceKey: confluence.spaceKey } : {}),
+        ...(confluence.contentType ? { contentType: confluence.contentType } : {}),
+      },
     };
   }
 
