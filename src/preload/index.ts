@@ -1162,7 +1162,6 @@ declare global {
           forceRefresh?: boolean;
         }) => Promise<import('../shared/backend-config').BackendModelInfo[]>;
         listYorkLlmModels: () => Promise<ProviderModelInfo[]>;
-        listYorkLlmModels: () => Promise<ProviderModelInfo[]>;
         diagnose: (input: DiagnosticInput) => Promise<DiagnosticResult>;
         discoverLocal: (payload?: { baseUrl?: string }) => Promise<LocalOllamaDiscoveryResult>;
       };
