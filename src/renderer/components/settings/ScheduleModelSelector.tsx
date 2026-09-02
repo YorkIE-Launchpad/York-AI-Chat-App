@@ -5,6 +5,11 @@ import type { BackendCloudProvider, BackendModelInfo } from '../../../shared/bac
 import { AUTO_MODEL_ID, isAutoModelId } from '../../../shared/auto-model';
 import { hasOpenRouterUserApiKey } from '../../../shared/openrouter-user-key';
 import { useAppStore } from '../../store';
+import {
+  isYorkLlmSelection,
+  useYorkLlmModels,
+  yorkLlmDisplayName,
+} from '../../hooks/useYorkLlmModels';
 
 const isElectron = typeof window !== 'undefined' && window.electronAPI !== undefined;
 
@@ -50,6 +55,7 @@ export function ScheduleModelSelector({
   const [isLoading, setIsLoading] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const { models: yorkLlmModels, isLoading: isYorkLlmLoading } = useYorkLlmModels();
 
   const hasOpenRouterKey = hasOpenRouterUserApiKey(appConfig?.openRouterUserApiKey);
   const isAutoSelected = isAutoModelId(value.model);
@@ -106,6 +112,17 @@ export function ScheduleModelSelector({
     return groups;
   }, [models]);
 
+  const selectedYorkLlmModel = useMemo(() => {
+    if (isAutoSelected) return null;
+    if (!isYorkLlmSelection(value.provider, undefined, value.model)) return null;
+    return (
+      yorkLlmModels.find((model) => model.id === value.model) ?? {
+        id: value.model,
+        name: yorkLlmDisplayName(value.model),
+      }
+    );
+  }, [isAutoSelected, value.model, value.provider, yorkLlmModels]);
+
   const selectedModel = useMemo(
     () =>
       models.find((model) => model.provider === value.provider && model.id === value.model) ?? null,
@@ -128,6 +145,8 @@ export function ScheduleModelSelector({
 
   const displayName = isAutoSelected
     ? 'Auto'
+    : selectedYorkLlmModel
+      ? yorkLlmDisplayName(selectedYorkLlmModel.id, selectedYorkLlmModel.name)
     : selectedModel
       ? shortModelName(selectedModel.name, selectedModel.id)
       : value.model === DEFAULT_SCHEDULE_MODEL
@@ -203,6 +222,44 @@ export function ScheduleModelSelector({
               </button>
             </div>
 
+            {yorkLlmModels.length > 0 && (
+              <div className="px-1.5 py-1">
+                <div className="px-2.5 pb-1 pt-1.5 text-[11px] font-medium tracking-[0.04em] text-text-muted">
+                  {t('workspace.models.yorkLocalLlmTitle', 'York LLM')}
+                </div>
+                <div className="space-y-0.5">
+                  {yorkLlmModels.map((model) => {
+                    const isSelected =
+                      !isAutoSelected &&
+                      value.provider === 'ollama' &&
+                      value.model === model.id;
+                    return (
+                      <button
+                        key={model.id}
+                        type="button"
+                        role="option"
+                        aria-selected={isSelected}
+                        onClick={() => {
+                          onChange({ model: model.id, provider: 'ollama' });
+                          setIsOpen(false);
+                        }}
+                        className={`flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left transition-colors ${
+                          isSelected
+                            ? 'bg-accent-muted text-accent'
+                            : 'text-text-primary hover:bg-surface-hover'
+                        }`}
+                      >
+                        <span className="whitespace-nowrap text-[13px] font-medium">
+                          {yorkLlmDisplayName(model.id, model.name)}
+                        </span>
+                        {isSelected && <Check className="h-3.5 w-3.5 shrink-0" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {PROVIDER_ORDER.map((provider) => {
               const items = groupedModels[provider];
               if (items.length === 0) return null;
@@ -270,7 +327,7 @@ export function ScheduleModelSelector({
               );
             })}
 
-            {!isLoading && models.length === 0 && (
+            {!isLoading && !isYorkLlmLoading && models.length === 0 && yorkLlmModels.length === 0 && (
               <div className="px-4 py-2 text-[11px] leading-snug text-text-muted">
                 {t('schedule.modelEmpty')}
               </div>

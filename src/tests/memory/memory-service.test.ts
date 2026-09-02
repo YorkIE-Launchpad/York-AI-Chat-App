@@ -505,6 +505,63 @@ describe('MemoryService', () => {
     expect(inspected?.sourceWorkspace).toBe('/repo/a');
   });
 
+  it('skips memory navigation LLM steps when York LLM is the active model', async () => {
+    mockConfigState.config = {
+      ...mockConfigState.config,
+      provider: 'ollama',
+      baseUrl: 'http://llm.yorkdevs.link:2222/v1',
+      model: '/Users/dhavalj/models/Qwen3.6-35B-A3B/Qwen3.6-35B-A3B-UD-IQ2_M.gguf',
+      customProtocol: 'openai',
+    };
+
+    const completeSpy = vi.spyOn(MockMemoryLLMClient.prototype, 'complete');
+    const yorkService = new MemoryService(db, { llmClient: new MockMemoryLLMClient() });
+
+    await yorkService.enqueueIngestion({
+      session: makeSession('session-a', 'Gateway fixes', '/repo/a'),
+      prompt: 'Fix gateway token rotation',
+      messages: makeMessages('session-a', [
+        {
+          role: 'user',
+          text: 'In workspace A, implement gateway token rotation and sync remote gateway.',
+          timestamp: 1,
+        },
+        {
+          role: 'assistant',
+          text: 'Completed gateway token rotation in workspace A.',
+          timestamp: 2,
+        },
+      ]),
+    });
+
+    const navCallsBefore = completeSpy.mock.calls.filter(([request]) =>
+      request.systemPrompt.includes('memory retrieval navigator')
+    ).length;
+
+    const promptPrefix = await yorkService.buildPromptPrefix(
+      { cwd: '/repo/a' },
+      'Continue gateway token rotation'
+    );
+
+    const navCallsAfter = completeSpy.mock.calls.filter(([request]) =>
+      request.systemPrompt.includes('memory retrieval navigator')
+    ).length;
+
+    expect(navCallsAfter).toBe(navCallsBefore);
+    expect(promptPrefix).toContain('<experience_memory');
+    expect(promptPrefix).toContain('gateway token rotation');
+    expect(promptPrefix).not.toContain('Expanded Chunk Raw Text');
+
+    completeSpy.mockRestore();
+    mockConfigState.config = {
+      ...mockConfigState.config,
+      provider: 'openrouter',
+      baseUrl: 'https://openrouter.ai/api/v1',
+      model: 'anthropic/claude-sonnet-4-6',
+      customProtocol: 'anthropic',
+    };
+  });
+
   it('escapes memory text before injecting it into the prompt delimiter block', async () => {
     await service.enqueueIngestion({
       session: makeSession('session-a', 'Gateway fixes', '/repo/a'),

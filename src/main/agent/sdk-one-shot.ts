@@ -47,6 +47,8 @@ import {
   type SessionDivisionFields,
 } from '../../shared/workspace-division';
 import { reportHubGovernanceUsageFromCompletion } from '../hub/hub-ai-governance';
+import { isYorkLlmBaseUrl, YORK_LLM_ZERO_COST } from '../../shared/york-llm-config';
+import { acquireYorkLlmSlot } from '../york-llm/york-llm-gate';
 
 const NETWORK_ERROR_RE =
   /enotfound|econnrefused|etimedout|eai_again|enetunreach|timed?\s*out|timeout|abort|network\s*error/i;
@@ -412,152 +414,175 @@ export async function runPiAiOneShot(
     return response;
   };
 
-  let response = await runOnce(resolvedModel, baseOptions);
-
-  // OpenRouter account limits are key-wide — one York eco retry.
-  const errorMessage =
-    (response.stopReason === 'error' || response.stopReason === 'aborted') &&
-    typeof response.errorMessage === 'string'
-      ? response.errorMessage
-      : '';
-  if (errorMessage && isOpenRouterAccountLimitError(activeProvider, errorMessage)) {
-    if (options?.division?.division === 'general' || options?.division?.division === 'folder') {
-      throw new Error(openRouterLimitUserMessage(false));
-    }
-    const rawModels = await fetchBackendModels();
-    const enabledModels = filterModelsForOpenRouterKey(rawModels, config.openRouterUserApiKey);
-    const fallback = resolveYorkPaidEcoFallback({
-      enabledModels,
-      promptText: prompt,
-      preference: 'eco',
-    });
-    if (!fallback) {
-      throw new Error(openRouterLimitUserMessage(true));
-    }
-    logWarn(`[OneShot] ${OPENROUTER_LIMIT_FALLBACK_NOTE} ${fallback.provider}/${fallback.modelId}`);
-    effectiveConfig = {
-      ...effectiveConfig,
-      model: fallback.modelId,
-      provider: fallback.provider,
-      customProtocol: fallback.customProtocol,
-      baseUrl: fallback.baseUrl,
-      apiKey: fallback.apiKey,
-    };
-    activeProvider = fallback.provider;
-    const yorkModelString = resolvePiModelString({
-      ...effectiveConfig,
-      defaultModel: fallback.modelId,
-    });
-    let yorkModel = resolvePiRegistryModel(yorkModelString, {
-      configProvider: fallback.customProtocol,
-      customBaseUrl: fallback.baseUrl,
-      rawProvider: fallback.provider,
-      customProtocol: fallback.customProtocol,
-    });
-    if (!yorkModel) {
-      const synthetic = resolveSyntheticPiModelFallback({
-        rawModel: fallback.modelId,
-        resolvedModelString: yorkModelString,
-        rawProvider: fallback.provider,
-        routeProtocol: fallback.customProtocol,
-        baseUrl: fallback.baseUrl,
-      });
-      yorkModel = buildSyntheticPiModel(
-        synthetic.modelId,
-        synthetic.provider,
-        fallback.customProtocol,
-        fallback.baseUrl || '',
-        inferPiApi(fallback.customProtocol)
-      );
-    }
-    resolvedModel = yorkModel!;
-    if (isBackendManagedProvider(fallback.provider)) {
-      resolvedModel = withAppVersionHeader(resolvedModel, getClientAppVersion());
-    }
-    apiKey = (
-      await resolveBackendClientApiKey({
-        provider: fallback.provider,
-        apiKey: fallback.apiKey,
-      })
-    ).trim();
-    if (apiKey) {
-      const authStorage = getSharedAuthStorage();
-      authStorage.setRuntimeApiKey(fallback.provider, apiKey);
-      if (resolvedModel.provider !== fallback.provider) {
-        authStorage.setRuntimeApiKey(resolvedModel.provider, apiKey);
-      }
-    }
-    response = await runOnce(resolvedModel, { ...baseOptions, apiKey: apiKey || undefined });
-  }
-
-  // pi-ai resolves (not rejects) on provider errors — the error details
-  // live in stopReason/errorMessage on the response object.  Surface them
-  // so callers (probe, title-gen) get a meaningful error via mapPiAiError.
-  if (response.stopReason === 'error' || response.stopReason === 'aborted') {
-    logWarn('[OneShot] Provider error-as-resolve:', response.stopReason, response.errorMessage);
-    const details = response.errorMessage || 'Provider returned an error';
-    reportHubGovernanceUsageFromCompletion({
-      modelId: String(resolvedModel.id || effectiveConfig.model || ''),
-      provider: String(resolvedModel.provider || activeProvider || ''),
+  const yorkLlmActive = isYorkLlmBaseUrl(effectiveBaseUrl || resolvedModel.baseUrl);
+  let yorkSlotRelease: (() => void) | undefined;
+  if (yorkLlmActive) {
+    resolvedModel = {
+      ...resolvedModel,
+      cost: { ...YORK_LLM_ZERO_COST },
+    } as typeof resolvedModel;
+    const ticket = await acquireYorkLlmSlot({
       sessionId: options?.usageSessionId?.trim() || 'one_shot',
-      division: options?.division?.division ?? null,
-      hubProjectId: options?.division?.hubProjectId ?? null,
-      folderId: options?.division?.folderId ?? null,
-      launchpadProjectId: options?.division?.launchpadProjectId ?? null,
-      feature: options?.usageFeature?.trim() || 'one_shot',
-      usage: (response as { usage?: unknown }).usage,
-      responseId:
-        typeof (response as { responseId?: unknown }).responseId === 'string'
-          ? (response as { responseId: string }).responseId
-          : null,
-      latencyMs: Date.now() - start,
-      status: 'error',
-      errorCode: response.stopReason,
+      label: 'one-shot',
+      signal: baseOptions.signal,
     });
-    if (isOpenRouterAccountLimitError(activeProvider, details)) {
-      throw new Error(openRouterLimitUserMessage(true));
-    }
-    throw new Error(details);
+    yorkSlotRelease = ticket.release;
   }
 
-  // Extract text and thinking content from response
-  const textBlocks = response.content.filter((b) => b.type === 'text');
-  const thinkingBlocks = response.content.filter((b) => b.type === 'thinking');
-  const text = textBlocks
-    .map((b) => (b as { text: string }).text)
-    .join('')
-    .trim();
-  const hasThinking = thinkingBlocks.some(
-    (b) => (b as { thinking: string }).thinking?.trim().length > 0
-  );
-  log(
-    '[OneShot] Response:',
-    text ? text.substring(0, 200) : '(empty)',
-    'blocks:',
-    response.content.length,
-    'textBlocks:',
-    textBlocks.length,
-    'thinkingBlocks:',
-    thinkingBlocks.length
-  );
-  reportHubGovernanceUsageFromCompletion({
-    modelId: String(resolvedModel.id || effectiveConfig.model || ''),
-    provider: String(resolvedModel.provider || activeProvider || ''),
-    sessionId: options?.usageSessionId?.trim() || 'one_shot',
-    division: options?.division?.division ?? null,
-    hubProjectId: options?.division?.hubProjectId ?? null,
-    folderId: options?.division?.folderId ?? null,
-    launchpadProjectId: options?.division?.launchpadProjectId ?? null,
-    feature: options?.usageFeature?.trim() || 'one_shot',
-    usage: (response as { usage?: unknown }).usage,
-    responseId:
-      typeof (response as { responseId?: unknown }).responseId === 'string'
-        ? (response as { responseId: string }).responseId
-        : null,
-    latencyMs: Date.now() - start,
-    status: 'ok',
-  });
-  return { text, hasThinking, durationMs: Date.now() - start };
+  try {
+    let response = await runOnce(resolvedModel, baseOptions);
+
+    // OpenRouter account limits are key-wide — one York eco retry.
+    const errorMessage =
+      (response.stopReason === 'error' || response.stopReason === 'aborted') &&
+      typeof response.errorMessage === 'string'
+        ? response.errorMessage
+        : '';
+    if (errorMessage && isOpenRouterAccountLimitError(activeProvider, errorMessage)) {
+      if (options?.division?.division === 'general' || options?.division?.division === 'folder') {
+        throw new Error(openRouterLimitUserMessage(false));
+      }
+      const rawModels = await fetchBackendModels();
+      const enabledModels = filterModelsForOpenRouterKey(rawModels, config.openRouterUserApiKey);
+      const fallback = resolveYorkPaidEcoFallback({
+        enabledModels,
+        promptText: prompt,
+        preference: 'eco',
+      });
+      if (!fallback) {
+        throw new Error(openRouterLimitUserMessage(true));
+      }
+      logWarn(`[OneShot] ${OPENROUTER_LIMIT_FALLBACK_NOTE} ${fallback.provider}/${fallback.modelId}`);
+      effectiveConfig = {
+        ...effectiveConfig,
+        model: fallback.modelId,
+        provider: fallback.provider,
+        customProtocol: fallback.customProtocol,
+        baseUrl: fallback.baseUrl,
+        apiKey: fallback.apiKey,
+      };
+      activeProvider = fallback.provider;
+      const yorkModelString = resolvePiModelString({
+        ...effectiveConfig,
+        defaultModel: fallback.modelId,
+      });
+      let yorkModel = resolvePiRegistryModel(yorkModelString, {
+        configProvider: fallback.customProtocol,
+        customBaseUrl: fallback.baseUrl,
+        rawProvider: fallback.provider,
+        customProtocol: fallback.customProtocol,
+      });
+      if (!yorkModel) {
+        const synthetic = resolveSyntheticPiModelFallback({
+          rawModel: fallback.modelId,
+          resolvedModelString: yorkModelString,
+          rawProvider: fallback.provider,
+          routeProtocol: fallback.customProtocol,
+          baseUrl: fallback.baseUrl,
+        });
+        yorkModel = buildSyntheticPiModel(
+          synthetic.modelId,
+          synthetic.provider,
+          fallback.customProtocol,
+          fallback.baseUrl || '',
+          inferPiApi(fallback.customProtocol)
+        );
+      }
+      resolvedModel = yorkModel!;
+      if (isBackendManagedProvider(fallback.provider)) {
+        resolvedModel = withAppVersionHeader(resolvedModel, getClientAppVersion());
+      }
+      apiKey = (
+        await resolveBackendClientApiKey({
+          provider: fallback.provider,
+          apiKey: fallback.apiKey,
+        })
+      ).trim();
+      if (apiKey) {
+        const authStorage = getSharedAuthStorage();
+        authStorage.setRuntimeApiKey(fallback.provider, apiKey);
+        if (resolvedModel.provider !== fallback.provider) {
+          authStorage.setRuntimeApiKey(resolvedModel.provider, apiKey);
+        }
+      }
+      response = await runOnce(resolvedModel, { ...baseOptions, apiKey: apiKey || undefined });
+    }
+
+    // pi-ai resolves (not rejects) on provider errors — the error details
+    // live in stopReason/errorMessage on the response object.  Surface them
+    // so callers (probe, title-gen) get a meaningful error via mapPiAiError.
+    if (response.stopReason === 'error' || response.stopReason === 'aborted') {
+      logWarn('[OneShot] Provider error-as-resolve:', response.stopReason, response.errorMessage);
+      const details = response.errorMessage || 'Provider returned an error';
+      if (!yorkLlmActive) {
+        reportHubGovernanceUsageFromCompletion({
+          modelId: String(resolvedModel.id || effectiveConfig.model || ''),
+          provider: String(resolvedModel.provider || activeProvider || ''),
+          sessionId: options?.usageSessionId?.trim() || 'one_shot',
+          division: options?.division?.division ?? null,
+          hubProjectId: options?.division?.hubProjectId ?? null,
+          folderId: options?.division?.folderId ?? null,
+          launchpadProjectId: options?.division?.launchpadProjectId ?? null,
+          feature: options?.usageFeature?.trim() || 'one_shot',
+          usage: (response as { usage?: unknown }).usage,
+          responseId:
+            typeof (response as { responseId?: unknown }).responseId === 'string'
+              ? (response as { responseId: string }).responseId
+              : null,
+          latencyMs: Date.now() - start,
+          status: 'error',
+          errorCode: response.stopReason,
+        });
+      }
+      if (isOpenRouterAccountLimitError(activeProvider, details)) {
+        throw new Error(openRouterLimitUserMessage(true));
+      }
+      throw new Error(details);
+    }
+
+    // Extract text and thinking content from response
+    const textBlocks = response.content.filter((b) => b.type === 'text');
+    const thinkingBlocks = response.content.filter((b) => b.type === 'thinking');
+    const text = textBlocks
+      .map((b) => (b as { text: string }).text)
+      .join('')
+      .trim();
+    const hasThinking = thinkingBlocks.some(
+      (b) => (b as { thinking: string }).thinking?.trim().length > 0
+    );
+    log(
+      '[OneShot] Response:',
+      text ? text.substring(0, 200) : '(empty)',
+      'blocks:',
+      response.content.length,
+      'textBlocks:',
+      textBlocks.length,
+      'thinkingBlocks:',
+      thinkingBlocks.length
+    );
+    if (!yorkLlmActive) {
+      reportHubGovernanceUsageFromCompletion({
+        modelId: String(resolvedModel.id || effectiveConfig.model || ''),
+        provider: String(resolvedModel.provider || activeProvider || ''),
+        sessionId: options?.usageSessionId?.trim() || 'one_shot',
+        division: options?.division?.division ?? null,
+        hubProjectId: options?.division?.hubProjectId ?? null,
+        folderId: options?.division?.folderId ?? null,
+        launchpadProjectId: options?.division?.launchpadProjectId ?? null,
+        feature: options?.usageFeature?.trim() || 'one_shot',
+        usage: (response as { usage?: unknown }).usage,
+        responseId:
+          typeof (response as { responseId?: unknown }).responseId === 'string'
+            ? (response as { responseId: string }).responseId
+            : null,
+        latencyMs: Date.now() - start,
+        status: 'ok',
+      });
+    }
+    return { text, hasThinking, durationMs: Date.now() - start };
+  } finally {
+    yorkSlotRelease?.();
+  }
 }
 
 function normalizeProbeAck(raw: string): string {

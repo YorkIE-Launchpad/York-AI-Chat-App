@@ -858,6 +858,18 @@ export type ServerEvent =
       };
     }
   | {
+      type: 'yorkLlm.queue';
+      payload: {
+        sessionId?: string;
+        ticketId: string;
+        status: 'waiting' | 'active' | 'done';
+        position: number;
+        activeCount: number;
+        maxConcurrent: number;
+        waitingCount: number;
+      };
+    }
+  | {
       type: 'error';
       payload: {
         message: string;
@@ -1162,6 +1174,7 @@ export interface ProviderPresets {
 export interface ProviderModelInfo {
   id: string;
   name: string;
+  contextWindow?: number;
 }
 
 export interface ApiTestInput {

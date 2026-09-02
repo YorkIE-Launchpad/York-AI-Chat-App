@@ -436,10 +436,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
       forceRefresh?: boolean;
     }): Promise<import('../shared/backend-config').BackendModelInfo[]> =>
       ipcRenderer.invoke('config.listBackendModels', options),
+    listYorkLlmModels: (): Promise<ProviderModelInfo[]> =>
+      ipcRenderer.invoke('config.listYorkLlmModels'),
     diagnose: (input: DiagnosticInput): Promise<DiagnosticResult> =>
       ipcRenderer.invoke('config.diagnose', input),
     discoverLocal: (payload?: { baseUrl?: string }): Promise<LocalOllamaDiscoveryResult> =>
       ipcRenderer.invoke('config.discover-local', payload),
+  },
+
+  yorkLlm: {
+    getQueueSnapshot: (): Promise<import('../shared/york-llm-config').YorkLlmGateSnapshot> =>
+      ipcRenderer.invoke('yorkLlm.getQueueSnapshot'),
   },
 
   // Window control methods
@@ -1154,8 +1161,13 @@ declare global {
           usable?: boolean;
           forceRefresh?: boolean;
         }) => Promise<import('../shared/backend-config').BackendModelInfo[]>;
+        listYorkLlmModels: () => Promise<ProviderModelInfo[]>;
+        listYorkLlmModels: () => Promise<ProviderModelInfo[]>;
         diagnose: (input: DiagnosticInput) => Promise<DiagnosticResult>;
         discoverLocal: (payload?: { baseUrl?: string }) => Promise<LocalOllamaDiscoveryResult>;
+      };
+      yorkLlm: {
+        getQueueSnapshot: () => Promise<import('../shared/york-llm-config').YorkLlmGateSnapshot>;
       };
       window: {
         minimize: () => void;

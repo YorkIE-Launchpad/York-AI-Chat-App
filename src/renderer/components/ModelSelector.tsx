@@ -27,6 +27,12 @@ import {
 import { applyActiveProjectBudgetToModels } from '../../shared/fe-budget-gate';
 import { filterModelsForOpenRouterKey } from '../../shared/openrouter-fallback';
 import { useTranslation } from 'react-i18next';
+import {
+  isYorkLlmSelection,
+  useYorkLlmModels,
+  yorkLlmDisplayName,
+} from '../hooks/useYorkLlmModels';
+import { resolveYorkLlmBaseUrl } from '../../shared/york-llm-config';
 
 const isElectron = typeof window !== 'undefined' && window.electronAPI !== undefined;
 
@@ -87,6 +93,12 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
   const [isSaving, setIsSaving] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const reconcileKeyRef = useRef<string | null>(null);
+  const {
+    models: yorkLlmModels,
+    isLoading: isYorkLlmLoading,
+    isUnavailable: isYorkLlmUnavailable,
+    loadModels: loadYorkLlmModels,
+  } = useYorkLlmModels();
 
   const hasOpenRouterKey = hasOpenRouterUserApiKey(appConfig?.openRouterUserApiKey);
   const hubUsage = useAppStore((state) => state.hubUsage);
@@ -144,6 +156,7 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
     if (!isOpen) return;
     // Refresh catalog when opening in case backend keys changed.
     loadModels({ silent: true });
+    loadYorkLlmModels(true);
 
     const handlePointerDown = (event: MouseEvent) => {
       if (!rootRef.current?.contains(event.target as Node)) {
@@ -162,7 +175,7 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
       document.removeEventListener('mousedown', handlePointerDown);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isOpen, loadModels]);
+  }, [isOpen, loadModels, loadYorkLlmModels]);
 
   const groupedModels = useMemo(() => {
     return models.reduce<Record<BackendCloudProvider, BackendModelInfo[]>>(
@@ -178,6 +191,17 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
       }
     );
   }, [models]);
+
+  const selectedYorkLlmModel = useMemo(() => {
+    if (!appConfig?.model || isAutoModelId(appConfig.model)) return null;
+    if (!isYorkLlmSelection(appConfig.provider, appConfig.baseUrl, appConfig.model)) return null;
+    return (
+      yorkLlmModels.find((model) => model.id === appConfig.model) ?? {
+        id: appConfig.model,
+        name: yorkLlmDisplayName(appConfig.model),
+      }
+    );
+  }, [appConfig?.baseUrl, appConfig?.model, appConfig?.provider, yorkLlmModels]);
 
   const selectedModel = useMemo(() => {
     if (!appConfig?.model || isAutoModelId(appConfig.model)) return null;
@@ -259,6 +283,21 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
     [appConfig, saveConfig]
   );
 
+  const handleSelectYorkLlm = useCallback(
+    async (modelId: string) => {
+      await saveConfig({
+        provider: 'ollama',
+        activeProfileKey: 'ollama',
+        customProtocol: 'openai',
+        baseUrl: resolveYorkLlmBaseUrl(),
+        model: modelId,
+        apiKey: '',
+      });
+      setIsOpen(false);
+    },
+    [saveConfig]
+  );
+
   const handleSelect = useCallback(
     async (model: BackendModelInfo) => {
       if (model.provider === 'openrouter' && !hasOpenRouterKey) {
@@ -324,7 +363,7 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
   }, [appConfig, handleSelect, isLoading, isSaving, usableModels]);
 
   const pendingFallback =
-    !isAutoSelected && !selectedModel && isBackendManagedProvider(appConfig?.provider)
+    !isAutoSelected && !selectedModel && !selectedYorkLlmModel && isBackendManagedProvider(appConfig?.provider)
       ? pickFallbackModel(usableModels, appConfig?.provider)
       : null;
 
@@ -332,6 +371,8 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
     ? `Auto · ${AUTO_PREFERENCE_SHORT_LABELS[autoPreference]}`
     : selectedModel
       ? shortModelName(selectedModel.name, selectedModel.id)
+      : selectedYorkLlmModel
+        ? yorkLlmDisplayName(selectedYorkLlmModel.id, selectedYorkLlmModel.name)
       : pendingFallback
         ? shortModelName(pendingFallback.name, pendingFallback.id)
         : isLoading
@@ -450,6 +491,65 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
                 </div>
               )}
             </div>
+
+            {(isYorkLlmLoading || yorkLlmModels.length > 0 || isYorkLlmUnavailable) && (
+              <div className="px-1.5 py-1">
+                <div className="px-2.5 pb-1 pt-1.5 text-[11px] font-medium tracking-[0.04em] text-text-muted">
+                  {t('workspace.models.yorkLocalLlmTitle', 'York LLM')}
+                </div>
+                {isYorkLlmLoading && yorkLlmModels.length === 0 ? (
+                  <div className="px-2.5 py-2 text-[12px] text-text-muted">
+                    {t('workspace.models.yorkLocalLlmLoading', 'Loading local models…')}
+                  </div>
+                ) : isYorkLlmUnavailable && yorkLlmModels.length === 0 ? (
+                  <div className="px-2.5 py-2 text-[11px] leading-snug text-text-muted">
+                    {t(
+                      'workspace.models.yorkLocalLlmUnavailable',
+                      'Unavailable — check VPN/network connection to the York LLM server.'
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-0.5">
+                    {yorkLlmModels.map((model) => {
+                      const isSelected =
+                        selectedYorkLlmModel?.id === model.id &&
+                        isYorkLlmSelection(
+                          appConfig?.provider,
+                          appConfig?.baseUrl,
+                          appConfig?.model
+                        );
+                      return (
+                        <button
+                          key={model.id}
+                          type="button"
+                          role="option"
+                          aria-selected={isSelected}
+                          onClick={() => {
+                            void handleSelectYorkLlm(model.id);
+                          }}
+                          className={`flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left transition-colors ${
+                            isSelected
+                              ? 'bg-accent-muted text-accent'
+                              : 'text-text-primary hover:bg-surface-hover'
+                          }`}
+                        >
+                          <span className="min-w-0 flex-1 truncate whitespace-nowrap text-[13px] font-medium">
+                            {yorkLlmDisplayName(model.id, model.name)}
+                          </span>
+                          {isSelected && <Check className="h-3.5 w-3.5 shrink-0" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+                <div className="px-2.5 pt-1 text-[10px] leading-snug text-text-muted">
+                  {t(
+                    'workspace.models.yorkLocalLlmFooter',
+                    'Free shared server — no York budget cost. Up to 4 concurrent requests; you may wait in queue during peak use.'
+                  )}
+                </div>
+              </div>
+            )}
 
             {PROVIDER_ORDER.map((provider) => {
               const items = groupedModels[provider];

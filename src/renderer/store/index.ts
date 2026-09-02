@@ -178,6 +178,18 @@ interface AppState {
   /** Active /loop|/goal status keyed by sessionId (null/missing = no loop). */
   chatLoopBySessionId: Record<string, ChatLoopStatus>;
 
+  /** York LLM queue status keyed by sessionId. */
+  yorkLlmQueueBySessionId: Record<
+    string,
+    {
+      status: 'waiting' | 'active';
+      position: number;
+      activeCount: number;
+      maxConcurrent: number;
+      waitingCount: number;
+    }
+  >;
+
   /**
    * Pending Matter chat draft keyed by session id — context card + composer prefill
    * until the user sends their first message (no auto-run).
@@ -288,6 +300,10 @@ interface AppState {
   setSkillsStorageChangeEvent: (event: SkillsStorageChangeEvent | null) => void;
 
   setChatLoopStatus: (sessionId: string, status: ChatLoopStatus | null) => void;
+  setYorkLlmQueueStatus: (
+    sessionId: string,
+    status: AppState['yorkLlmQueueBySessionId'][string] | null
+  ) => void;
 
   setHubUsage: (snapshot: HubUsageMeterSnapshot | null) => void;
 
@@ -373,6 +389,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   skillsStorageChangedAt: 0,
   skillsStorageChangeEvent: null,
   chatLoopBySessionId: {},
+  yorkLlmQueueBySessionId: {},
   matterChatDraftBySessionId: {},
   systemDarkMode: false,
   incognitoDraft: false,
@@ -1017,6 +1034,22 @@ export const useAppStore = create<AppState>((set, get) => ({
       return {
         chatLoopBySessionId: {
           ...state.chatLoopBySessionId,
+          [sessionId]: status,
+        },
+      };
+    }),
+
+  setYorkLlmQueueStatus: (sessionId, status) =>
+    set((state) => {
+      if (!status) {
+        if (!(sessionId in state.yorkLlmQueueBySessionId)) return {};
+        const next = { ...state.yorkLlmQueueBySessionId };
+        delete next[sessionId];
+        return { yorkLlmQueueBySessionId: next };
+      }
+      return {
+        yorkLlmQueueBySessionId: {
+          ...state.yorkLlmQueueBySessionId,
           [sessionId]: status,
         },
       };

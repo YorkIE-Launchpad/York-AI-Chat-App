@@ -190,6 +190,14 @@ import {
   type OnLaunchPadProgressRecord,
 } from './launchpad-turn-progress';
 import { fetchOllamaModelInfo } from '../config/ollama-api';
+import { getYorkLlmModelContextWindow } from '../config/york-llm-api';
+import { acquireYorkLlmSlot, subscribeYorkLlmQueue } from '../york-llm/york-llm-gate';
+import {
+  isYorkLlmBaseUrl,
+  resolveYorkLlmBaseUrl,
+  YORK_LLM_SESSION_HEADER,
+  YORK_LLM_ZERO_COST,
+} from '../../shared/york-llm-config';
 import { createWindowsBashOperations } from './windows-bash-operations';
 import { createCompactionExtensionFactory } from './compaction-extension';
 import { remapCoworkVirtualPath, remapCoworkVirtualPathsInCommand } from './cowork-path-remap';
@@ -1989,6 +1997,14 @@ ${hints.join('\n')}
             });
             runtimeConfig.apiKey = creds.apiKey || runtimeConfig.apiKey;
             runtimeConfig.baseUrl = creds.baseUrl || runtimeConfig.baseUrl;
+          } else if (
+            session.provider === 'ollama' &&
+            session.model?.includes('.gguf')
+          ) {
+            runtimeConfig.baseUrl = resolveYorkLlmBaseUrl();
+            runtimeConfig.apiKey = '';
+            runtimeConfig.customProtocol = 'openai';
+            runtimeConfig.activeProfileKey = 'ollama';
           }
         }
         logCtx(
@@ -2176,23 +2192,49 @@ ${hints.join('\n')}
 
       // For Ollama: query actual context window from /api/show if user hasn't configured one
       const provider = resolvedProvider || 'anthropic';
+      const yorkLlmActive = isYorkLlmBaseUrl(effectiveBaseUrl || runtimeConfig.baseUrl);
+      if (yorkLlmActive) {
+        activePiModel = {
+          ...activePiModel,
+          // Org-hosted free endpoint — never price tokens against Hub budget.
+          cost: { ...YORK_LLM_ZERO_COST },
+          headers: {
+            ...(activePiModel.headers || {}),
+            [YORK_LLM_SESSION_HEADER]: session.id,
+          },
+        } as typeof activePiModel;
+      }
       if (provider === 'ollama' && !runtimeConfig.contextWindow) {
         const ollamaBaseUrl =
           activePiModel.baseUrl || runtimeConfig.baseUrl || 'http://localhost:11434/v1';
-        const ollamaInfo = await fetchOllamaModelInfo({
-          baseUrl: ollamaBaseUrl,
-          model: activePiModel.id,
-          apiKey: runtimeConfig.apiKey,
-        });
-        if (ollamaInfo.contextWindow) {
-          log(
-            '[CoworkAgentRunner] Ollama /api/show reported contextWindow:',
-            ollamaInfo.contextWindow,
-            '(was:',
-            activePiModel.contextWindow,
-            ')'
-          );
-          activePiModel = { ...activePiModel, contextWindow: ollamaInfo.contextWindow };
+        if (yorkLlmActive) {
+          const yorkContextWindow = await getYorkLlmModelContextWindow(activePiModel.id);
+          if (yorkContextWindow) {
+            log(
+              '[CoworkAgentRunner] York LLM /models reported contextWindow:',
+              yorkContextWindow,
+              '(was:',
+              activePiModel.contextWindow,
+              ')'
+            );
+            activePiModel = { ...activePiModel, contextWindow: yorkContextWindow };
+          }
+        } else {
+          const ollamaInfo = await fetchOllamaModelInfo({
+            baseUrl: ollamaBaseUrl,
+            model: activePiModel.id,
+            apiKey: runtimeConfig.apiKey,
+          });
+          if (ollamaInfo.contextWindow) {
+            log(
+              '[CoworkAgentRunner] Ollama /api/show reported contextWindow:',
+              ollamaInfo.contextWindow,
+              '(was:',
+              activePiModel.contextWindow,
+              ')'
+            );
+            activePiModel = { ...activePiModel, contextWindow: ollamaInfo.contextWindow };
+          }
         }
       }
 
@@ -3160,8 +3202,8 @@ ${
           injectedSkillBodies: pendingInjectedSkills,
         });
 
-        // Ollama: wrap _onPayload to inject num_ctx into every request
-        if (provider === 'ollama') {
+        // Ollama (non-York): wrap _onPayload to inject num_ctx into every request
+        if (provider === 'ollama' && !yorkLlmActive) {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const agent = piSession.agent as any;
           // Guard: only patch if the SDK exposes _onPayload (private API)
@@ -3287,7 +3329,7 @@ ${
       let ollamaColdStartTimerId: ReturnType<typeof setTimeout> | undefined;
       let receivedFirstStreamEvent = false;
       let firstStreamEventAt: number | undefined;
-      if (provider === 'ollama') {
+      if (provider === 'ollama' && !yorkLlmActive) {
         ollamaColdStartTimerId = setTimeout(() => {
           if (!receivedFirstStreamEvent && !controller.signal.aborted) {
             this.sendTraceUpdate(session.id, thinkingStepId, {
@@ -3307,7 +3349,9 @@ ${
           clearTimeout(ollamaColdStartTimerId);
         }
         this.sendTraceUpdate(session.id, thinkingStepId, {
-          title: 'Processing request...',
+          title: yorkLlmActive
+            ? 'Connected to York LLM — streaming…'
+            : 'Processing request...',
         });
         if (provider === 'ollama') {
           log(
@@ -3591,23 +3635,25 @@ ${
                 const userFacing = isOpenRouterAccountLimitError(resolvedProvider, rawError)
                   ? openRouterLimitUserMessage(true)
                   : resolvedPayload.errorText;
-                reportHubGovernanceUsageFromCompletion({
-                  modelId: activePiModel.id,
-                  provider: String(activePiModel.provider || provider || ''),
-                  sessionId: session.id,
-                  hubProjectId: session.hubProjectId,
-                  folderId: session.folderId,
-                  launchpadProjectId: session.launchpadProjectId,
-                  division: session.division,
-                  usage: (msg as { usage?: unknown }).usage,
-                  responseId:
-                    typeof (msg as { responseId?: unknown }).responseId === 'string'
-                      ? (msg as { responseId: string }).responseId
-                      : null,
-                  latencyMs: Date.now() - promptStartedAt,
-                  status: 'error',
-                  errorCode: 'message_end_error',
-                });
+                if (!yorkLlmActive) {
+                  reportHubGovernanceUsageFromCompletion({
+                    modelId: activePiModel.id,
+                    provider: String(activePiModel.provider || provider || ''),
+                    sessionId: session.id,
+                    hubProjectId: session.hubProjectId,
+                    folderId: session.folderId,
+                    launchpadProjectId: session.launchpadProjectId,
+                    division: session.division,
+                    usage: (msg as { usage?: unknown }).usage,
+                    responseId:
+                      typeof (msg as { responseId?: unknown }).responseId === 'string'
+                        ? (msg as { responseId: string }).responseId
+                        : null,
+                    latencyMs: Date.now() - promptStartedAt,
+                    status: 'error',
+                    errorCode: 'message_end_error',
+                  });
+                }
                 emitTerminalError(userFacing);
                 break;
               }
@@ -3714,22 +3760,24 @@ ${
                     model: activePiModel.id,
                     tokenUsage,
                   };
-                  reportHubGovernanceUsageFromCompletion({
-                    modelId: activePiModel.id,
-                    provider: String(activePiModel.provider || provider || ''),
-                    sessionId: session.id,
-                    hubProjectId: session.hubProjectId,
-                    folderId: session.folderId,
-                    launchpadProjectId: session.launchpadProjectId,
-                    division: session.division,
-                    usage: msgWithUsage.usage,
-                    responseId:
-                      typeof (msg as { responseId?: unknown }).responseId === 'string'
-                        ? (msg as { responseId: string }).responseId
-                        : null,
-                    latencyMs: Date.now() - promptStartedAt,
-                    status: 'ok',
-                  });
+                  if (!yorkLlmActive) {
+                    reportHubGovernanceUsageFromCompletion({
+                      modelId: activePiModel.id,
+                      provider: String(activePiModel.provider || provider || ''),
+                      sessionId: session.id,
+                      hubProjectId: session.hubProjectId,
+                      folderId: session.folderId,
+                      launchpadProjectId: session.launchpadProjectId,
+                      division: session.division,
+                      usage: msgWithUsage.usage,
+                      responseId:
+                        typeof (msg as { responseId?: unknown }).responseId === 'string'
+                          ? (msg as { responseId: string }).responseId
+                          : null,
+                      latencyMs: Date.now() - promptStartedAt,
+                      status: 'ok',
+                    });
+                  }
                   // Recovery succeeded — clear deferred transient error so the turn
                   // is not marked failed and incomplete-turn steering can still run.
                   pendingRetryableError = undefined;
@@ -3940,6 +3988,40 @@ ${
       });
 
       // Execute the prompt — unsubscribe in finally to prevent event listener leak
+      let yorkQueueUnsub: (() => void) | undefined;
+      let yorkSlotRelease: (() => void) | undefined;
+      if (yorkLlmActive) {
+        yorkQueueUnsub = subscribeYorkLlmQueue((event) => {
+          if (event.sessionId !== session.id) return;
+          if (event.status === 'waiting') {
+            this.sendTraceUpdate(session.id, thinkingStepId, {
+              title: `Waiting for York LLM (position ${event.position} — ${event.activeCount}/${event.maxConcurrent} slots in use)…`,
+            });
+          } else if (event.status === 'active') {
+            this.sendTraceUpdate(session.id, thinkingStepId, {
+              title: 'York LLM — generating response…',
+            });
+          }
+        });
+        // Gate at the turn level (not per HTTP request). The OpenAI SDK used by
+        // pi-ai does not reliably finish a wrapped fetch body, which leaked slots
+        // and made subsequent chats wait minutes for a free slot.
+        try {
+          const ticket = await acquireYorkLlmSlot({
+            sessionId: session.id,
+            label: 'agent-turn',
+            signal: controller.signal,
+          });
+          yorkSlotRelease = ticket.release;
+        } catch (queueErr) {
+          yorkQueueUnsub?.();
+          yorkQueueUnsub = undefined;
+          if (queueErr instanceof Error && queueErr.name === 'AbortError') {
+            throw queueErr;
+          }
+          throw queueErr;
+        }
+      }
       try {
         resetActivityTimeout();
         if (provider === 'ollama') {
@@ -3953,6 +4035,7 @@ ${
               usedSyntheticModel,
               hasExplicitApiKey: Boolean(apiKey),
               thinkingLevel,
+              yorkLlmActive,
             })
           );
         }
@@ -4235,6 +4318,9 @@ ${
         } catch (e) {
           logWarn('[CoworkAgentRunner] unsubscribe error:', e);
         }
+        yorkSlotRelease?.();
+        yorkSlotRelease = undefined;
+        yorkQueueUnsub?.();
         if (activityTimeoutId) clearTimeout(activityTimeoutId);
         if (ollamaColdStartTimerId) clearTimeout(ollamaColdStartTimerId);
       }

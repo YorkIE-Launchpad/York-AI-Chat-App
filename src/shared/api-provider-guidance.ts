@@ -6,6 +6,7 @@ export type CommonProviderSetupId =
   | 'kimi-coding'
   | 'glm-anthropic'
   | 'ollama'
+  | 'york-local-llm'
   | 'gemini-custom'
   | 'minimax'
   | 'generic-openai';
@@ -110,6 +111,22 @@ export const COMMON_PROVIDER_SETUPS: CommonProviderSetup[] = [
     matcher: {
       hosts: ['localhost', '127.0.0.1', '0.0.0.0', '[::1]'],
       ports: ['11434'],
+      pathPrefixes: ['', '/', '/v1'],
+    },
+  },
+  {
+    id: 'york-local-llm',
+    nameKey: 'api.guidance.setups.yorkLocalLlm.name',
+    noteKey: 'api.guidance.setups.yorkLocalLlm.note',
+    applyProvider: 'ollama',
+    recommendedProtocol: 'openai',
+    recommendedBaseUrl: 'http://llm.yorkdevs.link:2222/v1',
+    exampleModel: 'York LLM V1',
+    protocolLabel: 'York LLM',
+    preferProviderTab: 'ollama',
+    matcher: {
+      hosts: ['llm.yorkdevs.link'],
+      ports: ['2222'],
       pathPrefixes: ['', '/', '/v1'],
     },
   },

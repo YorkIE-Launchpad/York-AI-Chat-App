@@ -33,6 +33,10 @@ import { buildMcpMetaTools, selectCustomToolsForModel } from './mcp-tool-budget'
 import { resolveFreeModelForChild } from './free-model-resolve';
 import { resolveAutoModelIfNeeded } from './auto-model-resolve';
 import { reportHubGovernanceUsageFromCompletion } from '../hub/hub-ai-governance';
+import {
+  shouldSkipHubUsageForYorkLlm,
+  YORK_LLM_ZERO_COST,
+} from '../../shared/york-llm-config';
 import type { CustomProtocolType, ProviderType } from '../config/config-store';
 import {
   applyPiModelRuntimeOverrides,
@@ -502,6 +506,13 @@ export async function runChildAgentSession(
     const modelRegistry = new ModelRegistry(authStorage);
     const config = configStore.getAll();
     const cwd = config.defaultWorkdir || process.cwd();
+    const yorkLlmActive = shouldSkipHubUsageForYorkLlm(piModel.baseUrl || config.baseUrl);
+    if (yorkLlmActive) {
+      piModel = {
+        ...piModel,
+        cost: { ...YORK_LLM_ZERO_COST },
+      } as typeof piModel;
+    }
 
     let customTools: ToolDefinition[] = [];
     const codingTools = includeCodingTools ? createCodingTools(cwd) : [];
@@ -628,7 +639,7 @@ export async function runChildAgentSession(
           usage?: unknown;
           responseId?: unknown;
         };
-        if (msg) {
+        if (msg && !yorkLlmActive) {
           reportHubGovernanceUsageFromCompletion({
             modelId: String(piModel.id || ''),
             provider: String(piModel.provider || activeProvider || ''),

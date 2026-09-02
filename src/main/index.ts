@@ -115,7 +115,10 @@ import {
 } from './config/config-file-watcher';
 import { runConfigApiTest } from './config/config-test-routing';
 import { listOllamaModels } from './config/ollama-api';
+import { listYorkLlmModels } from './config/york-llm-api';
 import { fetchBackendModels } from './config/backend-client';
+import { installYorkLlmFetchGate } from './york-llm/york-llm-fetch-gate';
+import { getYorkLlmGateSnapshot, subscribeYorkLlmQueue } from './york-llm/york-llm-gate';
 import { setPermissionRules, decidePermission } from './config/permission-rules-store';
 import {
   setMcpWriteAccessEnabled,
@@ -1520,6 +1523,14 @@ function sendToRenderer(event: ServerEvent) {
 app
   .whenReady()
   .then(async () => {
+    installYorkLlmFetchGate();
+    subscribeYorkLlmQueue((event) => {
+      sendToRenderer({
+        type: 'yorkLlm.queue',
+        payload: event,
+      });
+    });
+
     // Re-apply after ready so Dock picks up icon/name reliably on macOS.
     applyAppBranding();
 
@@ -3613,6 +3624,17 @@ ipcMain.handle(
     return fetchBackendModels(options);
   }
 );
+
+ipcMain.handle('config.listYorkLlmModels', async () => {
+  try {
+    return await listYorkLlmModels();
+  } catch (error) {
+    logWarn('[Config] York LLM model listing failed:', error);
+    return [];
+  }
+});
+
+ipcMain.handle('yorkLlm.getQueueSnapshot', () => getYorkLlmGateSnapshot());
 
 ipcMain.handle('config.diagnose', async (_event, payload: DiagnosticInput) => {
   try {

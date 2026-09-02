@@ -1050,7 +1050,11 @@
       "addOpenRouterKey": "Add your OpenRouter API key (Settings → General)",
       "noProviderKeys": "No provider keys configured",
       "openRouterLimitsFooter": "Your OpenRouter limits: under $10 credits → ~50/day; $10+ → ~1000/day. Paid models use your credits, not York’s.",
-      "openRouterKeyFooter": "General/Folders need your OpenRouter API key. Free models still require a key for access. Limits: <$10 → 50/day; $10+ → 1000/day."
+      "openRouterKeyFooter": "General/Folders need your OpenRouter API key. Free models still require a key for access. Limits: <$10 → 50/day; $10+ → 1000/day.",
+      "yorkLocalLlmTitle": "York LLM",
+      "yorkLocalLlmLoading": "Loading local models…",
+      "yorkLocalLlmUnavailable": "Unavailable — check VPN/network connection to the York LLM server.",
+      "yorkLocalLlmFooter": "Free shared server — no York budget cost. Up to 4 concurrent requests; you may wait in queue during peak use."
     },
     "budget": {
       "title": "AI usage",
@@ -1070,6 +1074,12 @@
       "openSettings": "Open AI usage in Settings",
       "lastReply": "Last reply {{tokens}}",
       "byokCue": "Add your OpenRouter API key below."
+    }
+  },
+  "yorkLlm": {
+    "queue": {
+      "waiting": "Waiting for York LLM ({{position}} in queue, {{activeCount}}/{{maxConcurrent}} slots in use)",
+      "active": "York LLM connected — streaming response"
     }
   },
   "chat": {

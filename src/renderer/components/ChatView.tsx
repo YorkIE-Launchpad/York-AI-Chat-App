@@ -100,6 +100,9 @@ export function ChatView() {
   const traceSteps = useActiveTraceSteps();
   const setGlobalNotice = useAppStore((s) => s.setGlobalNotice);
   const setStoreChatLoopStatus = useAppStore((s) => s.setChatLoopStatus);
+  const yorkLlmQueue = useAppStore((s) =>
+    activeSessionId ? s.yorkLlmQueueBySessionId[activeSessionId] ?? null : null
+  );
   const activeDivision = useAppStore((s) => s.activeDivision);
   const appConfig = useAppStore((s) => s.appConfig);
   const hubUsage = useAppStore((s) => s.hubUsage);
@@ -1399,6 +1402,18 @@ export function ChatView() {
           >
             <X className="w-3.5 h-3.5" />
           </button>
+        </div>
+      )}
+
+      {yorkLlmQueue?.status === 'waiting' && (
+        <div className="px-4 py-2 text-xs text-text-secondary border-b border-border-muted bg-surface/60">
+          {t('yorkLlm.queue.waiting', {
+            position: yorkLlmQueue.position,
+            activeCount: yorkLlmQueue.activeCount,
+            maxConcurrent: yorkLlmQueue.maxConcurrent,
+            defaultValue:
+              'Waiting for York LLM ({{position}} in queue, {{activeCount}}/{{maxConcurrent}} slots in use)',
+          })}
         </div>
       )}
 

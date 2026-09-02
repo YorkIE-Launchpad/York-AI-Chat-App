@@ -44,6 +44,7 @@ import {
 } from './memory-utils';
 import { createMemoryTools } from './memory-tools';
 import type { ConnectorId } from '../connectors/connector-types';
+import { isYorkLlmBaseUrl } from '../../shared/york-llm-config';
 import {
   divisionMemoryKey,
   normalizeSessionDivision,
@@ -1004,6 +1005,12 @@ export class MemoryService {
     }
 
     let visibleContext = this.formatSummariesOnly(retrieval);
+    if (this.shouldSkipMemoryNavigationLlm()) {
+      log(
+        '[MemoryService] Skipping navigation LLM steps (York LLM active — broad summaries only)'
+      );
+      return visibleContext;
+    }
     const expandedChunks = new Map<string, ExpandedChunkData>();
     const expandedSessions = new Map<string, ExpandedSessionData>();
     const rawSessions = new Map<string, string>();
@@ -1149,6 +1156,16 @@ export class MemoryService {
     }
 
     return parts.join('\n');
+  }
+
+  /** York LLM is slow and slot-limited — avoid multi-step nav LLM before the main agent turn. */
+  private shouldSkipMemoryNavigationLlm(): boolean {
+    const config = this.getAppConfig();
+    const llmRuntime = config.memoryRuntime?.llm;
+    const inherit = llmRuntime?.inheritFromActive !== false;
+    const provider = inherit ? config.provider : llmRuntime?.provider ?? config.provider;
+    const baseUrl = inherit ? config.baseUrl : llmRuntime?.baseUrl ?? config.baseUrl;
+    return provider === 'ollama' && isYorkLlmBaseUrl(baseUrl);
   }
 
   private async embedText(text: string): Promise<number[]> {

@@ -406,6 +406,23 @@ export function useIPC() {
             store.setChatLoopStatus(event.payload.sessionId, event.payload.status);
             break;
 
+          case 'yorkLlm.queue': {
+            const sessionId = event.payload.sessionId;
+            if (!sessionId) break;
+            if (event.payload.status === 'done') {
+              store.setYorkLlmQueueStatus(sessionId, null);
+            } else {
+              store.setYorkLlmQueueStatus(sessionId, {
+                status: event.payload.status,
+                position: event.payload.position,
+                activeCount: event.payload.activeCount,
+                maxConcurrent: event.payload.maxConcurrent,
+                waitingCount: event.payload.waitingCount,
+              });
+            }
+            break;
+          }
+
           case 'liveAssist.sessionStarted': {
             const existing = store.sessions.find((s) => s.id === event.payload.sessionId);
             if (existing) {
