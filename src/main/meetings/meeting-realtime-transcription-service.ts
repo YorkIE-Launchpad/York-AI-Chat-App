@@ -76,12 +76,14 @@ function buildTranscriptionSessionBody(
   model: string,
   delay: RealtimeTranscriptionDelay
 ): Record<string, unknown> {
-  const transcription: Record<string, unknown> = {
-    model,
-    prompt: REALTIME_TRANSCRIPTION_PROMPT,
-    languages: ['en'],
-  };
+  // gpt-live-transcribe rejects server/semantic VAD ("Turn detection is not
+  // supported"). gpt-realtime-whisper rejects `prompt`. Keep model-specific
+  // fields only, and leave turn endpointing to the renderer via
+  // input_audio_buffer.commit.
+  const transcription: Record<string, unknown> = { model };
   if (model === PRIMARY_TRANSCRIBE_MODEL) {
+    transcription.prompt = REALTIME_TRANSCRIPTION_PROMPT;
+    transcription.languages = ['en'];
     transcription.delay = delay;
   }
 
@@ -92,7 +94,7 @@ function buildTranscriptionSessionBody(
         input: {
           transcription,
           noise_reduction: { type: 'far_field' },
-          turn_detection: { type: 'server_vad' },
+          turn_detection: null,
         },
       },
     },

@@ -929,10 +929,24 @@ export class MeetingService {
       }
 
       if (zoomMeetingId) {
-        await this.zoomRtms.startParticipantRtms(zoomToken.accessToken, zoomMeetingId);
-        this.scheduleRtmsStartRetry(yorkMeetingId, zoomMeetingId);
+        const started = await this.zoomRtms.startParticipantRtms(
+          zoomToken.accessToken,
+          zoomMeetingId
+        );
+        if (started) {
+          this.scheduleRtmsStartRetry(yorkMeetingId, zoomMeetingId);
+        } else {
+          // Don't wait the full RTMS silent timeout when Zoom rejects RTMS
+          // (e.g. meeting content access 403) — start local STT immediately.
+          this.activateLocalSttFallback(
+            'RTMS start failed — enabling local realtime STT fallback'
+          );
+        }
       } else {
         logWarn('[Meetings] No live Zoom meeting or calendar Zoom ID — cannot start RTMS via REST');
+        this.activateLocalSttFallback(
+          'No Zoom meeting ID — enabling local realtime STT fallback'
+        );
       }
 
       const registered = await this.zoomRtms.registerSession({
@@ -945,6 +959,9 @@ export class MeetingService {
         logWarn(
           '[Meetings] Zoom RTMS session registration failed',
           `yorkMeetingId=${yorkMeetingId}`
+        );
+        this.activateLocalSttFallback(
+          'RTMS session registration failed — enabling local realtime STT fallback'
         );
       }
 
