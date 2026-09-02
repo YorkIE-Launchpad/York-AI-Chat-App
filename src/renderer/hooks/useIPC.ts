@@ -413,7 +413,7 @@ export function useIPC() {
             } else {
               store.addSession(event.payload.session);
             }
-            store.setActiveSession(event.payload.sessionId);
+            store.openSessionWithDivision(event.payload.sessionId);
             store.setShowSettings(false);
             store.setShowMatter(false);
             store.setAskGrowthOSOpen(false);
@@ -1162,7 +1162,7 @@ export function useIPC() {
     }
 
     const active = sessions[sessions.length - 1];
-    useAppStore.getState().setActiveSession(active.id);
+    useAppStore.getState().openSessionWithDivision(active.id);
     useAppStore.getState().setShowSettings(false);
     useAppStore.getState().setShowMatter(false);
     useAppStore.getState().setShowWorkflows(false);

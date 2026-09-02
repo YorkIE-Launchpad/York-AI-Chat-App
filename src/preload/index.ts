@@ -38,7 +38,8 @@ import type {
   Session,
 } from '../renderer/types';
 import type { DiagnosticInput, DiagnosticResult } from '../renderer/types';
-import type { ChatSearchHit } from '../shared/chat-search';
+import type { ChatSearchHit, ChatSearchScope } from '../shared/chat-search';
+import type { ActiveDivision } from '../shared/workspace-division';
 import type {
   ExternalReferenceConnectorStatus,
   ExternalReferenceResolveResult,
@@ -184,10 +185,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
         type: 'session.getContextUsage',
         payload: { sessionId },
       }),
-    searchChats: (query: string, limit?: number): Promise<ChatSearchHit[]> =>
+    searchChats: (
+      query: string,
+      limit?: number,
+      options?: { scope?: ChatSearchScope; activeDivision?: ActiveDivision | null }
+    ): Promise<ChatSearchHit[]> =>
       invoke({
         type: 'session.searchChats',
-        payload: { query, limit },
+        payload: { query, limit, ...options },
       }),
     export: (
       sessionId: string
@@ -991,7 +996,11 @@ declare global {
           contextWindow: number;
           percent: number | null;
         } | null>;
-        searchChats: (query: string, limit?: number) => Promise<ChatSearchHit[]>;
+        searchChats: (
+          query: string,
+          limit?: number,
+          options?: { scope?: ChatSearchScope; activeDivision?: ActiveDivision | null }
+        ) => Promise<ChatSearchHit[]>;
         export: (
           sessionId: string
         ) => Promise<{ success: boolean; path?: string; error?: string; cancelled?: boolean }>;

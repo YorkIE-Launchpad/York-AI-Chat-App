@@ -116,6 +116,25 @@ export function projectScopeRefuseMessage(
   ].join(' ');
 }
 
+function hubBlockedWithoutAllocationMessage(
+  session: Partial<SessionDivisionFields> | null | undefined
+): string {
+  void session;
+  return [
+    'Incorrect use. This attempt will be reported.',
+    'This workspace has no Hub project allocation. Hub MCP tools are blocked — use LaunchPad MCP tools only.',
+  ].join(' ');
+}
+
+function clientDivisionRequiresProjectIdMessage(
+  session: Partial<SessionDivisionFields> | null | undefined
+): string {
+  return [
+    projectScopeRefuseMessage(session),
+    'You must specify an in-scope Hub project id for this tool.',
+  ].join(' ');
+}
+
 function emptyInScopeMessage(session: Partial<SessionDivisionFields> | null | undefined): string {
   const normalized = normalizeSessionDivision(session);
   if (normalized.division === 'client' && normalized.clientName) {
@@ -268,11 +287,22 @@ export function prepareProjectScopedMcpArgs(
 ): ProjectScopedMcpPrepare {
   const normalized = normalizeSessionDivision(session);
   const allowlist = resolveProjectAllowlist(session);
-  if (!allowlist || allowlist.hubIds.size === 0) {
+  const original = hubMcpOriginalToolName(toolName);
+
+  if (!allowlist) {
     return { kind: 'allow', args, filterResult: false };
   }
 
-  const original = hubMcpOriginalToolName(toolName);
+  if (allowlist.hubIds.size === 0) {
+    if (original) {
+      return {
+        kind: 'block',
+        message: hubBlockedWithoutAllocationMessage(session),
+      };
+    }
+    return { kind: 'allow', args, filterResult: false };
+  }
+
   if (!original) {
     return { kind: 'allow', args, filterResult: false };
   }
@@ -291,7 +321,12 @@ export function prepareProjectScopedMcpArgs(
       };
     }
     if (isClientDivision) {
-      // Client workspace: agent must pick the project id — do not auto-inject.
+      if (!provided) {
+        return {
+          kind: 'block',
+          message: clientDivisionRequiresProjectIdMessage(session),
+        };
+      }
       return { kind: 'allow', args, filterResult: false };
     }
     if (singleHubId) {

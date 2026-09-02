@@ -67,10 +67,13 @@ import {
 import {
   generalWorkspaceOpenRouterOnlyMessage,
   isProviderAllowedInDivision,
+  filterMcpToolsForDivision,
   type SessionDivisionFields,
 } from '../../shared/workspace-division';
-import { applyProjectScopedMcpResultFilter } from '../../shared/project-mcp-scope';
+import { applyCompanyProjectScopedMcpResultFilter } from '../../shared/company-project-mcp-scope';
 import { prepareCompanyProjectScopedMcpArgs as prepareProjectScopedMcpArgs } from '../../shared/company-project-mcp-scope';
+import { linkageForSession } from '../hub/project-linkage-cache';
+import type { ProjectLinkageMetadata } from '../../shared/project-linkage-metadata';
 import type { OnProjectScopeViolation } from '../../shared/project-mcp-scope';
 import { v4 as uuidv4 } from 'uuid';
 import {
@@ -166,9 +169,11 @@ function buildFlatMcpTools(
   mcpManager: MCPManager,
   division?: Partial<SessionDivisionFields> | null,
   onProjectScopeViolation?: OnProjectScopeViolation | null,
-  sessionId?: string | null
+  sessionId?: string | null,
+  linkage?: ProjectLinkageMetadata
 ): ToolDefinition[] {
-  return mcpManager.getTools().map((mcpTool) => {
+  const resolvedLinkage = linkage ?? linkageForSession(division);
+  return filterMcpToolsForDivision(mcpManager.getTools(), division).map((mcpTool) => {
     const parameters = Type.Unsafe<Record<string, unknown>>(
       mcpTool.inputSchema as Record<string, unknown>
     );
@@ -185,7 +190,7 @@ function buildFlatMcpTools(
           p && typeof p === 'object' ? (p as Record<string, unknown>) : {},
           mcpTool.inputSchema
         );
-        const prepared = prepareProjectScopedMcpArgs(mcpTool.name, leanArgs, division);
+        const prepared = prepareProjectScopedMcpArgs(mcpTool.name, leanArgs, division, resolvedLinkage);
         if (prepared.kind === 'block') {
           emitProjectScopeBlock(
             onProjectScopeViolation,
@@ -205,7 +210,7 @@ function buildFlatMcpTools(
         });
         const text = prepared.filterResult
           ? compressToolResultTextForModel(
-              applyProjectScopedMcpResultFilter(mcpTool.name, normalizedResult.text, division)
+              applyCompanyProjectScopedMcpResultFilter(mcpTool.name, normalizedResult.text, division)
             )
           : normalizedResult.text;
         return {
@@ -506,6 +511,7 @@ export async function runChildAgentSession(
       sendToRenderer: input.sendEvent,
     });
 
+    const sessionLinkage = linkageForSession(input.division);
     if (mcpToolsMode === 'meta-only' && input.mcpManager) {
       let allowed: Set<string> | null = null;
       if (input.allowedTools && input.allowedTools.length > 0) {
@@ -516,14 +522,17 @@ export async function runChildAgentSession(
         allowed,
         input.division,
         onProjectScopeViolation,
-        input.parentSessionId
+        input.parentSessionId,
+        undefined,
+        sessionLinkage
       );
     } else if (mcpToolsMode === 'flat' && input.mcpManager) {
       let mcpCustomTools = buildFlatMcpTools(
         input.mcpManager,
         input.division,
         onProjectScopeViolation,
-        input.parentSessionId
+        input.parentSessionId,
+        sessionLinkage
       );
       let allowedToolNames: Set<string> | null = null;
       if (input.allowedTools && input.allowedTools.length > 0) {
@@ -543,6 +552,7 @@ export async function runChildAgentSession(
         division: input.division,
         onProjectScopeViolation,
         sessionId: input.parentSessionId,
+        linkage: sessionLinkage,
       });
       customTools = toolSelection.customTools;
       if (toolSelection.mode === 'meta') {

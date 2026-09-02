@@ -118,6 +118,8 @@ export type WorkflowUpdateFields = Partial<
     | 'folderId'
     | 'folderName'
     | 'canonicalKey'
+    | 'clientName'
+    | 'clientProjectIds'
   >
 >;
 

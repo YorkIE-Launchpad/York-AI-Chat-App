@@ -210,6 +210,7 @@ export function Sidebar() {
   const [importing, setImporting] = useState(false);
   const [searchHits, setSearchHits] = useState<ChatSearchHit[]>([]);
   const [searchBusy, setSearchBusy] = useState(false);
+  const [searchAllWorkspaces, setSearchAllWorkspaces] = useState(false);
 
   const normalizedQuery = useMemo(() => searchQuery.trim().toLowerCase(), [searchQuery]);
   const isSearching = normalizedQuery.length > 0;
@@ -234,7 +235,10 @@ export function Sidebar() {
     const timer = window.setTimeout(() => {
       void (async () => {
         try {
-          const hits = await window.electronAPI.session.searchChats(q, 40);
+          const hits = await window.electronAPI.session.searchChats(q, 40, {
+            scope: searchAllWorkspaces ? 'all' : 'workspace',
+            activeDivision,
+          });
           if (!cancelled) setSearchHits(hits);
         } catch {
           if (!cancelled) setSearchHits([]);
@@ -247,7 +251,7 @@ export function Sidebar() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [searchQuery]);
+  }, [searchQuery, searchAllWorkspaces, activeDivision]);
 
   const snippetBySessionId = useMemo(() => {
     const map = new Map<string, ChatSearchHit>();
@@ -782,6 +786,18 @@ export function Sidebar() {
               />
             </div>
             <button
+              onClick={() => setSearchAllWorkspaces((prev) => !prev)}
+              className={`h-8 shrink-0 rounded-lg border px-2 text-[10px] font-medium transition-colors ${
+                searchAllWorkspaces
+                  ? 'border-accent/40 bg-accent/10 text-accent'
+                  : 'border-border-subtle text-text-muted hover:bg-surface-hover hover:text-text-secondary'
+              }`}
+              title={searchAllWorkspaces ? 'Searching all workspaces' : 'Searching this workspace only'}
+              type="button"
+            >
+              {searchAllWorkspaces ? 'All' : 'Here'}
+            </button>
+            <button
               onClick={() => {
                 if (isSelectMode) {
                   exitSelectMode();
@@ -810,6 +826,8 @@ export function Sidebar() {
                 ? 'No chats in Hub yet'
                 : activeDivision?.kind === 'project'
                   ? 'No chats in this project yet'
+                  : activeDivision?.kind === 'client'
+                    ? 'No chats in this client yet'
                   : activeDivision?.kind === 'folder'
                     ? 'No chats in this folder yet'
                     : activeDivision?.kind === 'general'

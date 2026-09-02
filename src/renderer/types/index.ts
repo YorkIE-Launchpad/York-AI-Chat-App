@@ -1,4 +1,5 @@
-import type { WorkspaceDivisionKind } from '../../shared/workspace-division';
+import type { ActiveDivision, WorkspaceDivisionKind } from '../../shared/workspace-division';
+import type { ChatSearchScope } from '../../shared/chat-search';
 import type { ExternalReferenceContent } from '../../shared/external-reference';
 
 export type { ExternalReferenceContent, ExternalReferenceSource } from '../../shared/external-reference';
@@ -698,7 +699,15 @@ export type ClientEvent =
       payload: { sessionId: string; customInstructions?: string };
     }
   | { type: 'session.getContextUsage'; payload: { sessionId: string } }
-  | { type: 'session.searchChats'; payload: { query: string; limit?: number } }
+  | {
+      type: 'session.searchChats';
+      payload: {
+        query: string;
+        limit?: number;
+        scope?: ChatSearchScope;
+        activeDivision?: ActiveDivision | null;
+      };
+    }
   | { type: 'permission.response'; payload: { toolUseId: string; result: PermissionResult } }
   | { type: 'question.response'; payload: UserQuestionResponse }
   | { type: 'sudo.password.response'; payload: { toolUseId: string; password: string | null } }
@@ -844,7 +853,7 @@ export type ServerEvent =
       payload: {
         message: string;
         noticeType?: 'info' | 'warning' | 'error' | 'success';
-        code?: 'PROJECT_SCOPE_VIOLATION';
+        code?: 'PROJECT_SCOPE_VIOLATION' | 'CONNECTOR_SCOPE_VIOLATION' | 'SESSION_DIVISION_DEMOTED';
         projectName?: string;
       };
     }

@@ -80,7 +80,9 @@ export function HubBudgetMeter() {
 
   const userPercent = hubUsage?.userBudgetPercent ?? null;
   const projectPercent =
-    activeDivision?.kind === 'project' ? (hubUsage?.projectBudgetPercent ?? null) : null;
+    activeDivision?.kind === 'project' || activeDivision?.kind === 'client'
+      ? (hubUsage?.projectBudgetPercent ?? null)
+      : null;
   const activeSource = hubUsage?.activeSource ?? 'none';
   const meterPercent =
     activeSource === 'project' && projectPercent != null ? projectPercent : userPercent;
@@ -88,7 +90,7 @@ export function HubBudgetMeter() {
   if (userTone == null || meterPercent == null) return null;
 
   const showProjectTrack =
-    activeDivision?.kind === 'project' &&
+    (activeDivision?.kind === 'project' || activeDivision?.kind === 'client') &&
     projectPercent != null &&
     userPercent != null &&
     activeSource === 'project';
@@ -100,7 +102,9 @@ export function HubBudgetMeter() {
     activeSource === 'project'
       ? activeDivision?.kind === 'project' && activeDivision.name
         ? t('workspace.budget.projectNamed', { name: activeDivision.name })
-        : t('workspace.budget.project')
+        : activeDivision?.kind === 'client' && activeDivision.clientName
+          ? t('workspace.budget.projectNamed', { name: activeDivision.clientName })
+          : t('workspace.budget.project')
       : t('workspace.budget.you');
   const parts = [sourceLabel, status, t('workspace.budget.renewsOn', { renewsOn })];
   if (tokens != null && tokens > 0) {

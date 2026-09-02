@@ -73,6 +73,8 @@ import {
   resolveWritableSessionCwd,
 } from './resolve-session-cwd';
 import type { ChatSearchHit } from '../../shared/chat-search';
+import { filterChatSearchHitsByDivision, type ChatSearchScope } from '../../shared/chat-search';
+import type { ActiveDivision } from '../../shared/workspace-division';
 import { resolveExternalReference } from '../references/reference-service';
 
 interface AgentRunner {
@@ -706,8 +708,19 @@ export class SessionManager {
     return this.loadSession(sessionId);
   }
 
-  searchChats(query: string, limit?: number): ChatSearchHit[] {
-    return this.db.chatSearch.search(query, limit);
+  searchChats(
+    query: string,
+    limit?: number,
+    options?: {
+      scope?: ChatSearchScope;
+      activeDivision?: ActiveDivision | null;
+    }
+  ): ChatSearchHit[] {
+    const hits = this.db.chatSearch.search(query, limit);
+    if (!options?.activeDivision || options.scope === 'all') {
+      return hits;
+    }
+    return filterChatSearchHitsByDivision(hits, options.activeDivision, options.scope ?? 'workspace');
   }
 
   /**

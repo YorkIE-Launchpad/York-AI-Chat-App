@@ -2,9 +2,16 @@
  * Cross-workspace chat search types shared by main (FTS) and renderer (palette / sidebar).
  */
 
-import type { SessionDivisionFields, WorkspaceDivisionKind } from './workspace-division';
+import type {
+  ActiveDivision,
+  SessionDivisionFields,
+  WorkspaceDivisionKind,
+} from './workspace-division';
+import { sessionMatchesActiveDivision } from './workspace-division';
 
 export const CHAT_FTS_TITLE_STUB_ID = '__title__';
+
+export type ChatSearchScope = 'workspace' | 'all';
 
 export interface ChatSearchHit {
   sessionId: string;
@@ -38,6 +45,18 @@ export function chatSearchHitToDivisionFields(hit: ChatSearchHit): SessionDivisi
     clientName: hit.clientName,
     clientProjectIds: hit.clientProjectIds,
   };
+}
+
+/** Filter FTS hits to the active workspace (default isolation). */
+export function filterChatSearchHitsByDivision(
+  hits: ChatSearchHit[],
+  active: ActiveDivision | null | undefined,
+  scope: ChatSearchScope = 'workspace'
+): ChatSearchHit[] {
+  if (scope === 'all' || !active) return hits;
+  return hits.filter((hit) =>
+    sessionMatchesActiveDivision(chatSearchHitToDivisionFields(hit), active)
+  );
 }
 
 /** Strip FTS MATCH special characters and build a prefix AND query. */

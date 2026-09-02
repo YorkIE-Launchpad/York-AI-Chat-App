@@ -10,10 +10,11 @@
 import { Type, type TSchema } from '@sinclair/typebox';
 import type { ToolDefinition } from '@mariozechner/pi-coding-agent';
 import type { MCPManager, MCPTool } from '../mcp/mcp-manager';
-import { applyProjectScopedMcpResultFilter } from '../../shared/project-mcp-scope';
+import { applyCompanyProjectScopedMcpResultFilter } from '../../shared/company-project-mcp-scope';
 import { prepareCompanyProjectScopedMcpArgs as prepareProjectScopedMcpArgs } from '../../shared/company-project-mcp-scope';
 import type { OnProjectScopeViolation } from '../../shared/project-mcp-scope';
-import type { SessionDivisionFields } from '../../shared/workspace-division';
+import { filterMcpToolsForDivision, type SessionDivisionFields } from '../../shared/workspace-division';
+import type { ProjectLinkageMetadata } from '../../shared/project-linkage-metadata';
 import { log } from '../utils/logger';
 import { normalizeMcpToolResultForModel } from './tool-result-utils';
 import {
@@ -203,9 +204,10 @@ function summarizeDroppedByServer(mcpTools: MCPTool[]): string {
 
 function resolveAllowedMcpTools(
   mcpManager: MCPManager,
-  allowedToolNames?: ReadonlySet<string> | null
+  allowedToolNames?: ReadonlySet<string> | null,
+  division?: Partial<SessionDivisionFields> | null
 ): MCPTool[] {
-  const all = mcpManager.getTools();
+  let all = filterMcpToolsForDivision(mcpManager.getTools(), division);
   if (!allowedToolNames || allowedToolNames.size === 0) {
     return all;
   }
@@ -221,7 +223,8 @@ export function buildMcpMetaTools(
   division?: Partial<SessionDivisionFields> | null,
   onProjectScopeViolation?: OnProjectScopeViolation | null,
   sessionId?: string | null,
-  onLaunchPadProgress?: OnLaunchPadProgressRecord | null
+  onLaunchPadProgress?: OnLaunchPadProgressRecord | null,
+  linkage?: ProjectLinkageMetadata
 ): ToolDefinition[] {
   const searchTool: ToolDefinition<TSchema, unknown> = {
     name: MCP_SEARCH_TOOLS_NAME,
@@ -261,7 +264,7 @@ export function buildMcpMetaTools(
         limit?: number;
         include_schema?: boolean;
       };
-      const available = resolveAllowedMcpTools(mcpManager, allowedToolNames);
+      const available = resolveAllowedMcpTools(mcpManager, allowedToolNames, division);
       const matches = searchMcpTools(available, {
         query,
         server,
@@ -307,7 +310,7 @@ export function buildMcpMetaTools(
           details: undefined,
         };
       }
-      const allowed = resolveAllowedMcpTools(mcpManager, allowedToolNames);
+      const allowed = resolveAllowedMcpTools(mcpManager, allowedToolNames, division);
       if (!allowed.some((tool) => tool.name === toolName)) {
         return {
           content: [
@@ -336,7 +339,7 @@ export function buildMcpMetaTools(
           toolArgs && typeof toolArgs === 'object' ? toolArgs : {},
           matched?.inputSchema
         );
-        const prepared = prepareProjectScopedMcpArgs(toolName, leanArgs, division);
+        const prepared = prepareProjectScopedMcpArgs(toolName, leanArgs, division, linkage);
         if (prepared.kind === 'block') {
           emitProjectScopeBlock(onProjectScopeViolation, prepared, toolName, division, sessionId);
           onLaunchPadProgress?.({
@@ -356,7 +359,7 @@ export function buildMcpMetaTools(
         });
         const text = prepared.filterResult
           ? compressToolResultTextForModel(
-              applyProjectScopedMcpResultFilter(toolName, normalizedResult.text, division)
+              applyCompanyProjectScopedMcpResultFilter(toolName, normalizedResult.text, division)
             )
           : normalizedResult.text;
         onLaunchPadProgress?.({
@@ -416,6 +419,7 @@ export function selectCustomToolsForModel(input: {
   sessionId?: string | null;
   /** Records LaunchPad start/poll MCP calls for incomplete-turn wait/continue. */
   onLaunchPadProgress?: OnLaunchPadProgressRecord | null;
+  linkage?: ProjectLinkageMetadata;
 }): SelectCustomToolsResult {
   const {
     api,
@@ -430,6 +434,7 @@ export function selectCustomToolsForModel(input: {
     onProjectScopeViolation,
     sessionId,
     onLaunchPadProgress,
+    linkage,
   } = input;
   const mcpNames = mcpTools.map((t) => t.name);
   const totalIfFlat = builtInToolCount + mcpTools.length + extensionTools.length;
@@ -458,7 +463,8 @@ export function selectCustomToolsForModel(input: {
       division,
       onProjectScopeViolation,
       sessionId,
-      onLaunchPadProgress
+      onLaunchPadProgress,
+      linkage
     );
   } else {
     metaTools = parentMetaTools;

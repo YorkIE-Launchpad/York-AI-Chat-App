@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { Loader2, Search, X } from 'lucide-react';
-import type { ChatSearchHit } from '../../shared/chat-search';
+import { useAppStore } from '../store';
+import type { ChatSearchHit, ChatSearchScope } from '../../shared/chat-search';
 import { chatSearchHitToDivisionFields } from '../../shared/chat-search';
 import { activeDivisionFromSession, divisionLabel } from '../../shared/workspace-division';
 
@@ -26,11 +27,13 @@ function formatHitDate(timestamp: number): string {
 
 export function ChatSearchModal({ open, onClose, onSelect }: ChatSearchModalProps) {
   const { t } = useTranslation();
+  const activeDivision = useAppStore((s) => s.activeDivision);
   const [query, setQuery] = useState('');
   const [hits, setHits] = useState<ChatSearchHit[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [searchScope, setSearchScope] = useState<ChatSearchScope>('workspace');
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -38,7 +41,7 @@ export function ChatSearchModal({ open, onClose, onSelect }: ChatSearchModalProp
       setQuery('');
       setHits([]);
       setError(null);
-      setSelectedIndex(0);
+      setSearchScope('workspace');
       return;
     }
     const frame = requestAnimationFrame(() => inputRef.current?.focus());
@@ -59,7 +62,10 @@ export function ChatSearchModal({ open, onClose, onSelect }: ChatSearchModalProp
     const timer = window.setTimeout(() => {
       void (async () => {
         try {
-          const next = await window.electronAPI.session.searchChats(trimmed, 30);
+          const next = await window.electronAPI.session.searchChats(trimmed, 30, {
+            scope: searchScope,
+            activeDivision,
+          });
           if (!cancelled) {
             setHits(next);
             setSelectedIndex(0);
@@ -79,7 +85,7 @@ export function ChatSearchModal({ open, onClose, onSelect }: ChatSearchModalProp
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [open, query]);
+  }, [open, query, searchScope, activeDivision]);
 
   const choose = useCallback(
     (hit: ChatSearchHit) => {
@@ -141,6 +147,20 @@ export function ChatSearchModal({ open, onClose, onSelect }: ChatSearchModalProp
             aria-label={t('sidebar.searchAllTitle')}
           />
           {busy && <Loader2 className="h-4 w-4 animate-spin text-text-muted" />}
+          <button
+            type="button"
+            onClick={() =>
+              setSearchScope((scope) => (scope === 'workspace' ? 'all' : 'workspace'))
+            }
+            className={`rounded-lg border px-2 py-1 text-[10px] font-medium transition-colors ${
+              searchScope === 'all'
+                ? 'border-accent/40 bg-accent/10 text-accent'
+                : 'border-border-subtle text-text-muted hover:bg-surface-hover'
+            }`}
+            title={searchScope === 'all' ? 'Searching all workspaces' : 'Searching this workspace only'}
+          >
+            {searchScope === 'all' ? 'All' : 'Here'}
+          </button>
           <button
             type="button"
             onClick={onClose}

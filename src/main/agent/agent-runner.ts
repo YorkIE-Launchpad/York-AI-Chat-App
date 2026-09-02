@@ -137,9 +137,12 @@ import {
   isProviderAllowedInDivision,
   type SessionDivisionFields,
 } from '../../shared/workspace-division';
-import { applyProjectScopedMcpResultFilter } from '../../shared/project-mcp-scope';
+import { applyCompanyProjectScopedMcpResultFilter } from '../../shared/company-project-mcp-scope';
 import { prepareCompanyProjectScopedMcpArgs as prepareProjectScopedMcpArgs } from '../../shared/company-project-mcp-scope';
+import { buildConnectorScopePromptLines } from '../../shared/connector-project-scope';
 import type { OnProjectScopeViolation } from '../../shared/project-mcp-scope';
+import { prefetchSessionProjectLinkage, linkageForSession } from '../hub/project-linkage-cache';
+import type { ProjectLinkageMetadata } from '../../shared/project-linkage-metadata';
 import {
   createProjectScopeViolationReporter,
   emitProjectScopeBlock,
@@ -538,7 +541,8 @@ function buildMcpCustomTools(
   division?: Partial<SessionDivisionFields> | null,
   onProjectScopeViolation?: OnProjectScopeViolation | null,
   sessionId?: string | null,
-  onLaunchPadProgress?: OnLaunchPadProgressRecord | null
+  onLaunchPadProgress?: OnLaunchPadProgressRecord | null,
+  linkage?: ProjectLinkageMetadata
 ): ToolDefinition[] {
   const mcpTools = mcpManager.getTools();
   return mcpTools.map((mcpTool) => {
@@ -556,7 +560,7 @@ function buildMcpCustomTools(
       async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
         try {
           const leanArgs = leanMcpToolArgs(params as Record<string, unknown>, mcpTool.inputSchema);
-          const prepared = prepareProjectScopedMcpArgs(mcpTool.name, leanArgs, division);
+          const prepared = prepareProjectScopedMcpArgs(mcpTool.name, leanArgs, division, linkage);
           if (prepared.kind === 'block') {
             emitProjectScopeBlock(
               onProjectScopeViolation,
@@ -582,7 +586,7 @@ function buildMcpCustomTools(
           });
           const text = prepared.filterResult
             ? compressToolResultTextForModel(
-                applyProjectScopedMcpResultFilter(mcpTool.name, normalizedResult.text, division)
+                applyCompanyProjectScopedMcpResultFilter(mcpTool.name, normalizedResult.text, division)
               )
             : normalizedResult.text;
           onLaunchPadProgress?.({
@@ -2414,6 +2418,10 @@ ${hints.join('\n')}
       });
       // Fresh progress each prompt; tool execute closures look up by session id.
       const onLaunchPadProgress = this.beginLaunchPadProgress(session.id);
+      if (this.mcpManager) {
+        await prefetchSessionProjectLinkage(this.mcpManager, session);
+      }
+      const sessionLinkage = linkageForSession(session);
       const mcpCustomTools = this.mcpManager
         ? filterMcpToolsForDivision(
             buildMcpCustomTools(
@@ -2421,7 +2429,8 @@ ${hints.join('\n')}
               session,
               onProjectScopeViolation,
               session.id,
-              onLaunchPadProgress
+              onLaunchPadProgress,
+              sessionLinkage
             ),
             session
           )
@@ -2440,6 +2449,7 @@ ${hints.join('\n')}
         onProjectScopeViolation,
         sessionId: session.id,
         onLaunchPadProgress,
+        linkage: sessionLinkage,
       });
       const withThink = withThinkToolIfEnabled(
         enableThinking,
@@ -2877,6 +2887,9 @@ This folder is for local files only. LaunchPad implement/preview and other remot
       const coworkAppendPrompt = [
         'You are a York IE VECOS assistant. Be concise, accurate, and tool-capable.',
         buildDivisionSystemPrompt(session, { folderInstructions }),
+        session.division === 'project' || session.division === 'client'
+          ? buildConnectorScopePromptLines(sessionLinkage)
+          : '',
         thinkingModePrompt,
         `CRITICAL BEHAVIORAL RULES:
 1. CHAT FIRST: Reply in conversation text unless the user asked to create, edit, or save a local file. CHAT FIRST does not block MCP tools (Hub, LaunchPad, Slack, Gmail, Calendar, etc.) when the user actually asked for work.

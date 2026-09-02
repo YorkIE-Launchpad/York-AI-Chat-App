@@ -5,6 +5,7 @@ import {
   buildScheduledTaskTitle,
 } from '../../shared/schedule/task-title';
 import { scheduleBindingToStartOptions } from './scheduled-task-store';
+import type { SessionDivisionFields } from '../../shared/workspace-division';
 
 export interface ExecuteScheduledTaskDeps {
   sessionManager: SessionManager;
@@ -12,6 +13,10 @@ export interface ExecuteScheduledTaskDeps {
   updateTaskTitle: (taskId: string, title: string) => void;
   /** Return an error message if cwd is unsupported. */
   validateCwd?: (cwd: string) => string | null;
+  /** Re-validate workspace binding against current allocations before starting a session. */
+  validateWorkspaceBinding?: (
+    task: ScheduledTask
+  ) => Promise<SessionDivisionFields>;
   /** Notify renderer of a newly created session (GUI only). */
   onSessionStarted?: (session: Awaited<ReturnType<SessionManager['startSession']>>) => void;
   /** When true, return empty sessionId (headless). */
@@ -54,6 +59,9 @@ export async function executeScheduledTask(
   }
 
   const workspace = scheduleBindingToStartOptions(task);
+  const validatedWorkspace = deps.validateWorkspaceBinding
+    ? await deps.validateWorkspaceBinding(task)
+    : workspace;
   const started = await deps.sessionManager.startSession(
     title,
     task.prompt,
@@ -65,7 +73,7 @@ export async function executeScheduledTask(
       model: task.model,
       provider: task.provider,
       lockModel: true,
-      ...workspace,
+      ...validatedWorkspace,
     }
   );
   deps.onSessionStarted?.(started);

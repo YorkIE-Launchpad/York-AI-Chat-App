@@ -41,6 +41,11 @@ import { execFileSync } from 'child_process';
 import { config } from 'dotenv';
 import { initDatabase, closeDatabase } from './db/database';
 import { SessionManager } from './session/session-manager';
+import {
+  emitSessionDivisionDemotionNotice,
+  resolveValidatedSessionDivisionOptions,
+  validateSessionDivisionAgainstAllocations,
+} from './session/validate-session-division';
 import { SkillsManager } from './skills/skills-manager';
 import { HubSkillsLibraryService } from './skills/hub-skills-library-service';
 import {
@@ -138,6 +143,7 @@ import type { GatewayConfig, FeishuChannelConfig, ChannelType } from './remote/t
 import { startNavServer, stopNavServer } from './nav-server';
 import {
   ScheduledTaskManager,
+  type ScheduledTask,
   type ScheduledTaskCreateInput,
   type ScheduledTaskUpdateInput,
 } from './schedule/scheduled-task-manager';
@@ -491,6 +497,16 @@ async function resolveScheduledTaskTitle(
     logWarn('[Schedule] Failed to generate title via session title flow, using fallback', error);
     return fallback;
   }
+}
+
+async function validateScheduledTaskWorkspaceBinding(
+  task: ScheduledTaskCreateInput | ScheduledTask
+) {
+  const validated = await validateSessionDivisionAgainstAllocations(task, initDatabase());
+  if (validated.demoted) {
+    emitSessionDivisionDemotionNotice(sendToRenderer, validated.reason);
+  }
+  return validated.fields;
 }
 
 async function waitForDevServer(url: string, maxAttempts = 30, intervalMs = 500): Promise<boolean> {
@@ -1667,6 +1683,7 @@ app
               headlessScheduledTaskStore.update(taskId, { title });
             },
             validateCwd: getWorkspacePathUnsupportedReason,
+            validateWorkspaceBinding: validateScheduledTaskWorkspaceBinding,
             omitSessionId: true,
           });
         },
@@ -2161,6 +2178,7 @@ app
             scheduledTaskStore.update(taskId, { title });
           },
           validateCwd: getWorkspacePathUnsupportedReason,
+          validateWorkspaceBinding: validateScheduledTaskWorkspaceBinding,
           onSessionStarted: (started) => {
             sendToRenderer({
               type: 'session.update',
@@ -2305,6 +2323,10 @@ app
         const divisionOpts = def
           ? workflowBindingToStartOptions(def)
           : { division: 'general' as const };
+        const validatedDivision = await resolveValidatedSessionDivisionOptions(divisionOpts, {
+          db: initDatabase(),
+          sendToRenderer,
+        });
         const lockedModel = model?.trim() || undefined;
         const lockedProvider = provider?.trim() || undefined;
         const started = await sessionManager.startSession(
@@ -2315,7 +2337,7 @@ app
           undefined,
           undefined,
           {
-            ...divisionOpts,
+            ...validatedDivision,
             ...(lockedModel
               ? {
                   model: lockedModel,
@@ -4809,10 +4831,25 @@ ipcMain.handle('schedule.create', async (_event, payload: ScheduledTaskCreateInp
   }
   const normalizedPrompt = payload.prompt.trim();
   const title = await resolveScheduledTaskTitle(normalizedPrompt, payload.cwd, payload.title);
+  const divisionValidated = await validateSessionDivisionAgainstAllocations(payload, initDatabase());
+  if (divisionValidated.demoted) {
+    emitSessionDivisionDemotionNotice(sendToRenderer, divisionValidated.reason);
+  }
+  const binding = divisionValidated.fields;
   return scheduledTaskManager.create({
     ...payload,
     prompt: normalizedPrompt,
     title,
+    division: binding.division,
+    hubProjectId: binding.hubProjectId,
+    hubProjectName: binding.hubProjectName,
+    launchpadProjectId: binding.launchpadProjectId,
+    launchpadProjectName: binding.launchpadProjectName,
+    folderId: binding.folderId,
+    folderName: binding.folderName,
+    canonicalKey: binding.canonicalKey,
+    clientName: binding.clientName,
+    clientProjectIds: binding.clientProjectIds,
   });
 });
 
@@ -4842,6 +4879,37 @@ ipcMain.handle('schedule.update', async (_event, id: string, updates: ScheduledT
   } else if (updates.title !== undefined) {
     normalizedUpdates.title = buildScheduledTaskTitle(updates.title);
   }
+
+  const mergedBinding = {
+    division: updates.division ?? existing.division,
+    hubProjectId: updates.hubProjectId ?? existing.hubProjectId,
+    hubProjectName: updates.hubProjectName ?? existing.hubProjectName,
+    launchpadProjectId: updates.launchpadProjectId ?? existing.launchpadProjectId,
+    launchpadProjectName: updates.launchpadProjectName ?? existing.launchpadProjectName,
+    folderId: updates.folderId ?? existing.folderId,
+    folderName: updates.folderName ?? existing.folderName,
+    canonicalKey: updates.canonicalKey ?? existing.canonicalKey,
+    clientName: updates.clientName ?? existing.clientName,
+    clientProjectIds: updates.clientProjectIds ?? existing.clientProjectIds,
+  };
+  const divisionValidated = await validateSessionDivisionAgainstAllocations(
+    mergedBinding,
+    initDatabase()
+  );
+  if (divisionValidated.demoted) {
+    emitSessionDivisionDemotionNotice(sendToRenderer, divisionValidated.reason);
+  }
+  const binding = divisionValidated.fields;
+  normalizedUpdates.division = binding.division;
+  normalizedUpdates.hubProjectId = binding.hubProjectId;
+  normalizedUpdates.hubProjectName = binding.hubProjectName;
+  normalizedUpdates.launchpadProjectId = binding.launchpadProjectId;
+  normalizedUpdates.launchpadProjectName = binding.launchpadProjectName;
+  normalizedUpdates.folderId = binding.folderId;
+  normalizedUpdates.folderName = binding.folderName;
+  normalizedUpdates.canonicalKey = binding.canonicalKey;
+  normalizedUpdates.clientName = binding.clientName;
+  normalizedUpdates.clientProjectIds = binding.clientProjectIds;
 
   return scheduledTaskManager.update(id, normalizedUpdates);
 });
@@ -5191,7 +5259,7 @@ ipcMain.handle('workflows.get', (_event, id: string) => {
 });
 ipcMain.handle(
   'workflows.create',
-  (
+  async (
     _event,
     payload: {
       name: string;
@@ -5206,15 +5274,34 @@ ipcMain.handle(
       folderId?: string | null;
       folderName?: string | null;
       canonicalKey?: string | null;
+      clientName?: string | null;
+      clientProjectIds?: string | null;
     }
   ) => {
     if (!workflowService) throw new Error('Workflow service not initialized');
-    return workflowService.create(payload);
+    const divisionValidated = await validateSessionDivisionAgainstAllocations(payload, initDatabase());
+    if (divisionValidated.demoted) {
+      emitSessionDivisionDemotionNotice(sendToRenderer, divisionValidated.reason);
+    }
+    const binding = divisionValidated.fields;
+    return workflowService.create({
+      ...payload,
+      division: binding.division,
+      hubProjectId: binding.hubProjectId,
+      hubProjectName: binding.hubProjectName,
+      launchpadProjectId: binding.launchpadProjectId,
+      launchpadProjectName: binding.launchpadProjectName,
+      folderId: binding.folderId,
+      folderName: binding.folderName,
+      canonicalKey: binding.canonicalKey,
+      clientName: binding.clientName,
+      clientProjectIds: binding.clientProjectIds,
+    });
   }
 );
 ipcMain.handle(
   'workflows.update',
-  (
+  async (
     _event,
     id: string,
     updates: {
@@ -5230,10 +5317,46 @@ ipcMain.handle(
       folderId?: string | null;
       folderName?: string | null;
       canonicalKey?: string | null;
+      clientName?: string | null;
+      clientProjectIds?: string | null;
     }
   ) => {
     if (!workflowService) throw new Error('Workflow service not initialized');
-    return workflowService.update(id, updates);
+    const existing = workflowService.get(id);
+    if (!existing) return null;
+    const mergedBinding = {
+      division: updates.division ?? existing.division,
+      hubProjectId: updates.hubProjectId ?? existing.hubProjectId,
+      hubProjectName: updates.hubProjectName ?? existing.hubProjectName,
+      launchpadProjectId: updates.launchpadProjectId ?? existing.launchpadProjectId,
+      launchpadProjectName: updates.launchpadProjectName ?? existing.launchpadProjectName,
+      folderId: updates.folderId ?? existing.folderId,
+      folderName: updates.folderName ?? existing.folderName,
+      canonicalKey: updates.canonicalKey ?? existing.canonicalKey,
+      clientName: updates.clientName ?? existing.clientName,
+      clientProjectIds: updates.clientProjectIds ?? existing.clientProjectIds,
+    };
+    const divisionValidated = await validateSessionDivisionAgainstAllocations(
+      mergedBinding,
+      initDatabase()
+    );
+    if (divisionValidated.demoted) {
+      emitSessionDivisionDemotionNotice(sendToRenderer, divisionValidated.reason);
+    }
+    const binding = divisionValidated.fields;
+    return workflowService.update(id, {
+      ...updates,
+      division: binding.division,
+      hubProjectId: binding.hubProjectId,
+      hubProjectName: binding.hubProjectName,
+      launchpadProjectId: binding.launchpadProjectId,
+      launchpadProjectName: binding.launchpadProjectName,
+      folderId: binding.folderId,
+      folderName: binding.folderName,
+      canonicalKey: binding.canonicalKey,
+      clientName: binding.clientName,
+      clientProjectIds: binding.clientProjectIds,
+    });
   }
 );
 ipcMain.handle('workflows.delete', (_event, id: string) => {
@@ -5715,27 +5838,35 @@ async function handleClientEvent(event: ClientEvent): Promise<unknown> {
         });
         return null;
       }
-      return sm.startSession(
-        event.payload.title,
-        event.payload.prompt,
-        event.payload.cwd,
-        event.payload.allowedTools,
-        event.payload.content,
-        event.payload.incognito ? false : event.payload.memoryEnabled,
-        {
-          division: event.payload.division,
-          hubProjectId: event.payload.hubProjectId,
-          hubProjectName: event.payload.hubProjectName,
-          launchpadProjectId: event.payload.launchpadProjectId,
-          launchpadProjectName: event.payload.launchpadProjectName,
-          folderId: event.payload.folderId,
-          folderName: event.payload.folderName,
-          canonicalKey: event.payload.canonicalKey,
-          clientName: event.payload.clientName,
-          clientProjectIds: event.payload.clientProjectIds,
-          incognito: event.payload.incognito === true,
-        }
-      );
+      {
+        const divisionOpts = await resolveValidatedSessionDivisionOptions(
+          {
+            division: event.payload.division,
+            hubProjectId: event.payload.hubProjectId,
+            hubProjectName: event.payload.hubProjectName,
+            launchpadProjectId: event.payload.launchpadProjectId,
+            launchpadProjectName: event.payload.launchpadProjectName,
+            folderId: event.payload.folderId,
+            folderName: event.payload.folderName,
+            canonicalKey: event.payload.canonicalKey,
+            clientName: event.payload.clientName,
+            clientProjectIds: event.payload.clientProjectIds,
+          },
+          { db: initDatabase(), sendToRenderer }
+        );
+        return sm.startSession(
+          event.payload.title,
+          event.payload.prompt,
+          event.payload.cwd,
+          event.payload.allowedTools,
+          event.payload.content,
+          event.payload.incognito ? false : event.payload.memoryEnabled,
+          {
+            ...divisionOpts,
+            incognito: event.payload.incognito === true,
+          }
+        );
+      }
 
     case 'session.create':
       if (getWorkspacePathUnsupportedReason(event.payload.cwd)) {
@@ -5747,25 +5878,33 @@ async function handleClientEvent(event: ClientEvent): Promise<unknown> {
         });
         return null;
       }
-      return sm.createIdleSession(
-        event.payload.title,
-        event.payload.cwd,
-        event.payload.allowedTools,
-        event.payload.incognito ? false : event.payload.memoryEnabled,
-        {
-          division: event.payload.division,
-          hubProjectId: event.payload.hubProjectId,
-          hubProjectName: event.payload.hubProjectName,
-          launchpadProjectId: event.payload.launchpadProjectId,
-          launchpadProjectName: event.payload.launchpadProjectName,
-          folderId: event.payload.folderId,
-          folderName: event.payload.folderName,
-          canonicalKey: event.payload.canonicalKey,
-          clientName: event.payload.clientName,
-          clientProjectIds: event.payload.clientProjectIds,
-          incognito: event.payload.incognito === true,
-        }
-      );
+      {
+        const divisionOpts = await resolveValidatedSessionDivisionOptions(
+          {
+            division: event.payload.division,
+            hubProjectId: event.payload.hubProjectId,
+            hubProjectName: event.payload.hubProjectName,
+            launchpadProjectId: event.payload.launchpadProjectId,
+            launchpadProjectName: event.payload.launchpadProjectName,
+            folderId: event.payload.folderId,
+            folderName: event.payload.folderName,
+            canonicalKey: event.payload.canonicalKey,
+            clientName: event.payload.clientName,
+            clientProjectIds: event.payload.clientProjectIds,
+          },
+          { db: initDatabase(), sendToRenderer }
+        );
+        return sm.createIdleSession(
+          event.payload.title,
+          event.payload.cwd,
+          event.payload.allowedTools,
+          event.payload.incognito ? false : event.payload.memoryEnabled,
+          {
+            ...divisionOpts,
+            incognito: event.payload.incognito === true,
+          }
+        );
+      }
 
     case 'session.continue':
       return sm.continueSession(
@@ -5815,7 +5954,10 @@ async function handleClientEvent(event: ClientEvent): Promise<unknown> {
       return sm.getContextUsage(event.payload.sessionId);
 
     case 'session.searchChats':
-      return sm.searchChats(event.payload.query, event.payload.limit);
+      return sm.searchChats(event.payload.query, event.payload.limit, {
+        scope: event.payload.scope,
+        activeDivision: event.payload.activeDivision ?? null,
+      });
 
     case 'permission.response': {
       const pending = pendingWorkflowApprovals.get(event.payload.toolUseId);

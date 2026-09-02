@@ -6,6 +6,7 @@
 import {
   canonicalKeyForUnified,
   clientCanonicalKey,
+  groupUnifiedProjectsByClient,
   hubCanonicalKey,
   launchpadCanonicalKey,
   type CompanyProjectSources,
@@ -257,6 +258,137 @@ export function resolveProjectAllowlist(
     return { hubIds, launchpadIds };
   }
   return null;
+}
+
+/** Catalog snapshot for validating session division fields against user allocations. */
+export interface DivisionValidationCatalog {
+  projects: UnifiedCompanyProject[];
+  folderIds: Set<string>;
+}
+
+export type DivisionCatalogMatchResult =
+  | { valid: true }
+  | { valid: false; reason: string };
+
+function catalogMaps(projects: UnifiedCompanyProject[]): {
+  byHubId: Map<string, UnifiedCompanyProject>;
+  byLaunchpadId: Map<number, UnifiedCompanyProject>;
+  byCanonicalKey: Map<string, UnifiedCompanyProject>;
+} {
+  const byHubId = new Map<string, UnifiedCompanyProject>();
+  const byLaunchpadId = new Map<number, UnifiedCompanyProject>();
+  const byCanonicalKey = new Map<string, UnifiedCompanyProject>();
+  for (const project of projects) {
+    const key = canonicalKeyForUnified(project);
+    byCanonicalKey.set(key, project);
+    if (project.hubProjectId?.trim()) {
+      byHubId.set(project.hubProjectId.trim(), project);
+    }
+    if (project.launchpadProjectId != null && Number.isFinite(project.launchpadProjectId)) {
+      byLaunchpadId.set(project.launchpadProjectId, project);
+    }
+  }
+  return { byHubId, byLaunchpadId, byCanonicalKey };
+}
+
+/**
+ * Pure check: do session division fields match the user's allocated project/folder catalog?
+ * general/hub divisions always pass. Invalid shapes should be caught by normalizeSessionDivision first.
+ */
+export function divisionFieldsMatchCatalog(
+  input: Partial<SessionDivisionFields> | null | undefined,
+  catalog: DivisionValidationCatalog
+): DivisionCatalogMatchResult {
+  const normalized = normalizeSessionDivision(input);
+  const { division } = normalized;
+
+  if (division === 'general' || division === 'hub') {
+    return { valid: true };
+  }
+
+  if (division === 'folder') {
+    const folderId = normalized.folderId?.trim();
+    if (!folderId || !catalog.folderIds.has(folderId)) {
+      return { valid: false, reason: 'folder not owned by user' };
+    }
+    return { valid: true };
+  }
+
+  const { byHubId, byLaunchpadId, byCanonicalKey } = catalogMaps(catalog.projects);
+
+  if (division === 'project') {
+    const hubId = normalized.hubProjectId?.trim() || null;
+    const lpId = normalized.launchpadProjectId;
+    if (!hubId && lpId == null) {
+      return { valid: false, reason: 'project division missing ids' };
+    }
+    if (hubId && !byHubId.has(hubId)) {
+      return { valid: false, reason: 'hub project not allocated' };
+    }
+    if (lpId != null && !byLaunchpadId.has(lpId)) {
+      return { valid: false, reason: 'launchpad project not allocated' };
+    }
+    if (hubId && lpId != null) {
+      const hubProject = byHubId.get(hubId);
+      const lpProject = byLaunchpadId.get(lpId);
+      if (
+        hubProject &&
+        lpProject &&
+        canonicalKeyForUnified(hubProject) !== canonicalKeyForUnified(lpProject)
+      ) {
+        return { valid: false, reason: 'hub and launchpad ids refer to different projects' };
+      }
+    }
+    const canonical = normalized.canonicalKey?.trim();
+    if (canonical && !byCanonicalKey.has(canonical)) {
+      return { valid: false, reason: 'canonical project key not in catalog' };
+    }
+    return { valid: true };
+  }
+
+  if (division === 'client') {
+    const clientName = normalized.clientName?.trim();
+    if (!clientName) {
+      return { valid: false, reason: 'client division missing client name' };
+    }
+    const expectedKey = clientCanonicalKey(clientName);
+    if (normalized.canonicalKey?.trim() && normalized.canonicalKey.trim() !== expectedKey) {
+      return { valid: false, reason: 'client canonical key mismatch' };
+    }
+    const clientProjects = parseClientDivisionProjects(normalized.clientProjectIds);
+    if (!clientProjects.length) {
+      return { valid: false, reason: 'client division missing projects' };
+    }
+    const groups = groupUnifiedProjectsByClient(catalog.projects);
+    const group = groups.find((g) => g.canonicalKey === expectedKey);
+    if (!group) {
+      return { valid: false, reason: 'client not in allocated catalog' };
+    }
+    const groupKeys = new Set(group.projects.map((p) => canonicalKeyForUnified(p)));
+    const groupHubIds = new Set(
+      group.projects.map((p) => p.hubProjectId?.trim()).filter(Boolean) as string[]
+    );
+    const groupLpIds = new Set(
+      group.projects
+        .map((p) => p.launchpadProjectId)
+        .filter((id): id is number => id != null && Number.isFinite(id))
+    );
+    for (const entry of clientProjects) {
+      if (groupKeys.has(entry.canonicalKey)) continue;
+      if (entry.hubProjectId?.trim() && groupHubIds.has(entry.hubProjectId.trim())) continue;
+      if (
+        entry.launchpadProjectId != null &&
+        Number.isFinite(entry.launchpadProjectId) &&
+        groupLpIds.has(entry.launchpadProjectId)
+      ) {
+        continue;
+      }
+      return { valid: false, reason: `client project not allocated: ${entry.name}` };
+    }
+    return { valid: true };
+  }
+
+  return { valid: true };
 }
 
 export function normalizeSessionDivision(

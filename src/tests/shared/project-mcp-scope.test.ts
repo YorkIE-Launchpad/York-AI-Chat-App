@@ -190,6 +190,28 @@ describe('project-mcp-scope', () => {
     expect(prepared.kind).toBe('block');
   });
 
+  it('blocks get_project in client division when project id omitted', () => {
+    const prepared = prepareProjectScopedMcpArgs(
+      'mcp__York_IE_HUB__get_project',
+      {},
+      clientSession
+    );
+    expect(prepared.kind).toBe('block');
+  });
+
+  it('blocks all Hub MCP tools for LP-only project division', () => {
+    const prepared = prepareProjectScopedMcpArgs(
+      'mcp__York_IE_HUB__list_projects',
+      {},
+      {
+        division: 'project',
+        launchpadProjectId: 42,
+        canonicalKey: 'lp:42',
+      }
+    );
+    expect(prepared.kind).toBe('block');
+  });
+
   it('filters list_projects to all client allowlisted ids', () => {
     const payload = JSON.stringify([
       { id: 'coach-uuid', title: 'Portal' },

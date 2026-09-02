@@ -39,7 +39,7 @@ export function needsOpenRouterUserKey(
   if (isOpenRouterUserKeyWorkspace(division)) {
     return !hasOpenRouterUserApiKey(openRouterUserApiKey);
   }
-  if (division?.kind === 'hub' || division?.kind === 'project') {
+  if (division?.kind === 'hub' || division?.kind === 'project' || division?.kind === 'client') {
     if (!options?.budgetReady) return false;
     if (options.activeSource === 'none') {
       return !hasOpenRouterUserApiKey(openRouterUserApiKey);

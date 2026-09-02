@@ -56,6 +56,7 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
   const [loadingFolders, setLoadingFolders] = useState(false);
   const [projectsError, setProjectsError] = useState<string | null>(null);
   const [staleProjectWarning, setStaleProjectWarning] = useState<string | null>(null);
+  const [staleClientWarning, setStaleClientWarning] = useState<string | null>(null);
   const [newFolderName, setNewFolderName] = useState('');
   const [projectQuery, setProjectQuery] = useState('');
   const [clientQuery, setClientQuery] = useState('');
@@ -169,6 +170,42 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
         });
       } else {
         setStaleProjectWarning(null);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeDivision, loadProjects]);
+
+  useEffect(() => {
+    if (activeDivision?.kind !== 'client') {
+      setStaleClientWarning(null);
+      return;
+    }
+
+    const division = activeDivision;
+    const activeKey = division.canonicalKey;
+    const clientName = division.clientName || 'This client';
+    let cancelled = false;
+
+    void (async () => {
+      const loaded = await loadProjects();
+      if (cancelled) return;
+
+      const groups = groupUnifiedProjectsByClient(loaded);
+      const found = groups.some((g) => g.canonicalKey === activeKey);
+      if (!found) {
+        const message = `"${clientName}" is no longer in your client list. Project lookups may fail — select another client in the sidebar.`;
+        setStaleClientWarning(message);
+        useAppStore.getState().setGlobalNotice({
+          id: `stale-client:${activeKey}`,
+          type: 'warning',
+          message,
+          durationMs: 12_000,
+        });
+      } else {
+        setStaleClientWarning(null);
       }
     })();
 
@@ -348,6 +385,11 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
       {staleProjectWarning && !menuOpen && (
         <p className="mt-1 px-0.5 text-[10px] leading-snug text-amber-700 dark:text-amber-300">
           {staleProjectWarning}
+        </p>
+      )}
+      {staleClientWarning && !menuOpen && (
+        <p className="mt-1 px-0.5 text-[10px] leading-snug text-amber-700 dark:text-amber-300">
+          {staleClientWarning}
         </p>
       )}
 
