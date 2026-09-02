@@ -1,17 +1,18 @@
 /**
- * Workspace divisions: General / Hub / Project / Folder.
+ * Workspace divisions: General / Hub / Project / Client / Folder.
  * Chats + experience memory are isolated per division; core memory stays global.
  */
 
 import {
   canonicalKeyForUnified,
+  clientCanonicalKey,
   hubCanonicalKey,
   launchpadCanonicalKey,
   type CompanyProjectSources,
   type UnifiedCompanyProject,
 } from './unified-company-projects';
 
-export type WorkspaceDivisionKind = 'general' | 'hub' | 'project' | 'folder';
+export type WorkspaceDivisionKind = 'general' | 'hub' | 'project' | 'client' | 'folder';
 
 export interface ActiveDivisionGeneral {
   kind: 'general';
@@ -38,10 +39,25 @@ export interface ActiveDivisionProject {
   sources: CompanyProjectSources;
 }
 
+export interface ClientDivisionProject {
+  name: string;
+  hubProjectId?: string;
+  launchpadProjectId?: number;
+  canonicalKey: string;
+}
+
+export interface ActiveDivisionClient {
+  kind: 'client';
+  canonicalKey: string;
+  clientName: string;
+  projects: ClientDivisionProject[];
+}
+
 export type ActiveDivision =
   | ActiveDivisionGeneral
   | ActiveDivisionHub
   | ActiveDivisionProject
+  | ActiveDivisionClient
   | ActiveDivisionFolder;
 
 export interface SessionDivisionFields {
@@ -53,6 +69,9 @@ export interface SessionDivisionFields {
   folderId?: string | null;
   folderName?: string | null;
   canonicalKey?: string | null;
+  clientName?: string | null;
+  /** JSON array of ClientDivisionProject when division === 'client'. */
+  clientProjectIds?: string | null;
 }
 
 export interface AllocatedHubProject {
@@ -60,6 +79,7 @@ export interface AllocatedHubProject {
   name: string;
   hours?: number;
   title?: string;
+  clientName?: string;
 }
 
 export interface PersonalFolder {
@@ -73,7 +93,13 @@ export interface PersonalFolder {
 export const DIVISION_STORAGE_KEY = 'yorkie.activeDivision';
 
 export function parseDivisionKind(value: unknown): WorkspaceDivisionKind {
-  if (value === 'hub' || value === 'project' || value === 'general' || value === 'folder') {
+  if (
+    value === 'hub' ||
+    value === 'project' ||
+    value === 'client' ||
+    value === 'general' ||
+    value === 'folder'
+  ) {
     return value;
   }
   return 'general';
@@ -127,6 +153,112 @@ export function activeDivisionFromUnifiedProject(
   };
 }
 
+export function clientDivisionProjectFromUnified(
+  project: UnifiedCompanyProject
+): ClientDivisionProject {
+  return {
+    name: project.name,
+    hubProjectId: project.hubProjectId,
+    launchpadProjectId: project.launchpadProjectId,
+    canonicalKey: canonicalKeyForUnified(project),
+  };
+}
+
+export function clientDivisionFromProjects(
+  clientName: string,
+  projects: UnifiedCompanyProject[]
+): ActiveDivisionClient {
+  const trimmed = clientName.trim();
+  return {
+    kind: 'client',
+    canonicalKey: clientCanonicalKey(trimmed),
+    clientName: trimmed,
+    projects: projects.map(clientDivisionProjectFromUnified),
+  };
+}
+
+export function serializeClientDivisionProjects(projects: ClientDivisionProject[]): string {
+  return JSON.stringify(projects);
+}
+
+export function parseClientDivisionProjects(
+  raw: string | null | undefined
+): ClientDivisionProject[] {
+  if (!raw?.trim()) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    const out: ClientDivisionProject[] = [];
+    for (const item of parsed) {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+      const rec = item as Record<string, unknown>;
+      const name = parseOptionalString(rec.name);
+      const hubProjectId = parseOptionalString(rec.hubProjectId);
+      const launchpadProjectId = parseOptionalNumber(rec.launchpadProjectId);
+      const canonicalKey =
+        parseOptionalString(rec.canonicalKey) ||
+        (hubProjectId
+          ? hubCanonicalKey(hubProjectId)
+          : launchpadProjectId != null
+            ? launchpadCanonicalKey(launchpadProjectId)
+            : null);
+      if (!name || !canonicalKey) continue;
+      out.push({
+        name,
+        canonicalKey,
+        ...(hubProjectId ? { hubProjectId } : {}),
+        ...(launchpadProjectId != null ? { launchpadProjectId } : {}),
+      });
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+function emptyDivisionFields(division: WorkspaceDivisionKind = 'general'): SessionDivisionFields {
+  return {
+    division,
+    hubProjectId: null,
+    hubProjectName: null,
+    launchpadProjectId: null,
+    launchpadProjectName: null,
+    folderId: null,
+    folderName: null,
+    canonicalKey: null,
+    clientName: null,
+    clientProjectIds: null,
+  };
+}
+
+/** Hub + LaunchPad project ids allowed for project/client division MCP scoping. */
+export function resolveProjectAllowlist(
+  session: Partial<SessionDivisionFields> | null | undefined
+): { hubIds: Set<string>; launchpadIds: Set<number> } | null {
+  const normalized = normalizeSessionDivision(session);
+  if (normalized.division === 'project') {
+    const hubIds = new Set<string>();
+    const launchpadIds = new Set<number>();
+    if (normalized.hubProjectId) hubIds.add(normalized.hubProjectId);
+    if (normalized.launchpadProjectId != null) launchpadIds.add(normalized.launchpadProjectId);
+    if (hubIds.size === 0 && launchpadIds.size === 0) return null;
+    return { hubIds, launchpadIds };
+  }
+  if (normalized.division === 'client') {
+    const projects = parseClientDivisionProjects(normalized.clientProjectIds);
+    if (!projects.length) return null;
+    const hubIds = new Set<string>();
+    const launchpadIds = new Set<number>();
+    for (const project of projects) {
+      if (project.hubProjectId) hubIds.add(project.hubProjectId);
+      if (project.launchpadProjectId != null) launchpadIds.add(project.launchpadProjectId);
+    }
+    if (hubIds.size === 0 && launchpadIds.size === 0) return null;
+    return { hubIds, launchpadIds };
+  }
+  return null;
+}
+
 export function normalizeSessionDivision(
   input?: Partial<SessionDivisionFields> | null
 ): SessionDivisionFields {
@@ -136,26 +268,32 @@ export function normalizeSessionDivision(
     const folderId = parseOptionalString(input?.folderId);
     const folderName = parseOptionalString(input?.folderName);
     if (!folderId) {
-      return {
-        division: 'general',
-        hubProjectId: null,
-        hubProjectName: null,
-        launchpadProjectId: null,
-        launchpadProjectName: null,
-        folderId: null,
-        folderName: null,
-        canonicalKey: null,
-      };
+      return emptyDivisionFields('general');
     }
     return {
-      division: 'folder',
-      hubProjectId: null,
-      hubProjectName: null,
-      launchpadProjectId: null,
-      launchpadProjectName: null,
+      ...emptyDivisionFields('folder'),
       folderId,
       folderName: folderName || folderId,
-      canonicalKey: null,
+    };
+  }
+
+  if (division === 'client') {
+    const clientName = parseOptionalString(input?.clientName);
+    const projects = parseClientDivisionProjects(input?.clientProjectIds ?? null);
+    if (!clientName || !projects.length) {
+      console.warn(
+        '[WorkspaceDivision] Client division demoted to general — missing clientName or projects',
+        { clientName: clientName ?? null }
+      );
+      return emptyDivisionFields('general');
+    }
+    const canonicalKey =
+      parseOptionalString(input?.canonicalKey) || clientCanonicalKey(clientName);
+    return {
+      ...emptyDivisionFields('client'),
+      clientName,
+      clientProjectIds: serializeClientDivisionProjects(projects),
+      canonicalKey,
     };
   }
 
@@ -173,16 +311,7 @@ export function normalizeSessionDivision(
           canonicalKey: input?.canonicalKey ?? null,
         }
       );
-      return {
-        division: 'general',
-        hubProjectId: null,
-        hubProjectName: null,
-        launchpadProjectId: null,
-        launchpadProjectName: null,
-        folderId: null,
-        folderName: null,
-        canonicalKey: null,
-      };
+      return emptyDivisionFields('general');
     }
 
     const canonicalKey =
@@ -192,41 +321,21 @@ export function normalizeSessionDivision(
         : launchpadCanonicalKey(launchpadProjectId as number));
 
     return {
-      division: 'project',
+      ...emptyDivisionFields('project'),
       hubProjectId,
       hubProjectName: hubProjectName || hubProjectId,
       launchpadProjectId,
       launchpadProjectName:
         launchpadProjectName || (launchpadProjectId != null ? String(launchpadProjectId) : null),
-      folderId: null,
-      folderName: null,
       canonicalKey,
     };
   }
 
   if (division === 'hub') {
-    return {
-      division: 'hub',
-      hubProjectId: null,
-      hubProjectName: null,
-      launchpadProjectId: null,
-      launchpadProjectName: null,
-      folderId: null,
-      folderName: null,
-      canonicalKey: null,
-    };
+    return emptyDivisionFields('hub');
   }
 
-  return {
-    division: 'general',
-    hubProjectId: null,
-    hubProjectName: null,
-    launchpadProjectId: null,
-    launchpadProjectName: null,
-    folderId: null,
-    folderName: null,
-    canonicalKey: null,
-  };
+  return emptyDivisionFields('general');
 }
 
 /** Experience-memory workspace key for a session's division. */
@@ -248,6 +357,9 @@ export function divisionMemoryKey(
     if (normalized.launchpadProjectId != null) {
       return `vecos://project/lp/${normalized.launchpadProjectId}`;
     }
+  }
+  if (normalized.division === 'client' && normalized.clientName) {
+    return `vecos://client/${clientCanonicalKey(normalized.clientName).replace(/^client:/, '')}`;
   }
   return 'vecos://general';
 }
@@ -286,6 +398,14 @@ export function activeDivisionFromSession(
       sources,
     };
   }
+  if (normalized.division === 'client' && normalized.clientName) {
+    return {
+      kind: 'client',
+      canonicalKey: normalized.canonicalKey || clientCanonicalKey(normalized.clientName),
+      clientName: normalized.clientName,
+      projects: parseClientDivisionProjects(normalized.clientProjectIds),
+    };
+  }
   return { kind: 'general' };
 }
 
@@ -306,30 +426,47 @@ export function sessionMatchesActiveDivision(
   if (active.kind === 'folder') {
     return normalized.division === 'folder' && normalized.folderId === active.folderId;
   }
-  // Project: match hub id, launchpad id, or canonical key (legacy hub-only sessions included).
-  if (normalized.division !== 'project') {
+  if (active.kind === 'client') {
+    if (normalized.division !== 'client') return false;
+    if (
+      active.canonicalKey &&
+      normalized.canonicalKey &&
+      active.canonicalKey === normalized.canonicalKey
+    ) {
+      return true;
+    }
+    return (
+      Boolean(active.clientName) &&
+      Boolean(normalized.clientName) &&
+      active.clientName!.trim().toLowerCase() === normalized.clientName!.trim().toLowerCase()
+    );
+  }
+  if (active.kind === 'project') {
+    if (normalized.division !== 'project') {
+      return false;
+    }
+    if (
+      active.canonicalKey &&
+      normalized.canonicalKey &&
+      active.canonicalKey === normalized.canonicalKey
+    ) {
+      return true;
+    }
+    if (
+      active.hubProjectId &&
+      normalized.hubProjectId &&
+      active.hubProjectId === normalized.hubProjectId
+    ) {
+      return true;
+    }
+    if (
+      active.launchpadProjectId != null &&
+      normalized.launchpadProjectId != null &&
+      active.launchpadProjectId === normalized.launchpadProjectId
+    ) {
+      return true;
+    }
     return false;
-  }
-  if (
-    active.canonicalKey &&
-    normalized.canonicalKey &&
-    active.canonicalKey === normalized.canonicalKey
-  ) {
-    return true;
-  }
-  if (
-    active.hubProjectId &&
-    normalized.hubProjectId &&
-    active.hubProjectId === normalized.hubProjectId
-  ) {
-    return true;
-  }
-  if (
-    active.launchpadProjectId != null &&
-    normalized.launchpadProjectId != null &&
-    active.launchpadProjectId === normalized.launchpadProjectId
-  ) {
-    return true;
   }
   return false;
 }
@@ -346,6 +483,9 @@ export function divisionLabel(active: ActiveDivision | null | undefined): string
   }
   if (active.kind === 'folder') {
     return active.folderName || 'Folder';
+  }
+  if (active.kind === 'client') {
+    return active.clientName || 'Client';
   }
   return active.name || projectDisplayName(active);
 }
@@ -427,6 +567,46 @@ export function coerceActiveDivision(parsed: unknown): ActiveDivision | null {
       sources,
     };
   }
+  if (kind === 'client') {
+    const p = parsed as {
+      clientName?: unknown;
+      canonicalKey?: unknown;
+      projects?: unknown;
+    };
+    const clientName = parseOptionalString(p.clientName);
+    const projectsRaw = Array.isArray(p.projects) ? p.projects : [];
+    const projects: ClientDivisionProject[] = [];
+    for (const item of projectsRaw) {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+      const rec = item as Record<string, unknown>;
+      const name = parseOptionalString(rec.name);
+      const hubProjectId = parseOptionalString(rec.hubProjectId);
+      const launchpadProjectId = parseOptionalNumber(rec.launchpadProjectId);
+      const canonicalKey =
+        parseOptionalString(rec.canonicalKey) ||
+        (hubProjectId
+          ? hubCanonicalKey(hubProjectId)
+          : launchpadProjectId != null
+            ? launchpadCanonicalKey(launchpadProjectId)
+            : null);
+      if (!name || !canonicalKey) continue;
+      projects.push({
+        name,
+        canonicalKey,
+        ...(hubProjectId ? { hubProjectId } : {}),
+        ...(launchpadProjectId != null ? { launchpadProjectId } : {}),
+      });
+    }
+    if (!clientName || !projects.length) {
+      return null;
+    }
+    return {
+      kind: 'client',
+      canonicalKey: parseOptionalString(p.canonicalKey) || clientCanonicalKey(clientName),
+      clientName,
+      projects,
+    };
+  }
   return null;
 }
 
@@ -501,6 +681,45 @@ export function buildDivisionActiveProjectContext(
     'When tools accept project id filters, pass the ids above. When tools take free-text search (Slack, Gmail, meetings, Drive, Jira, Confluence), include this project name in the query.',
     'Skip Hub/LaunchPad list-then-match steps when the relevant id is present above.',
     '</active_project_context>'
+  );
+  return lines.join('\n');
+}
+
+/**
+ * Per-turn user-prompt block for client-scoped chats spanning multiple projects.
+ */
+export function buildDivisionActiveClientContext(
+  session: Partial<SessionDivisionFields> | null | undefined
+): string {
+  const normalized = normalizeSessionDivision(session);
+  if (normalized.division !== 'client' || !normalized.clientName) {
+    return '';
+  }
+  const projects = parseClientDivisionProjects(normalized.clientProjectIds);
+  if (!projects.length) {
+    return '';
+  }
+
+  const lines = [
+    '<active_client_context>',
+    `SELECTED CLIENT (default subject of this chat): "${normalized.clientName}".`,
+    'The user chose this client workspace. All delivery projects for this client are in scope.',
+    'Treat project-related questions as about THIS client unless they clearly name a different client (then refuse / switch workspace).',
+    'When the user does not name a specific project, answer at client level or pick the best-matching project from the list below.',
+    'If ambiguous among this client\'s projects only, ask which project they mean — do not list unrelated company projects.',
+    '',
+    'Projects under this client:',
+  ];
+  for (const project of projects) {
+    const idBits: string[] = [];
+    if (project.hubProjectId) idBits.push(`hub id ${project.hubProjectId}`);
+    if (project.launchpadProjectId != null) idBits.push(`launchpad id ${project.launchpadProjectId}`);
+    lines.push(`- "${project.name}"${idBits.length ? ` (${idBits.join(', ')})` : ''}`);
+  }
+  lines.push(
+    'When tools accept project id filters, pass the matching id from the list above.',
+    'For client-wide questions (status across projects, staffing, risks), query each relevant project or use client-level search terms.',
+    '</active_client_context>'
   );
   return lines.join('\n');
 }
@@ -607,6 +826,24 @@ export function buildDivisionSystemPrompt(
     ].join('\n');
   }
 
+  if (normalized.division === 'client' && normalized.clientName) {
+    const projects = parseClientDivisionProjects(normalized.clientProjectIds);
+    const projectNames = projects.map((p) => `"${p.name}"`).join(', ');
+    return [
+      '<workspace_division>',
+      `You are locked to client "${normalized.clientName}" spanning ${projects.length} project(s): ${projectNames}.`,
+      'DEFAULT SUBJECT: when the user does not name a client or project, assume they mean this client and its listed projects.',
+      'MANDATORY SKILL: rnd-launchpad-mcp-sdlc is required for LaunchPad delivery work in Client workspace. Load it before delivery tasks.',
+      'HARD RULES — these override general "start doing it" behavior when the request is out of scope:',
+      `IN SCOPE: delivery, Hub data, Launchpad/Pulse/Jira/comms for "${normalized.clientName}" and its projects only. Use hub/launchpad ids from the active client context.`,
+      'OUT OF SCOPE (REFUSE): personal use; general company Q&A unrelated to this client; other clients or their projects; Hub-only HR unless staffing/allocations for THIS client\'s projects.',
+      'On refuse: say "Incorrect use. This will be reported." then tell the user to switch to General, Client, or Project workspace in the sidebar.',
+      'Never query, summarize, or compare data for other clients. If a tool returns data outside this client\'s projects, ignore out-of-scope rows.',
+      'If the user names another client or an unrelated project, refuse and tell them to switch workspace.',
+      '</workspace_division>',
+    ].join('\n');
+  }
+
   return [
     '<workspace_division>',
     'You are in General mode (personal and general company use).',
@@ -677,6 +914,47 @@ export function sessionFieldsFromActiveDivision(
       hubProjectName: active.hubProjectName ?? active.name ?? null,
       launchpadProjectId: active.launchpadProjectId ?? null,
       launchpadProjectName: active.launchpadProjectName ?? null,
+      canonicalKey: active.canonicalKey,
+    };
+  }
+  if (active.kind === 'client') {
+    return {
+      division: 'client',
+      clientName: active.clientName,
+      clientProjectIds: serializeClientDivisionProjects(active.projects),
+      canonicalKey: active.canonicalKey,
+    };
+  }
+  if (active.kind === 'folder') {
+    return {
+      division: 'folder',
+      folderId: active.folderId,
+      folderName: active.folderName,
+    };
+  }
+  return { division: active.kind };
+}
+
+/** IPC/session.create payload from the active workspace division. */
+export function divisionPayloadFromActiveDivision(
+  active: ActiveDivision | null
+): Partial<SessionDivisionFields> & { division: WorkspaceDivisionKind } {
+  if (!active) return { division: 'general' };
+  if (active.kind === 'project') {
+    return {
+      division: 'project',
+      hubProjectId: active.hubProjectId ?? null,
+      hubProjectName: active.hubProjectName ?? active.name ?? null,
+      launchpadProjectId: active.launchpadProjectId ?? null,
+      launchpadProjectName: active.launchpadProjectName ?? null,
+      canonicalKey: active.canonicalKey,
+    };
+  }
+  if (active.kind === 'client') {
+    return {
+      division: 'client',
+      clientName: active.clientName,
+      clientProjectIds: serializeClientDivisionProjects(active.projects),
       canonicalKey: active.canonicalKey,
     };
   }

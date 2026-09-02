@@ -60,6 +60,8 @@ function applyBindingToInput(
     folderId: b.folderId ?? null,
     folderName: b.folderName ?? null,
     canonicalKey: b.canonicalKey ?? null,
+    clientName: b.clientName ?? null,
+    clientProjectIds: b.clientProjectIds ?? null,
   };
 }
 

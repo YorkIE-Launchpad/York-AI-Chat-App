@@ -27,6 +27,7 @@ export async function refreshWorkspaceBudgets(options?: {
   let userSnap: HubUserAiBudgetSnapshot | null = null;
   let projectSnap: HubUserAiBudgetSnapshot | null = null;
   let lpBudget: LaunchPadProjectBudget | null = null;
+  let clientProjectPercent: number | null = null;
 
   try {
     const userRes = await window.electronAPI.hub.getUserAiBudget(forceRefresh);
@@ -66,6 +67,44 @@ export async function refreshWorkspaceBudgets(options?: {
     await Promise.all(tasks);
   }
 
+  if (division?.kind === 'client') {
+    const hubIds = division.projects
+      .map((p) => p.hubProjectId?.trim())
+      .filter((id): id is string => Boolean(id));
+    const lpIds = division.projects
+      .map((p) => p.launchpadProjectId)
+      .filter((id): id is number => typeof id === 'number' && id > 0);
+    const percents: number[] = [];
+    await Promise.all([
+      ...hubIds.map(async (hubId) => {
+        try {
+          const res = await window.electronAPI.hub.getProjectAiBudget(hubId, forceRefresh);
+          if (res.success && res.budget && hasAiBudgetCeiling(res.budget)) {
+            const pct = userBudgetPercentFromSnapshot(res.budget);
+            if (pct != null) percents.push(pct);
+          }
+        } catch {
+          /* unset */
+        }
+      }),
+      ...lpIds.map(async (lpId) => {
+        if (!window.electronAPI.launchpad?.getProjectBudget) return;
+        try {
+          const res = await window.electronAPI.launchpad.getProjectBudget(lpId, forceRefresh);
+          if (res.success && res.budget && hasLaunchPadBudgetCeiling(res.budget)) {
+            const pct = launchPadBudgetPercent(res.budget);
+            if (pct != null) percents.push(pct);
+          }
+        } catch {
+          /* ignore */
+        }
+      }),
+    ]);
+    if (percents.length > 0) {
+      clientProjectPercent = Math.min(...percents);
+    }
+  }
+
   const userPercent = userSnap ? userBudgetPercentFromSnapshot(userSnap) : null;
   let projectPercent: number | null = null;
   if (division?.kind === 'project') {
@@ -74,6 +113,8 @@ export async function refreshWorkspaceBudgets(options?: {
     } else if (hasLaunchPadBudgetCeiling(lpBudget)) {
       projectPercent = launchPadBudgetPercent(lpBudget);
     }
+  } else if (division?.kind === 'client') {
+    projectPercent = clientProjectPercent;
   }
 
   setHubUsage(
@@ -109,7 +150,9 @@ export function useWorkspaceBudgetCheck() {
       const division = useAppStore.getState().activeDivision;
       const prev = useAppStore.getState().hubUsage;
       const projectPercent =
-        division?.kind === 'project' ? incoming.projectBudgetPercent : null;
+        division?.kind === 'project' || division?.kind === 'client'
+          ? incoming.projectBudgetPercent
+          : null;
       useAppStore.getState().setHubUsage(
         withResolvedActiveBudget(
           {

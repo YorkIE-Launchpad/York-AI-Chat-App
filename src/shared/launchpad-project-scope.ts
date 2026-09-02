@@ -1,9 +1,13 @@
 /**
- * Soft-scope LaunchPad MCP tools to the session's locked LaunchPad project id.
+ * Soft-scope LaunchPad MCP tools to the session's locked LaunchPad project id(s).
  * Complements Hub hard-scope in project-mcp-scope.ts.
  */
 
-import { normalizeSessionDivision, type SessionDivisionFields } from './workspace-division';
+import {
+  normalizeSessionDivision,
+  resolveProjectAllowlist,
+  type SessionDivisionFields,
+} from './workspace-division';
 
 const LAUNCHPAD_MCP_PREFIXES = [
   'mcp__r_d_launchpad__',
@@ -86,6 +90,13 @@ export function launchpadScopeRefuseMessage(
   session: Partial<SessionDivisionFields> | null | undefined
 ): string {
   const normalized = normalizeSessionDivision(session);
+  if (normalized.division === 'client' && normalized.clientName) {
+    return [
+      'Incorrect use. This attempt will be reported.',
+      `This session is scoped to client "${normalized.clientName}" and its LaunchPad projects only.`,
+      'Switch Client or Project workspace in the sidebar to work on another project.',
+    ].join(' ');
+  }
   const name =
     normalized.launchpadProjectName ||
     normalized.hubProjectName ||
@@ -104,8 +115,8 @@ export function launchpadScopeRefuseMessage(
 }
 
 /**
- * Soft-inject LaunchPad project id on LP MCP tools for project division sessions.
- * No-ops when session has no launchpadProjectId.
+ * Soft-inject LaunchPad project id on LP MCP tools for project/client division sessions.
+ * No-ops when session has no launchpad project id(s).
  */
 export function prepareLaunchpadScopedMcpArgs(
   toolName: string,
@@ -113,11 +124,8 @@ export function prepareLaunchpadScopedMcpArgs(
   session: Partial<SessionDivisionFields> | null | undefined
 ): LaunchpadScopedMcpPrepare {
   const normalized = normalizeSessionDivision(session);
-  if (
-    normalized.division !== 'project' ||
-    normalized.launchpadProjectId == null ||
-    !Number.isFinite(normalized.launchpadProjectId)
-  ) {
+  const allowlist = resolveProjectAllowlist(session);
+  if (!allowlist || allowlist.launchpadIds.size === 0) {
     return { kind: 'allow', args };
   }
 
@@ -126,8 +134,14 @@ export function prepareLaunchpadScopedMcpArgs(
     return { kind: 'allow', args };
   }
 
-  // Always soft-inject when tool name looks project-scoped OR args already carry a project id.
-  const locked = normalized.launchpadProjectId;
+  const isClientDivision = normalized.division === 'client';
+  const singleLocked =
+    !isClientDivision &&
+    normalized.launchpadProjectId != null &&
+    Number.isFinite(normalized.launchpadProjectId)
+      ? normalized.launchpadProjectId
+      : null;
+
   const provided = readLpProjectIdArg(args);
   const looksScoped =
     LP_PROJECT_ID_TOOLS.has(original) || provided != null || original.includes('project');
@@ -136,7 +150,7 @@ export function prepareLaunchpadScopedMcpArgs(
     return { kind: 'allow', args };
   }
 
-  if (provided != null && provided !== locked) {
+  if (provided != null && !allowlist.launchpadIds.has(provided)) {
     return {
       kind: 'block',
       message: launchpadScopeRefuseMessage(session),
@@ -144,10 +158,18 @@ export function prepareLaunchpadScopedMcpArgs(
     };
   }
 
-  return {
-    kind: 'allow',
-    args: injectLpProjectIdArg(args, locked),
-  };
+  if (isClientDivision) {
+    return { kind: 'allow', args };
+  }
+
+  if (singleLocked != null) {
+    return {
+      kind: 'allow',
+      args: injectLpProjectIdArg(args, singleLocked),
+    };
+  }
+
+  return { kind: 'allow', args };
 }
 
 /** @internal */

@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Briefcase, Building2, KeyRound, Layers, Loader2, Lock, Search } from 'lucide-react';
+import { Briefcase, Building2, KeyRound, Layers, Loader2, Lock, Search, Users } from 'lucide-react';
 import { useAppStore } from '../store';
-import type { UnifiedCompanyProject } from '../../shared/unified-company-projects';
-import { canonicalKeyForUnified, filterCompanyProjects } from '../../shared/unified-company-projects';
+import type { ClientProjectGroup, UnifiedCompanyProject } from '../../shared/unified-company-projects';
+import { canonicalKeyForUnified, filterClientProjectGroups, filterCompanyProjects, groupUnifiedProjectsByClient } from '../../shared/unified-company-projects';
 import {
   activeDivisionFromUnifiedProject,
+  clientDivisionFromProjects,
   companyProjectSourceLabel,
 } from '../../shared/workspace-division';
 import { hasOpenRouterUserApiKey } from '../../shared/openrouter-user-key';
@@ -29,12 +30,14 @@ export function DivisionChooser() {
     setShowSettings(true);
   }, [setSettingsTab, setShowSettings]);
   const [pickingProject, setPickingProject] = useState(false);
+  const [pickingClient, setPickingClient] = useState(false);
   const [projects, setProjects] = useState<UnifiedCompanyProject[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [projectQuery, setProjectQuery] = useState('');
+  const [clientQuery, setClientQuery] = useState('');
 
-  const loadProjects = useCallback(async () => {
+  const loadProjects = useCallback(async (forceRefresh = false) => {
     setLoading(true);
     setError(null);
     try {
@@ -47,7 +50,7 @@ export function DivisionChooser() {
           setError('Projects unavailable in this environment');
           return;
         }
-        const result = await hubApi.listAllocatedProjects();
+        const result = await hubApi.listAllocatedProjects(forceRefresh);
         if (!result.success) {
           setProjects([]);
           setError(result.error || 'Failed to load projects');
@@ -60,6 +63,7 @@ export function DivisionChooser() {
             sources: { hub: true },
             hubProjectId: p.id,
             hubProjectName: p.name,
+            ...(p.clientName ? { clientName: p.clientName } : {}),
           }))
         );
         if (!(result.projects || []).length) {
@@ -67,7 +71,7 @@ export function DivisionChooser() {
         }
         return;
       }
-      const result = await api.listUnified();
+      const result = await api.listUnified(forceRefresh);
       if (!result.success && !(result.projects || []).length) {
         setProjects([]);
         setError(result.error || 'Failed to load projects');
@@ -91,10 +95,10 @@ export function DivisionChooser() {
   }, []);
 
   useEffect(() => {
-    if (pickingProject) {
-      void loadProjects();
+    if (pickingProject || pickingClient) {
+      void loadProjects(pickingClient);
     }
-  }, [pickingProject, loadProjects]);
+  }, [pickingProject, pickingClient, loadProjects]);
 
   const selectProject = useCallback(
     (project: UnifiedCompanyProject) => {
@@ -123,6 +127,96 @@ export function DivisionChooser() {
     [otherProjects, projectQuery]
   );
   const hasProjectMatches = visibleRecentProjects.length > 0 || visibleOtherProjects.length > 0;
+
+  const clientGroups = useMemo(() => groupUnifiedProjectsByClient(projects), [projects]);
+  const visibleClientGroups = useMemo(
+    () => filterClientProjectGroups(clientGroups, clientQuery),
+    [clientGroups, clientQuery]
+  );
+
+  const selectClient = useCallback(
+    (group: ClientProjectGroup) => {
+      setActiveDivision(clientDivisionFromProjects(group.clientName, group.projects));
+    },
+    [setActiveDivision]
+  );
+
+  if (pickingClient) {
+    return (
+      <div className="mx-auto flex w-full max-w-lg min-h-0 flex-1 flex-col">
+        <div className="mb-4 flex shrink-0 items-center justify-between">
+          <button
+            type="button"
+            className="text-sm text-text-muted hover:text-text-primary"
+            onClick={() => {
+              setClientQuery('');
+              setPickingClient(false);
+            }}
+          >
+            ← Back
+          </button>
+          <h2 className="text-sm font-medium text-text-primary">Choose a client</h2>
+          <span className="w-12" />
+        </div>
+        {loading && (
+          <div className="flex items-center justify-center gap-2 py-10 text-sm text-text-muted">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading clients…
+          </div>
+        )}
+        {!loading && error && clientGroups.length === 0 && (
+          <p className="rounded-lg border border-border-subtle bg-bg-secondary px-4 py-6 text-center text-sm text-text-muted">
+            {error}
+          </p>
+        )}
+        {!loading && clientGroups.length === 0 && !error && (
+          <p className="rounded-lg border border-border-subtle bg-bg-secondary px-4 py-6 text-center text-sm text-text-muted">
+            No clients found — projects need a client_name from Hub.
+          </p>
+        )}
+        {!loading && clientGroups.length > 0 && (
+          <div className="flex min-h-0 flex-1 flex-col gap-2">
+            <div className="relative shrink-0">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
+              <input
+                type="search"
+                autoFocus
+                value={clientQuery}
+                onChange={(e) => setClientQuery(e.target.value)}
+                placeholder="Search clients…"
+                aria-label="Search clients"
+                className="w-full rounded-xl border border-border-subtle bg-bg-secondary py-2.5 pl-10 pr-3 text-sm text-text-primary placeholder:text-text-muted"
+              />
+            </div>
+            <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain pr-1">
+              {visibleClientGroups.map((group) => (
+                <button
+                  key={group.canonicalKey}
+                  type="button"
+                  onClick={() => selectClient(group)}
+                  className="shrink-0 rounded-xl border border-border-subtle bg-bg-secondary px-4 py-3 text-left hover:border-accent/40 hover:bg-bg-tertiary transition-colors"
+                >
+                  <div className="font-medium text-text-primary">{group.clientName}</div>
+                  <div className="mt-0.5 text-xs text-text-muted">
+                    {group.projects.length} project{group.projects.length === 1 ? '' : 's'} ·{' '}
+                    {group.projects
+                      .slice(0, 3)
+                      .map((p) => p.name)
+                      .join(', ')}
+                  </div>
+                </button>
+              ))}
+              {visibleClientGroups.length === 0 && (
+                <p className="rounded-lg border border-border-subtle bg-bg-secondary px-4 py-6 text-center text-sm text-text-muted">
+                  No matching clients
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   if (pickingProject) {
     return (
@@ -236,7 +330,7 @@ export function DivisionChooser() {
         Each workspace has its own chats and experience memory. General needs your own OpenRouter
         API key; Hub uses your personal York allowance; Project uses York-managed models.
       </p>
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-2">
         <ChooserCard
           icon={Layers}
           title="General"
@@ -266,15 +360,21 @@ export function DivisionChooser() {
           onClick={() => setActiveDivision({ kind: 'hub' })}
         />
         <ChooserCard
+          icon={Users}
+          title="Client"
+          description="All delivery projects for one client — York-managed models"
+          onClick={() => setPickingClient(true)}
+        />
+        <ChooserCard
           icon={Briefcase}
           title="Project"
-          description="Hub and LaunchPad delivery — York-managed models, no OpenRouter key needed"
+          description="Single Hub/LaunchPad project — York-managed models"
           onClick={() => setPickingProject(true)}
         />
       </div>
       {!hasOpenRouterKey && (
         <p className="mt-4 text-center text-xs text-text-muted">
-          Prefer York models without your own key? Start with Hub (personal) or Project.
+          Prefer York models without your own key? Start with Hub, Client, or Project.
         </p>
       )}
     </div>

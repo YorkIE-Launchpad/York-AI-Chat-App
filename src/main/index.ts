@@ -5731,6 +5731,8 @@ async function handleClientEvent(event: ClientEvent): Promise<unknown> {
           folderId: event.payload.folderId,
           folderName: event.payload.folderName,
           canonicalKey: event.payload.canonicalKey,
+          clientName: event.payload.clientName,
+          clientProjectIds: event.payload.clientProjectIds,
           incognito: event.payload.incognito === true,
         }
       );
@@ -5759,6 +5761,8 @@ async function handleClientEvent(event: ClientEvent): Promise<unknown> {
           folderId: event.payload.folderId,
           folderName: event.payload.folderName,
           canonicalKey: event.payload.canonicalKey,
+          clientName: event.payload.clientName,
+          clientProjectIds: event.payload.clientProjectIds,
           incognito: event.payload.incognito === true,
         }
       );

@@ -376,6 +376,8 @@ export class SessionManager {
       folderId?: string | null;
       folderName?: string | null;
       canonicalKey?: string | null;
+      clientName?: string | null;
+      clientProjectIds?: string | null;
       incognito?: boolean;
     }
   ): Promise<Session> {
@@ -424,6 +426,8 @@ export class SessionManager {
       folderId?: string | null;
       folderName?: string | null;
       canonicalKey?: string | null;
+      clientName?: string | null;
+      clientProjectIds?: string | null;
       incognito?: boolean;
     }
   ): Promise<Session> {
@@ -482,6 +486,8 @@ export class SessionManager {
       folderId?: string | null;
       folderName?: string | null;
       canonicalKey?: string | null;
+      clientName?: string | null;
+      clientProjectIds?: string | null;
       incognito?: boolean;
     }
   ): Session {
@@ -506,6 +512,8 @@ export class SessionManager {
       folderId: options?.folderId,
       folderName: options?.folderName,
       canonicalKey: options?.canonicalKey,
+      clientName: options?.clientName,
+      clientProjectIds: options?.clientProjectIds,
     });
     return {
       id: uuidv4(),
@@ -538,6 +546,8 @@ export class SessionManager {
       folderId: divisionFields.folderId,
       folderName: divisionFields.folderName,
       canonicalKey: divisionFields.canonicalKey,
+      clientName: divisionFields.clientName,
+      clientProjectIds: divisionFields.clientProjectIds,
       incognito: isIncognito || undefined,
       createdAt: now,
       updatedAt: now,
@@ -559,6 +569,8 @@ export class SessionManager {
       folderId: session.folderId,
       folderName: session.folderName,
       canonicalKey: session.canonicalKey,
+      clientName: session.clientName,
+      clientProjectIds: session.clientProjectIds,
     });
     this.db.sessions.create({
       id: session.id,
@@ -579,6 +591,8 @@ export class SessionManager {
       folder_id: divisionFields.folderId ?? null,
       folder_name: divisionFields.folderName ?? null,
       project_canonical_key: divisionFields.canonicalKey ?? null,
+      client_name: divisionFields.clientName ?? null,
+      client_project_ids: divisionFields.clientProjectIds ?? null,
       pinned: session.pinned ? 1 : 0,
       created_at: session.createdAt,
       updated_at: session.updatedAt,
@@ -604,6 +618,8 @@ export class SessionManager {
     folder_id?: string | null;
     folder_name?: string | null;
     project_canonical_key?: string | null;
+    client_name?: string | null;
+    client_project_ids?: string | null;
     pinned?: number | null;
     created_at: number;
     updated_at: number;
@@ -633,6 +649,8 @@ export class SessionManager {
       folderId: row.folder_id,
       folderName: row.folder_name,
       canonicalKey: row.project_canonical_key,
+      clientName: row.client_name,
+      clientProjectIds: row.client_project_ids,
     });
 
     return {
@@ -654,6 +672,8 @@ export class SessionManager {
       folderId: divisionFields.folderId,
       folderName: divisionFields.folderName,
       canonicalKey: divisionFields.canonicalKey,
+      clientName: divisionFields.clientName,
+      clientProjectIds: divisionFields.clientProjectIds,
       pinned: row.pinned === 1,
       createdAt: row.created_at,
       updatedAt: row.updated_at,

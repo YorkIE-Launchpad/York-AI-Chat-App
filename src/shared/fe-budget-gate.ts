@@ -210,6 +210,7 @@ export function divisionBudgetCheckKey(division: {
 } | null | undefined): string {
   const kind = division?.kind || 'none';
   if (kind === 'project') return `project:${division?.canonicalKey || ''}`;
+  if (kind === 'client') return `client:${division?.canonicalKey || ''}`;
   if (kind === 'folder') return `folder:${division?.folderId || ''}`;
   return kind;
 }
@@ -225,7 +226,7 @@ export function resolveActiveBudgetSource(input: {
 }): ActiveBudgetSource {
   const kind = input.divisionKind;
   if (kind === 'general' || kind === 'folder' || !kind) return 'none';
-  if (kind === 'project' && input.projectHasBudget) return 'project';
+  if ((kind === 'project' || kind === 'client') && input.projectHasBudget) return 'project';
   if (input.userHasBudget) return 'user';
   return 'none';
 }
@@ -244,7 +245,9 @@ export function withResolvedActiveBudget(
   snapshot: HubUsageMeterSnapshot,
   divisionKind: string | null | undefined
 ): HubUsageMeterSnapshot {
-  const projectHasBudget = divisionKind === 'project' && snapshot.projectBudgetPercent != null;
+  const projectHasBudget =
+    (divisionKind === 'project' || divisionKind === 'client') &&
+    snapshot.projectBudgetPercent != null;
   const userHasBudget = snapshot.userBudgetPercent != null;
   return {
     ...snapshot,

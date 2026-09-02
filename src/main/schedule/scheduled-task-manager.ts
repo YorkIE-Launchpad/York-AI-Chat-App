@@ -74,6 +74,8 @@ export interface ScheduledTask {
   folderId: string | null;
   folderName: string | null;
   canonicalKey: string | null;
+  clientName: string | null;
+  clientProjectIds: string | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -102,6 +104,8 @@ export interface ScheduledTaskCreateInput {
   folderId?: string | null;
   folderName?: string | null;
   canonicalKey?: string | null;
+  clientName?: string | null;
+  clientProjectIds?: string | null;
 }
 
 export interface ScheduledTaskUpdateInput {
@@ -134,6 +138,8 @@ export interface ScheduledTaskUpdateInput {
   folderId?: string | null;
   folderName?: string | null;
   canonicalKey?: string | null;
+  clientName?: string | null;
+  clientProjectIds?: string | null;
 }
 
 export interface ScheduledTaskStore {

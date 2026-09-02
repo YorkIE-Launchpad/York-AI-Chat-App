@@ -44,10 +44,16 @@ export function OpenRouterKeyGateBanner({
       ? t('workspace.openRouter.foldersLabel', 'Folders')
       : activeDivision?.kind === 'hub'
         ? t('workspace.openRouter.hubLabel', 'Hub')
-        : activeDivision?.kind === 'project'
-          ? t('workspace.openRouter.projectLabel', 'Project')
-          : t('workspace.openRouter.generalLabel', 'General');
-  const noYorkAllowance = hubUsage?.activeSource === 'none' && (activeDivision?.kind === 'hub' || activeDivision?.kind === 'project');
+        : activeDivision?.kind === 'client'
+          ? t('workspace.openRouter.clientLabel', 'Client')
+          : activeDivision?.kind === 'project'
+            ? t('workspace.openRouter.projectLabel', 'Project')
+            : t('workspace.openRouter.generalLabel', 'General');
+  const noYorkAllowance =
+    hubUsage?.activeSource === 'none' &&
+    (activeDivision?.kind === 'hub' ||
+      activeDivision?.kind === 'project' ||
+      activeDivision?.kind === 'client');
 
   if (compact) {
     return (

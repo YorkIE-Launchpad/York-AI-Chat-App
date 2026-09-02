@@ -29,6 +29,8 @@ export interface UnifiedCompanyProject {
   hubProjectName?: string;
   launchpadProjectId?: number;
   launchpadProjectName?: string;
+  /** Hub client display name when available (client_name from GET /api/projects). */
+  clientName?: string;
 }
 
 export function hubCanonicalKey(hubProjectId: string): string {
@@ -52,6 +54,7 @@ export function canonicalKeyForUnified(project: UnifiedCompanyProject): string {
 function companyProjectSearchHaystack(project: UnifiedCompanyProject): string {
   return [
     project.name,
+    project.clientName,
     project.hubProjectName,
     project.launchpadProjectName,
     project.hubProjectId,
@@ -120,6 +123,7 @@ export function mergeHubAndLaunchpadProjects(
         hubProjectName: hub.name,
         launchpadProjectId: lp.id,
         launchpadProjectName: lp.name,
+        ...(hub.clientName ? { clientName: hub.clientName } : {}),
       });
     } else {
       merged.push({
@@ -128,6 +132,7 @@ export function mergeHubAndLaunchpadProjects(
         sources: { hub: true },
         hubProjectId: hub.id,
         hubProjectName: hub.name,
+        ...(hub.clientName ? { clientName: hub.clientName } : {}),
       });
     }
   }
@@ -226,4 +231,70 @@ function unwrapArray(payload: unknown): unknown[] {
     }
   }
   return [];
+}
+
+/** Normalize client display name for grouping (trim + case-fold). */
+export function normalizeClientName(clientName: string): string {
+  return clientName.trim().toLowerCase();
+}
+
+/** Stable client workspace key from display name (no client_id yet). */
+export function clientCanonicalKey(clientName: string): string {
+  const slug = clientName
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return `client:${slug || 'unknown'}`;
+}
+
+export interface ClientProjectGroup {
+  clientName: string;
+  canonicalKey: string;
+  projects: UnifiedCompanyProject[];
+}
+
+/** Group unified projects by client_name; projects without a client are omitted. */
+export function groupUnifiedProjectsByClient(
+  projects: UnifiedCompanyProject[]
+): ClientProjectGroup[] {
+  const byClient = new Map<string, ClientProjectGroup>();
+  for (const project of projects) {
+    const raw = project.clientName?.trim();
+    if (!raw) continue;
+    const key = normalizeClientName(raw);
+    const existing = byClient.get(key);
+    if (existing) {
+      existing.projects.push(project);
+    } else {
+      byClient.set(key, {
+        clientName: raw,
+        canonicalKey: clientCanonicalKey(raw),
+        projects: [project],
+      });
+    }
+  }
+  const groups = Array.from(byClient.values());
+  for (const group of groups) {
+    group.projects.sort((a, b) =>
+      a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true })
+    );
+  }
+  groups.sort((a, b) =>
+    a.clientName.localeCompare(b.clientName, undefined, { sensitivity: 'base', numeric: true })
+  );
+  return groups;
+}
+
+/** Case-insensitive substring match on client name and project names. */
+export function filterClientProjectGroups(
+  groups: ClientProjectGroup[],
+  query: string
+): ClientProjectGroup[] {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return groups;
+  return groups.filter((group) => {
+    if (group.clientName.toLowerCase().includes(needle)) return true;
+    return group.projects.some((p) => companyProjectSearchHaystack(p).includes(needle));
+  });
 }

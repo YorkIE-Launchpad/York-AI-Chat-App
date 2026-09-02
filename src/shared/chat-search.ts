@@ -21,6 +21,8 @@ export interface ChatSearchHit {
   folderId: string | null;
   folderName: string | null;
   projectCanonicalKey: string | null;
+  clientName: string | null;
+  clientProjectIds: string | null;
 }
 
 export function chatSearchHitToDivisionFields(hit: ChatSearchHit): SessionDivisionFields {
@@ -33,6 +35,8 @@ export function chatSearchHitToDivisionFields(hit: ChatSearchHit): SessionDivisi
     folderId: hit.folderId,
     folderName: hit.folderName,
     canonicalKey: hit.projectCanonicalKey,
+    clientName: hit.clientName,
+    clientProjectIds: hit.clientProjectIds,
   };
 }
 

@@ -1,13 +1,16 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
+  buildDivisionActiveClientContext,
   buildDivisionActiveProjectContext,
   buildDivisionSystemPrompt,
+  clientDivisionFromProjects,
   divisionMemoryKey,
   filterMcpToolsForDivision,
   filterModelsForDivision,
   isMcpToolExcludedInHubDivision,
   isProviderAllowedInDivision,
   normalizeSessionDivision,
+  serializeClientDivisionProjects,
   sessionMatchesActiveDivision,
 } from '../../shared/workspace-division';
 import { filterModelsForOpenRouterKey } from '../../shared/openrouter-fallback';
@@ -17,11 +20,13 @@ import {
   parseClientsWithAllocations,
   parseUserAllocatedProjects,
   normalizeAllocatedProject,
+  enrichAllocatedProjectsWithClientNames,
+  parseProjectClientNameIndex,
 } from '../../main/hub/hub-allocations';
 
 describe('workspace-division', () => {
   it('normalizes missing project id to general', () => {
-    expect(normalizeSessionDivision({ division: 'project' })).toEqual({
+    expect(normalizeSessionDivision({ division: 'project' })).toMatchObject({
       division: 'general',
       hubProjectId: null,
       hubProjectName: null,
@@ -30,6 +35,8 @@ describe('workspace-division', () => {
       folderId: null,
       folderName: null,
       canonicalKey: null,
+      clientName: null,
+      clientProjectIds: null,
     });
   });
 
@@ -236,6 +243,66 @@ describe('workspace-division', () => {
     expect(dualCtx).toContain('LaunchPad project id: 3');
   });
 
+  it('normalizes client division with serialized project list', () => {
+    const projects = serializeClientDivisionProjects([
+      { name: 'Portal', hubProjectId: 'h1', canonicalKey: 'hub:h1' },
+      { name: 'Mobile', hubProjectId: 'h2', canonicalKey: 'hub:h2' },
+    ]);
+    const n = normalizeSessionDivision({
+      division: 'client',
+      clientName: 'Acme Corp',
+      clientProjectIds: projects,
+    });
+    expect(n.division).toBe('client');
+    expect(n.clientName).toBe('Acme Corp');
+    expect(n.canonicalKey).toBe('client:acme-corp');
+    expect(divisionMemoryKey(n)).toBe('vecos://client/acme-corp');
+  });
+
+  it('matches client sessions to active client division', () => {
+    const active = clientDivisionFromProjects('Acme Corp', [
+      {
+        canonicalKey: 'hub:h1',
+        name: 'Portal',
+        sources: { hub: true },
+        hubProjectId: 'h1',
+        hubProjectName: 'Portal',
+        clientName: 'Acme Corp',
+      },
+    ]);
+    expect(
+      sessionMatchesActiveDivision(
+        {
+          division: 'client',
+          clientName: 'Acme Corp',
+          clientProjectIds: serializeClientDivisionProjects(active.projects),
+          canonicalKey: active.canonicalKey,
+        },
+        active
+      )
+    ).toBe(true);
+    expect(
+      sessionMatchesActiveDivision(
+        { division: 'client', clientName: 'Other', clientProjectIds: '[]', canonicalKey: 'client:other' },
+        active
+      )
+    ).toBe(false);
+  });
+
+  it('builds client system prompt and active context', () => {
+    const projects = serializeClientDivisionProjects([
+      { name: 'Portal', hubProjectId: 'h1', canonicalKey: 'hub:h1' },
+    ]);
+    const session = { division: 'client' as const, clientName: 'Acme Corp', clientProjectIds: projects };
+    const prompt = buildDivisionSystemPrompt(session);
+    expect(prompt).toContain('locked to client "Acme Corp"');
+    expect(prompt).toContain('OUT OF SCOPE');
+    const ctx = buildDivisionActiveClientContext(session);
+    expect(ctx).toContain('<active_client_context>');
+    expect(ctx).toContain('Portal');
+    expect(ctx).toContain('h1');
+  });
+
   it('allows Hub-allowed providers in all workspace divisions', () => {
     const catalog: BackendModelInfo[] = [
       { id: 'openrouter/free', name: 'Free', provider: 'openrouter' },
@@ -386,9 +453,73 @@ describe('hub-allocations parsers', () => {
       })
     ).toEqual({ id: 'proj-uuid-2', name: 'Via project_uuid' });
   });
+
+  it('parses client_name from project rows', () => {
+    expect(
+      normalizeAllocatedProject({
+        id: 'hub-1',
+        name: 'Portal',
+        client_name: 'Acme Corp',
+      })
+    ).toEqual({ id: 'hub-1', name: 'Portal', clientName: 'Acme Corp' });
+    expect(
+      normalizeAllocatedProject({
+        project: { id: 'hub-2', name: 'Mobile', clientName: 'Beta LLC' },
+      })
+    ).toEqual({ id: 'hub-2', name: 'Mobile', clientName: 'Beta LLC' });
+    expect(
+      normalizeAllocatedProject({
+        id: 'hub-3',
+        name: 'Portal',
+        client: { name: 'Nested Client LLC' },
+      })
+    ).toEqual({ id: 'hub-3', name: 'Portal', clientName: 'Nested Client LLC' });
+  });
+
+  it('enriches projects with client_name from GET /api/projects index', () => {
+    const index = parseProjectClientNameIndex({
+      success: true,
+      data: [
+        { id: 'hub-a', name: 'Alpha', client_name: 'Acme Corp' },
+        { id: 'hub-b', name: 'Beta', client_name: 'Beta LLC' },
+      ],
+    });
+    expect(index.get('hub-a')).toBe('Acme Corp');
+    const enriched = enrichAllocatedProjectsWithClientNames(
+      [
+        { id: 'hub-a', name: 'Alpha' },
+        { id: 'hub-b', name: 'Beta', clientName: 'Existing' },
+      ],
+      index
+    );
+    expect(enriched[0].clientName).toBe('Acme Corp');
+    expect(enriched[1].clientName).toBe('Existing');
+  });
 });
 
 describe('fetchAllocatedProjectsForUser', () => {
+  const projectsIndexEmpty = (): Response =>
+    ({
+      ok: true,
+      status: 200,
+      json: async () => ({ success: true, data: [] }),
+    }) as Response;
+
+  const isProjectsIndexUrl = (href: string): boolean =>
+    /\/api\/projects$/.test(href.replace(/\?.*$/, ''));
+
+  const projectsDetailEmpty = (): Response =>
+    ({
+      ok: false,
+      status: 404,
+      json: async () => ({ success: false }),
+    }) as Response;
+
+  const isProjectsDetailUrl = (href: string): boolean => {
+    const path = href.replace(/\?.*$/, '');
+    return /\/api\/projects\/[^/]+$/.test(path) && !path.endsWith('/api/projects/list');
+  };
+
   beforeEach(async () => {
     const { clearPrimarySkipCache, clearHubAllocationsCache } =
       await import('../../main/hub/hub-allocations');
@@ -402,6 +533,12 @@ describe('fetchAllocatedProjectsForUser', () => {
     const fetchFn = async (url: string | URL) => {
       const href = String(url);
       calls.push(href);
+      if (isProjectsIndexUrl(href)) {
+        return projectsIndexEmpty();
+      }
+      if (isProjectsDetailUrl(href)) {
+        return projectsDetailEmpty();
+      }
       expect(href).toContain('/api/projects/list');
       return {
         ok: true,
@@ -435,6 +572,12 @@ describe('fetchAllocatedProjectsForUser', () => {
           json: async () => ({ success: true, data: [] }),
         } as Response;
       }
+      if (isProjectsIndexUrl(href)) {
+        return projectsIndexEmpty();
+      }
+      if (isProjectsDetailUrl(href)) {
+        return projectsDetailEmpty();
+      }
       return {
         ok: true,
         status: 200,
@@ -466,6 +609,12 @@ describe('fetchAllocatedProjectsForUser', () => {
           json: async () => ({ success: false }),
         } as Response;
       }
+      if (isProjectsIndexUrl(href)) {
+        return projectsIndexEmpty();
+      }
+      if (isProjectsDetailUrl(href)) {
+        return projectsDetailEmpty();
+      }
       return {
         ok: true,
         status: 200,
@@ -495,6 +644,12 @@ describe('fetchAllocatedProjectsForUser', () => {
           status: 401,
           json: async () => ({ success: false }),
         } as Response;
+      }
+      if (isProjectsIndexUrl(href)) {
+        return projectsIndexEmpty();
+      }
+      if (isProjectsDetailUrl(href)) {
+        return projectsDetailEmpty();
       }
       return {
         ok: true,
@@ -547,6 +702,12 @@ describe('fetchAllocatedProjectsForUser', () => {
           }),
         } as Response;
       }
+      if (isProjectsIndexUrl(href)) {
+        return projectsIndexEmpty();
+      }
+      if (isProjectsDetailUrl(href)) {
+        return projectsDetailEmpty();
+      }
       throw new Error('should not call allocated-projects');
     };
     const projects = await fetchAllocatedProjectsForUser({
@@ -557,6 +718,77 @@ describe('fetchAllocatedProjectsForUser', () => {
     });
     expect(authHeaders).toEqual(['Bearer access-tok', 'Bearer id-tok']);
     expect(projects).toEqual([{ id: '2', name: 'ViaId' }]);
+  });
+
+  it('enriches list projects with client_name from GET /api/projects', async () => {
+    const { fetchAllocatedProjectsForUser } = await import('../../main/hub/hub-allocations');
+    const fetchFn = async (url: string | URL) => {
+      const href = String(url);
+      if (href.includes('/api/projects/list')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            success: true,
+            data: [{ id: 'hub-1', title: 'Portal' }],
+          }),
+        } as Response;
+      }
+      if (isProjectsIndexUrl(href)) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            success: true,
+            data: [{ id: 'hub-1', name: 'Portal', client_name: 'Acme Corp' }],
+          }),
+        } as Response;
+      }
+      throw new Error(`unexpected url ${href}`);
+    };
+    const projects = await fetchAllocatedProjectsForUser({
+      token: 'tok',
+      email: 'me@york.ie',
+      fetchFn: fetchFn as typeof fetch,
+    });
+    expect(projects).toEqual([{ id: 'hub-1', name: 'Portal', clientName: 'Acme Corp' }]);
+  });
+
+  it('enriches via GET /api/projects/:id when org index is empty', async () => {
+    const { fetchAllocatedProjectsForUser } = await import('../../main/hub/hub-allocations');
+    const fetchFn = async (url: string | URL) => {
+      const href = String(url);
+      if (href.includes('/api/projects/list')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            success: true,
+            data: [{ id: 'hub-9', title: 'Portal' }],
+          }),
+        } as Response;
+      }
+      if (isProjectsIndexUrl(href)) {
+        return projectsIndexEmpty();
+      }
+      if (href.endsWith('/api/projects/hub-9')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            success: true,
+            data: { id: 'hub-9', name: 'Portal', client_name: 'Detail Client' },
+          }),
+        } as Response;
+      }
+      throw new Error(`unexpected url ${href}`);
+    };
+    const projects = await fetchAllocatedProjectsForUser({
+      token: 'tok',
+      email: 'detail@york.ie',
+      fetchFn: fetchFn as typeof fetch,
+    });
+    expect(projects).toEqual([{ id: 'hub-9', name: 'Portal', clientName: 'Detail Client' }]);
   });
 
   it('throws when fallback allocated-projects also fails', async () => {

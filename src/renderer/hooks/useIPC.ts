@@ -25,6 +25,7 @@ import {
   resolveMainSessionStatus,
 } from '../utils/stale-turn-watchdog';
 import i18n from '../i18n/config';
+import { divisionPayloadFromActiveDivision } from '../../shared/workspace-division';
 
 function sessionIdFromServerEvent(event: ServerEvent): string | undefined {
   if (!('payload' in event) || event.payload == null || typeof event.payload !== 'object') {
@@ -681,25 +682,7 @@ export function useIPC() {
       }
 
       const activeDivision = useAppStore.getState().activeDivision;
-      const divisionPayload =
-        activeDivision?.kind === 'project'
-          ? {
-              division: 'project' as const,
-              hubProjectId: activeDivision.hubProjectId ?? null,
-              hubProjectName: activeDivision.hubProjectName ?? activeDivision.name,
-              launchpadProjectId: activeDivision.launchpadProjectId ?? null,
-              launchpadProjectName: activeDivision.launchpadProjectName ?? null,
-              canonicalKey: activeDivision.canonicalKey,
-            }
-          : activeDivision?.kind === 'folder'
-            ? {
-                division: 'folder' as const,
-                folderId: activeDivision.folderId,
-                folderName: activeDivision.folderName,
-              }
-            : activeDivision?.kind === 'hub'
-              ? { division: 'hub' as const }
-              : { division: 'general' as const };
+      const divisionPayload = divisionPayloadFromActiveDivision(activeDivision);
 
       const incognito =
         options?.incognito === true || useAppStore.getState().incognitoDraft === true;
@@ -738,21 +721,6 @@ export function useIPC() {
           memoryEnabled: !incognito,
           incognito: incognito || undefined,
           ...divisionPayload,
-          hubProjectId:
-            activeDivision?.kind === 'project' ? (activeDivision.hubProjectId ?? null) : null,
-          hubProjectName:
-            activeDivision?.kind === 'project'
-              ? (activeDivision.hubProjectName ?? activeDivision.name)
-              : null,
-          launchpadProjectId:
-            activeDivision?.kind === 'project' ? (activeDivision.launchpadProjectId ?? null) : null,
-          launchpadProjectName:
-            activeDivision?.kind === 'project'
-              ? (activeDivision.launchpadProjectName ?? null)
-              : null,
-          folderId: activeDivision?.kind === 'folder' ? activeDivision.folderId : null,
-          folderName: activeDivision?.kind === 'folder' ? activeDivision.folderName : null,
-          canonicalKey: activeDivision?.kind === 'project' ? activeDivision.canonicalKey : null,
         };
 
         addSession(session);
@@ -867,25 +835,7 @@ export function useIPC() {
       }
 
       const activeDivision = useAppStore.getState().activeDivision;
-      const divisionPayload =
-        activeDivision?.kind === 'project'
-          ? {
-              division: 'project' as const,
-              hubProjectId: activeDivision.hubProjectId ?? null,
-              hubProjectName: activeDivision.hubProjectName ?? activeDivision.name,
-              launchpadProjectId: activeDivision.launchpadProjectId ?? null,
-              launchpadProjectName: activeDivision.launchpadProjectName ?? null,
-              canonicalKey: activeDivision.canonicalKey,
-            }
-          : activeDivision?.kind === 'folder'
-            ? {
-                division: 'folder' as const,
-                folderId: activeDivision.folderId,
-                folderName: activeDivision.folderName,
-              }
-            : activeDivision?.kind === 'hub'
-              ? { division: 'hub' as const }
-              : { division: 'general' as const };
+      const divisionPayload = divisionPayloadFromActiveDivision(activeDivision);
 
       const incognito =
         options?.incognito === true || useAppStore.getState().incognitoDraft === true;
@@ -913,21 +863,6 @@ export function useIPC() {
           memoryEnabled: !incognito,
           incognito: incognito || undefined,
           ...divisionPayload,
-          hubProjectId:
-            activeDivision?.kind === 'project' ? (activeDivision.hubProjectId ?? null) : null,
-          hubProjectName:
-            activeDivision?.kind === 'project'
-              ? (activeDivision.hubProjectName ?? activeDivision.name)
-              : null,
-          launchpadProjectId:
-            activeDivision?.kind === 'project' ? (activeDivision.launchpadProjectId ?? null) : null,
-          launchpadProjectName:
-            activeDivision?.kind === 'project'
-              ? (activeDivision.launchpadProjectName ?? null)
-              : null,
-          folderId: activeDivision?.kind === 'folder' ? activeDivision.folderId : null,
-          folderName: activeDivision?.kind === 'folder' ? activeDivision.folderName : null,
-          canonicalKey: activeDivision?.kind === 'project' ? activeDivision.canonicalKey : null,
         };
 
         addSession(session);

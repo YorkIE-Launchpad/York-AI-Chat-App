@@ -19,7 +19,7 @@ export interface Session {
   provider?: string;
   /** When true, session model/provider stay pinned and are not overwritten from config. */
   modelLocked?: boolean;
-  /** Workspace division: general / hub / project / folder. Defaults to general. */
+  /** Workspace division: general / hub / project / client / folder. Defaults to general. */
   division?: WorkspaceDivisionKind;
   /** Hub project id when division === 'project'. */
   hubProjectId?: string | null;
@@ -34,6 +34,10 @@ export interface Session {
   folderName?: string | null;
   /** Company project canonical key (hub:… or lp:…). */
   canonicalKey?: string | null;
+  /** Hub client display name when division === 'client'. */
+  clientName?: string | null;
+  /** JSON array of client projects when division === 'client'. */
+  clientProjectIds?: string | null;
   /** When true, session stays in the sidebar Pinned group. */
   pinned?: boolean;
   /** When true, chat is in-memory only and does not update long-term memory. */
@@ -265,7 +269,7 @@ export interface ScheduleCreateInput {
   sessionMode?: 'new' | 'continue';
   boundSessionId?: string | null;
   watchConfig?: WatchConfig | null;
-  division?: 'general' | 'hub' | 'project' | 'folder';
+  division?: WorkspaceDivisionKind;
   hubProjectId?: string | null;
   hubProjectName?: string | null;
   launchpadProjectId?: number | null;
@@ -273,6 +277,8 @@ export interface ScheduleCreateInput {
   folderId?: string | null;
   folderName?: string | null;
   canonicalKey?: string | null;
+  clientName?: string | null;
+  clientProjectIds?: string | null;
 }
 
 export interface ScheduleUpdateInput {
@@ -297,7 +303,7 @@ export interface ScheduleUpdateInput {
   lastState?: string | null;
   lastCheckedAt?: number | null;
   consecutiveUnchanged?: number;
-  division?: 'general' | 'hub' | 'project' | 'folder';
+  division?: WorkspaceDivisionKind;
   hubProjectId?: string | null;
   hubProjectName?: string | null;
   launchpadProjectId?: number | null;
@@ -305,6 +311,8 @@ export interface ScheduleUpdateInput {
   folderId?: string | null;
   folderName?: string | null;
   canonicalKey?: string | null;
+  clientName?: string | null;
+  clientProjectIds?: string | null;
 }
 
 export interface ChatLoopStatus {
@@ -647,6 +655,8 @@ export type ClientEvent =
         folderId?: string | null;
         folderName?: string | null;
         canonicalKey?: string | null;
+        clientName?: string | null;
+        clientProjectIds?: string | null;
       };
     }
   | {
@@ -666,6 +676,8 @@ export type ClientEvent =
         folderId?: string | null;
         folderName?: string | null;
         canonicalKey?: string | null;
+        clientName?: string | null;
+        clientProjectIds?: string | null;
       };
     }
   | {

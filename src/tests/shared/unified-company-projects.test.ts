@@ -5,12 +5,19 @@ import {
   hubCanonicalKey,
   launchpadCanonicalKey,
   filterCompanyProjects,
+  clientCanonicalKey,
+  groupUnifiedProjectsByClient,
+  filterClientProjectGroups,
 } from '../../shared/unified-company-projects';
 import type { UnifiedCompanyProject } from '../../shared/unified-company-projects';
 import type { AllocatedHubProject } from '../../shared/workspace-division';
 import type { LaunchPadProjectListItem } from '../../shared/unified-company-projects';
 
-const hub = (id: string, name: string): AllocatedHubProject => ({ id, name });
+const hub = (id: string, name: string, clientName?: string): AllocatedHubProject => ({
+  id,
+  name,
+  ...(clientName ? { clientName } : {}),
+});
 const lp = (id: number, name: string, hubProjectId?: string | null): LaunchPadProjectListItem => ({
   id,
   name,
@@ -151,5 +158,29 @@ describe('parseLaunchPadProjectsPayload', () => {
     });
     expect(items).toHaveLength(1);
     expect(items[0].id).toBe(1);
+  });
+});
+
+describe('client grouping', () => {
+  it('builds client canonical keys from display names', () => {
+    expect(clientCanonicalKey('Acme Corp')).toBe('client:acme-corp');
+  });
+
+  it('groups projects by client_name and omits projects without a client', () => {
+    const merged = mergeHubAndLaunchpadProjects(
+      [hub('h1', 'Portal', 'Acme Corp'), hub('h2', 'Mobile', 'Acme Corp'), hub('h3', 'Internal')],
+      []
+    );
+    const groups = groupUnifiedProjectsByClient(merged);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].clientName).toBe('Acme Corp');
+    expect(groups[0].projects).toHaveLength(2);
+    expect(filterClientProjectGroups(groups, 'portal')).toHaveLength(1);
+    expect(filterClientProjectGroups(groups, 'internal')).toHaveLength(0);
+  });
+
+  it('threads clientName from hub rows through merge', () => {
+    const merged = mergeHubAndLaunchpadProjects([hub('h1', 'Alpha', 'Client X')], []);
+    expect(merged[0].clientName).toBe('Client X');
   });
 });

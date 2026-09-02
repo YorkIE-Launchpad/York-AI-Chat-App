@@ -1,9 +1,14 @@
 /**
- * Hard-scope Hub MCP project tools to the session's locked Project workspace.
+ * Hard-scope Hub MCP project tools to the session's locked Project/Client workspace.
  * Prompt-only locks are insufficient — Hub list/get tools are org-wide under RBAC.
  */
 
-import { normalizeSessionDivision, type SessionDivisionFields } from './workspace-division';
+import {
+  normalizeSessionDivision,
+  parseClientDivisionProjects,
+  resolveProjectAllowlist,
+  type SessionDivisionFields,
+} from './workspace-division';
 
 /** Hub MCP name prefixes (sanitized mcp__Server__tool form). */
 const HUB_MCP_PREFIXES = ['mcp__york_ie_hub__', 'mcp__hub__'] as const;
@@ -19,7 +24,7 @@ const HUB_PROJECT_ID_TOOLS = new Set([
   'send_project_bench_suggestions_chat',
 ]);
 
-/** Tools that return multi-project payloads — call then filter to locked project. */
+/** Tools that return multi-project payloads — call then filter to locked project(s). */
 const HUB_PROJECT_LIST_TOOLS = new Set([
   'list_projects',
   'list_project_summaries',
@@ -94,6 +99,13 @@ export function projectScopeRefuseMessage(
   session: Partial<SessionDivisionFields> | null | undefined
 ): string {
   const normalized = normalizeSessionDivision(session);
+  if (normalized.division === 'client' && normalized.clientName) {
+    return [
+      'Incorrect use. This attempt will be reported.',
+      `This session is scoped to client "${normalized.clientName}" and its projects only.`,
+      'Switch Client or Project workspace (or General) in the sidebar to query another client.',
+    ].join(' ');
+  }
   const name = normalized.hubProjectName || normalized.hubProjectId || 'this project';
   return [
     'Incorrect use. This attempt will be reported.',
@@ -106,6 +118,9 @@ export function projectScopeRefuseMessage(
 
 function emptyInScopeMessage(session: Partial<SessionDivisionFields> | null | undefined): string {
   const normalized = normalizeSessionDivision(session);
+  if (normalized.division === 'client' && normalized.clientName) {
+    return `No in-scope data for client "${normalized.clientName}" in this tool result. This session is locked to that client's projects only.`;
+  }
   const name = normalized.hubProjectName || normalized.hubProjectId || 'this project';
   return `No in-scope data for project "${name}" in this tool result. This session is locked to that project only.`;
 }
@@ -130,36 +145,32 @@ function injectProjectIdArg(
   hubToolName?: string | null
 ): Record<string, unknown> {
   const next = { ...args };
-  // Prefer overwriting an existing id-shaped key; otherwise use tool-specific default.
   for (const key of PROJECT_ID_ARG_KEYS) {
     if (key in next) {
       next[key] = hubProjectId;
       return next;
     }
   }
-  const defaultKey =
-    (hubToolName && HUB_TOOL_DEFAULT_ID_ARG[hubToolName]) || 'projectId';
+  const defaultKey = (hubToolName && HUB_TOOL_DEFAULT_ID_ARG[hubToolName]) || 'projectId';
   next[defaultKey] = hubProjectId;
   return next;
 }
 
-function itemMatchesLockedProject(
+function itemMatchesAllowlist(
   item: Record<string, unknown>,
-  hubProjectId: string,
-  hubProjectName: string
+  allowlist: { hubIds: Set<string>; launchpadIds: Set<number> },
+  projectNames: Set<string>
 ): boolean {
   for (const key of PROJECT_ID_ARG_KEYS) {
     const value = item[key];
-    if (typeof value === 'string' && value.trim() === hubProjectId) {
+    if (typeof value === 'string' && value.trim() && allowlist.hubIds.has(value.trim())) {
       return true;
     }
   }
-  // Some list payloads use bare `id` for non-project entities — still match name/title.
-  const lockedLabel = normalizeProjectLabel(hubProjectName);
   for (const key of PROJECT_NAME_KEYS) {
     const value = item[key];
     if (typeof value === 'string' && value.trim()) {
-      if (normalizeProjectLabel(value) === lockedLabel) {
+      if (projectNames.has(normalizeProjectLabel(value))) {
         return true;
       }
     }
@@ -167,16 +178,29 @@ function itemMatchesLockedProject(
   return false;
 }
 
-function filterUnknownForProject(
+function collectProjectNames(session: Partial<SessionDivisionFields>): Set<string> {
+  const names = new Set<string>();
+  const normalized = normalizeSessionDivision(session);
+  if (normalized.division === 'project') {
+    const name = normalized.hubProjectName || normalized.launchpadProjectName;
+    if (name) names.add(normalizeProjectLabel(name));
+  } else if (normalized.division === 'client') {
+    for (const project of parseClientDivisionProjects(normalized.clientProjectIds)) {
+      names.add(normalizeProjectLabel(project.name));
+    }
+  }
+  return names;
+}
+
+function filterUnknownForAllowlist(
   value: unknown,
-  hubProjectId: string,
-  hubProjectName: string
+  allowlist: { hubIds: Set<string>; launchpadIds: Set<number> },
+  projectNames: Set<string>
 ): { value: unknown; changed: boolean; keptAny: boolean } {
   if (Array.isArray(value)) {
     const filtered = value.filter(
-      (item) => isRecord(item) && itemMatchesLockedProject(item, hubProjectId, hubProjectName)
+      (item) => isRecord(item) && itemMatchesAllowlist(item, allowlist, projectNames)
     );
-    // Only treat as a project list when items look like project records.
     const looksLikeProjectList = value.some(
       (item) =>
         isRecord(item) &&
@@ -197,15 +221,13 @@ function filterUnknownForProject(
     return { value, changed: false, keptAny: true };
   }
 
-  // Single project object
-  if (itemMatchesLockedProject(value, hubProjectId, hubProjectName)) {
+  if (itemMatchesAllowlist(value, allowlist, projectNames)) {
     return { value, changed: false, keptAny: true };
   }
   if (
     PROJECT_ID_ARG_KEYS.some((k) => typeof value[k] === 'string') ||
     PROJECT_NAME_KEYS.some((k) => typeof value[k] === 'string')
   ) {
-    // Looks like a single out-of-scope project record
     const hasNestedArrays = Object.values(value).some((v) => Array.isArray(v));
     if (!hasNestedArrays) {
       return { value: null, changed: true, keptAny: false };
@@ -217,7 +239,7 @@ function filterUnknownForProject(
   let sawProjectList = false;
   const next: Record<string, unknown> = {};
   for (const [key, nested] of Object.entries(value)) {
-    const filtered = filterUnknownForProject(nested, hubProjectId, hubProjectName);
+    const filtered = filterUnknownForAllowlist(nested, allowlist, projectNames);
     next[key] = filtered.value;
     if (filtered.changed) {
       changed = true;
@@ -236,7 +258,7 @@ function filterUnknownForProject(
 }
 
 /**
- * Prepare Hub MCP args for a Project workspace session.
+ * Prepare Hub MCP args for a Project/Client workspace session.
  * Non-project divisions and non-Hub tools pass through unchanged.
  */
 export function prepareProjectScopedMcpArgs(
@@ -245,7 +267,8 @@ export function prepareProjectScopedMcpArgs(
   session: Partial<SessionDivisionFields> | null | undefined
 ): ProjectScopedMcpPrepare {
   const normalized = normalizeSessionDivision(session);
-  if (normalized.division !== 'project' || !normalized.hubProjectId) {
+  const allowlist = resolveProjectAllowlist(session);
+  if (!allowlist || allowlist.hubIds.size === 0) {
     return { kind: 'allow', args, filterResult: false };
   }
 
@@ -254,22 +277,31 @@ export function prepareProjectScopedMcpArgs(
     return { kind: 'allow', args, filterResult: false };
   }
 
-  const hubProjectId = normalized.hubProjectId;
+  const isClientDivision = normalized.division === 'client';
+  const singleHubId =
+    !isClientDivision && normalized.hubProjectId ? normalized.hubProjectId : null;
 
   if (HUB_PROJECT_ID_TOOLS.has(original)) {
     const provided = readProjectIdArg(args);
-    if (provided && provided !== hubProjectId) {
+    if (provided && !allowlist.hubIds.has(provided)) {
       return {
         kind: 'block',
         message: projectScopeRefuseMessage(session),
         attemptedProjectId: provided,
       };
     }
-    return {
-      kind: 'allow',
-      args: injectProjectIdArg(args, hubProjectId, original),
-      filterResult: false,
-    };
+    if (isClientDivision) {
+      // Client workspace: agent must pick the project id — do not auto-inject.
+      return { kind: 'allow', args, filterResult: false };
+    }
+    if (singleHubId) {
+      return {
+        kind: 'allow',
+        args: injectProjectIdArg(args, singleHubId, original),
+        filterResult: false,
+      };
+    }
+    return { kind: 'allow', args, filterResult: false };
   }
 
   if (HUB_PROJECT_LIST_TOOLS.has(original)) {
@@ -280,15 +312,15 @@ export function prepareProjectScopedMcpArgs(
 }
 
 /**
- * Filter Hub multi-project tool result text down to the locked project.
+ * Filter Hub multi-project tool result text down to locked project(s).
  */
 export function applyProjectScopedMcpResultFilter(
   toolName: string,
   resultText: string,
   session: Partial<SessionDivisionFields> | null | undefined
 ): string {
-  const normalized = normalizeSessionDivision(session);
-  if (normalized.division !== 'project' || !normalized.hubProjectId) {
+  const allowlist = resolveProjectAllowlist(session);
+  if (!allowlist || allowlist.hubIds.size === 0) {
     return resultText;
   }
   const original = hubMcpOriginalToolName(toolName);
@@ -296,8 +328,7 @@ export function applyProjectScopedMcpResultFilter(
     return resultText;
   }
 
-  const hubProjectId = normalized.hubProjectId;
-  const hubProjectName = normalized.hubProjectName || hubProjectId;
+  const projectNames = collectProjectNames(session ?? {});
   const trimmed = resultText.trim();
   if (!trimmed) {
     return emptyInScopeMessage(session);
@@ -305,7 +336,7 @@ export function applyProjectScopedMcpResultFilter(
 
   try {
     const parsed = JSON.parse(trimmed) as unknown;
-    const filtered = filterUnknownForProject(parsed, hubProjectId, hubProjectName);
+    const filtered = filterUnknownForAllowlist(parsed, allowlist, projectNames);
     if (!filtered.keptAny) {
       return emptyInScopeMessage(session);
     }
@@ -314,10 +345,9 @@ export function applyProjectScopedMcpResultFilter(
     }
     return JSON.stringify(filtered.value);
   } catch {
-    // Non-JSON: keep only if locked id or name appears; otherwise refuse leak.
     const lower = trimmed.toLowerCase();
-    const idHit = lower.includes(hubProjectId.toLowerCase());
-    const nameHit = lower.includes(hubProjectName.toLowerCase());
+    const idHit = Array.from(allowlist.hubIds).some((id) => lower.includes(id.toLowerCase()));
+    const nameHit = Array.from(projectNames).some((name) => lower.includes(name));
     if (idHit || nameHit) {
       return resultText;
     }

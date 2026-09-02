@@ -6,6 +6,7 @@
  *
  * Primary: GET /api/projects/list
  * Fallback: GET /api/users/:email/allocated-projects
+ * Enrichment: GET /api/projects (client_name on full project rows)
  * After primary fails once (401/403/empty/non-ok), skip primary for 10m and always use fallback.
  */
 import { authConfig } from '../../shared/auth-config';
@@ -17,6 +18,7 @@ const CACHE_TTL_MS = 5 * 60 * 1000;
 const PRIMARY_SKIP_TTL_MS = 10 * 60 * 1000;
 
 const PROJECTS_LIST = '/api/projects/list';
+const PROJECTS_INDEX = '/api/projects';
 
 type FetchFn = typeof fetch;
 
@@ -103,8 +105,10 @@ function unwrapDataArray(payload: unknown): unknown[] {
     return root.data;
   }
   const nested = asRecord(root.data);
-  if (nested && Array.isArray(nested.data)) {
-    return nested.data;
+  if (nested) {
+    if (Array.isArray(nested.data)) return nested.data;
+    if (Array.isArray(nested.items)) return nested.items;
+    if (Array.isArray(nested.projects)) return nested.projects;
   }
   if (Array.isArray(payload)) {
     return payload;
@@ -131,6 +135,79 @@ function extractHubProjectId(
     stringField(record, ...HUB_PROJECT_ID_KEYS) ||
     (nested ? stringField(nested, ...HUB_PROJECT_ID_KEYS) : null)
   );
+}
+
+/** Parse client display name from Hub project / allocation rows. */
+export function extractClientName(
+  record: Record<string, unknown>,
+  nested: Record<string, unknown> | null
+): string | null {
+  const direct =
+    stringField(record, 'client_name', 'clientName') ||
+    (nested ? stringField(nested, 'client_name', 'clientName') : null);
+  if (direct) return direct;
+
+  for (const container of [record, nested]) {
+    if (!container) continue;
+    const clientObj =
+      asRecord(container.client) ||
+      asRecord(container.clientInfo) ||
+      asRecord(container.client_info);
+    if (!clientObj) continue;
+    const name =
+      stringField(clientObj, 'name', 'client_name', 'clientName', 'title', 'displayName') ||
+      stringField(clientObj, 'company_name', 'companyName');
+    if (name) return name;
+  }
+  return null;
+}
+
+export function enrichAllocatedProjectsWithClientNames(
+  projects: AllocatedHubProject[],
+  clientNameByProjectId: Map<string, string>
+): AllocatedHubProject[] {
+  if (clientNameByProjectId.size === 0) return projects;
+  return projects.map((project) => {
+    if (project.clientName?.trim()) return project;
+    const clientName = clientNameByProjectId.get(project.id);
+    return clientName ? { ...project, clientName } : project;
+  });
+}
+
+export function parseProjectClientNameIndex(payload: unknown): Map<string, string> {
+  const byId = new Map<string, string>();
+  for (const row of unwrapDataArray(payload)) {
+    const record = asRecord(row);
+    if (!record) continue;
+    const nested =
+      asRecord(record.project) ||
+      asRecord(record.hubProject) ||
+      asRecord(record.clientProject) ||
+      null;
+    const id = extractHubProjectId(record, nested);
+    const clientName = extractClientName(record, nested);
+    if (id && clientName) {
+      byId.set(id, clientName);
+    }
+  }
+  return byId;
+}
+
+async function fetchProjectClientNameIndex(input: {
+  token: string;
+  alternateToken: string | null;
+  fetchFn: FetchFn;
+}): Promise<Map<string, string>> {
+  const result = await hubGetWithTokenRetry(
+    PROJECTS_INDEX,
+    input.token,
+    input.alternateToken,
+    input.fetchFn
+  );
+  if (!result.ok || !isSuccessEnvelope(result.json)) {
+    return new Map();
+  }
+  return parseProjectClientNameIndex(result.json);
 }
 
 /** Normalize a Hub allocated-project / project-list row. */
@@ -162,11 +239,13 @@ export function normalizeAllocatedProject(row: unknown): AllocatedHubProject | n
   const title = hasExplicitName
     ? stringField(record, 'title', 'role', 'allocationTitle') || undefined
     : stringField(record, 'role', 'allocationTitle') || undefined;
+  const clientName = extractClientName(record, nested) || undefined;
   return {
     id,
     name,
     ...(hours !== undefined ? { hours } : {}),
     ...(title ? { title } : {}),
+    ...(clientName ? { clientName } : {}),
   };
 }
 
@@ -350,6 +429,7 @@ export async function fetchAllocatedProjectsForUser(input: {
   const fetchFn = input.fetchFn ?? fetch;
   const { token, email, alternateToken = null, forcePrimary = false } = input;
   const skipPrimary = !forcePrimary && isPrimaryProjectsListSkipped(email);
+  const enrichInput = { token, alternateToken, fetchFn };
 
   if (!skipPrimary) {
     const primary = await hubGetWithTokenRetry(PROJECTS_LIST, token, alternateToken, fetchFn);
@@ -357,7 +437,7 @@ export async function fetchAllocatedProjectsForUser(input: {
       const projects = parseUserAllocatedProjects(primary.json);
       if (projects.length > 0) {
         clearPrimarySkip(email);
-        return projects;
+        return enrichWithClientNames(projects, enrichInput);
       }
       logWarn('[HubAllocations] /api/projects/list returned 0 projects — using allocated-projects');
     } else {
@@ -372,12 +452,96 @@ export async function fetchAllocatedProjectsForUser(input: {
     log('[HubAllocations] Skipping /api/projects/list (cached failure) — allocated-projects only');
   }
 
-  return fetchAllocatedProjectsFallback({
+  const fallback = await fetchAllocatedProjectsFallback({
     token,
     email,
     alternateToken,
     fetchFn,
   });
+  return enrichWithClientNames(fallback, enrichInput);
+}
+
+async function fetchProjectClientNameById(input: {
+  projectId: string;
+  token: string;
+  alternateToken: string | null;
+  fetchFn: FetchFn;
+}): Promise<string | null> {
+  const path = `/api/projects/${encodeURIComponent(input.projectId)}`;
+  const result = await hubGetWithTokenRetry(
+    path,
+    input.token,
+    input.alternateToken,
+    input.fetchFn
+  );
+  if (!result.ok || !isSuccessEnvelope(result.json)) {
+    return null;
+  }
+  const root = asRecord(result.json);
+  const data = asRecord(root?.data) || root;
+  if (!data) return null;
+  const nested =
+    asRecord(data.project) ||
+    asRecord(data.hubProject) ||
+    asRecord(data.clientProject) ||
+    null;
+  return extractClientName(data, nested);
+}
+
+async function enrichWithClientNames(
+  projects: AllocatedHubProject[],
+  input: {
+    token: string;
+    alternateToken: string | null;
+    fetchFn: FetchFn;
+  }
+): Promise<AllocatedHubProject[]> {
+  if (!projects.length) return projects;
+  if (projects.every((p) => p.clientName?.trim())) return projects;
+  try {
+    const clientNameById = await fetchProjectClientNameIndex(input);
+    const missing = projects.filter((p) => !p.clientName?.trim() && !clientNameById.has(p.id));
+    if (missing.length > 0) {
+      const perProject = await Promise.all(
+        missing.map(async (project) => {
+          const clientName = await fetchProjectClientNameById({
+            projectId: project.id,
+            ...input,
+          });
+          return clientName ? ([project.id, clientName] as const) : null;
+        })
+      );
+      for (const entry of perProject) {
+        if (entry) clientNameById.set(entry[0], entry[1]);
+      }
+      const viaDetail = perProject.filter(Boolean).length;
+      if (viaDetail > 0) {
+        log(
+          '[HubAllocations] Enriched',
+          viaDetail,
+          'projects with client_name from GET /api/projects/:id'
+        );
+      }
+    }
+    if (clientNameById.size === 0) {
+      logWarn(
+        '[HubAllocations] No client_name found for',
+        projects.length,
+        'allocated project(s) — Client workspace picker will be empty'
+      );
+      return projects;
+    }
+    const enriched = enrichAllocatedProjectsWithClientNames(projects, clientNameById);
+    const added =
+      enriched.filter((p) => p.clientName).length - projects.filter((p) => p.clientName).length;
+    if (added > 0) {
+      log('[HubAllocations] Enriched', added, 'projects with client_name from', PROJECTS_INDEX);
+    }
+    return enriched;
+  } catch (error) {
+    logWarn('[HubAllocations] client_name enrichment failed:', error);
+    return projects;
+  }
 }
 
 export async function listAllocatedProjects(options?: {

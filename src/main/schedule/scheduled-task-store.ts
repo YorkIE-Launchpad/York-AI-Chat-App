@@ -175,6 +175,8 @@ function mapRowToTask(row: ScheduledTaskRow): ScheduledTask {
     folderId: binding.folderId ?? null,
     folderName: binding.folderName ?? null,
     canonicalKey: binding.canonicalKey ?? null,
+    clientName: binding.clientName ?? null,
+    clientProjectIds: binding.clientProjectIds ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

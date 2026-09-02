@@ -9,16 +9,23 @@ import {
   Folder,
   Lock,
   Search,
+  Users,
 } from 'lucide-react';
 import { useAppStore } from '../store';
 import type { ActiveDivision, PersonalFolder } from '../../shared/workspace-division';
 import {
   activeDivisionFromUnifiedProject,
+  clientDivisionFromProjects,
   companyProjectSourceLabel,
   divisionLabel,
 } from '../../shared/workspace-division';
-import type { UnifiedCompanyProject } from '../../shared/unified-company-projects';
-import { canonicalKeyForUnified, filterCompanyProjects } from '../../shared/unified-company-projects';
+import type { ClientProjectGroup, UnifiedCompanyProject } from '../../shared/unified-company-projects';
+import {
+  canonicalKeyForUnified,
+  filterClientProjectGroups,
+  filterCompanyProjects,
+  groupUnifiedProjectsByClient,
+} from '../../shared/unified-company-projects';
 import { hasOpenRouterUserApiKey } from '../../shared/openrouter-user-key';
 import {
   rememberRecentProject,
@@ -41,6 +48,7 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
   const hasOpenRouterKey = hasOpenRouterUserApiKey(appConfig?.openRouterUserApiKey);
   const [menuOpen, setMenuOpen] = useState(false);
   const [pickingProject, setPickingProject] = useState(false);
+  const [pickingClient, setPickingClient] = useState(false);
   const [pickingFolder, setPickingFolder] = useState(false);
   const [projects, setProjects] = useState<UnifiedCompanyProject[]>([]);
   const [folders, setFolders] = useState<PersonalFolder[]>([]);
@@ -50,6 +58,7 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
   const [staleProjectWarning, setStaleProjectWarning] = useState<string | null>(null);
   const [newFolderName, setNewFolderName] = useState('');
   const [projectQuery, setProjectQuery] = useState('');
+  const [clientQuery, setClientQuery] = useState('');
   const menuRef = useRef<HTMLDivElement>(null);
   const projectSearchRef = useRef<HTMLInputElement>(null);
 
@@ -59,8 +68,10 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setMenuOpen(false);
         setPickingProject(false);
+        setPickingClient(false);
         setPickingFolder(false);
         setProjectQuery('');
+        setClientQuery('');
       }
     };
     document.addEventListener('mousedown', onDocClick);
@@ -77,7 +88,7 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
     return () => window.clearTimeout(id);
   }, [pickingProject, loadingProjects, projects.length]);
 
-  const loadProjects = useCallback(async (): Promise<UnifiedCompanyProject[]> => {
+  const loadProjects = useCallback(async (forceRefresh = false): Promise<UnifiedCompanyProject[]> => {
     setLoadingProjects(true);
     setProjectsError(null);
     try {
@@ -89,7 +100,7 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
           setProjectsError('Projects unavailable');
           return [];
         }
-        const result = await hubApi.listAllocatedProjects();
+        const result = await hubApi.listAllocatedProjects(forceRefresh);
         if (!result.success) {
           setProjects([]);
           setProjectsError(result.error || 'Failed to load projects');
@@ -101,6 +112,7 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
           sources: { hub: true as const },
           hubProjectId: p.id,
           hubProjectName: p.name,
+          ...(p.clientName ? { clientName: p.clientName } : {}),
         }));
         setProjects(mapped);
         if (!mapped.length) {
@@ -108,7 +120,7 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
         }
         return mapped;
       }
-      const result = await api.listUnified();
+      const result = await api.listUnified(forceRefresh);
       const loaded = result.projects || [];
       setProjects(loaded);
       const partial: string[] = [];
@@ -195,8 +207,16 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
       }
       if (division.kind === 'project') {
         setPickingFolder(false);
+        setPickingClient(false);
         setPickingProject(true);
         await loadProjects();
+        return;
+      }
+      if (division.kind === 'client') {
+        setPickingFolder(false);
+        setPickingProject(false);
+        setPickingClient(true);
+        await loadProjects(true);
         return;
       }
       setActiveDivision(division);
@@ -211,6 +231,21 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
       setSettingsTab,
       setShowSettings,
     ]
+  );
+
+  const selectClient = useCallback(
+    (group: ClientProjectGroup) => {
+      setActiveDivision(clientDivisionFromProjects(group.clientName, group.projects));
+      setMenuOpen(false);
+      setPickingClient(false);
+    },
+    [setActiveDivision]
+  );
+
+  const clientGroups = useMemo(() => groupUnifiedProjectsByClient(projects), [projects]);
+  const visibleClientGroups = useMemo(
+    () => filterClientProjectGroups(clientGroups, clientQuery),
+    [clientGroups, clientQuery]
   );
 
   const selectProject = useCallback(
@@ -278,11 +313,13 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
   const Icon =
     activeDivision?.kind === 'hub'
       ? Building2
-      : activeDivision?.kind === 'project'
-        ? Briefcase
-        : activeDivision?.kind === 'folder'
-          ? Folder
-          : Layers;
+      : activeDivision?.kind === 'client'
+        ? Users
+        : activeDivision?.kind === 'project'
+          ? Briefcase
+          : activeDivision?.kind === 'folder'
+            ? Folder
+            : Layers;
 
   return (
     <div className="relative" ref={menuRef}>
@@ -291,8 +328,10 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
         onClick={() => {
           setMenuOpen((open) => !open);
           setPickingProject(false);
+          setPickingClient(false);
           setPickingFolder(false);
           setProjectQuery('');
+          setClientQuery('');
         }}
         className={`flex w-full items-center gap-2 rounded-lg border border-border bg-background text-left text-text-primary hover:bg-surface-hover transition-colors ${
           compact ? 'h-8 px-2 text-[12px]' : 'px-3 py-2 text-sm'
@@ -314,7 +353,7 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
 
       {menuOpen && (
         <div className="absolute left-0 right-0 z-40 mt-1 overflow-hidden rounded-lg border border-border bg-background shadow-lg">
-          {!pickingProject && !pickingFolder ? (
+          {!pickingProject && !pickingClient && !pickingFolder ? (
             <div className="py-1">
               <MenuItem
                 icon={Layers}
@@ -356,6 +395,20 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
                 description="People & HR · your OpenRouter API key"
                 active={activeDivision?.kind === 'hub'}
                 onClick={() => void selectDivision({ kind: 'hub' })}
+              />
+              <MenuItem
+                icon={Users}
+                label="Client"
+                description="All projects for one client · York-managed models"
+                active={activeDivision?.kind === 'client'}
+                onClick={() =>
+                  void selectDivision({
+                    kind: 'client',
+                    canonicalKey: '',
+                    clientName: '',
+                    projects: [],
+                  })
+                }
               />
               <MenuItem
                 icon={Briefcase}
@@ -444,7 +497,80 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
                 <p className="px-3 py-3 text-xs text-text-muted">No folders yet</p>
               )}
             </div>
-          ) : (
+          ) : pickingClient ? (
+            <div className="flex max-h-80 flex-col py-1">
+              <div className="flex items-center justify-between px-3 py-2 text-xs text-text-muted">
+                <button
+                  type="button"
+                  className="hover:text-text-primary"
+                  onClick={() => setPickingClient(false)}
+                >
+                  ← Back
+                </button>
+                <span>Clients</span>
+              </div>
+              {!loadingProjects && clientGroups.length > 0 && (
+                <div className="px-2 pb-2">
+                  <div className="relative">
+                    <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" />
+                    <input
+                      type="search"
+                      value={clientQuery}
+                      onChange={(e) => setClientQuery(e.target.value)}
+                      placeholder="Search clients…"
+                      aria-label="Search clients"
+                      className="w-full rounded border border-border bg-bg-secondary py-1.5 pl-7 pr-2 text-xs text-text-primary placeholder:text-text-muted"
+                    />
+                  </div>
+                </div>
+              )}
+              <div className="min-h-0 flex-1 overflow-y-auto">
+                {loadingProjects && (
+                  <div className="flex items-center gap-2 px-3 py-3 text-xs text-text-muted">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    Loading…
+                  </div>
+                )}
+                {!loadingProjects && projectsError && clientGroups.length === 0 && (
+                  <p className="px-3 py-3 text-xs text-text-muted">{projectsError}</p>
+                )}
+                {!loadingProjects && clientGroups.length === 0 && !projectsError && (
+                  <p className="px-3 py-3 text-xs text-text-muted">
+                    No clients found — projects need a client_name from Hub.
+                  </p>
+                )}
+                {!loadingProjects &&
+                  visibleClientGroups.map((group) => (
+                    <button
+                      key={group.canonicalKey}
+                      type="button"
+                      className={`w-full px-3 py-2 text-left hover:bg-bg-secondary ${
+                        activeDivision?.kind === 'client' &&
+                        activeDivision.canonicalKey === group.canonicalKey
+                          ? 'bg-bg-secondary'
+                          : ''
+                      }`}
+                      onClick={() => selectClient(group)}
+                    >
+                      <div className="truncate text-sm font-medium text-text-primary">
+                        {group.clientName}
+                      </div>
+                      <div className="truncate text-xs text-text-muted">
+                        {group.projects.length} project{group.projects.length === 1 ? '' : 's'} ·{' '}
+                        {group.projects
+                          .slice(0, 3)
+                          .map((p) => p.name)
+                          .join(', ')}
+                        {group.projects.length > 3 ? '…' : ''}
+                      </div>
+                    </button>
+                  ))}
+                {!loadingProjects && clientGroups.length > 0 && visibleClientGroups.length === 0 && (
+                  <p className="px-3 py-3 text-xs text-text-muted">No matching clients</p>
+                )}
+              </div>
+            </div>
+          ) : pickingProject ? (
             <div className="flex max-h-80 flex-col py-1">
               <div className="flex items-center justify-between px-3 py-2 text-xs text-text-muted">
                 <button
@@ -539,7 +665,7 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
                 )}
               </div>
             </div>
-          )}
+          ) : null}
         </div>
       )}
     </div>

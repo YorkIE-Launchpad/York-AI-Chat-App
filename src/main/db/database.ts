@@ -127,6 +127,8 @@ export interface SessionRow {
   folder_id: string | null;
   folder_name: string | null;
   project_canonical_key: string | null;
+  client_name: string | null;
+  client_project_ids: string | null;
   pinned: number;
   created_at: number;
   updated_at: number;
@@ -408,6 +410,8 @@ function initializeSchema(database: Database.Database): void {
     ensureColumn(database, 'sessions', 'folder_id', 'folder_id TEXT');
     ensureColumn(database, 'sessions', 'folder_name', 'folder_name TEXT');
     ensureColumn(database, 'sessions', 'project_canonical_key', 'project_canonical_key TEXT');
+    ensureColumn(database, 'sessions', 'client_name', 'client_name TEXT');
+    ensureColumn(database, 'sessions', 'client_project_ids', 'client_project_ids TEXT');
     ensureColumn(database, 'sessions', 'pinned', 'pinned INTEGER NOT NULL DEFAULT 0');
 
     database.exec(`
@@ -971,6 +975,8 @@ function searchChatFts(database: Database.Database, query: string, limit = 40): 
             s.folder_id AS folder_id,
             s.folder_name AS folder_name,
             s.project_canonical_key AS project_canonical_key,
+            s.client_name AS client_name,
+            s.client_project_ids AS client_project_ids,
             bm25(chat_fts) AS rank
           FROM chat_fts f
           JOIN sessions s ON s.id = f.session_id
@@ -994,6 +1000,8 @@ function searchChatFts(database: Database.Database, query: string, limit = 40): 
       folder_id: string | null;
       folder_name: string | null;
       project_canonical_key: string | null;
+      client_name: string | null;
+      client_project_ids: string | null;
     }>;
 
     const seen = new Set<string>();
@@ -1020,6 +1028,8 @@ function searchChatFts(database: Database.Database, query: string, limit = 40): 
         folderId: row.folder_id,
         folderName: row.folder_name,
         projectCanonicalKey: row.project_canonical_key,
+        clientName: row.client_name,
+        clientProjectIds: row.client_project_ids,
       });
       if (hits.length >= capped) break;
     }
@@ -1108,8 +1118,8 @@ export function initDatabase(): DatabaseInstance {
   // Prepare statements for better performance
   const insertSession = rawDb.prepare(`
     INSERT OR REPLACE INTO sessions
-    (id, title, claude_session_id, openai_thread_id, status, cwd, mounted_paths, allowed_tools, memory_enabled, model, division, hub_project_id, hub_project_name, launchpad_project_id, launchpad_project_name, folder_id, folder_name, project_canonical_key, pinned, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    (id, title, claude_session_id, openai_thread_id, status, cwd, mounted_paths, allowed_tools, memory_enabled, model, division, hub_project_id, hub_project_name, launchpad_project_id, launchpad_project_name, folder_id, folder_name, project_canonical_key, client_name, client_project_ids, pinned, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   // Note: Dynamic update queries are built in sessions.update() for flexibility
@@ -1287,6 +1297,8 @@ export function initDatabase(): DatabaseInstance {
           session.folder_id ?? null,
           session.folder_name ?? null,
           session.project_canonical_key ?? null,
+          session.client_name ?? null,
+          session.client_project_ids ?? null,
           session.pinned ?? 0,
           session.created_at,
           session.updated_at

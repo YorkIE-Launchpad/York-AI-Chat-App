@@ -157,6 +157,55 @@ describe('project-mcp-scope', () => {
     expect(message).toContain('will be reported');
     expect(message).toContain('Coachmetrix');
   });
+
+  const clientSession = {
+    division: 'client' as const,
+    clientName: 'Acme Corp',
+    clientProjectIds: JSON.stringify([
+      { name: 'Portal', hubProjectId: 'coach-uuid', canonicalKey: 'hub:coach-uuid' },
+      { name: 'Mobile', hubProjectId: 'mobile-uuid', canonicalKey: 'hub:mobile-uuid' },
+    ]),
+    canonicalKey: 'client:acme-corp',
+  };
+
+  it('allows get_project for ids in client allowlist without auto-inject', () => {
+    const prepared = prepareProjectScopedMcpArgs(
+      'mcp__York_IE_HUB__get_project',
+      { projectId: 'mobile-uuid' },
+      clientSession
+    );
+    expect(prepared).toEqual({
+      kind: 'allow',
+      args: { projectId: 'mobile-uuid' },
+      filterResult: false,
+    });
+  });
+
+  it('blocks get_project for ids outside client allowlist', () => {
+    const prepared = prepareProjectScopedMcpArgs(
+      'mcp__York_IE_HUB__get_project',
+      { projectId: 'other-uuid' },
+      clientSession
+    );
+    expect(prepared.kind).toBe('block');
+  });
+
+  it('filters list_projects to all client allowlisted ids', () => {
+    const payload = JSON.stringify([
+      { id: 'coach-uuid', title: 'Portal' },
+      { id: 'mobile-uuid', title: 'Mobile' },
+      { id: 'other-uuid', title: 'Other' },
+    ]);
+    const filtered = applyProjectScopedMcpResultFilter(
+      'mcp__York_IE_HUB__list_projects',
+      payload,
+      clientSession
+    );
+    expect(JSON.parse(filtered)).toEqual([
+      { id: 'coach-uuid', title: 'Portal' },
+      { id: 'mobile-uuid', title: 'Mobile' },
+    ]);
+  });
 });
 
 describe('buildDivisionSystemPrompt project refuse line', () => {

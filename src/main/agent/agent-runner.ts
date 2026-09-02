@@ -129,6 +129,7 @@ import { formatAutoRouteLabel, resolveAutoModelIfNeeded } from './auto-model-res
 import { AUTO_MODEL_ID } from '../../shared/auto-model';
 import {
   buildDivisionActiveProjectContext,
+  buildDivisionActiveClientContext,
   buildDivisionSystemPrompt,
   filterMcpToolsForDivision,
   filterModelsForDivision,
@@ -2559,7 +2560,8 @@ ${hints.join('\n')}
 
       // Stamp selected Hub/LaunchPad project onto every user turn (after skill
       // expansion so leading /skill: still expands). Not shown in saved chat UI.
-      const activeProjectContext = buildDivisionActiveProjectContext(session);
+      const activeProjectContext =
+        buildDivisionActiveProjectContext(session) || buildDivisionActiveClientContext(session);
       if (activeProjectContext) {
         expandedUserPrompt = `${expandedUserPrompt}\n\n${activeProjectContext}`;
       }

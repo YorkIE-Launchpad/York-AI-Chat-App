@@ -153,6 +153,8 @@ export interface WorkflowDefinition {
   folderId: string | null;
   folderName: string | null;
   canonicalKey: string | null;
+  clientName: string | null;
+  clientProjectIds: string | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -170,6 +172,8 @@ export interface WorkflowDefinitionInput {
   folderId?: string | null;
   folderName?: string | null;
   canonicalKey?: string | null;
+  clientName?: string | null;
+  clientProjectIds?: string | null;
 }
 
 export type WorkflowBindingUpdate = Partial<WorkflowBinding>;
@@ -216,6 +220,8 @@ export function workflowBindingToStartOptions(def: Pick<WorkflowDefinition, keyo
   folderId: string | null;
   folderName: string | null;
   canonicalKey: string | null;
+  clientName: string | null;
+  clientProjectIds: string | null;
 } {
   const binding = normalizeWorkflowBinding(def);
   return {
@@ -227,6 +233,8 @@ export function workflowBindingToStartOptions(def: Pick<WorkflowDefinition, keyo
     folderId: binding.folderId ?? null,
     folderName: binding.folderName ?? null,
     canonicalKey: binding.canonicalKey ?? null,
+    clientName: binding.clientName ?? null,
+    clientProjectIds: binding.clientProjectIds ?? null,
   };
 }
 
@@ -256,6 +264,7 @@ export function workflowWorkspaceLabel(
     });
   }
   if (b.division === 'folder') return b.folderName || 'Folder';
+  if (b.division === 'client') return b.clientName || 'Client';
   if (b.division === 'hub') return 'Hub';
   return 'General';
 }
