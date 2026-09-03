@@ -47,12 +47,14 @@ function isEmptyOptionalValue(value: unknown): boolean {
  */
 export function leanMcpToolArgs(
   args: Record<string, unknown> | null | undefined,
-  inputSchema?: McpInputSchema | null
+  inputSchema?: McpInputSchema | null,
+  options?: { defaultListLimit?: number }
 ): Record<string, unknown> {
   const properties = inputSchema?.properties ?? {};
   const required = new Set(inputSchema?.required ?? []);
   const source = args && typeof args === 'object' ? args : {};
   const lean: Record<string, unknown> = {};
+  const defaultListLimit = options?.defaultListLimit ?? MCP_DEFAULT_LIST_LIMIT;
 
   for (const [key, value] of Object.entries(source)) {
     if (!required.has(key) && isEmptyOptionalValue(value)) {
@@ -64,7 +66,7 @@ export function leanMcpToolArgs(
   for (const propName of LIMIT_PROPERTY_NAMES) {
     if (!(propName in properties)) continue;
     if (propName in lean) continue;
-    lean[propName] = MCP_DEFAULT_LIST_LIMIT;
+    lean[propName] = defaultListLimit;
   }
 
   return lean;

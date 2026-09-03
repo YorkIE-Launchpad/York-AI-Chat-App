@@ -10,12 +10,32 @@ import {
   resolveYorkLlmBaseUrl,
   resolveYorkLlmMaxConcurrent,
   shouldSkipHubUsageForYorkLlm,
+  YORK_LLM_DEFAULT_LIST_LIMIT,
+  YORK_LLM_LIVE_PRUNE_KEEP_RECENT,
+  YORK_LLM_PROMPT_TIMEOUT_MS,
+  YORK_LLM_SDK_MAX_RETRIES,
+  YORK_LLM_TOOL_RESULT_MAX_CHARS,
+  YORK_LLM_TOOL_RESULT_PAGE_TARGET_CHARS,
+  yorkLlmToolResultCompressOptions,
 } from '../../shared/york-llm-config';
 
 describe('york-llm-config', () => {
   it('resolves default base url and max concurrent', () => {
     expect(resolveYorkLlmBaseUrl()).toBe(DEFAULT_YORK_LLM_BASE_URL);
     expect(resolveYorkLlmMaxConcurrent()).toBe(DEFAULT_YORK_LLM_MAX_CONCURRENT);
+  });
+
+  it('exposes tighter long-run hardening budgets for York LLM', () => {
+    expect(YORK_LLM_TOOL_RESULT_MAX_CHARS).toBe(25_000);
+    expect(YORK_LLM_TOOL_RESULT_PAGE_TARGET_CHARS).toBe(20_000);
+    expect(YORK_LLM_LIVE_PRUNE_KEEP_RECENT).toBe(2);
+    expect(YORK_LLM_DEFAULT_LIST_LIMIT).toBe(25);
+    expect(YORK_LLM_PROMPT_TIMEOUT_MS).toBe(15 * 60 * 1000);
+    expect(YORK_LLM_SDK_MAX_RETRIES).toBe(3);
+    expect(yorkLlmToolResultCompressOptions()).toEqual({
+      maxChars: YORK_LLM_TOOL_RESULT_MAX_CHARS,
+      pageTargetChars: YORK_LLM_TOOL_RESULT_PAGE_TARGET_CHARS,
+    });
   });
 
   it('detects york llm host and base url', () => {

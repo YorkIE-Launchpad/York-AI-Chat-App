@@ -195,8 +195,13 @@ import { acquireYorkLlmSlot, subscribeYorkLlmQueue } from '../york-llm/york-llm-
 import {
   isYorkLlmBaseUrl,
   resolveYorkLlmBaseUrl,
+  YORK_LLM_DEFAULT_LIST_LIMIT,
+  YORK_LLM_LIVE_PRUNE_KEEP_RECENT,
+  YORK_LLM_PROMPT_TIMEOUT_MS,
+  YORK_LLM_SDK_MAX_RETRIES,
   YORK_LLM_SESSION_HEADER,
   YORK_LLM_ZERO_COST,
+  yorkLlmToolResultCompressOptions,
 } from '../../shared/york-llm-config';
 import { createWindowsBashOperations } from './windows-bash-operations';
 import { createCompactionExtensionFactory } from './compaction-extension';
@@ -550,9 +555,25 @@ function buildMcpCustomTools(
   onProjectScopeViolation?: OnProjectScopeViolation | null,
   sessionId?: string | null,
   onLaunchPadProgress?: OnLaunchPadProgressRecord | null,
-  linkage?: ProjectLinkageMetadata
+  linkage?: ProjectLinkageMetadata,
+  toolResultBudget?: {
+    maxChars?: number;
+    pageTargetChars?: number;
+    defaultListLimit?: number;
+  }
 ): ToolDefinition[] {
   const mcpTools = mcpManager.getTools();
+  const compressOpts =
+    toolResultBudget?.maxChars != null || toolResultBudget?.pageTargetChars != null
+      ? {
+          maxChars: toolResultBudget.maxChars,
+          pageTargetChars: toolResultBudget.pageTargetChars,
+        }
+      : undefined;
+  const leanOpts =
+    toolResultBudget?.defaultListLimit != null
+      ? { defaultListLimit: toolResultBudget.defaultListLimit }
+      : undefined;
   return mcpTools.map((mcpTool) => {
     // Wrap the raw JSON Schema inputSchema as a TypeBox TSchema
     const parameters = Type.Unsafe<Record<string, unknown>>(
@@ -567,7 +588,11 @@ function buildMcpCustomTools(
       parameters,
       async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
         try {
-          const leanArgs = leanMcpToolArgs(params as Record<string, unknown>, mcpTool.inputSchema);
+          const leanArgs = leanMcpToolArgs(
+            params as Record<string, unknown>,
+            mcpTool.inputSchema,
+            leanOpts
+          );
           const prepared = prepareProjectScopedMcpArgs(mcpTool.name, leanArgs, division, linkage);
           if (prepared.kind === 'block') {
             emitProjectScopeBlock(
@@ -591,10 +616,16 @@ function buildMcpCustomTools(
           const result = await mcpManager.callTool(mcpTool.name, prepared.args);
           const normalizedResult = normalizeMcpToolResultForModel(result, {
             compress: !prepared.filterResult,
+            ...compressOpts,
           });
           const text = prepared.filterResult
             ? compressToolResultTextForModel(
-                applyCompanyProjectScopedMcpResultFilter(mcpTool.name, normalizedResult.text, division)
+                applyCompanyProjectScopedMcpResultFilter(
+                  mcpTool.name,
+                  normalizedResult.text,
+                  division
+                ),
+                compressOpts
               )
             : normalizedResult.text;
           onLaunchPadProgress?.({
@@ -1176,7 +1207,8 @@ ${hints.join('\n')}
    */
   private installLiveContextHooks(
     piSession: PiAgentSession,
-    api: string | undefined | null
+    api: string | undefined | null,
+    options?: { keepRecentToolResults?: number }
   ): void {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const agent = (piSession as any).agent;
@@ -1184,6 +1216,8 @@ ${hints.join('\n')}
       logWarn('[CoworkAgentRunner] No agent on pi session — skipping live context hooks');
       return;
     }
+
+    const keepRecentToolResults = options?.keepRecentToolResults;
 
     // Live prune: shrink old tool_result text before each model call.
     const previousTransform = agent.transformContext;
@@ -1197,7 +1231,10 @@ ${hints.join('\n')}
         next = await previousTransform.call(agent, messages, signal);
       }
       if (Array.isArray(next)) {
-        pruneMessagesForLiveTurn(next);
+        pruneMessagesForLiveTurn(
+          next,
+          keepRecentToolResults != null ? { keepRecentToolResults } : undefined
+        );
       }
       return next;
     };
@@ -2464,6 +2501,12 @@ ${hints.join('\n')}
         await prefetchSessionProjectLinkage(this.mcpManager, session);
       }
       const sessionLinkage = linkageForSession(session);
+      const yorkToolResultBudget = yorkLlmActive
+        ? {
+            ...yorkLlmToolResultCompressOptions(),
+            defaultListLimit: YORK_LLM_DEFAULT_LIST_LIMIT,
+          }
+        : undefined;
       const mcpCustomTools = this.mcpManager
         ? filterMcpToolsForDivision(
             buildMcpCustomTools(
@@ -2472,7 +2515,8 @@ ${hints.join('\n')}
               onProjectScopeViolation,
               session.id,
               onLaunchPadProgress,
-              sessionLinkage
+              sessionLinkage,
+              yorkToolResultBudget
             ),
             session
           )
@@ -2492,6 +2536,7 @@ ${hints.join('\n')}
         sessionId: session.id,
         onLaunchPadProgress,
         linkage: sessionLinkage,
+        toolResultBudget: yorkToolResultBudget,
       });
       const withThink = withThinkToolIfEnabled(
         enableThinking,
@@ -3117,7 +3162,7 @@ ${
             createCompactionExtensionFactory({
               customInstructions: sessionCompactInstructions,
               pruneToolOutputAbove: 500,
-              keepRecentToolResults: 3,
+              keepRecentToolResults: yorkLlmActive ? YORK_LLM_LIVE_PRUNE_KEEP_RECENT : 3,
             }),
           ],
         });
@@ -3165,7 +3210,10 @@ ${
           sessionManager: PiSessionManager.inMemory(),
           settingsManager: PiSettingsManager.inMemory({
             compaction: compactionSettings,
-            retry: { enabled: true, maxRetries: 2 },
+            retry: {
+              enabled: true,
+              maxRetries: yorkLlmActive ? YORK_LLM_SDK_MAX_RETRIES : 2,
+            },
           }),
           resourceLoader,
           cwd: effectiveCwd,
@@ -3173,7 +3221,9 @@ ${
         piSession = newPiSession;
 
         this.installPermissionHook(piSession, session.id);
-        this.installLiveContextHooks(piSession, activePiModel.api);
+        this.installLiveContextHooks(piSession, activePiModel.api, {
+          keepRecentToolResults: yorkLlmActive ? YORK_LLM_LIVE_PRUNE_KEEP_RECENT : undefined,
+        });
 
         // Store session for reuse — evict oldest if cache is full
         if (this.piSessions.size >= CoworkAgentRunner.MAX_CACHED_SESSIONS) {
@@ -3368,13 +3418,17 @@ ${
         }
       };
 
-      // Activity-based timeout: reset the 5-min timer whenever the SDK sends events
-      const PROMPT_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+      // Activity-based timeout: reset whenever the SDK sends events.
+      // York LLM is a slow shared server — allow a longer idle gap between events.
+      const PROMPT_TIMEOUT_MS = yorkLlmActive ? YORK_LLM_PROMPT_TIMEOUT_MS : 5 * 60 * 1000;
+      const promptTimeoutLabel = yorkLlmActive ? '15 min' : '5 min';
       let activityTimeoutId: ReturnType<typeof setTimeout> | undefined;
       const resetActivityTimeout = () => {
         if (activityTimeoutId) clearTimeout(activityTimeoutId);
         activityTimeoutId = setTimeout(() => {
-          logWarn('[CoworkAgentRunner] Prompt timed out (no activity for 5 min), aborting');
+          logWarn(
+            `[CoworkAgentRunner] Prompt timed out (no activity for ${promptTimeoutLabel}), aborting`
+          );
           abortedByTimeout = true;
           controller.abort();
         }, PROMPT_TIMEOUT_MS);
@@ -4216,7 +4270,7 @@ ${
         }
 
         // ── Incomplete-turn recovery ──
-        // search-then-stop / thinking-only / LaunchPad chat-only refuse,
+        // search-then-stop / thinking-only / tools-without-answer / LaunchPad chat-only refuse,
         // wrong implement target, async job still running, next SDLC step.
         // Wait/next-step reasons may multi-steer; discovery reasons steer once.
         const canAttemptIncompleteRecovery =
@@ -4259,7 +4313,9 @@ ${
                     ? 'Waiting for LaunchPad job...'
                     : incomplete.reason === 'sdlc_next_step'
                       ? 'Continuing LaunchPad next step...'
-                      : 'Continuing incomplete action...',
+                      : incomplete.reason === 'tools_without_answer'
+                        ? 'Writing answer from gathered results...'
+                        : 'Continuing incomplete action...',
               });
               resetActivityTimeout();
               try {

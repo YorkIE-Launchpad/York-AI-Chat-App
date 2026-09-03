@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  INCOMPLETE_TURN_ANSWER_FAILURE_MESSAGE,
   INCOMPLETE_TURN_FAILURE_MESSAGE,
   INCOMPLETE_TURN_WAIT_FAILURE_MESSAGE,
   MULTI_STEER_INCOMPLETE_REASONS,
@@ -88,7 +89,7 @@ describe('detectIncompleteTurn', () => {
     expect(decision.incomplete).toBe(false);
   });
 
-  it('does not flag search-without-call for non-actionable Q&A', () => {
+  it('does not flag search-without-call for non-actionable Q&A when text is present', () => {
     const decision = detectIncompleteTurn({
       userPrompt: 'what slack tools do you have?',
       toolsInvoked: ['mcp_search_tools'],
@@ -97,13 +98,40 @@ describe('detectIncompleteTurn', () => {
     expect(decision.incomplete).toBe(false);
   });
 
-  it('does not flag thinking-only after tools already ran', () => {
+  it('flags tools_without_answer after tools with no text on actionable prompts', () => {
     const decision = detectIncompleteTurn({
       userPrompt: 'send a slack message',
       toolsInvoked: ['mcp_call_tool'],
       finalAssistant: { hasText: false, hasThinking: true, hasToolUse: false },
     });
+    expect(decision).toEqual({ incomplete: true, reason: 'tools_without_answer' });
+  });
+
+  it('flags tools_without_answer for informational Q&A mid-chain silent stops', () => {
+    const decision = detectIncompleteTurn({
+      userPrompt: 'tell me about the ContractSafe engagement with York IE',
+      toolsInvoked: ['get_client', 'wiki_read', 'get_project'],
+      finalAssistant: { hasText: false, hasThinking: true, hasToolUse: false },
+    });
+    expect(decision).toEqual({ incomplete: true, reason: 'tools_without_answer' });
+  });
+
+  it('does not flag tools_without_answer when final text is present', () => {
+    const decision = detectIncompleteTurn({
+      userPrompt: 'tell me about ContractSafe',
+      toolsInvoked: ['get_client'],
+      finalAssistant: { hasText: true, hasThinking: false, hasToolUse: false },
+    });
     expect(decision.incomplete).toBe(false);
+  });
+
+  it('prefers search_without_call over tools_without_answer on actionable prompts', () => {
+    const decision = detectIncompleteTurn({
+      userPrompt: 'send a slack message to jay, hi',
+      toolsInvoked: ['mcp_search_tools'],
+      finalAssistant: { hasText: false, hasThinking: true, hasToolUse: false },
+    });
+    expect(decision).toEqual({ incomplete: true, reason: 'search_without_call' });
   });
 
   it('flags thinking-only final message on actionable prompts', () => {
@@ -234,6 +262,12 @@ describe('buildIncompleteTurnSteerMessage', () => {
     expect(text.toLowerCase()).toContain('execute');
   });
 
+  it('steers write-the-answer for tools_without_answer', () => {
+    const text = buildIncompleteTurnSteerMessage('tools_without_answer');
+    expect(text.toLowerCase()).toContain('write the answer');
+    expect(text.toLowerCase()).toContain('do not call more tools');
+  });
+
   it('steers LaunchPad MCP for actionable_without_tools', () => {
     const text = buildIncompleteTurnSteerMessage('actionable_without_tools');
     expect(text.toLowerCase()).toContain('launchpad');
@@ -286,5 +320,12 @@ describe('INCOMPLETE_TURN_FAILURE_MESSAGE', () => {
     );
     expect(MULTI_STEER_INCOMPLETE_REASONS.has('async_job_in_progress')).toBe(true);
     expect(MULTI_STEER_INCOMPLETE_REASONS.has('search_without_call')).toBe(false);
+  });
+
+  it('uses answer failure for tools_without_answer', () => {
+    expect(incompleteTurnFailureMessage('tools_without_answer')).toBe(
+      INCOMPLETE_TURN_ANSWER_FAILURE_MESSAGE
+    );
+    expect(MULTI_STEER_INCOMPLETE_REASONS.has('tools_without_answer')).toBe(false);
   });
 });

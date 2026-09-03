@@ -1,7 +1,8 @@
 /**
  * Incomplete-turn detection — catches agent turns that discover work (e.g.
  * mcp_search_tools) then end without acting, finish with thinking-only content
- * on an actionable user request, or stop LaunchPad delivery mid-async / wrong target.
+ * on an actionable user request, stop after tools with no user-facing answer
+ * (including Q&A), or stop LaunchPad delivery mid-async / wrong target.
  *
  * Pure helpers so the host (agent-runner) can decide whether to steer once
  * (or multiple times for wait loops) and/or surface a clear failure message
@@ -20,6 +21,7 @@ export type IncompleteTurnReason =
   | 'search_without_call'
   | 'thinking_only_actionable'
   | 'actionable_without_tools'
+  | 'tools_without_answer'
   | 'wrong_implement_target'
   | 'async_job_in_progress'
   | 'sdlc_next_step'
@@ -61,6 +63,9 @@ export const INCOMPLETE_TURN_FAILURE_MESSAGE =
 
 export const INCOMPLETE_TURN_WAIT_FAILURE_MESSAGE =
   '**Stopped while a LaunchPad job was still in progress.** Send “continue” to keep polling and finish the next step.';
+
+export const INCOMPLETE_TURN_ANSWER_FAILURE_MESSAGE =
+  '**Stopped before writing an answer.** I gathered information but did not finish the response. Send “continue” to retry.';
 
 const NOOP: IncompleteTurnDecision = { incomplete: false, reason: 'none' };
 
@@ -113,49 +118,57 @@ function toolsInclude(toolsInvoked: readonly string[], target: string): boolean 
  */
 export function detectIncompleteTurn(input: IncompleteTurnInput): IncompleteTurnDecision {
   const actionable = isActionableUserPrompt(input.userPrompt);
-  if (!actionable) return NOOP;
-
   const lp = input.launchPadProgress;
-
-  // LaunchPad wrong surface (backend/development when preview/platform expected).
-  if (lp?.hasWrongImplementTarget) {
-    return { incomplete: true, reason: 'wrong_implement_target' };
-  }
-
-  // Async job started without terminal poll.
-  if (lp && lp.asyncJobsInProgress.length > 0) {
-    return { incomplete: true, reason: 'async_job_in_progress' };
-  }
-
-  // Next SDLC step after terminal implement/lock.
-  if (lp && (lp.needsPreviewAfterImplement || lp.needsSeedAfterLock)) {
-    return { incomplete: true, reason: 'sdlc_next_step' };
-  }
-
-  const searched = toolsInclude(input.toolsInvoked, MCP_SEARCH_TOOLS_NAME);
-  const called =
-    toolsInclude(input.toolsInvoked, MCP_CALL_TOOL_NAME) ||
-    toolsInclude(input.toolsInvoked, MCP_RUN_TOOL_NAME);
-
-  if (searched && !called) {
-    return { incomplete: true, reason: 'search_without_call' };
-  }
-
   const { hasText, hasThinking, hasToolUse } = input.finalAssistant;
-  // Thinking-only abort with no tool progress (search-then-stop is covered above).
-  if (hasThinking && !hasText && !hasToolUse && input.toolsInvoked.length === 0) {
-    return { incomplete: true, reason: 'thinking_only_actionable' };
+
+  // Action-oriented recovery (LaunchPad / search-then-stop / thinking-only).
+  // Informational Q&A skips these but still gets tools_without_answer below.
+  if (actionable) {
+    // LaunchPad wrong surface (backend/development when preview/platform expected).
+    if (lp?.hasWrongImplementTarget) {
+      return { incomplete: true, reason: 'wrong_implement_target' };
+    }
+
+    // Async job started without terminal poll.
+    if (lp && lp.asyncJobsInProgress.length > 0) {
+      return { incomplete: true, reason: 'async_job_in_progress' };
+    }
+
+    // Next SDLC step after terminal implement/lock.
+    if (lp && (lp.needsPreviewAfterImplement || lp.needsSeedAfterLock)) {
+      return { incomplete: true, reason: 'sdlc_next_step' };
+    }
+
+    const searched = toolsInclude(input.toolsInvoked, MCP_SEARCH_TOOLS_NAME);
+    const called =
+      toolsInclude(input.toolsInvoked, MCP_CALL_TOOL_NAME) ||
+      toolsInclude(input.toolsInvoked, MCP_RUN_TOOL_NAME);
+
+    if (searched && !called) {
+      return { incomplete: true, reason: 'search_without_call' };
+    }
+
+    // Thinking-only abort with no tool progress (search-then-stop is covered above).
+    if (hasThinking && !hasText && !hasToolUse && input.toolsInvoked.length === 0) {
+      return { incomplete: true, reason: 'thinking_only_actionable' };
+    }
+
+    // LaunchPad-style delivery ask answered with chat-only refuse / plan and no tools.
+    // Typical failure on weaker models: invent "implementation workspace unavailable".
+    if (
+      isLaunchPadDeliveryIntent(input.userPrompt) &&
+      input.toolsInvoked.length === 0 &&
+      hasText &&
+      !hasToolUse
+    ) {
+      return { incomplete: true, reason: 'actionable_without_tools' };
+    }
   }
 
-  // LaunchPad-style delivery ask answered with chat-only refuse / plan and no tools.
-  // Typical failure on weaker models: invent "implementation workspace unavailable".
-  if (
-    isLaunchPadDeliveryIntent(input.userPrompt) &&
-    input.toolsInvoked.length === 0 &&
-    hasText &&
-    !hasToolUse
-  ) {
-    return { incomplete: true, reason: 'actionable_without_tools' };
+  // Tools ran but the model never produced user-facing text (common on slow/small
+  // models after large research dumps — including non-actionable "tell me about…").
+  if (input.toolsInvoked.length > 0 && !hasText) {
+    return { incomplete: true, reason: 'tools_without_answer' };
   }
 
   return NOOP;
@@ -186,6 +199,13 @@ export function buildIncompleteTurnSteerMessage(
       '[Incomplete turn · Continue] Your last response was thinking only and the user asked for an action.\n' +
       '**Execute the next tool call now** (for MCP: mcp_call_tool with the exact name/args). ' +
       'Do not end the turn with only a plan.'
+    );
+  }
+  if (reason === 'tools_without_answer') {
+    return (
+      '[Incomplete turn · Continue] You already gathered tool results but did not write a user-facing answer.\n' +
+      '**Write the answer now** from the tool results you already have. ' +
+      'Do not call more tools unless a critical fact is clearly missing. Do not end with only thinking.'
     );
   }
   if (reason === 'actionable_without_tools') {
@@ -249,6 +269,9 @@ export function incompleteTurnFailureMessage(reason: IncompleteTurnReason): stri
     reason === 'wrong_implement_target'
   ) {
     return INCOMPLETE_TURN_WAIT_FAILURE_MESSAGE;
+  }
+  if (reason === 'tools_without_answer') {
+    return INCOMPLETE_TURN_ANSWER_FAILURE_MESSAGE;
   }
   return INCOMPLETE_TURN_FAILURE_MESSAGE;
 }

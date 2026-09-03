@@ -65,6 +65,20 @@ describe('leanMcpToolArgs', () => {
     const lean = leanMcpToolArgs({}, { properties: { pageSize: { type: 'number' } } });
     expect(lean).toEqual({ pageSize: MCP_DEFAULT_LIST_LIMIT });
   });
+
+  it('accepts a lower defaultListLimit (York LLM budget)', () => {
+    const lean = leanMcpToolArgs(
+      { projectId: 'p1' },
+      {
+        properties: {
+          projectId: { type: 'string' },
+          limit: { type: 'number' },
+        },
+      },
+      { defaultListLimit: 25 }
+    );
+    expect(lean).toEqual({ projectId: 'p1', limit: 25 });
+  });
 });
 
 describe('augmentMcpToolDescription', () => {

@@ -155,9 +155,17 @@ function finalizeText(textParts: string[], imageCount: number): string {
 
 export function normalizeMcpToolResultForModel(
   result: unknown,
-  options?: { compress?: boolean }
+  options?: {
+    compress?: boolean;
+    maxChars?: number;
+    pageTargetChars?: number;
+  }
 ): NormalizedToolTextResult {
   const compress = options?.compress !== false;
+  const compressOpts =
+    options?.maxChars != null || options?.pageTargetChars != null
+      ? { maxChars: options.maxChars, pageTargetChars: options.pageTargetChars }
+      : undefined;
   const resultObj = isRecord(result) ? result : null;
   if (resultObj?.content) {
     const { textParts, images } = extractTextAndImagesFromContent(resultObj.content);
@@ -166,7 +174,7 @@ export function normalizeMcpToolResultForModel(
     }
     const text = finalizeText(textParts, images.length);
     return {
-      text: compress ? compressToolResultTextForModel(text) : text,
+      text: compress ? compressToolResultTextForModel(text, compressOpts) : text,
       images,
     };
   }
@@ -174,14 +182,16 @@ export function normalizeMcpToolResultForModel(
   if (resultObj?.structuredContent !== undefined) {
     const structuredText = safeStringifyToolResult(resultObj.structuredContent);
     return {
-      text: compress ? compressToolResultTextForModel(structuredText) : structuredText,
+      text: compress
+        ? compressToolResultTextForModel(structuredText, compressOpts)
+        : structuredText,
       images: [],
     };
   }
 
   const rawText = typeof result === 'string' ? result : safeStringifyToolResult(result);
   return {
-    text: compress ? compressToolResultTextForModel(rawText) : rawText,
+    text: compress ? compressToolResultTextForModel(rawText, compressOpts) : rawText,
     images: [],
   };
 }
