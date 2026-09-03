@@ -71,6 +71,12 @@ const RTMS_FALLBACK_MS = 25_000;
 /** Retry Zoom RTMS start if segments have not arrived yet. */
 const RTMS_START_RETRY_MS = 12_000;
 
+const SPEAKER_NAMES_RTMS_BLOCKED_WARNING =
+  'Speaker names unavailable — Zoom blocked RTMS (app not authorized to access meeting content). In Zoom web portal: Admin → Account Settings → Meeting → “Allow apps to access meeting content”, enable the York app, then restart the meeting. Transcript continues without names via local STT.';
+
+const SPEAKER_NAMES_LOCAL_STT_WARNING =
+  'Speaker names unavailable — using local live transcription. Named speakers require Zoom RTMS.';
+
 function defaultRuntime(): MeetingsRuntimeConfig {
   return {
     realtimeTranscriptionDelay: 'low',
@@ -126,6 +132,8 @@ export class MeetingService {
   private activeStartedAt: number | null = null;
   private liveTranscript = '';
   private captureError?: string;
+  private captureWarning?: string;
+  private speakerLabelsActive = false;
   private statusListeners = new Set<StatusListener>();
   private segmentListeners = new Set<SegmentListener>();
   private speakerUpdateListeners = new Set<SpeakerUpdateListener>();
@@ -299,13 +307,20 @@ export class MeetingService {
     }
   }
 
-  private activateLocalSttFallback(reason?: string): void {
+  private activateLocalSttFallback(reason?: string, warning?: string): void {
     if (this.localSttFallbackActive) {
+      if (warning && !this.speakerLabelsActive) {
+        this.captureWarning = warning;
+        this.emitStatus();
+      }
       return;
     }
     this.localSttFallbackActive = true;
     if (reason) {
       log(`[Meetings] ${reason}`);
+    }
+    if (warning && !this.speakerLabelsActive) {
+      this.captureWarning = warning;
     }
     this.emitLocalSttActivated();
   }
@@ -389,6 +404,8 @@ export class MeetingService {
         : 0,
       liveTranscript: this.liveTranscript,
       localSttFallbackActive: this.localSttFallbackActive,
+      speakerLabelsActive: this.speakerLabelsActive,
+      warning: this.captureWarning,
       error: this.captureError,
     };
   }
@@ -800,6 +817,8 @@ export class MeetingService {
     this.activeStartedAt = now;
     this.liveTranscript = '';
     this.captureError = undefined;
+    this.captureWarning = undefined;
+    this.speakerLabelsActive = false;
     this.partialLiveText = '';
     this.pendingRealtimeSegments.clear();
     this.zoomAbsentPolls = 0;
@@ -810,7 +829,9 @@ export class MeetingService {
     this.clearRtmsStartRetryTimer();
     this.emitStatus();
     if (this.localSttFallbackActive) {
+      this.captureWarning = SPEAKER_NAMES_LOCAL_STT_WARNING;
       this.emitLocalSttActivated();
+      this.emitStatus();
     }
     if (this.shouldAutoDetect()) {
       this.restartDetectionTimer(DETECTION_POLL_ACTIVE_MS);
@@ -822,7 +843,10 @@ export class MeetingService {
         if (!this.activeMeetingId || this.activeMeetingId !== meeting.id) return;
         if (this.zoomRtms.hasReceivedSegments) return;
         this.clearRtmsStartRetryTimer();
-        this.activateLocalSttFallback('RTMS silent — enabling local realtime STT fallback');
+        this.activateLocalSttFallback(
+          'RTMS silent — enabling local realtime STT fallback',
+          SPEAKER_NAMES_RTMS_BLOCKED_WARNING
+        );
       }, RTMS_FALLBACK_MS);
     }
 
@@ -939,13 +963,15 @@ export class MeetingService {
           // Don't wait the full RTMS silent timeout when Zoom rejects RTMS
           // (e.g. meeting content access 403) — start local STT immediately.
           this.activateLocalSttFallback(
-            'RTMS start failed — enabling local realtime STT fallback'
+            'RTMS start failed — enabling local realtime STT fallback',
+            SPEAKER_NAMES_RTMS_BLOCKED_WARNING
           );
         }
       } else {
         logWarn('[Meetings] No live Zoom meeting or calendar Zoom ID — cannot start RTMS via REST');
         this.activateLocalSttFallback(
-          'No Zoom meeting ID — enabling local realtime STT fallback'
+          'No Zoom meeting ID — enabling local realtime STT fallback',
+          SPEAKER_NAMES_LOCAL_STT_WARNING
         );
       }
 
@@ -961,7 +987,8 @@ export class MeetingService {
           `yorkMeetingId=${yorkMeetingId}`
         );
         this.activateLocalSttFallback(
-          'RTMS session registration failed — enabling local realtime STT fallback'
+          'RTMS session registration failed — enabling local realtime STT fallback',
+          SPEAKER_NAMES_RTMS_BLOCKED_WARNING
         );
       }
 
@@ -978,7 +1005,10 @@ export class MeetingService {
       });
     } catch (error) {
       logWarn('[Meetings] bootstrapZoomRtms failed — local STT fallback', error);
-      this.activateLocalSttFallback();
+      this.activateLocalSttFallback(
+        'bootstrapZoomRtms failed — local STT fallback',
+        SPEAKER_NAMES_RTMS_BLOCKED_WARNING
+      );
     }
   }
 
@@ -1015,6 +1045,8 @@ export class MeetingService {
     current.updatedAt = Date.now();
     this.store.save(current);
     this.liveTranscript = current.transcriptText;
+    this.speakerLabelsActive = true;
+    this.captureWarning = undefined;
     log(
       '[Meetings] applyRtmsSpeakerUpdates',
       `meetingId=${meetingId}`,
@@ -1168,6 +1200,14 @@ export class MeetingService {
     this.store.save(current);
     this.liveTranscript = current.transcriptText;
     this.captureError = undefined;
+    if (appended.some((segment) => !!segment.speaker?.trim())) {
+      this.speakerLabelsActive = true;
+      this.captureWarning = undefined;
+    } else if (!this.speakerLabelsActive) {
+      // RTMS text without names yet — keep waiting for speakerUpdates backfill.
+      this.captureWarning =
+        'Waiting for Zoom speaker names… RTMS transcript received; labels often arrive a few seconds later.';
+    }
 
     for (const segment of appended) {
       for (const listener of this.segmentListeners) {
@@ -1336,6 +1376,8 @@ export class MeetingService {
     this.zoomAbsentPolls = 0;
     this.pendingRendererAutoStop = false;
     this.localSttFallbackActive = false;
+    this.speakerLabelsActive = false;
+    this.captureWarning = undefined;
     this.partialLiveText = '';
     this.emitLocalSttDeactivated();
     this.emitStatus();

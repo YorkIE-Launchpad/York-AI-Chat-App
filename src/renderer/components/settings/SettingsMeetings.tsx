@@ -626,10 +626,26 @@ export function SettingsMeetings() {
               />
             </div>
             <p className="mt-1 text-[11px] text-text-muted">
-              {recording ? t('meetings.recording') : t('meetings.idle')}
+              {recording
+                ? captureStatus?.speakerLabelsActive
+                  ? t('meetings.recordingWithSpeakers')
+                  : captureStatus?.localSttFallbackActive
+                    ? t('meetings.recordingLocalStt')
+                    : t('meetings.recording')
+                : t('meetings.idle')}
             </p>
           </div>
         </div>
+        {captureStatus?.warning ? (
+          <p className="mt-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+            {captureStatus.warning}
+          </p>
+        ) : null}
+        {captureStatus?.error ? (
+          <p className="mt-2 rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+            {captureStatus.error}
+          </p>
+        ) : null}
         <div className="mt-3 max-h-40 overflow-y-auto rounded-lg border border-border-muted bg-background-secondary/60 p-3 text-sm whitespace-pre-wrap text-text-secondary">
           {liveTranscript || t('meetings.liveTranscriptEmpty')}
         </div>

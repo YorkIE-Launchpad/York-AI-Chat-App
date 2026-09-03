@@ -88,6 +88,13 @@ export interface MeetingCaptureStatus {
   liveTranscript: string;
   /** True when local realtime STT is active (RTMS unavailable or timed out). */
   localSttFallbackActive?: boolean;
+  /**
+   * True once Zoom RTMS has delivered at least one speaker-labeled segment.
+   * Local STT cannot produce speaker names.
+   */
+  speakerLabelsActive?: boolean;
+  /** Non-fatal capture notice (e.g. RTMS blocked → no speaker names). */
+  warning?: string;
   error?: string;
 }
 
