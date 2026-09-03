@@ -709,6 +709,7 @@
     "connect": "Connect",
     "disconnect": "Disconnect",
     "reconnect": "Reconnect",
+    "reconnectFailed": "Failed to reconnect",
     "actionFailed": "Connector action failed",
     "globalWriteAccessTitle": "Allow AI to make changes via connectors",
     "globalWriteAccessDesc": "When off, the AI can still read from connectors but cannot create, update, send, or delete anything through MCP tools.",

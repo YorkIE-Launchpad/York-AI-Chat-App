@@ -3,28 +3,10 @@ export const DEFAULT_YORK_LLM_MAX_CONCURRENT = 4;
 export const YORK_LLM_DISPLAY_NAME = 'York LLM V1';
 export const YORK_LLM_SESSION_HEADER = 'X-York-Llm-Session-Id';
 
-/** Soft char budget for model-facing tool results on York (smaller than default 100k). */
-export const YORK_LLM_TOOL_RESULT_MAX_CHARS = 25_000;
-/** Spillover page target when York tool results still exceed the soft budget. */
-export const YORK_LLM_TOOL_RESULT_PAGE_TARGET_CHARS = 20_000;
-/** Keep fewer full tool results live so synthesis has room in context. */
-export const YORK_LLM_LIVE_PRUNE_KEEP_RECENT = 2;
-/** Default list/page limit injected when schema exposes limit-like fields. */
-export const YORK_LLM_DEFAULT_LIST_LIMIT = 25;
 /** Activity timeout for York turns (slow shared llama.cpp). Cloud stays at 5 min. */
 export const YORK_LLM_PROMPT_TIMEOUT_MS = 15 * 60 * 1000;
 /** SDK auto-retries for idle/network blips on the shared York server. */
 export const YORK_LLM_SDK_MAX_RETRIES = 3;
-
-export function yorkLlmToolResultCompressOptions(): {
-  maxChars: number;
-  pageTargetChars: number;
-} {
-  return {
-    maxChars: YORK_LLM_TOOL_RESULT_MAX_CHARS,
-    pageTargetChars: YORK_LLM_TOOL_RESULT_PAGE_TARGET_CHARS,
-  };
-}
 
 const YORK_LLM_HOST_PATTERN = /(?:^|\.)llm\.yorkdevs\.link$/i;
 

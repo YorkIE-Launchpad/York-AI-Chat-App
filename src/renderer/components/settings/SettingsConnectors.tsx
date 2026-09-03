@@ -12,6 +12,7 @@ import {
   Loader2,
   ChevronRight,
   ChevronDown,
+  RefreshCw,
   X,
 } from 'lucide-react';
 import type {
@@ -119,6 +120,10 @@ function isNonEditableBuiltinMcpServer(server: MCPServerConfig): boolean {
     server.name === 'Confluence' ||
     server.name === 'Google Calendar'
   );
+}
+
+function isAtlassianReconnectableServer(server: MCPServerConfig): boolean {
+  return server.name === 'Jira' || server.name === 'Confluence';
 }
 
 export function SettingsConnectors({ isActive }: { isActive: boolean }) {
@@ -394,6 +399,26 @@ export function SettingsConnectors({ isActive }: { isActive: boolean }) {
     await handleSaveServer({ ...server, enabled: !server.enabled });
   }
 
+  async function handleReconnectServer(server: MCPServerConfig) {
+    setIsLoading(true);
+    setError('');
+    try {
+      const result = await window.electronAPI.mcp.reconnectServer(server.id);
+      if (result && !result.success) {
+        setError(result.error || t('mcp.reconnectFailed', { defaultValue: 'Failed to reconnect' }));
+      }
+      await loadAll();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : t('mcp.reconnectFailed', { defaultValue: 'Failed to reconnect' })
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
   async function handleToggleWriteEnabled(server: MCPServerConfig) {
     const nextWriteEnabled = server.writeEnabled === false;
     await handleSaveServer({ ...server, writeEnabled: nextWriteEnabled });
@@ -551,6 +576,11 @@ export function SettingsConnectors({ isActive }: { isActive: boolean }) {
                   onDelete={() => handleDeleteServer(server.id)}
                   onToggleEnabled={() => handleToggleEnabled(server)}
                   onToggleWriteEnabled={() => handleToggleWriteEnabled(server)}
+                  onReconnect={
+                    isAtlassianReconnectableServer(server)
+                      ? () => handleReconnectServer(server)
+                      : undefined
+                  }
                   globalWriteAccessEnabled={mcpWriteAccessEnabled}
                   isLoading={isLoading}
                   canDelete={!isBuiltinProtectedMcpServer(server)}
@@ -731,6 +761,7 @@ function ServerCard({
   onDelete,
   onToggleEnabled,
   onToggleWriteEnabled,
+  onReconnect,
   globalWriteAccessEnabled,
   isLoading,
   canDelete = true,
@@ -744,6 +775,7 @@ function ServerCard({
   onDelete: () => void;
   onToggleEnabled: () => void;
   onToggleWriteEnabled: () => void;
+  onReconnect?: () => void;
   globalWriteAccessEnabled: boolean;
   isLoading: boolean;
   canDelete?: boolean;
@@ -755,6 +787,10 @@ function ServerCard({
   const [showTools, setShowTools] = useState(false);
   const serverWritesEnabled = server.writeEnabled !== false;
   const writeToggleDisabled = isLoading || !globalWriteAccessEnabled;
+  const showReconnect =
+    Boolean(onReconnect) &&
+    server.enabled &&
+    (serverStatus === 'connected' || serverStatus === 'failed');
 
   return (
     <div className="rounded-lg border border-border bg-surface overflow-hidden">
@@ -891,6 +927,17 @@ function ServerCard({
                       : t('mcp.disabled', { defaultValue: 'Disabled' })
               }
             />
+            {showReconnect && (
+              <button
+                onClick={onReconnect}
+                disabled={isLoading}
+                className="p-2 rounded-lg bg-surface-muted text-text-secondary hover:bg-surface-active transition-colors"
+                title={t('mcp.reconnect')}
+                aria-label={t('mcp.reconnect')}
+              >
+                <RefreshCw className="w-4 h-4" />
+              </button>
+            )}
             <button
               onClick={onToggleEnabled}
               disabled={isLoading}

@@ -195,13 +195,10 @@ import { acquireYorkLlmSlot, subscribeYorkLlmQueue } from '../york-llm/york-llm-
 import {
   isYorkLlmBaseUrl,
   resolveYorkLlmBaseUrl,
-  YORK_LLM_DEFAULT_LIST_LIMIT,
-  YORK_LLM_LIVE_PRUNE_KEEP_RECENT,
   YORK_LLM_PROMPT_TIMEOUT_MS,
   YORK_LLM_SDK_MAX_RETRIES,
   YORK_LLM_SESSION_HEADER,
   YORK_LLM_ZERO_COST,
-  yorkLlmToolResultCompressOptions,
 } from '../../shared/york-llm-config';
 import { createWindowsBashOperations } from './windows-bash-operations';
 import { createCompactionExtensionFactory } from './compaction-extension';
@@ -555,25 +552,9 @@ function buildMcpCustomTools(
   onProjectScopeViolation?: OnProjectScopeViolation | null,
   sessionId?: string | null,
   onLaunchPadProgress?: OnLaunchPadProgressRecord | null,
-  linkage?: ProjectLinkageMetadata,
-  toolResultBudget?: {
-    maxChars?: number;
-    pageTargetChars?: number;
-    defaultListLimit?: number;
-  }
+  linkage?: ProjectLinkageMetadata
 ): ToolDefinition[] {
   const mcpTools = mcpManager.getTools();
-  const compressOpts =
-    toolResultBudget?.maxChars != null || toolResultBudget?.pageTargetChars != null
-      ? {
-          maxChars: toolResultBudget.maxChars,
-          pageTargetChars: toolResultBudget.pageTargetChars,
-        }
-      : undefined;
-  const leanOpts =
-    toolResultBudget?.defaultListLimit != null
-      ? { defaultListLimit: toolResultBudget.defaultListLimit }
-      : undefined;
   return mcpTools.map((mcpTool) => {
     // Wrap the raw JSON Schema inputSchema as a TypeBox TSchema
     const parameters = Type.Unsafe<Record<string, unknown>>(
@@ -588,11 +569,7 @@ function buildMcpCustomTools(
       parameters,
       async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
         try {
-          const leanArgs = leanMcpToolArgs(
-            params as Record<string, unknown>,
-            mcpTool.inputSchema,
-            leanOpts
-          );
+          const leanArgs = leanMcpToolArgs(params as Record<string, unknown>, mcpTool.inputSchema);
           const prepared = prepareProjectScopedMcpArgs(mcpTool.name, leanArgs, division, linkage);
           if (prepared.kind === 'block') {
             emitProjectScopeBlock(
@@ -616,7 +593,6 @@ function buildMcpCustomTools(
           const result = await mcpManager.callTool(mcpTool.name, prepared.args);
           const normalizedResult = normalizeMcpToolResultForModel(result, {
             compress: !prepared.filterResult,
-            ...compressOpts,
           });
           const text = prepared.filterResult
             ? compressToolResultTextForModel(
@@ -624,8 +600,7 @@ function buildMcpCustomTools(
                   mcpTool.name,
                   normalizedResult.text,
                   division
-                ),
-                compressOpts
+                )
               )
             : normalizedResult.text;
           onLaunchPadProgress?.({
@@ -1207,8 +1182,7 @@ ${hints.join('\n')}
    */
   private installLiveContextHooks(
     piSession: PiAgentSession,
-    api: string | undefined | null,
-    options?: { keepRecentToolResults?: number }
+    api: string | undefined | null
   ): void {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const agent = (piSession as any).agent;
@@ -1216,8 +1190,6 @@ ${hints.join('\n')}
       logWarn('[CoworkAgentRunner] No agent on pi session — skipping live context hooks');
       return;
     }
-
-    const keepRecentToolResults = options?.keepRecentToolResults;
 
     // Live prune: shrink old tool_result text before each model call.
     const previousTransform = agent.transformContext;
@@ -1231,10 +1203,7 @@ ${hints.join('\n')}
         next = await previousTransform.call(agent, messages, signal);
       }
       if (Array.isArray(next)) {
-        pruneMessagesForLiveTurn(
-          next,
-          keepRecentToolResults != null ? { keepRecentToolResults } : undefined
-        );
+        pruneMessagesForLiveTurn(next);
       }
       return next;
     };
@@ -2501,12 +2470,6 @@ ${hints.join('\n')}
         await prefetchSessionProjectLinkage(this.mcpManager, session);
       }
       const sessionLinkage = linkageForSession(session);
-      const yorkToolResultBudget = yorkLlmActive
-        ? {
-            ...yorkLlmToolResultCompressOptions(),
-            defaultListLimit: YORK_LLM_DEFAULT_LIST_LIMIT,
-          }
-        : undefined;
       const mcpCustomTools = this.mcpManager
         ? filterMcpToolsForDivision(
             buildMcpCustomTools(
@@ -2515,8 +2478,7 @@ ${hints.join('\n')}
               onProjectScopeViolation,
               session.id,
               onLaunchPadProgress,
-              sessionLinkage,
-              yorkToolResultBudget
+              sessionLinkage
             ),
             session
           )
@@ -2536,7 +2498,6 @@ ${hints.join('\n')}
         sessionId: session.id,
         onLaunchPadProgress,
         linkage: sessionLinkage,
-        toolResultBudget: yorkToolResultBudget,
       });
       const withThink = withThinkToolIfEnabled(
         enableThinking,
@@ -3162,7 +3123,7 @@ ${
             createCompactionExtensionFactory({
               customInstructions: sessionCompactInstructions,
               pruneToolOutputAbove: 500,
-              keepRecentToolResults: yorkLlmActive ? YORK_LLM_LIVE_PRUNE_KEEP_RECENT : 3,
+              keepRecentToolResults: 3,
             }),
           ],
         });
@@ -3221,9 +3182,7 @@ ${
         piSession = newPiSession;
 
         this.installPermissionHook(piSession, session.id);
-        this.installLiveContextHooks(piSession, activePiModel.api, {
-          keepRecentToolResults: yorkLlmActive ? YORK_LLM_LIVE_PRUNE_KEEP_RECENT : undefined,
-        });
+        this.installLiveContextHooks(piSession, activePiModel.api);
 
         // Store session for reuse — evict oldest if cache is full
         if (this.piSessions.size >= CoworkAgentRunner.MAX_CACHED_SESSIONS) {

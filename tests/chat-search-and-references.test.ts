@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { extractSearchableText, toFtsMatchQuery } from '../src/shared/chat-search';
 import { parseExternalReferenceUrl } from '../src/shared/external-reference-urls';
+import { confluenceCql, jiraJql } from '../src/shared/atlassian-reference-query';
 
 describe('toFtsMatchQuery', () => {
   it('builds a prefix AND query and strips special characters', () => {
@@ -64,5 +65,37 @@ describe('parseExternalReferenceUrl', () => {
   it('returns null for unrelated text', () => {
     expect(parseExternalReferenceUrl('hello world')).toBeNull();
     expect(parseExternalReferenceUrl('https://example.com/docs')).toBeNull();
+  });
+});
+
+describe('confluenceCql', () => {
+  it('looks up a full Confluence page URL by id, not title', () => {
+    const url =
+      'https://yorkdocs.atlassian.net/wiki/spaces/~712020ba0337ce2ca9472cba8301a0e558017e/pages/615710757/Platform+Enablement+Team+Decision+Required';
+    expect(confluenceCql(url)).toBe('id = "615710757" AND type = page');
+  });
+
+  it('looks up a bare numeric page id', () => {
+    expect(confluenceCql('615710757')).toBe('id = "615710757" AND type IN (page, blogpost)');
+  });
+
+  it('searches titles for plain text', () => {
+    expect(confluenceCql('Platform Enablement')).toBe(
+      'title ~ "Platform Enablement" AND type = page ORDER BY lastModified DESC'
+    );
+  });
+});
+
+describe('jiraJql', () => {
+  it('looks up a browse URL by issue key', () => {
+    expect(jiraJql('https://yorkblack.atlassian.net/browse/PLAT-42')).toBe('key = "PLAT-42"');
+  });
+
+  it('looks up a bare issue key', () => {
+    expect(jiraJql('plat-12')).toBe('key = "PLAT-12"');
+  });
+
+  it('searches text for plain queries', () => {
+    expect(jiraJql('login bug')).toBe('text ~ "login bug" ORDER BY updated DESC');
   });
 });

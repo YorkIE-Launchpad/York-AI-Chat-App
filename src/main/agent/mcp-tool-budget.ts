@@ -224,24 +224,8 @@ export function buildMcpMetaTools(
   onProjectScopeViolation?: OnProjectScopeViolation | null,
   sessionId?: string | null,
   onLaunchPadProgress?: OnLaunchPadProgressRecord | null,
-  linkage?: ProjectLinkageMetadata,
-  toolResultBudget?: {
-    maxChars?: number;
-    pageTargetChars?: number;
-    defaultListLimit?: number;
-  }
+  linkage?: ProjectLinkageMetadata
 ): ToolDefinition[] {
-  const compressOpts =
-    toolResultBudget?.maxChars != null || toolResultBudget?.pageTargetChars != null
-      ? {
-          maxChars: toolResultBudget.maxChars,
-          pageTargetChars: toolResultBudget.pageTargetChars,
-        }
-      : undefined;
-  const leanOpts =
-    toolResultBudget?.defaultListLimit != null
-      ? { defaultListLimit: toolResultBudget.defaultListLimit }
-      : undefined;
   const searchTool: ToolDefinition<TSchema, unknown> = {
     name: MCP_SEARCH_TOOLS_NAME,
     label: 'Search MCP tools',
@@ -353,8 +337,7 @@ export function buildMcpMetaTools(
         const matched = allowed.find((tool) => tool.name === toolName);
         const leanArgs = leanMcpToolArgs(
           toolArgs && typeof toolArgs === 'object' ? toolArgs : {},
-          matched?.inputSchema,
-          leanOpts
+          matched?.inputSchema
         );
         const prepared = prepareProjectScopedMcpArgs(toolName, leanArgs, division, linkage);
         if (prepared.kind === 'block') {
@@ -373,12 +356,10 @@ export function buildMcpMetaTools(
         const result = await mcpManager.callTool(toolName, prepared.args);
         const normalizedResult = normalizeMcpToolResultForModel(result, {
           compress: !prepared.filterResult,
-          ...compressOpts,
         });
         const text = prepared.filterResult
           ? compressToolResultTextForModel(
-              applyCompanyProjectScopedMcpResultFilter(toolName, normalizedResult.text, division),
-              compressOpts
+              applyCompanyProjectScopedMcpResultFilter(toolName, normalizedResult.text, division)
             )
           : normalizedResult.text;
         onLaunchPadProgress?.({
@@ -439,12 +420,6 @@ export function selectCustomToolsForModel(input: {
   /** Records LaunchPad start/poll MCP calls for incomplete-turn wait/continue. */
   onLaunchPadProgress?: OnLaunchPadProgressRecord | null;
   linkage?: ProjectLinkageMetadata;
-  /** Tighter tool-result / list-limit budget (e.g. York LLM). */
-  toolResultBudget?: {
-    maxChars?: number;
-    pageTargetChars?: number;
-    defaultListLimit?: number;
-  };
 }): SelectCustomToolsResult {
   const {
     api,
@@ -460,7 +435,6 @@ export function selectCustomToolsForModel(input: {
     sessionId,
     onLaunchPadProgress,
     linkage,
-    toolResultBudget,
   } = input;
   const mcpNames = mcpTools.map((t) => t.name);
   const totalIfFlat = builtInToolCount + mcpTools.length + extensionTools.length;
@@ -490,8 +464,7 @@ export function selectCustomToolsForModel(input: {
       onProjectScopeViolation,
       sessionId,
       onLaunchPadProgress,
-      linkage,
-      toolResultBudget
+      linkage
     );
   } else {
     metaTools = parentMetaTools;

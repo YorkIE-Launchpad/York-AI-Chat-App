@@ -5,6 +5,7 @@ import {
   DEFAULT_JIRA_MCP_SERVER_ID,
   DEFAULT_SLACK_MCP_SERVER_ID,
 } from '../../shared/mcp-defaults';
+import { confluenceCql, jiraJql } from '../../shared/atlassian-reference-query';
 import { confluencePageUrl, confluenceSiteOriginFromUrl } from '../../shared/confluence-urls';
 import { extractJiraIssueKeys, jiraBrowseUrl, jiraSiteOriginFromUrl } from '../../shared/jira-urls';
 import type {
@@ -269,30 +270,6 @@ function parseJiraSearch(text: string): ExternalReferenceSearchItem[] {
     }));
 }
 
-function jiraJql(userQuery: string): string {
-  const trimmed = userQuery.trim();
-  if (/^[A-Z][A-Z0-9]+-\d+$/i.test(trimmed)) {
-    return `key = "${trimmed.toUpperCase()}"`;
-  }
-  const escaped = trimmed.replace(/"/g, '\\"').slice(0, 80);
-  if (!escaped) {
-    return 'assignee = currentUser() ORDER BY updated DESC';
-  }
-  return `text ~ "${escaped}" ORDER BY updated DESC`;
-}
-
-function confluenceCql(userQuery: string): string {
-  const trimmed = userQuery.trim();
-  if (/^\d+$/.test(trimmed)) {
-    return `id = "${trimmed}" AND type = page`;
-  }
-  const escaped = trimmed.replace(/"/g, '\\"').slice(0, 80);
-  if (!escaped) {
-    return 'type = page ORDER BY lastModified DESC';
-  }
-  return `title ~ "${escaped}" AND type = page ORDER BY lastModified DESC`;
-}
-
 function parseConfluenceSearch(text: string): ExternalReferenceSearchItem[] {
   const parsed = parseJsonLoose(text);
   const bag: Array<Record<string, unknown>> = [];
@@ -478,6 +455,12 @@ export async function searchExternalReferences(
     }
 
     if (source === 'confluence') {
+      const trimmed = query.trim();
+      const parsedUrl = parseExternalReferenceUrl(trimmed);
+      if (parsedUrl?.source === 'confluence') {
+        const lookedUp = await lookupExternalReferenceFromUrl(mcpManager, trimmed);
+        if (lookedUp) return { items: [lookedUp] };
+      }
       const tool = findToolName(mcpManager, DEFAULT_CONFLUENCE_MCP_SERVER_ID, [
         'searchConfluenceUsingCql',
         'searchconfluence',
@@ -491,6 +474,12 @@ export async function searchExternalReferences(
       return { items: parseConfluenceSearch(text).slice(0, 20) };
     }
 
+    const trimmed = query.trim();
+    const parsedJiraUrl = parseExternalReferenceUrl(trimmed);
+    if (parsedJiraUrl?.source === 'jira') {
+      const lookedUp = await lookupExternalReferenceFromUrl(mcpManager, trimmed);
+      if (lookedUp) return { items: [lookedUp] };
+    }
     const tool = findToolName(mcpManager, DEFAULT_JIRA_MCP_SERVER_ID, [
       'searchJiraIssuesUsingJql',
       'searchatlassian',
