@@ -122,6 +122,35 @@ describe('extractMcpSourcesFromTurn', () => {
     expect(sources[0].serverName).toBe('Jira');
   });
 
+  it('labels Slack sources with the channel name and opens the channel page', () => {
+    const messages: Message[] = [
+      msg('u1', 'user', [{ type: 'text', text: 'What did #eng say?' }]),
+      msg('a1', 'assistant', [
+        {
+          type: 'tool_use',
+          id: 'tu1',
+          name: 'mcp__Slack__search_messages',
+          input: { query: 'standup' },
+        },
+      ]),
+      msg('a2', 'assistant', [
+        {
+          type: 'tool_result',
+          toolUseId: 'tu1',
+          content:
+            'C123|#eng [1700000001.000200] Sam: standup notes\nLink: https://app.slack.com/archives/C123/p1700000001000200/n%5B1788341023.941369',
+        },
+      ]),
+      msg('a3', 'assistant', [{ type: 'text', text: 'Standup notes are in #eng.' }]),
+    ];
+
+    const sources = extractMcpSourcesFromTurn(messages, 'u1');
+    expect(sources).toHaveLength(1);
+    expect(sources[0].title).toBe('Slack: #eng');
+    expect(sources[0].url).toBe('https://app.slack.com/archives/C123');
+    expect(sources[0].serverName).toBe('Slack');
+  });
+
   it('ignores non-MCP tools', () => {
     const messages: Message[] = [
       msg('u1', 'user', [{ type: 'text', text: 'Read file' }]),

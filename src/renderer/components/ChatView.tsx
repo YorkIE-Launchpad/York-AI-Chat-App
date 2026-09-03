@@ -1489,15 +1489,26 @@ export function ChatView() {
               </div>
             )
           ) : (
-            displayedMessages.map((message) => {
+            displayedMessages.map((message, index) => {
               const isStreaming =
                 typeof message.id === 'string' && message.id.startsWith('partial-');
+              const isLastAssistant =
+                message.role === 'assistant' &&
+                !isStreaming &&
+                !displayedMessages.slice(index + 1).some((item) => item.role === 'assistant');
               return (
                 <div key={message.id} className="min-w-0 max-w-full">
                   <MessageCard
                     message={message}
                     isStreaming={isStreaming}
                     allMessages={displayedMessages}
+                    onRegenerate={
+                      isLastAssistant && !canStop
+                        ? () => {
+                            void continueSession(message.sessionId, '');
+                          }
+                        : undefined
+                    }
                   />
                 </div>
               );

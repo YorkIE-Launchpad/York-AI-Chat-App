@@ -1,4 +1,9 @@
 import { toUserFacingSourceUrls } from '../../shared/jira-urls';
+import {
+  slackChannelIdFromUrl,
+  slackChannelLabelFromResultText,
+  toUserFacingSlackSourceUrls,
+} from '../../shared/slack-urls';
 import type { Message, ToolResultContent, ToolUseContent } from '../types';
 import { messageHasAssistantText } from './active-turn';
 
@@ -64,7 +69,12 @@ function extractUrls(text: string): string[] {
   return urls;
 }
 
-function titleFromUrl(url: string, serverName: string): string {
+function titleFromUrl(url: string, serverName: string, resultText = ''): string {
+  const slackChannelId = slackChannelIdFromUrl(url);
+  if (slackChannelId) {
+    const slackLabel = slackChannelLabelFromResultText(resultText, slackChannelId);
+    if (slackLabel) return `${serverName}: ${slackLabel}`;
+  }
   try {
     const parsed = new URL(url);
     const host = parsed.hostname.replace(/^www\./, '');
@@ -165,11 +175,13 @@ export function extractMcpSourcesFromTurn(
 
     if (!resultText) continue;
 
-    for (const url of toUserFacingSourceUrls(extractUrls(resultText), resultText)) {
+    for (const url of toUserFacingSlackSourceUrls(
+      toUserFacingSourceUrls(extractUrls(resultText), resultText)
+    )) {
       if (seenUrls.has(url)) continue;
       seenUrls.add(url);
       items.push({
-        title: titleFromUrl(url, parsed.serverName),
+        title: titleFromUrl(url, parsed.serverName, resultText),
         serverName: parsed.serverName,
         url,
       });

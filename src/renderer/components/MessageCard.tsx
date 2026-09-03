@@ -2,25 +2,29 @@
 // Delegates block rendering to ContentBlockView and its sub-components.
 import { useState, memo, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Copy, Check, Ban } from 'lucide-react';
+import { Copy, Check, Ban, RefreshCw } from 'lucide-react';
 import type { Message, ContentBlock, ToolUseContent, ToolResultContent } from '../types';
 import { isClientOutdatedError } from '../../shared/client-version';
 import { ContentBlockView } from './message/ContentBlockView';
 import { McpSourcesFooter } from './message/McpSourcesFooter';
 import { ClientOutdatedUpdateActions } from './ClientOutdatedUpdateActions';
 import { shouldShowMcpSourcesFooter } from '../utils/mcp-sources';
+import { formatAppDateTime } from '../utils/i18n-format';
 
 interface MessageCardProps {
   message: Message;
   isStreaming?: boolean;
   /** Full session messages — used for turn-aware MCP Sources fallback. */
   allMessages?: Message[];
+  /** Shown on the last completed assistant message (Claude-style regenerate). */
+  onRegenerate?: () => void;
 }
 
 export const MessageCard = memo(function MessageCard({
   message,
   isStreaming,
   allMessages,
+  onRegenerate,
 }: MessageCardProps) {
   const { t } = useTranslation();
   const isUser = message.role === 'user';
@@ -39,6 +43,10 @@ export const MessageCard = memo(function MessageCard({
     [contentBlocks, isUser]
   );
   const [copied, setCopied] = useState(false);
+  const messageTimeLabel = useMemo(
+    () => (message.timestamp ? formatAppDateTime(message.timestamp) : ''),
+    [message.timestamp]
+  );
 
   // Build a set of tool_result IDs that have a matching tool_use (for merging)
   const mergedResultIds = useMemo(() => {
@@ -136,6 +144,7 @@ export const MessageCard = memo(function MessageCard({
               className={`message-user min-w-0 w-fit max-w-[90%] break-words px-4 py-3 rounded-[1.65rem] ${
                 isCancelled ? 'opacity-55' : ''
               }`}
+              title={messageTimeLabel || undefined}
               aria-label={isCancelled ? t('messageCard.cancelledAria') : undefined}
             >
               {contentBlocks.length === 0 ? (
@@ -197,6 +206,22 @@ export const MessageCard = memo(function MessageCard({
               {copyButton(
                 'inline-flex items-center justify-center gap-1.5 h-8 min-w-8 px-2 rounded-lg text-text-muted hover:text-text-secondary hover:bg-surface-muted transition-colors'
               )}
+              {onRegenerate ? (
+                <button
+                  type="button"
+                  onClick={onRegenerate}
+                  className="inline-flex items-center justify-center gap-1.5 h-8 min-w-8 px-2 rounded-lg text-text-muted hover:text-text-secondary hover:bg-surface-muted transition-colors"
+                  title={t('messageCard.regenerate')}
+                  aria-label={t('messageCard.regenerate')}
+                >
+                  <RefreshCw className="w-3.5 h-3.5 text-text-muted" aria-hidden />
+                </button>
+              ) : null}
+              {messageTimeLabel ? (
+                <span className="ml-1 text-[11px] text-text-muted" title={messageTimeLabel}>
+                  {messageTimeLabel}
+                </span>
+              ) : null}
             </div>
           ) : null}
         </div>

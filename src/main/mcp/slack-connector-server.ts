@@ -1,6 +1,6 @@
 import { WebClient } from '@slack/web-api';
+import { buildSlackChannelPageUrl } from '../../shared/slack-urls';
 import { startConnectorMcpServer } from './connector-mcp-utils';
-import { resolveSlackPermalink } from './slack-permalink';
 import { assertSlackWriteAllowed } from './slack-write-guard';
 
 const accessToken = process.env.SLACK_USER_TOKEN?.trim();
@@ -80,6 +80,25 @@ function pickUserDisplayName(user: {
 }
 
 const userLabelCache = new Map<string, string>();
+let cachedTeamId: string | null | undefined;
+
+async function resolveTeamId(): Promise<string | null> {
+  if (cachedTeamId !== undefined) return cachedTeamId;
+  try {
+    const response = await client.auth.test({});
+    const teamId = typeof response.team_id === 'string' ? response.team_id.trim() : '';
+    cachedTeamId = teamId || null;
+  } catch {
+    cachedTeamId = null;
+  }
+  return cachedTeamId;
+}
+
+async function channelPageLink(channelId?: string | null): Promise<string | null> {
+  const id = typeof channelId === 'string' ? channelId.trim() : '';
+  if (!id || !SLACK_CHANNEL_ID_RE.test(id)) return null;
+  return buildSlackChannelPageUrl(id, await resolveTeamId());
+}
 
 async function resolveUserLabel(userId: string): Promise<string> {
   const id = userId.trim();
@@ -214,18 +233,15 @@ async function resolveChannel(channelRef: string): Promise<{
   }
 }
 
-function formatMessages(messages: SlimMessage[]): string {
-  return messages
-    .map((message) => {
-      const permalink = resolveSlackPermalink({
-        permalink: message.permalink,
-        channelId: message.channelId,
-        ts: message.ts,
-      });
+async function formatMessages(messages: SlimMessage[]): Promise<string> {
+  const lines = await Promise.all(
+    messages.map(async (message) => {
+      const link = await channelPageLink(message.channelId);
       const base = `[${message.ts}] ${message.user || 'unknown'}: ${message.text || ''}`;
-      return permalink ? `${base}\nLink: ${permalink}` : base;
+      return link ? `${base}\nLink: ${link}` : base;
     })
-    .join('\n');
+  );
+  return lines.join('\n');
 }
 
 /** Parse-stable search line: `channelId|#name [ts] user: text` (DM names omit #). */
@@ -233,7 +249,7 @@ function formatSearchMatchLine(message: {
   ts?: string;
   text?: string;
   username?: string;
-  permalink?: string | null;
+  channelLink?: string | null;
   channelId: string;
   channelName: string;
 }): string {
@@ -248,7 +264,7 @@ function formatSearchMatchLine(message: {
       ? message.username
       : 'unknown';
   const base = `${channelToken} [${message.ts || ''}] ${username}: ${message.text || ''}`;
-  return message.permalink ? `${base}\nLink: ${message.permalink}` : base;
+  return message.channelLink ? `${base}\nLink: ${message.channelLink}` : base;
 }
 
 function mapMessages(messages: SlimMessage[] | undefined, channelId?: string): SlimMessage[] {
@@ -279,10 +295,7 @@ async function searchChannelMessages(
       user: message.username || message.user,
       text: message.text,
       channelId: channel.id,
-      permalink:
-        typeof (message as { permalink?: unknown }).permalink === 'string'
-          ? (message as { permalink: string }).permalink
-          : null,
+      permalink: null,
     }));
   } catch (error) {
     throw formatSlackError(error, `Searching Slack messages in ${formatChannelLabel(channel)}`);
@@ -428,7 +441,7 @@ async function main() {
           externalId: `slack:${channel.id}:${messages[0]?.ts || Date.now()}`,
           title: `Slack channel history ${channelLabel}`,
           summary: `${usedFallbackSearch ? 'Searched' : 'Fetched'} ${messages.length} messages from ${channelLabel}`,
-          body: formatMessages(messages),
+          body: await formatMessages(messages),
           occurredAt: Date.now(),
           keywords: ['slack', 'messages', channel.id, channel.name || channel.id],
           coreKey: 'slack_latest_read',
@@ -460,20 +473,12 @@ async function main() {
             typeof message.channel === 'object' && message.channel && 'name' in message.channel
               ? String((message.channel as { name?: string }).name || '')
               : '';
-          const permalink =
-            typeof (message as { permalink?: unknown }).permalink === 'string'
-              ? (message as { permalink: string }).permalink
-              : resolveSlackPermalink({
-                  channelId,
-                  ts: message.ts,
-                });
           return {
             ts: message.ts,
             text: message.text,
             channelId,
             channelName,
             username: String(message.username || message.user || ''),
-            permalink,
           };
         });
         const idsToResolve = new Set<string>();
@@ -487,6 +492,7 @@ async function main() {
             ...match,
             channelName: await humanizeSlackLabel(match.channelName),
             username: (await humanizeSlackLabel(match.username)) || 'unknown',
+            channelLink: await channelPageLink(match.channelId),
           }))
         );
         return makeMemoryEnvelope({
@@ -522,7 +528,7 @@ async function main() {
           externalId: `slack:thread:${channel.id}:${threadTs}`,
           title: `Slack thread ${threadTs}`,
           summary: `Fetched ${messages.length} thread messages`,
-          body: formatMessages(messages),
+          body: await formatMessages(messages),
           occurredAt: Date.now(),
           keywords: ['slack', 'thread', channel.id],
         });

@@ -1197,6 +1197,7 @@
     "emptyText": "(empty text)",
     "copyMessage": "Copy message",
     "copied": "Copied",
+    "regenerate": "Regenerate response",
     "revealInFolder": "Reveal in folder",
     "pastedContentAlt": "Pasted content",
     "taskProgress": "Task Progress",
