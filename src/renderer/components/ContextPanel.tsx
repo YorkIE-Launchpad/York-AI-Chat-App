@@ -13,6 +13,7 @@ import {
 } from '../utils/artifact-steps';
 import { isHtmlPath } from '../utils/html-preview';
 import { useIPC } from '../hooks/useIPC';
+import { isYorkLlmSelection, yorkLlmDisplayName } from '../hooks/useYorkLlmModels';
 import {
   ChevronDown,
   ChevronUp,
@@ -121,7 +122,12 @@ export function ContextPanel() {
   );
   const messageCount = messages.length;
   const toolCallCount = steps.filter((s) => s.type === 'tool_call').length;
-  const modelName = activeSession?.model || appConfig?.model || '—';
+  const rawModelName = activeSession?.model || appConfig?.model || '';
+  const modelName = rawModelName
+    ? isYorkLlmSelection(appConfig?.provider, appConfig?.baseUrl, rawModelName)
+      ? yorkLlmDisplayName(rawModelName)
+      : rawModelName
+    : '—';
 
   const completedStepCount = useMemo(
     () => steps.reduce((n, s) => n + (s.status === 'completed' ? 1 : 0), 0),
