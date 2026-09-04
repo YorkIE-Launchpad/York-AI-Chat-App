@@ -139,40 +139,46 @@ export const MessageCard = memo(function MessageCard({
               <span>{t('messageCard.cancelledNotSent')}</span>
             </div>
           )}
-          <div className="flex min-w-0 max-w-full items-start justify-end gap-2 group">
-            <div
-              className={`message-user min-w-0 w-fit max-w-[90%] break-words px-4 py-3 rounded-[1.65rem] ${
-                isCancelled ? 'opacity-55' : ''
-              }`}
-              title={messageTimeLabel || undefined}
-              aria-label={isCancelled ? t('messageCard.cancelledAria') : undefined}
-            >
-              {contentBlocks.length === 0 ? (
-                <span className="text-text-muted italic">{t('messageCard.emptyMessage')}</span>
-              ) : (
-                <div
-                  className={`space-y-2 ${isCancelled ? 'line-through decoration-text-muted/50' : ''}`}
-                >
-                  {contentBlocks.map((block, index) => (
-                    <ContentBlockView
-                      key={
-                        'id' in block
-                          ? (block as { id: string }).id
-                          : `block-${block.type}-${index}`
-                      }
-                      block={block}
-                      isUser={isUser}
-                      isStreaming={isStreaming}
-                    />
-                  ))}
-                </div>
-              )}
+          <div className="flex min-w-0 max-w-full flex-col items-end gap-1 group">
+            <div className="flex min-w-0 max-w-full items-start justify-end gap-2">
+              <div
+                className={`message-user min-w-0 w-fit max-w-[90%] break-words px-4 py-3 rounded-[1.65rem] ${
+                  isCancelled ? 'opacity-55' : ''
+                }`}
+                aria-label={isCancelled ? t('messageCard.cancelledAria') : undefined}
+              >
+                {contentBlocks.length === 0 ? (
+                  <span className="text-text-muted italic">{t('messageCard.emptyMessage')}</span>
+                ) : (
+                  <div
+                    className={`space-y-2 ${isCancelled ? 'line-through decoration-text-muted/50' : ''}`}
+                  >
+                    {contentBlocks.map((block, index) => (
+                      <ContentBlockView
+                        key={
+                          'id' in block
+                            ? (block as { id: string }).id
+                            : `block-${block.type}-${index}`
+                        }
+                        block={block}
+                        isUser={isUser}
+                        isStreaming={isStreaming}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+              {textToCopy
+                ? copyButton(
+                    'mt-1 w-7 h-7 flex items-center justify-center rounded-md bg-surface-muted hover:bg-surface-active transition-all opacity-0 group-hover:opacity-100 focus-visible:opacity-100 flex-shrink-0'
+                  )
+                : null}
             </div>
-            {textToCopy
-              ? copyButton(
-                  'mt-1 w-7 h-7 flex items-center justify-center rounded-md bg-surface-muted hover:bg-surface-active transition-all opacity-0 group-hover:opacity-100 focus-visible:opacity-100 flex-shrink-0'
-                )
-              : null}
+            {messageTimeLabel ? (
+              <span className="px-1 text-[11px] text-text-muted" title={messageTimeLabel}>
+                {messageTimeLabel}
+              </span>
+            ) : null}
           </div>
         </div>
       ) : (
