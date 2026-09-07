@@ -40,6 +40,11 @@ export interface WorkflowScheduleBridge {
   }) => Promise<string>;
   /** Disable/delete schedule when workflow disabled or deleted. */
   removeSchedule: (taskId: string) => Promise<void>;
+  /** Remove all schedule arms for a workflow (by known task id and/or prompt marker). */
+  removeSchedulesForWorkflow: (
+    workflowId: string,
+    knownTaskId?: string | null
+  ) => Promise<void>;
 }
 
 export type WorkflowTitleResolver = (description: string) => Promise<string | null>;
@@ -158,10 +163,14 @@ export class WorkflowService {
     return next;
   }
 
-  delete(id: string): boolean {
+  async delete(id: string): Promise<boolean> {
     const existing = this.store.get(id);
-    if (existing?.scheduleTaskId && this.scheduleBridge) {
-      void this.scheduleBridge.removeSchedule(existing.scheduleTaskId).catch(() => undefined);
+    if (this.scheduleBridge) {
+      try {
+        await this.scheduleBridge.removeSchedulesForWorkflow(id, existing?.scheduleTaskId ?? null);
+      } catch (err) {
+        logWarn('[Workflow] Failed to remove schedules on delete', err);
+      }
     }
     return this.store.delete(id);
   }

@@ -91,7 +91,7 @@ import { SuperContextExtension } from './supercontext/supercontext-extension';
 import { CheckpointService } from './orchestration/checkpoint-service';
 import { WorkflowService } from './workflows/workflow-service';
 import { WorkflowExtension } from './workflows/workflow-extension';
-import { createWorkflowScheduleBridge } from './workflows/workflow-schedule-bridge';
+import { createWorkflowScheduleBridge, sweepOrphanedWorkflowSchedules } from './workflows/workflow-schedule-bridge';
 import {
   parseWorkflowSchedulePrompt,
   formatWorkflowSessionTitle,
@@ -1738,6 +1738,14 @@ app
         )
       );
       scheduledTaskManager.start();
+      if (workflowService && scheduledTaskManager) {
+        const removed = sweepOrphanedWorkflowSchedules(scheduledTaskManager, (workflowId) =>
+          Boolean(workflowService?.get(workflowId))
+        );
+        if (removed.length > 0) {
+          log(`[Workflow] Swept ${removed.length} orphaned workflow schedule(s)`);
+        }
+      }
 
       chatLoopManager = new ChatLoopManager({
         api: {
@@ -2254,6 +2262,14 @@ app
       )
     );
     scheduledTaskManager.start();
+    if (workflowService && scheduledTaskManager) {
+      const removed = sweepOrphanedWorkflowSchedules(scheduledTaskManager, (workflowId) =>
+        Boolean(workflowService?.get(workflowId))
+      );
+      if (removed.length > 0) {
+        log(`[Workflow] Swept ${removed.length} orphaned workflow schedule(s)`);
+      }
+    }
 
     chatLoopManager = new ChatLoopManager({
       api: {
@@ -5382,9 +5398,9 @@ ipcMain.handle(
     });
   }
 );
-ipcMain.handle('workflows.delete', (_event, id: string) => {
+ipcMain.handle('workflows.delete', async (_event, id: string) => {
   if (!workflowService) throw new Error('Workflow service not initialized');
-  return { success: workflowService.delete(id) };
+  return { success: await workflowService.delete(id) };
 });
 ipcMain.handle(
   'workflows.propose',
