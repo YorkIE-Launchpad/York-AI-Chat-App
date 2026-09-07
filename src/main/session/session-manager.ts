@@ -44,7 +44,7 @@ import { mcpConfigStore } from '../mcp/mcp-config-store';
 import { PluginRuntimeService } from '../skills/plugin-runtime-service';
 import { AgentRuntimeExtensionManager } from '../extensions/agent-runtime-extension-manager';
 import type { AskUserQuestionExtension } from '../tools/ask-user-question-extension';
-import { forgetSessionPermissions } from '../config/permission-rules-store';
+import { forgetSessionPermissions, rememberAutoApproveToolPermissions, sessionAutoApprovesToolPermissions } from '../config/permission-rules-store';
 import {
   log,
   logError,
@@ -381,6 +381,7 @@ export class SessionManager {
       clientName?: string | null;
       clientProjectIds?: string | null;
       incognito?: boolean;
+      autoApproveToolPermissions?: boolean;
     }
   ): Promise<Session> {
     const isIncognito = options?.incognito === true;
@@ -431,6 +432,7 @@ export class SessionManager {
       clientName?: string | null;
       clientProjectIds?: string | null;
       incognito?: boolean;
+      autoApproveToolPermissions?: boolean;
     }
   ): Promise<Session> {
     const isIncognito = options?.incognito === true;
@@ -491,12 +493,14 @@ export class SessionManager {
       clientName?: string | null;
       clientProjectIds?: string | null;
       incognito?: boolean;
+      autoApproveToolPermissions?: boolean;
     }
   ): Session {
     const now = Date.now();
     // Prefer frontend-provided cwd; never leave sessions on `/` (see resolveSessionCwd).
     const effectiveCwd = this.resolveSessionCwd(cwd);
     const isIncognito = options?.incognito === true;
+    const autoApproveToolPermissions = options?.autoApproveToolPermissions === true;
     const resolvedMemoryEnabled = isIncognito
       ? false
       : typeof memoryEnabled === 'boolean'
@@ -517,8 +521,12 @@ export class SessionManager {
       clientName: options?.clientName,
       clientProjectIds: options?.clientProjectIds,
     });
+    const sessionId = uuidv4();
+    if (autoApproveToolPermissions) {
+      rememberAutoApproveToolPermissions(sessionId);
+    }
     return {
-      id: uuidv4(),
+      id: sessionId,
       title: isIncognito && !title.trim() ? 'Incognito' : title,
       status: 'idle',
       cwd: effectiveCwd,
@@ -551,6 +559,7 @@ export class SessionManager {
       clientName: divisionFields.clientName,
       clientProjectIds: divisionFields.clientProjectIds,
       incognito: isIncognito || undefined,
+      autoApproveToolPermissions: autoApproveToolPermissions || undefined,
       createdAt: now,
       updatedAt: now,
     };
@@ -677,6 +686,7 @@ export class SessionManager {
       clientName: divisionFields.clientName,
       clientProjectIds: divisionFields.clientProjectIds,
       pinned: row.pinned === 1,
+      autoApproveToolPermissions: sessionAutoApprovesToolPermissions(row.id) || undefined,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };

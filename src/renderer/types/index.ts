@@ -43,6 +43,13 @@ export interface Session {
   pinned?: boolean;
   /** When true, chat is in-memory only and does not update long-term memory. */
   incognito?: boolean;
+  /**
+   * When true, tool permission `ask` decisions are auto-allowed (workflow agent
+   * steps). Hard `deny` rules and MCP write kill-switch still apply.
+   * Runtime enforcement is session-id scoped in the permission store so it
+   * survives DB reload during the run.
+   */
+  autoApproveToolPermissions?: boolean;
   createdAt: number;
   updatedAt: number;
 }

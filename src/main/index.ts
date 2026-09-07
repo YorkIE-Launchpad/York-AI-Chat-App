@@ -2349,6 +2349,7 @@ app
           undefined,
           {
             ...validatedDivision,
+            autoApproveToolPermissions: true,
             ...(lockedModel
               ? {
                   model: lockedModel,

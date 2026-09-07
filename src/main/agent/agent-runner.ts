@@ -25,7 +25,10 @@ import { Type, type TSchema } from '@sinclair/typebox';
 import { getSharedAuthStorage, ModelRegistry } from './shared-auth';
 import type { Session, Message, TraceStep, ServerEvent, ContentBlock } from '../../renderer/types';
 import { v4 as uuidv4 } from 'uuid';
-import { decidePermission, rememberAlwaysAllow } from '../config/permission-rules-store';
+import {
+  rememberAlwaysAllow,
+  resolveSessionToolPermission,
+} from '../config/permission-rules-store';
 import {
   MCP_WRITE_DISABLED_MESSAGE,
   isMcpWriteAccessDenied,
@@ -1165,8 +1168,9 @@ ${hints.join('\n')}
    * fires for built-in tools (read, bash, edit, write) — the SDK ignores
    * wrapped `execute` functions on built-in tools passed via `options.tools`.
    *
-   * The hook consults `decidePermission` from the main-process rules cache:
-   *  - 'allow' → delegate to SDK's original hook (proceeds normally)
+   * The hook consults `resolveSessionToolPermission` from the main-process rules cache:
+   *  - 'allow' → delegate to SDK's original hook (proceeds normally; includes
+   *    workflow auto-approve of former `ask`)
    *  - 'deny'  → return { block: true, reason } (SDK treats as tool error)
    *  - 'ask'   → await requestPermission() IPC round-trip to PermissionDialog
    *
@@ -1289,7 +1293,7 @@ ${hints.join('\n')}
         const toolName: string = ctx.toolCall?.name ?? '';
         const input: Record<string, unknown> = ctx.args ?? {};
 
-        const decision = decidePermission(sessionId, toolName, input);
+        const decision = resolveSessionToolPermission(sessionId, toolName, input);
         // Human-readable name for prompts/messages (e.g. MCP sanitized
         // 'mcp__chrome__chrome_screenshot__ab12' → 'chrome_screenshot').
         // Rule matching and rememberAlwaysAllow still use the canonical

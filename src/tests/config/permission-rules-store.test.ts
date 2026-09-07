@@ -6,6 +6,8 @@
  *   - Glob-ish pattern matching ('*' = any substring) and case-insensitivity
  *   - Session-scoped "always allow" memory works within session and clears on
  *     forgetSessionPermissions()
+ *   - Workflow session auto-approve converts ask→allow via resolveSessionToolPermission
+ *     without overriding hard deny / MCP write kill-switch
  *   - Built-in Chrome MCP (`mcp__Chrome__*`), R&D Launchpad MCP (`mcp__R_D_Launchpad__*` /
  *     legacy `mcp__Launchpad__*`), York IE HUB MCP (`mcp__York_IE_HUB__*` / legacy `mcp__Hub__*`),
  *     GTM Pulse MCP (`mcp__GTM_Pulse__*`), OpenAI meta-tools (`mcp_run`, `mcp_search_tools`, `mcp_call_tool`),
@@ -22,6 +24,9 @@ import {
   forgetSessionPermissions,
   getPermissionRules,
   rememberAlwaysAllow,
+  rememberAutoApproveToolPermissions,
+  resolveSessionToolPermission,
+  sessionAutoApprovesToolPermissions,
   setPermissionRules,
 } from '../../main/config/permission-rules-store';
 import {
@@ -529,6 +534,75 @@ describe('permission-rules-store', () => {
       setPermissionRules([{ tool: 'bash', action: 'deny' }]);
       rememberAlwaysAllow(SESSION_A, 'bash');
       expect(decidePermission(SESSION_A, 'bash', {})).toBe('allow');
+    });
+  });
+
+  describe('workflow session auto-approve tool permissions', () => {
+    it('rememberAutoApproveToolPermissions marks the session', () => {
+      expect(sessionAutoApprovesToolPermissions(SESSION_A)).toBe(false);
+      rememberAutoApproveToolPermissions(SESSION_A);
+      expect(sessionAutoApprovesToolPermissions(SESSION_A)).toBe(true);
+      expect(sessionAutoApprovesToolPermissions(SESSION_B)).toBe(false);
+    });
+
+    it('resolveSessionToolPermission upgrades Slack post_message ask → allow for flagged sessions', () => {
+      expect(
+        decidePermission(SESSION_A, 'mcp__Slack__post_message', { channel: 'D03QMGMBK42' })
+      ).toBe('ask');
+      expect(
+        resolveSessionToolPermission(SESSION_A, 'mcp__Slack__post_message', {
+          channel: 'D03QMGMBK42',
+        })
+      ).toBe('ask');
+
+      rememberAutoApproveToolPermissions(SESSION_A);
+
+      expect(
+        decidePermission(SESSION_A, 'mcp__Slack__post_message', { channel: 'D03QMGMBK42' })
+      ).toBe('ask');
+      expect(
+        resolveSessionToolPermission(SESSION_A, 'mcp__Slack__post_message', {
+          channel: 'D03QMGMBK42',
+        })
+      ).toBe('allow');
+      // Other sessions still ask
+      expect(
+        resolveSessionToolPermission(SESSION_B, 'mcp__Slack__post_message', {
+          channel: 'D03QMGMBK42',
+        })
+      ).toBe('ask');
+    });
+
+    it('does not override hard deny from permission rules', () => {
+      setPermissionRules([{ tool: 'mcp__Slack__post_message', action: 'deny' }]);
+      rememberAutoApproveToolPermissions(SESSION_A);
+      expect(
+        resolveSessionToolPermission(SESSION_A, 'mcp__Slack__post_message', {
+          channel: 'D03QMGMBK42',
+        })
+      ).toBe('deny');
+    });
+
+    it('does not override MCP write kill-switch deny', () => {
+      setMcpWriteAccessEnabled(false);
+      rememberAutoApproveToolPermissions(SESSION_A);
+      expect(
+        resolveSessionToolPermission(SESSION_A, 'mcp__Slack__post_message', {
+          channel: 'D03QMGMBK42',
+        })
+      ).toBe('deny');
+    });
+
+    it('forgetSessionPermissions clears auto-approve marking', () => {
+      rememberAutoApproveToolPermissions(SESSION_A);
+      expect(sessionAutoApprovesToolPermissions(SESSION_A)).toBe(true);
+      forgetSessionPermissions(SESSION_A);
+      expect(sessionAutoApprovesToolPermissions(SESSION_A)).toBe(false);
+      expect(
+        resolveSessionToolPermission(SESSION_A, 'mcp__Slack__post_message', {
+          channel: 'D03QMGMBK42',
+        })
+      ).toBe('ask');
     });
   });
 

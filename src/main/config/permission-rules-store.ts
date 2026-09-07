@@ -58,6 +58,12 @@ let rules: PermissionRule[] = [...DEFAULT_RULES];
 const alwaysAllowBySession = new Map<string, Set<string>>();
 
 /**
+ * Sessions that auto-approve permission `ask` (e.g. workflow agent steps).
+ * Kept in-memory (not DB) so it survives loadSession round-trips during a run.
+ */
+const autoApproveToolPermissionsBySession = new Set<string>();
+
+/**
  * Sanitize an untrusted rules payload from IPC. Drops entries with empty
  * tool names, coerces invalid `action` values to `'ask'`, and preserves
  * optional string `pattern` fields. Returns null for non-array input.
@@ -113,6 +119,10 @@ export function getPermissionRules(): PermissionRule[] {
  *      first-party wiki tools (`wiki_*` except mutations like `wiki_write`),
  *      and the first-party `webfetch` / `websearch` tools
  *   4. Default: 'ask' for unknown tools (conservative)
+ *
+ * For workflow agent steps, callers should use `resolveSessionToolPermission`,
+ * which upgrades `ask` → `allow` when the session was marked with
+ * `rememberAutoApproveToolPermissions` (hard `deny` still wins).
  *
  * Defence-in-depth: even though `setPermissionRules` sanitizes input, we
  * re-validate the matched rule's action here so a malformed rule that
@@ -174,8 +184,35 @@ export function rememberAlwaysAllow(sessionId: string, toolName: string): void {
   alwaysAllowBySession.set(sessionId, set);
 }
 
+/** Mark a session so permission `ask` is treated as allow (workflow unattended runs). */
+export function rememberAutoApproveToolPermissions(sessionId: string): void {
+  autoApproveToolPermissionsBySession.add(sessionId);
+}
+
+export function sessionAutoApprovesToolPermissions(sessionId: string): boolean {
+  return autoApproveToolPermissionsBySession.has(sessionId);
+}
+
+/**
+ * Effective permission for the agent tool hook: same as decidePermission, except
+ * sessions marked with rememberAutoApproveToolPermissions convert `ask` → `allow`
+ * (workflow agent steps). Hard `deny` (rules / MCP write kill-switch) is unchanged.
+ */
+export function resolveSessionToolPermission(
+  sessionId: string,
+  toolName: string,
+  input: Record<string, unknown>
+): 'allow' | 'deny' | 'ask' {
+  const decision = decidePermission(sessionId, toolName, input);
+  if (decision === 'ask' && sessionAutoApprovesToolPermissions(sessionId)) {
+    return 'allow';
+  }
+  return decision;
+}
+
 export function forgetSessionPermissions(sessionId: string): void {
   alwaysAllowBySession.delete(sessionId);
+  autoApproveToolPermissionsBySession.delete(sessionId);
 }
 
 function safeStringify(v: unknown): string {
