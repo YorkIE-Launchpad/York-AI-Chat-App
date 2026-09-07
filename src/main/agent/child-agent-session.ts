@@ -15,6 +15,10 @@ import { configStore } from '../config/config-store';
 import { getClientAppVersion, resolveBackendClientApiKey } from '../config/backend-auth';
 import type { MCPManager } from '../mcp/mcp-manager';
 import { log, logError } from '../utils/logger';
+import {
+  annotateReadToolForPdfs,
+  createPdfAwareReadOptions,
+} from '../utils/pdf-text';
 import type { CheckpointService } from '../orchestration/checkpoint-service';
 
 /** Optional durable checkpoints for child subagents (M3). */
@@ -515,7 +519,11 @@ export async function runChildAgentSession(
     }
 
     let customTools: ToolDefinition[] = [];
-    const codingTools = includeCodingTools ? createCodingTools(cwd) : [];
+    const codingTools = includeCodingTools
+      ? annotateReadToolForPdfs(
+          createCodingTools(cwd, { read: createPdfAwareReadOptions() })
+        )
+      : [];
     const onProjectScopeViolation = createProjectScopeViolationReporter({
       sessionId: input.parentSessionId,
       division: input.division,

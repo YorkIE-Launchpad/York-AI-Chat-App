@@ -1203,13 +1203,19 @@ export class SessionManager {
             (c) => c.type === 'file_attachment'
           ) as FileAttachmentContent[];
           if (fileAttachments.length > 0) {
+            const hasPdf = fileAttachments.some((f) =>
+              f.filename.toLowerCase().endsWith('.pdf')
+            );
             const fileInfo = fileAttachments
               .map(
                 (f) =>
                   `- ${f.filename} (${(f.size / 1024).toFixed(1)} KB) at path: ${f.relativePath}`
               )
               .join('\n');
-            enhancedPrompt = `${enhancedPrompt}\n\n[Attached files - use Read tool to access them]:\n${fileInfo}`;
+            const readHint = hasPdf
+              ? '[Attached files - use Read tool to access them. PDFs return extracted text, not raw binary]:'
+              : '[Attached files - use Read tool to access them]:';
+            enhancedPrompt = `${enhancedPrompt}\n\n${readHint}\n${fileInfo}`;
             logCtx('[SessionManager] Enhanced prompt with file info:', enhancedPrompt);
           }
 

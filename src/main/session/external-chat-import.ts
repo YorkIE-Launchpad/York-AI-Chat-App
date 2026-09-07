@@ -3,17 +3,14 @@
  * portable chat payloads (ChatExportPayload).
  */
 import { randomUUID } from 'crypto';
-import { execFile } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { promisify } from 'util';
 import extract from 'extract-zip';
 import type { Message, MessageRole } from '../../renderer/types';
 import type { ChatExportPayload, PortableSessionMeta } from './session-transfer';
 import { logWarn } from '../utils/logger';
-
-const execFileAsync = promisify(execFile);
+import { extractPdfText } from '../utils/pdf-text';
 
 export const MAX_EXTERNAL_CONVERSATIONS = 50;
 
@@ -304,44 +301,6 @@ export function convertMarkdownTranscript(
   return payloadFromTurns(title, turns);
 }
 
-async function extractPdfText(filePath: string): Promise<string> {
-  const script = `
-import sys
-path = sys.argv[1]
-try:
-    from pypdf import PdfReader
-except ImportError:
-    try:
-        from PyPDF2 import PdfReader
-    except ImportError:
-        sys.stderr.write('pypdf is not installed')
-        sys.exit(2)
-reader = PdfReader(path)
-parts = []
-for page in reader.pages:
-    t = page.extract_text() or ''
-    if t.strip():
-        parts.append(t)
-sys.stdout.write('\\n'.join(parts))
-`;
-  try {
-    const { stdout } = await execFileAsync(
-      'python3',
-      ['-c', script, filePath],
-      { maxBuffer: 20 * 1024 * 1024, timeout: 60_000 }
-    );
-    return stdout || '';
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (/pypdf is not installed/i.test(message) || /exit code 2/i.test(message)) {
-      throw new Error(
-        'PDF import requires Python pypdf. Install with: pip install pypdf — or export as Markdown/JSON instead.'
-      );
-    }
-    throw new Error(`Failed to extract PDF text: ${message}`);
-  }
-}
-
 function looksLikeChatGpt(data: unknown): boolean {
   if (!Array.isArray(data) || data.length === 0) return false;
   const first = data[0];
@@ -434,7 +393,18 @@ export async function convertExternalChatFile(
   }
 
   if (ext === '.pdf') {
-    const text = await extractPdfText(sourcePath);
+    let text: string;
+    try {
+      text = await extractPdfText(sourcePath);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (/pypdf/i.test(message)) {
+        throw new Error(
+          'PDF import requires Python pypdf. Install with: pip install pypdf — or export as Markdown/JSON instead.'
+        );
+      }
+      throw err;
+    }
     if (!text.trim()) {
       throw new Error('No text could be extracted from this PDF');
     }

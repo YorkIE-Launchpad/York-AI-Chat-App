@@ -37,6 +37,10 @@ import { PathResolver } from '../sandbox/path-resolver';
 import { MCPManager } from '../mcp/mcp-manager';
 import { mcpConfigStore } from '../mcp/mcp-config-store';
 import {
+  annotateReadToolForPdfs,
+  createPdfAwareReadOptions,
+} from '../utils/pdf-text';
+import {
   log,
   logWarn,
   logError,
@@ -3004,9 +3008,11 @@ ${
 
       const bashOptions: BashToolOptions | undefined =
         process.platform === 'win32' ? { operations: createWindowsBashOperations() } : undefined;
-      const codingTools = createCodingTools(
-        effectiveCwd,
-        bashOptions ? { bash: bashOptions } : undefined
+      const codingTools = annotateReadToolForPdfs(
+        createCodingTools(effectiveCwd, {
+          ...(bashOptions ? { bash: bashOptions } : {}),
+          read: createPdfAwareReadOptions(),
+        })
       );
 
       // Remap Cowork virtual roots onto the session workspace before other wrappers
