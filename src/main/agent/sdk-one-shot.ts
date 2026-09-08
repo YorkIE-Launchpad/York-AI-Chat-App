@@ -735,10 +735,14 @@ async function runPiAiStreamInner(
     signal?: AbortSignal;
     apiKey: string | undefined;
   } = {
-    temperature: generationOptions?.temperature,
     maxTokens: generationOptions?.maxTokens,
     signal: generationOptions?.signal,
     apiKey: apiKey || undefined,
+    ...(generationOptions &&
+    'temperature' in generationOptions &&
+    generationOptions.temperature !== undefined
+      ? { temperature: generationOptions.temperature }
+      : {}),
   };
 
   const yorkLlmActive = isYorkLlmBaseUrl(effectiveBaseUrl || resolvedModel.baseUrl);
