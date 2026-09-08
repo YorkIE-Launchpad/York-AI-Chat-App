@@ -259,6 +259,7 @@ describe('LiveAssistService per-meeting', () => {
     const service = new LiveAssistService({
       sessionManager: deps.sessionManager as never,
       meetingService: deps.meetingService as never,
+      mcpManager: {} as never,
       sendToRenderer: deps.sendToRenderer,
     });
     service.attach();
@@ -285,6 +286,7 @@ describe('LiveAssistService per-meeting', () => {
     const service = new LiveAssistService({
       sessionManager: deps.sessionManager as never,
       meetingService: deps.meetingService as never,
+      mcpManager: {} as never,
       sendToRenderer: deps.sendToRenderer,
     });
 
@@ -310,6 +312,7 @@ describe('LiveAssistService per-meeting', () => {
     const service = new LiveAssistService({
       sessionManager: deps.sessionManager as never,
       meetingService: deps.meetingService as never,
+      mcpManager: {} as never,
       sendToRenderer: deps.sendToRenderer,
     });
     service.attach();
@@ -337,6 +340,7 @@ describe('LiveAssistService per-meeting', () => {
     const service = new LiveAssistService({
       sessionManager: deps.sessionManager as never,
       meetingService: deps.meetingService as never,
+      mcpManager: {} as never,
       sendToRenderer: deps.sendToRenderer,
     });
     service.attach();
@@ -368,6 +372,7 @@ describe('LiveAssistService per-meeting', () => {
     const service = new LiveAssistService({
       sessionManager: deps.sessionManager as never,
       meetingService: deps.meetingService as never,
+      mcpManager: {} as never,
       sendToRenderer: deps.sendToRenderer,
     });
     service.attach();
@@ -414,8 +419,7 @@ describe('LiveAssistService per-meeting', () => {
       prepContext: 'Prep note',
       customInstructions: 'Watch pricing',
     });
-    expect(prompt).toContain('meeting transcript');
-    expect(prompt).not.toContain('Background research');
+    expect(prompt).toContain('York tools');
     expect(prompt).not.toContain('subagent');
     expect(prompt).toContain('Client review');
     expect(prompt).toContain('Prep note');
@@ -433,6 +437,7 @@ describe('LiveAssistService per-meeting', () => {
     const service = new LiveAssistService({
       sessionManager: deps.sessionManager as never,
       meetingService: deps.meetingService as never,
+      mcpManager: {} as never,
       sendToRenderer: deps.sendToRenderer,
     });
     service.attach();

@@ -10,7 +10,10 @@ import {
   matchesQuestionHeuristic,
   stripSpeakerPrefix,
 } from '../../main/meetings/live-assist-question-detect';
-import { buildLiveAssistAnswerPrompt } from '../../main/meetings/live-assist-answer';
+import {
+  buildLiveAssistAnswerPlanPrompt,
+  buildLiveAssistAnswerPrompt,
+} from '../../main/meetings/live-assist-answer';
 import { truncateTranscriptWindow } from '../../main/meetings/live-assist-service';
 
 describe('live-assist-question-detect', () => {
@@ -58,18 +61,32 @@ describe('live-assist-question-detect', () => {
 });
 
 describe('live-assist answer prompts', () => {
-  it('builds answer prompt with question, prep, and transcript', () => {
-    const prompt = buildLiveAssistAnswerPrompt({
-      question: 'What is our Q3 revenue?',
-      transcriptWindow: 'Sam: What is our Q3 revenue?',
-      meetingTitle: 'Finance sync',
-      prepContext: 'Bring Q3 numbers',
-      customInstructions: 'Focus on Hub data',
-    });
+  const baseOptions = {
+    question: 'What is our Q3 revenue?',
+    transcriptWindow: 'Sam: What is our Q3 revenue?',
+    meetingTitle: 'Finance sync',
+    prepContext: 'Bring Q3 numbers',
+    customInstructions: 'Focus on Hub data',
+    mcpManager: { getTools: () => [] } as never,
+  };
+
+  it('builds plan prompt with question and catalog', () => {
+    const prompt = buildLiveAssistAnswerPlanPrompt(
+      baseOptions,
+      '- mcp__Hub__list_projects (Hub): List projects'
+    );
     expect(prompt).toContain('What is our Q3 revenue?');
     expect(prompt).toContain('Finance sync');
     expect(prompt).toContain('Bring Q3 numbers');
-    expect(prompt).toContain('Focus on Hub data');
-    expect(prompt).not.toContain('Available MCP tools');
+    expect(prompt).toContain('mcp__Hub__list_projects');
+  });
+
+  it('builds answer prompt with tool results', () => {
+    const prompt = buildLiveAssistAnswerPrompt(baseOptions, [
+      { tool: 'mcp__Hub__list_projects', text: 'Project A: $1.2M' },
+    ]);
+    expect(prompt).toContain('What is our Q3 revenue?');
+    expect(prompt).toContain('mcp__Hub__list_projects');
+    expect(prompt).toContain('Project A: $1.2M');
   });
 });

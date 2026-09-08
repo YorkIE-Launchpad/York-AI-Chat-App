@@ -950,6 +950,7 @@ function initLiveAssistService(): void {
   liveAssistService = new LiveAssistService({
     sessionManager,
     meetingService,
+    mcpManager: sessionManager.getMCPManager(),
     sendToRenderer,
     resolveMatterPrep: (eventId) => {
       if (!matterService || !eventId.trim()) {

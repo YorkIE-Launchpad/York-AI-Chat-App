@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { configStore } from '../config/config-store';
+import type { MCPManager } from '../mcp/mcp-manager';
 import { log, logWarn } from '../utils/logger';
 import type { SessionManager } from '../session/session-manager';
 import type {
@@ -27,6 +28,7 @@ export const TRANSCRIPT_WINDOW_CHARS = 4_000;
 export interface LiveAssistDeps {
   sessionManager: SessionManager;
   meetingService: MeetingService;
+  mcpManager: MCPManager;
   sendToRenderer: (event: ServerEvent) => void;
   resolveMatterPrep?: (eventId: string) => string | null;
 }
@@ -53,7 +55,7 @@ export function buildLiveAssistKickoffPrompt(options: {
   const sections = [
     'You are York IE Live Assist for an ongoing meeting.',
     'Your job: help the user during this live call — answer questions detected in the transcript and respond when the user asks here.',
-    'Live answers use the meeting transcript and any meeting prep context for fast, concise replies.',
+    'When numbers or source facts are needed, live answers quickly check York tools (Hub, Slack, Gmail, Calendar, Jira, LaunchPad) plus meeting prep/transcript.',
     'Keep your own replies brief. When a live answer appears, you may add a one-line summary if helpful.',
     '',
     `Meeting: ${options.meetingTitle}`,
@@ -498,7 +500,7 @@ export class LiveAssistService {
       activityMessageId,
       activityId,
       options.question,
-      'answering',
+      'planning',
       'running'
     );
 
@@ -508,6 +510,7 @@ export class LiveAssistService {
       meetingTitle: options.meeting.title,
       prepContext,
       customInstructions: this.getCustomInstructions(options.meetingId),
+      mcpManager: this.deps.mcpManager,
       onProgress: (phase, detail) => {
         this.updateActivityMessage(
           options.sessionId,
