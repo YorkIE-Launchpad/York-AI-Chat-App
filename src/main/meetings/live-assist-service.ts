@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
 import { configStore } from '../config/config-store';
-import type { MCPManager } from '../mcp/mcp-manager';
 import { log, logWarn } from '../utils/logger';
 import type { SessionManager } from '../session/session-manager';
 import type {
@@ -18,7 +17,9 @@ import {
   classifyLiveQuestion,
   findQuestionCandidateInWindow,
   hashQuestionForDedup,
+  isStrongQuestionCandidate,
   matchesQuestionHeuristic,
+  stripSpeakerPrefix,
 } from './live-assist-question-detect';
 
 export const TRANSCRIPT_WINDOW_CHARS = 4_000;
@@ -26,7 +27,6 @@ export const TRANSCRIPT_WINDOW_CHARS = 4_000;
 export interface LiveAssistDeps {
   sessionManager: SessionManager;
   meetingService: MeetingService;
-  mcpManager: MCPManager;
   sendToRenderer: (event: ServerEvent) => void;
   resolveMatterPrep?: (eventId: string) => string | null;
 }
@@ -53,8 +53,8 @@ export function buildLiveAssistKickoffPrompt(options: {
   const sections = [
     'You are York IE Live Assist for an ongoing meeting.',
     'Your job: help the user during this live call — answer questions detected in the transcript and respond when the user asks here.',
-    'Background research uses York tools (Hub, Slack, Gmail, Calendar, past meetings) to post concise answers here.',
-    'Keep your own replies brief. When a researched answer appears, you may add a one-line summary if helpful.',
+    'Live answers use the meeting transcript and any meeting prep context for fast, concise replies.',
+    'Keep your own replies brief. When a live answer appears, you may add a one-line summary if helpful.',
     '',
     `Meeting: ${options.meetingTitle}`,
     attendeeLine,
@@ -70,7 +70,7 @@ export function buildLiveAssistKickoffPrompt(options: {
 
   sections.push(
     '',
-    'Acknowledge you are listening. Live answers to meeting questions will appear here as they are researched.'
+    'Acknowledge you are listening. Live answers to meeting questions will appear here as they stream in.'
   );
 
   return sections.join('\n');
@@ -421,12 +421,18 @@ export class LiveAssistService {
       return;
     }
 
-    const classification = await classifyLiveQuestion(transcriptWindow, candidate);
-    if (!classification?.answerable) {
-      return;
+    let question: string | null = null;
+    if (isStrongQuestionCandidate(candidate)) {
+      question = stripSpeakerPrefix(candidate).text || candidate;
+    } else {
+      const classification = await classifyLiveQuestion(transcriptWindow, candidate);
+      if (!classification?.answerable) {
+        return;
+      }
+      question = classification.question;
     }
 
-    if (this.wasQuestionAnsweredRecently(classification.question)) {
+    if (!question || this.wasQuestionAnsweredRecently(question)) {
       return;
     }
 
@@ -436,12 +442,12 @@ export class LiveAssistService {
     }
 
     this.answerCount += 1;
-    this.markQuestionAnswered(classification.question);
+    this.markQuestionAnswered(question);
     this.spawnAnswer({
       meetingId,
       meeting,
       sessionId,
-      question: classification.question,
+      question,
       transcriptWindow,
     });
   }
@@ -482,31 +488,52 @@ export class LiveAssistService {
       question: options.question,
       status: 'running',
     });
+    const answerMessageId = this.deps.sessionManager.beginStreamingAssistantMessage(
+      options.sessionId
+    );
 
     this.inFlightAnswers += 1;
+    this.updateActivityMessage(
+      options.sessionId,
+      activityMessageId,
+      activityId,
+      options.question,
+      'answering',
+      'running'
+    );
+
     void answerLiveAssistQuestion({
       question: options.question,
       transcriptWindow: options.transcriptWindow,
       meetingTitle: options.meeting.title,
       prepContext,
       customInstructions: this.getCustomInstructions(options.meetingId),
-      mcpManager: this.deps.mcpManager,
       onProgress: (phase, detail) => {
-        const activityPhase: LiveAssistActivityPhase =
-          phase === 'planning' ? 'planning' : phase === 'mcp' ? 'mcp' : 'summarizing';
         this.updateActivityMessage(
           options.sessionId,
           activityMessageId,
           activityId,
           options.question,
-          activityPhase,
+          phase,
           'running',
           detail
+        );
+      },
+      onDelta: (text) => {
+        this.deps.sessionManager.updateStreamingAssistantMessage(
+          options.sessionId,
+          answerMessageId,
+          text
         );
       },
     })
       .then((answer) => {
         if (answer && !answer.startsWith('Error:')) {
+          this.deps.sessionManager.updateStreamingAssistantMessage(
+            options.sessionId,
+            answerMessageId,
+            answer
+          );
           this.updateActivityMessage(
             options.sessionId,
             activityMessageId,
@@ -515,8 +542,12 @@ export class LiveAssistService {
             'done',
             'completed'
           );
-          this.deps.sessionManager.publishAssistantText(options.sessionId, answer);
         } else {
+          this.deps.sessionManager.updateStreamingAssistantMessage(
+            options.sessionId,
+            answerMessageId,
+            answer || 'No answer generated'
+          );
           this.updateActivityMessage(
             options.sessionId,
             activityMessageId,
@@ -530,6 +561,11 @@ export class LiveAssistService {
       })
       .catch((error) => {
         logWarn('[LiveAssist] Answer pipeline failed:', error);
+        this.deps.sessionManager.updateStreamingAssistantMessage(
+          options.sessionId,
+          answerMessageId,
+          error instanceof Error ? error.message : String(error)
+        );
         this.updateActivityMessage(
           options.sessionId,
           activityMessageId,

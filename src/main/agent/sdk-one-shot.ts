@@ -1,4 +1,4 @@
-import { completeSimple, type UserMessage as PiUserMessage } from '@mariozechner/pi-ai';
+import { completeSimple, streamSimple, type UserMessage as PiUserMessage } from '@mariozechner/pi-ai';
 import type { ApiTestInput, ApiTestResult } from '../../renderer/types';
 import { PROVIDER_PRESETS, type AppConfig, type CustomProtocolType } from '../config/config-store';
 import {
@@ -579,6 +579,305 @@ export async function runPiAiOneShot(
         status: 'ok',
       });
     }
+    return { text, hasThinking, durationMs: Date.now() - start };
+  } finally {
+    yorkSlotRelease?.();
+  }
+}
+
+
+export type PiAiOneShotOptions = {
+  temperature?: number;
+  maxTokens?: number;
+  signal?: AbortSignal;
+  /** Session workspace division (provider gating is FE-owned). */
+  division?: Partial<SessionDivisionFields> | null;
+  /** Hub usage feature tag (default: one_shot). */
+  usageFeature?: string;
+  /** Synthetic session id for Hub usage (default: one_shot). */
+  usageSessionId?: string;
+  /** Invoked with accumulated text as tokens arrive (stream path only). */
+  onDelta?: (text: string) => void;
+};
+
+/**
+ * Stream a one-shot prompt via pi-ai streamSimple (same model/auth path as runPiAiOneShot).
+ */
+export async function runPiAiStream(
+  prompt: string,
+  systemPrompt: string,
+  config: AppConfig,
+  options?: PiAiOneShotOptions
+): Promise<{ text: string; hasThinking: boolean; durationMs: number }> {
+  return runPiAiStreamInner(prompt, systemPrompt, config, options);
+}
+
+async function runPiAiStreamInner(
+  prompt: string,
+  systemPrompt: string,
+  config: AppConfig,
+  options?: PiAiOneShotOptions
+): Promise<{ text: string; hasThinking: boolean; durationMs: number }> {
+  let effectiveConfig = config;
+  const autoRoute = await resolveAutoModelIfNeeded({
+    model: config.model,
+    preference: config.autoModelPreference,
+    promptText: prompt,
+    messageCount: 1,
+    contextChars: prompt.length,
+    division: options?.division,
+  });
+  if (autoRoute.usedAuto) {
+    effectiveConfig = {
+      ...config,
+      model: autoRoute.modelId,
+      provider: autoRoute.provider,
+      customProtocol: autoRoute.customProtocol,
+      baseUrl: autoRoute.baseUrl,
+      apiKey: autoRoute.apiKey || config.apiKey,
+    };
+  }
+
+  if (!isProviderAllowedInDivision(effectiveConfig.provider, options?.division)) {
+    throw new Error(generalWorkspaceOpenRouterOnlyMessage());
+  }
+
+  const modelString = resolvePiModelString({
+    ...effectiveConfig,
+    defaultModel: 'anthropic/claude-sonnet-5',
+  });
+  const keyProvider = effectiveConfig.customProtocol || effectiveConfig.provider || 'anthropic';
+  const parts = modelString.split('/');
+  const provider = parts.length >= 2 ? parts[0] : keyProvider || 'anthropic';
+
+  const routeProtocol = resolvePiRouteProtocol(
+    effectiveConfig.provider,
+    effectiveConfig.customProtocol
+  );
+  const rawBaseUrl = effectiveConfig.baseUrl?.trim() || undefined;
+  const effectiveBaseUrl =
+    routeProtocol === 'openai' && effectiveConfig.provider !== 'ollama'
+      ? normalizeOpenAICompatibleBaseUrl(rawBaseUrl) || rawBaseUrl
+      : rawBaseUrl;
+
+  let piModel = resolvePiRegistryModel(modelString, {
+    configProvider: keyProvider,
+    customBaseUrl: effectiveBaseUrl,
+    rawProvider: effectiveConfig.provider || 'anthropic',
+    customProtocol: effectiveConfig.customProtocol,
+  });
+
+  if (!piModel) {
+    const effectiveProtocol = resolvePiRouteProtocol(
+      effectiveConfig.provider,
+      effectiveConfig.customProtocol
+    ) as CustomProtocolType;
+    const api = effectiveBaseUrl ? inferPiApi(effectiveProtocol) : undefined;
+    const synthetic = resolveSyntheticPiModelFallback({
+      rawModel: effectiveConfig.model,
+      resolvedModelString: modelString,
+      rawProvider: effectiveConfig.provider,
+      routeProtocol: effectiveProtocol,
+      baseUrl: effectiveBaseUrl,
+    });
+    piModel = buildSyntheticPiModel(
+      synthetic.modelId,
+      synthetic.provider,
+      effectiveProtocol,
+      effectiveBaseUrl || '',
+      api
+    );
+    piModel = applyPiModelRuntimeOverrides(piModel, {
+      configProvider: keyProvider,
+      customBaseUrl: effectiveBaseUrl,
+      rawProvider: effectiveConfig.provider || 'anthropic',
+      customProtocol: effectiveConfig.customProtocol,
+    });
+  }
+
+  let resolvedModel = piModel!;
+  let activeProvider = effectiveConfig.provider || provider;
+
+  if (activeProvider === 'openrouter') {
+    const userKey = config.openRouterUserApiKey?.trim();
+    if (!hasOpenRouterUserApiKey(userKey)) {
+      throw new Error(openRouterKeyRequiredMessage());
+    }
+    resolvedModel = withOpenRouterUserKeyHeader(resolvedModel, userKey);
+  }
+
+  if (isBackendManagedProvider(activeProvider)) {
+    resolvedModel = withAppVersionHeader(resolvedModel, getClientAppVersion());
+  }
+
+  let apiKey = (
+    await resolveBackendClientApiKey({
+      provider: effectiveConfig.provider,
+      apiKey: effectiveConfig.apiKey,
+    })
+  ).trim();
+  if (apiKey) {
+    const authStorage = getSharedAuthStorage();
+    authStorage.setRuntimeApiKey(provider, apiKey);
+    if (resolvedModel.provider !== provider) {
+      authStorage.setRuntimeApiKey(resolvedModel.provider, apiKey);
+    }
+  }
+
+  const start = Date.now();
+  const userMsg: PiUserMessage = { role: 'user', content: prompt, timestamp: Date.now() };
+  const generationOptions = shouldOmitTemperature(resolvedModel.id)
+    ? omitTemperatureOption(options)
+    : options;
+  const baseOptions: {
+    temperature?: number;
+    maxTokens?: number;
+    signal?: AbortSignal;
+    apiKey: string | undefined;
+  } = {
+    temperature: generationOptions?.temperature,
+    maxTokens: generationOptions?.maxTokens,
+    signal: generationOptions?.signal,
+    apiKey: apiKey || undefined,
+  };
+
+  const yorkLlmActive = isYorkLlmBaseUrl(effectiveBaseUrl || resolvedModel.baseUrl);
+  let yorkSlotRelease: (() => void) | undefined;
+  if (yorkLlmActive) {
+    resolvedModel = {
+      ...resolvedModel,
+      cost: { ...YORK_LLM_ZERO_COST },
+    } as typeof resolvedModel;
+    const ticket = await acquireYorkLlmSlot({
+      sessionId: options?.usageSessionId?.trim() || 'one_shot',
+      label: 'one-shot-stream',
+      signal: baseOptions.signal,
+    });
+    yorkSlotRelease = ticket.release;
+  }
+
+  log(
+    '[OneShot] Calling streamSimple:',
+    resolvedModel.provider,
+    resolvedModel.id,
+    'baseUrl:',
+    resolvedModel.baseUrl,
+    'api:',
+    resolvedModel.api
+  );
+
+  try {
+    const consumeStream = async (
+      model: typeof resolvedModel,
+      opts: typeof baseOptions
+    ) => {
+      let accumulated = '';
+      const eventStream = streamSimple(
+        model,
+        {
+          systemPrompt,
+          messages: [userMsg],
+        },
+        opts
+      );
+
+      for await (const event of eventStream) {
+        if (event.type === 'text_delta' && event.delta) {
+          accumulated += event.delta;
+          options?.onDelta?.(accumulated);
+        }
+      }
+
+      const response = await eventStream.result();
+      return { response, accumulated };
+    };
+
+    let { response, accumulated } = await consumeStream(resolvedModel, baseOptions);
+
+    const temperatureRejected =
+      (response.stopReason === 'error' || response.stopReason === 'aborted') &&
+      typeof response.errorMessage === 'string' &&
+      TEMPERATURE_UNSUPPORTED_RE.test(response.errorMessage) &&
+      baseOptions.temperature !== undefined;
+
+    if (temperatureRejected) {
+      logWarn(
+        '[OneShot] Model rejected temperature on stream; retrying without it:',
+        resolvedModel.id,
+        response.errorMessage
+      );
+      const withoutTemperature = { ...baseOptions };
+      delete withoutTemperature.temperature;
+      ({ response, accumulated } = await consumeStream(resolvedModel, withoutTemperature));
+    }
+
+    const errorMessage =
+      (response.stopReason === 'error' || response.stopReason === 'aborted') &&
+      typeof response.errorMessage === 'string'
+        ? response.errorMessage
+        : '';
+
+    if (errorMessage && isOpenRouterAccountLimitError(activeProvider, errorMessage)) {
+      throw new Error(openRouterLimitUserMessage(true));
+    }
+
+    if (response.stopReason === 'error' || response.stopReason === 'aborted') {
+      const details = response.errorMessage || 'Provider returned an error';
+      if (!yorkLlmActive) {
+        reportHubGovernanceUsageFromCompletion({
+          modelId: String(resolvedModel.id || effectiveConfig.model || ''),
+          provider: String(resolvedModel.provider || activeProvider || ''),
+          sessionId: options?.usageSessionId?.trim() || 'one_shot',
+          division: options?.division?.division ?? null,
+          hubProjectId: options?.division?.hubProjectId ?? null,
+          folderId: options?.division?.folderId ?? null,
+          launchpadProjectId: options?.division?.launchpadProjectId ?? null,
+          feature: options?.usageFeature?.trim() || 'one_shot',
+          usage: (response as { usage?: unknown }).usage,
+          responseId:
+            typeof (response as { responseId?: unknown }).responseId === 'string'
+              ? (response as { responseId: string }).responseId
+              : null,
+          latencyMs: Date.now() - start,
+          status: 'error',
+          errorCode: response.stopReason,
+        });
+      }
+      throw new Error(details);
+    }
+
+    const textBlocks = response.content.filter((b) => b.type === 'text');
+    const thinkingBlocks = response.content.filter((b) => b.type === 'thinking');
+    const text =
+      textBlocks.map((b) => (b as { text: string }).text).join('').trim() || accumulated.trim();
+    const hasThinking = thinkingBlocks.some(
+      (b) => (b as { thinking: string }).thinking?.trim().length > 0
+    );
+
+    if (text && !accumulated.trim()) {
+      options?.onDelta?.(text);
+    }
+
+    if (!yorkLlmActive) {
+      reportHubGovernanceUsageFromCompletion({
+        modelId: String(resolvedModel.id || effectiveConfig.model || ''),
+        provider: String(resolvedModel.provider || activeProvider || ''),
+        sessionId: options?.usageSessionId?.trim() || 'one_shot',
+        division: options?.division?.division ?? null,
+        hubProjectId: options?.division?.hubProjectId ?? null,
+        folderId: options?.division?.folderId ?? null,
+        launchpadProjectId: options?.division?.launchpadProjectId ?? null,
+        feature: options?.usageFeature?.trim() || 'one_shot',
+        usage: (response as { usage?: unknown }).usage,
+        responseId:
+          typeof (response as { responseId?: unknown }).responseId === 'string'
+            ? (response as { responseId: string }).responseId
+            : null,
+        latencyMs: Date.now() - start,
+        status: 'ok',
+      });
+    }
+
     return { text, hasThinking, durationMs: Date.now() - start };
   } finally {
     yorkSlotRelease?.();

@@ -129,6 +129,7 @@ export interface MeetingTranscriptContent {
 
 export type LiveAssistActivityPhase =
   | 'detected'
+  | 'answering'
   | 'planning'
   | 'mcp'
   | 'summarizing'

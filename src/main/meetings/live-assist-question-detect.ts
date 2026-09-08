@@ -3,10 +3,14 @@ import { configStore } from '../config/config-store';
 import { runPiAiOneShot } from '../agent/sdk-one-shot';
 import { log, logWarn } from '../utils/logger';
 
-export const QUESTION_DEBOUNCE_MS = 2_500;
+export const QUESTION_DEBOUNCE_MS = 800;
 export const QUESTION_DEDUP_MS = 120_000;
 export const MAX_ANSWERS_PER_MEETING = 8;
 export const MIN_QUESTION_HEURISTIC_CHARS = 8;
+
+const STRONG_INTERROGATIVE_RE =
+  /\b(what|how|who|when|where|why)\s+(is|are|was|were|do|does|did|can|could|should|would|owns|leads|much|many|long)\b/i;
+const STRONG_REQUEST_RE = /\b(tell me|remind me|look up|status of|any update)\b/i;
 
 const QUESTION_PATTERNS = [
   /\?/,
@@ -46,6 +50,19 @@ export function matchesQuestionHeuristic(text: string): boolean {
     return false;
   }
   return QUESTION_PATTERNS.some((pattern) => pattern.test(trimmed));
+}
+
+/** Strong questions skip the classify LLM for lower latency. */
+export function isStrongQuestionCandidate(text: string): boolean {
+  const { text: utterance } = stripSpeakerPrefix(text);
+  const trimmed = utterance.trim();
+  if (trimmed.length < MIN_QUESTION_HEURISTIC_CHARS) {
+    return false;
+  }
+  if (trimmed.endsWith('?')) {
+    return true;
+  }
+  return STRONG_INTERROGATIVE_RE.test(trimmed) || STRONG_REQUEST_RE.test(trimmed);
 }
 
 export function findQuestionCandidateInWindow(transcriptWindow: string): string | null {

@@ -11,6 +11,8 @@ function phaseLabelKey(phase: LiveAssistActivityContent['phase']): string {
   switch (phase) {
     case 'detected':
       return 'meetings.liveAssistPhaseDetected';
+    case 'answering':
+      return 'meetings.liveAssistPhaseAnswering';
     case 'planning':
       return 'meetings.liveAssistPhasePlanning';
     case 'mcp':

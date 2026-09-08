@@ -1,14 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  MAX_MCP_CALLS,
   answerLiveAssistQuestion,
-  buildLiveAssistAnswerPlanPrompt,
+  buildLiveAssistAnswerPrompt,
   buildLiveAssistFarewellPrompt,
   summarizeLiveAssistMeeting,
 } from '../../main/meetings/live-assist-answer';
 
 const runPiAiOneShotMock = vi.hoisted(() => vi.fn());
-const callToolMock = vi.hoisted(() => vi.fn());
+const runPiAiStreamMock = vi.hoisted(() => vi.fn());
 
 vi.mock('../../main/config/config-store', () => ({
   configStore: {
@@ -18,94 +17,48 @@ vi.mock('../../main/config/config-store', () => ({
 
 vi.mock('../../main/agent/sdk-one-shot', () => ({
   runPiAiOneShot: runPiAiOneShotMock,
+  runPiAiStream: runPiAiStreamMock,
 }));
-
-function makeMcpManager(tools: Array<{ name: string; serverName: string; description?: string }>) {
-  return {
-    getTools: () =>
-      tools.map((tool) => ({
-        name: tool.name,
-        serverName: tool.serverName,
-        description: tool.description || '',
-        inputSchema: { type: 'object', properties: {} },
-      })),
-    callTool: callToolMock,
-  };
-}
 
 describe('live-assist-answer', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    runPiAiOneShotMock
-      .mockResolvedValueOnce({
-        text: JSON.stringify({
-          calls: [{ tool_name: 'mcp__Hub__list_projects', arguments: { limit: 5 } }],
-        }),
-      })
-      .mockResolvedValueOnce({ text: 'Q3 revenue grew 12% to $4.2M.' });
-    callToolMock.mockResolvedValue({
-      content: [{ type: 'text', text: JSON.stringify([{ name: 'Project A', revenue: '$4.2M' }]) }],
-    });
+    runPiAiStreamMock.mockResolvedValue({ text: 'Q3 revenue grew 12% to $4.2M.' });
   });
 
-  it('plans MCP calls, executes in parallel, and summarizes', async () => {
+  it('answers with a single streamed LLM call and no MCP', async () => {
     const onProgress = vi.fn();
-    const mcpManager = makeMcpManager([
-      { name: 'mcp__Hub__list_projects', serverName: 'Hub', description: 'List projects' },
-    ]);
+    const onDelta = vi.fn();
 
     const answer = await answerLiveAssistQuestion({
       question: 'What is our Q3 revenue?',
       transcriptWindow: 'Sam: What is our Q3 revenue?',
       meetingTitle: 'Finance sync',
-      mcpManager: mcpManager as never,
+      prepContext: 'Bring Q3 numbers',
       onProgress,
+      onDelta,
     });
 
     expect(answer).toBe('Q3 revenue grew 12% to $4.2M.');
-    expect(runPiAiOneShotMock).toHaveBeenCalledTimes(2);
-    expect(callToolMock).toHaveBeenCalledWith('mcp__Hub__list_projects', { limit: 5 });
-    expect(onProgress).toHaveBeenCalledWith('planning');
-    expect(onProgress).toHaveBeenCalledWith('mcp', 'mcp__Hub__list_projects');
-    expect(onProgress).toHaveBeenCalledWith('summarizing');
+    expect(runPiAiStreamMock).toHaveBeenCalledTimes(1);
+    expect(runPiAiOneShotMock).not.toHaveBeenCalled();
+    expect(onProgress).toHaveBeenCalledWith('answering');
+    expect(runPiAiStreamMock.mock.calls[0]?.[3]?.onDelta).toBe(onDelta);
   });
 
-  it('caps planned MCP calls at MAX_MCP_CALLS', () => {
-    const prompt = buildLiveAssistAnswerPlanPrompt(
-      {
-        question: 'Who leads project X?',
-        transcriptWindow: 'Who leads project X?',
-        meetingTitle: 'Sync',
-        mcpManager: makeMcpManager([]) as never,
-      },
-      '- tool_a (Hub): desc'
-    );
-    expect(prompt).toContain(String(MAX_MCP_CALLS));
-  });
-
-  it('skips unknown tools from the plan', async () => {
-    runPiAiOneShotMock.mockReset();
-    runPiAiOneShotMock
-      .mockResolvedValueOnce({
-        text: JSON.stringify({
-          calls: [{ tool_name: 'mcp__Unknown__missing', arguments: {} }],
-        }),
-      })
-      .mockResolvedValueOnce({ text: 'No internal data found.' });
-
-    const mcpManager = makeMcpManager([
-      { name: 'mcp__Hub__list_projects', serverName: 'Hub' },
-    ]);
-
-    const answer = await answerLiveAssistQuestion({
-      question: 'What is our Q3 revenue?',
-      transcriptWindow: 'Sam: What is our Q3 revenue?',
-      meetingTitle: 'Finance sync',
-      mcpManager: mcpManager as never,
+  it('builds answer prompt from transcript and prep only', () => {
+    const prompt = buildLiveAssistAnswerPrompt({
+      question: 'Who leads project X?',
+      transcriptWindow: 'Who leads project X?',
+      meetingTitle: 'Sync',
+      prepContext: 'Project X owners',
+      customInstructions: 'Be brief',
     });
-
-    expect(answer).toBe('No internal data found.');
-    expect(callToolMock).not.toHaveBeenCalled();
+    expect(prompt).toContain('Who leads project X?');
+    expect(prompt).toContain('Project X owners');
+    expect(prompt).toContain('Be brief');
+    expect(prompt).not.toContain('MCP');
+    expect(prompt).not.toContain('tool_name');
   });
 
   it('builds farewell prompt with transcript and summarizes', async () => {
@@ -118,7 +71,6 @@ describe('live-assist-answer', () => {
     expect(prompt).toContain('ship by Friday');
     expect(prompt).toContain('Roadmap review');
 
-    runPiAiOneShotMock.mockReset();
     runPiAiOneShotMock.mockResolvedValueOnce({
       text: 'Follow-up: confirm Friday ship.',
     });

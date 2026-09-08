@@ -1951,6 +1951,28 @@ export class SessionManager {
     });
   }
 
+  /** Start an empty assistant message for token streaming (e.g. Live Assist). */
+  beginStreamingAssistantMessage(sessionId: string): string {
+    const message: Message = {
+      id: uuidv4(),
+      sessionId,
+      role: 'assistant',
+      content: [{ type: 'text', text: '' }],
+      timestamp: Date.now(),
+    };
+    this.saveMessage(message);
+    this.sendToRenderer({
+      type: 'stream.message',
+      payload: { sessionId, message },
+    });
+    return message.id;
+  }
+
+  /** Replace text on a streaming assistant message. */
+  updateStreamingAssistantMessage(sessionId: string, messageId: string, text: string): void {
+    this.updatePublishedMessage(sessionId, messageId, [{ type: 'text', text }]);
+  }
+
   /** Post a user-visible text bubble (e.g. Live Assist meeting ended). */
   publishUserText(sessionId: string, text: string): void {
     const trimmed = text.trim();
