@@ -60,6 +60,8 @@ const MAX_SLACK_CHANNELS_PER_SCAN = 6;
 const SLACK_SEARCH_LIMIT = 20;
 /** Hub inboxes (kudos, drafts, approvals, announcements) share this cap. */
 const MAX_HUB_PER_SCAN = 16;
+/** Drop Hub awareness items (kudos / announcements) older than this. */
+const HUB_AWARENESS_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 const HUB_ENVELOPE_STATUS_TEXT = /^(ok|okay|success|true|done|created|updated)$/i;
 const RAW_CAP = 4000;
 
@@ -1341,13 +1343,62 @@ async function collectJira(
 
 // ── Hub: kudos, drafts, pending inboxes (approvals, requests, announcements) ─
 
-type HubInboxKind =
+export type HubInboxKind =
   | 'kudos'
   | 'timesheet_draft'
   | 'leave'
   | 'timesheet'
   | 'request'
   | 'announcement';
+
+/** Kudos / announcements are awareness — age-filter. Action inboxes are not. */
+const HUB_AWARENESS_KINDS = new Set<HubInboxKind>(['kudos', 'announcement']);
+
+const HUB_TIMESTAMP_KEYS = [
+  'created_at',
+  'createdAt',
+  'updated_at',
+  'updatedAt',
+  'published_at',
+  'publishedAt',
+  'sent_at',
+  'sentAt',
+  'timestamp',
+  'date',
+];
+
+/** Newest parseable Hub timestamp from a payload, or null if none. */
+export function hubRecordNewestTimestampMs(raw: unknown): number | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const obj = raw as Record<string, unknown>;
+  let newest: number | null = null;
+  for (const key of HUB_TIMESTAMP_KEYS) {
+    const value = obj[key];
+    let ms: number | undefined;
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      ms = value < 1e12 ? value * 1000 : value;
+    } else if (typeof value === 'string' && value.trim()) {
+      ms = parseIsoMs(value.trim());
+    }
+    if (ms != null && (newest == null || ms > newest)) newest = ms;
+  }
+  return newest;
+}
+
+/**
+ * Awareness kinds older than 30 days are stale. Missing dates are kept so sparse
+ * Hub rows are not dropped. Action kinds (drafts / approvals) always pass.
+ */
+export function hubAwarenessRecordIsFresh(
+  kind: HubInboxKind,
+  record: HubInboxRecord,
+  now = Date.now()
+): boolean {
+  if (!HUB_AWARENESS_KINDS.has(kind)) return true;
+  const ts = hubRecordNewestTimestampMs(record.raw);
+  if (ts == null) return true;
+  return now - ts <= HUB_AWARENESS_MAX_AGE_MS;
+}
 
 function hubInboxFingerprint(kind: HubInboxKind, record: HubInboxRecord): string {
   if (record.id) return `hub:${kind}:${record.id}`;
@@ -1378,6 +1429,7 @@ async function collectHubInbox(
 
   const records = extractHubInboxRecords(text).filter((record) => {
     if (options.unreadOnly && !record.unread) return false;
+    if (!hubAwarenessRecordIsFresh(options.kind, record)) return false;
     return true;
   });
 

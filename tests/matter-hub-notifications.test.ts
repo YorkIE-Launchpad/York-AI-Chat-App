@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   collectMatterSignals,
   extractHubInboxRecords,
+  hubAwarenessRecordIsFresh,
+  hubRecordNewestTimestampMs,
   resolveHubServerId,
+  type HubInboxRecord,
   type RawMatterSignal,
 } from '../src/main/matter/matter-collector';
 import {
@@ -238,6 +241,141 @@ describe('collectMatterSignals Hub inbox', () => {
     });
     expect(calls).toHaveLength(0);
     expect(result.sourcesSkipped).toContain('hub');
+  });
+});
+
+describe('Hub awareness recency', () => {
+  const now = Date.parse('2026-09-07T12:00:00.000Z');
+
+  it('picks the newest of created_at / updated_at', () => {
+    expect(
+      hubRecordNewestTimestampMs({
+        created_at: '2026-03-17T06:29:39.332Z',
+        updated_at: '2026-04-10T09:27:09.981Z',
+      })
+    ).toBe(Date.parse('2026-04-10T09:27:09.981Z'));
+  });
+
+  it('treats missing timestamps as fresh for awareness kinds', () => {
+    const record: HubInboxRecord = {
+      id: 'k-no-date',
+      title: 'Jay sent kudos',
+      summary: 'thanks',
+      unread: true,
+      raw: { id: 'k-no-date', message: 'thanks' },
+    };
+    expect(hubAwarenessRecordIsFresh('kudos', record, now)).toBe(true);
+    expect(hubAwarenessRecordIsFresh('announcement', record, now)).toBe(true);
+  });
+
+  it('drops awareness records older than 30 days and keeps recent ones', () => {
+    const stale: HubInboxRecord = {
+      id: 'k-old',
+      title: 'First kudos ever',
+      summary: 'very first kudos',
+      unread: true,
+      raw: {
+        id: 'k-old',
+        message: 'very first kudos',
+        created_at: '2026-03-17T06:29:39.332Z',
+        updated_at: '2026-04-10T09:27:09.981Z',
+      },
+    };
+    const recent: HubInboxRecord = {
+      id: 'k-new',
+      title: 'Recent kudos',
+      summary: 'shipped last week',
+      unread: true,
+      raw: {
+        id: 'k-new',
+        message: 'shipped last week',
+        created_at: '2026-08-28T10:00:00.000Z',
+      },
+    };
+    expect(hubAwarenessRecordIsFresh('kudos', stale, now)).toBe(false);
+    expect(hubAwarenessRecordIsFresh('announcement', stale, now)).toBe(false);
+    expect(hubAwarenessRecordIsFresh('kudos', recent, now)).toBe(true);
+  });
+
+  it('never age-filters action inboxes even when timestamps are old', () => {
+    const oldDraft: HubInboxRecord = {
+      id: 'td-old',
+      title: 'Timesheet DRAFT',
+      summary: 'unsubmitted',
+      unread: true,
+      raw: { id: 'td-old', status: 'DRAFT', created_at: '2026-01-01T00:00:00.000Z' },
+    };
+    expect(hubAwarenessRecordIsFresh('timesheet_draft', oldDraft, now)).toBe(true);
+    expect(hubAwarenessRecordIsFresh('leave', oldDraft, now)).toBe(true);
+    expect(hubAwarenessRecordIsFresh('timesheet', oldDraft, now)).toBe(true);
+  });
+
+  it('omits stale kudos/announcements from collectMatterSignals', async () => {
+    const now = Date.now();
+    const day = 24 * 60 * 60 * 1000;
+    const staleIso = new Date(now - 120 * day).toISOString();
+    const freshIso = new Date(now - 5 * day).toISOString();
+
+    const { mcp } = mockHubMcp({
+      list_kudos: () =>
+        hubEnvelope([
+          {
+            id: 'k-stale',
+            message: 'very first kudos',
+            sender_name: 'Kalrav',
+            created_at: staleIso,
+            updated_at: staleIso,
+          },
+          {
+            id: 'k-fresh',
+            message: 'Nice ship',
+            sender_name: 'Ada',
+            created_at: freshIso,
+          },
+        ]),
+      list_announcements: () =>
+        hubEnvelope([
+          {
+            id: 'a-stale',
+            title: 'Old all-hands',
+            created_at: staleIso,
+          },
+          {
+            id: 'a-fresh',
+            title: 'Office closed Friday',
+            published_at: freshIso,
+          },
+        ]),
+      list_my_timesheet_drafts: () =>
+        hubEnvelope([
+          {
+            id: 'td-old',
+            week_start: '2026-01-05',
+            status: 'DRAFT',
+            created_at: staleIso,
+          },
+        ]),
+      list_pending_leave_wfh_requests: () => envelopeResult(''),
+      list_pending_timesheet_reviews: () => envelopeResult(''),
+    });
+
+    const result = await collectMatterSignals({
+      mcpManager: mcp,
+      meetingService: null,
+      profile: { name: 'Kalrav', email: 'kalrav@york.ie' },
+      sources: HUB_ONLY,
+    });
+
+    const fps = result.signals.map((s) => s.fingerprint);
+    expect(fps).toContain('hub:kudos:k-fresh');
+    expect(fps).not.toContain('hub:kudos:k-stale');
+    expect(fps).toContain('hub:announcement:a-fresh');
+    expect(fps).not.toContain('hub:announcement:a-stale');
+    // Action inbox stays even when old.
+    expect(fps).toContain('hub:timesheet_draft:td-old');
+    // Scan contract: MatterService.runScan → expireAbsentItems(ranked fingerprints).
+    // Stale kudos omitted here leave the keep-set, so prior active rows expire next scan.
+    expect(fps.filter((fp) => fp.startsWith('hub:kudos:'))).toEqual(['hub:kudos:k-fresh']);
   });
 });
 
