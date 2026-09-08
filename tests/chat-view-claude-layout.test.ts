@@ -14,19 +14,20 @@ describe('ChatView Claude-style layout', () => {
     expect(source).toContain('max-w-[920px]');
   });
 
-  it('uses a quieter header treatment with York IE eyebrow and compact connector badge', () => {
+  it('uses a quieter header with workspace eyebrow and compact connector badge', () => {
     const source = readChatView();
-    expect(source).toContain('York IE');
+    expect(source).toContain("import { divisionLabel } from '../../shared/workspace-division'");
+    expect(source).toContain('divisionLabel(activeDivision)');
+    expect(source).toContain('York GrowthOS');
     expect(source).toContain('bg-background/88');
     expect(source).toContain('border-border-muted');
   });
 
   it('uses a softer rounded composer shell instead of the previous heavy input bar', () => {
     const source = readChatView();
-    expect(source).toContain('rounded-[1.75rem]');
+    expect(source).toContain('rounded-[1.5rem]');
     expect(source).toContain('shadow-soft');
   });
-
   it('auto-adjusts follow-up composer height with typed content', () => {
     const source = readChatView();
     expect(source).toContain('adjustTextareaHeight');

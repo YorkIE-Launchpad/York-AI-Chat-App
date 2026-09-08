@@ -3904,8 +3904,9 @@ async function setConnectorMcpEnabled(connectorId: ConnectorId, enabled: boolean
 
 ipcMain.handle('connectors.connect', async (_event, connectorId: ConnectorId) => {
   try {
+    // OAuth connect only — do not auto-enable MCP. Fresh installs keep all MCP
+    // off until the user explicitly enables a connector in Settings / Context.
     const status = await connectorManager.connect(connectorId);
-    await setConnectorMcpEnabled(connectorId, true);
     if (connectorId === 'zoom' && meetingService) {
       meetingService.syncDetectionPolling();
     }

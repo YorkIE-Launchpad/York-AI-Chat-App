@@ -614,7 +614,7 @@ export function divisionLabel(active: ActiveDivision | null | undefined): string
     return 'Hub';
   }
   if (active.kind === 'folder') {
-    return active.folderName || 'Folder';
+    return active.folderName || 'Folders';
   }
   if (active.kind === 'client') {
     return active.clientName || 'Client';
@@ -642,12 +642,10 @@ export function coerceActiveDivision(parsed: unknown): ActiveDivision | null {
     return { kind };
   }
   if (kind === 'folder') {
-    const folderId = parseOptionalString((parsed as { folderId?: unknown }).folderId);
-    const folderName = parseOptionalString((parsed as { folderName?: unknown }).folderName);
-    if (folderId) {
-      return { kind: 'folder', folderId, folderName: folderName || folderId };
-    }
-    return null;
+    const folderId = parseOptionalString((parsed as { folderId?: unknown }).folderId) || '';
+    const folderName = parseOptionalString((parsed as { folderName?: unknown }).folderName) || '';
+    // Empty folderId = Folders workspace shell before a personal folder is created/selected.
+    return { kind: 'folder', folderId, folderName };
   }
   if (kind === 'project') {
     const p = parsed as {

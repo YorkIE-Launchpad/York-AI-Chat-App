@@ -78,6 +78,7 @@ import { DictationButton } from './DictationButton';
 import { ClientOutdatedUpdateActions } from './ClientOutdatedUpdateActions';
 import { needsOpenRouterUserKey } from '../../shared/openrouter-user-key';
 import { divisionBudgetCheckKey } from '../../shared/fe-budget-gate';
+import { divisionLabel } from '../../shared/workspace-division';
 
 type AttachedFile = {
   name: string;
@@ -1313,8 +1314,11 @@ export function ChatView() {
         ref={headerRef}
         className="relative flex h-12 shrink-0 items-center gap-2 border-b border-border-muted px-4 lg:px-8 bg-background/88 backdrop-blur-md"
       >
-        <div className="shrink-0 text-[11px] font-medium tracking-[0.08em] uppercase text-text-muted">
-          York GrowthOS
+        <div
+          className="min-w-0 max-w-[40%] shrink-0 truncate text-[11px] font-medium tracking-[0.08em] uppercase text-text-muted"
+          title={activeDivision ? divisionLabel(activeDivision) : 'York GrowthOS'}
+        >
+          {activeDivision ? divisionLabel(activeDivision) : 'York GrowthOS'}
         </div>
         <h2 className="min-w-0 flex-1 truncate text-[15px] font-medium text-text-primary">
           {activeSession.title}

@@ -6,6 +6,7 @@ import { useAuth } from '../auth/AuthContext';
 import {
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Trash2,
   Pin,
   Pencil,
@@ -24,6 +25,12 @@ import {
   Radar,
   Target,
   Workflow,
+  Briefcase,
+  Building2,
+  Folder,
+  FolderPlus,
+  Layers,
+  Users,
 } from 'lucide-react';
 import type { Session } from '../types';
 import { DivisionSwitcher } from './DivisionSwitcher';
@@ -32,22 +39,63 @@ import {
   activeDivisionFromSession,
   divisionLabel,
   sessionMatchesActiveDivision,
+  type ActiveDivision,
+  type PersonalFolder,
 } from '../../shared/workspace-division';
 import type { ChatSearchHit } from '../../shared/chat-search';
 import { useUpdaterStatus } from '../hooks/useUpdaterStatus';
 
 import sidebarLogoSrc from '../assets/logo.png';
 
+const FOLDER_TREE_COLLAPSE_KEY = 'yorkie.sidebar.collapsedFolders';
+
+function readCollapsedFolderIds(): Set<string> {
+  try {
+    const raw = localStorage.getItem(FOLDER_TREE_COLLAPSE_KEY);
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return new Set();
+    return new Set(parsed.filter((id): id is string => typeof id === 'string'));
+  } catch {
+    return new Set();
+  }
+}
+
+function writeCollapsedFolderIds(ids: Set<string>) {
+  try {
+    localStorage.setItem(FOLDER_TREE_COLLAPSE_KEY, JSON.stringify([...ids]));
+  } catch {
+    // ignore quota / private mode
+  }
+}
+
+function workspaceKindIcon(active: ActiveDivision | null | undefined) {
+  if (active?.kind === 'hub') return Building2;
+  if (active?.kind === 'client') return Users;
+  if (active?.kind === 'project') return Briefcase;
+  if (active?.kind === 'folder') return Folder;
+  return Layers;
+}
+
 // Monotonic per-session load tokens so a slow history fetch cannot apply after
 // a newer click for the same session (rapid switching).
 const sessionMessageLoadIds: Record<string, number> = {};
 const sessionTraceLoadIds: Record<string, number> = {};
 
-type SessionGroup = {
-  key: string;
-  label: string;
-  sessions: Session[];
-};
+function sortSessionsLatestFirst(sessions: Session[]): Session[] {
+  const sortByUpdatedAt = (a: Session, b: Session) =>
+    (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt);
+
+  const pinned: Session[] = [];
+  const unpinned: Session[] = [];
+  for (const session of sessions) {
+    if (session.pinned) pinned.push(session);
+    else unpinned.push(session);
+  }
+  pinned.sort(sortByUpdatedAt);
+  unpinned.sort(sortByUpdatedAt);
+  return [...pinned, ...unpinned];
+}
 
 function userInitials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -173,6 +221,7 @@ export function Sidebar() {
   const settings = useAppStore((s) => s.settings);
   const setActiveSession = useAppStore((s) => s.setActiveSession);
   const openSessionWithDivision = useAppStore((s) => s.openSessionWithDivision);
+  const setActiveDivision = useAppStore((s) => s.setActiveDivision);
   const setIncognitoDraft = useAppStore((s) => s.setIncognitoDraft);
   const setMessages = useAppStore((s) => s.setMessages);
   const setTraceSteps = useAppStore((s) => s.setTraceSteps);
@@ -211,13 +260,187 @@ export function Sidebar() {
   const [searchHits, setSearchHits] = useState<ChatSearchHit[]>([]);
   const [searchBusy, setSearchBusy] = useState(false);
   const [searchAllWorkspaces, setSearchAllWorkspaces] = useState(false);
+  const [personalFolders, setPersonalFolders] = useState<PersonalFolder[]>([]);
+  const [collapsedFolderIds, setCollapsedFolderIds] = useState<Set<string>>(readCollapsedFolderIds);
+  const [newFolderName, setNewFolderName] = useState('');
+  const [creatingFolder, setCreatingFolder] = useState(false);
+  const foldersSeededRef = useRef(false);
 
+  const isFoldersWorkspace = activeDivision?.kind === 'folder';
   const normalizedQuery = useMemo(() => searchQuery.trim().toLowerCase(), [searchQuery]);
   const isSearching = normalizedQuery.length > 0;
   const divisionSessions = useMemo(
     () => sessions.filter((session) => sessionMatchesActiveDivision(session, activeDivision)),
     [sessions, activeDivision]
   );
+
+  useEffect(() => {
+    if (!isFoldersWorkspace) {
+      foldersSeededRef.current = false;
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const api = window.electronAPI?.folders;
+        if (!api?.list) {
+          if (!cancelled) setPersonalFolders([]);
+          return;
+        }
+        const result = await api.list();
+        if (cancelled) return;
+        const list = result.folders || [];
+        setPersonalFolders(list);
+        if (!foldersSeededRef.current && list.length > 0) {
+          foldersSeededRef.current = true;
+          const activeId = activeDivision?.kind === 'folder' ? activeDivision.folderId : null;
+          setCollapsedFolderIds((prev) => {
+            // First visit: collapse every folder except the active one.
+            if (prev.size === 0) {
+              const next = new Set(
+                list.map((folder) => folder.id).filter((id) => id !== activeId)
+              );
+              writeCollapsedFolderIds(next);
+              return next;
+            }
+            if (activeId) {
+              const next = new Set(prev);
+              next.delete(activeId);
+              writeCollapsedFolderIds(next);
+              return next;
+            }
+            return prev;
+          });
+        }
+      } catch {
+        if (!cancelled) setPersonalFolders([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isFoldersWorkspace, activeDivision]);
+
+  useEffect(() => {
+    if (activeDivision?.kind !== 'folder') return;
+    const activeId = activeDivision.folderId;
+    setCollapsedFolderIds((prev) => {
+      if (!prev.has(activeId)) return prev;
+      const next = new Set(prev);
+      next.delete(activeId);
+      writeCollapsedFolderIds(next);
+      return next;
+    });
+  }, [activeDivision]);
+
+  const sessionsByFolderId = useMemo(() => {
+    const map = new Map<string, Session[]>();
+    for (const session of sessions) {
+      if (session.division !== 'folder' || !session.folderId) continue;
+      const list = map.get(session.folderId);
+      if (list) list.push(session);
+      else map.set(session.folderId, [session]);
+    }
+    for (const [folderId, list] of map) {
+      map.set(folderId, sortSessionsLatestFirst(list));
+    }
+    return map;
+  }, [sessions]);
+
+  const displayFolders = useMemo(() => {
+    const byId = new Map<string, PersonalFolder>();
+    for (const folder of personalFolders) {
+      byId.set(folder.id, folder);
+    }
+    for (const session of sessions) {
+      if (session.division !== 'folder' || !session.folderId || byId.has(session.folderId)) {
+        continue;
+      }
+      byId.set(session.folderId, {
+        id: session.folderId,
+        name: session.folderName || 'Folder',
+        createdAt: 0,
+        updatedAt: 0,
+      });
+    }
+    return [...byId.values()].sort((a, b) =>
+      a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+    );
+  }, [personalFolders, sessions]);
+  const toggleFolderCollapsed = useCallback((folderId: string) => {
+    setCollapsedFolderIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(folderId)) next.delete(folderId);
+      else next.add(folderId);
+      writeCollapsedFolderIds(next);
+      return next;
+    });
+  }, []);
+
+  const selectPersonalFolder = useCallback(
+    (folder: PersonalFolder) => {
+      setActiveDivision({
+        kind: 'folder',
+        folderId: folder.id,
+        folderName: folder.name,
+      });
+      setCollapsedFolderIds((prev) => {
+        if (!prev.has(folder.id)) return prev;
+        const next = new Set(prev);
+        next.delete(folder.id);
+        writeCollapsedFolderIds(next);
+        return next;
+      });
+    },
+    [setActiveDivision]
+  );
+
+  const refreshPersonalFolders = useCallback(async () => {
+    try {
+      const api = window.electronAPI?.folders;
+      if (!api?.list) {
+        setPersonalFolders([]);
+        return [];
+      }
+      const result = await api.list();
+      const list = result.folders || [];
+      setPersonalFolders(list);
+      return list;
+    } catch {
+      setPersonalFolders([]);
+      return [];
+    }
+  }, []);
+
+  const createPersonalFolder = useCallback(async () => {
+    const name = newFolderName.trim();
+    if (!name || creatingFolder) return;
+    const api = window.electronAPI?.folders;
+    if (!api?.create) return;
+    setCreatingFolder(true);
+    try {
+      const result = await api.create(name);
+      if (result.success && result.folder) {
+        setNewFolderName('');
+        await refreshPersonalFolders();
+        selectPersonalFolder(result.folder);
+      } else {
+        setGlobalNotice({
+          id: `notice-folder-create-${Date.now()}`,
+          type: 'error',
+          message: result.error || 'Failed to create folder',
+        });
+      }
+    } catch (error) {
+      setGlobalNotice({
+        id: `notice-folder-create-${Date.now()}`,
+        type: 'error',
+        message: error instanceof Error ? error.message : 'Failed to create folder',
+      });
+    } finally {
+      setCreatingFolder(false);
+    }
+  }, [creatingFolder, newFolderName, refreshPersonalFolders, selectPersonalFolder, setGlobalNotice]);
 
   useEffect(() => {
     const q = searchQuery.trim();
@@ -269,9 +492,9 @@ export function Sidebar() {
     return found;
   }, [divisionSessions, isSearching, searchHits, sessions]);
 
-  const groupedSessions = useMemo(
-    () => (isSearching ? [] : groupSessionsByDate(filteredSessions, t)),
-    [filteredSessions, isSearching, t]
+  const orderedSessions = useMemo(
+    () => (isSearching ? filteredSessions : sortSessionsLatestFirst(filteredSessions)),
+    [filteredSessions, isSearching]
   );
 
   // Exit select mode when sidebar collapses
@@ -571,6 +794,9 @@ export function Sidebar() {
       <Monitor className="w-4 h-4" />
     );
 
+  const WorkspaceIcon = workspaceKindIcon(activeDivision);
+  const workspaceName = divisionLabel(activeDivision);
+
   if (sidebarCollapsed) {
     return (
       <aside className="relative z-20 flex w-[4.5rem] shrink-0 flex-col overflow-hidden border-r border-border-muted bg-surface/96">
@@ -616,6 +842,19 @@ export function Sidebar() {
             title={t('sidebar.importChat')}
           >
             <FileDown className={`w-4 h-4 ${importing ? 'animate-pulse' : ''}`} />
+          </button>
+          <button
+            type="button"
+            onClick={toggleSidebar}
+            className={`w-9 h-9 rounded-2xl flex items-center justify-center border transition-colors ${
+              activeDivision
+                ? 'bg-accent/10 text-accent border-accent/30 hover:bg-accent/15'
+                : 'bg-background text-text-muted border-border-subtle border-dashed hover:bg-surface-hover'
+            }`}
+            title={activeDivision ? workspaceName : 'Select workspace'}
+            aria-label={activeDivision ? `Workspace: ${workspaceName}` : 'Select workspace'}
+          >
+            <WorkspaceIcon className="w-4 h-4" />
           </button>
         </div>
 
@@ -735,15 +974,15 @@ export function Sidebar() {
 
         <div className="mt-2 space-y-2">
           <NextUpMeeting />
-          <div>
-            <p className="px-0.5 mb-1 text-[10px] font-medium tracking-[0.04em] text-text-muted">
-              Choose Workspace
-            </p>
-            <DivisionSwitcher compact />
-          </div>
         </div>
 
-        <div className="mt-2">
+        <div className="mt-2 px-0.5">
+          <DivisionSwitcher variant="header" />
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-2 pb-2 pt-2">
+        <div className="mb-1.5 space-y-1.5">
           <div className="flex h-8 gap-1">
             <button
               onClick={handleNewSession}
@@ -771,10 +1010,8 @@ export function Sidebar() {
               <FileDown className={`w-4 h-4 ${importing ? 'animate-pulse' : ''}`} />
             </button>
           </div>
-        </div>
 
-        {sessions.length > 0 && (
-          <div className="mt-1.5 flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5">
             <div className="relative flex-1 min-w-0">
               <SearchIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-muted" />
               <input
@@ -815,202 +1052,433 @@ export function Sidebar() {
               <ListChecks className="w-3.5 h-3.5" />
             </button>
           </div>
-        )}
-      </div>
+        </div>
 
-      <div className="flex-1 overflow-y-auto px-2 py-2">
-        {groupedSessions.length === 0 && !isSearching ? (
-          <div className="px-3 py-6">
-            <p className="text-sm text-text-secondary">
-              {activeDivision?.kind === 'hub'
-                ? 'No chats in Hub yet'
-                : activeDivision?.kind === 'project'
-                  ? 'No chats in this project yet'
-                  : activeDivision?.kind === 'client'
-                    ? 'No chats in this client yet'
-                  : activeDivision?.kind === 'folder'
-                    ? 'No chats in this folder yet'
-                    : activeDivision?.kind === 'general'
-                      ? 'No chats in General yet'
-                      : t('sidebar.noTasks')}
-            </p>
-            <p className="mt-1 text-xs leading-5 text-text-muted">{t('sidebar.noTasksHint')}</p>
+        {isSearching && orderedSessions.length === 0 ? (
+          <div className="relative ml-0 border-l border-border-muted pl-2">
+            <div className="px-1 py-4">
+              <p className="text-sm text-text-secondary">
+                {searchBusy ? t('common.loading') : t('sidebar.searchNoResults')}
+              </p>
+              <p className="mt-1 text-xs leading-5 text-text-muted">{t('sidebar.searchAllHint')}</p>
+            </div>
           </div>
-        ) : isSearching && filteredSessions.length === 0 ? (
-          <div className="px-3 py-6">
-            <p className="text-sm text-text-secondary">
-              {searchBusy ? t('common.loading') : t('sidebar.searchNoResults')}
-            </p>
-            <p className="mt-1 text-xs leading-5 text-text-muted">{t('sidebar.searchAllHint')}</p>
+        ) : isFoldersWorkspace && !isSearching ? (
+          <div className="relative ml-0 border-l border-border-muted pl-2">
+            <div className="mb-1.5 flex gap-1 px-0.5">
+              <input
+                type="text"
+                value={newFolderName}
+                onChange={(e) => setNewFolderName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') void createPersonalFolder();
+                }}
+                placeholder="New folder name"
+                disabled={creatingFolder}
+                className="min-w-0 flex-1 rounded-lg border border-border-subtle bg-background px-2 py-1.5 text-[12px] text-text-primary placeholder:text-text-muted focus:outline-none focus:border-border"
+              />
+              <button
+                type="button"
+                onClick={() => void createPersonalFolder()}
+                disabled={creatingFolder || !newFolderName.trim()}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border-subtle bg-background text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary disabled:opacity-40"
+                title="Create folder"
+                aria-label="Create folder"
+              >
+                <FolderPlus className={`h-3.5 w-3.5 ${creatingFolder ? 'animate-pulse' : ''}`} />
+              </button>
+            </div>
+            {displayFolders.length === 0 ? (
+              <div className="px-1 py-3">
+                <p className="text-sm text-text-secondary">No folders yet</p>
+                <p className="mt-1 text-xs leading-5 text-text-muted">
+                  Create a personal folder above to get started.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-1">
+                {displayFolders.map((folder) => {
+                  const isActiveFolder = activeDivision?.kind === 'folder' && activeDivision.folderId === folder.id;
+                  const isCollapsed = collapsedFolderIds.has(folder.id);
+                  const folderChats = sessionsByFolderId.get(folder.id) || [];
+                  return (
+                    <div key={folder.id} className="relative">
+                      <span
+                        aria-hidden
+                        className="pointer-events-none absolute -left-[calc(0.5rem+1px)] top-[14px] h-px w-2 bg-border-muted"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => selectPersonalFolder(folder)}
+                        className={`flex w-full items-center gap-1.5 rounded-lg px-1.5 py-1.5 text-left transition-colors ${
+                          isActiveFolder
+                            ? 'bg-accent/10 text-accent'
+                            : 'text-text-primary hover:bg-surface-hover/60'
+                        }`}
+                        title={folder.name}
+                        aria-expanded={!isCollapsed}
+                      >
+                        <span
+                          role="presentation"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleFolderCollapsed(folder.id);
+                          }}
+                          className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-text-muted hover:bg-surface-hover hover:text-text-primary"
+                        >
+                          {isCollapsed ? (
+                            <ChevronRight className="h-3.5 w-3.5" />
+                          ) : (
+                            <ChevronDown className="h-3.5 w-3.5" />
+                          )}
+                        </span>
+                        <Folder className="h-3.5 w-3.5 shrink-0" />
+                        <span className="min-w-0 flex-1 truncate text-[13px] font-semibold tracking-[-0.01em]">
+                          {folder.name}
+                        </span>
+                        <span className="shrink-0 text-[10px] font-medium text-text-muted">
+                          {folderChats.length}
+                        </span>
+                      </button>
+                      {!isCollapsed ? (
+                        <div className="relative ml-2 mt-0.5 border-l border-border-muted/80 pl-2">
+                          {folderChats.length === 0 ? (
+                            <p className="px-2 py-2 text-[11px] text-text-muted">No chats in this folder yet</p>
+                          ) : (
+                            <div className="space-y-0.5">
+                              {folderChats.map((session) => {
+                                const isActive = activeSessionId === session.id;
+                                const isSelected = selectedIds.has(session.id);
+                                const isIncognito = session.incognito === true;
+                                const isRenaming = renamingSessionId === session.id;
+                                const loopStatus = chatLoopBySessionId[session.id];
+                                const isActiveLoop = Boolean(loopStatus && !loopStatus.stopReason);
+                                return (
+                                  <div
+                                    key={session.id}
+                                    onClick={() => {
+                                      if (isRenaming) return;
+                                      if (isSelectMode) {
+                                        toggleSelectSession(session.id);
+                                      } else {
+                                        handleSessionClick(session.id);
+                                      }
+                                    }}
+                                    onMouseEnter={() => setHoveredSession(session.id)}
+                                    onMouseLeave={() => setHoveredSession(null)}
+                                    className={`group relative cursor-pointer rounded-lg px-2 py-1.5 transition-colors ${
+                                      isSelectMode && isSelected
+                                        ? 'bg-accent-muted/20'
+                                        : isActive && !isSelectMode
+                                          ? 'bg-surface-hover/80'
+                                          : 'hover:bg-surface-hover/60'
+                                    } ${isIncognito ? 'border border-dashed border-border-subtle/80' : ''}`}
+                                  >
+                                    <span
+                                      aria-hidden
+                                      className="pointer-events-none absolute -left-[calc(0.5rem+1px)] top-1/2 h-px w-2 -translate-y-1/2 bg-border-muted/80"
+                                    />
+                                    <div
+                                      className={`flex items-center gap-2 ${
+                                        !isSelectMode && !isRenaming ? 'pr-20' : ''
+                                      }`}
+                                    >
+                                      {isSelectMode && (
+                                        <div
+                                          className={`w-4 h-4 rounded flex items-center justify-center flex-shrink-0 transition-colors ${
+                                            isSelected
+                                              ? 'bg-accent text-white'
+                                              : 'border border-border-muted bg-background'
+                                          }`}
+                                        >
+                                          {isSelected && <Check className="w-2.5 h-2.5" />}
+                                        </div>
+                                      )}
+                                      {isIncognito && !isSelectMode && (
+                                        <Ghost className="w-3.5 h-3.5 text-text-muted flex-shrink-0" />
+                                      )}
+                                      {isActiveLoop && !isSelectMode && (
+                                        <span className="flex-shrink-0 text-accent">
+                                          {loopStatus?.kind === 'goal' ? (
+                                            <Target className="w-3.5 h-3.5" />
+                                          ) : (
+                                            <RefreshCw
+                                              className="w-3.5 h-3.5 animate-spin"
+                                              style={{ animationDuration: '3s' }}
+                                            />
+                                          )}
+                                        </span>
+                                      )}
+                                      <div className="min-w-0 flex-1">
+                                        {isRenaming ? (
+                                          <input
+                                            autoFocus
+                                            value={renameDraft}
+                                            onChange={(e) => setRenameDraft(e.target.value)}
+                                            onClick={(e) => e.stopPropagation()}
+                                            onBlur={() => handleCommitRename(session)}
+                                            onKeyDown={(e) => {
+                                              if (e.key === 'Enter') {
+                                                e.preventDefault();
+                                                handleCommitRename(session);
+                                              } else if (e.key === 'Escape') {
+                                                e.preventDefault();
+                                                handleCancelRename();
+                                              }
+                                            }}
+                                            className="w-full min-w-0 rounded-md border border-border-muted bg-background px-1.5 py-0.5 text-[13px] font-medium leading-5 text-text-primary outline-none focus:border-accent"
+                                            aria-label={t('sidebar.rename')}
+                                          />
+                                        ) : (
+                                          <div
+                                            className="truncate text-[13px] font-medium leading-5 text-text-primary"
+                                            onDoubleClick={(e) => {
+                                              if (!isSelectMode) handleStartRename(e, session);
+                                            }}
+                                          >
+                                            {session.title}
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                    {!isSelectMode && !isRenaming && (
+                                      <>
+                                        {hoveredSession === session.id && (
+                                          <button
+                                            onClick={(e) => handleStartRename(e, session)}
+                                            className="absolute right-[3.625rem] top-1/2 -translate-y-1/2 w-6 h-6 rounded-lg flex items-center justify-center text-text-muted hover:text-text-primary hover:bg-surface-active transition-colors"
+                                            title={t('sidebar.rename')}
+                                          >
+                                            <Pencil className="w-3 h-3" />
+                                          </button>
+                                        )}
+                                        {hoveredSession === session.id && (
+                                          <button
+                                            onClick={(e) => handleDeleteSession(e, session.id)}
+                                            className="absolute right-8 top-1/2 -translate-y-1/2 w-6 h-6 rounded-lg flex items-center justify-center text-text-muted hover:text-error hover:bg-surface-active transition-colors"
+                                            title={t('common.delete')}
+                                          >
+                                            <Trash2 className="w-3 h-3" />
+                                          </button>
+                                        )}
+                                        {!isIncognito &&
+                                          (session.pinned || hoveredSession === session.id) && (
+                                            <button
+                                              onClick={(e) => handleTogglePinSession(e, session)}
+                                              className={`absolute right-1.5 top-1/2 -translate-y-1/2 w-6 h-6 rounded-lg flex items-center justify-center transition-colors ${
+                                                session.pinned
+                                                  ? 'text-accent hover:bg-surface-active'
+                                                  : 'text-text-muted hover:text-text-primary hover:bg-surface-active'
+                                              }`}
+                                              title={
+                                                session.pinned ? t('sidebar.unpin') : t('sidebar.pin')
+                                              }
+                                            >
+                                              <Pin
+                                                className={`w-3 h-3 ${session.pinned ? 'fill-current' : ''}`}
+                                              />
+                                            </button>
+                                          )}
+                                      </>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        ) : orderedSessions.length === 0 && !isSearching ? (
+          <div className="relative ml-0 border-l border-border-muted pl-2">
+            <div className="px-1 py-4">
+              <p className="text-sm text-text-secondary">
+                {activeDivision?.kind === 'hub'
+                  ? 'No chats in Hub yet'
+                  : activeDivision?.kind === 'project'
+                    ? 'No chats in this project yet'
+                    : activeDivision?.kind === 'client'
+                      ? 'No chats in this client yet'
+                      : activeDivision?.kind === 'general'
+                        ? 'No chats in General yet'
+                        : t('sidebar.noTasks')}
+              </p>
+              <p className="mt-1 text-xs leading-5 text-text-muted">{t('sidebar.noTasksHint')}</p>
+            </div>
           </div>
         ) : (
-          <div className="space-y-2">
-            {(isSearching
-              ? [{ key: 'search', label: t('sidebar.searchResults'), sessions: filteredSessions }]
-              : groupedSessions
-            ).map((group) => (
-              <section key={group.key}>
-                <div className="px-2 pb-1 text-[10px] font-medium tracking-[0.04em] text-text-muted">
-                  {group.label}
-                </div>
-                <div className="space-y-0.5">
-                  {group.sessions.map((session) => {
-                    const isActive = activeSessionId === session.id;
-                    const isSelected = selectedIds.has(session.id);
-                    const isIncognito = session.incognito === true;
-                    const isRenaming = renamingSessionId === session.id;
-                    const loopStatus = chatLoopBySessionId[session.id];
-                    const isActiveLoop = Boolean(loopStatus && !loopStatus.stopReason);
-                    return (
-                      <div
-                        key={session.id}
-                        onClick={() => {
-                          if (isRenaming) return;
-                          if (isSelectMode) {
-                            toggleSelectSession(session.id);
-                          } else {
-                            handleSessionClick(session.id);
-                          }
-                        }}
-                        onMouseEnter={() => setHoveredSession(session.id)}
-                        onMouseLeave={() => setHoveredSession(null)}
-                        className={`group relative cursor-pointer rounded-lg px-2 py-1 transition-colors ${
-                          isSelectMode && isSelected
-                            ? 'bg-accent-muted/20'
-                            : isActive && !isSelectMode
-                              ? 'bg-surface-hover/80'
-                              : 'hover:bg-surface-hover/60'
-                        } ${isIncognito ? 'border border-dashed border-border-subtle/80' : ''}`}
-                      >
+          <div className="relative ml-0 border-l border-border-muted pl-2">
+            {isSearching ? (
+              <div className="mb-1 px-1.5 text-[10px] font-medium tracking-[0.04em] text-text-muted">
+                {t('sidebar.searchResults')}
+              </div>
+            ) : null}
+            <div className="space-y-0.5">
+              {orderedSessions.map((session) => {
+                const isActive = activeSessionId === session.id;
+                const isSelected = selectedIds.has(session.id);
+                const isIncognito = session.incognito === true;
+                const isRenaming = renamingSessionId === session.id;
+                const loopStatus = chatLoopBySessionId[session.id];
+                const isActiveLoop = Boolean(loopStatus && !loopStatus.stopReason);
+                return (
+                  <div
+                    key={session.id}
+                    onClick={() => {
+                      if (isRenaming) return;
+                      if (isSelectMode) {
+                        toggleSelectSession(session.id);
+                      } else {
+                        handleSessionClick(session.id);
+                      }
+                    }}
+                    onMouseEnter={() => setHoveredSession(session.id)}
+                    onMouseLeave={() => setHoveredSession(null)}
+                    className={`group relative cursor-pointer rounded-lg px-2 py-1.5 transition-colors ${
+                      isSelectMode && isSelected
+                        ? 'bg-accent-muted/20'
+                        : isActive && !isSelectMode
+                          ? 'bg-surface-hover/80'
+                          : 'hover:bg-surface-hover/60'
+                    } ${isIncognito ? 'border border-dashed border-border-subtle/80' : ''}`}
+                  >
+                    {/* Little tab connector into the vertical workspace rail */}
+                    <span
+                      aria-hidden
+                      className="pointer-events-none absolute -left-[calc(0.5rem+1px)] top-1/2 h-px w-2 -translate-y-1/2 bg-border-muted"
+                    />
+                    <div
+                      className={`flex items-center gap-2 ${
+                        !isSelectMode && !isRenaming ? 'pr-20' : ''
+                      }`}
+                    >
+                      {isSelectMode && (
                         <div
-                          className={`flex items-center gap-2 ${
-                            !isSelectMode && !isRenaming ? 'pr-20' : ''
+                          className={`w-4 h-4 rounded flex items-center justify-center flex-shrink-0 transition-colors ${
+                            isSelected
+                              ? 'bg-accent text-white'
+                              : 'border border-border-muted bg-background'
                           }`}
                         >
-                          {isSelectMode && (
+                          {isSelected && <Check className="w-2.5 h-2.5" />}
+                        </div>
+                      )}
+                      {isIncognito && !isSelectMode && (
+                        <Ghost className="w-3.5 h-3.5 text-text-muted flex-shrink-0" />
+                      )}
+                      {isActiveLoop && !isSelectMode && (
+                        <span
+                          className="flex-shrink-0 text-accent"
+                          title={
+                            loopStatus?.kind === 'goal'
+                              ? t('loop.modeGoal')
+                              : t('loop.modeLoop')
+                          }
+                        >
+                          {loopStatus?.kind === 'goal' ? (
+                            <Target className="w-3.5 h-3.5" />
+                          ) : (
+                            <RefreshCw
+                              className="w-3.5 h-3.5 animate-spin"
+                              style={{ animationDuration: '3s' }}
+                            />
+                          )}
+                        </span>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          {isRenaming ? (
+                            <input
+                              autoFocus
+                              value={renameDraft}
+                              onChange={(e) => setRenameDraft(e.target.value)}
+                              onClick={(e) => e.stopPropagation()}
+                              onBlur={() => handleCommitRename(session)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  handleCommitRename(session);
+                                } else if (e.key === 'Escape') {
+                                  e.preventDefault();
+                                  handleCancelRename();
+                                }
+                              }}
+                              className="w-full min-w-0 rounded-md border border-border-muted bg-background px-1.5 py-0.5 text-[13px] font-medium leading-5 text-text-primary outline-none focus:border-accent"
+                              aria-label={t('sidebar.rename')}
+                            />
+                          ) : (
                             <div
-                              className={`w-4 h-4 rounded flex items-center justify-center flex-shrink-0 transition-colors ${
-                                isSelected
-                                  ? 'bg-accent text-white'
-                                  : 'border border-border-muted bg-background'
-                              }`}
+                              className="truncate text-[13px] font-medium leading-5 text-text-primary"
+                              onDoubleClick={(e) => {
+                                if (!isSelectMode) handleStartRename(e, session);
+                              }}
                             >
-                              {isSelected && <Check className="w-2.5 h-2.5" />}
+                              {session.title}
                             </div>
                           )}
-                          {isIncognito && !isSelectMode && (
-                            <Ghost className="w-3.5 h-3.5 text-text-muted flex-shrink-0" />
-                          )}
-                          {isActiveLoop && !isSelectMode && (
-                            <span
-                              className="flex-shrink-0 text-accent"
-                              title={
-                                loopStatus?.kind === 'goal'
-                                  ? t('loop.modeGoal')
-                                  : t('loop.modeLoop')
-                              }
-                            >
-                              {loopStatus?.kind === 'goal' ? (
-                                <Target className="w-3.5 h-3.5" />
-                              ) : (
-                                <RefreshCw
-                                  className="w-3.5 h-3.5 animate-spin"
-                                  style={{ animationDuration: '3s' }}
-                                />
-                              )}
+                          {isSearching && !isRenaming && (
+                            <span className="flex-shrink-0 rounded-md bg-background px-1.5 py-0.5 text-[10px] font-medium text-text-muted">
+                              {divisionLabel(activeDivisionFromSession(session))}
                             </span>
                           )}
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2">
-                              {isRenaming ? (
-                                <input
-                                  autoFocus
-                                  value={renameDraft}
-                                  onChange={(e) => setRenameDraft(e.target.value)}
-                                  onClick={(e) => e.stopPropagation()}
-                                  onBlur={() => handleCommitRename(session)}
-                                  onKeyDown={(e) => {
-                                    if (e.key === 'Enter') {
-                                      e.preventDefault();
-                                      handleCommitRename(session);
-                                    } else if (e.key === 'Escape') {
-                                      e.preventDefault();
-                                      handleCancelRename();
-                                    }
-                                  }}
-                                  className="w-full min-w-0 rounded-md border border-border-muted bg-background px-1.5 py-0.5 text-[13px] font-medium leading-5 text-text-primary outline-none focus:border-accent"
-                                  aria-label={t('sidebar.rename')}
-                                />
-                              ) : (
-                                <div
-                                  className="text-[13px] font-medium leading-5 text-text-primary truncate"
-                                  onDoubleClick={(e) => {
-                                    if (!isSelectMode) handleStartRename(e, session);
-                                  }}
-                                >
-                                  {session.title}
-                                </div>
-                              )}
-                              {isSearching && !isRenaming && (
-                                <span className="flex-shrink-0 rounded-md bg-background px-1.5 py-0.5 text-[10px] font-medium text-text-muted">
-                                  {divisionLabel(activeDivisionFromSession(session))}
-                                </span>
-                              )}
-                            </div>
-                            {isSearching &&
-                              !isRenaming &&
-                              snippetBySessionId.get(session.id)?.snippet &&
-                              snippetBySessionId.get(session.id)?.snippet !== session.title && (
-                                <div className="mt-0.5 line-clamp-2 text-[11px] leading-4 text-text-muted">
-                                  {snippetBySessionId.get(session.id)?.snippet}
-                                </div>
-                              )}
-                          </div>
                         </div>
-
-                        {!isSelectMode && !isRenaming && (
-                          <>
-                            {hoveredSession === session.id && (
-                              <button
-                                onClick={(e) => handleStartRename(e, session)}
-                                className="absolute right-[3.625rem] top-1/2 -translate-y-1/2 w-6 h-6 rounded-lg flex items-center justify-center text-text-muted hover:text-text-primary hover:bg-surface-active transition-colors"
-                                title={t('sidebar.rename')}
-                              >
-                                <Pencil className="w-3 h-3" />
-                              </button>
-                            )}
-                            {hoveredSession === session.id && (
-                              <button
-                                onClick={(e) => handleDeleteSession(e, session.id)}
-                                className="absolute right-8 top-1/2 -translate-y-1/2 w-6 h-6 rounded-lg flex items-center justify-center text-text-muted hover:text-error hover:bg-surface-active transition-colors"
-                                title={t('common.delete')}
-                              >
-                                <Trash2 className="w-3 h-3" />
-                              </button>
-                            )}
-                            {!isIncognito && (session.pinned || hoveredSession === session.id) && (
-                              <button
-                                onClick={(e) => handleTogglePinSession(e, session)}
-                                className={`absolute right-1.5 top-1/2 -translate-y-1/2 w-6 h-6 rounded-lg flex items-center justify-center transition-colors ${
-                                  session.pinned
-                                    ? 'text-accent hover:bg-surface-active'
-                                    : 'text-text-muted hover:text-text-primary hover:bg-surface-active'
-                                }`}
-                                title={session.pinned ? t('sidebar.unpin') : t('sidebar.pin')}
-                              >
-                                <Pin
-                                  className={`w-3 h-3 ${session.pinned ? 'fill-current' : ''}`}
-                                />
-                              </button>
-                            )}
-                          </>
-                        )}
+                        {isSearching &&
+                          !isRenaming &&
+                          snippetBySessionId.get(session.id)?.snippet &&
+                          snippetBySessionId.get(session.id)?.snippet !== session.title && (
+                            <div className="mt-0.5 line-clamp-2 text-[11px] leading-4 text-text-muted">
+                              {snippetBySessionId.get(session.id)?.snippet}
+                            </div>
+                          )}
                       </div>
-                    );
-                  })}
-                </div>
-              </section>
-            ))}
+                    </div>
+
+                    {!isSelectMode && !isRenaming && (
+                      <>
+                        {hoveredSession === session.id && (
+                          <button
+                            onClick={(e) => handleStartRename(e, session)}
+                            className="absolute right-[3.625rem] top-1/2 -translate-y-1/2 w-6 h-6 rounded-lg flex items-center justify-center text-text-muted hover:text-text-primary hover:bg-surface-active transition-colors"
+                            title={t('sidebar.rename')}
+                          >
+                            <Pencil className="w-3 h-3" />
+                          </button>
+                        )}
+                        {hoveredSession === session.id && (
+                          <button
+                            onClick={(e) => handleDeleteSession(e, session.id)}
+                            className="absolute right-8 top-1/2 -translate-y-1/2 w-6 h-6 rounded-lg flex items-center justify-center text-text-muted hover:text-error hover:bg-surface-active transition-colors"
+                            title={t('common.delete')}
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        )}
+                        {!isIncognito && (session.pinned || hoveredSession === session.id) && (
+                          <button
+                            onClick={(e) => handleTogglePinSession(e, session)}
+                            className={`absolute right-1.5 top-1/2 -translate-y-1/2 w-6 h-6 rounded-lg flex items-center justify-center transition-colors ${
+                              session.pinned
+                                ? 'text-accent hover:bg-surface-active'
+                                : 'text-text-muted hover:text-text-primary hover:bg-surface-active'
+                            }`}
+                            title={session.pinned ? t('sidebar.unpin') : t('sidebar.pin')}
+                          >
+                            <Pin
+                              className={`w-3 h-3 ${session.pinned ? 'fill-current' : ''}`}
+                            />
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
       </div>
@@ -1168,54 +1636,4 @@ export function Sidebar() {
       )}
     </aside>
   );
-}
-
-function groupSessionsByDate(sessions: Session[], t: (key: string) => string): SessionGroup[] {
-  const now = new Date();
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const startOfYesterday = startOfToday - 86_400_000;
-  const startOfPreviousWeek = startOfToday - 7 * 86_400_000;
-
-  const pinnedSessions: Session[] = [];
-  const unpinnedSessions: Session[] = [];
-  for (const session of sessions) {
-    if (session.pinned) {
-      pinnedSessions.push(session);
-    } else {
-      unpinnedSessions.push(session);
-    }
-  }
-
-  const sortByUpdatedAt = (a: Session, b: Session) =>
-    (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt);
-
-  pinnedSessions.sort(sortByUpdatedAt);
-
-  const buckets: SessionGroup[] = [
-    { key: 'today', label: t('sidebar.today'), sessions: [] },
-    { key: 'yesterday', label: t('sidebar.yesterday'), sessions: [] },
-    { key: 'previousWeek', label: t('sidebar.previousWeek'), sessions: [] },
-    { key: 'older', label: t('sidebar.older'), sessions: [] },
-  ];
-
-  const sortedUnpinned = [...unpinnedSessions].sort(sortByUpdatedAt);
-  for (const session of sortedUnpinned) {
-    const timestamp = session.updatedAt || session.createdAt;
-    if (timestamp >= startOfToday) {
-      buckets[0].sessions.push(session);
-    } else if (timestamp >= startOfYesterday) {
-      buckets[1].sessions.push(session);
-    } else if (timestamp >= startOfPreviousWeek) {
-      buckets[2].sessions.push(session);
-    } else {
-      buckets[3].sessions.push(session);
-    }
-  }
-
-  const groups: SessionGroup[] = [];
-  if (pinnedSessions.length > 0) {
-    groups.push({ key: 'pinned', label: t('sidebar.pinned'), sessions: pinnedSessions });
-  }
-  groups.push(...buckets.filter((bucket) => bucket.sessions.length > 0));
-  return groups;
 }

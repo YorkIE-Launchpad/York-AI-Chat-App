@@ -66,6 +66,7 @@ import {
 import { DEFAULT_GOAL_MAX_ITERATIONS } from '../../shared/loop/types';
 import { needsOpenRouterUserKey } from '../../shared/openrouter-user-key';
 import { divisionBudgetCheckKey } from '../../shared/fe-budget-gate';
+import { divisionLabel } from '../../shared/workspace-division';
 import { WelcomeMatterBriefing } from './matter/WelcomeMatterBriefing';
 
 export function WelcomeView() {
@@ -593,6 +594,15 @@ export function WelcomeView() {
     )
       return;
 
+    if (activeDivision?.kind === 'folder' && !activeDivision.folderId) {
+      setGlobalNotice({
+        id: `folder-required-${Date.now()}`,
+        type: 'info',
+        message: 'Create a folder in the sidebar before starting a chat.',
+      });
+      return;
+    }
+
     // Intercept /loop and /goal on the main welcome composer
     if (isElectron && isLoopSlashInput(currentPrompt.trim())) {
       setIsSubmitting(true);
@@ -790,7 +800,12 @@ export function WelcomeView() {
             <p className="heading-serif text-[1.15rem] md:text-[1.45rem] font-medium tracking-[-0.02em] text-text-secondary text-center">
               Pick a workspace to get started
             </p>
-          ) : null}
+          ) : (
+            <p className="heading-serif text-[1.15rem] md:text-[1.45rem] font-medium tracking-[-0.02em] text-text-secondary text-center">
+              New chat in{' '}
+              <span className="text-text-primary">{divisionLabel(activeDivision)}</span>
+            </p>
+          )}
           {incognitoDraft && (
             <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-dashed border-border-subtle bg-background/70 px-3 py-1.5 text-xs text-text-secondary">
               <Ghost className="w-3.5 h-3.5 text-text-muted" />

@@ -3,7 +3,6 @@ import {
   Briefcase,
   Building2,
   ChevronDown,
-  FolderPlus,
   Layers,
   Loader2,
   Folder,
@@ -35,11 +34,30 @@ import {
 
 interface DivisionSwitcherProps {
   compact?: boolean;
+  /**
+   * `header` — Claude Projects–style identity control (name + kind subtitle).
+   * `default` / compact — single-line switcher button.
+   */
+  variant?: 'default' | 'header';
   /** When true, show project picker inline after choosing Project. */
   allowClear?: boolean;
 }
 
-export function DivisionSwitcher({ compact = false, allowClear = false }: DivisionSwitcherProps) {
+function divisionKindSubtitle(active: ActiveDivision | null | undefined): string {
+  if (!active) return '';
+  if (active.kind === 'general') return 'Personal workspace';
+  if (active.kind === 'hub') return 'Company workspace';
+  if (active.kind === 'client') return 'Client';
+  if (active.kind === 'folder') return 'Personal folders';
+  return 'Project';
+}
+
+export function DivisionSwitcher({
+  compact = false,
+  variant = 'default',
+  allowClear = false,
+}: DivisionSwitcherProps) {
+  const isHeader = variant === 'header';
   const activeDivision = useAppStore((s) => s.activeDivision);
   const setActiveDivision = useAppStore((s) => s.setActiveDivision);
   const appConfig = useAppStore((s) => s.appConfig);
@@ -49,15 +67,11 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
   const [menuOpen, setMenuOpen] = useState(false);
   const [pickingProject, setPickingProject] = useState(false);
   const [pickingClient, setPickingClient] = useState(false);
-  const [pickingFolder, setPickingFolder] = useState(false);
   const [projects, setProjects] = useState<UnifiedCompanyProject[]>([]);
-  const [folders, setFolders] = useState<PersonalFolder[]>([]);
   const [loadingProjects, setLoadingProjects] = useState(false);
-  const [loadingFolders, setLoadingFolders] = useState(false);
   const [projectsError, setProjectsError] = useState<string | null>(null);
   const [staleProjectWarning, setStaleProjectWarning] = useState<string | null>(null);
   const [staleClientWarning, setStaleClientWarning] = useState<string | null>(null);
-  const [newFolderName, setNewFolderName] = useState('');
   const [projectQuery, setProjectQuery] = useState('');
   const [clientQuery, setClientQuery] = useState('');
   const menuRef = useRef<HTMLDivElement>(null);
@@ -70,7 +84,6 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
         setMenuOpen(false);
         setPickingProject(false);
         setPickingClient(false);
-        setPickingFolder(false);
         setProjectQuery('');
         setClientQuery('');
       }
@@ -214,20 +227,14 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
     };
   }, [activeDivision, loadProjects]);
 
-  const loadFolders = useCallback(async () => {
-    setLoadingFolders(true);
+  const loadFolders = useCallback(async (): Promise<PersonalFolder[]> => {
     try {
       const api = window.electronAPI?.folders;
-      if (!api?.list) {
-        setFolders([]);
-        return;
-      }
+      if (!api?.list) return [];
       const result = await api.list();
-      setFolders(result.folders || []);
+      return result.folders || [];
     } catch {
-      setFolders([]);
-    } finally {
-      setLoadingFolders(false);
+      return [];
     }
   }, []);
 
@@ -243,14 +250,12 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
         return;
       }
       if (division.kind === 'project') {
-        setPickingFolder(false);
         setPickingClient(false);
         setPickingProject(true);
         await loadProjects();
         return;
       }
       if (division.kind === 'client') {
-        setPickingFolder(false);
         setPickingProject(false);
         setPickingClient(true);
         await loadProjects(true);
@@ -259,7 +264,7 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
       setActiveDivision(division);
       setMenuOpen(false);
       setPickingProject(false);
-      setPickingFolder(false);
+      setPickingClient(false);
     },
     [
       appConfig?.openRouterUserApiKey,
@@ -315,38 +320,53 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
   );
   const hasProjectMatches = visibleRecentProjects.length > 0 || visibleOtherProjects.length > 0;
 
-  const selectFolder = useCallback(
-    (folder: PersonalFolder) => {
-      if (!hasOpenRouterUserApiKey(appConfig?.openRouterUserApiKey)) {
-        setSettingsTab('general');
-        setShowSettings(true);
-        setMenuOpen(false);
-        return;
-      }
-      setActiveDivision({
-        kind: 'folder',
-        folderId: folder.id,
-        folderName: folder.name,
-      });
+  const enterFoldersWorkspace = useCallback(async () => {
+    if (!hasOpenRouterUserApiKey(appConfig?.openRouterUserApiKey)) {
+      setSettingsTab('general');
+      setShowSettings(true);
       setMenuOpen(false);
-      setPickingFolder(false);
-    },
-    [appConfig?.openRouterUserApiKey, setActiveDivision, setSettingsTab, setShowSettings]
-  );
-
-  const createFolder = useCallback(async () => {
-    const name = newFolderName.trim();
-    if (!name) return;
-    const api = window.electronAPI?.folders;
-    if (!api?.create) return;
-    const result = await api.create(name);
-    if (result.success && result.folder) {
-      setNewFolderName('');
-      selectFolder(result.folder);
+      return;
     }
-  }, [newFolderName, selectFolder]);
+    const list = await loadFolders();
+    if (list.length === 0) {
+      // Enter Folders workspace with no active folder; create happens in chat history.
+      setActiveDivision({ kind: 'folder', folderId: '', folderName: '' });
+      setMenuOpen(false);
+      setPickingProject(false);
+      setPickingClient(false);
+      return;
+    }
+    const preferred =
+      activeDivision?.kind === 'folder' && activeDivision.folderId
+        ? list.find((folder) => folder.id === activeDivision.folderId) || list[0]
+        : [...list].sort((a, b) => b.updatedAt - a.updatedAt)[0];
+    setActiveDivision({
+      kind: 'folder',
+      folderId: preferred.id,
+      folderName: preferred.name,
+    });
+    setMenuOpen(false);
+    setPickingProject(false);
+    setPickingClient(false);
+  }, [
+    activeDivision,
+    appConfig?.openRouterUserApiKey,
+    loadFolders,
+    setActiveDivision,
+    setSettingsTab,
+    setShowSettings,
+  ]);
 
-  const label = divisionLabel(activeDivision);
+  const hasDivision = Boolean(activeDivision);
+  const isFoldersWorkspace = activeDivision?.kind === 'folder';
+  const label = !hasDivision
+    ? 'Select workspace'
+    : isFoldersWorkspace
+      ? 'Folders'
+      : divisionLabel(activeDivision);
+  const kindSubtitle = isFoldersWorkspace
+    ? 'Personal folders'
+    : divisionKindSubtitle(activeDivision);
   const Icon =
     activeDivision?.kind === 'hub'
       ? Building2
@@ -366,19 +386,50 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
           setMenuOpen((open) => !open);
           setPickingProject(false);
           setPickingClient(false);
-          setPickingFolder(false);
           setProjectQuery('');
           setClientQuery('');
         }}
-        className={`flex w-full items-center gap-2 rounded-lg border border-border bg-background text-left text-text-primary hover:bg-surface-hover transition-colors ${
-          compact ? 'h-8 px-2 text-[12px]' : 'px-3 py-2 text-sm'
+        className={`flex w-full items-center gap-2 rounded-xl border text-left text-text-primary transition-colors hover:bg-surface-hover ${
+          isHeader
+            ? hasDivision
+              ? 'border-border-subtle bg-background/80 px-3 py-2.5'
+              : 'border-dashed border-border bg-background px-3 py-2.5'
+            : compact
+              ? 'h-8 rounded-lg border-border bg-background px-2 text-[12px]'
+              : 'rounded-lg border-border bg-background px-3 py-2 text-sm'
         }`}
-        title="Switch workspace"
+        title={hasDivision ? 'Switch workspace' : 'Select workspace'}
+        aria-label={hasDivision ? `Workspace: ${label}. Switch workspace` : 'Select workspace'}
       >
-        <Icon className={`${compact ? 'h-3.5 w-3.5' : 'h-4 w-4'} shrink-0 text-text-muted`} />
-        <span className="min-w-0 flex-1 truncate font-medium">{label}</span>
+        <Icon
+          className={`${isHeader ? 'h-5 w-5' : compact ? 'h-3.5 w-3.5' : 'h-4 w-4'} shrink-0 ${
+            hasDivision ? 'text-accent' : 'text-text-muted'
+          }`}
+        />
+        {isHeader ? (
+          <span className="min-w-0 flex-1">
+            <span
+              className={`block truncate text-sm font-semibold tracking-[-0.02em] ${
+                hasDivision ? 'text-text-primary' : 'text-text-secondary'
+              }`}
+            >
+              {label}
+            </span>
+            {hasDivision && kindSubtitle ? (
+              <span className="mt-0.5 block truncate text-[11px] font-medium text-text-muted">
+                {kindSubtitle}
+              </span>
+            ) : !hasDivision ? (
+              <span className="mt-0.5 block truncate text-[11px] font-medium text-text-muted">
+                General, Hub, Project, Client, or Folder
+              </span>
+            ) : null}
+          </span>
+        ) : (
+          <span className="min-w-0 flex-1 truncate font-medium">{label}</span>
+        )}
         <ChevronDown
-          className={`${compact ? 'h-3 w-3' : 'h-3.5 w-3.5'} shrink-0 text-text-muted`}
+          className={`${isHeader ? 'h-4 w-4' : compact ? 'h-3 w-3' : 'h-3.5 w-3.5'} shrink-0 text-text-muted`}
         />
       </button>
 
@@ -395,7 +446,7 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
 
       {menuOpen && (
         <div className="absolute left-0 right-0 z-40 mt-1 overflow-hidden rounded-lg border border-border bg-background shadow-lg">
-          {!pickingProject && !pickingClient && !pickingFolder ? (
+          {!pickingProject && !pickingClient ? (
             <div className="py-1">
               <MenuItem
                 icon={Layers}
@@ -419,17 +470,7 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
                 }
                 active={activeDivision?.kind === 'folder'}
                 locked={!hasOpenRouterKey}
-                onClick={() => {
-                  if (!hasOpenRouterKey) {
-                    setSettingsTab('general');
-                    setShowSettings(true);
-                    setMenuOpen(false);
-                    return;
-                  }
-                  setPickingProject(false);
-                  setPickingFolder(true);
-                  void loadFolders();
-                }}
+                onClick={() => void enterFoldersWorkspace()}
               />
               <MenuItem
                 icon={Building2}
@@ -477,66 +518,6 @@ export function DivisionSwitcher({ compact = false, allowClear = false }: Divisi
                 >
                   Clear workspace selection
                 </button>
-              )}
-            </div>
-          ) : pickingFolder ? (
-            <div className="max-h-72 overflow-y-auto py-1">
-              <div className="flex items-center justify-between px-3 py-2 text-xs text-text-muted">
-                <button
-                  type="button"
-                  className="hover:text-text-primary"
-                  onClick={() => setPickingFolder(false)}
-                >
-                  ← Back
-                </button>
-                <span>Personal folders</span>
-              </div>
-              <div className="flex gap-1 px-3 pb-2">
-                <input
-                  type="text"
-                  value={newFolderName}
-                  onChange={(e) => setNewFolderName(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') void createFolder();
-                  }}
-                  placeholder="New folder name"
-                  className="min-w-0 flex-1 rounded border border-border bg-bg-secondary px-2 py-1 text-xs text-text-primary"
-                />
-                <button
-                  type="button"
-                  onClick={() => void createFolder()}
-                  className="shrink-0 rounded border border-border px-2 py-1 text-xs text-text-primary hover:bg-bg-secondary"
-                  title="Create folder"
-                >
-                  <FolderPlus className="h-3.5 w-3.5" />
-                </button>
-              </div>
-              {loadingFolders && (
-                <div className="flex items-center gap-2 px-3 py-3 text-xs text-text-muted">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  Loading…
-                </div>
-              )}
-              {!loadingFolders &&
-                folders.map((folder) => (
-                  <button
-                    key={folder.id}
-                    type="button"
-                    className={`w-full px-3 py-2 text-left hover:bg-bg-secondary ${
-                      activeDivision?.kind === 'folder' && activeDivision.folderId === folder.id
-                        ? 'bg-bg-secondary'
-                        : ''
-                    }`}
-                    onClick={() => selectFolder(folder)}
-                  >
-                    <div className="truncate text-sm font-medium text-text-primary">
-                      {folder.name}
-                    </div>
-                    <div className="truncate text-xs text-text-muted">Your OpenRouter API key</div>
-                  </button>
-                ))}
-              {!loadingFolders && folders.length === 0 && (
-                <p className="px-3 py-3 text-xs text-text-muted">No folders yet</p>
               )}
             </div>
           ) : pickingClient ? (

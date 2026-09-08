@@ -36,4 +36,11 @@ describe('WelcomeView Claude-style layout', () => {
     expect(source).toContain('mt-auto shrink-0 pt-7');
     expect(source).not.toContain('my-auto space-y-7');
   });
+
+  it('shows New chat in {workspace} when a division is selected', () => {
+    const source = fs.readFileSync(welcomeViewPath, 'utf8');
+    expect(source).toContain("import { divisionLabel } from '../../shared/workspace-division'");
+    expect(source).toContain("New chat in{' '}");
+    expect(source).toContain('divisionLabel(activeDivision)');
+  });
 });
