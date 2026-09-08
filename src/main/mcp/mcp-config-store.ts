@@ -16,6 +16,8 @@ import {
   DEFAULT_GOOGLE_CALENDAR_MCP_SERVER_ID,
   DEFAULT_GOOGLE_DRIVE_MCP_NAME,
   DEFAULT_GOOGLE_DRIVE_MCP_SERVER_ID,
+  DEFAULT_GTM_LAUNCHPAD_MCP_NAME,
+  DEFAULT_GTM_LAUNCHPAD_MCP_SERVER_ID,
   DEFAULT_GTM_PULSE_MCP_NAME,
   DEFAULT_GTM_PULSE_MCP_SERVER_ID,
   DEFAULT_HUB_MCP_NAME,
@@ -37,6 +39,7 @@ export {
   DEFAULT_GMAIL_MCP_NAME,
   DEFAULT_GOOGLE_CALENDAR_MCP_NAME,
   DEFAULT_GOOGLE_DRIVE_MCP_NAME,
+  DEFAULT_GTM_LAUNCHPAD_MCP_NAME,
   DEFAULT_HUB_MCP_NAME,
   DEFAULT_JIRA_MCP_NAME,
   DEFAULT_LAUNCHPAD_MCP_NAME,
@@ -93,9 +96,10 @@ function normalizeMcpServerNameKey(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, '');
 }
 
+/** Match only launchpad.yorkdevs.link — not gtm-launchpad.yorkdevs.link. */
 function isLaunchpadHost(value: string | undefined): boolean {
   if (!value) return false;
-  return /launchpad\.yorkdevs\.link/i.test(value);
+  return /(?:^|\/\/)launchpad\.yorkdevs\.link/i.test(value);
 }
 
 function isLaunchpadServerName(name: string): boolean {
@@ -258,6 +262,48 @@ export function isGtmPulseMcpServer(
   const hasMcpRemote = args.some((arg) => arg.includes('mcp-remote'));
   const hasGtmPulseUrl = args.some((arg) => isGtmPulseHost(arg));
   return hasMcpRemote && hasGtmPulseUrl;
+}
+
+/**
+ * Built-in GTM Launchpad MCP connector — seeded disabled by default; user enables in Connectors.
+ * Uses streamable HTTP. Browser MCP OAuth is used at connect time.
+ */
+export function getDefaultGtmLaunchpadMcpUrl(): string {
+  return authConfig.gtmLaunchpadMcpUrl;
+}
+
+export function buildDefaultGtmLaunchpadMcpServer(): Omit<MCPServerConfig, 'id' | 'enabled'> {
+  return {
+    name: DEFAULT_GTM_LAUNCHPAD_MCP_NAME,
+    type: 'streamable-http',
+    url: getDefaultGtmLaunchpadMcpUrl(),
+  };
+}
+
+export const DEFAULT_GTM_LAUNCHPAD_MCP_SERVER: Omit<MCPServerConfig, 'id' | 'enabled'> =
+  buildDefaultGtmLaunchpadMcpServer();
+
+const DEFAULT_GTM_LAUNCHPAD_SERVER_ID = DEFAULT_GTM_LAUNCHPAD_MCP_SERVER_ID;
+
+function isGtmLaunchpadHost(value: string | undefined): boolean {
+  if (!value) return false;
+  return /gtm-launchpad\.yorkdevs\.link/i.test(value);
+}
+
+export function isGtmLaunchpadMcpServer(
+  server: Pick<MCPServerConfig, 'name' | 'args' | 'url' | 'type'>
+): boolean {
+  const normalizedName = server.name.toLowerCase().replace(/\s+/g, '-');
+  if (normalizedName === 'gtm-launchpad' || normalizedName === 'gtm launchpad') {
+    return true;
+  }
+  if (isGtmLaunchpadHost(server.url)) {
+    return true;
+  }
+  const args = server.args ?? [];
+  const hasMcpRemote = args.some((arg) => arg.includes('mcp-remote'));
+  const hasGtmLaunchpadUrl = args.some((arg) => isGtmLaunchpadHost(arg));
+  return hasMcpRemote && hasGtmLaunchpadUrl;
 }
 
 export function buildDefaultSlackMcpServer(): Omit<MCPServerConfig, 'id' | 'enabled'> {
@@ -469,7 +515,7 @@ class MCPConfigStore {
 
   /**
    * Delete a server configuration.
-   * Built-in Chrome / Launchpad / R&D Pulse / Hub / GTM Pulse / connector MCP cannot be removed.
+   * Built-in Chrome / Launchpad / GTM Launchpad / R&D Pulse / Hub / GTM Pulse / connector MCP cannot be removed.
    */
   deleteServer(serverId: string): boolean {
     const servers = this.getServers();
@@ -480,6 +526,10 @@ class MCPConfigStore {
     }
     if (target && isLaunchpadMcpServer(target)) {
       log('[MCPConfigStore] Refusing to delete built-in Launchpad MCP connector');
+      return false;
+    }
+    if (target && isGtmLaunchpadMcpServer(target)) {
+      log('[MCPConfigStore] Refusing to delete built-in GTM Launchpad MCP connector');
       return false;
     }
     if (target && isRndPulseMcpServer(target)) {
@@ -710,6 +760,45 @@ class MCPConfigStore {
     this.saveServer(gtmPulseServer);
     log(`[MCPConfigStore] Seeded default GTM Pulse MCP connector at ${desiredUrl}`);
     return gtmPulseServer;
+  }
+
+  /**
+   * Ensure the built-in GTM Launchpad MCP connector exists.
+   * Does not re-enable or recreate if the user already has a GTM Launchpad connector
+   * (including one they disabled or customized).
+   * Migrates the built-in default to streamable-http + current GTM Launchpad MCP URL.
+   */
+  ensureDefaultGtmLaunchpadServer(): MCPServerConfig {
+    const desiredUrl = getDefaultGtmLaunchpadMcpUrl();
+    const desired = buildDefaultGtmLaunchpadMcpServer();
+    const existing = this.getServers().find(isGtmLaunchpadMcpServer);
+    if (existing) {
+      const needsMigration =
+        existing.id === DEFAULT_GTM_LAUNCHPAD_SERVER_ID &&
+        (existing.type !== 'streamable-http' || existing.url !== desiredUrl);
+      if (needsMigration) {
+        const migrated: MCPServerConfig = {
+          id: existing.id,
+          enabled: existing.enabled,
+          ...desired,
+        };
+        this.saveServer(migrated);
+        log(
+          `[MCPConfigStore] Migrated built-in GTM Launchpad MCP to streamable-http ${desiredUrl}`
+        );
+        return migrated;
+      }
+      return existing;
+    }
+
+    const gtmLaunchpadServer: MCPServerConfig = {
+      ...desired,
+      id: DEFAULT_GTM_LAUNCHPAD_SERVER_ID,
+      enabled: false,
+    };
+    this.saveServer(gtmLaunchpadServer);
+    log(`[MCPConfigStore] Seeded default GTM Launchpad MCP connector at ${desiredUrl}`);
+    return gtmLaunchpadServer;
   }
 
   ensureDefaultSlackServer(): MCPServerConfig {

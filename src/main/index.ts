@@ -3308,8 +3308,8 @@ ipcMain.handle(
 
       const normalizedPath = resolved.path;
       const ext = extname(normalizedPath).toLowerCase();
-      if (ext !== '.html' && ext !== '.htm') {
-        return { success: false, error: 'Only HTML files can be previewed' };
+      if (ext !== '.html' && ext !== '.htm' && ext !== '.md' && ext !== '.markdown') {
+        return { success: false, error: 'Only HTML and Markdown files can be previewed' };
       }
 
       const stat = fs.statSync(normalizedPath);
@@ -3852,7 +3852,10 @@ ipcMain.handle('mcp.reconnectServer', async (_event, serverId: string) => {
       return { success: false, error: 'Session manager not available' };
     }
     const mcpManager = sessionManager.getMCPManager();
-    const ok = await mcpManager.reconnectServer(serverId, { interactiveOAuth: true });
+    const ok = await mcpManager.reconnectServer(serverId, {
+      interactiveOAuth: true,
+      forceOAuth: true,
+    });
     sessionManager.invalidateMcpServersCache();
     if (!ok) {
       return { success: false, error: `Failed to reconnect MCP server: ${serverId}` };

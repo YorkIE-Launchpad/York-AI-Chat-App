@@ -11,7 +11,7 @@ import {
   getArtifactIconComponent,
   getArtifactSteps,
 } from '../utils/artifact-steps';
-import { isHtmlPath } from '../utils/html-preview';
+import { isPreviewablePath, previewKindFromPath } from '../utils/html-preview';
 import { useIPC } from '../hooks/useIPC';
 import { isYorkLlmSelection, yorkLlmDisplayName } from '../hooks/useYorkLlmModels';
 import {
@@ -46,15 +46,25 @@ import type { TraceStep, MCPServerInfo, ContentBlock, ToolUseContent } from '../
 import type { ConnectorStatus } from './settings/shared';
 import { getMcpToolDisplayName } from './message/toolHelpers';
 import {
+  DEFAULT_CONFLUENCE_MCP_SERVER_ID,
   DEFAULT_GOOGLE_CALENDAR_MCP_SERVER_ID,
+  DEFAULT_JIRA_MCP_SERVER_ID,
+  isAtlassianCatalogServerId,
+  isAtlassianCombinedDisplayName,
+  mergeAtlassianMcpServerStatuses,
   mergeDefaultMcpServerStatuses,
 } from '../../shared/mcp-defaults';
 
 const EMPTY_STEPS: TraceStep[] = [];
 
 function normalizeMcpServers(servers: MCPServerInfo[] | null | undefined): MCPServerInfo[] {
-  return mergeDefaultMcpServerStatuses(servers || []);
+  return mergeAtlassianMcpServerStatuses(mergeDefaultMcpServerStatuses(servers || []));
 }
+
+const ATLASSIAN_PAIR_SERVER_IDS = [
+  DEFAULT_JIRA_MCP_SERVER_ID,
+  DEFAULT_CONFLUENCE_MCP_SERVER_ID,
+] as const;
 
 function pickZoomConnectorStatus(
   statuses: ConnectorStatus[] | null | undefined
@@ -372,10 +382,9 @@ export function ContextPanel() {
                 {displayArtifacts.map((artifact, index) => {
                   const label = artifact.label || t('context.fileCreated');
                   const artifactPath = artifact.path;
-                  const isHtml = isHtmlPath(artifactPath);
-                  const canPreviewHtml = Boolean(artifactPath && isHtml);
+                  const canPreview = Boolean(artifactPath && isPreviewablePath(artifactPath));
                   const canReveal = Boolean(artifactPath && canShowItemInFolder);
-                  const canClick = canPreviewHtml || canReveal;
+                  const canClick = canPreview || canReveal;
                   const iconComponent = getArtifactIconComponent(label);
                   const IconComponent =
                     iconComponent === 'presentation'
@@ -404,8 +413,12 @@ export function ContextPanel() {
                       className={`flex items-center gap-2 px-4 py-1.5 transition-colors ${canClick ? 'cursor-pointer hover:bg-surface-hover' : ''}`}
                       onClick={async () => {
                         if (!canClick) return;
-                        if (canPreviewHtml) {
-                          openHtmlPreview(artifactPath, label);
+                        if (canPreview && artifactPath) {
+                          openHtmlPreview(
+                            artifactPath,
+                            label,
+                            previewKindFromPath(artifactPath) ?? undefined
+                          );
                           return;
                         }
                         const revealed = await window.electronAPI.showItemInFolder(
@@ -420,11 +433,11 @@ export function ContextPanel() {
                           });
                         }
                       }}
-                      title={canPreviewHtml ? t('context.previewHtml') : artifactPath || undefined}
+                      title={canPreview ? t('context.previewHtml') : artifactPath || undefined}
                     >
                       <IconComponent className="w-3.5 h-3.5 text-text-muted shrink-0" />
                       <span className="text-xs text-text-primary truncate flex-1">{label}</span>
-                      {canPreviewHtml && (
+                      {canPreview && (
                         <Eye className="w-3 h-3 text-text-muted shrink-0" aria-hidden="true" />
                       )}
                     </div>
@@ -584,7 +597,9 @@ function ConnectorItem({
   // Get MCP tools used from this server
   // Tool names are in format: mcp__ServerName__toolname (with double underscores)
   // Server name preserves original case and spaces are replaced with underscores
-  const serverNamePattern = server.name.replace(/\s+/g, '_');
+  const serverNamePatterns = isAtlassianCombinedDisplayName(server.name)
+    ? ['Jira', 'Confluence']
+    : [server.name.replace(/\s+/g, '_')];
 
   const mcpToolsUsed = steps
     .filter((s) => s.toolName?.startsWith('mcp__'))
@@ -596,7 +611,7 @@ function ConnectorItem({
       const match = name.match(/^mcp__(.+?)__(.+)$/);
       if (match) {
         const toolServerName = match[1];
-        return toolServerName === serverNamePattern;
+        return serverNamePatterns.includes(toolServerName);
       }
       return false;
     });
@@ -623,17 +638,37 @@ function ConnectorItem({
     if (actionInFlight) return;
     setActionInFlight(action);
     try {
-      const result =
-        action === 'connect'
-          ? await window.electronAPI.mcp.connectServer(server.id)
-          : action === 'disconnect'
-            ? await window.electronAPI.mcp.disconnectServer(server.id)
-            : await window.electronAPI.mcp.reconnectServer(server.id);
-      if (!result.success) {
+      const isAtlassian = isAtlassianCombinedDisplayName(server.name);
+      const targetIds = isAtlassian
+        ? [...ATLASSIAN_PAIR_SERVER_IDS]
+        : isAtlassianCatalogServerId(server.id)
+          ? [...ATLASSIAN_PAIR_SERVER_IDS]
+          : [server.id];
+
+      let lastError: string | undefined;
+      if (action === 'reconnect') {
+        const result = await window.electronAPI.mcp.reconnectServer(targetIds[0]);
+        if (!result.success) {
+          lastError = result.error || t('mcp.actionFailed');
+        }
+      } else {
+        for (const id of targetIds) {
+          const result =
+            action === 'connect'
+              ? await window.electronAPI.mcp.connectServer(id)
+              : await window.electronAPI.mcp.disconnectServer(id);
+          if (!result.success) {
+            lastError = result.error || t('mcp.actionFailed');
+            break;
+          }
+        }
+      }
+
+      if (lastError) {
         setGlobalNotice({
           id: `mcp-action-failed-${Date.now()}`,
           type: 'error',
-          message: result.error || t('mcp.actionFailed'),
+          message: lastError,
         });
       }
       await onStatusChange();
@@ -736,8 +771,16 @@ function ConnectorItem({
                 <button
                   type="button"
                   disabled={actionInFlight !== null}
-                  title={t('mcp.reconnect')}
-                  aria-label={t('mcp.reconnect')}
+                  title={
+                    isAtlassianCombinedDisplayName(server.name)
+                      ? t('mcp.reauthorize', { defaultValue: 'Re-authorize' })
+                      : t('mcp.reconnect')
+                  }
+                  aria-label={
+                    isAtlassianCombinedDisplayName(server.name)
+                      ? t('mcp.reauthorize', { defaultValue: 'Re-authorize' })
+                      : t('mcp.reconnect')
+                  }
                   onClick={() => void runAction('reconnect')}
                   className="p-1 rounded text-text-muted hover:text-text-primary hover:bg-surface-hover disabled:opacity-50"
                 >

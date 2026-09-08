@@ -22,7 +22,15 @@ import type {
   MCPToolInfo,
   MCPPreset,
 } from './shared';
-import { sortMcpServersByDefaultOrder } from '../../../shared/mcp-defaults';
+import {
+  DEFAULT_ATLASSIAN_MCP_DISPLAY_NAME,
+  DEFAULT_CONFLUENCE_MCP_NAME,
+  DEFAULT_CONFLUENCE_MCP_SERVER_ID,
+  DEFAULT_JIRA_MCP_NAME,
+  DEFAULT_JIRA_MCP_SERVER_ID,
+  isAtlassianCatalogServerId,
+  sortMcpServersByDefaultOrder,
+} from '../../../shared/mcp-defaults';
 
 const isElectron = typeof window !== 'undefined' && window.electronAPI !== undefined;
 
@@ -38,12 +46,15 @@ function isLaunchpadMcpServer(server: MCPServerConfig): boolean {
   if (nameKey === 'launchpad' || nameKey === 'rdlaunchpad') {
     return true;
   }
-  if (server.url && /launchpad\.yorkdevs\.link/i.test(server.url)) {
+  // Match only launchpad.yorkdevs.link — not gtm-launchpad.yorkdevs.link.
+  if (server.url && /(?:^|\/\/)launchpad\.yorkdevs\.link/i.test(server.url)) {
     return true;
   }
   const args = server.args ?? [];
   const hasMcpRemote = args.some((arg) => arg.includes('mcp-remote'));
-  const hasLaunchpadUrl = args.some((arg) => /launchpad\.yorkdevs\.link/i.test(arg));
+  const hasLaunchpadUrl = args.some((arg) =>
+    /(?:^|\/\/)launchpad\.yorkdevs\.link/i.test(arg)
+  );
   return hasMcpRemote && hasLaunchpadUrl;
 }
 
@@ -90,10 +101,25 @@ function isGtmPulseMcpServer(server: MCPServerConfig): boolean {
   return hasMcpRemote && hasGtmPulseUrl;
 }
 
+function isGtmLaunchpadMcpServer(server: MCPServerConfig): boolean {
+  const normalizedName = server.name.toLowerCase().replace(/\s+/g, '-');
+  if (normalizedName === 'gtm-launchpad' || normalizedName === 'gtm launchpad') {
+    return true;
+  }
+  if (server.url && /gtm-launchpad\.yorkdevs\.link/i.test(server.url)) {
+    return true;
+  }
+  const args = server.args ?? [];
+  const hasMcpRemote = args.some((arg) => arg.includes('mcp-remote'));
+  const hasGtmLaunchpadUrl = args.some((arg) => /gtm-launchpad\.yorkdevs\.link/i.test(arg));
+  return hasMcpRemote && hasGtmLaunchpadUrl;
+}
+
 function isBuiltinProtectedMcpServer(server: MCPServerConfig): boolean {
   return (
     isChromeMcpServer(server) ||
     isLaunchpadMcpServer(server) ||
+    isGtmLaunchpadMcpServer(server) ||
     isRndPulseMcpServer(server) ||
     isHubMcpServer(server) ||
     isGtmPulseMcpServer(server) ||
@@ -106,10 +132,11 @@ function isBuiltinProtectedMcpServer(server: MCPServerConfig): boolean {
   );
 }
 
-/** Built-in Hub / Launchpad / R&D Pulse / GTM Pulse URLs are env-driven — no UI edit. */
+/** Built-in Hub / Launchpad / GTM Launchpad / R&D Pulse / GTM Pulse URLs are env-driven — no UI edit. */
 function isNonEditableBuiltinMcpServer(server: MCPServerConfig): boolean {
   return (
     isLaunchpadMcpServer(server) ||
+    isGtmLaunchpadMcpServer(server) ||
     isRndPulseMcpServer(server) ||
     isHubMcpServer(server) ||
     isGtmPulseMcpServer(server) ||
@@ -122,8 +149,12 @@ function isNonEditableBuiltinMcpServer(server: MCPServerConfig): boolean {
   );
 }
 
-function isAtlassianReconnectableServer(server: MCPServerConfig): boolean {
-  return server.name === 'Jira' || server.name === 'Confluence';
+function isAtlassianPairServer(server: MCPServerConfig): boolean {
+  return (
+    isAtlassianCatalogServerId(server.id) ||
+    server.name === DEFAULT_JIRA_MCP_NAME ||
+    server.name === DEFAULT_CONFLUENCE_MCP_NAME
+  );
 }
 
 export function SettingsConnectors({ isActive }: { isActive: boolean }) {
@@ -136,6 +167,10 @@ export function SettingsConnectors({ isActive }: { isActive: boolean }) {
   const [statuses, setStatuses] = useState<MCPServerStatus[]>([]);
   const [tools, setTools] = useState<MCPToolInfo[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [busyServerIds, setBusyServerIds] = useState<Set<string>>(() => new Set());
+  const [busyConnectorId, setBusyConnectorId] = useState<ConnectorStatus['connectorId'] | null>(
+    null
+  );
   const [error, setError] = useState('');
   const [editingServer, setEditingServer] = useState<MCPServerConfig | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
@@ -148,6 +183,24 @@ export function SettingsConnectors({ isActive }: { isActive: boolean }) {
   const [presetEnvValues, setPresetEnvValues] = useState<Record<string, string>>({});
   const [connectorStatuses, setConnectorStatuses] = useState<ConnectorStatus[]>([]);
   const [mcpWriteAccessEnabled, setMcpWriteAccessEnabled] = useState(true);
+
+  const markServerBusy = useCallback((serverId: string) => {
+    setBusyServerIds((prev) => {
+      if (prev.has(serverId)) return prev;
+      const next = new Set(prev);
+      next.add(serverId);
+      return next;
+    });
+  }, []);
+
+  const clearServerBusy = useCallback((serverId: string) => {
+    setBusyServerIds((prev) => {
+      if (!prev.has(serverId)) return prev;
+      const next = new Set(prev);
+      next.delete(serverId);
+      return next;
+    });
+  }, []);
 
   // Auto-refresh
   const loadPresets = useCallback(async () => {
@@ -231,7 +284,7 @@ export function SettingsConnectors({ isActive }: { isActive: boolean }) {
   }, [isActive, loadAll, loadStatuses, loadTools, loadConnectorStatuses]);
 
   async function handleConnect(connectorId: ConnectorStatus['connectorId']) {
-    setIsLoading(true);
+    setBusyConnectorId(connectorId);
     setError('');
     try {
       const result = await window.electronAPI.connectors.connect(connectorId);
@@ -242,12 +295,12 @@ export function SettingsConnectors({ isActive }: { isActive: boolean }) {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to connect');
     } finally {
-      setIsLoading(false);
+      setBusyConnectorId(null);
     }
   }
 
   async function handleDisconnect(connectorId: ConnectorStatus['connectorId']) {
-    setIsLoading(true);
+    setBusyConnectorId(connectorId);
     setError('');
     try {
       const result = await window.electronAPI.connectors.disconnect(connectorId);
@@ -258,7 +311,7 @@ export function SettingsConnectors({ isActive }: { isActive: boolean }) {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to disconnect');
     } finally {
-      setIsLoading(false);
+      setBusyConnectorId(null);
     }
   }
 
@@ -313,8 +366,16 @@ export function SettingsConnectors({ isActive }: { isActive: boolean }) {
     setPresetEnvValues({});
   }
 
-  async function handleSaveServer(server: MCPServerConfig) {
-    setIsLoading(true);
+  async function handleSaveServer(
+    server: MCPServerConfig,
+    options?: { busyServerId?: string }
+  ) {
+    const busyServerId = options?.busyServerId;
+    if (busyServerId) {
+      markServerBusy(busyServerId);
+    } else {
+      setIsLoading(true);
+    }
     setError('');
     try {
       const result = await window.electronAPI.mcp.saveServer(server);
@@ -329,7 +390,11 @@ export function SettingsConnectors({ isActive }: { isActive: boolean }) {
     } catch (err) {
       setError(err instanceof Error ? err.message : t('mcp.saveServerFailed'));
     } finally {
-      setIsLoading(false);
+      if (busyServerId) {
+        clearServerBusy(busyServerId);
+      } else {
+        setIsLoading(false);
+      }
     }
   }
 
@@ -380,7 +445,7 @@ export function SettingsConnectors({ isActive }: { isActive: boolean }) {
       return;
     }
     if (!confirm(t('mcp.deleteConnectorConfirm'))) return;
-    setIsLoading(true);
+    markServerBusy(serverId);
     try {
       const result = await window.electronAPI.mcp.deleteServer(serverId);
       if (result && typeof result === 'object' && 'success' in result && !result.success) {
@@ -391,16 +456,22 @@ export function SettingsConnectors({ isActive }: { isActive: boolean }) {
     } catch (err) {
       setError(err instanceof Error ? err.message : t('mcp.deleteServerFailed'));
     } finally {
-      setIsLoading(false);
+      clearServerBusy(serverId);
     }
   }
 
   async function handleToggleEnabled(server: MCPServerConfig) {
-    await handleSaveServer({ ...server, enabled: !server.enabled });
+    await handleSaveServer({ ...server, enabled: !server.enabled }, { busyServerId: server.id });
   }
 
   async function handleReconnectServer(server: MCPServerConfig) {
-    setIsLoading(true);
+    markServerBusy(server.id);
+    if (isAtlassianPairServer(server)) {
+      const pair = servers.filter(isAtlassianPairServer);
+      for (const sibling of pair) {
+        if (sibling.id !== server.id) markServerBusy(sibling.id);
+      }
+    }
     setError('');
     try {
       const result = await window.electronAPI.mcp.reconnectServer(server.id);
@@ -415,13 +486,75 @@ export function SettingsConnectors({ isActive }: { isActive: boolean }) {
           : t('mcp.reconnectFailed', { defaultValue: 'Failed to reconnect' })
       );
     } finally {
-      setIsLoading(false);
+      clearServerBusy(server.id);
+      if (isAtlassianPairServer(server)) {
+        for (const sibling of servers.filter(isAtlassianPairServer)) {
+          clearServerBusy(sibling.id);
+        }
+      }
+    }
+  }
+
+  async function handleToggleAtlassianPair(enabled: boolean) {
+    const pair = servers.filter(isAtlassianPairServer);
+    if (pair.length === 0) return;
+    for (const server of pair) {
+      markServerBusy(server.id);
+    }
+    setError('');
+    try {
+      for (const server of pair) {
+        if (server.enabled === enabled) continue;
+        const result = await window.electronAPI.mcp.saveServer({ ...server, enabled });
+        if (result && !result.success && result.error) {
+          setError(result.error);
+          return;
+        }
+      }
+      await loadAll();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('mcp.saveServerFailed'));
+    } finally {
+      for (const server of pair) {
+        clearServerBusy(server.id);
+      }
+    }
+  }
+
+  async function handleToggleAtlassianWriteEnabled(nextWriteEnabled: boolean) {
+    const pair = servers.filter(isAtlassianPairServer);
+    if (pair.length === 0) return;
+    for (const server of pair) {
+      markServerBusy(server.id);
+    }
+    setError('');
+    try {
+      for (const server of pair) {
+        const result = await window.electronAPI.mcp.saveServer({
+          ...server,
+          writeEnabled: nextWriteEnabled,
+        });
+        if (result && !result.success && result.error) {
+          setError(result.error);
+          return;
+        }
+      }
+      await loadAll();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('mcp.saveServerFailed'));
+    } finally {
+      for (const server of pair) {
+        clearServerBusy(server.id);
+      }
     }
   }
 
   async function handleToggleWriteEnabled(server: MCPServerConfig) {
     const nextWriteEnabled = server.writeEnabled === false;
-    await handleSaveServer({ ...server, writeEnabled: nextWriteEnabled });
+    await handleSaveServer(
+      { ...server, writeEnabled: nextWriteEnabled },
+      { busyServerId: server.id }
+    );
   }
 
   async function handleToggleGlobalWriteAccess() {
@@ -534,7 +667,7 @@ export function SettingsConnectors({ isActive }: { isActive: boolean }) {
                     <button
                       type="button"
                       onClick={() => void handleDisconnect(connector.connectorId)}
-                      disabled={isLoading}
+                      disabled={busyConnectorId === connector.connectorId}
                       className="rounded-md border border-border-subtle px-3 py-1.5 text-xs text-text-primary transition-colors hover:bg-surface-hover disabled:opacity-50"
                     >
                       Disconnect
@@ -543,7 +676,7 @@ export function SettingsConnectors({ isActive }: { isActive: boolean }) {
                     <button
                       type="button"
                       onClick={() => void handleConnect(connector.connectorId)}
-                      disabled={isLoading}
+                      disabled={busyConnectorId === connector.connectorId}
                       className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent/90 disabled:opacity-50"
                     >
                       Connect
@@ -561,33 +694,103 @@ export function SettingsConnectors({ isActive }: { isActive: boolean }) {
               <p className="text-sm mt-1">{t('mcp.addConnector')}</p>
             </div>
           ) : (
-            servers.map((server) => {
-              const status = getServerStatus(server.id);
-              const serverTools = getServerTools(server.id);
-
-              return (
-                <ServerCard
-                  key={server.id}
-                  server={server}
-                  status={status}
-                  toolCount={serverTools.length}
-                  tools={serverTools}
-                  onEdit={() => setEditingServer(server)}
-                  onDelete={() => handleDeleteServer(server.id)}
-                  onToggleEnabled={() => handleToggleEnabled(server)}
-                  onToggleWriteEnabled={() => handleToggleWriteEnabled(server)}
-                  onReconnect={
-                    isAtlassianReconnectableServer(server)
-                      ? () => handleReconnectServer(server)
-                      : undefined
-                  }
-                  globalWriteAccessEnabled={mcpWriteAccessEnabled}
-                  isLoading={isLoading}
-                  canDelete={!isBuiltinProtectedMcpServer(server)}
-                  canEdit={!isNonEditableBuiltinMcpServer(server)}
-                />
+            (() => {
+              const atlassianPair = servers.filter(isAtlassianPairServer);
+              const jira = atlassianPair.find(
+                (s) => s.id === DEFAULT_JIRA_MCP_SERVER_ID || s.name === DEFAULT_JIRA_MCP_NAME
               );
-            })
+              const confluence = atlassianPair.find(
+                (s) =>
+                  s.id === DEFAULT_CONFLUENCE_MCP_SERVER_ID || s.name === DEFAULT_CONFLUENCE_MCP_NAME
+              );
+              const primaryAtlassian = jira ?? confluence;
+              const atlassianTools = atlassianPair.flatMap((s) => getServerTools(s.id));
+              const atlassianBusy = atlassianPair.some((s) => busyServerIds.has(s.id));
+              const atlassianEnabled = atlassianPair.some((s) => s.enabled);
+              const atlassianWriteEnabled = atlassianPair.every((s) => s.writeEnabled !== false);
+              const atlassianStatus = (() => {
+                const statuses = atlassianPair.map((s) => getServerStatus(s.id)?.status);
+                if (statuses.includes('connecting')) return { status: 'connecting' as const };
+                if (
+                  statuses.includes('connected') ||
+                  atlassianPair.some((s) => getServerStatus(s.id)?.connected)
+                ) {
+                  return { status: 'connected' as const, connected: true };
+                }
+                if (statuses.includes('failed')) return { status: 'failed' as const };
+                return { status: 'disabled' as const };
+              })();
+
+              const atlassianCard = primaryAtlassian ? (
+                <ServerCard
+                  key="atlassian-jira-confluence"
+                  server={{
+                    ...primaryAtlassian,
+                    name: DEFAULT_ATLASSIAN_MCP_DISPLAY_NAME,
+                    enabled: atlassianEnabled,
+                    writeEnabled: atlassianWriteEnabled,
+                  }}
+                  status={{
+                    id: primaryAtlassian.id,
+                    name: DEFAULT_ATLASSIAN_MCP_DISPLAY_NAME,
+                    connected: Boolean(atlassianStatus.connected),
+                    status: atlassianStatus.status,
+                    toolCount: atlassianTools.length,
+                  }}
+                  toolCount={atlassianTools.length}
+                  tools={atlassianTools}
+                  onEdit={() => setEditingServer(primaryAtlassian)}
+                  onDelete={() => undefined}
+                  onToggleEnabled={() => void handleToggleAtlassianPair(!atlassianEnabled)}
+                  onToggleWriteEnabled={() =>
+                    void handleToggleAtlassianWriteEnabled(!atlassianWriteEnabled)
+                  }
+                  onReconnect={() => void handleReconnectServer(primaryAtlassian)}
+                  globalWriteAccessEnabled={mcpWriteAccessEnabled}
+                  isLoading={atlassianBusy}
+                  canDelete={false}
+                  canEdit={false}
+                  reconnectLabel={t('mcp.reauthorize', { defaultValue: 'Re-authorize' })}
+                />
+              ) : null;
+
+              let atlassianInserted = false;
+              return (
+                <>
+                  {servers.map((server) => {
+                    if (isAtlassianPairServer(server)) {
+                      if (atlassianInserted || server !== (jira ?? confluence)) {
+                        return null;
+                      }
+                      atlassianInserted = true;
+                      return atlassianCard;
+                    }
+
+                    const status = getServerStatus(server.id);
+                    const serverTools = getServerTools(server.id);
+
+                    return (
+                      <ServerCard
+                        key={server.id}
+                        server={server}
+                        status={status}
+                        toolCount={serverTools.length}
+                        tools={serverTools}
+                        onEdit={() => setEditingServer(server)}
+                        onDelete={() => handleDeleteServer(server.id)}
+                        onToggleEnabled={() => handleToggleEnabled(server)}
+                        onToggleWriteEnabled={() => handleToggleWriteEnabled(server)}
+                        onReconnect={undefined}
+                        globalWriteAccessEnabled={mcpWriteAccessEnabled}
+                        isLoading={busyServerIds.has(server.id)}
+                        canDelete={!isBuiltinProtectedMcpServer(server)}
+                        canEdit={!isNonEditableBuiltinMcpServer(server)}
+                      />
+                    );
+                  })}
+                </>
+              );
+            })()
           )}
         </div>
       )}
@@ -766,6 +969,7 @@ function ServerCard({
   isLoading,
   canDelete = true,
   canEdit = true,
+  reconnectLabel,
 }: {
   server: MCPServerConfig;
   status?: MCPServerStatus;
@@ -780,10 +984,35 @@ function ServerCard({
   isLoading: boolean;
   canDelete?: boolean;
   canEdit?: boolean;
+  reconnectLabel?: string;
 }) {
   const { t } = useTranslation();
   // Fall back to 'connecting' for enabled servers when status poll hasn't returned yet
   const serverStatus = status?.status ?? (server.enabled ? 'connecting' : 'disabled');
+  const statusLabel =
+    serverStatus === 'connected'
+      ? t('mcp.connected')
+      : serverStatus === 'failed'
+        ? t('mcp.failed', { defaultValue: 'Connection failed' })
+        : serverStatus === 'connecting'
+          ? t('mcp.connecting')
+          : t('mcp.disabled', { defaultValue: 'Disabled' });
+  const statusTextClass =
+    serverStatus === 'connected'
+      ? 'text-success'
+      : serverStatus === 'failed'
+        ? 'text-error'
+        : serverStatus === 'connecting'
+          ? 'text-warning'
+          : 'text-text-muted';
+  const statusDotClass =
+    serverStatus === 'connected'
+      ? 'bg-success'
+      : serverStatus === 'failed'
+        ? 'bg-error'
+        : serverStatus === 'connecting'
+          ? 'bg-warning'
+          : 'bg-text-muted';
   const [showTools, setShowTools] = useState(false);
   const serverWritesEnabled = server.writeEnabled !== false;
   const writeToggleDisabled = isLoading || !globalWriteAccessEnabled;
@@ -899,41 +1128,20 @@ function ServerCard({
           </div>
           <div className="flex items-center gap-2">
             <div
-              className={`w-2 h-2 rounded-full shrink-0 ${
-                serverStatus === 'connected'
-                  ? 'bg-success'
-                  : serverStatus === 'failed'
-                    ? 'bg-error'
-                    : serverStatus === 'connecting'
-                      ? 'bg-warning'
-                      : 'bg-text-muted'
-              }`}
-              title={
-                serverStatus === 'connected'
-                  ? t('mcp.connected')
-                  : serverStatus === 'failed'
-                    ? t('mcp.failed', { defaultValue: 'Connection failed' })
-                    : serverStatus === 'connecting'
-                      ? t('mcp.connecting')
-                      : t('mcp.disabled', { defaultValue: 'Disabled' })
-              }
-              aria-label={
-                serverStatus === 'connected'
-                  ? t('mcp.connected')
-                  : serverStatus === 'failed'
-                    ? t('mcp.failed', { defaultValue: 'Connection failed' })
-                    : serverStatus === 'connecting'
-                      ? t('mcp.connecting')
-                      : t('mcp.disabled', { defaultValue: 'Disabled' })
-              }
-            />
+              className="flex items-center gap-1.5 shrink-0"
+              title={statusLabel}
+              aria-label={statusLabel}
+            >
+              <div className={`w-2 h-2 rounded-full shrink-0 ${statusDotClass}`} />
+              <span className={`text-xs font-medium ${statusTextClass}`}>{statusLabel}</span>
+            </div>
             {showReconnect && (
               <button
                 onClick={onReconnect}
                 disabled={isLoading}
                 className="p-2 rounded-lg bg-surface-muted text-text-secondary hover:bg-surface-active transition-colors"
-                title={t('mcp.reconnect')}
-                aria-label={t('mcp.reconnect')}
+                title={reconnectLabel || t('mcp.reconnect')}
+                aria-label={reconnectLabel || t('mcp.reconnect')}
               >
                 <RefreshCw className="w-4 h-4" />
               </button>

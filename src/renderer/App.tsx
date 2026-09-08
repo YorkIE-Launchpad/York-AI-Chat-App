@@ -299,7 +299,7 @@ function AuthenticatedApp() {
     setSidebarCollapsed(width < 800);
   }, [width, activeHtmlPreview, setContextPanelCollapsed, setSidebarCollapsed]);
 
-  // Auto-open / refresh right-side preview when the agent writes HTML artifacts.
+  // Auto-open / refresh right-side preview when the agent writes HTML/markdown artifacts.
   // Signature-gated so closing the panel does not immediately reopen the same write.
   useEffect(() => {
     if (!activeSessionId) {
@@ -321,7 +321,7 @@ function AuthenticatedApp() {
       return;
     }
     lastHtmlPreviewSig.current = sig;
-    openHtmlPreview(candidate.path, candidate.title);
+    openHtmlPreview(candidate.path, candidate.title, candidate.kind);
   }, [activeSessionId, sessionStates, sessions, workingDir, openHtmlPreview]);
 
   // Auto-collapse sidebar when Settings is open, restore on close

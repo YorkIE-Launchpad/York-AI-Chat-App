@@ -6,6 +6,7 @@ import {
   createOAuthCallbackListener,
   isMcpOAuthInteractionRequiredError,
   McpOAuthInteractionRequiredError,
+  McpOAuthSetupError,
   OpenCoworkMcpOAuthProvider,
 } from '../src/main/mcp/mcp-oauth';
 
@@ -373,5 +374,53 @@ describe('connectWithOAuthRetry', () => {
 
     expect(openExternal).not.toHaveBeenCalled();
     expect(transport.close).toHaveBeenCalled();
+  });
+
+  it('fails fast when UnauthorizedError occurs without starting browser redirect', async () => {
+    const openExternal = vi.fn();
+    const transport = {
+      close: vi.fn().mockResolvedValue(undefined),
+      finishAuth: vi.fn().mockResolvedValue(undefined),
+    };
+    const provider = new OpenCoworkMcpOAuthProvider({ openExternal });
+
+    await expect(
+      connectWithOAuthRetry({
+        connect: async () => {
+          throw new UnauthorizedError('Authorization required');
+        },
+        createTransport: () => transport,
+        interactiveOAuth: true,
+        provider,
+      })
+    ).rejects.toBeInstanceOf(McpOAuthSetupError);
+
+    expect(openExternal).not.toHaveBeenCalled();
+    expect(provider.authorizationRedirectStarted).toBe(false);
+    expect(transport.finishAuth).not.toHaveBeenCalled();
+  });
+
+  it('fails fast when OAuth protected-resource discovery fails', async () => {
+    const openExternal = vi.fn();
+    const transport = {
+      close: vi.fn().mockResolvedValue(undefined),
+      finishAuth: vi.fn().mockResolvedValue(undefined),
+    };
+    const provider = new OpenCoworkMcpOAuthProvider({ openExternal });
+
+    await expect(
+      connectWithOAuthRetry({
+        connect: async () => {
+          throw new Error(
+            'Resource server does not implement OAuth 2.0 Protected Resource Metadata.'
+          );
+        },
+        createTransport: () => transport,
+        interactiveOAuth: true,
+        provider,
+      })
+    ).rejects.toBeInstanceOf(McpOAuthSetupError);
+
+    expect(openExternal).not.toHaveBeenCalled();
   });
 });

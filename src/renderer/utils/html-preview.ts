@@ -14,10 +14,13 @@ const FILE_TOOL_NAMES = new Set([
   'notebook_edit',
 ]);
 
+export type PreviewKind = 'html' | 'markdown';
+
 export type HtmlPreviewCandidate = {
   path: string;
   title?: string;
-  /** Stable id of the newest completed step that produced this HTML. */
+  kind: PreviewKind;
+  /** Stable id of the newest completed step that produced this preview. */
   stepId: string;
 };
 
@@ -29,9 +32,32 @@ export function isHtmlPath(pathValue: string | null | undefined): boolean {
   return normalized.endsWith('.html') || normalized.endsWith('.htm');
 }
 
+export function isMarkdownPath(pathValue: string | null | undefined): boolean {
+  if (!pathValue) {
+    return false;
+  }
+  const normalized = pathValue.trim().replace(/\\/g, '/').toLowerCase();
+  return normalized.endsWith('.md') || normalized.endsWith('.markdown');
+}
+
+export function isPreviewablePath(pathValue: string | null | undefined): boolean {
+  return isHtmlPath(pathValue) || isMarkdownPath(pathValue);
+}
+
+export function previewKindFromPath(pathValue: string | null | undefined): PreviewKind | null {
+  if (isHtmlPath(pathValue)) {
+    return 'html';
+  }
+  if (isMarkdownPath(pathValue)) {
+    return 'markdown';
+  }
+  return null;
+}
+
 function parseArtifactToolOutput(toolOutput: string | undefined): {
   path: string;
   title?: string;
+  kind: PreviewKind;
 } | null {
   if (!toolOutput) {
     return null;
@@ -43,10 +69,17 @@ function parseArtifactToolOutput(toolOutput: string | undefined): {
       return null;
     }
     const type = typeof parsed.type === 'string' ? parsed.type.toLowerCase() : '';
+    let kind: PreviewKind | null = null;
     if (type === 'html' || isHtmlPath(path)) {
-      const name = typeof parsed.name === 'string' ? parsed.name : undefined;
-      return { path, title: name || getArtifactLabel(path) };
+      kind = 'html';
+    } else if (type === 'markdown' || type === 'md' || isMarkdownPath(path)) {
+      kind = 'markdown';
     }
+    if (!kind) {
+      return null;
+    }
+    const name = typeof parsed.name === 'string' ? parsed.name : undefined;
+    return { path, title: name || getArtifactLabel(path), kind };
   } catch {
     // ignore invalid JSON
   }
@@ -54,8 +87,8 @@ function parseArtifactToolOutput(toolOutput: string | undefined): {
 }
 
 /**
- * Walks newest → oldest completed steps and returns the latest HTML artifact
- * from write/edit tools or ```artifact fences.
+ * Walks newest → oldest completed steps and returns the latest previewable
+ * artifact (HTML or markdown) from write/edit tools or ```artifact fences.
  */
 export function findLatestHtmlPreviewCandidate(
   steps: TraceStep[],
@@ -73,6 +106,7 @@ export function findLatestHtmlPreviewCandidate(
         return {
           path: resolveArtifactPath(fromArtifact.path, cwd),
           title: fromArtifact.title,
+          kind: fromArtifact.kind,
           stepId: step.id,
         };
       }
@@ -87,7 +121,8 @@ export function findLatestHtmlPreviewCandidate(
       extractFilePathFromToolOutput(step.toolOutput) ||
       extractFilePathFromToolInput(step.toolInput) ||
       '';
-    if (!isHtmlPath(rawPath)) {
+    const kind = previewKindFromPath(rawPath);
+    if (!kind) {
       continue;
     }
 
@@ -95,6 +130,7 @@ export function findLatestHtmlPreviewCandidate(
     return {
       path: resolved,
       title: getArtifactLabel(rawPath),
+      kind,
       stepId: step.id,
     };
   }

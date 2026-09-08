@@ -34,6 +34,13 @@ Load `rnd-launchpad-mcp-sdlc` for release loop / Build / Validate.
 | Discover/Plan/Build/Validate tools                                         | epic/story/feedback ids | status when delivery asked  |
 | `search_project_rag`, `ask_project_assistant`, `get_project_memory`        | distilled facts         | enrich status narrative     |
 
+## GTM Launchpad
+
+Connect via Connectors (streamable HTTP + browser OAuth). No fixed inventory
+in-repo — use `mcp_search_tools` on the GTM Launchpad server. Do not invent
+tool names. Prefer when the user asks about GTM / go-to-market product delivery
+(vs R&D Launchpad for client SaaS delivery).
+
 ## R&D Pulse / GTM Pulse
 
 No fixed inventory in-repo. After client/project identity is known, use

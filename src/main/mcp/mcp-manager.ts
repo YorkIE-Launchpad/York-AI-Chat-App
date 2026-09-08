@@ -24,7 +24,7 @@ import { app, BrowserWindow, shell } from 'electron';
 import path from 'path';
 import {
   connectWithOAuthRetry,
-  isMcpOAuthInteractionRequiredError,
+  isMcpOAuthNonRetryableError,
   McpOAuthInteractionRequiredError,
   OpenCoworkMcpOAuthProvider,
 } from './mcp-oauth';
@@ -123,12 +123,15 @@ function isLaunchpadMcpServerConfig(
   if (nameKey === 'launchpad' || nameKey === 'rdlaunchpad') {
     return true;
   }
-  if (server.url && /launchpad\.yorkdevs\.link/i.test(server.url)) {
+  // Match only launchpad.yorkdevs.link — not gtm-launchpad.yorkdevs.link.
+  if (server.url && /(?:^|\/\/)launchpad\.yorkdevs\.link/i.test(server.url)) {
     return true;
   }
   const args = server.args ?? [];
   const hasMcpRemote = args.some((arg) => arg.includes('mcp-remote'));
-  const hasLaunchpadUrl = args.some((arg) => /launchpad\.yorkdevs\.link/i.test(arg));
+  const hasLaunchpadUrl = args.some((arg) =>
+    /(?:^|\/\/)launchpad\.yorkdevs\.link/i.test(arg)
+  );
   return hasMcpRemote && hasLaunchpadUrl;
 }
 
@@ -736,7 +739,7 @@ export class MCPManager {
           } catch (error) {
             logMcpConnectFailure(`Failed to connect to server ${config.name}`, error);
             // Do not spam OAuth browser / retries when the user has not signed in yet
-            if (!isMcpOAuthInteractionRequiredError(error)) {
+            if (!isMcpOAuthNonRetryableError(error)) {
               this.startConnectRetryLoop(config);
             }
           }
@@ -791,7 +794,7 @@ export class MCPManager {
         await this.refreshTools();
       } catch (error) {
         logMcpConnectFailure(`Failed to connect to server ${config.name}`, error);
-        if (!isMcpOAuthInteractionRequiredError(error)) {
+        if (!isMcpOAuthNonRetryableError(error)) {
           this.startConnectRetryLoop(config);
         }
         throw error;
@@ -809,7 +812,7 @@ export class MCPManager {
         await this.refreshTools();
       } catch (error) {
         logMcpConnectFailure(`Failed to reconnect server ${config.name}`, error);
-        if (!isMcpOAuthInteractionRequiredError(error)) {
+        if (!isMcpOAuthNonRetryableError(error)) {
           this.startConnectRetryLoop(config);
         }
         throw error;
@@ -1066,7 +1069,7 @@ export class MCPManager {
       // Do not mark 'connected' here — that requires a non-empty tool list via refreshTools
       this.cancelConnectRetry(config.id);
     } catch (error) {
-      if (isMcpOAuthInteractionRequiredError(error)) {
+      if (isMcpOAuthNonRetryableError(error)) {
         this.connectionStatus.set(config.id, 'failed');
       } else if (!this.connectRetryControllers.has(config.id)) {
         this.startConnectRetryLoop(config);
@@ -2670,6 +2673,11 @@ export class MCPManager {
       preserveConnectRetry?: boolean;
       /** Open browser OAuth when tokens are missing/invalid (Settings reconnect). Default false. */
       interactiveOAuth?: boolean;
+      /**
+       * Drop persisted OAuth tokens/providers before reconnect so the browser
+       * authorization flow runs again (user Re-authorize / Reconnect).
+       */
+      forceOAuth?: boolean;
       /** Do not flip UI status (slow background retries after the 5min window). */
       quietStatus?: boolean;
     }
@@ -2706,6 +2714,11 @@ export class MCPManager {
         preserveStatus: true,
         forceCloseShared: Boolean(shareKey),
       });
+
+      if (options?.forceOAuth === true) {
+        this.clearOAuthStateForServer(config);
+      }
+
       const interactiveOAuth = options?.interactiveOAuth === true;
       await this.connectServer(config, {
         interactiveOAuth,
@@ -2740,13 +2753,38 @@ export class MCPManager {
       return true;
     } catch (error) {
       logMcpConnectFailure(`Failed to reconnect server ${serverId}`, error);
-      if (!isMcpOAuthInteractionRequiredError(error) && !options?.preserveConnectRetry) {
+      if (!isMcpOAuthNonRetryableError(error) && !options?.preserveConnectRetry) {
         this.startConnectRetryLoop(config);
       }
       return false;
     } finally {
       this.reconnectingServers.delete(serverId);
     }
+  }
+
+  /** Clear persisted MCP OAuth tokens/providers for a server (and Atlassian siblings). */
+  private clearOAuthStateForServer(config: MCPServerConfig): void {
+    const clearOne = (id: string) => {
+      mcpOAuthStore.clear(id);
+      this.oauthProviders.delete(id);
+    };
+
+    clearOne(config.id);
+
+    if (!isShareableAtlassianRemoteMcpServer(config) || !config.url) {
+      log(`[MCPManager] Cleared OAuth state for ${config.name} (force reauth)`);
+      return;
+    }
+
+    const shareKey = normalizeAtlassianMcpShareUrl(config.url);
+    for (const [id, sibling] of this.serverConfigs) {
+      if (id === config.id || !sibling.url || !isShareableAtlassianRemoteMcpServer(sibling)) {
+        continue;
+      }
+      if (normalizeAtlassianMcpShareUrl(sibling.url) !== shareKey) continue;
+      clearOne(id);
+    }
+    log(`[MCPManager] Cleared shared Atlassian OAuth state for force reauth (${config.name})`);
   }
 
   /**
@@ -2954,7 +2992,7 @@ function mcpConnectFailureDetail(error: unknown): string {
  */
 function logMcpConnectFailure(context: string, error: unknown): void {
   const line = `[MCPManager] ${context}: ${mcpConnectFailureDetail(error)}`;
-  if (isMcpOAuthInteractionRequiredError(error)) {
+  if (isMcpOAuthNonRetryableError(error)) {
     logWarn(line);
     return;
   }

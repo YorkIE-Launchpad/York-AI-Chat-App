@@ -152,7 +152,7 @@ export function decidePermission(
     return VALID_ACTIONS.has(rule.action) ? rule.action : 'ask';
   }
 
-  // Built-in default: Chrome / R&D Launchpad / R&D Pulse / York IE HUB / GTM Pulse /
+  // Built-in default: Chrome / R&D Launchpad / GTM Launchpad / R&D Pulse / York IE HUB / GTM Pulse /
   // Slack / Gmail / Drive / Calendar / Jira / Confluence read tools,
   // first-party meeting / wiki tools, and webfetch run without a permission prompt.
   // Slack / Gmail / Drive / Calendar / Jira / Confluence write tools fall through to 'ask'.
@@ -161,6 +161,7 @@ export function decidePermission(
   if (lowered.startsWith('mcp__chrome__')) return 'allow';
   if (lowered.startsWith('mcp__r_d_launchpad__')) return 'allow';
   if (lowered.startsWith('mcp__launchpad__')) return 'allow';
+  if (lowered.startsWith('mcp__gtm_launchpad__')) return 'allow';
   if (lowered.startsWith('mcp__r_d_pulse__')) return 'allow';
   if (lowered.startsWith('mcp__york_ie_hub__')) return 'allow';
   if (lowered.startsWith('mcp__hub__')) return 'allow';

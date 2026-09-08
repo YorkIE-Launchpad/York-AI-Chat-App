@@ -109,6 +109,11 @@ describe('permission-rules-store', () => {
       expect(decidePermission(SESSION_A, 'mcp__gtm_pulse__list_projects', {})).toBe('allow');
     });
 
+    it('returns allow for GTM Launchpad MCP tools by default', () => {
+      expect(decidePermission(SESSION_A, 'mcp__GTM_Launchpad__list_projects', {})).toBe('allow');
+      expect(decidePermission(SESSION_A, 'mcp__gtm_launchpad__get_me', {})).toBe('allow');
+    });
+
     it('returns allow for Slack/Gmail/Drive/Calendar/Jira/Confluence read tools by default', () => {
       expect(decidePermission(SESSION_A, 'mcp__Slack__list_channels', {})).toBe('allow');
       expect(decidePermission(SESSION_A, 'mcp__Slack__get_channel_history', {})).toBe('allow');

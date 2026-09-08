@@ -83,6 +83,16 @@ export class McpOAuthInteractionRequiredError extends Error {
   }
 }
 
+/** Thrown when interactive OAuth cannot start (e.g. server missing OAuth discovery). */
+export class McpOAuthSetupError extends Error {
+  constructor(
+    message = 'MCP OAuth could not start. The server did not advertise a browser sign-in flow.'
+  ) {
+    super(message);
+    this.name = 'McpOAuthSetupError';
+  }
+}
+
 export function isMcpOAuthInteractionRequiredError(error: unknown): boolean {
   if (error instanceof McpOAuthInteractionRequiredError) {
     return true;
@@ -111,6 +121,39 @@ export function isMcpOAuthInteractionRequiredError(error: unknown): boolean {
     message.includes('MCP server requires sign-in') ||
     message.includes('MCP OAuth tokens are invalid or expired')
   );
+}
+
+export function isMcpOAuthSetupError(error: unknown): boolean {
+  if (error instanceof McpOAuthSetupError) {
+    return true;
+  }
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'name' in error &&
+    (error as { name: unknown }).name === 'McpOAuthSetupError'
+  ) {
+    return true;
+  }
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === 'object' &&
+          error !== null &&
+          'message' in error &&
+          typeof (error as { message: unknown }).message === 'string'
+        ? (error as { message: string }).message
+        : '';
+  return (
+    message.includes('did not advertise') ||
+    message.includes('MCP OAuth could not start') ||
+    message.includes('missing WWW-Authenticate')
+  );
+}
+
+/** OAuth errors that should mark the connector failed without a connect-retry loop. */
+export function isMcpOAuthNonRetryableError(error: unknown): boolean {
+  return isMcpOAuthInteractionRequiredError(error) || isMcpOAuthSetupError(error);
 }
 
 function buildClientMetadata(redirectUrl: string): OAuthClientMetadata {
@@ -157,6 +200,7 @@ export class OpenCoworkMcpOAuthProvider implements OAuthClientProvider {
   private _codeVerifier?: string;
   private _discoveryState?: OAuthDiscoveryState;
   private _expectedState?: string;
+  private _authorizationRedirectStarted = false;
   private _metadata: OAuthClientMetadata;
   private _redirectUrl?: string | URL;
   private readonly _openExternal: OpenExternal;
@@ -189,6 +233,11 @@ export class OpenCoworkMcpOAuthProvider implements OAuthClientProvider {
 
   get redirectUrl(): string | URL | undefined {
     return this._redirectUrl;
+  }
+
+  /** True once {@link redirectToAuthorization} has opened the browser (or attempted to). */
+  get authorizationRedirectStarted(): boolean {
+    return this._authorizationRedirectStarted;
   }
 
   get clientMetadata(): OAuthClientMetadata {
@@ -234,6 +283,7 @@ export class OpenCoworkMcpOAuthProvider implements OAuthClientProvider {
   }
 
   redirectToAuthorization(authorizationUrl: URL): void | Promise<void> {
+    this._authorizationRedirectStarted = true;
     return this._openExternal(authorizationUrl.toString());
   }
 
@@ -334,7 +384,7 @@ export async function createOAuthCallbackListener(
       settled = true;
       response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       response.end(
-        buildOAuthSuccessHtml('Authorization complete', 'You can return to York GrowthOS now.')
+        buildOAuthSuccessHtml('Authorization complete', 'You can return to York GrowthOS now and close this window')
       );
       resolveCallback(new URLSearchParams(parsedUrl.searchParams));
       void closeServer(server);
@@ -407,6 +457,42 @@ function hasPersistedOAuthTokens(provider: OpenCoworkMcpOAuthProvider): boolean 
   return Boolean(tokens?.access_token || tokens?.refresh_token);
 }
 
+function isOAuthDiscoveryFailure(error: unknown): boolean {
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === 'object' &&
+          error !== null &&
+          'message' in error &&
+          typeof (error as { message: unknown }).message === 'string'
+        ? (error as { message: string }).message
+        : String(error ?? '');
+  const lowered = message.toLowerCase();
+  return (
+    lowered.includes('protected resource metadata') ||
+    lowered.includes('well-known oauth') ||
+    lowered.includes('oauth-protected-resource') ||
+    lowered.includes('does not implement oauth') ||
+    lowered.includes('authorization server metadata') ||
+    lowered.includes('could not discover') ||
+    // SPA HTML / non-JSON body returned from a .well-known URL
+    (lowered.includes('unexpected token') && lowered.includes('<'))
+  );
+}
+
+function toMcpOAuthSetupError(error: unknown): McpOAuthSetupError {
+  const detail =
+    error instanceof Error
+      ? error.message
+      : typeof error === 'string'
+        ? error
+        : 'unknown discovery error';
+  return new McpOAuthSetupError(
+    'MCP OAuth could not start browser sign-in. The server did not advertise OAuth ' +
+      `(missing WWW-Authenticate / protected-resource metadata). ${detail}`
+  );
+}
+
 export async function connectWithOAuthRetry<TTransport extends OAuthTransport>({
   callbackTimeoutMs = MCP_OAUTH_CALLBACK_TIMEOUT_MS,
   connect,
@@ -423,6 +509,9 @@ export async function connectWithOAuthRetry<TTransport extends OAuthTransport>({
     } catch (error) {
       await safeCloseTransport(initialTransport);
       if (!(error instanceof UnauthorizedError)) {
+        if (isOAuthDiscoveryFailure(error)) {
+          throw toMcpOAuthSetupError(error);
+        }
         throw error;
       }
       // Persisted tokens were rejected. Only start browser OAuth when the user asked.
@@ -450,8 +539,20 @@ export async function connectWithOAuthRetry<TTransport extends OAuthTransport>({
       connectedTransport = oauthTransport;
       return oauthTransport;
     } catch (error) {
+      if (isOAuthDiscoveryFailure(error)) {
+        throw toMcpOAuthSetupError(error);
+      }
       if (!(error instanceof UnauthorizedError)) {
         throw error;
+      }
+      // Unauthorized without opening the browser usually means OAuth discovery failed
+      // (e.g. 401 with no WWW-Authenticate / protected-resource metadata). Waiting for
+      // a callback would leave the UI stuck on "connecting".
+      if (!provider.authorizationRedirectStarted) {
+        throw new McpOAuthSetupError(
+          'MCP OAuth could not start browser sign-in. The server did not advertise OAuth ' +
+            '(missing WWW-Authenticate / protected-resource metadata).'
+        );
       }
     }
 

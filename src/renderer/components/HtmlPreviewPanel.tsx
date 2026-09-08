@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { useAppStore } from '../store';
 import { getArtifactLabel } from '../utils/artifact-steps';
+import { MessageMarkdown } from './MessageMarkdown';
 
 const MIN_PREVIEW_WIDTH = 280;
 const MAX_PREVIEW_WIDTH_RATIO = 0.75;
@@ -56,7 +57,7 @@ export function HtmlPreviewPanel() {
   const workingDir = useAppStore((s) => s.workingDir);
   const setGlobalNotice = useAppStore((s) => s.setGlobalNotice);
 
-  const [html, setHtml] = useState<string | null>(null);
+  const [content, setContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [panelWidth, setPanelWidth] = useState(readStoredPreviewWidth);
@@ -65,6 +66,7 @@ export function HtmlPreviewPanel() {
 
   const activeSession = activeSessionId ? sessions.find((s) => s.id === activeSessionId) : null;
   const cwd = activeSession?.cwd || workingDir;
+  const isMarkdown = activeHtmlPreview?.kind === 'markdown';
 
   const title = useMemo(() => {
     if (!activeHtmlPreview) {
@@ -79,13 +81,13 @@ export function HtmlPreviewPanel() {
 
   const loadPreview = useCallback(async () => {
     if (!activeHtmlPreview?.path) {
-      setHtml(null);
+      setContent(null);
       setError(null);
       return;
     }
     if (typeof window === 'undefined' || !window.electronAPI?.artifacts?.readTextFile) {
       setError(t('context.htmlPreviewFailed'));
-      setHtml(null);
+      setContent(null);
       return;
     }
 
@@ -97,14 +99,14 @@ export function HtmlPreviewPanel() {
         cwd ?? undefined
       );
       if (!result.success || typeof result.content !== 'string') {
-        setHtml(null);
+        setContent(null);
         setError(result.error || t('context.htmlPreviewFailed'));
         return;
       }
-      setHtml(result.content);
+      setContent(result.content);
     } catch (err) {
       console.error('[HtmlPreviewPanel] load failed:', err);
-      setHtml(null);
+      setContent(null);
       setError(t('context.htmlPreviewFailed'));
     } finally {
       setLoading(false);
@@ -181,7 +183,7 @@ export function HtmlPreviewPanel() {
     if (!activeHtmlPreview) {
       return;
     }
-    openHtmlPreview(activeHtmlPreview.path, activeHtmlPreview.title);
+    openHtmlPreview(activeHtmlPreview.path, activeHtmlPreview.title, activeHtmlPreview.kind);
   };
 
   const handleReveal = async () => {
@@ -312,8 +314,8 @@ export function HtmlPreviewPanel() {
         </button>
       </div>
 
-      <div className="flex-1 min-h-0 relative bg-white">
-        {loading && !html && (
+      <div className={`flex-1 min-h-0 relative ${isMarkdown ? 'bg-background' : 'bg-white'}`}>
+        {loading && !content && (
           <div className="absolute inset-0 flex items-center justify-center gap-2 text-xs text-text-muted bg-background">
             <Loader2 className="w-4 h-4 animate-spin" />
             <span>{t('context.htmlPreviewLoading')}</span>
@@ -332,16 +334,24 @@ export function HtmlPreviewPanel() {
             </button>
           </div>
         )}
-        {!error && html !== null && (
+        {!error && content !== null && isMarkdown && (
+          <div
+            key={`${activeHtmlPreview.path}:${activeHtmlPreview.revision}`}
+            className="h-full overflow-auto px-5 py-4"
+          >
+            <MessageMarkdown normalizedText={content} />
+          </div>
+        )}
+        {!error && content !== null && !isMarkdown && (
           <iframe
             key={`${activeHtmlPreview.path}:${activeHtmlPreview.revision}`}
             title={title}
-            srcDoc={html}
+            srcDoc={content}
             sandbox="allow-scripts"
             className={`w-full h-full border-0 bg-white ${isResizing ? 'pointer-events-none' : ''}`}
           />
         )}
-        {!loading && !error && html === null && (
+        {!loading && !error && content === null && (
           <div className="absolute inset-0 flex items-center justify-center text-xs text-text-muted bg-background">
             {t('context.htmlPreviewEmpty')}
           </div>

@@ -1155,7 +1155,7 @@
     "htmlPreviewResize": "Resize preview panel",
     "htmlPreviewLoading": "Loading preview…",
     "htmlPreviewEmpty": "Nothing to preview",
-    "htmlPreviewFailed": "Unable to load HTML preview",
+    "htmlPreviewFailed": "Unable to load preview",
     "htmlPreviewOpenFailed": "Unable to open the file",
     "callNumber": "Call #{{number}}",
     "input": "Input:",

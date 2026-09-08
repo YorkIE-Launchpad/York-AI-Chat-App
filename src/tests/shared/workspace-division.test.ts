@@ -127,6 +127,8 @@ describe('workspace-division', () => {
   it('excludes Launchpad and Pulse MCP tools in Hub division', () => {
     expect(isMcpToolExcludedInHubDivision('mcp__R_D_Launchpad__list_releases')).toBe(true);
     expect(isMcpToolExcludedInHubDivision('mcp__Launchpad__foo')).toBe(true);
+    expect(isMcpToolExcludedInHubDivision('mcp__GTM_Launchpad__list_projects')).toBe(true);
+    expect(isMcpToolExcludedInHubDivision('mcp__gtm_launchpad__get_me')).toBe(true);
     expect(isMcpToolExcludedInHubDivision('mcp__R_D_Pulse__metrics')).toBe(true);
     expect(isMcpToolExcludedInHubDivision('mcp__GTM_Pulse__funnel')).toBe(true);
     expect(isMcpToolExcludedInHubDivision('mcp__York_IE_HUB__list_employees')).toBe(false);

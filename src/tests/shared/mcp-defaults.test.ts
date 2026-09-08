@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
+  DEFAULT_ATLASSIAN_MCP_DISPLAY_NAME,
   DEFAULT_CHROME_MCP_SERVER_ID,
   DEFAULT_CONFLUENCE_MCP_SERVER_ID,
   DEFAULT_GMAIL_MCP_SERVER_ID,
   DEFAULT_GOOGLE_CALENDAR_MCP_SERVER_ID,
   DEFAULT_GOOGLE_DRIVE_MCP_SERVER_ID,
+  DEFAULT_GTM_LAUNCHPAD_MCP_SERVER_ID,
   DEFAULT_GTM_PULSE_MCP_SERVER_ID,
   DEFAULT_HUB_MCP_SERVER_ID,
   DEFAULT_JIRA_MCP_SERVER_ID,
@@ -14,15 +16,17 @@ import {
   DEFAULT_RND_PULSE_MCP_SERVER_ID,
   DEFAULT_SLACK_MCP_NAME,
   DEFAULT_SLACK_MCP_SERVER_ID,
+  mergeAtlassianMcpServerStatuses,
   mergeDefaultMcpServerStatuses,
   sortMcpServersByDefaultOrder,
 } from '../../shared/mcp-defaults';
 
 describe('mergeDefaultMcpServerStatuses', () => {
-  it('orders built-in connectors: Hub, Launchpad, R&D Pulse, GTM Pulse, Slack, Gmail, Drive, Jira, Confluence, Calendar, Chrome', () => {
+  it('orders built-in connectors: Hub, Launchpad, GTM Launchpad, R&D Pulse, GTM Pulse, Slack, Gmail, Drive, Jira, Confluence, Calendar, Chrome', () => {
     expect(DEFAULT_MCP_CONNECTORS.map((c) => c.id)).toEqual([
       DEFAULT_HUB_MCP_SERVER_ID,
       DEFAULT_LAUNCHPAD_MCP_SERVER_ID,
+      DEFAULT_GTM_LAUNCHPAD_MCP_SERVER_ID,
       DEFAULT_RND_PULSE_MCP_SERVER_ID,
       DEFAULT_GTM_PULSE_MCP_SERVER_ID,
       DEFAULT_SLACK_MCP_SERVER_ID,
@@ -114,5 +118,42 @@ describe('sortMcpServersByDefaultOrder', () => {
       DEFAULT_CHROME_MCP_SERVER_ID,
       'custom-1',
     ]);
+  });
+});
+
+describe('mergeAtlassianMcpServerStatuses', () => {
+  it('collapses Jira and Confluence into one shared Atlassian row', () => {
+    const merged = mergeAtlassianMcpServerStatuses([
+      {
+        id: DEFAULT_HUB_MCP_SERVER_ID,
+        name: 'York IE HUB',
+        connected: true,
+        status: 'connected' as const,
+        toolCount: 2,
+      },
+      {
+        id: DEFAULT_JIRA_MCP_SERVER_ID,
+        name: 'Jira',
+        connected: true,
+        status: 'connected' as const,
+        toolCount: 5,
+      },
+      {
+        id: DEFAULT_CONFLUENCE_MCP_SERVER_ID,
+        name: 'Confluence',
+        connected: true,
+        status: 'connected' as const,
+        toolCount: 3,
+      },
+    ]);
+
+    expect(merged).toHaveLength(2);
+    expect(merged[1]).toMatchObject({
+      id: DEFAULT_JIRA_MCP_SERVER_ID,
+      name: DEFAULT_ATLASSIAN_MCP_DISPLAY_NAME,
+      connected: true,
+      status: 'connected',
+      toolCount: 8,
+    });
   });
 });

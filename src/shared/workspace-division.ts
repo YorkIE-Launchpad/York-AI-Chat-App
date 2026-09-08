@@ -990,6 +990,7 @@ export function buildDivisionSystemPrompt(
 export const HUB_DIVISION_EXCLUDED_MCP_PREFIXES = [
   'mcp__r_d_launchpad__',
   'mcp__launchpad__',
+  'mcp__gtm_launchpad__',
   'mcp__r_d_pulse__',
   'mcp__gtm_pulse__',
 ] as const;

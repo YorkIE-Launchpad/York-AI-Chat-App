@@ -94,6 +94,18 @@ export const authConfig = {
     return 'https://gtm-pulse.yorkdevs.link/mcp';
   },
   /**
+   * GTM Launchpad MCP endpoint. Prefer GTM_LAUNCHPAD_MCP_URL; otherwise
+   * `https://gtm-launchpad.yorkdevs.link/api/mcp`.
+   */
+  get gtmLaunchpadMcpUrl(): string {
+    const explicit =
+      readEnv('GTM_LAUNCHPAD_MCP_URL') ?? readEnv('VITE_GTM_LAUNCHPAD_MCP_URL');
+    if (explicit) {
+      return trimTrailingSlash(explicit);
+    }
+    return 'https://gtm-launchpad.yorkdevs.link/api/mcp';
+  },
+  /**
    * Official Atlassian Rovo MCP endpoint (Jira + Confluence).
    * Prefer ATLASSIAN_MCP_URL; otherwise https://mcp.atlassian.com/v1/mcp/authv2.
    */

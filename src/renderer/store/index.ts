@@ -14,6 +14,7 @@ import type {
   ChatLoopStatus,
 } from '../types';
 import { applySessionUpdate } from '../utils/session-update';
+import { previewKindFromPath } from '../utils/html-preview';
 import type { ActiveDivision } from '../../shared/workspace-division';
 import type { MatterChatDraft } from '../../shared/matter-chat';
 import type { HubUsageMeterSnapshot } from '../../shared/fe-budget-gate';
@@ -114,10 +115,11 @@ interface AppState {
   isLoading: boolean;
   sidebarCollapsed: boolean;
   contextPanelCollapsed: boolean;
-  /** Live HTML artifact preview in the right rail (Claude Desktop–style). */
+  /** Live HTML/markdown artifact preview in the right rail (Claude Desktop–style). */
   activeHtmlPreview: {
     path: string;
     title?: string;
+    kind: 'html' | 'markdown';
     revision: number;
   } | null;
   showSettings: boolean;
@@ -244,7 +246,7 @@ interface AppState {
   toggleContextPanel: () => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
   setContextPanelCollapsed: (collapsed: boolean) => void;
-  openHtmlPreview: (path: string, title?: string) => void;
+  openHtmlPreview: (path: string, title?: string, kind?: 'html' | 'markdown') => void;
   closeHtmlPreview: () => void;
   setShowSettings: (show: boolean) => void;
   setShowMatter: (show: boolean) => void;
@@ -811,7 +813,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => ({ contextPanelCollapsed: !state.contextPanelCollapsed })),
   setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
   setContextPanelCollapsed: (collapsed) => set({ contextPanelCollapsed: collapsed }),
-  openHtmlPreview: (path, title) =>
+  openHtmlPreview: (path, title, kind) =>
     set((state) => {
       const trimmed = path.trim();
       if (!trimmed) {
@@ -819,10 +821,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
       const prev = state.activeHtmlPreview;
       const samePath = prev?.path === trimmed;
+      const resolvedKind =
+        kind || (samePath ? prev?.kind : undefined) || previewKindFromPath(trimmed) || 'html';
       return {
         activeHtmlPreview: {
           path: trimmed,
           title: title?.trim() || (samePath ? prev?.title : undefined) || undefined,
+          kind: resolvedKind,
           revision: samePath ? (prev?.revision ?? 0) + 1 : 1,
         },
         contextPanelCollapsed: false,
