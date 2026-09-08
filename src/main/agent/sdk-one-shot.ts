@@ -726,23 +726,20 @@ async function runPiAiStreamInner(
 
   const start = Date.now();
   const userMsg: PiUserMessage = { role: 'user', content: prompt, timestamp: Date.now() };
-  const generationOptions = shouldOmitTemperature(resolvedModel.id)
-    ? omitTemperatureOption(options)
-    : options;
+  const temperature =
+    shouldOmitTemperature(resolvedModel.id) || typeof options?.temperature !== 'number'
+      ? undefined
+      : options.temperature;
   const baseOptions: {
     temperature?: number;
     maxTokens?: number;
     signal?: AbortSignal;
     apiKey: string | undefined;
   } = {
-    maxTokens: generationOptions?.maxTokens,
-    signal: generationOptions?.signal,
+    ...(temperature !== undefined ? { temperature } : {}),
+    maxTokens: options?.maxTokens,
+    signal: options?.signal,
     apiKey: apiKey || undefined,
-    ...(generationOptions &&
-    'temperature' in generationOptions &&
-    generationOptions.temperature !== undefined
-      ? { temperature: generationOptions.temperature }
-      : {}),
   };
 
   const yorkLlmActive = isYorkLlmBaseUrl(effectiveBaseUrl || resolvedModel.baseUrl);
