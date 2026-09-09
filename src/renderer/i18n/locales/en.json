@@ -1134,6 +1134,8 @@
     "shareIncognitoBlocked": "Incognito chats cannot be shared",
     "collabWatching": "Watching — {{name}} has the turn",
     "collabWaitingPeer": "Syncing history — waiting for a teammate who has this chat to come online…",
+    "collabWaitingForPeerShort": "waiting for teammate",
+    "collabWithPeers": "with {{names}}",
     "collabTakeTurn": "Take turn",
     "collabSharedBadge": "Shared",
     "collabComposerLocked": "Take the turn to send a message",

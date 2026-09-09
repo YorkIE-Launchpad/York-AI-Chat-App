@@ -1435,6 +1435,14 @@ export function ChatView() {
     collabState.connection === 'connected' &&
     !collabState.peersOnline &&
     messages.length === 0;
+  const collabPeerNames = collabState?.peerNames ?? [];
+  const collabRoomIdLabel = collabInviteShown || collabState?.roomId || '';
+  const collabPresenceLabel =
+    collabState?.connection === 'connected'
+      ? collabPeerNames.length > 0
+        ? t('chat.collabWithPeers', { names: collabPeerNames.join(', ') })
+        : t('chat.collabWaitingForPeerShort')
+      : collabState?.connection || '';
 
   // When a peer comes online, reload transcript in case sync projected messages
   const prevPeersOnlineRef = useRef(false);
@@ -1520,6 +1528,9 @@ export function ChatView() {
             <span className="ml-2 inline-flex align-middle items-center gap-1 rounded-md bg-surface-hover px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-text-muted">
               <Users className="w-3 h-3" />
               {t('chat.collabSharedBadge')}
+              {collabState?.connection === 'connected' && collabPeerNames.length > 0
+                ? ` · ${collabPeerNames.length}`
+                : null}
             </span>
           ) : null}
         </h2>
@@ -1654,9 +1665,8 @@ export function ChatView() {
           ) : null}
           {!collabBlocksComposer && collabState?.connection === 'connected' ? (
             <p className="text-xs text-text-muted">
-              {t('chat.collabSharedBadge')} · {collabState.connection}
-              {collabInviteShown ? ` · ID ${collabInviteShown}` : ''}
-              {collabState.roomId && !collabInviteShown ? ` · ID ${collabState.roomId}` : ''}
+              {t('chat.collabSharedBadge')} · {collabPresenceLabel}
+              {collabRoomIdLabel ? ` · ID ${collabRoomIdLabel}` : ''}
             </p>
           ) : null}
         </div>

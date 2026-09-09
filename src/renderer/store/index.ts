@@ -517,6 +517,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => {
       const ss = getSession(state.sessionStates, sessionId);
       const messages = ss.messages;
+      if (messages.some((existing) => existing.id === message.id)) {
+        return {};
+      }
       let updatedMessages = messages;
       let updatedPendingTurns = ss.pendingTurns;
 

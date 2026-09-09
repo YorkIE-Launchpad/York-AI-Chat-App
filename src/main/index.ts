@@ -312,6 +312,8 @@ function wireCollabSyncService(): void {
     getMessages: (id) => sessionManager!.getMessages(id),
     saveMessage: (message) => {
       sessionManager!.saveMessage(message);
+    },
+    emitStreamMessage: (message) => {
       sendToRenderer({
         type: 'stream.message',
         payload: { sessionId: message.sessionId, message },

@@ -47,11 +47,16 @@ interface RoomRuntime {
   knownMessageIds: Set<string>;
 }
 
+/** @internal test helper shape for installRoomForTests */
+export type CollabRoomRuntimeForTests = RoomRuntime;
+
 export interface CollabSyncDeps {
   getSession: (sessionId: string) => Session | null;
   listSessions: () => Session[];
   getMessages: (sessionId: string) => Message[];
   saveMessage: (message: Message) => void;
+  /** Notify renderer of a message projected from a peer (stream.message). */
+  emitStreamMessage: (message: Message) => void;
   createJoinedSession: (input: {
     title: string;
     roomId: string;
@@ -121,6 +126,7 @@ export class CollabSyncService {
         role: session.collabRole || 'member',
         connection: 'disconnected',
         peersOnline: false,
+        peerNames: [],
         lease: null,
         members: {},
         localSub: getCognitoSubFromSession() || '',
@@ -137,12 +143,40 @@ export class CollabSyncService {
       inviteToken: rt.inviteToken,
       connection: rt.connection,
       peersOnline: rt.peersOnline,
+      peerNames: this.readPeerNames(rt, localSub),
       lease,
       members: readMembers(rt.doc),
       localSub,
       canPrompt: !!localSub && canPromptWithLease(rt.doc, localSub),
       awarenessPartial: this.readAwarenessPartial(rt),
     };
+  }
+
+  private readPeerNames(rt: RoomRuntime, localSub: string): string[] {
+    const names: string[] = [];
+    const seen = new Set<string>();
+    const push = (raw: string | undefined) => {
+      const name = raw?.trim();
+      if (!name) return;
+      const key = name.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      names.push(name);
+    };
+
+    for (const [sub, member] of Object.entries(readMembers(rt.doc))) {
+      if (localSub && sub === localSub) continue;
+      push(member.displayName);
+    }
+    if (names.length > 0) return names;
+
+    for (const [clientId, state] of rt.awareness.getStates()) {
+      if (clientId === rt.doc.clientID) continue;
+      const user = state?.user as { sub?: string; name?: string } | undefined;
+      if (localSub && user?.sub === localSub) continue;
+      push(user?.name);
+    }
+    return names;
   }
 
   private readAwarenessPartial(
@@ -463,19 +497,10 @@ export class CollabSyncService {
       rt.knownMessageIds.add(portable.id);
       rt.applyingRemote = true;
       try {
-        const message: Message = {
-          id: portable.id,
-          sessionId: rt.sessionId,
-          role: portable.role,
-          content: portable.content,
-          timestamp: portable.timestamp,
-          api: portable.api,
-          provider: portable.provider,
-          model: portable.model,
-          tokenUsage: portable.tokenUsage,
-          executionTimeMs: portable.executionTimeMs,
-        };
+        const message = portableToMessage(portable, rt.sessionId);
         this.deps.saveMessage(message);
+        // saveMessage alone does not notify the renderer — push live UI update.
+        this.deps.emitStreamMessage(message);
       } catch (error) {
         logError('[Collab] Failed to project remote message:', error);
       } finally {
@@ -612,6 +637,23 @@ export class CollabSyncService {
       this.deps.updateSessionCollab(sessionId, { collabRoomId: null, collabRole: null });
     }
     this.emitState(sessionId);
+  }
+
+  /**
+   * Test seam: install a room runtime without opening a WebSocket, then flush
+   * remote projections as if Yjs observers fired.
+   * @internal
+   */
+  installRoomForTests(rt: RoomRuntime): void {
+    this.roomsBySession.set(rt.sessionId, rt);
+    this.sessionByRoom.set(rt.roomId, rt.sessionId);
+  }
+
+  /** @internal */
+  flushRemoteProjectionForTests(sessionId: string): void {
+    const rt = this.roomsBySession.get(sessionId);
+    if (!rt) return;
+    this.projectRemoteMessages(rt);
   }
 
   dispose(): void {

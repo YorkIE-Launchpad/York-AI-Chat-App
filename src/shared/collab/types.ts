@@ -9,6 +9,8 @@ export interface CollabRoomState {
   inviteToken?: string;
   connection: CollabWsStatus;
   peersOnline: boolean;
+  /** Other participants' display names (members map, else awareness). */
+  peerNames: string[];
   lease: CollabTurnLease | null;
   members: Record<string, CollabMember>;
   localSub: string;
