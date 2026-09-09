@@ -131,6 +131,13 @@ export class SessionManager {
   private meetingService: MeetingService | null = null;
   /** In-memory-only sessions (incognito). Never written to SQLite. */
   private ephemeralSessions: Map<string, Session> = new Map();
+  private collabHooks: {
+    assertCanPrompt?: (sessionId: string) => void;
+    onLocalMessageSaved?: (sessionId: string, message: Message) => void;
+    onStreamPartial?: (sessionId: string, delta: string) => void;
+    onAgentRunStart?: (sessionId: string) => void;
+    onAgentRunEnd?: (sessionId: string) => void;
+  } | null = null;
 
   constructor(
     db: DatabaseInstance,
@@ -146,6 +153,17 @@ export class SessionManager {
       }
       if (event.type === 'trace.update') {
         this.updateTraceStep(event.payload.stepId, event.payload.updates);
+      }
+      if (event.type === 'stream.partial') {
+        this.collabHooks?.onStreamPartial?.(event.payload.sessionId, event.payload.delta);
+      }
+      if (event.type === 'session.status') {
+        const status = event.payload.status;
+        if (status === 'running') {
+          this.collabHooks?.onAgentRunStart?.(event.payload.sessionId);
+        } else if (status === 'idle' || status === 'completed' || status === 'error') {
+          this.collabHooks?.onAgentRunEnd?.(event.payload.sessionId);
+        }
       }
       sendToRenderer(event);
     };
@@ -167,6 +185,18 @@ export class SessionManager {
 
   setMeetingService(service: MeetingService | null): void {
     this.meetingService = service;
+  }
+
+  setCollabHooks(
+    hooks: {
+      assertCanPrompt?: (sessionId: string) => void;
+      onLocalMessageSaved?: (sessionId: string, message: Message) => void;
+      onStreamPartial?: (sessionId: string, delta: string) => void;
+      onAgentRunStart?: (sessionId: string) => void;
+      onAgentRunEnd?: (sessionId: string) => void;
+    } | null
+  ): void {
+    this.collabHooks = hooks;
   }
 
   /**
@@ -606,6 +636,8 @@ export class SessionManager {
       client_name: divisionFields.clientName ?? null,
       client_project_ids: divisionFields.clientProjectIds ?? null,
       pinned: session.pinned ? 1 : 0,
+      collab_room_id: session.collabRoomId ?? null,
+      collab_role: session.collabRole ?? null,
       created_at: session.createdAt,
       updated_at: session.updatedAt,
     });
@@ -633,6 +665,8 @@ export class SessionManager {
     client_name?: string | null;
     client_project_ids?: string | null;
     pinned?: number | null;
+    collab_room_id?: string | null;
+    collab_role?: string | null;
     created_at: number;
     updated_at: number;
   }): Session {
@@ -687,6 +721,9 @@ export class SessionManager {
       clientName: divisionFields.clientName,
       clientProjectIds: divisionFields.clientProjectIds,
       pinned: row.pinned === 1,
+      collabRoomId: row.collab_room_id || null,
+      collabRole:
+        row.collab_role === 'owner' || row.collab_role === 'member' ? row.collab_role : null,
       autoApproveToolPermissions: sessionAutoApprovesToolPermissions(row.id) || undefined,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -717,6 +754,52 @@ export class SessionManager {
   /** Public session lookup for export/import and other callers. */
   getSession(sessionId: string): Session | null {
     return this.loadSession(sessionId);
+  }
+
+  updateSessionCollab(
+    sessionId: string,
+    collab: { collabRoomId: string | null; collabRole: 'owner' | 'member' | null }
+  ): void {
+    const session = this.loadSession(sessionId);
+    if (!session) return;
+    session.collabRoomId = collab.collabRoomId;
+    session.collabRole = collab.collabRole;
+    session.updatedAt = Date.now();
+    this.saveSession(session);
+    this.sendToRenderer({
+      type: 'session.update',
+      payload: {
+        sessionId,
+        updates: {
+          collabRoomId: collab.collabRoomId,
+          collabRole: collab.collabRole,
+        },
+      },
+    });
+  }
+
+  /** Create a local session shell for a joined shared room. */
+  createJoinedCollabSession(input: {
+    title: string;
+    roomId: string;
+    role: 'member';
+  }): Session {
+    const session = this.createSession(input.title, undefined, undefined, true);
+    session.collabRoomId = input.roomId;
+    session.collabRole = input.role;
+    this.saveSession(session);
+    this.sendToRenderer({
+      type: 'session.update',
+      payload: {
+        sessionId: session.id,
+        updates: session,
+      },
+    });
+    this.sendToRenderer({
+      type: 'session.list',
+      payload: { sessions: this.listSessions() },
+    });
+    return session;
   }
 
   searchChats(
@@ -932,6 +1015,7 @@ export class SessionManager {
       throw new Error(`Session not found: ${sessionId}`);
     }
 
+    this.collabHooks?.assertCanPrompt?.(sessionId);
     this.enqueuePrompt(session, prompt, content, options);
   }
 
@@ -1929,6 +2013,7 @@ export class SessionManager {
     }
 
     log('[SessionManager] Message saved:', message.id, 'role:', message.role);
+    this.collabHooks?.onLocalMessageSaved?.(message.sessionId, message);
   }
 
   /** Post a completed assistant message to a session (e.g. Live Assist answer). */

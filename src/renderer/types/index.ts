@@ -43,6 +43,10 @@ export interface Session {
   pinned?: boolean;
   /** When true, chat is in-memory only and does not update long-term memory. */
   incognito?: boolean;
+  /** Shared-collab room id (ephemeral Yjs relay). */
+  collabRoomId?: string | null;
+  /** Local role in the shared room. */
+  collabRole?: 'owner' | 'member' | null;
   /**
    * When true, tool permission `ask` decisions are auto-allowed (workflow agent
    * steps). Hard `deny` rules and MCP write kill-switch still apply.

@@ -1,4 +1,5 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../store';
 import { useIPC } from '../hooks/useIPC';
@@ -31,6 +32,7 @@ import {
   FolderPlus,
   Layers,
   Users,
+  Link2,
 } from 'lucide-react';
 import type { Session } from '../types';
 import { DivisionSwitcher } from './DivisionSwitcher';
@@ -245,6 +247,7 @@ export function Sidebar() {
     getSessionMessages,
     getSessionTraceSteps,
     importSession,
+    joinCollabSession,
     isElectron,
   } = useIPC();
   const setGlobalNotice = useAppStore((s) => s.setGlobalNotice);
@@ -257,6 +260,10 @@ export function Sidebar() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [joinModalOpen, setJoinModalOpen] = useState(false);
+  const [joinInviteDraft, setJoinInviteDraft] = useState('');
+  const [joiningShared, setJoiningShared] = useState(false);
+  const joinInputRef = useRef<HTMLInputElement>(null);
   const [searchHits, setSearchHits] = useState<ChatSearchHit[]>([]);
   const [searchBusy, setSearchBusy] = useState(false);
   const [searchAllWorkspaces, setSearchAllWorkspaces] = useState(false);
@@ -739,6 +746,52 @@ export function Sidebar() {
     }
   };
 
+  const handleJoinSharedChat = () => {
+    if (!isElectron) return;
+    setJoinInviteDraft('');
+    setJoinModalOpen(true);
+    requestAnimationFrame(() => joinInputRef.current?.focus());
+  };
+
+  const handleCloseJoinModal = () => {
+    if (joiningShared) return;
+    setJoinModalOpen(false);
+    setJoinInviteDraft('');
+  };
+
+  const handleSubmitJoinShared = async () => {
+    const inviteToken = joinInviteDraft.trim();
+    if (!inviteToken || joiningShared) return;
+    setJoiningShared(true);
+    try {
+      const result = await joinCollabSession(inviteToken);
+      if (result.success) {
+        setJoinModalOpen(false);
+        setJoinInviteDraft('');
+        setGlobalNotice({
+          id: `notice-join-${Date.now()}`,
+          type: 'success',
+          message: '',
+          messageKey: 'sidebar.joinSharedSuccess',
+        });
+      } else {
+        setGlobalNotice({
+          id: `notice-join-${Date.now()}`,
+          type: 'error',
+          message: result.error || t('sidebar.joinSharedFailed'),
+        });
+      }
+    } catch (error) {
+      setGlobalNotice({
+        id: `notice-join-${Date.now()}`,
+        type: 'error',
+        message: error instanceof Error ? error.message : t('sidebar.joinSharedFailed'),
+      });
+    } finally {
+      setJoiningShared(false);
+    }
+  };
+
   const handleDeleteSession = (e: React.MouseEvent, sessionId: string) => {
     e.stopPropagation();
     deleteSession(sessionId);
@@ -797,8 +850,72 @@ export function Sidebar() {
   const WorkspaceIcon = workspaceKindIcon(activeDivision);
   const workspaceName = divisionLabel(activeDivision);
 
+  const joinSharedModal =
+    joinModalOpen && typeof document !== 'undefined'
+      ? createPortal(
+          <div
+            className="fixed inset-0 z-[90] flex items-center justify-center bg-black/20 p-4 backdrop-blur-sm animate-fade-in"
+            onClick={handleCloseJoinModal}
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="join-shared-chat-title"
+              className="w-full max-w-md rounded-2xl border border-border-subtle bg-background p-4 shadow-xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 id="join-shared-chat-title" className="text-sm font-medium text-text-primary">
+                {t('sidebar.joinSharedChat')}
+              </h3>
+              <p className="mt-1 text-xs text-text-muted">{t('sidebar.joinSharedPrompt')}</p>
+              <input
+                ref={joinInputRef}
+                type="text"
+                value={joinInviteDraft}
+                onChange={(e) => setJoinInviteDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    void handleSubmitJoinShared();
+                  }
+                  if (e.key === 'Escape') {
+                    e.preventDefault();
+                    handleCloseJoinModal();
+                  }
+                }}
+                placeholder={t('sidebar.joinSharedPrompt')}
+                disabled={joiningShared}
+                className="mt-3 w-full rounded-xl border border-border-subtle bg-surface px-3 py-2 text-sm text-text-primary outline-none placeholder:text-text-muted focus:border-accent"
+              />
+              <div className="mt-3 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={handleCloseJoinModal}
+                  disabled={joiningShared}
+                  className="rounded-xl px-3 py-1.5 text-sm text-text-secondary hover:bg-surface-hover disabled:opacity-50"
+                >
+                  {t('common.cancel')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleSubmitJoinShared()}
+                  disabled={joiningShared || !joinInviteDraft.trim()}
+                  className="rounded-xl bg-accent px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+                >
+                  {joiningShared
+                    ? t('common.loading', { defaultValue: 'Joining…' })
+                    : t('sidebar.joinSharedChat')}
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )
+      : null;
+
   if (sidebarCollapsed) {
     return (
+      <>
       <aside className="relative z-20 flex w-[4.5rem] shrink-0 flex-col overflow-hidden border-r border-border-muted bg-surface/96">
         <div className="px-3 pt-3 pb-2 flex flex-col items-center gap-1.5 border-b border-border-muted">
           <button
@@ -842,6 +959,14 @@ export function Sidebar() {
             title={t('sidebar.importChat')}
           >
             <FileDown className={`w-4 h-4 ${importing ? 'animate-pulse' : ''}`} />
+          </button>
+          <button
+            onClick={handleJoinSharedChat}
+            disabled={!isElectron}
+            className="w-9 h-9 rounded-2xl flex items-center justify-center bg-background hover:bg-surface-hover transition-colors text-text-secondary border border-border-subtle disabled:opacity-50"
+            title={t('sidebar.joinSharedChat')}
+          >
+            <Link2 className="w-4 h-4" />
           </button>
           <button
             type="button"
@@ -938,10 +1063,13 @@ export function Sidebar() {
           ) : null}
         </div>
       </aside>
+      {joinSharedModal}
+      </>
     );
   }
 
   return (
+    <>
     <aside className="relative z-20 flex w-[17.5rem] shrink-0 flex-col overflow-hidden border-r border-border-muted bg-surface/96">
       <div className="px-3 pt-3 pb-2 border-b border-border-muted">
         <div className="flex items-start justify-between gap-2">
@@ -1008,6 +1136,15 @@ export function Sidebar() {
               title={t('sidebar.importChat')}
             >
               <FileDown className={`w-4 h-4 ${importing ? 'animate-pulse' : ''}`} />
+            </button>
+            <button
+              onClick={handleJoinSharedChat}
+              disabled={!isElectron}
+              className="flex h-full flex-1 items-center justify-center rounded-lg border border-border-subtle bg-background/60 text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary disabled:opacity-50"
+              aria-label={t('sidebar.joinSharedChat')}
+              title={t('sidebar.joinSharedChat')}
+            >
+              <Link2 className="w-4 h-4" />
             </button>
           </div>
 
@@ -1197,6 +1334,14 @@ export function Sidebar() {
                                       {isIncognito && !isSelectMode && (
                                         <Ghost className="w-3.5 h-3.5 text-text-muted flex-shrink-0" />
                                       )}
+                                      {Boolean(session.collabRoomId) && !isSelectMode && (
+                                        <span title={t('chat.collabSharedBadge')} className="flex-shrink-0">
+                                          <Users
+                                            className="w-3.5 h-3.5 text-text-muted"
+                                            aria-hidden
+                                          />
+                                        </span>
+                                      )}
                                       {isActiveLoop && !isSelectMode && (
                                         <span className="flex-shrink-0 text-accent">
                                           {loopStatus?.kind === 'goal' ? (
@@ -1370,6 +1515,11 @@ export function Sidebar() {
                       )}
                       {isIncognito && !isSelectMode && (
                         <Ghost className="w-3.5 h-3.5 text-text-muted flex-shrink-0" />
+                      )}
+                      {Boolean(session.collabRoomId) && !isSelectMode && (
+                        <span title={t('chat.collabSharedBadge')} className="flex-shrink-0">
+                          <Users className="w-3.5 h-3.5 text-text-muted" aria-hidden />
+                        </span>
                       )}
                       {isActiveLoop && !isSelectMode && (
                         <span
@@ -1635,5 +1785,7 @@ export function Sidebar() {
         </div>
       )}
     </aside>
+    {joinSharedModal}
+    </>
   );
 }

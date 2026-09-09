@@ -39,7 +39,10 @@ import {
   Hash,
   MessageSquare,
   BookOpen,
+  Share2,
+  Users,
 } from 'lucide-react';
+import type { CollabRoomState } from '../../shared/collab/types';
 import { isScrollNearBottom, resolveSessionScrollTop } from '../utils/chat-scroll-position';
 import {
   useSlashCommands,
@@ -122,7 +125,17 @@ export function ChatView() {
     activeSessionId ? (s.matterChatDraftBySessionId[activeSessionId] ?? null) : null
   );
   const clearMatterChatDraft = useAppStore((s) => s.clearMatterChatDraft);
-  const { continueSession, stopSession, removeQueuedMessage, exportSession, isElectron } = useIPC();
+  const {
+    continueSession,
+    stopSession,
+    removeQueuedMessage,
+    exportSession,
+    shareCollabSession,
+    getCollabState,
+    acquireCollabTurn,
+    getSessionMessages,
+    isElectron,
+  } = useIPC();
   const [prompt, setPrompt] = useState('');
   const [cursorIndex, setCursorIndex] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -161,6 +174,8 @@ export function ChatView() {
   const [loopMenuOpen, setLoopMenuOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [loopNotice, setLoopNotice] = useState<string | null>(null);
+  const [collabState, setCollabState] = useState<CollabRoomState | null>(null);
+  const [collabInviteShown, setCollabInviteShown] = useState<string | null>(null);
   const attachMenuRef = useRef<HTMLDivElement>(null);
   const loopMenuRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -203,7 +218,27 @@ export function ChatView() {
     if (!activeSessionId) return transcriptMessages;
     // Show streaming message if we have partial text OR partial thinking
     const hasStreamingContent = partialMessage || partialThinking;
-    if (!hasStreamingContent || !activeTurn?.userMessageId) return transcriptMessages;
+    if (!hasStreamingContent || !activeTurn?.userMessageId) {
+      const remotePartial = collabState?.awarenessPartial;
+      if (remotePartial?.text && !collabState?.canPrompt) {
+        return [
+          ...transcriptMessages,
+          {
+            id: 'collab-awareness-partial',
+            sessionId: activeSessionId,
+            role: 'assistant' as const,
+            content: [
+              {
+                type: 'text' as const,
+                text: `${remotePartial.fromName}: ${remotePartial.text}`,
+              },
+            ],
+            timestamp: Date.now(),
+          },
+        ];
+      }
+      return transcriptMessages;
+    }
     const anchorIndex = transcriptMessages.findIndex(
       (message) => message.id === activeTurn.userMessageId
     );
@@ -236,7 +271,15 @@ export function ChatView() {
       streamingMessage,
       ...transcriptMessages.slice(insertIndex),
     ];
-  }, [activeSessionId, activeTurn?.userMessageId, messages, partialMessage, partialThinking]);
+  }, [
+    activeSessionId,
+    activeTurn?.userMessageId,
+    collabState?.awarenessPartial,
+    collabState?.canPrompt,
+    messages,
+    partialMessage,
+    partialThinking,
+  ]);
 
   // Format execution time for display
   const formatExecutionTime = useCallback((ms: number): string => {
@@ -1044,6 +1087,19 @@ export function ChatView() {
     )
       return;
 
+    if (isSharedChat) {
+      if (collabBlocksComposer) {
+        setGlobalNotice({
+          id: `notice-collab-${Date.now()}`,
+          type: 'warning',
+          message: '',
+          messageKey: 'chat.collabComposerLocked',
+        });
+        return;
+      }
+      // Lease free or ours — acquireTurn is handled in main assertCanPrompt on send
+    }
+
     // Intercept /loop and /goal before normal send
     if (isElectron && isLoopSlashInput(currentPrompt.trim())) {
       setIsSubmitting(true);
@@ -1266,6 +1322,144 @@ export function ChatView() {
     }
   };
 
+  const handleShareChat = async () => {
+    if (!activeSessionId || !isElectron) return;
+    if (activeSession?.incognito) {
+      setGlobalNotice({
+        id: `notice-share-${Date.now()}`,
+        type: 'warning',
+        message: '',
+        messageKey: 'chat.shareIncognitoBlocked',
+      });
+      return;
+    }
+    try {
+      const result = await shareCollabSession(activeSessionId);
+      if (!result.success || !result.roomId) {
+        setGlobalNotice({
+          id: `notice-share-${Date.now()}`,
+          type: 'error',
+          message: result.error || t('chat.shareFailed'),
+        });
+        return;
+      }
+      const roomId = result.roomId;
+      setCollabInviteShown(roomId);
+      try {
+        await navigator.clipboard.writeText(roomId);
+        setGlobalNotice({
+          id: `notice-share-${Date.now()}`,
+          type: 'success',
+          message: '',
+          messageKey: 'chat.shareSuccess',
+          messageValues: { roomId },
+        });
+      } catch {
+        setGlobalNotice({
+          id: `notice-share-${Date.now()}`,
+          type: 'success',
+          message: roomId,
+        });
+      }
+      const state = await getCollabState(activeSessionId);
+      setCollabState(state);
+    } catch (error) {
+      setGlobalNotice({
+        id: `notice-share-${Date.now()}`,
+        type: 'error',
+        message: error instanceof Error ? error.message : t('chat.shareFailed'),
+      });
+    }
+  };
+
+  const handleTakeTurn = async () => {
+    if (!activeSessionId) return;
+    const result = await acquireCollabTurn(activeSessionId);
+    if (!result.success) {
+      setGlobalNotice({
+        id: `notice-turn-${Date.now()}`,
+        type: 'error',
+        message: result.error || t('chat.collabTakeTurn'),
+      });
+      return;
+    }
+    if (result.state) setCollabState(result.state);
+  };
+
+  useEffect(() => {
+    if (!activeSessionId || !isElectron) {
+      setCollabState(null);
+      return;
+    }
+    let cancelled = false;
+    void getCollabState(activeSessionId).then((state) => {
+      if (!cancelled) setCollabState(state);
+    });
+    const unsubState = window.electronAPI.collab.onState((state) => {
+      if (state.sessionId === activeSessionId) setCollabState(state);
+    });
+    const unsubAwareness = window.electronAPI.collab.onAwareness((payload) => {
+      if (payload.sessionId !== activeSessionId) return;
+      setCollabState((prev) => {
+        if (!prev) return prev;
+        const lease = payload.lease;
+        const localSub = prev.localSub;
+        const canPrompt =
+          Boolean(localSub) && (!lease || lease.holderSub === localSub);
+        return {
+          ...prev,
+          awarenessPartial: payload.partial,
+          peersOnline: payload.peersOnline,
+          lease,
+          canPrompt,
+        };
+      });
+    });
+    return () => {
+      cancelled = true;
+      unsubState();
+      unsubAwareness();
+    };
+  }, [activeSessionId, getCollabState, isElectron]);
+
+  const isSharedChat = Boolean(activeSession?.collabRoomId || collabState?.roomId);
+  const leaseHeldByOther = Boolean(
+    collabState?.lease &&
+      collabState.localSub &&
+      collabState.lease.holderSub !== collabState.localSub
+  );
+  const collabBlocksComposer = isSharedChat && collabState != null && leaseHeldByOther;
+  const showCollabWaitingPeer =
+    Boolean(collabState) &&
+    collabState?.role === 'member' &&
+    collabState.connection === 'connected' &&
+    !collabState.peersOnline &&
+    messages.length === 0;
+
+  // When a peer comes online, reload transcript in case sync projected messages
+  const prevPeersOnlineRef = useRef(false);
+  useEffect(() => {
+    if (!activeSessionId || !isElectron || !isSharedChat) {
+      prevPeersOnlineRef.current = false;
+      return;
+    }
+    const peersOnline = Boolean(collabState?.peersOnline);
+    if (peersOnline && !prevPeersOnlineRef.current) {
+      void getSessionMessages(activeSessionId).then((msgs) => {
+        if (msgs?.length) {
+          useAppStore.getState().setMessages(activeSessionId, msgs);
+        }
+      });
+    }
+    prevPeersOnlineRef.current = peersOnline;
+  }, [
+    activeSessionId,
+    collabState?.peersOnline,
+    getSessionMessages,
+    isElectron,
+    isSharedChat,
+  ]);
+
   // Auto-adjust textarea height based on content
   const adjustTextareaHeight = () => {
     const textarea = textareaRef.current;
@@ -1322,8 +1516,23 @@ export function ChatView() {
         </div>
         <h2 className="min-w-0 flex-1 truncate text-[15px] font-medium text-text-primary">
           {activeSession.title}
+          {isSharedChat ? (
+            <span className="ml-2 inline-flex align-middle items-center gap-1 rounded-md bg-surface-hover px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-text-muted">
+              <Users className="w-3 h-3" />
+              {t('chat.collabSharedBadge')}
+            </span>
+          ) : null}
         </h2>
         <div ref={rightActionsRef} className="relative flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void handleShareChat()}
+            disabled={!isElectron || Boolean(activeSession?.incognito)}
+            className="w-8 h-8 shrink-0 rounded-xl flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-surface-hover transition-colors disabled:opacity-40 disabled:pointer-events-none"
+            title={t('chat.shareChat')}
+          >
+            <Share2 className="w-4 h-4" />
+          </button>
           <button
             type="button"
             onClick={() => void handleExportChat()}
@@ -1422,6 +1631,36 @@ export function ChatView() {
       )}
 
       {/* Messages */}
+      {isSharedChat ? (
+        <div className="shrink-0 border-b border-border-muted bg-surface/80 px-4 py-2 text-sm text-text-secondary lg:px-8">
+          {showCollabWaitingPeer ? (
+            <p>{t('chat.collabWaitingPeer')}</p>
+          ) : null}
+          {collabBlocksComposer && collabState?.lease ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <span>
+                {t('chat.collabWatching', {
+                  name: collabState.lease.holderName || 'Teammate',
+                })}
+              </span>
+              <button
+                type="button"
+                onClick={() => void handleTakeTurn()}
+                className="rounded-lg bg-accent/15 px-2.5 py-1 text-xs font-medium text-accent hover:bg-accent/25"
+              >
+                {t('chat.collabTakeTurn')}
+              </button>
+            </div>
+          ) : null}
+          {!collabBlocksComposer && collabState?.connection === 'connected' ? (
+            <p className="text-xs text-text-muted">
+              {t('chat.collabSharedBadge')} · {collabState.connection}
+              {collabInviteShown ? ` · ID ${collabInviteShown}` : ''}
+              {collabState.roomId && !collabInviteShown ? ` · ID ${collabState.roomId}` : ''}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
       <div ref={scrollContainerRef} className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
         <div
           ref={messagesContainerRef}
@@ -1939,7 +2178,7 @@ export function ChatView() {
                   }
                 }}
                 placeholder={t('chat.typeMessageSkillHint')}
-                disabled={isSubmitting || openRouterKeyRequired}
+                disabled={isSubmitting || openRouterKeyRequired || collabBlocksComposer}
                 rows={1}
                 className="flex-1 min-w-0 resize-none bg-transparent border-none outline-none text-text-primary placeholder:text-text-muted text-[15px] leading-5 py-1.5 overflow-hidden"
               />

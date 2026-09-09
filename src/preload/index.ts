@@ -209,6 +209,55 @@ contextBridge.exposeInMainWorld('electronAPI', {
     }> => ipcRenderer.invoke('session.import'),
   },
 
+  collab: {
+    shareSession: (
+      sessionId: string
+    ): Promise<{ success: boolean; roomId?: string; inviteToken?: string; error?: string }> =>
+      ipcRenderer.invoke('collab.shareSession', sessionId),
+    joinSession: (
+      inviteToken: string
+    ): Promise<{ success: boolean; sessionId?: string; roomId?: string; error?: string }> =>
+      ipcRenderer.invoke('collab.joinSession', inviteToken),
+    leaveSession: (sessionId: string): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('collab.leaveSession', sessionId),
+    getState: (sessionId: string): Promise<import('../shared/collab/types').CollabRoomState | null> =>
+      ipcRenderer.invoke('collab.getState', sessionId),
+    acquireTurn: (
+      sessionId: string
+    ): Promise<{
+      success: boolean;
+      state?: import('../shared/collab/types').CollabRoomState | null;
+      error?: string;
+    }> => ipcRenderer.invoke('collab.acquireTurn', sessionId),
+    releaseTurn: (
+      sessionId: string
+    ): Promise<{
+      success: boolean;
+      state?: import('../shared/collab/types').CollabRoomState | null;
+      error?: string;
+    }> => ipcRenderer.invoke('collab.releaseTurn', sessionId),
+    onState: (
+      callback: (state: import('../shared/collab/types').CollabRoomState) => void
+    ): (() => void) => {
+      const listener = (
+        _: Electron.IpcRendererEvent,
+        state: import('../shared/collab/types').CollabRoomState
+      ) => callback(state);
+      ipcRenderer.on('collab:state', listener);
+      return () => ipcRenderer.removeListener('collab:state', listener);
+    },
+    onAwareness: (
+      callback: (payload: import('../shared/collab/types').CollabAwarenessEvent) => void
+    ): (() => void) => {
+      const listener = (
+        _: Electron.IpcRendererEvent,
+        payload: import('../shared/collab/types').CollabAwarenessEvent
+      ) => callback(payload);
+      ipcRenderer.on('collab:awareness', listener);
+      return () => ipcRenderer.removeListener('collab:awareness', listener);
+    },
+  },
+
   // Platform info
   platform: process.platform,
 
@@ -1020,6 +1069,34 @@ declare global {
           error?: string;
           cancelled?: boolean;
         }>;
+      };
+      collab: {
+        shareSession: (
+          sessionId: string
+        ) => Promise<{ success: boolean; roomId?: string; inviteToken?: string; error?: string }>;
+        joinSession: (
+          inviteToken: string
+        ) => Promise<{ success: boolean; sessionId?: string; roomId?: string; error?: string }>;
+        leaveSession: (sessionId: string) => Promise<{ success: boolean; error?: string }>;
+        getState: (
+          sessionId: string
+        ) => Promise<import('../shared/collab/types').CollabRoomState | null>;
+        acquireTurn: (sessionId: string) => Promise<{
+          success: boolean;
+          state?: import('../shared/collab/types').CollabRoomState | null;
+          error?: string;
+        }>;
+        releaseTurn: (sessionId: string) => Promise<{
+          success: boolean;
+          state?: import('../shared/collab/types').CollabRoomState | null;
+          error?: string;
+        }>;
+        onState: (
+          callback: (state: import('../shared/collab/types').CollabRoomState) => void
+        ) => () => void;
+        onAwareness: (
+          callback: (payload: import('../shared/collab/types').CollabAwarenessEvent) => void
+        ) => () => void;
       };
       platform: NodeJS.Platform;
       getSystemTheme: () => Promise<{ shouldUseDarkColors: boolean }>;

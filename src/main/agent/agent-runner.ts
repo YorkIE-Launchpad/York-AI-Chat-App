@@ -2222,6 +2222,7 @@ ${hints.join('\n')}
         const ollamaBaseUrl =
           activePiModel.baseUrl || runtimeConfig.baseUrl || 'http://localhost:11434/v1';
         if (yorkLlmActive) {
+          // Optional enrichment only — must not abort the turn if /models is slow.
           const yorkContextWindow = await getYorkLlmModelContextWindow(activePiModel.id);
           if (yorkContextWindow) {
             log(

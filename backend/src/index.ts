@@ -3,6 +3,8 @@ import dotenv from 'dotenv';
 import express from 'express';
 import { requireMinClientVersion } from './client-version.js';
 import { requireCognito } from './cognito-auth.js';
+import { createCollabInviteRouter } from './collab/invite-router.js';
+import { attachCollabRelay } from './collab/yjs-relay.js';
 import { listEnabledModels } from './models.js';
 import { proxyToProvider, type ProviderTarget } from './proxy.js';
 import { log } from './safe-log.js';
@@ -69,12 +71,19 @@ app.get('/models', (_req, res) => {
   res.json({ models: listEnabledModels() });
 });
 
+// Stateless collab invite JWT sign/verify (no room storage).
+app.use('/collab', express.json(), createCollabInviteRouter());
+
 for (const target of PROVIDER_TARGETS) {
   app.use(target.mountPath, (req, res) => {
     void proxyToProvider(req, res, target);
   });
 }
 
-app.listen(PORT, HOST, () => {
+const server = app.listen(PORT, HOST, () => {
   log(`[york-ie-backend] listening on http://${HOST}:${PORT}`);
 });
+
+// Ephemeral Yjs binary fan-out (no server-side docs). Cognito + invite on upgrade.
+attachCollabRelay(server);
+log('[york-ie-backend] collab WS relay attached at /collab/ws');

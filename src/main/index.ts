@@ -213,6 +213,7 @@ import {
 
 import { eventRequiresSessionManager } from './client-event-utils';
 import { getUnsupportedWorkspacePathReason } from './workspace-path-constraints';
+import { CollabSyncService } from './collab/collab-sync-service';
 import {
   log,
   logWarn,
@@ -287,6 +288,7 @@ app.disableHardwareAcceleration();
 
 let mainWindow: BrowserWindow | null = null;
 let sessionManager: SessionManager | null = null;
+let collabSyncService: CollabSyncService | null = null;
 let skillsManager: SkillsManager | null = null;
 let pluginRuntimeService: PluginRuntimeService | null = null;
 let memoryService: MemoryService | null = null;
@@ -300,6 +302,41 @@ let scheduledTaskManager: ScheduledTaskManager | null = null;
 let chatLoopManager: ChatLoopManager | null = null;
 let matterService: MatterService | null = null;
 let folderManager: FolderManager | null = null;
+
+function wireCollabSyncService(): void {
+  if (!sessionManager) return;
+  collabSyncService?.dispose();
+  collabSyncService = new CollabSyncService({
+    getSession: (id) => sessionManager!.getSession(id),
+    listSessions: () => sessionManager!.listSessions(),
+    getMessages: (id) => sessionManager!.getMessages(id),
+    saveMessage: (message) => {
+      sessionManager!.saveMessage(message);
+      sendToRenderer({
+        type: 'stream.message',
+        payload: { sessionId: message.sessionId, message },
+      });
+    },
+    createJoinedSession: (input) => sessionManager!.createJoinedCollabSession(input),
+    updateSessionCollab: (sessionId, collab) =>
+      sessionManager!.updateSessionCollab(sessionId, collab),
+    emitSessionUpdate: (session) => {
+      sendToRenderer({
+        type: 'session.update',
+        payload: { sessionId: session.id, updates: session },
+      });
+    },
+    getWindow: () => mainWindow,
+  });
+  sessionManager.setCollabHooks({
+    assertCanPrompt: (sessionId) => collabSyncService?.assertCanPrompt(sessionId),
+    onLocalMessageSaved: (sessionId, message) =>
+      collabSyncService?.onLocalMessageSaved(sessionId, message),
+    onStreamPartial: (sessionId, delta) => collabSyncService?.onStreamPartial(sessionId, delta),
+    onAgentRunStart: (sessionId) => collabSyncService?.onAgentRunStart(sessionId),
+    onAgentRunEnd: (sessionId) => collabSyncService?.onAgentRunEnd(sessionId),
+  });
+}
 
 /** Pending workflow approval resolvers keyed by runId:nodeId. */
 const pendingWorkflowApprovals = new Map<string, (decision: 'allow' | 'deny') => void>();
@@ -1663,6 +1700,7 @@ app
         headlessAskUserQuestionExtension
       );
       sessionManager.setMeetingService(meetingService);
+      wireCollabSyncService();
       initLiveAssistService();
 
       skillsManager = new SkillsManager(db, {
@@ -2110,6 +2148,7 @@ app
       askUserQuestionExtension
     );
     sessionManager.setMeetingService(meetingService);
+    wireCollabSyncService();
     initLiveAssistService();
     skillsManager = new SkillsManager(db, {
       getConfiguredGlobalSkillsPath: () => configStore.get('globalSkillsPath') || '',
@@ -4544,6 +4583,84 @@ ipcMain.handle('session.export', async (_event, sessionId: string) => {
     );
   } catch (error) {
     logError('[Session] Error exporting chat:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+ipcMain.handle('collab.shareSession', async (_event, sessionId: string) => {
+  try {
+    if (!collabSyncService) {
+      return { success: false, error: 'Collab not initialized' };
+    }
+    const result = await collabSyncService.shareSession(sessionId);
+    return { success: true, ...result };
+  } catch (error) {
+    logError('[Collab] shareSession failed:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+ipcMain.handle('collab.joinSession', async (_event, inviteToken: string) => {
+  try {
+    if (!collabSyncService) {
+      return { success: false, error: 'Collab not initialized' };
+    }
+    if (!inviteToken || typeof inviteToken !== 'string') {
+      return { success: false, error: 'Invite token required' };
+    }
+    const result = await collabSyncService.joinSession(inviteToken.trim());
+    return { success: true, ...result };
+  } catch (error) {
+    logError('[Collab] joinSession failed:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+ipcMain.handle('collab.leaveSession', async (_event, sessionId: string) => {
+  try {
+    if (!collabSyncService) {
+      return { success: false, error: 'Collab not initialized' };
+    }
+    collabSyncService.leaveSession(sessionId, { clearDb: true });
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+ipcMain.handle('collab.getState', async (_event, sessionId: string) => {
+  try {
+    if (!collabSyncService) return null;
+    if (sessionId) {
+      await collabSyncService.reconnectIfNeeded(sessionId).catch(() => undefined);
+    }
+    return collabSyncService.getState(sessionId);
+  } catch (error) {
+    logError('[Collab] getState failed:', error);
+    return null;
+  }
+});
+
+ipcMain.handle('collab.acquireTurn', async (_event, sessionId: string) => {
+  try {
+    if (!collabSyncService) {
+      return { success: false, error: 'Collab not initialized' };
+    }
+    const state = collabSyncService.acquireTurn(sessionId);
+    return { success: true, state };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+ipcMain.handle('collab.releaseTurn', async (_event, sessionId: string) => {
+  try {
+    if (!collabSyncService) {
+      return { success: false, error: 'Collab not initialized' };
+    }
+    const state = collabSyncService.releaseTurn(sessionId);
+    return { success: true, state };
+  } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
   }
 });

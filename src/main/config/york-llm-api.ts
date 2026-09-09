@@ -4,12 +4,15 @@ import {
   resolveYorkLlmBaseUrl,
 } from '../../shared/york-llm-config';
 import type { ProviderModelInfo } from '../../renderer/types';
+import { logWarn } from '../utils/logger';
 import { fetchOllamaModelIndex } from './ollama-api';
 
 export interface YorkLlmModelInfo extends ProviderModelInfo {
   contextWindow?: number;
 }
 
+/** Shared llama.cpp /models can be slow when the server is busy serving chat. */
+export const YORK_LLM_MODELS_TIMEOUT_MS = 180_000;
 const MODELS_CACHE_TTL_MS = 60_000;
 let modelsCache: { expiresAt: number; models: YorkLlmModelInfo[] } | null = null;
 
@@ -25,7 +28,7 @@ export async function listYorkLlmModels(options?: {
   const response = await fetch(`${baseUrl.replace(/\/+$/, '')}/models`, {
     method: 'GET',
     headers: { 'Content-Type': 'application/json' },
-    signal: AbortSignal.timeout(8000),
+    signal: AbortSignal.timeout(YORK_LLM_MODELS_TIMEOUT_MS),
   });
   const text = await response.text();
   if (!response.ok) {
@@ -64,8 +67,14 @@ export async function listYorkLlmModels(options?: {
 }
 
 export async function getYorkLlmModelContextWindow(modelId: string): Promise<number | undefined> {
-  const models = await listYorkLlmModels();
-  return models.find((model) => model.id === modelId)?.contextWindow;
+  try {
+    const models = await listYorkLlmModels();
+    return models.find((model) => model.id === modelId)?.contextWindow;
+  } catch (error) {
+    // Never fail a chat turn because /models was slow or unreachable.
+    logWarn('[YorkLlm] Context window lookup failed:', error);
+    return undefined;
+  }
 }
 
 export function resetYorkLlmModelsCacheForTests(): void {

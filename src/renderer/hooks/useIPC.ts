@@ -1203,6 +1203,65 @@ export function useIPC() {
     };
   }, [addSession, invoke]);
 
+  const shareCollabSession = useCallback(async (sessionId: string) => {
+    if (!isElectron) {
+      return { success: false as const, error: 'Share is only available in the desktop app' };
+    }
+    return window.electronAPI.collab.shareSession(sessionId);
+  }, []);
+
+  const joinCollabSession = useCallback(
+    async (inviteToken: string) => {
+      if (!isElectron) {
+        return { success: false as const, error: 'Join is only available in the desktop app' };
+      }
+      const result = await window.electronAPI.collab.joinSession(inviteToken);
+      if (!result.success || !result.sessionId) {
+        return result;
+      }
+      await listSessions();
+      useAppStore.getState().openSessionWithDivision(result.sessionId);
+      try {
+        const [messages, traceSteps] = await Promise.all([
+          invoke<Message[]>({
+            type: 'session.getMessages',
+            payload: { sessionId: result.sessionId },
+          }),
+          invoke<TraceStep[]>({
+            type: 'session.getTraceSteps',
+            payload: { sessionId: result.sessionId },
+          }),
+        ]);
+        useAppStore.getState().setMessages(result.sessionId, messages || []);
+        useAppStore.getState().setTraceSteps(result.sessionId, traceSteps || []);
+      } catch (err) {
+        console.error('[useIPC] Failed to load joined collab session:', err);
+      }
+      return result;
+    },
+    [invoke, listSessions]
+  );
+
+  const leaveCollabSession = useCallback(async (sessionId: string) => {
+    if (!isElectron) return { success: false as const, error: 'Not available' };
+    return window.electronAPI.collab.leaveSession(sessionId);
+  }, []);
+
+  const getCollabState = useCallback(async (sessionId: string) => {
+    if (!isElectron) return null;
+    return window.electronAPI.collab.getState(sessionId);
+  }, []);
+
+  const acquireCollabTurn = useCallback(async (sessionId: string) => {
+    if (!isElectron) return { success: false as const, error: 'Not available' };
+    return window.electronAPI.collab.acquireTurn(sessionId);
+  }, []);
+
+  const releaseCollabTurn = useCallback(async (sessionId: string) => {
+    if (!isElectron) return { success: false as const, error: 'Not available' };
+    return window.electronAPI.collab.releaseTurn(sessionId);
+  }, []);
+
   const respondToPermission = useCallback(
     (toolUseId: string, result: PermissionResult) => {
       send({
@@ -1296,6 +1355,12 @@ export function useIPC() {
     getSessionTraceSteps,
     exportSession,
     importSession,
+    shareCollabSession,
+    joinCollabSession,
+    leaveCollabSession,
+    getCollabState,
+    acquireCollabTurn,
+    releaseCollabTurn,
     respondToPermission,
     respondToQuestion,
     respondToSudoPassword,

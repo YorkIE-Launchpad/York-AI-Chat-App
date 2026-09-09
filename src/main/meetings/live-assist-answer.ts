@@ -8,10 +8,10 @@ import type { MCPManager } from '../mcp/mcp-manager';
 import { logWarn } from '../utils/logger';
 import { truncateTranscriptWindow } from './live-assist-service';
 
-/** Keep tool research lean so live answers stay fast. */
+/** Cap tool research; allow slow Hub/MCP lookups during live answers. */
 export const MAX_MCP_CALLS = 2;
-export const MCP_CALL_TIMEOUT_MS = 8_000;
-export const PIPELINE_TIMEOUT_MS = 20_000;
+export const MCP_CALL_TIMEOUT_MS = 180_000;
+export const PIPELINE_TIMEOUT_MS = 180_000;
 const RESULT_MAX_CHARS = 2_500;
 const CATALOG_LIMIT = 15;
 

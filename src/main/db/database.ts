@@ -130,6 +130,8 @@ export interface SessionRow {
   client_name: string | null;
   client_project_ids: string | null;
   pinned: number;
+  collab_room_id: string | null;
+  collab_role: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -413,6 +415,8 @@ function initializeSchema(database: Database.Database): void {
     ensureColumn(database, 'sessions', 'client_name', 'client_name TEXT');
     ensureColumn(database, 'sessions', 'client_project_ids', 'client_project_ids TEXT');
     ensureColumn(database, 'sessions', 'pinned', 'pinned INTEGER NOT NULL DEFAULT 0');
+    ensureColumn(database, 'sessions', 'collab_room_id', 'collab_room_id TEXT');
+    ensureColumn(database, 'sessions', 'collab_role', 'collab_role TEXT');
 
     database.exec(`
     CREATE TABLE IF NOT EXISTS folders (
@@ -1118,8 +1122,8 @@ export function initDatabase(): DatabaseInstance {
   // Prepare statements for better performance
   const insertSession = rawDb.prepare(`
     INSERT OR REPLACE INTO sessions
-    (id, title, claude_session_id, openai_thread_id, status, cwd, mounted_paths, allowed_tools, memory_enabled, model, division, hub_project_id, hub_project_name, launchpad_project_id, launchpad_project_name, folder_id, folder_name, project_canonical_key, client_name, client_project_ids, pinned, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    (id, title, claude_session_id, openai_thread_id, status, cwd, mounted_paths, allowed_tools, memory_enabled, model, division, hub_project_id, hub_project_name, launchpad_project_id, launchpad_project_name, folder_id, folder_name, project_canonical_key, client_name, client_project_ids, pinned, collab_room_id, collab_role, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   // Note: Dynamic update queries are built in sessions.update() for flexibility
@@ -1300,6 +1304,8 @@ export function initDatabase(): DatabaseInstance {
           session.client_name ?? null,
           session.client_project_ids ?? null,
           session.pinned ?? 0,
+          session.collab_room_id ?? null,
+          session.collab_role ?? null,
           session.created_at,
           session.updated_at
         );
