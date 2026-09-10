@@ -25,6 +25,16 @@ const CONFLUENCE_SPACE_ARG_KEYS = ['spaceKey', 'space_key', 'space', 'spaceId'] 
 const SLACK_CHANNEL_ARG_KEYS = ['channel', 'channel_id', 'channelId'] as const;
 const SEARCH_ARG_KEYS = ['query', 'q', 'search', 'jql', 'terms'] as const;
 
+/** Concrete resource IDs — ID-scoped reads/writes are allowed in project workspaces. */
+const RESOURCE_ID_ARG_KEYS = [
+  'file_id',
+  'message_id',
+  'event_id',
+  'draft_id',
+  'reply_to_message_id',
+  'parent_folder_id',
+] as const;
+
 function connectorPrefix(toolName: string): 'jira' | 'confluence' | 'slack' | 'gmail' | 'drive' | 'calendar' | null {
   const lowered = toolName.toLowerCase();
   if (JIRA_PREFIXES.some((p) => lowered.startsWith(p))) return 'jira';
@@ -74,6 +84,26 @@ function connectorRefuseMessage(
   ].join(' ');
 }
 
+/** Refuse copy for Drive/Gmail/Calendar — these have no Hub linkage allowlist. */
+function broadSearchRefuseMessage(
+  session: Partial<SessionDivisionFields> | null | undefined,
+  connector: 'gmail' | 'drive' | 'calendar'
+): string {
+  const normalized = normalizeSessionDivision(session);
+  const scopeLabel =
+    normalized.division === 'client' && normalized.clientName
+      ? `client "${normalized.clientName}"`
+      : 'this project workspace';
+  const label =
+    connector === 'drive' ? 'Drive' : connector === 'gmail' ? 'Gmail' : 'Calendar';
+  return [
+    'Incorrect use. This attempt will be reported.',
+    `Broad org-wide ${label} search is blocked in ${scopeLabel}.`,
+    'Narrow the search to project-specific terms (3+ characters).',
+    'Explicit file/message/event IDs and user-attached references are allowed.',
+  ].join(' ');
+}
+
 function isBroadSearchQuery(query: string | null): boolean {
   if (!query) return true;
   const trimmed = query.trim();
@@ -81,9 +111,21 @@ function isBroadSearchQuery(query: string | null): boolean {
   return trimmed.length < 3;
 }
 
+/** True when the tool leaf name is a search or list operation. */
+function isSearchOrListTool(toolName: string): boolean {
+  const leaf = toolName.toLowerCase().split('__').pop() || toolName.toLowerCase();
+  return (
+    leaf.startsWith('search_') ||
+    leaf.startsWith('list_') ||
+    leaf === 'search' ||
+    leaf === 'list'
+  );
+}
+
 /**
  * Prepare connector MCP args for project/client division sessions.
  * When linkage metadata is empty, Jira/Confluence/Slack ID-scoped args pass with audit warn only.
+ * Drive/Gmail/Calendar: ID-scoped calls and specific searches are allowed; broad search/list is blocked.
  */
 export function prepareConnectorScopedMcpArgs(
   toolName: string,
@@ -164,16 +206,30 @@ export function prepareConnectorScopedMcpArgs(
   }
 
   if (kind === 'gmail' || kind === 'drive' || kind === 'calendar') {
+    // Explicit resource IDs (and user-attached Drive/Gmail/Calendar refs) are allowed.
+    if (readArgKeys(args, RESOURCE_ID_ARG_KEYS)) {
+      return { kind: 'allow', args, filterResult: false };
+    }
+
     const search = readArgKeys(args, SEARCH_ARG_KEYS);
-    if (isBroadSearchQuery(search)) {
+    if (search !== null) {
+      if (isBroadSearchQuery(search)) {
+        return {
+          kind: 'block',
+          message: broadSearchRefuseMessage(session, kind),
+        };
+      }
+      return { kind: 'allow', args, filterResult: false };
+    }
+
+    // No search arg and no resource ID: block only search/list tools (org-wide crawl).
+    if (isSearchOrListTool(toolName)) {
       return {
         kind: 'block',
-        message: [
-          connectorRefuseMessage(session, kind, linkage),
-          'Narrow the search to project-specific terms or switch to General workspace.',
-        ].join(' '),
+        message: broadSearchRefuseMessage(session, kind),
       };
     }
+
     return { kind: 'allow', args, filterResult: false };
   }
 
@@ -182,15 +238,19 @@ export function prepareConnectorScopedMcpArgs(
 
 export function buildConnectorScopePromptLines(linkage: ProjectLinkageMetadata): string {
   const summary = formatLinkageSummary(linkage);
+  const driveGmailCalendar =
+    'Drive/Gmail/Calendar: user-attached references and explicit file/message/event IDs are allowed; broad org-wide search or list is forbidden.';
   if (summary.startsWith('No linked')) {
     return [
-      'Connector tools (Slack, Gmail, Jira, Confluence, Drive, Calendar): use only resources clearly tied to this project/client.',
+      'Connector tools (Slack, Jira, Confluence): use only resources clearly tied to this project/client.',
+      driveGmailCalendar,
       'Broad org-wide searches are forbidden in this workspace.',
     ].join(' ');
   }
   return [
     'Connector tools are restricted to linked project resources:',
     summary,
+    driveGmailCalendar,
     'Do not query other clients, projects, channels, or inboxes.',
   ].join(' ');
 }
