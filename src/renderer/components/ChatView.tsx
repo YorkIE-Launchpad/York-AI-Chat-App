@@ -66,6 +66,7 @@ import {
   hasAssistantTextResponseForTurn,
   hasInProgressToolUseForTurn,
   hasStreamingText,
+  isPendingStepId,
   resolveActiveTurnStatusLabel,
 } from '../utils/active-turn';
 import { AttachmentImageThumb, FileAttachmentChip, ExternalReferenceChip } from './attachments';
@@ -208,7 +209,11 @@ export function ChatView() {
     !hasTextResponseForTurn &&
     !hasStreamingText(partialMessage, partialThinking) &&
     !hasInProgressToolUseForTurn(messages, activeTurn?.userMessageId);
-  const processingStatusLabel = resolveActiveTurnStatusLabel(traceSteps) ?? t('chat.processing');
+  const processingStatusLabel =
+    resolveActiveTurnStatusLabel(traceSteps) ??
+    (activeTurn && isPendingStepId(activeTurn.stepId)
+      ? t('chat.starting')
+      : t('chat.processing'));
   const isSessionRunning = activeSession?.status === 'running';
   const canStop = isSessionRunning || hasActiveTurn || pendingCount > 0;
 

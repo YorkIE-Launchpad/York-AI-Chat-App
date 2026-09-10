@@ -1095,6 +1095,7 @@
     "sendMessage": "Send message",
     "stop": "Stop",
     "processing": "Processing...",
+    "starting": "Starting...",
     "typeMessage": "Type a message...",
     "typeMessageSkillHint": "Message… Use / or @ to mention a skill",
     "loadingConversation": "Loading conversation...",

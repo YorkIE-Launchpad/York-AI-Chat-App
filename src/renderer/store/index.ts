@@ -210,6 +210,8 @@ interface AppState {
   // Actions
   setSessions: (sessions: Session[]) => void;
   addSession: (session: Session) => void;
+  /** Swap a client-side pending session for the real session from session.start. */
+  replacePendingSession: (pendingId: string, session: Session) => void;
   updateSession: (sessionId: string, updates: Partial<Session>) => void;
   removeSession: (sessionId: string) => void;
   removeSessions: (sessionIds: string[]) => void;
@@ -400,15 +402,17 @@ export const useAppStore = create<AppState>((set, get) => ({
   // Session actions
   setSessions: (sessions) =>
     set((state) => {
-      // Keep live incognito chats if a list refresh races before main merges them.
-      const missingEphemeral = state.sessions.filter(
+      // Keep live incognito chats and client-side pending sessions if a list
+      // refresh races before main merges them / session.start returns.
+      const missingLocal = state.sessions.filter(
         (session) =>
-          session.incognito === true && !sessions.some((incoming) => incoming.id === session.id)
+          (session.incognito === true || session.id.startsWith('pending-session-')) &&
+          !sessions.some((incoming) => incoming.id === session.id)
       );
-      if (missingEphemeral.length === 0) {
+      if (missingLocal.length === 0) {
         return { sessions };
       }
-      return { sessions: [...missingEphemeral, ...sessions] };
+      return { sessions: [...missingLocal, ...sessions] };
     }),
 
   addSession: (session) =>
@@ -420,6 +424,61 @@ export const useAppStore = create<AppState>((set, get) => ({
       },
       incognitoDraft: false,
     })),
+
+  replacePendingSession: (pendingId, session) =>
+    set((state) => {
+      const pendingState = state.sessionStates[pendingId] ?? DEFAULT_SESSION_STATE;
+      const existingReal = state.sessionStates[session.id];
+
+      let mergedState: SessionState;
+      if (
+        existingReal &&
+        (existingReal.messages.some((m) => m.role === 'assistant') ||
+          existingReal.traceSteps.length > 0 ||
+          existingReal.partialMessage ||
+          existingReal.partialThinking ||
+          existingReal.activeTurn)
+      ) {
+        const hasUser = existingReal.messages.some((m) => m.role === 'user');
+        const pendingUsers = pendingState.messages
+          .filter((m) => m.role === 'user')
+          .map((m) => ({ ...m, sessionId: session.id }));
+        mergedState = {
+          ...existingReal,
+          messages: hasUser ? existingReal.messages : [...pendingUsers, ...existingReal.messages],
+          pendingTurns:
+            existingReal.pendingTurns.length > 0
+              ? existingReal.pendingTurns
+              : pendingState.pendingTurns,
+          activeTurn: existingReal.activeTurn ?? pendingState.activeTurn,
+          executionClock: existingReal.executionClock.startAt
+            ? existingReal.executionClock
+            : pendingState.executionClock,
+        };
+      } else {
+        mergedState = {
+          ...pendingState,
+          messages: pendingState.messages.map((m) => ({ ...m, sessionId: session.id })),
+        };
+      }
+
+      const restStates = { ...state.sessionStates };
+      delete restStates[pendingId];
+
+      return {
+        sessions: [
+          session,
+          ...state.sessions.filter((s) => s.id !== pendingId && s.id !== session.id),
+        ],
+        sessionStates: {
+          ...restStates,
+          [session.id]: mergedState,
+        },
+        activeSessionId:
+          state.activeSessionId === pendingId ? session.id : state.activeSessionId,
+        incognitoDraft: false,
+      };
+    }),
 
   updateSession: (sessionId, updates) =>
     set((state) => ({

@@ -32,6 +32,11 @@ export function isPendingStepId(stepId: string): boolean {
   return stepId.startsWith('pending-step-');
 }
 
+/** Client-side placeholder session before session.start IPC returns. */
+export function isPendingSessionId(sessionId: string): boolean {
+  return sessionId.startsWith('pending-session-');
+}
+
 /**
  * True when an assistant text reply already exists for the user message
  * anchored by `userMessageId` (ignores tool_result-only assistant rows).

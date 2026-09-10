@@ -315,18 +315,18 @@ function wipeSession(win?: BrowserWindow | null): void {
 export async function ensureAuthenticatedSession(): Promise<AuthSessionPayload> {
   if (session && !isTokenExpired(session.idToken)) {
     if (isTokenExpiringSoon(session.idToken)) {
-      // Proactive refresh — never wipe/throw while the token is still usable.
-      const result = await tryRefreshSession();
-      if (!result.ok) {
-        logWarn(
-          '[Auth] Proactive refresh failed while token still valid; continuing:',
-          result.reason
-        );
-      }
+      // Proactive refresh in the background — never block IPC (session.start etc.)
+      // while the token is still usable. The refresh timer also covers this path.
+      void tryRefreshSession().then((result) => {
+        if (!result.ok) {
+          logWarn(
+            '[Auth] Proactive refresh failed while token still valid; continuing:',
+            result.reason
+          );
+        }
+      });
     }
-    if (session && !isTokenExpired(session.idToken)) {
-      return session;
-    }
+    return session;
   }
   const restored = await restoreSessionFromStore();
   if (restored && !isTokenExpired(restored.idToken)) {

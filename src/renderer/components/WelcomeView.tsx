@@ -730,18 +730,17 @@ export function WelcomeView() {
     }
 
     // Prefer selected folder, else app default working directory.
+    const sessionTitle = getInitialSessionTitle(
+      currentPrompt,
+      attachedFiles[0]?.name || attachedMeetings[0]?.title || attachedReferences[0]?.title
+    );
     setIsSubmitting(true);
+    clearComposer();
     try {
-      const sessionTitle = getInitialSessionTitle(
-        currentPrompt,
-        attachedFiles[0]?.name || attachedMeetings[0]?.title || attachedReferences[0]?.title
-      );
-      const session = await startSession(sessionTitle, contentBlocks, sessionWorkdir, {
+      // Opens chat immediately (optimistic pending session); reconciles after IPC.
+      await startSession(sessionTitle, contentBlocks, sessionWorkdir, {
         incognito: incognitoDraft || undefined,
       });
-      if (session) {
-        clearComposer();
-      }
     } finally {
       setIsSubmitting(false);
     }
@@ -1290,7 +1289,7 @@ export function WelcomeView() {
                     disabled={!canSubmit || isSubmitting}
                     className="btn btn-primary px-5 py-2.5 rounded-2xl disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    <span>{isSubmitting ? t('welcome.starting') : t('welcome.letsGo')}</span>
+                    <span>{t('welcome.letsGo')}</span>
                     <ArrowRight className="w-4 h-4" />
                   </button>
                 </div>

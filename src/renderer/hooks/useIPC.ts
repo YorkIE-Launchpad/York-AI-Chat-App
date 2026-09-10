@@ -643,6 +643,8 @@ export function useIPC() {
 
   // Get actions for the rest of the hook
   const addSession = useAppStore((s) => s.addSession);
+  const replacePendingSession = useAppStore((s) => s.replacePendingSession);
+  const removeSession = useAppStore((s) => s.removeSession);
   const updateSession = useAppStore((s) => s.updateSession);
   const addMessage = useAppStore((s) => s.addMessage);
   const setLoading = useAppStore((s) => s.setLoading);
@@ -773,7 +775,47 @@ export function useIPC() {
         return session;
       }
 
-      // Electron mode
+      // Electron mode — open chat immediately with a pending session, then reconcile.
+      const pendingId = `pending-session-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+      const now = Date.now();
+      const optimisticSession: Session = {
+        id: pendingId,
+        title: title || (incognito ? 'Incognito' : 'New Session'),
+        status: 'running',
+        createdAt: now,
+        updatedAt: now,
+        cwd: cwd || '',
+        mountedPaths: [],
+        allowedTools: [
+          'webfetch',
+          'websearch',
+          'read',
+          'write',
+          'edit',
+          'list_directory',
+          'glob',
+          'grep',
+        ],
+        memoryEnabled: !incognito,
+        incognito: incognito || undefined,
+        ...divisionPayload,
+      };
+
+      addSession(optimisticSession);
+      useAppStore.getState().setActiveSession(pendingId);
+
+      const userMessage: Message = {
+        id: `msg-user-${now}`,
+        sessionId: pendingId,
+        role: 'user',
+        content,
+        timestamp: now,
+      };
+      addMessage(pendingId, userMessage);
+      startExecutionClock(pendingId, userMessage.timestamp);
+      const mockStepId = `pending-step-${now}`;
+      activateNextTurn(pendingId, mockStepId);
+
       try {
         const session = await invoke<Session>({
           type: 'session.start',
@@ -788,28 +830,22 @@ export function useIPC() {
           },
         });
         if (session) {
-          addSession(session);
-          useAppStore.getState().setActiveSession(session.id);
-
-          // Immediately add user message to UI
-          const userMessage: Message = {
-            id: `msg-user-${Date.now()}`,
-            sessionId: session.id,
-            role: 'user',
-            content,
-            timestamp: Date.now(),
-          };
-          addMessage(session.id, userMessage);
-          startExecutionClock(session.id, userMessage.timestamp);
-
-          // Immediately activate turn to show processing indicator while waiting for API
-          const mockStepId = `pending-step-${Date.now()}`;
-          activateNextTurn(session.id, mockStepId);
+          replacePendingSession(pendingId, session);
           bindPendingThinkingStep(session.id);
+          return session;
         }
-        // Loading will be reset when we receive session.status event
-        return session;
+
+        removeSession(pendingId);
+        useAppStore.getState().setGlobalNotice({
+          id: `notice-session-start-${Date.now()}`,
+          type: 'error',
+          message: i18n.t('chat.startFailed'),
+          messageKey: 'chat.startFailed',
+        });
+        setLoading(false);
+        return null;
       } catch (e) {
+        removeSession(pendingId);
         clearTurnStateOnServerError(useAppStore.getState());
         useAppStore.getState().setGlobalNotice({
           id: `notice-session-start-${Date.now()}`,
@@ -817,12 +853,15 @@ export function useIPC() {
           message: e instanceof Error ? e.message : i18n.t('chat.startFailed'),
           messageKey: e instanceof Error ? undefined : 'chat.startFailed',
         });
+        setLoading(false);
         return null;
       }
     },
     [
       invoke,
       addSession,
+      replacePendingSession,
+      removeSession,
       addMessage,
       updateSession,
       setLoading,

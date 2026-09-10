@@ -96,6 +96,22 @@ export async function validateSessionDivisionAgainstAllocations(
   input: SessionDivisionOptions | null | undefined,
   db: DatabaseInstance | null
 ): Promise<ValidatedSessionDivisionResult> {
+  // General / hub never need the allocation catalog — avoid Hub+LaunchPad
+  // network fetches on the session.start hot path (multi-second cold cache).
+  const normalized = normalizeSessionDivision(input ?? { division: 'general' });
+  if (normalized.division === 'general' || normalized.division === 'hub') {
+    return { fields: normalized, demoted: false };
+  }
+
+  // Folder ownership is local DB only — skip unified project network fetch.
+  if (normalized.division === 'folder') {
+    const folders = db?.folders.list() ?? [];
+    return validateSessionDivisionAgainstCatalog(input, {
+      projects: catalogCache?.catalog.projects ?? [],
+      folderIds: new Set(folders.map((f) => f.id)),
+    });
+  }
+
   const catalog = await loadValidationCatalog(db);
   return validateSessionDivisionAgainstCatalog(input, catalog);
 }

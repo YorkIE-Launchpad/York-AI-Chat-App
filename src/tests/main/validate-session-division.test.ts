@@ -6,6 +6,7 @@ import {
 import type { UnifiedCompanyProject } from '../../shared/unified-company-projects';
 import {
   validateSessionDivisionAgainstCatalog,
+  validateSessionDivisionAgainstAllocations,
   clearSessionDivisionValidationCache,
 } from '../../main/session/validate-session-division';
 
@@ -120,6 +121,13 @@ describe('divisionFieldsMatchCatalog', () => {
 });
 
 describe('validateSessionDivisionAgainstCatalog', () => {
+  it('passes general and hub without needing a catalog', () => {
+    expect(validateSessionDivisionAgainstCatalog({ division: 'general' }, catalog).demoted).toBe(
+      false
+    );
+    expect(validateSessionDivisionAgainstCatalog({ division: 'hub' }, catalog).demoted).toBe(false);
+  });
+
   it('demotes invalid project division to general', () => {
     const result = validateSessionDivisionAgainstCatalog(
       { division: 'project', hubProjectId: 'forged-id', canonicalKey: 'hub:forged-id' },
@@ -137,6 +145,42 @@ describe('validateSessionDivisionAgainstCatalog', () => {
     expect(result.demoted).toBe(false);
     expect(result.fields.division).toBe('project');
     expect(result.fields.hubProjectId).toBe('alpha-id');
+  });
+});
+
+describe('validateSessionDivisionAgainstAllocations', () => {
+  it('skips catalog load for general and hub', async () => {
+    clearSessionDivisionValidationCache();
+    const general = await validateSessionDivisionAgainstAllocations({ division: 'general' }, null);
+    expect(general.demoted).toBe(false);
+    expect(general.fields.division).toBe('general');
+
+    const hub = await validateSessionDivisionAgainstAllocations({ division: 'hub' }, null);
+    expect(hub.demoted).toBe(false);
+    expect(hub.fields.division).toBe('hub');
+  });
+
+  it('validates folder ownership from local DB without network catalog', async () => {
+    clearSessionDivisionValidationCache();
+    const db = {
+      folders: {
+        list: () => [{ id: 'folder-1', name: 'Docs' }],
+      },
+    } as unknown as import('../../main/db/database').DatabaseInstance;
+
+    const ok = await validateSessionDivisionAgainstAllocations(
+      { division: 'folder', folderId: 'folder-1', folderName: 'Docs' },
+      db
+    );
+    expect(ok.demoted).toBe(false);
+    expect(ok.fields.division).toBe('folder');
+
+    const bad = await validateSessionDivisionAgainstAllocations(
+      { division: 'folder', folderId: 'missing', folderName: 'X' },
+      db
+    );
+    expect(bad.demoted).toBe(true);
+    expect(bad.fields.division).toBe('general');
   });
 });
 

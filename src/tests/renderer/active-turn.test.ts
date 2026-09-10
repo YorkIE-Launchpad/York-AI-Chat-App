@@ -6,6 +6,7 @@ import {
   hasInProgressToolUseForTurn,
   hasStreamingText,
   isCompactionTraceStep,
+  isPendingSessionId,
   isPendingStepId,
   messageHasAssistantText,
   messageHasToolUse,
@@ -118,6 +119,12 @@ describe('active-turn helpers', () => {
   it('detects optimistic pending-step ids', () => {
     expect(isPendingStepId('pending-step-123')).toBe(true);
     expect(isPendingStepId('real-step')).toBe(false);
+  });
+
+  it('detects optimistic pending-session ids', () => {
+    expect(isPendingSessionId('pending-session-123')).toBe(true);
+    expect(isPendingSessionId('real-uuid')).toBe(false);
+    expect(isPendingStepId('pending-session-123')).toBe(false);
   });
 
   it('resolves wait-status label preferring running tool_call over thinking', () => {
