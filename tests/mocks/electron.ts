@@ -60,7 +60,10 @@ export const app = {
   name: 'york-ie-test',
   commandLine: {
     appendSwitch: noop,
+    getSwitchValue: (_name: string) => '',
   },
+  setPath: noop,
+
   dock: {
     setMenu: noop,
   },
