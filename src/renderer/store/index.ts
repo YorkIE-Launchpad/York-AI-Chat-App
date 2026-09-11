@@ -18,6 +18,7 @@ import { previewKindFromPath } from '../utils/html-preview';
 import type { ActiveDivision } from '../../shared/workspace-division';
 import type { MatterChatDraft } from '../../shared/matter-chat';
 import type { HubUsageMeterSnapshot } from '../../shared/fe-budget-gate';
+import type { BackendModelInfo } from '../../shared/backend-config';
 import {
   loadActiveDivisionFromStorage,
   saveActiveDivisionToStorage,
@@ -207,6 +208,12 @@ interface AppState {
   /** Hub AI budget meter (seeded from GET ai-budget, updated after usage ingest). */
   hubUsage: HubUsageMeterSnapshot | null;
 
+  /**
+   * Shared Hub model catalog across Welcome/Chat remounts (stale-while-revalidate).
+   * Survives ModelSelector unmount so new chat does not flash empty.
+   */
+  backendModelsCatalog: BackendModelInfo[];
+
   // Actions
   setSessions: (sessions: Session[]) => void;
   addSession: (session: Session) => void;
@@ -310,6 +317,7 @@ interface AppState {
   ) => void;
 
   setHubUsage: (snapshot: HubUsageMeterSnapshot | null) => void;
+  setBackendModelsCatalog: (models: BackendModelInfo[]) => void;
 
   setMatterChatDraft: (sessionId: string, draft: MatterChatDraft) => void;
   clearMatterChatDraft: (sessionId: string) => void;
@@ -398,6 +406,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   systemDarkMode: false,
   incognitoDraft: false,
   hubUsage: null,
+  backendModelsCatalog: [],
 
   // Session actions
   setSessions: (sessions) =>
@@ -943,6 +952,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     }),
   setMatterPrepLoadingId: (meetingId) => set({ matterPrepLoadingId: meetingId }),
   setHubUsage: (snapshot) => set({ hubUsage: snapshot }),
+  setBackendModelsCatalog: (models) =>
+    set((state) =>
+      models.length > 0 ? { backendModelsCatalog: models } : state
+    ),
   setAskGrowthOSOpen: (open) =>
     set((state) =>
       open

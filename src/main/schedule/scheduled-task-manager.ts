@@ -53,9 +53,9 @@ export interface ScheduledTask {
   lastRunAt: number | null;
   lastRunSessionId: string | null;
   lastError: string | null;
-  /** Model id used when the task runs (defaults to openrouter/free). */
+  /** Model id used when the task runs (defaults to York LLM). */
   model: string;
-  /** Provider for the locked model (defaults to openrouter). */
+  /** Provider for the locked model (defaults to ollama / York LLM). */
   provider: string;
   /** schedule = new session; loop = continue bound session; watch = check then act. */
   kind: ScheduleTaskKind;

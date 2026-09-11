@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Check, ChevronDown, Sparkles } from 'lucide-react';
+import { Check, ChevronDown } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { BackendCloudProvider, BackendModelInfo } from '../../../shared/backend-config';
-import { AUTO_MODEL_ID, isAutoModelId } from '../../../shared/auto-model';
+import { isAutoModelId } from '../../../shared/auto-model';
 import { hasOpenRouterUserApiKey } from '../../../shared/openrouter-user-key';
 import { useAppStore } from '../../store';
 import {
@@ -10,11 +10,12 @@ import {
   useYorkLlmModels,
   yorkLlmDisplayName,
 } from '../../hooks/useYorkLlmModels';
+import { YORK_LLM_PROVIDER } from '../../../shared/york-llm-config';
 
 const isElectron = typeof window !== 'undefined' && window.electronAPI !== undefined;
 
-export const DEFAULT_SCHEDULE_PROVIDER = 'openrouter';
-export const DEFAULT_SCHEDULE_MODEL = 'openrouter/free';
+export const DEFAULT_SCHEDULE_PROVIDER = YORK_LLM_PROVIDER;
+export const DEFAULT_SCHEDULE_MODEL = '';
 
 const PROVIDER_LABELS: Record<BackendCloudProvider, string> = {
   anthropic: 'Anthropic',
@@ -58,7 +59,6 @@ export function ScheduleModelSelector({
   const { models: yorkLlmModels, isLoading: isYorkLlmLoading } = useYorkLlmModels();
 
   const hasOpenRouterKey = hasOpenRouterUserApiKey(appConfig?.openRouterUserApiKey);
-  const isAutoSelected = isAutoModelId(value.model);
 
   const loadModels = useCallback((opts?: { silent?: boolean }) => {
     if (!isElectron) return;
@@ -113,7 +113,7 @@ export function ScheduleModelSelector({
   }, [models]);
 
   const selectedYorkLlmModel = useMemo(() => {
-    if (isAutoSelected) return null;
+    if (isAutoModelId(value.model)) return null;
     if (!isYorkLlmSelection(value.provider, undefined, value.model)) return null;
     return (
       yorkLlmModels.find((model) => model.id === value.model) ?? {
@@ -121,7 +121,7 @@ export function ScheduleModelSelector({
         name: yorkLlmDisplayName(value.model),
       }
     );
-  }, [isAutoSelected, value.model, value.provider, yorkLlmModels]);
+  }, [value.model, value.provider, yorkLlmModels]);
 
   const selectedModel = useMemo(
     () =>
@@ -129,29 +129,43 @@ export function ScheduleModelSelector({
     [models, value.model, value.provider]
   );
 
-  // Reconcile away from OpenRouter when no user key.
+  // Reconcile Auto (or OpenRouter without BYOK) → York LLM when available.
   useEffect(() => {
-    if (hasOpenRouterKey || isAutoSelected) return;
-    if (value.provider !== 'openrouter') return;
-    const fallback =
-      models.find((m) => m.provider === 'anthropic') ||
-      models.find((m) => m.provider !== 'openrouter');
-    if (fallback) {
-      onChange({ model: fallback.id, provider: fallback.provider });
-    } else {
-      onChange({ model: AUTO_MODEL_ID, provider: 'anthropic' });
+    if (isAutoModelId(value.model)) {
+      if (yorkLlmModels[0]) {
+        onChange({ model: yorkLlmModels[0].id, provider: YORK_LLM_PROVIDER });
+      } else {
+        onChange({ model: DEFAULT_SCHEDULE_MODEL, provider: DEFAULT_SCHEDULE_PROVIDER });
+      }
+      return;
     }
-  }, [hasOpenRouterKey, isAutoSelected, models, onChange, value.provider]);
+    if (hasOpenRouterKey) return;
+    if (value.provider !== 'openrouter') return;
+    if (yorkLlmModels[0]) {
+      onChange({ model: yorkLlmModels[0].id, provider: YORK_LLM_PROVIDER });
+    } else {
+      const fallback =
+        models.find((m) => m.provider === 'anthropic') ||
+        models.find((m) => m.provider !== 'openrouter');
+      if (fallback) {
+        onChange({ model: fallback.id, provider: fallback.provider });
+      } else {
+        onChange({ model: DEFAULT_SCHEDULE_MODEL, provider: DEFAULT_SCHEDULE_PROVIDER });
+      }
+    }
+  }, [hasOpenRouterKey, models, onChange, value.model, value.provider, yorkLlmModels]);
 
-  const displayName = isAutoSelected
-    ? 'Auto'
-    : selectedYorkLlmModel
-      ? yorkLlmDisplayName(selectedYorkLlmModel.id, selectedYorkLlmModel.name)
+  const displayName = selectedYorkLlmModel
+    ? yorkLlmDisplayName(selectedYorkLlmModel.id, selectedYorkLlmModel.name)
     : selectedModel
       ? shortModelName(selectedModel.name, selectedModel.id)
-      : value.model === DEFAULT_SCHEDULE_MODEL
-        ? 'OpenRouter Free'
-        : shortModelName(value.model, value.model);
+      : value.provider === YORK_LLM_PROVIDER
+        ? 'York LLM'
+        : isAutoModelId(value.model)
+          ? 'Select model'
+          : value.model
+            ? shortModelName(value.model, value.model)
+            : 'Select model';
 
   return (
     <div className="space-y-1.5">
@@ -173,7 +187,6 @@ export function ScheduleModelSelector({
           title={t('schedule.modelHint')}
         >
           <span className="inline-flex min-w-0 items-center gap-1.5">
-            {isAutoSelected && <Sparkles className="h-3.5 w-3.5 shrink-0 text-accent" />}
             <span className="truncate font-medium tracking-[-0.01em]">{displayName}</span>
           </span>
           <ChevronDown
@@ -188,40 +201,6 @@ export function ScheduleModelSelector({
             role="listbox"
             className="absolute left-0 right-0 top-[calc(100%+6px)] z-30 max-h-[min(28rem,50vh)] overflow-y-auto rounded-xl border border-border-subtle bg-background py-1.5 shadow-elevated"
           >
-            <div className="px-1.5 py-1">
-              <div className="px-2.5 pb-1 pt-1.5 text-[11px] font-medium tracking-[0.04em] text-text-muted">
-                Smart router
-              </div>
-              <button
-                type="button"
-                role="option"
-                aria-selected={isAutoSelected}
-                onClick={() => {
-                  onChange({
-                    model: AUTO_MODEL_ID,
-                    provider: value.provider || DEFAULT_SCHEDULE_PROVIDER,
-                  });
-                  setIsOpen(false);
-                }}
-                className={`flex w-full items-start gap-2 rounded-xl px-2.5 py-2 text-left transition-colors ${
-                  isAutoSelected
-                    ? 'bg-accent-muted text-accent'
-                    : 'text-text-primary hover:bg-surface-hover'
-                }`}
-              >
-                <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-center gap-2">
-                    <span className="whitespace-nowrap text-[13px] font-medium">Auto</span>
-                    {isAutoSelected && <Check className="h-3.5 w-3.5 shrink-0" />}
-                  </span>
-                  <span className="mt-0.5 block text-[11px] leading-snug text-text-muted">
-                    Picks the best model per message
-                  </span>
-                </span>
-              </button>
-            </div>
-
             {yorkLlmModels.length > 0 && (
               <div className="px-1.5 py-1">
                 <div className="px-2.5 pb-1 pt-1.5 text-[11px] font-medium tracking-[0.04em] text-text-muted">
@@ -230,9 +209,7 @@ export function ScheduleModelSelector({
                 <div className="space-y-0.5">
                   {yorkLlmModels.map((model) => {
                     const isSelected =
-                      !isAutoSelected &&
-                      value.provider === 'ollama' &&
-                      value.model === model.id;
+                      value.provider === 'ollama' && value.model === model.id;
                     return (
                       <button
                         key={model.id}
@@ -286,9 +263,7 @@ export function ScheduleModelSelector({
                   <div className="space-y-0.5">
                     {items.map((model) => {
                       const isSelected =
-                        !isAutoSelected &&
-                        value.provider === model.provider &&
-                        value.model === model.id;
+                        value.provider === model.provider && value.model === model.id;
                       return (
                         <button
                           key={`${model.provider}::${model.id}`}

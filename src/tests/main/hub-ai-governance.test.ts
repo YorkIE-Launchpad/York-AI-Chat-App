@@ -3,6 +3,7 @@ import {
   buildHubUsagePayloadFromPiUsage,
   clearHubGovernanceModelsCache,
   extractVisionApiUsage,
+  fetchHubGovernanceModels,
   fetchHubGovernanceModelsForToken,
   fetchUserAiBudgetForToken,
   fetchProjectAiBudgetForToken,
@@ -12,6 +13,7 @@ import {
   parseHubGovernanceModels,
   parseHubGovernanceUsageResponse,
   parseUserAllowedAiModels,
+  peekLastGoodHubModels,
   postHubGovernanceUsage,
   postHubGovernanceUsageForToken,
   reportMcpVisionUsageViaEnv,
@@ -418,6 +420,77 @@ describe('fetchHubGovernanceModelsForToken', () => {
       name: 'HubAiGovernanceError',
       status: 403,
     } satisfies Partial<HubAiGovernanceError>);
+  });
+});
+
+describe('fetchHubGovernanceModels empty-cache soft-fail', () => {
+  afterEach(() => {
+    clearHubGovernanceModelsCache();
+  });
+
+  it('does not cache empty joins and returns last-good models', async () => {
+    const goodFetch = vi.fn(async (url: string) => {
+      if (String(url).includes('allowed-models')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            success: true,
+            data: {
+              email: 'jane@york.ie',
+              has_budget: true,
+              grants: [{ model_id: 'gpt-4o', is_free: false, has_budget: true }],
+              model_ids: ['gpt-4o'],
+            },
+          }),
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          success: true,
+          data: {
+            models: [{ id: 'gpt-4o', name: 'GPT-4o', provider: 'openai' }],
+          },
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+    const first = await fetchHubGovernanceModels({ fetchFn: goodFetch, forceRefresh: true });
+    expect(first.map((m) => m.id)).toEqual(['gpt-4o']);
+    expect(peekLastGoodHubModels().map((m) => m.id)).toEqual(['gpt-4o']);
+
+    const emptyFetch = vi.fn(async (url: string) => {
+      if (String(url).includes('allowed-models')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            success: true,
+            data: {
+              email: 'jane@york.ie',
+              has_budget: true,
+              grants: [],
+              model_ids: [],
+            },
+          }),
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          success: true,
+          data: {
+            models: [{ id: 'gpt-4o', name: 'GPT-4o', provider: 'openai' }],
+          },
+        }),
+      };
+    }) as unknown as typeof fetch;
+
+    const second = await fetchHubGovernanceModels({ fetchFn: emptyFetch, forceRefresh: true });
+    expect(second.map((m) => m.id)).toEqual(['gpt-4o']);
   });
 });
 

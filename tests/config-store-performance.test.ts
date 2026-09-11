@@ -57,7 +57,7 @@ describe('ConfigStore lightweight reads', () => {
 
     const provider = store.get('provider');
 
-    expect(provider).toBe('openrouter');
+    expect(provider).toBe('ollama');
     expect(normalizeSpy).not.toHaveBeenCalled();
   });
 

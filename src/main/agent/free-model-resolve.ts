@@ -167,9 +167,9 @@ export async function resolveFreeModelForChild(options: {
     };
   }
 
-  // Last resort: parent config (may still be auto — resolve it).
+  // Last resort: parent config (may still be legacy auto — resolve it).
   const parent = options.parent || {};
-  const parentModel = parent.model?.trim() || 'auto';
+  const parentModel = parent.model?.trim() || '';
   if (parentModel.toLowerCase() === 'auto') {
     const parentAuto = await resolveAutoModelIfNeeded({
       model: 'auto',

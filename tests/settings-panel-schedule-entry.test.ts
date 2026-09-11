@@ -112,12 +112,11 @@ describe('SettingsPanel schedule tab entry', () => {
     expect(settingsPanelContent).toContain('await window.electronAPI.schedule.create(payload);');
   });
 
-  it('includes a local model selector defaulting to openrouter/free', () => {
+  it('includes a local model selector defaulting to York LLM', () => {
     expect(settingsPanelContent).toContain('ScheduleModelSelector');
     expect(settingsPanelContent).toContain('DEFAULT_SCHEDULE_MODEL');
-    expect(settingsPanelContent).toContain(
-      "export const DEFAULT_SCHEDULE_MODEL = 'openrouter/free'"
-    );
+    expect(settingsPanelContent).toContain('DEFAULT_SCHEDULE_PROVIDER = YORK_LLM_PROVIDER');
+    expect(settingsPanelContent).toContain("export const DEFAULT_SCHEDULE_MODEL = ''");
     expect(settingsPanelContent).toContain('model: modelSelection.model');
     expect(settingsPanelContent).toContain('provider: modelSelection.provider');
     expect(settingsPanelContent).toContain("t('schedule.modelLabel'");

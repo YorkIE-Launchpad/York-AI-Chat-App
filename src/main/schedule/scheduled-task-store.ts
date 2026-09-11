@@ -1,7 +1,9 @@
 import { v4 as uuidv4 } from 'uuid';
 import type { DatabaseInstance, ScheduledTaskRow } from '../db/database';
-import { OPENROUTER_FREE_ROUTER_ID } from '../agent/free-model-resolve';
 import type { ScheduleSessionMode, ScheduleTaskKind, WatchConfig } from '../../shared/loop/types';
+import {
+  YORK_LLM_PROVIDER,
+} from '../../shared/york-llm-config';
 import {
   normalizeWorkflowBinding,
   workflowBindingToStartOptions,
@@ -13,8 +15,9 @@ import type {
   ScheduledTaskUpdateInput,
 } from './scheduled-task-manager';
 
-export const DEFAULT_SCHEDULE_PROVIDER = 'openrouter';
-export const DEFAULT_SCHEDULE_MODEL = OPENROUTER_FREE_ROUTER_ID;
+export const DEFAULT_SCHEDULE_PROVIDER = YORK_LLM_PROVIDER;
+/** Empty until York LLM listing fills a concrete .gguf id; resolveScheduleModel keeps provider. */
+export const DEFAULT_SCHEDULE_MODEL = '';
 
 export function resolveScheduleModel(
   model?: string | null,

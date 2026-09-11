@@ -4,17 +4,18 @@ import {
   DEFAULT_SCHEDULE_PROVIDER,
   resolveScheduleModel,
 } from '../src/main/schedule/scheduled-task-store';
-import { OPENROUTER_FREE_ROUTER_ID } from '../src/main/agent/free-model-resolve';
+import { YORK_LLM_PROVIDER } from '../src/shared/york-llm-config';
 
 describe('resolveScheduleModel', () => {
-  it('defaults to openrouter/free when model and provider are missing', () => {
+  it('defaults to York LLM provider when model and provider are missing', () => {
+    expect(DEFAULT_SCHEDULE_PROVIDER).toBe(YORK_LLM_PROVIDER);
     expect(resolveScheduleModel(null, null)).toEqual({
-      model: OPENROUTER_FREE_ROUTER_ID,
+      model: DEFAULT_SCHEDULE_MODEL,
       provider: DEFAULT_SCHEDULE_PROVIDER,
     });
     expect(resolveScheduleModel(undefined, undefined)).toEqual({
       model: DEFAULT_SCHEDULE_MODEL,
-      provider: 'openrouter',
+      provider: YORK_LLM_PROVIDER,
     });
     expect(resolveScheduleModel('  ', '')).toEqual({
       model: DEFAULT_SCHEDULE_MODEL,

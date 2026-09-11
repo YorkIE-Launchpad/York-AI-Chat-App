@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Check, ChevronDown, Sparkles } from 'lucide-react';
+import { Check, ChevronDown } from 'lucide-react';
 import { useAppStore } from '../store';
 import type { AppConfig, ProviderProfileKey } from '../types';
 import type { BackendCloudProvider, BackendModelInfo } from '../../shared/backend-config';
@@ -8,14 +8,7 @@ import {
   BACKEND_PROXY_PLACEHOLDER_KEY,
   isBackendManagedProvider,
 } from '../../shared/backend-config';
-import {
-  AUTO_MODEL_ID,
-  AUTO_PREFERENCE_LABELS,
-  AUTO_PREFERENCE_SHORT_LABELS,
-  isAutoModelId,
-  normalizeAutoModelPreference,
-  type AutoModelPreference,
-} from '../../shared/auto-model';
+import { isAutoModelId } from '../../shared/auto-model';
 import {
   hasOpenRouterUserApiKey,
   isOpenRouterFreeTierModel,
@@ -32,7 +25,10 @@ import {
   useYorkLlmModels,
   yorkLlmDisplayName,
 } from '../hooks/useYorkLlmModels';
-import { resolveYorkLlmApiKey, resolveYorkLlmBaseUrl } from '../../shared/york-llm-config';
+import {
+  YORK_LLM_PROVIDER,
+  yorkLlmSelectionPayload,
+} from '../../shared/york-llm-config';
 
 const isElectron = typeof window !== 'undefined' && window.electronAPI !== undefined;
 
@@ -44,8 +40,6 @@ const PROVIDER_LABELS: Record<BackendCloudProvider, string> = {
 };
 
 const PROVIDER_ORDER: BackendCloudProvider[] = ['anthropic', 'openai', 'gemini', 'openrouter'];
-
-const AUTO_PREFERENCE_OPTIONS: AutoModelPreference[] = ['eco', 'balanced', 'max'];
 
 function profileKeyForProvider(provider: BackendCloudProvider): ProviderProfileKey {
   return provider;
@@ -86,13 +80,15 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
   const setIsConfigured = useAppStore((state) => state.setIsConfigured);
   const setShowSettings = useAppStore((state) => state.setShowSettings);
   const setSettingsTab = useAppStore((state) => state.setSettingsTab);
-  // Org-configured models from Hub AI Governance (via listBackendModels).
-  const [models, setModels] = useState<BackendModelInfo[]>([]);
+  // Shared across Welcome/Chat remounts — stale-while-revalidate.
+  const models = useAppStore((state) => state.backendModelsCatalog);
+  const setBackendModelsCatalog = useAppStore((state) => state.setBackendModelsCatalog);
   const [isLoading, setIsLoading] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const reconcileKeyRef = useRef<string | null>(null);
+  const loadGenRef = useRef(0);
   const {
     models: yorkLlmModels,
     isLoading: isYorkLlmLoading,
@@ -117,13 +113,11 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
     [appConfig?.openRouterUserApiKey, divisionSession, models]
   );
 
-  const isAutoSelected = isAutoModelId(appConfig?.model);
-  const autoPreference = normalizeAutoModelPreference(appConfig?.autoModelPreference);
-
   const loadModels = useCallback(
     (opts?: { silent?: boolean }) => {
       if (!isElectron) return;
-      if (!opts?.silent) setIsLoading(true);
+      const gen = ++loadGenRef.current;
+      if (!opts?.silent && models.length === 0) setIsLoading(true);
       void (async () => {
         try {
           const usable = activeBudgetSource !== 'project';
@@ -131,20 +125,23 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
           if (activeBudgetSource === 'project') {
             items = applyActiveProjectBudgetToModels(items, projectBudgetPercent);
           }
-          setModels(items);
+          if (gen !== loadGenRef.current) return;
+          if (items.length > 0) {
+            setBackendModelsCatalog(items);
+          }
         } catch {
-          setModels([]);
+          // Keep last-good catalog in the store; do not clear on transient Hub errors.
         } finally {
-          if (!opts?.silent) setIsLoading(false);
+          if (gen === loadGenRef.current && !opts?.silent) setIsLoading(false);
         }
       })();
     },
-    [activeBudgetSource, projectBudgetPercent]
+    [activeBudgetSource, models.length, projectBudgetPercent, setBackendModelsCatalog]
   );
 
   useEffect(() => {
-    loadModels();
-  }, [loadModels]);
+    loadModels({ silent: models.length > 0 });
+  }, [loadModels, models.length]);
 
   useEffect(() => {
     const handleCatalogRefresh = () => loadModels({ silent: true });
@@ -230,69 +227,9 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
     [isSaving, setAppConfig, setIsConfigured]
   );
 
-  const handleSelectAuto = useCallback(async () => {
-    let payload: Partial<AppConfig> = {
-      model: AUTO_MODEL_ID,
-      autoModelPreference: autoPreference,
-      apiKey: BACKEND_PROXY_PLACEHOLDER_KEY,
-    };
-    const currentProvider = appConfig?.provider;
-    const canKeepProvider =
-      isBackendManagedProvider(currentProvider) &&
-      !(currentProvider === 'openrouter' && !hasOpenRouterKey);
-    if (canKeepProvider) {
-      payload.provider = currentProvider!;
-      payload.activeProfileKey = profileKeyForProvider(currentProvider as BackendCloudProvider);
-      payload.customProtocol =
-        currentProvider === 'gemini'
-          ? 'gemini'
-          : currentProvider === 'openai' || currentProvider === 'openrouter'
-            ? 'openai'
-            : 'anthropic';
-    } else {
-      const resolvedPreferred: BackendCloudProvider =
-        pickFallbackModel(usableModels)?.provider ||
-        (PROVIDER_ORDER.find((p) => usableModels.some((m) => m.provider === p)) ?? 'anthropic');
-      payload.provider = resolvedPreferred;
-      payload.activeProfileKey = profileKeyForProvider(resolvedPreferred);
-      payload.customProtocol =
-        resolvedPreferred === 'gemini'
-          ? 'gemini'
-          : resolvedPreferred === 'openai' || resolvedPreferred === 'openrouter'
-            ? 'openai'
-            : 'anthropic';
-    }
-    payload = applyBackendManagedCredentials(payload);
-    await saveConfig(payload);
-    setIsOpen(false);
-  }, [appConfig, autoPreference, hasOpenRouterKey, usableModels, saveConfig]);
-
-  const handleSelectPreference = useCallback(
-    async (preference: AutoModelPreference) => {
-      let payload: Partial<AppConfig> = {
-        model: AUTO_MODEL_ID,
-        autoModelPreference: preference,
-        apiKey: BACKEND_PROXY_PLACEHOLDER_KEY,
-      };
-      if (isBackendManagedProvider(appConfig?.provider)) {
-        payload.provider = appConfig!.provider;
-        payload = applyBackendManagedCredentials(payload);
-      }
-      await saveConfig(payload);
-    },
-    [appConfig, saveConfig]
-  );
-
   const handleSelectYorkLlm = useCallback(
     async (modelId: string) => {
-      await saveConfig({
-        provider: 'ollama',
-        activeProfileKey: 'ollama',
-        customProtocol: 'openai',
-        baseUrl: resolveYorkLlmBaseUrl(),
-        model: modelId,
-        apiKey: resolveYorkLlmApiKey(),
-      });
+      await saveConfig(yorkLlmSelectionPayload(modelId));
       setIsOpen(false);
     },
     [saveConfig]
@@ -332,65 +269,54 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
     [hasOpenRouterKey, saveConfig, setSettingsTab, setShowSettings]
   );
 
-  // When the configured cloud model isn't usable (missing from catalog or
-  // OpenRouter without BYOK), fall back to the first available concrete model.
-  // Never overwrite a selection with Auto — Auto is opt-in only.
+  // One-shot migrate legacy Auto → York LLM (or first concrete Hub model). Never
+  // silently rewrite config when a configured model is merely missing from a partial catalog.
   useEffect(() => {
     if (!isElectron || isLoading || isSaving || !appConfig) return;
+    if (!isAutoModelId(appConfig.model)) return;
 
-    if (isAutoModelId(appConfig.model)) {
-      reconcileKeyRef.current = null;
+    if (yorkLlmModels[0]) {
+      const key = `auto::york::${yorkLlmModels[0].id}`;
+      if (reconcileKeyRef.current === key) return;
+      reconcileKeyRef.current = key;
+      void handleSelectYorkLlm(yorkLlmModels[0].id);
       return;
     }
+
     if (usableModels.length === 0) return;
-    if (!isBackendManagedProvider(appConfig.provider)) return;
-
-    const currentAvailable = usableModels.some(
-      (model) => model.provider === appConfig.provider && model.id === appConfig.model
-    );
-    if (currentAvailable) {
-      reconcileKeyRef.current = null;
-      return;
-    }
-
     const fallback = pickFallbackModel(usableModels, appConfig.provider);
     if (!fallback) return;
-
-    const reconcileKey = `${fallback.provider}::${fallback.id}`;
+    const reconcileKey = `auto::${fallback.provider}::${fallback.id}`;
     if (reconcileKeyRef.current === reconcileKey) return;
     reconcileKeyRef.current = reconcileKey;
     void handleSelect(fallback);
-  }, [appConfig, handleSelect, isLoading, isSaving, usableModels]);
+  }, [
+    appConfig,
+    handleSelect,
+    handleSelectYorkLlm,
+    isLoading,
+    isSaving,
+    usableModels,
+    yorkLlmModels,
+  ]);
 
-  const pendingFallback =
-    !isAutoSelected && !selectedModel && !selectedYorkLlmModel && isBackendManagedProvider(appConfig?.provider)
-      ? pickFallbackModel(usableModels, appConfig?.provider)
-      : null;
-
-  const displayName = isAutoSelected
-    ? `Auto · ${AUTO_PREFERENCE_SHORT_LABELS[autoPreference]}`
-    : selectedModel
-      ? shortModelName(selectedModel.name, selectedModel.id)
-      : selectedYorkLlmModel
-        ? yorkLlmDisplayName(selectedYorkLlmModel.id, selectedYorkLlmModel.name)
-      : pendingFallback
-        ? shortModelName(pendingFallback.name, pendingFallback.id)
-        : isLoading
-          ? 'Loading…'
-          : appConfig?.model && !isBackendManagedProvider(appConfig.provider)
-            ? shortModelName(appConfig.model, appConfig.model)
+  const displayName = selectedModel
+    ? shortModelName(selectedModel.name, selectedModel.id)
+    : selectedYorkLlmModel
+      ? yorkLlmDisplayName(selectedYorkLlmModel.id, selectedYorkLlmModel.name)
+      : isLoading
+        ? 'Loading…'
+        : appConfig?.model &&
+            !isBackendManagedProvider(appConfig.provider) &&
+            !isAutoModelId(appConfig.model)
+          ? shortModelName(appConfig.model, appConfig.model)
+          : appConfig?.provider === YORK_LLM_PROVIDER
+            ? 'York LLM'
             : 'Select model';
 
   const showViaOpenRouter = appConfig?.provider === 'openrouter';
-  const triggerTitle = showViaOpenRouter
-    ? isAutoSelected
-      ? `${displayName} · via Openrouter`
-      : `${displayName} via Openrouter`
-    : isAutoSelected
-      ? 'Auto picks the best model per message'
-      : displayName;
+  const triggerTitle = showViaOpenRouter ? `${displayName} via Openrouter` : displayName;
 
-  // Auto is always selectable; concrete catalog needed only for non-Auto picks.
   const isDisabled = isLoading || isSaving;
 
   return (
@@ -410,7 +336,6 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
         } disabled:cursor-not-allowed`}
         title={triggerTitle}
       >
-        {isAutoSelected && <Sparkles className="h-3.5 w-3.5 shrink-0 text-accent" />}
         <span className="inline-flex min-w-0 items-baseline gap-1 text-[12px] font-medium tracking-[-0.01em]">
           <span className="truncate">{displayName}</span>
           {showViaOpenRouter && (
@@ -432,66 +357,6 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
           className="absolute bottom-[calc(100%+8px)] right-0 z-30 w-max min-w-[14rem] max-w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-[1.25rem] border border-border-subtle bg-background shadow-elevated"
         >
           <div className="max-h-[min(28rem,70vh)] overflow-y-auto py-1.5">
-            {/* Auto (pinned) */}
-            <div className="px-1.5 py-1">
-              <div className="px-2.5 pb-1 pt-1.5 text-[11px] font-medium tracking-[0.04em] text-text-muted">
-                Smart router
-              </div>
-              <button
-                type="button"
-                role="option"
-                aria-selected={isAutoSelected}
-                onClick={() => {
-                  void handleSelectAuto();
-                }}
-                className={`flex w-full items-start gap-2 rounded-xl px-2.5 py-2 text-left transition-colors ${
-                  isAutoSelected
-                    ? 'bg-accent-muted text-accent'
-                    : 'text-text-primary hover:bg-surface-hover'
-                }`}
-              >
-                <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-center gap-2">
-                    <span className="whitespace-nowrap text-[13px] font-medium">Auto</span>
-                    {isAutoSelected && <Check className="h-3.5 w-3.5 shrink-0" />}
-                  </span>
-                  <span className="mt-0.5 block text-[11px] leading-snug text-text-muted">
-                    Picks the best model per message
-                  </span>
-                </span>
-              </button>
-
-              {isAutoSelected && (
-                <div className="mt-1 space-y-0.5 border-t border-border-subtle px-1 pt-1.5">
-                  {AUTO_PREFERENCE_OPTIONS.map((preference) => {
-                    const isSelected = autoPreference === preference;
-                    return (
-                      <button
-                        key={preference}
-                        type="button"
-                        role="option"
-                        aria-selected={isSelected}
-                        onClick={() => {
-                          void handleSelectPreference(preference);
-                        }}
-                        className={`flex w-full items-center gap-2 rounded-xl px-2.5 py-1.5 text-left transition-colors ${
-                          isSelected
-                            ? 'bg-accent-muted text-accent'
-                            : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
-                        }`}
-                      >
-                        <span className="whitespace-nowrap text-[12px] font-medium">
-                          {AUTO_PREFERENCE_LABELS[preference]}
-                        </span>
-                        {isSelected && <Check className="h-3 w-3 shrink-0" />}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
             {(isYorkLlmLoading || yorkLlmModels.length > 0 || isYorkLlmUnavailable) && (
               <div className="px-1.5 py-1">
                 <div className="px-2.5 pb-1 pt-1.5 text-[11px] font-medium tracking-[0.04em] text-text-muted">

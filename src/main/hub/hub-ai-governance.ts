@@ -124,6 +124,16 @@ export function clearHubGovernanceModelsCache(): void {
   projectBudgetCache = null;
 }
 
+/** Last non-empty cached picker list (any usable key), for soft-fail on Hub errors. */
+export function peekLastGoodHubModels(): BackendModelInfo[] {
+  let best: ModelsCacheEntry | null = null;
+  for (const entry of modelsCache.values()) {
+    if (entry.models.length === 0) continue;
+    if (!best || entry.fetchedAt > best.fetchedAt) best = entry;
+  }
+  return best ? best.models : [];
+}
+
 function userAiBudgetPath(email: string): string {
   return `/api/users/${encodeURIComponent(email)}/ai-budget`;
 }
@@ -702,7 +712,21 @@ export async function fetchHubGovernanceModels(options?: {
   }
 
   const models = joinCatalogWithAllowedModels(catalog, allowed);
-  modelsCache.set(key, { models, fetchedAt: Date.now() });
+  // Never poison the 5-minute cache with an empty join — Settings refresh would be required.
+  if (models.length > 0) {
+    modelsCache.set(key, { models, fetchedAt: Date.now() });
+  } else {
+    logWarn(
+      '[HubAiGovernance] Empty picker join — not caching (usable=%s, catalog=%s, allowed=%s)',
+      usable,
+      catalog.length,
+      allowed ? allowed.modelIds.length : 'n/a'
+    );
+    const lastGood = peekLastGoodHubModels();
+    if (lastGood.length > 0) {
+      return lastGood;
+    }
+  }
   const pickerIds = new Set(models.map((m) => m.id));
   const omitted = catalog.filter((m) => !pickerIds.has(m.id));
   log(

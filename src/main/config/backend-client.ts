@@ -3,6 +3,7 @@ import { resolveBackendUrl } from '../../shared/backend-config';
 import {
   fetchHubGovernanceModels,
   HubAiGovernanceError,
+  peekLastGoodHubModels,
 } from '../hub/hub-ai-governance';
 import { logWarn } from '../utils/logger';
 
@@ -23,6 +24,11 @@ export async function fetchBackendModels(options?: {
       logWarn('[Backend] Hub AI governance models failed:', error.status, error.message);
     } else {
       logWarn('[Backend] Hub AI governance models failed:', error);
+    }
+    const lastGood = peekLastGoodHubModels();
+    if (lastGood.length > 0) {
+      logWarn('[Backend] Returning last-good Hub models after fetch failure:', lastGood.length);
+      return lastGood;
     }
     return [];
   }

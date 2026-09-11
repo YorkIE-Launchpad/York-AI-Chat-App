@@ -116,6 +116,7 @@ import {
 import { runConfigApiTest } from './config/config-test-routing';
 import { listOllamaModels } from './config/ollama-api';
 import { listYorkLlmModels } from './config/york-llm-api';
+import { bootstrapYorkLlmDefault } from './config/york-llm-default-bootstrap';
 import { fetchBackendModels } from './config/backend-client';
 import { installYorkLlmFetchGate } from './york-llm/york-llm-fetch-gate';
 import { getYorkLlmGateSnapshot, subscribeYorkLlmQueue } from './york-llm/york-llm-gate';
@@ -2073,6 +2074,9 @@ app
     setDevLogsEnabled(enableDevLogs);
     setMcpWriteAccessServerSource(() => mcpConfigStore.getServers());
     setMcpWriteAccessEnabled(configStore.get('mcpWriteAccessEnabled') !== false);
+
+    // Migrate legacy Auto / openrouter/free defaults → York LLM before window boot.
+    await bootstrapYorkLlmDefault();
 
     // Start config file watcher for bidirectional sync
     startConfigFileWatcher();

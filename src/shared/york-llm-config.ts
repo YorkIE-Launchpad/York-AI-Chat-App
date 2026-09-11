@@ -2,6 +2,10 @@ export const DEFAULT_YORK_LLM_BASE_URL = 'http://llm.yorkdevs.link:2222/v1';
 export const DEFAULT_YORK_LLM_MAX_CONCURRENT = 4;
 export const YORK_LLM_DISPLAY_NAME = 'York LLM V1';
 export const YORK_LLM_SESSION_HEADER = 'X-York-Llm-Session-Id';
+/** Provider key used when York LLM is selected in the model picker. */
+export const YORK_LLM_PROVIDER = 'ollama' as const;
+/** Legacy system defaults that should migrate to York LLM (not intentional user picks). */
+export const LEGACY_DEFAULT_MODEL_IDS = new Set(['auto', 'openrouter/free']);
 
 /** Activity timeout for York turns (slow shared llama.cpp). Cloud stays at 5 min. */
 export const YORK_LLM_PROMPT_TIMEOUT_MS = 15 * 60 * 1000;
@@ -25,6 +29,38 @@ export function resolveYorkLlmBaseUrl(): string {
 /** llama.cpp `--api-key` — set via `YORK_LLM_API_KEY` only (no hardcoded default). */
 export function resolveYorkLlmApiKey(): string {
   return readEnv('YORK_LLM_API_KEY');
+}
+
+/** True when stored model is empty or a retired system default (auto / openrouter/free). */
+export function shouldMigrateToYorkLlmDefault(
+  model: string | undefined | null,
+  provider?: string | null
+): boolean {
+  const trimmed = model?.trim() ?? '';
+  if (!trimmed) return true;
+  if (LEGACY_DEFAULT_MODEL_IDS.has(trimmed.toLowerCase())) return true;
+  // Legacy Auto sometimes stored under openrouter with model "auto".
+  if (provider === 'openrouter' && trimmed.toLowerCase() === 'auto') return true;
+  return false;
+}
+
+/** Config fields applied when selecting York LLM (model id filled by listing/bootstrap). */
+export function yorkLlmSelectionPayload(modelId: string): {
+  provider: typeof YORK_LLM_PROVIDER;
+  activeProfileKey: typeof YORK_LLM_PROVIDER;
+  customProtocol: 'openai';
+  baseUrl: string;
+  model: string;
+  apiKey: string;
+} {
+  return {
+    provider: YORK_LLM_PROVIDER,
+    activeProfileKey: YORK_LLM_PROVIDER,
+    customProtocol: 'openai',
+    baseUrl: resolveYorkLlmBaseUrl(),
+    model: modelId,
+    apiKey: resolveYorkLlmApiKey(),
+  };
 }
 
 export function resolveYorkLlmMaxConcurrent(): number {

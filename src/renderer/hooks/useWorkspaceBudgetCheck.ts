@@ -105,8 +105,14 @@ export async function refreshWorkspaceBudgets(options?: {
     }
   }
 
-  const userPercent = userSnap ? userBudgetPercentFromSnapshot(userSnap) : null;
-  let projectPercent: number | null = null;
+  const userPercent =
+    userSnap != null
+      ? userBudgetPercentFromSnapshot(userSnap)
+      : (prev?.userBudgetPercent ?? null);
+  let projectPercent: number | null =
+    division?.kind === 'project' || division?.kind === 'client'
+      ? (prev?.projectBudgetPercent ?? null)
+      : null;
   if (division?.kind === 'project') {
     if (hasAiBudgetCeiling(projectSnap)) {
       projectPercent = userBudgetPercentFromSnapshot(projectSnap!);
@@ -114,7 +120,9 @@ export async function refreshWorkspaceBudgets(options?: {
       projectPercent = launchPadBudgetPercent(lpBudget);
     }
   } else if (division?.kind === 'client') {
-    projectPercent = clientProjectPercent;
+    if (clientProjectPercent != null) {
+      projectPercent = clientProjectPercent;
+    }
   }
 
   setHubUsage(
@@ -149,15 +157,22 @@ export function useWorkspaceBudgetCheck() {
     const off = window.electronAPI.hub.onUsage((incoming) => {
       const division = useAppStore.getState().activeDivision;
       const prev = useAppStore.getState().hubUsage;
-      const projectPercent =
+      const incomingProject =
         division?.kind === 'project' || division?.kind === 'client'
           ? incoming.projectBudgetPercent
           : null;
+      // Do not let usage ingest nulls wipe seeded GET budget percents.
+      const userBudgetPercent =
+        incoming.userBudgetPercent != null
+          ? incoming.userBudgetPercent
+          : (prev?.userBudgetPercent ?? null);
+      const projectBudgetPercent =
+        incomingProject != null ? incomingProject : (prev?.projectBudgetPercent ?? null);
       useAppStore.getState().setHubUsage(
         withResolvedActiveBudget(
           {
-            userBudgetPercent: incoming.userBudgetPercent,
-            projectBudgetPercent: projectPercent,
+            userBudgetPercent,
+            projectBudgetPercent,
             lastTurnTokens: incoming.lastTurnTokens ?? prev?.lastTurnTokens ?? null,
             updatedAt: incoming.updatedAt || Date.now(),
             checkedDivisionKey: prev?.checkedDivisionKey ?? divisionBudgetCheckKey(division),

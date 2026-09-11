@@ -10,8 +10,11 @@ import {
   resolveYorkLlmApiKey,
   resolveYorkLlmBaseUrl,
   resolveYorkLlmMaxConcurrent,
+  shouldMigrateToYorkLlmDefault,
   shouldSkipHubUsageForYorkLlm,
+  yorkLlmSelectionPayload,
   YORK_LLM_PROMPT_TIMEOUT_MS,
+  YORK_LLM_PROVIDER,
   YORK_LLM_SDK_MAX_RETRIES,
 } from '../../shared/york-llm-config';
 
@@ -73,5 +76,25 @@ describe('york-llm-config', () => {
       })
     ).toBe(125184);
     expect(extractYorkLlmContextWindow({ id: 'model-b' })).toBeUndefined();
+  });
+
+  it('migrates only legacy system defaults to York LLM', () => {
+    expect(shouldMigrateToYorkLlmDefault('')).toBe(true);
+    expect(shouldMigrateToYorkLlmDefault('auto')).toBe(true);
+    expect(shouldMigrateToYorkLlmDefault('openrouter/free')).toBe(true);
+    expect(shouldMigrateToYorkLlmDefault('claude-sonnet-5', 'anthropic')).toBe(false);
+    expect(shouldMigrateToYorkLlmDefault('gpt-5.4', 'openai')).toBe(false);
+  });
+
+  it('builds York LLM selection payload', () => {
+    const payload = yorkLlmSelectionPayload('/models/test.gguf');
+    expect(payload).toEqual({
+      provider: YORK_LLM_PROVIDER,
+      activeProfileKey: YORK_LLM_PROVIDER,
+      customProtocol: 'openai',
+      baseUrl: DEFAULT_YORK_LLM_BASE_URL,
+      model: '/models/test.gguf',
+      apiKey: '',
+    });
   });
 });

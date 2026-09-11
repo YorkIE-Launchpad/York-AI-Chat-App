@@ -247,7 +247,7 @@ async function resolveChildPiModel(options: {
   const config = configStore.getAll();
   const authStorage = getSharedAuthStorage();
 
-  let modelString = config.model?.trim() || 'auto';
+  let modelString = config.model?.trim() || '';
   let provider = config.provider;
   let customProtocol = config.customProtocol;
   let baseUrl = config.baseUrl?.trim() || undefined;
@@ -275,7 +275,7 @@ async function resolveChildPiModel(options: {
     customProtocol = freeRoute.customProtocol;
     baseUrl = freeRoute.baseUrl || undefined;
     apiKey = freeRoute.apiKey || apiKey;
-  } else {
+  } else if (modelString) {
     const autoRoute = await resolveAutoModelIfNeeded({
       model: modelString,
       preference: config.autoModelPreference,

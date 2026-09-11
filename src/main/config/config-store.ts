@@ -46,6 +46,11 @@ import {
   getBackendProxyBaseUrl,
   isBackendManagedProvider,
 } from '../../shared/backend-config';
+import {
+  resolveYorkLlmApiKey,
+  resolveYorkLlmBaseUrl,
+  YORK_LLM_PROVIDER,
+} from '../../shared/york-llm-config';
 
 /**
  * Application configuration schema
@@ -322,8 +327,8 @@ const defaultProfiles: Record<ProviderProfileKey, ProviderProfile> = {
     model: 'gpt-5.4',
   },
   ollama: {
-    apiKey: '',
-    baseUrl: 'http://localhost:11434/v1',
+    apiKey: resolveYorkLlmApiKey(),
+    baseUrl: resolveYorkLlmBaseUrl(),
     model: '',
   },
   gemini: {
@@ -348,7 +353,7 @@ const defaultProfiles: Record<ProviderProfileKey, ProviderProfile> = {
   },
 };
 
-/** Fresh default config set starts on OpenRouter Free; other provider presets stay concrete models. */
+/** Fresh default config set starts on York LLM; other provider presets stay concrete models. */
 const defaultConfigSetProfiles: Record<ProviderProfileKey, ProviderProfile> = Object.fromEntries(
   Object.entries(defaultProfiles).map(([key, profile]) => [key, { ...profile }])
 ) as Record<ProviderProfileKey, ProviderProfile>;
@@ -357,9 +362,9 @@ const defaultConfigSet: ApiConfigSet = {
   id: DEFAULT_CONFIG_SET_ID,
   name: 'Default profile',
   isSystem: true,
-  provider: 'openrouter',
-  customProtocol: 'anthropic',
-  activeProfileKey: 'openrouter',
+  provider: YORK_LLM_PROVIDER,
+  customProtocol: 'openai',
+  activeProfileKey: YORK_LLM_PROVIDER,
   profiles: defaultConfigSetProfiles,
   enableThinking: false,
   updatedAt: '1970-01-01T00:00:00.000Z',
@@ -367,10 +372,10 @@ const defaultConfigSet: ApiConfigSet = {
 
 const defaultConfig: AppConfig = {
   provider: defaultConfigSet.provider,
-  apiKey: defaultProfiles.openrouter.apiKey,
-  baseUrl: defaultProfiles.openrouter.baseUrl,
+  apiKey: defaultProfiles.ollama.apiKey,
+  baseUrl: defaultProfiles.ollama.baseUrl,
   customProtocol: defaultConfigSet.customProtocol,
-  model: defaultProfiles.openrouter.model,
+  model: defaultProfiles.ollama.model,
   autoModelPreference: 'balanced',
   activeProfileKey: defaultConfigSet.activeProfileKey,
   profiles: defaultConfigSetProfiles,

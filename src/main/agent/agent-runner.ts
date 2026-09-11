@@ -133,7 +133,6 @@ import {
   withAnthropicContextManagementBeta,
 } from './live-context-prune';
 import { formatAutoRouteLabel, resolveAutoModelIfNeeded } from './auto-model-resolve';
-import { AUTO_MODEL_ID } from '../../shared/auto-model';
 import {
   buildDivisionActiveProjectContext,
   buildDivisionActiveClientContext,
@@ -1576,8 +1575,9 @@ ${hints.join('\n')}
   private getCurrentModelString(preferredModel?: string): string {
     const routeModel = preferredModel?.trim();
     const configuredModel = configStore.get('model')?.trim();
-    const model = routeModel || configuredModel || AUTO_MODEL_ID;
-    logCtx('[CoworkAgentRunner] Current model:', model);
+    // Prefer configured/York model — never invent virtual "auto" for empty config.
+    const model = routeModel || configuredModel || '';
+    logCtx('[CoworkAgentRunner] Current model:', model || '(empty)');
     logCtx(
       '[CoworkAgentRunner] Model source:',
       routeModel ? 'runtimeRoute.model' : configuredModel ? 'configStore.model' : 'default'
