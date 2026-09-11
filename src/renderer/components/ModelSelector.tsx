@@ -32,7 +32,7 @@ import {
   useYorkLlmModels,
   yorkLlmDisplayName,
 } from '../hooks/useYorkLlmModels';
-import { resolveYorkLlmBaseUrl } from '../../shared/york-llm-config';
+import { resolveYorkLlmApiKey, resolveYorkLlmBaseUrl } from '../../shared/york-llm-config';
 
 const isElectron = typeof window !== 'undefined' && window.electronAPI !== undefined;
 
@@ -291,7 +291,7 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
         customProtocol: 'openai',
         baseUrl: resolveYorkLlmBaseUrl(),
         model: modelId,
-        apiKey: '',
+        apiKey: resolveYorkLlmApiKey(),
       });
       setIsOpen(false);
     },

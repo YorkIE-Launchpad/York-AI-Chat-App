@@ -17,10 +17,12 @@ describe('york-llm-api', () => {
   afterEach(() => {
     global.fetch = originalFetch;
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
     resetYorkLlmModelsCacheForTests();
   });
 
   it('parses llama.cpp model list with context metadata', async () => {
+    vi.stubEnv('YORK_LLM_API_KEY', 'test-york-llm-key');
     vi.mocked(global.fetch).mockResolvedValueOnce(
       new Response(
         JSON.stringify({
@@ -46,6 +48,9 @@ describe('york-llm-api', () => {
     ]);
     expect(vi.mocked(global.fetch).mock.calls[0]?.[1]).toEqual(
       expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: 'Bearer test-york-llm-key',
+        }),
         signal: expect.any(AbortSignal),
       })
     );

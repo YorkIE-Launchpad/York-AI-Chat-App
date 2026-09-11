@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   normalizeOllamaBaseUrl,
@@ -19,6 +19,10 @@ import {
 } from '../src/main/config/auth-utils';
 
 describe('auth-utils', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it('detects oauth-style tokens', () => {
     expect(isLikelyOAuthAccessToken('oauth-access-token')).toBe(true);
     expect(isLikelyOAuthAccessToken('sk-ant-123')).toBe(false);
@@ -280,6 +284,36 @@ describe('auth-utils', () => {
     expect(resolved).toEqual({
       apiKey: 'sk-ollama-local-proxy',
       baseUrl: 'http://localhost:11434/v1',
+    });
+  });
+
+  it('injects the York LLM api key from env when base url is the shared York server', () => {
+    vi.stubEnv('YORK_LLM_API_KEY', '53d93195-80b7-42fe-b1b7-4af0cd932efc');
+    const resolved = resolveOllamaCredentials({
+      provider: 'ollama',
+      customProtocol: 'openai',
+      apiKey: '',
+      baseUrl: 'http://llm.yorkdevs.link:2222/v1',
+    });
+
+    expect(resolved).toEqual({
+      apiKey: '53d93195-80b7-42fe-b1b7-4af0cd932efc',
+      baseUrl: 'http://llm.yorkdevs.link:2222/v1',
+    });
+  });
+
+  it('leaves York LLM api key empty when YORK_LLM_API_KEY is unset', () => {
+    vi.stubEnv('YORK_LLM_API_KEY', '');
+    const resolved = resolveOllamaCredentials({
+      provider: 'ollama',
+      customProtocol: 'openai',
+      apiKey: '',
+      baseUrl: 'http://llm.yorkdevs.link:2222/v1',
+    });
+
+    expect(resolved).toEqual({
+      apiKey: '',
+      baseUrl: 'http://llm.yorkdevs.link:2222/v1',
     });
   });
 

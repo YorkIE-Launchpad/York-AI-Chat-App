@@ -38,6 +38,8 @@ import { resolveFreeModelForChild } from './free-model-resolve';
 import { resolveAutoModelIfNeeded } from './auto-model-resolve';
 import { reportHubGovernanceUsageFromCompletion } from '../hub/hub-ai-governance';
 import {
+  isYorkLlmBaseUrl,
+  resolveYorkLlmApiKey,
   shouldSkipHubUsageForYorkLlm,
   YORK_LLM_ZERO_COST,
 } from '../../shared/york-llm-config';
@@ -250,6 +252,10 @@ async function resolveChildPiModel(options: {
   let customProtocol = config.customProtocol;
   let baseUrl = config.baseUrl?.trim() || undefined;
   let apiKey = config.apiKey;
+  const yorkLlmApiKey = resolveYorkLlmApiKey();
+  if (isYorkLlmBaseUrl(baseUrl) && yorkLlmApiKey) {
+    apiKey = yorkLlmApiKey;
+  }
 
   if (options.modelMode === 'free') {
     const freeRoute = await resolveFreeModelForChild({

@@ -1,6 +1,7 @@
 import type { AppConfig } from './config-store';
 import { isLoopbackBaseUrl as sharedIsLoopbackBaseUrl } from '../../shared/network/loopback';
 import { normalizeOllamaBaseUrl as sharedNormalizeOllamaBaseUrl } from '../../shared/ollama-base-url';
+import { isYorkLlmBaseUrl, resolveYorkLlmApiKey } from '../../shared/york-llm-config';
 
 const API_KEY_PREFIX_RE = /^sk-/i;
 const CHATGPT_ACCOUNT_ID_RE = /^[-_a-zA-Z0-9]{6,}$/;
@@ -196,8 +197,9 @@ export function resolveOllamaCredentials(
     return null;
   }
   const trimmedApiKey = config.apiKey?.trim();
+  const yorkLlm = isYorkLlmBaseUrl(config.baseUrl);
   return {
-    apiKey: trimmedApiKey || OLLAMA_PLACEHOLDER_KEY,
+    apiKey: trimmedApiKey || (yorkLlm ? resolveYorkLlmApiKey() : OLLAMA_PLACEHOLDER_KEY),
     baseUrl: normalizeOllamaBaseUrl(config.baseUrl),
   };
 }

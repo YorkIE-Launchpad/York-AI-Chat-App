@@ -22,6 +22,11 @@ export function resolveYorkLlmBaseUrl(): string {
   return fromEnv || DEFAULT_YORK_LLM_BASE_URL;
 }
 
+/** llama.cpp `--api-key` — set via `YORK_LLM_API_KEY` only (no hardcoded default). */
+export function resolveYorkLlmApiKey(): string {
+  return readEnv('YORK_LLM_API_KEY');
+}
+
 export function resolveYorkLlmMaxConcurrent(): number {
   const raw = readEnv('YORK_LLM_MAX_CONCURRENT');
   if (!raw) {

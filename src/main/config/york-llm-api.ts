@@ -1,6 +1,7 @@
 import {
   extractYorkLlmContextWindow,
   formatYorkLlmModelName,
+  resolveYorkLlmApiKey,
   resolveYorkLlmBaseUrl,
 } from '../../shared/york-llm-config';
 import type { ProviderModelInfo } from '../../renderer/types';
@@ -25,9 +26,16 @@ export async function listYorkLlmModels(options?: {
   }
 
   const baseUrl = resolveYorkLlmBaseUrl();
+  const apiKey = resolveYorkLlmApiKey();
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (apiKey) {
+    headers.Authorization = `Bearer ${apiKey}`;
+  }
   const response = await fetch(`${baseUrl.replace(/\/+$/, '')}/models`, {
     method: 'GET',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     signal: AbortSignal.timeout(YORK_LLM_MODELS_TIMEOUT_MS),
   });
   const text = await response.text();
@@ -50,7 +58,7 @@ export async function listYorkLlmModels(options?: {
   }
   if (models.length === 0) {
     // Fallback to shared OpenAI-compatible parser if response shape differs slightly.
-    const index = await fetchOllamaModelIndex({ baseUrl, apiKey: '' });
+    const index = await fetchOllamaModelIndex({ baseUrl, apiKey });
     for (const model of index.models) {
       models.push({
         ...model,

@@ -201,6 +201,7 @@ import { getYorkLlmModelContextWindow } from '../config/york-llm-api';
 import { acquireYorkLlmSlot, subscribeYorkLlmQueue } from '../york-llm/york-llm-gate';
 import {
   isYorkLlmBaseUrl,
+  resolveYorkLlmApiKey,
   resolveYorkLlmBaseUrl,
   YORK_LLM_PROMPT_TIMEOUT_MS,
   YORK_LLM_SDK_MAX_RETRIES,
@@ -2016,7 +2017,7 @@ ${hints.join('\n')}
             session.model?.includes('.gguf')
           ) {
             runtimeConfig.baseUrl = resolveYorkLlmBaseUrl();
-            runtimeConfig.apiKey = '';
+            runtimeConfig.apiKey = resolveYorkLlmApiKey() || runtimeConfig.apiKey;
             runtimeConfig.customProtocol = 'openai';
             runtimeConfig.activeProfileKey = 'ollama';
           }
@@ -2208,6 +2209,10 @@ ${hints.join('\n')}
       const provider = resolvedProvider || 'anthropic';
       const yorkLlmActive = isYorkLlmBaseUrl(effectiveBaseUrl || runtimeConfig.baseUrl);
       if (yorkLlmActive) {
+        const yorkLlmApiKey = resolveYorkLlmApiKey();
+        if (yorkLlmApiKey) {
+          runtimeConfig.apiKey = yorkLlmApiKey;
+        }
         activePiModel = {
           ...activePiModel,
           // Org-hosted free endpoint — never price tokens against Hub budget.

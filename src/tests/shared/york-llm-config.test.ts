@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi, afterEach } from 'vitest';
 import {
   DEFAULT_YORK_LLM_BASE_URL,
   DEFAULT_YORK_LLM_MAX_CONCURRENT,
@@ -7,6 +7,7 @@ import {
   isYorkLlmBaseUrl,
   isYorkLlmChatCompletionUrl,
   isYorkLlmHost,
+  resolveYorkLlmApiKey,
   resolveYorkLlmBaseUrl,
   resolveYorkLlmMaxConcurrent,
   shouldSkipHubUsageForYorkLlm,
@@ -15,9 +16,19 @@ import {
 } from '../../shared/york-llm-config';
 
 describe('york-llm-config', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it('resolves default base url and max concurrent', () => {
     expect(resolveYorkLlmBaseUrl()).toBe(DEFAULT_YORK_LLM_BASE_URL);
     expect(resolveYorkLlmMaxConcurrent()).toBe(DEFAULT_YORK_LLM_MAX_CONCURRENT);
+  });
+
+  it('resolves api key from YORK_LLM_API_KEY only', () => {
+    expect(resolveYorkLlmApiKey()).toBe('');
+    vi.stubEnv('YORK_LLM_API_KEY', 'env-only-key');
+    expect(resolveYorkLlmApiKey()).toBe('env-only-key');
   });
 
   it('exposes longer York activity timeout and retry budget', () => {

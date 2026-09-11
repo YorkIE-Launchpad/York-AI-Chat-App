@@ -47,7 +47,7 @@ import {
   type SessionDivisionFields,
 } from '../../shared/workspace-division';
 import { reportHubGovernanceUsageFromCompletion } from '../hub/hub-ai-governance';
-import { isYorkLlmBaseUrl, YORK_LLM_ZERO_COST } from '../../shared/york-llm-config';
+import { isYorkLlmBaseUrl, resolveYorkLlmApiKey, YORK_LLM_ZERO_COST } from '../../shared/york-llm-config';
 import { acquireYorkLlmSlot } from '../york-llm/york-llm-gate';
 
 const NETWORK_ERROR_RE =
@@ -331,11 +331,12 @@ export async function runPiAiOneShot(
     resolvedModel = withAppVersionHeader(resolvedModel, getClientAppVersion());
   }
 
-  // Cognito JWT for backend-managed proxy; otherwise configured key
+  const yorkLlmActiveForAuth = isYorkLlmBaseUrl(effectiveBaseUrl || resolvedModel.baseUrl);
+  const yorkLlmApiKey = yorkLlmActiveForAuth ? resolveYorkLlmApiKey() : '';
   let apiKey = (
     await resolveBackendClientApiKey({
       provider: effectiveConfig.provider,
-      apiKey: effectiveConfig.apiKey,
+      apiKey: yorkLlmApiKey || effectiveConfig.apiKey,
     })
   ).trim();
   if (apiKey) {
@@ -710,10 +711,12 @@ async function runPiAiStreamInner(
     resolvedModel = withAppVersionHeader(resolvedModel, getClientAppVersion());
   }
 
+  const yorkLlmActiveForAuth = isYorkLlmBaseUrl(effectiveBaseUrl || resolvedModel.baseUrl);
+  const yorkLlmApiKey = yorkLlmActiveForAuth ? resolveYorkLlmApiKey() : '';
   let apiKey = (
     await resolveBackendClientApiKey({
       provider: effectiveConfig.provider,
-      apiKey: effectiveConfig.apiKey,
+      apiKey: yorkLlmApiKey || effectiveConfig.apiKey,
     })
   ).trim();
   if (apiKey) {
