@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hi</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #0f0c24 0%, #302b63 50%, #6930c3 100%);
+            overflow: hidden;
+        }
+
+        h1 {
+            color: #fff;
+            font-size: 10rem;
+            font-weight: 700;
+            text-shadow: 0 0 30px rgba(255, 255, 255, 0.4),
+                         0 0 60px rgba(105, 48, 195, 0.6);
+            animation: fadeIn 1.5s ease-in-out;
+            letter-spacing: 0.15em;
+            text-transform: uppercase;
+        }
+
+        @keyframes fadeIn {
+            0%   { opacity: 0; transform: scale(0.8); }
+            100% { opacity: 1; transform: scale(1); }
+        }
+
+        .subtitle {
+            position: absolute;
+            bottom: 20%;
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 1.2rem;
+            letter-spacing: 0.3em;
+            text-transform: uppercase;
+            animation: slideUp 2s ease-out 0.5s both;
+        }
+
+        @keyframes slideUp {
+            0%   { opacity: 0; transform: translateY(20px); }
+            100% { opacity: 1; transform: translateY(0); }
+        }
+
+        .circle {
+            position: absolute;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(105, 48, 195, 0.3), transparent 70%);
+            animation: pulse 4s ease-in-out infinite;
+        }
+
+        .circle:nth-child(1) { width: 300px; height: 300px; top: -10%; left: 10%; }
+        .circle:nth-child(2) { width: 500px; height: 500px; bottom: -15%; right: -5%; animation-delay: 2s; }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); opacity: 0.5; }
+            50%      { transform: scale(1.1); opacity: 0.8; }
+        }
+    </style>
+</head>
+<body>
+    <div class="circle"></div>
+    <div class="circle"></div>
+    <h1>Hi</h1>
+    <div class="subtitle">Nice to meet you</div>
+</body>
+</html>

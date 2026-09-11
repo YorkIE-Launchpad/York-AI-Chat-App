@@ -604,9 +604,13 @@ export interface PermissionRequest {
   toolName: string;
   input: Record<string, unknown>;
   sessionId: string;
+  /** Epoch ms when the ask auto-expires (timeout). */
+  expiresAt?: number;
+  /** Canonical tool name for rule matching (may differ from display toolName). */
+  canonicalToolName?: string;
 }
 
-export type PermissionResult = 'allow' | 'deny' | 'allow_always';
+export type PermissionResult = 'allow' | 'deny' | 'allow_always' | 'timeout';
 
 // Sudo password types
 export interface SudoPasswordRequest {
@@ -784,7 +788,18 @@ export type ServerEvent =
   | { type: 'session.update'; payload: { sessionId: string; updates: Partial<Session> } }
   | { type: 'session.list'; payload: { sessions: Session[] } }
   | { type: 'permission.request'; payload: PermissionRequest }
-  | { type: 'permission.dismiss'; payload: { toolUseId: string } }
+  | {
+      type: 'permission.dismiss';
+      payload: { toolUseId: string; reason?: 'timeout' | 'cancelled' };
+    }
+  | {
+      type: 'permission.sessionAlwaysAllow';
+      payload: { sessionId: string; tools: string[] };
+    }
+  | {
+      type: 'permission.rulesUpdated';
+      payload: { permissionRules: PermissionRule[] };
+    }
   | { type: 'question.request'; payload: UserQuestionRequest }
   | { type: 'question.dismiss'; payload: { questionId: string; sessionId: string } }
   | { type: 'sudo.password.request'; payload: SudoPasswordRequest }

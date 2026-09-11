@@ -14,6 +14,7 @@ import { StdioChannel } from './channels/stdio-channel';
 import { remoteConfigStore } from './remote-config-store';
 import { tunnelManager, TunnelStatus } from './tunnel-manager';
 import { buildRemoteSessionTitle } from './remote-title';
+import { PERMISSION_ASK_TIMEOUT_MS } from '../../shared/permission-policy';
 import type {
   GatewayStatus,
   GatewayConfig,
@@ -895,7 +896,7 @@ export class RemoteManager extends EventEmitter {
             }
           }).catch((err) => logError('[RemoteManager] Permission timeout lock error:', err));
         },
-        5 * 60 * 1000
+        PERMISSION_ASK_TIMEOUT_MS
       );
     });
   }

@@ -1,28 +1,50 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useIPC } from '../hooks/useIPC';
 import { useAppStore } from '../store';
 import type { PermissionRequest } from '../types';
 import { Shield, X, Check, AlertTriangle } from 'lucide-react';
+import {
+  PERMISSION_ASK_TIMEOUT_MS,
+  truncatePermissionInputPreview,
+} from '../../shared/permission-policy';
 
 interface PermissionDialogProps {
   permission: PermissionRequest;
 }
 
+function formatCountdown(msRemaining: number): string {
+  const totalSec = Math.max(0, Math.ceil(msRemaining / 1000));
+  const mins = Math.floor(totalSec / 60);
+  const secs = totalSec % 60;
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
 export function PermissionDialog({ permission }: PermissionDialogProps) {
   const { t } = useTranslation();
   const { respondToPermission } = useIPC();
-  const [pendingAlwaysAllow, setPendingAlwaysAllow] = useState(false);
   const queuedCount = useAppStore((s) => s.permissionQueue.length);
+  const expiresAt = permission.expiresAt ?? Date.now() + PERMISSION_ASK_TIMEOUT_MS;
+  const [msRemaining, setMsRemaining] = useState(() => Math.max(0, expiresAt - Date.now()));
+
+  useEffect(() => {
+    const tick = () => setMsRemaining(Math.max(0, expiresAt - Date.now()));
+    tick();
+    const id = window.setInterval(tick, 1000);
+    return () => window.clearInterval(id);
+  }, [expiresAt, permission.toolUseId]);
+
+  const previewInput = useMemo(
+    () => truncatePermissionInputPreview(permission.input),
+    [permission.input]
+  );
 
   const getToolDescription = (toolName: string): string => {
     const key = `permission.toolDescriptions.${toolName}`;
     const translated = t(key);
-    // If translation exists (not the same as key), return it
     if (translated !== key) {
       return translated;
     }
-    // Otherwise fallback to default message
     return t('permission.useTool', { toolName });
   };
 
@@ -33,12 +55,11 @@ export function PermissionDialog({ permission }: PermissionDialogProps) {
     'execute_command',
     'write_file',
     'edit_file',
-  ].includes(permission.toolName);
+  ].includes(permission.toolName.toLowerCase());
 
   return (
     <div className="fixed inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center z-[90] animate-fade-in">
       <div className="card w-full max-w-md p-6 m-4 shadow-elevated animate-slide-up">
-        {/* Header */}
         <div className="flex items-start gap-4">
           <div
             className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 ${
@@ -59,6 +80,9 @@ export function PermissionDialog({ permission }: PermissionDialogProps) {
             <p className="text-sm text-text-secondary mt-1">
               {getToolDescription(permission.toolName)}
             </p>
+            <p className="text-xs text-text-muted mt-1 tabular-nums">
+              {t('permission.expiresIn', { time: formatCountdown(msRemaining) })}
+            </p>
             {queuedCount > 0 ? (
               <p className="text-xs text-text-muted mt-1">
                 {t('permission.moreQueued', { count: queuedCount })}
@@ -67,7 +91,6 @@ export function PermissionDialog({ permission }: PermissionDialogProps) {
           </div>
         </div>
 
-        {/* Tool Details */}
         <div className="mt-4 p-4 bg-surface-muted rounded-xl">
           <div className="flex items-center gap-2 mb-2">
             <span className="text-sm font-medium text-text-primary">{t('permission.tool')}</span>
@@ -77,12 +100,11 @@ export function PermissionDialog({ permission }: PermissionDialogProps) {
           <div className="text-sm text-text-secondary">
             <span className="font-medium text-text-primary">{t('permission.input')}</span>
             <pre className="mt-1 text-xs code-block max-h-32 overflow-auto">
-              {JSON.stringify(permission.input, null, 2)}
+              {JSON.stringify(previewInput, null, 2)}
             </pre>
           </div>
         </div>
 
-        {/* Warning */}
         {isHighRisk && (
           <div className="mt-4 p-3 bg-warning/10 border border-warning/20 rounded-xl">
             <div className="flex items-start gap-2">
@@ -92,7 +114,6 @@ export function PermissionDialog({ permission }: PermissionDialogProps) {
           </div>
         )}
 
-        {/* Actions */}
         <div className="mt-6 flex items-center gap-3">
           <button
             onClick={() => respondToPermission(permission.toolUseId, 'deny')}
@@ -107,52 +128,16 @@ export function PermissionDialog({ permission }: PermissionDialogProps) {
             className="flex-1 btn btn-primary"
           >
             <Check className="w-4 h-4" />
-            {t('permission.allow')}
+            {t('permission.allowOnce')}
           </button>
         </div>
 
-        {/* Always Allow option */}
-        {!pendingAlwaysAllow ? (
-          <button
-            onClick={() => {
-              const dangerousTools = ['bash', 'write', 'edit', 'execute_command'];
-              const isDangerous = dangerousTools.some((tool) =>
-                permission.toolName?.toLowerCase().includes(tool)
-              );
-              if (isDangerous) {
-                setPendingAlwaysAllow(true);
-              } else {
-                respondToPermission(permission.toolUseId, 'allow_always');
-              }
-            }}
-            className="w-full mt-2 btn btn-ghost text-sm"
-          >
-            {t('permission.alwaysAllow')}
-          </button>
-        ) : (
-          <div className="mt-2 p-3 bg-warning/10 border border-warning/20 rounded-xl">
-            <p className="text-sm text-warning mb-2">
-              {`Are you sure you want to always allow "${permission.toolName}"? This tool can modify your system.`}
-            </p>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setPendingAlwaysAllow(false)}
-                className="flex-1 btn btn-secondary text-sm"
-              >
-                {t('permission.deny')}
-              </button>
-              <button
-                onClick={() => {
-                  setPendingAlwaysAllow(false);
-                  respondToPermission(permission.toolUseId, 'allow_always');
-                }}
-                className="flex-1 btn btn-primary text-sm"
-              >
-                {t('permission.alwaysAllow')}
-              </button>
-            </div>
-          </div>
-        )}
+        <button
+          onClick={() => respondToPermission(permission.toolUseId, 'allow_always')}
+          className="w-full mt-2 btn btn-ghost text-sm"
+        >
+          {t('permission.alwaysAllow')}
+        </button>
       </div>
     </div>
   );

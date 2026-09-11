@@ -16,6 +16,17 @@ describe('permission queue', () => {
     useAppStore.setState({
       pendingPermission: null,
       permissionQueue: [],
+      sessionAlwaysAllowBySession: {},
+      globalNotice: null,
+      settings: {
+        ...useAppStore.getState().settings,
+        permissionRules: [
+          { tool: 'read', action: 'allow' },
+          { tool: 'write', action: 'ask' },
+          { tool: 'edit', action: 'ask' },
+          { tool: 'bash', action: 'ask' },
+        ],
+      },
     });
   });
 
@@ -54,5 +65,23 @@ describe('permission queue', () => {
     const next = useAppStore.getState();
     expect(next.pendingPermission?.toolUseId).toBe('a');
     expect(next.permissionQueue.map((p) => p.toolUseId)).toEqual(['b']);
+  });
+
+  it('stores session Always Allow tools for Context panel', () => {
+    useAppStore.getState().setSessionAlwaysAllow('s1', ['write', 'bash']);
+    expect(useAppStore.getState().sessionAlwaysAllowBySession.s1).toEqual(['write', 'bash']);
+    useAppStore.getState().setSessionAlwaysAllow('s1', []);
+    expect(useAppStore.getState().sessionAlwaysAllowBySession.s1).toEqual([]);
+  });
+
+  it('updates write permissionRules when toggling Context panel style rules', () => {
+    const store = useAppStore.getState();
+    const next = store.settings.permissionRules
+      .filter((r) => r.tool.toLowerCase() !== 'write')
+      .concat([{ tool: 'write', action: 'allow' as const }]);
+    store.setSettings({ permissionRules: next });
+    expect(
+      useAppStore.getState().settings.permissionRules.find((r) => r.tool === 'write')?.action
+    ).toBe('allow');
   });
 });

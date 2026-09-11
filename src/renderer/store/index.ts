@@ -142,6 +142,10 @@ interface AppState {
   // Permission — head of queue is pendingPermission; remainder in permissionQueue
   pendingPermission: PermissionRequest | null;
   permissionQueue: PermissionRequest[];
+  /** Session-scoped Always Allow tool names (from main process). */
+  sessionAlwaysAllowBySession: Record<string, string[]>;
+  /** Tools that have triggered a permission ask (per session). */
+  askedPermissionToolsBySession: Record<string, string[]>;
 
   // AskUserQuestion — keyed by sessionId so concurrent sessions cannot clobber each other
   pendingQuestionsBySessionId: Record<string, UserQuestionRequest>;
@@ -277,6 +281,8 @@ interface AppState {
   enqueuePermission: (permission: PermissionRequest) => void;
   /** Resolve/dismiss by toolUseId and surface the next queued ask. */
   dequeuePermission: (toolUseId: string) => void;
+  setSessionAlwaysAllow: (sessionId: string, tools: string[]) => void;
+  rememberAskedPermissionTool: (sessionId: string, toolName: string) => void;
 
   setPendingQuestion: (question: UserQuestionRequest) => void;
   clearPendingQuestion: (sessionId: string, questionId?: string) => void;
@@ -385,6 +391,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   askGrowthOSSessionId: null,
   pendingPermission: null,
   permissionQueue: [],
+  sessionAlwaysAllowBySession: {},
+  askedPermissionToolsBySession: {},
   pendingQuestionsBySessionId: {},
   pendingSudoPassword: null,
   settings: defaultSettings,
@@ -1007,6 +1015,36 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
       return {
         permissionQueue: state.permissionQueue.filter((p) => p.toolUseId !== toolUseId),
+      };
+    }),
+  setSessionAlwaysAllow: (sessionId, tools) =>
+    set((state) => {
+      const prev = state.sessionAlwaysAllowBySession[sessionId];
+      if (
+        prev &&
+        prev.length === tools.length &&
+        prev.every((tool, i) => tool === tools[i])
+      ) {
+        return state;
+      }
+      return {
+        sessionAlwaysAllowBySession: {
+          ...state.sessionAlwaysAllowBySession,
+          [sessionId]: tools,
+        },
+      };
+    }),
+  rememberAskedPermissionTool: (sessionId, toolName) =>
+    set((state) => {
+      const tool = toolName.trim().toLowerCase();
+      if (!sessionId || !tool) return state;
+      const prev = state.askedPermissionToolsBySession[sessionId] ?? [];
+      if (prev.includes(tool)) return state;
+      return {
+        askedPermissionToolsBySession: {
+          ...state.askedPermissionToolsBySession,
+          [sessionId]: [...prev, tool],
+        },
       };
     }),
 

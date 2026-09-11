@@ -27,6 +27,8 @@ import type { Session, Message, TraceStep, ServerEvent, ContentBlock } from '../
 import { v4 as uuidv4 } from 'uuid';
 import {
   rememberAlwaysAllow,
+  listSessionAlwaysAllow,
+  upsertToolPermission,
   resolveSessionToolPermission,
 } from '../config/permission-rules-store';
 import {
@@ -768,8 +770,9 @@ interface AgentRunnerOptions {
     sessionId: string,
     toolUseId: string,
     toolName: string,
-    input: Record<string, unknown>
-  ) => Promise<'allow' | 'deny' | 'allow_always'>;
+    input: Record<string, unknown>,
+    canonicalToolName?: string
+  ) => Promise<'allow' | 'deny' | 'allow_always' | 'timeout'>;
 }
 
 interface CachedPiSession {
@@ -806,8 +809,9 @@ export class CoworkAgentRunner {
     sessionId: string,
     toolUseId: string,
     toolName: string,
-    input: Record<string, unknown>
-  ) => Promise<'allow' | 'deny' | 'allow_always'>;
+    input: Record<string, unknown>,
+    canonicalToolName?: string
+  ) => Promise<'allow' | 'deny' | 'allow_always' | 'timeout'>;
   private pathResolver: PathResolver;
   private mcpManager?: MCPManager;
   private _pluginRuntimeService?: PluginRuntimeService;
@@ -1317,12 +1321,18 @@ ${hints.join('\n')}
 
         if (decision === 'ask') {
           const toolUseId = `${ctx.toolCall?.id ?? 'unknown'}-perm-${uuidv4().slice(0, 8)}`;
-          let result: 'allow' | 'deny' | 'allow_always';
+          let result: 'allow' | 'deny' | 'allow_always' | 'timeout';
           try {
             // Send the display name to the renderer so the dialog shows a
             // human-readable tool name; canonical `toolName` is still used
             // for rule matching above and "always allow" memory below.
-            result = await requestPermission(sessionId, toolUseId, displayName, input);
+            result = await requestPermission(
+              sessionId,
+              toolUseId,
+              displayName,
+              input,
+              toolName
+            );
           } catch (permErr) {
             logError(
               `[CoworkAgentRunner] Permission request failed for '${toolName}' — failing closed`,
@@ -1334,6 +1344,14 @@ ${hints.join('\n')}
             };
           }
 
+          if (result === 'timeout') {
+            log(`[CoworkAgentRunner] Tool '${toolName}' permission timed out`);
+            return {
+              block: true,
+              reason: `Permission timed out for '${displayName}'. Ask the user to retry, or set the tool to Allow in the Context panel.`,
+            };
+          }
+
           if (result === 'deny') {
             log(`[CoworkAgentRunner] Tool '${toolName}' denied by user`);
             return { block: true, reason: `User denied permission for '${displayName}'.` };
@@ -1341,6 +1359,20 @@ ${hints.join('\n')}
 
           if (result === 'allow_always') {
             rememberAlwaysAllow(sessionId, toolName);
+            // Persist as Allow so subsequent turns stop prompting even if
+            // session Always Allow memory is cleared or a new pi session starts.
+            const permissionRules = upsertToolPermission(toolName, 'allow');
+            this.sendToRenderer({
+              type: 'permission.sessionAlwaysAllow',
+              payload: {
+                sessionId,
+                tools: listSessionAlwaysAllow(sessionId),
+              },
+            });
+            this.sendToRenderer({
+              type: 'permission.rulesUpdated',
+              payload: { permissionRules },
+            });
           }
         }
 

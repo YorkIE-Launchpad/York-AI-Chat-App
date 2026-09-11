@@ -20,14 +20,17 @@
  */
 import { beforeEach, describe, it, expect } from 'vitest';
 import {
+  clearSessionAlwaysAllow,
   decidePermission,
   forgetSessionPermissions,
   getPermissionRules,
+  listSessionAlwaysAllow,
   rememberAlwaysAllow,
   rememberAutoApproveToolPermissions,
   resolveSessionToolPermission,
   sessionAutoApprovesToolPermissions,
   setPermissionRules,
+  upsertToolPermission,
 } from '../../main/config/permission-rules-store';
 import {
   setMcpWriteAccessEnabled,
@@ -43,6 +46,8 @@ function resetToDefaults(): void {
   setPermissionRules(null);
   forgetSessionPermissions(SESSION_A);
   forgetSessionPermissions(SESSION_B);
+  clearSessionAlwaysAllow(SESSION_A);
+  clearSessionAlwaysAllow(SESSION_B);
   setMcpWriteAccessEnabled(true);
   setMcpWriteAccessServerSource(() => []);
 }
@@ -532,13 +537,40 @@ describe('permission-rules-store', () => {
       expect(decidePermission(SESSION_A, 'Bash', {})).toBe('allow');
     });
 
-    it('always-allow takes precedence over a configured deny rule', () => {
-      // Security note: this matches the documented matching order (session
-      // memory first, then rules). If this behaviour ever needs to change
-      // for security reasons, this test should fail loudly.
+    it('explicit deny rules beat session always-allow (hard-block)', () => {
       setPermissionRules([{ tool: 'bash', action: 'deny' }]);
       rememberAlwaysAllow(SESSION_A, 'bash');
-      expect(decidePermission(SESSION_A, 'bash', {})).toBe('allow');
+      expect(decidePermission(SESSION_A, 'bash', {})).toBe('deny');
+    });
+
+    it('upsertToolPermission sets allow and stops future asks', () => {
+      setPermissionRules([{ tool: 'write', action: 'ask' }]);
+      expect(decidePermission(SESSION_A, 'write', { path: 'a.html' })).toBe('ask');
+      upsertToolPermission('write', 'allow');
+      expect(decidePermission(SESSION_A, 'write', { path: 'a.html' })).toBe('allow');
+      expect(getPermissionRules().find((r) => r.tool === 'write')?.action).toBe('allow');
+    });
+
+    it('clearSessionAlwaysAllow clears remembered tools without touching other sessions', () => {
+      setPermissionRules([{ tool: 'write', action: 'ask' }, { tool: 'bash', action: 'ask' }]);
+      rememberAlwaysAllow(SESSION_A, 'write');
+      rememberAlwaysAllow(SESSION_B, 'bash');
+      expect(listSessionAlwaysAllow(SESSION_A)).toEqual(['write']);
+      expect(listSessionAlwaysAllow(SESSION_B)).toEqual(['bash']);
+
+      clearSessionAlwaysAllow(SESSION_A);
+      expect(listSessionAlwaysAllow(SESSION_A)).toEqual([]);
+      expect(decidePermission(SESSION_A, 'write', {})).toBe('ask');
+      expect(decidePermission(SESSION_B, 'bash', {})).toBe('allow');
+      expect(listSessionAlwaysAllow(SESSION_B)).toEqual(['bash']);
+    });
+
+    it('clearSessionAlwaysAllow does not clear workflow auto-approve marking', () => {
+      rememberAutoApproveToolPermissions(SESSION_A);
+      rememberAlwaysAllow(SESSION_A, 'write');
+      clearSessionAlwaysAllow(SESSION_A);
+      expect(listSessionAlwaysAllow(SESSION_A)).toEqual([]);
+      expect(sessionAutoApprovesToolPermissions(SESSION_A)).toBe(true);
     });
   });
 

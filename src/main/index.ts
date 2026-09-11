@@ -120,7 +120,7 @@ import { bootstrapYorkLlmDefault } from './config/york-llm-default-bootstrap';
 import { fetchBackendModels } from './config/backend-client';
 import { installYorkLlmFetchGate } from './york-llm/york-llm-fetch-gate';
 import { getYorkLlmGateSnapshot, subscribeYorkLlmQueue } from './york-llm/york-llm-gate';
-import { setPermissionRules, decidePermission } from './config/permission-rules-store';
+import { setPermissionRules, decidePermission, listSessionAlwaysAllow, clearSessionAlwaysAllow, upsertToolPermission, rememberAlwaysAllow, getPermissionRules } from './config/permission-rules-store';
 import {
   setMcpWriteAccessEnabled,
   setMcpWriteAccessServerSource,
@@ -3077,6 +3077,55 @@ ipcMain.on('client-event', async (_event, data: ClientEvent) => {
 ipcMain.handle('client-invoke', async (_event, data: ClientEvent) => {
   return handleClientEvent(data);
 });
+
+ipcMain.handle('permissions.listSessionAlwaysAllow', (_event, sessionId: string) => {
+  if (typeof sessionId !== 'string' || !sessionId.trim()) return [];
+  return listSessionAlwaysAllow(sessionId.trim());
+});
+
+ipcMain.handle('permissions.clearSessionAlwaysAllow', (_event, sessionId: string) => {
+  if (typeof sessionId !== 'string' || !sessionId.trim()) {
+    return { success: false, error: 'Invalid sessionId' };
+  }
+  const id = sessionId.trim();
+  clearSessionAlwaysAllow(id);
+  sendToRenderer({
+    type: 'permission.sessionAlwaysAllow',
+    payload: { sessionId: id, tools: [] },
+  });
+  return { success: true };
+});
+
+ipcMain.handle(
+  'permissions.setToolRule',
+  (
+    _event,
+    payload: { tool: string; action: 'allow' | 'deny' | 'ask'; sessionId?: string }
+  ) => {
+    const tool = typeof payload?.tool === 'string' ? payload.tool.trim() : '';
+    const action = payload?.action;
+    if (!tool || (action !== 'allow' && action !== 'deny' && action !== 'ask')) {
+      return { success: false, error: 'Invalid tool or action' };
+    }
+    const permissionRules = upsertToolPermission(tool, action);
+    const sessionId =
+      typeof payload.sessionId === 'string' && payload.sessionId.trim()
+        ? payload.sessionId.trim()
+        : null;
+    if (sessionId && action === 'allow') {
+      rememberAlwaysAllow(sessionId, tool);
+      sendToRenderer({
+        type: 'permission.sessionAlwaysAllow',
+        payload: { sessionId, tools: listSessionAlwaysAllow(sessionId) },
+      });
+    }
+    sendToRenderer({
+      type: 'permission.rulesUpdated',
+      payload: { permissionRules },
+    });
+    return { success: true, permissionRules: getPermissionRules() };
+  }
+);
 
 ipcMain.handle('get-version', () => {
   try {

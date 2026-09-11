@@ -45,6 +45,7 @@ import { PluginRuntimeService } from '../skills/plugin-runtime-service';
 import { AgentRuntimeExtensionManager } from '../extensions/agent-runtime-extension-manager';
 import type { AskUserQuestionExtension } from '../tools/ask-user-question-extension';
 import { forgetSessionPermissions, rememberAutoApproveToolPermissions, sessionAutoApprovesToolPermissions } from '../config/permission-rules-store';
+import { PERMISSION_ASK_TIMEOUT_MS } from '../../shared/permission-policy';
 import {
   log,
   logError,
@@ -275,8 +276,9 @@ export class SessionManager {
           sessionId: string,
           toolUseId: string,
           toolName: string,
-          input: Record<string, unknown>
-        ) => this.requestPermission(sessionId, toolUseId, toolName, input),
+          input: Record<string, unknown>,
+          canonicalToolName?: string
+        ) => this.requestPermission(sessionId, toolUseId, toolName, input, canonicalToolName),
       },
       this.pathResolver,
       this.mcpManager,
@@ -2263,13 +2265,15 @@ export class SessionManager {
     }));
   }
 
-  // Handle permission response
-  handlePermissionResponse(toolUseId: string, result: PermissionResult): void {
+  // Handle permission response. Returns false if the ask already expired / was dismissed.
+  handlePermissionResponse(toolUseId: string, result: PermissionResult): boolean {
     const resolver = this.pendingPermissions.get(toolUseId);
     if (resolver) {
       resolver(result);
       this.pendingPermissions.delete(toolUseId);
+      return true;
     }
+    return false;
   }
 
   // Request permission for a tool
@@ -2277,7 +2281,8 @@ export class SessionManager {
     sessionId: string,
     toolUseId: string,
     toolName: string,
-    input: Record<string, unknown>
+    input: Record<string, unknown>,
+    canonicalToolName?: string
   ): Promise<PermissionResult> {
     // Only one Allow dialog in flight at a time — queue subsequent asks behind it.
     let releaseGate!: () => void;
@@ -2290,18 +2295,29 @@ export class SessionManager {
 
     try {
       return await new Promise<PermissionResult>((resolve) => {
+        const expiresAt = Date.now() + PERMISSION_ASK_TIMEOUT_MS;
         const timeoutId = setTimeout(() => {
           this.pendingPermissions.delete(toolUseId);
-          resolve('deny');
-          this.sendToRenderer({ type: 'permission.dismiss', payload: { toolUseId } });
-        }, 60_000);
+          resolve('timeout');
+          this.sendToRenderer({
+            type: 'permission.dismiss',
+            payload: { toolUseId, reason: 'timeout' },
+          });
+        }, PERMISSION_ASK_TIMEOUT_MS);
         this.pendingPermissions.set(toolUseId, (result: PermissionResult) => {
           clearTimeout(timeoutId);
           resolve(result);
         });
         this.sendToRenderer({
           type: 'permission.request',
-          payload: { toolUseId, toolName, input, sessionId },
+          payload: {
+            toolUseId,
+            toolName,
+            input,
+            sessionId,
+            expiresAt,
+            canonicalToolName: canonicalToolName || toolName,
+          },
         });
       });
     } finally {

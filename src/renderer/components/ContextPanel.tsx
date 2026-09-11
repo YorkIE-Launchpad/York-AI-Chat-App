@@ -41,8 +41,9 @@ import {
   Copy,
   Layers,
   Eye,
+  Shield,
 } from 'lucide-react';
-import type { TraceStep, MCPServerInfo, ContentBlock, ToolUseContent } from '../types';
+import type { TraceStep, MCPServerInfo, ContentBlock, ToolUseContent, PermissionRule } from '../types';
 import type { ConnectorStatus } from './settings/shared';
 import { getMcpToolDisplayName } from './message/toolHelpers';
 import {
@@ -56,6 +57,10 @@ import {
 } from '../../shared/mcp-defaults';
 
 const EMPTY_STEPS: TraceStep[] = [];
+const EMPTY_SESSION_ALWAYS_ALLOW: string[] = [];
+
+const CONTEXT_PERMISSION_TOOLS = ['write', 'edit', 'bash'] as const;
+type PermissionAction = PermissionRule['action'];
 
 function normalizeMcpServers(servers: MCPServerInfo[] | null | undefined): MCPServerInfo[] {
   return mergeAtlassianMcpServerStatuses(mergeDefaultMcpServerStatuses(servers || []));
@@ -84,8 +89,21 @@ export function ContextPanel() {
   const openHtmlPreview = useAppStore((s) => s.openHtmlPreview);
   const workingDir = useAppStore((s) => s.workingDir);
   const setGlobalNotice = useAppStore((s) => s.setGlobalNotice);
+  const permissionRules = useAppStore((s) => s.settings.permissionRules);
+  const setSessionAlwaysAllow = useAppStore((s) => s.setSessionAlwaysAllow);
+  const askedPermissionTools = useAppStore((s) => {
+    if (!activeSessionId) return EMPTY_SESSION_ALWAYS_ALLOW;
+    return s.askedPermissionToolsBySession[activeSessionId] ?? EMPTY_SESSION_ALWAYS_ALLOW;
+  });
+  const sessionAlwaysAllow = useAppStore((s) => {
+    if (!activeSessionId) return EMPTY_SESSION_ALWAYS_ALLOW;
+    return s.sessionAlwaysAllowBySession[activeSessionId] ?? EMPTY_SESSION_ALWAYS_ALLOW;
+  });
   const { getMCPServers, changeWorkingDir } = useIPC();
   const [artifactsOpen, setArtifactsOpen] = useState(true);
+  const [permissionsOpen, setPermissionsOpen] = useState(true);
+  const [resettingAlwaysAllow, setResettingAlwaysAllow] = useState(false);
+  const [permissionBusyTool, setPermissionBusyTool] = useState<string | null>(null);
   const [expandedConnector, setExpandedConnector] = useState<string | null>(null);
   const [mcpServers, setMcpServers] = useState<MCPServerInfo[]>(() => normalizeMcpServers([]));
   const [zoomStatus, setZoomStatus] = useState<ConnectorStatus | null>(() =>
@@ -266,6 +284,123 @@ export function ContextPanel() {
 
     return items;
   }, [currentWorkingDir, displayArtifactSteps, recentWorkspaceFiles]);
+
+  useEffect(() => {
+    if (contextPanelCollapsed || !activeSessionId) {
+      return;
+    }
+    if (typeof window === 'undefined' || !window.electronAPI?.permissions?.listSessionAlwaysAllow) {
+      return;
+    }
+    let cancelled = false;
+    void window.electronAPI.permissions.listSessionAlwaysAllow(activeSessionId).then((tools) => {
+      if (cancelled) return;
+      const next = tools || [];
+      const prev =
+        useAppStore.getState().sessionAlwaysAllowBySession[activeSessionId] ??
+        EMPTY_SESSION_ALWAYS_ALLOW;
+      if (prev.length === next.length && prev.every((tool, i) => tool === next[i])) {
+        return;
+      }
+      setSessionAlwaysAllow(activeSessionId, next);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSessionId, contextPanelCollapsed, setSessionAlwaysAllow]);
+
+  const getToolPermissionAction = (tool: string): PermissionAction => {
+    const match = permissionRules.find((r) => r.tool.toLowerCase() === tool.toLowerCase());
+    return match?.action ?? 'ask';
+  };
+
+  const visiblePermissionTools = useMemo(() => {
+    const names = new Set<string>();
+    for (const tool of askedPermissionTools) {
+      const lowered = tool.toLowerCase();
+      if ((CONTEXT_PERMISSION_TOOLS as readonly string[]).includes(lowered)) {
+        names.add(lowered);
+      }
+    }
+    for (const tool of sessionAlwaysAllow) {
+      const lowered = tool.toLowerCase();
+      if ((CONTEXT_PERMISSION_TOOLS as readonly string[]).includes(lowered)) {
+        names.add(lowered);
+      }
+    }
+    for (const step of steps) {
+      if (step.type !== 'tool_call' || !step.toolName) continue;
+      const lowered = step.toolName.toLowerCase();
+      if ((CONTEXT_PERMISSION_TOOLS as readonly string[]).includes(lowered)) {
+        names.add(lowered);
+      }
+    }
+    return CONTEXT_PERMISSION_TOOLS.filter((tool) => names.has(tool));
+  }, [askedPermissionTools, sessionAlwaysAllow, steps]);
+
+  const setToolPermissionAction = async (tool: string, action: PermissionAction) => {
+    if (permissionBusyTool) return;
+    if (typeof window === 'undefined' || !window.electronAPI?.permissions?.setToolRule) {
+      return;
+    }
+    setPermissionBusyTool(tool);
+    try {
+      const result = await window.electronAPI.permissions.setToolRule({
+        tool,
+        action,
+        sessionId: activeSessionId || undefined,
+      });
+      if (!result.success) {
+        setGlobalNotice({
+          id: `tool-permission-failed-${Date.now()}`,
+          type: 'error',
+          message: result.error || t('mcp.actionFailed'),
+        });
+      }
+    } catch (error) {
+      setGlobalNotice({
+        id: `tool-permission-failed-${Date.now()}`,
+        type: 'error',
+        message: error instanceof Error ? error.message : t('mcp.actionFailed'),
+      });
+    } finally {
+      setPermissionBusyTool(null);
+    }
+  };
+
+  const resetSessionAlwaysAllow = async () => {
+    if (!activeSessionId || resettingAlwaysAllow) return;
+    if (typeof window === 'undefined' || !window.electronAPI?.permissions?.clearSessionAlwaysAllow) {
+      return;
+    }
+    setResettingAlwaysAllow(true);
+    try {
+      const result = await window.electronAPI.permissions.clearSessionAlwaysAllow(activeSessionId);
+      if (result.success) {
+        setSessionAlwaysAllow(activeSessionId, []);
+        setGlobalNotice({
+          id: `session-always-allow-reset-${Date.now()}`,
+          type: 'success',
+          message: t('context.sessionAlwaysAllowResetDone'),
+          messageKey: 'context.sessionAlwaysAllowResetDone',
+        });
+      } else {
+        setGlobalNotice({
+          id: `session-always-allow-reset-failed-${Date.now()}`,
+          type: 'error',
+          message: result.error || t('mcp.actionFailed'),
+        });
+      }
+    } catch (error) {
+      setGlobalNotice({
+        id: `session-always-allow-reset-failed-${Date.now()}`,
+        type: 'error',
+        message: error instanceof Error ? error.message : t('mcp.actionFailed'),
+      });
+    } finally {
+      setResettingAlwaysAllow(false);
+    }
+  };
 
   useEffect(() => {
     if (contextPanelCollapsed) {
@@ -519,6 +654,115 @@ export function ContextPanel() {
             </button>
           </div>
         </div>
+      </div>
+
+      {/* Tool permissions */}
+      <div className="border-b border-border-muted">
+        <button
+          type="button"
+          onClick={() => setPermissionsOpen(!permissionsOpen)}
+          className="w-full px-4 py-2.5 flex items-center justify-between hover:bg-surface-hover transition-colors"
+        >
+          <span className="text-xs font-medium text-text-muted uppercase tracking-wider">
+            {t('context.toolPermissions')}
+          </span>
+          {permissionsOpen ? (
+            <ChevronUp className="w-3.5 h-3.5 text-text-muted" />
+          ) : (
+            <ChevronDown className="w-3.5 h-3.5 text-text-muted" />
+          )}
+        </button>
+
+        {permissionsOpen && (
+          <div className="px-4 pb-3 space-y-3">
+            <p className="text-[11px] text-text-muted leading-snug">
+              {t('context.toolPermissionsHint')}
+            </p>
+            {visiblePermissionTools.length === 0 ? (
+              <p className="text-[11px] text-text-muted">{t('context.toolPermissionsEmpty')}</p>
+            ) : (
+              <div className="space-y-2">
+                {visiblePermissionTools.map((tool) => {
+                  const action = getToolPermissionAction(tool);
+                  const busy = permissionBusyTool === tool;
+                  return (
+                    <div key={tool} className="space-y-1">
+                      <div className="flex items-center gap-1.5 text-xs text-text-primary">
+                        <Shield className="w-3 h-3 text-text-muted shrink-0" />
+                        <span className="font-mono">{tool}</span>
+                      </div>
+                      <div className="flex rounded-md border border-border overflow-hidden">
+                        {(['ask', 'allow', 'deny'] as const).map((opt) => {
+                          const selected = action === opt;
+                          const label =
+                            opt === 'ask'
+                              ? t('context.permissionAsk')
+                              : opt === 'allow'
+                                ? t('context.permissionAllow')
+                                : t('context.permissionDeny');
+                          return (
+                            <button
+                              key={opt}
+                              type="button"
+                              disabled={busy}
+                              onClick={() => void setToolPermissionAction(tool, opt)}
+                              className={`flex-1 px-1.5 py-1 text-[11px] transition-colors disabled:opacity-50 ${
+                                selected
+                                  ? opt === 'deny'
+                                    ? 'bg-error/15 text-error font-medium'
+                                    : opt === 'allow'
+                                      ? 'bg-success/15 text-success font-medium'
+                                      : 'bg-accent/15 text-accent font-medium'
+                                  : 'text-text-muted hover:bg-surface-hover'
+                              }`}
+                            >
+                              {label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <div className="pt-1 border-t border-border-muted space-y-1.5">
+              <p className="text-[11px] font-medium text-text-muted">
+                {t('context.sessionAlwaysAllow')}
+              </p>
+              {sessionAlwaysAllow.length === 0 ? (
+                <p className="text-[11px] text-text-muted">{t('context.sessionAlwaysAllowEmpty')}</p>
+              ) : (
+                <div className="flex flex-wrap gap-1">
+                  {sessionAlwaysAllow.map((tool) => (
+                    <span
+                      key={tool}
+                      className="px-1.5 py-0.5 rounded bg-surface-muted text-[11px] font-mono text-text-primary"
+                    >
+                      {tool}
+                    </span>
+                  ))}
+                </div>
+              )}
+              <button
+                type="button"
+                disabled={!activeSessionId || sessionAlwaysAllow.length === 0 || resettingAlwaysAllow}
+                onClick={() => void resetSessionAlwaysAllow()}
+                className="text-[11px] text-text-muted hover:text-text-primary disabled:opacity-40 transition-colors"
+              >
+                {resettingAlwaysAllow ? (
+                  <span className="inline-flex items-center gap-1">
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    {t('context.sessionAlwaysAllowReset')}
+                  </span>
+                ) : (
+                  t('context.sessionAlwaysAllowReset')
+                )}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Connectors (MCP + Zoom OAuth for meeting capture) */}

@@ -105,11 +105,12 @@ export function getPermissionRules(): PermissionRule[] {
  *
  * Matching order:
  *   0. MCP write kill-switch / per-connector writeEnabled (hard deny; beats always-allow)
- *   1. Session-scoped "always allow" memory
- *   2. First rule whose `tool` matches (case-insensitive) AND whose
+ *   1. Explicit deny rules (hard-block; beats session always-allow)
+ *   2. Session-scoped "always allow" memory
+ *   3. First non-deny rule whose `tool` matches (case-insensitive) AND whose
  *      optional `pattern` (glob-ish: `*` = any substring) matches the
  *      stringified input
- *   3. Built-in: allow all Chrome DevTools MCP tools (`mcp__Chrome__*`),
+ *   4. Built-in: allow all Chrome DevTools MCP tools (`mcp__Chrome__*`),
  *      R&D Launchpad MCP tools (`mcp__R_D_Launchpad__*` / legacy `mcp__Launchpad__*`),
  *      York IE HUB MCP tools (`mcp__York_IE_HUB__*` / legacy `mcp__Hub__*`),
  *      GTM Pulse MCP tools (`mcp__GTM_Pulse__*`),
@@ -118,7 +119,7 @@ export function getPermissionRules(): PermissionRule[] {
  *      first-party meeting tools (`meeting_search`, `meeting_read`),
  *      first-party wiki tools (`wiki_*` except mutations like `wiki_write`),
  *      and the first-party `webfetch` / `websearch` tools
- *   4. Default: 'ask' for unknown tools (conservative)
+ *   5. Default: 'ask' for unknown tools (conservative)
  *
  * For workflow agent steps, callers should use `resolveSessionToolPermission`,
  * which upgrades `ask` → `allow` when the session was marked with
@@ -141,10 +142,18 @@ export function decidePermission(
     return 'deny';
   }
 
+  const inputStr = safeStringify(input);
+
+  // Explicit deny rules hard-block (Context Panel Deny), beating session always-allow.
+  for (const rule of rules) {
+    if (rule.tool.toLowerCase() !== lowered) continue;
+    if (rule.pattern && !matchesPattern(rule.pattern, inputStr)) continue;
+    const action = VALID_ACTIONS.has(rule.action) ? rule.action : 'ask';
+    if (action === 'deny') return 'deny';
+  }
+
   const session = alwaysAllowBySession.get(sessionId);
   if (session?.has(lowered)) return 'allow';
-
-  const inputStr = safeStringify(input);
 
   for (const rule of rules) {
     if (rule.tool.toLowerCase() !== lowered) continue;
@@ -183,6 +192,39 @@ export function rememberAlwaysAllow(sessionId: string, toolName: string): void {
   const set = alwaysAllowBySession.get(sessionId) ?? new Set<string>();
   set.add(toolName.toLowerCase());
   alwaysAllowBySession.set(sessionId, set);
+}
+
+/** Tools remembered via Always Allow for this session (sorted). */
+export function listSessionAlwaysAllow(sessionId: string): string[] {
+  const set = alwaysAllowBySession.get(sessionId);
+  if (!set || set.size === 0) return [];
+  return [...set].sort();
+}
+
+/**
+ * Clear only session Always Allow memory. Does not clear workflow
+ * auto-approve marking (`rememberAutoApproveToolPermissions`).
+ */
+export function clearSessionAlwaysAllow(sessionId: string): void {
+  alwaysAllowBySession.delete(sessionId);
+}
+
+/**
+ * Upsert a single tool's permission action into the rules cache.
+ * Returns the full updated rules list.
+ */
+export function upsertToolPermission(
+  toolName: string,
+  action: PermissionRule['action']
+): PermissionRule[] {
+  const tool = toolName.trim().toLowerCase();
+  if (!tool || !VALID_ACTIONS.has(action)) {
+    return getPermissionRules();
+  }
+  const next = getPermissionRules().filter((r) => r.tool.toLowerCase() !== tool);
+  next.push({ tool, action });
+  setPermissionRules(next);
+  return getPermissionRules();
 }
 
 /** Mark a session so permission `ask` is treated as allow (workflow unattended runs). */

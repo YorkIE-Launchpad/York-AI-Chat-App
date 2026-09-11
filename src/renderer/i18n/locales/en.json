@@ -1192,7 +1192,17 @@
     "openInFileManager": "Open in file manager",
     "contextUsage": "Context Usage",
     "contextUsageLabel": "{{used}} / {{total}}",
-    "openRouterBilling": "Billed via your OpenRouter key"
+    "openRouterBilling": "Billed via your OpenRouter key",
+    "toolPermissions": "Tool permissions",
+    "toolPermissionsHint": "Only tools asked or used in this chat. Allow skips future prompts.",
+    "toolPermissionsEmpty": "No permission prompts yet in this chat",
+    "permissionAsk": "Ask",
+    "permissionAllow": "Allow",
+    "permissionDeny": "Deny",
+    "sessionAlwaysAllow": "This chat — Always Allow",
+    "sessionAlwaysAllowEmpty": "None remembered for this chat",
+    "sessionAlwaysAllowReset": "Reset for this chat",
+    "sessionAlwaysAllowResetDone": "Cleared Always Allow for this chat"
   },
   "compaction": {
     "turnsLeft": "turns left",
@@ -1516,8 +1526,12 @@
     "warning": "This action may modify your system. Review carefully.",
     "deny": "Deny",
     "allow": "Allow",
+    "allowOnce": "Allow once",
     "alwaysAllow": "Always allow this tool",
     "moreQueued": "{{count}} more permission request(s) waiting",
+    "expiresIn": "Expires in {{time}}",
+    "timedOut": "Permission request timed out. Ask the agent to retry, or set the tool to Allow in the Context panel.",
+    "requestExpired": "That permission request already expired. Ask the agent to retry.",
     "useTool": "Use the {{toolName}} tool",
     "toolDescriptions": {
       "write": "Write to files on your system",

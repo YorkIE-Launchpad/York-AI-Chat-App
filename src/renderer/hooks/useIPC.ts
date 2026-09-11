@@ -283,12 +283,32 @@ export function useIPC() {
 
           case 'permission.request':
             store.enqueuePermission(event.payload);
+            store.rememberAskedPermissionTool(
+              event.payload.sessionId,
+              event.payload.canonicalToolName || event.payload.toolName
+            );
             break;
 
           case 'permission.dismiss': {
             store.dequeuePermission(event.payload.toolUseId);
+            if (event.payload.reason === 'timeout') {
+              store.setGlobalNotice({
+                id: `permission-timeout-${event.payload.toolUseId}`,
+                type: 'warning',
+                message: '',
+                messageKey: 'permission.timedOut',
+              });
+            }
             break;
           }
+
+          case 'permission.sessionAlwaysAllow':
+            store.setSessionAlwaysAllow(event.payload.sessionId, event.payload.tools);
+            break;
+
+          case 'permission.rulesUpdated':
+            store.setSettings({ permissionRules: event.payload.permissionRules });
+            break;
 
           case 'question.request':
             store.setPendingQuestion(event.payload);
@@ -1303,11 +1323,26 @@ export function useIPC() {
 
   const respondToPermission = useCallback(
     (toolUseId: string, result: PermissionResult) => {
+      const state = useAppStore.getState();
+      const stillPending =
+        state.pendingPermission?.toolUseId === toolUseId ||
+        state.permissionQueue.some((p) => p.toolUseId === toolUseId);
+
       send({
         type: 'permission.response',
         payload: { toolUseId, result },
       });
-      dequeuePermission(toolUseId);
+
+      if (stillPending) {
+        dequeuePermission(toolUseId);
+      } else if (result === 'allow' || result === 'allow_always') {
+        useAppStore.getState().setGlobalNotice({
+          id: `permission-expired-${toolUseId}`,
+          type: 'warning',
+          message: '',
+          messageKey: 'permission.requestExpired',
+        });
+      }
     },
     [send, dequeuePermission]
   );

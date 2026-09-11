@@ -1028,6 +1028,24 @@ contextBridge.exposeInMainWorld('electronAPI', {
     }): Promise<{ clientSecret: string }> =>
       ipcRenderer.invoke('dictation.createRealtimeSession', payload),
   },
+
+  permissions: {
+    listSessionAlwaysAllow: (sessionId: string): Promise<string[]> =>
+      ipcRenderer.invoke('permissions.listSessionAlwaysAllow', sessionId),
+    clearSessionAlwaysAllow: (
+      sessionId: string
+    ): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('permissions.clearSessionAlwaysAllow', sessionId),
+    setToolRule: (payload: {
+      tool: string;
+      action: 'allow' | 'deny' | 'ask';
+      sessionId?: string;
+    }): Promise<{
+      success: boolean;
+      error?: string;
+      permissionRules?: import('../renderer/types').PermissionRule[];
+    }> => ipcRenderer.invoke('permissions.setToolRule', payload),
+  },
 });
 
 // Type declaration for the renderer process
@@ -1633,6 +1651,21 @@ declare global {
         createRealtimeSession: (payload?: {
           targetLanguage?: string;
         }) => Promise<{ clientSecret: string }>;
+      };
+      permissions: {
+        listSessionAlwaysAllow: (sessionId: string) => Promise<string[]>;
+        clearSessionAlwaysAllow: (
+          sessionId: string
+        ) => Promise<{ success: boolean; error?: string }>;
+        setToolRule: (payload: {
+          tool: string;
+          action: 'allow' | 'deny' | 'ask';
+          sessionId?: string;
+        }) => Promise<{
+          success: boolean;
+          error?: string;
+          permissionRules?: import('../renderer/types').PermissionRule[];
+        }>;
       };
     };
   }

@@ -120,6 +120,7 @@ export function createHeadlessSendToRenderer(): (event: ServerEvent) => void {
         writeJsonl({
           type: 'permission.dismiss',
           toolUseId: event.payload.toolUseId,
+          reason: event.payload.reason,
         });
         break;
 
