@@ -1473,25 +1473,35 @@ export function ChatView() {
     isSharedChat,
   ]);
 
-  // Auto-adjust textarea height based on content
-  const adjustTextareaHeight = () => {
+  // Auto-adjust textarea height based on content / available width
+  const adjustTextareaHeight = useCallback(() => {
     const textarea = textareaRef.current;
-    if (textarea) {
-      // Reset height to auto to get the correct scrollHeight
-      textarea.style.height = 'auto';
-      // Set max height to 200px (about 8 lines), then scroll
-      const maxHeight = 200;
-      const newHeight = Math.min(textarea.scrollHeight, maxHeight);
-      textarea.style.height = `${newHeight}px`;
-      // Show scrollbar if content exceeds max height
-      textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
-    }
-  };
+    if (!textarea) return;
+    // Reset height to auto to get the correct scrollHeight for current width
+    textarea.style.height = 'auto';
+    // Cap at ~8 lines; empty/single-line stays compact
+    const maxHeight = 200;
+    const newHeight = Math.min(textarea.scrollHeight, maxHeight);
+    textarea.style.height = `${newHeight}px`;
+    textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
+  }, []);
 
   // Adjust height when prompt changes (including clear after send)
   useEffect(() => {
     adjustTextareaHeight();
-  }, [prompt]);
+  }, [prompt, adjustTextareaHeight]);
+
+  // Preview / resize can change composer width — remeasure so wrap doesn't leave a tall empty box
+  useEffect(() => {
+    if (!activeSessionId) return;
+    const textarea = textareaRef.current;
+    if (!textarea || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => {
+      adjustTextareaHeight();
+    });
+    observer.observe(textarea);
+    return () => observer.disconnect();
+  }, [activeSessionId, adjustTextareaHeight]);
 
   const {
     status: dictationStatus,
@@ -1801,7 +1811,7 @@ export function ChatView() {
       </div>
 
       {/* Input */}
-      <div className="min-w-0 border-t border-border-muted bg-background/92 backdrop-blur-md">
+      <div className="min-w-0 shrink-0 border-t border-border-muted bg-background/92 backdrop-blur-md">
         <div className="mx-auto w-full min-w-0 max-w-[920px] space-y-3 px-5 pb-5 pt-4 lg:px-8">
           {queuedCount > 0 && (
             <MessageQueueList
@@ -1951,7 +1961,7 @@ export function ChatView() {
             )}
 
             <div
-              className={`relative flex min-w-0 items-center gap-1.5 p-2.5 rounded-[1.5rem] bg-background/88 border border-border-muted shadow-soft transition-colors ${
+              className={`relative flex min-w-0 flex-col gap-2 p-2.5 rounded-[1.5rem] bg-background/88 border border-border-muted shadow-soft transition-colors ${
                 isDragging ? 'ring-2 ring-accent bg-accent/5' : ''
               }`}
             >
@@ -1963,164 +1973,6 @@ export function ChatView() {
                 onHoverIndex={setSlashSelectedIndex}
                 onClose={closeSlashMenu}
               />
-              <div className="relative" ref={attachMenuRef}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setLoopMenuOpen(false);
-                    setAttachMenuOpen((open) => !open);
-                  }}
-                  className="w-8 h-8 rounded-xl flex items-center justify-center text-text-muted hover:text-text-primary hover:bg-surface-hover transition-colors"
-                  title={t('meetings.attachMenu')}
-                  aria-expanded={attachMenuOpen}
-                  aria-haspopup="menu"
-                >
-                  <Plus className="w-4 h-4" />
-                </button>
-                {attachMenuOpen && (
-                  <div
-                    role="menu"
-                    className="absolute bottom-[calc(100%+8px)] left-0 z-30 min-w-[12.5rem] overflow-hidden rounded-[1.25rem] border border-border-subtle bg-surface shadow-elevated"
-                    style={{ backgroundColor: 'var(--color-surface)' }}
-                  >
-                    <div className="space-y-0.5 p-1.5">
-                      <button
-                        type="button"
-                        role="menuitem"
-                        onClick={() => {
-                          setAttachMenuOpen(false);
-                          void handleFileSelect();
-                        }}
-                        className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
-                      >
-                        <Paperclip className="h-4 w-4 text-text-muted" />
-                        <span className="text-[13px] font-medium">{t('welcome.attachFiles')}</span>
-                      </button>
-                      <button
-                        type="button"
-                        role="menuitem"
-                        onClick={() => {
-                          setAttachMenuOpen(false);
-                          openSkillPicker();
-                          requestAnimationFrame(() => textareaRef.current?.focus());
-                        }}
-                        className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
-                      >
-                        <Package className="h-4 w-4 text-accent" />
-                        <span className="text-[13px] font-medium">
-                          {t('skills.mentionFromMenu')}
-                        </span>
-                      </button>
-                      {meetingsReferenceAllowed && (
-                        <button
-                          type="button"
-                          role="menuitem"
-                          onClick={() => {
-                            setAttachMenuOpen(false);
-                            setMeetingPickerOpen(true);
-                          }}
-                          className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
-                        >
-                          <Mic className="h-4 w-4 text-accent" />
-                          <span className="text-[13px] font-medium">
-                            {t('meetings.attachMeeting')}
-                          </span>
-                        </button>
-                      )}
-                      {isElectron && (
-                        <>
-                          <button
-                            type="button"
-                            role="menuitem"
-                            onClick={() => {
-                              setAttachMenuOpen(false);
-                              setReferencePickerSource('drive');
-                            }}
-                            className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
-                          >
-                            <FileText className="h-4 w-4 text-accent" />
-                            <span className="text-[13px] font-medium">{t('references.drive')}</span>
-                          </button>
-                          <button
-                            type="button"
-                            role="menuitem"
-                            onClick={() => {
-                              setAttachMenuOpen(false);
-                              setReferencePickerSource('slack');
-                            }}
-                            className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
-                          >
-                            <MessageSquare className="h-4 w-4 text-accent" />
-                            <span className="text-[13px] font-medium">{t('references.slack')}</span>
-                          </button>
-                          <button
-                            type="button"
-                            role="menuitem"
-                            onClick={() => {
-                              setAttachMenuOpen(false);
-                              setReferencePickerSource('jira');
-                            }}
-                            className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
-                          >
-                            <Hash className="h-4 w-4 text-accent" />
-                            <span className="text-[13px] font-medium">{t('references.jira')}</span>
-                          </button>
-                          <button
-                            type="button"
-                            role="menuitem"
-                            onClick={() => {
-                              setAttachMenuOpen(false);
-                              setReferencePickerSource('confluence');
-                            }}
-                            className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
-                          >
-                            <BookOpen className="h-4 w-4 text-accent" />
-                            <span className="text-[13px] font-medium">
-                              {t('references.confluence')}
-                            </span>
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {isElectron && (
-                <div className="relative" ref={loopMenuRef}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAttachMenuOpen(false);
-                      setLoopMenuOpen((open) => !open);
-                    }}
-                    className={`w-8 h-8 rounded-xl flex items-center justify-center transition-colors ${
-                      chatLoopStatus || loopMenuOpen
-                        ? 'text-accent bg-accent/10 hover:bg-accent/15'
-                        : 'text-text-muted hover:text-text-primary hover:bg-surface-hover'
-                    }`}
-                    title={t('loop.menuButton')}
-                    aria-expanded={loopMenuOpen}
-                    aria-haspopup="dialog"
-                  >
-                    <RefreshCw className="w-4 h-4" />
-                  </button>
-                  <ChatLoopPanel
-                    open={loopMenuOpen}
-                    initialText={prompt.trim()}
-                    activeStatus={chatLoopStatus}
-                    onClose={() => setLoopMenuOpen(false)}
-                    onStart={async ({ kind, prompt: loopPrompt, intervalMs, maxIterations }) => {
-                      await startChatLoop({ kind, prompt: loopPrompt, intervalMs, maxIterations });
-                      setPrompt('');
-                      if (textareaRef.current) textareaRef.current.value = '';
-                    }}
-                    onStop={async () => {
-                      await handleStopChatLoop();
-                    }}
-                  />
-                </div>
-              )}
 
               <textarea
                 ref={textareaRef}
@@ -2195,50 +2047,218 @@ export function ChatView() {
                 placeholder={t('chat.typeMessageSkillHint')}
                 disabled={isSubmitting || openRouterKeyRequired || collabBlocksComposer}
                 rows={1}
-                className="flex-1 min-w-0 resize-none bg-transparent border-none outline-none text-text-primary placeholder:text-text-muted text-[15px] leading-5 py-1.5 overflow-hidden"
+                className="w-full min-w-0 resize-none bg-transparent border-none outline-none text-text-primary placeholder:text-text-muted text-[15px] leading-5 py-1 overflow-hidden"
               />
 
-              <div className="flex items-center gap-1 shrink-0">
-                <ThinkingModeToggle />
-                <ModelSelector />
-                <HubBudgetMeter />
+              <div className="flex min-w-0 items-center justify-between gap-1.5">
+                <div className="flex min-w-0 items-center gap-1">
+                  <div className="relative" ref={attachMenuRef}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLoopMenuOpen(false);
+                        setAttachMenuOpen((open) => !open);
+                      }}
+                      className="w-8 h-8 rounded-xl flex items-center justify-center text-text-muted hover:text-text-primary hover:bg-surface-hover transition-colors"
+                      title={t('meetings.attachMenu')}
+                      aria-expanded={attachMenuOpen}
+                      aria-haspopup="menu"
+                    >
+                      <Plus className="w-4 h-4" />
+                    </button>
+                    {attachMenuOpen && (
+                      <div
+                        role="menu"
+                        className="absolute bottom-[calc(100%+8px)] left-0 z-30 min-w-[12.5rem] overflow-hidden rounded-[1.25rem] border border-border-subtle bg-surface shadow-elevated"
+                        style={{ backgroundColor: 'var(--color-surface)' }}
+                      >
+                        <div className="space-y-0.5 p-1.5">
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => {
+                              setAttachMenuOpen(false);
+                              void handleFileSelect();
+                            }}
+                            className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
+                          >
+                            <Paperclip className="h-4 w-4 text-text-muted" />
+                            <span className="text-[13px] font-medium">{t('welcome.attachFiles')}</span>
+                          </button>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => {
+                              setAttachMenuOpen(false);
+                              openSkillPicker();
+                              requestAnimationFrame(() => textareaRef.current?.focus());
+                            }}
+                            className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
+                          >
+                            <Package className="h-4 w-4 text-accent" />
+                            <span className="text-[13px] font-medium">
+                              {t('skills.mentionFromMenu')}
+                            </span>
+                          </button>
+                          {meetingsReferenceAllowed && (
+                            <button
+                              type="button"
+                              role="menuitem"
+                              onClick={() => {
+                                setAttachMenuOpen(false);
+                                setMeetingPickerOpen(true);
+                              }}
+                              className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
+                            >
+                              <Mic className="h-4 w-4 text-accent" />
+                              <span className="text-[13px] font-medium">
+                                {t('meetings.attachMeeting')}
+                              </span>
+                            </button>
+                          )}
+                          {isElectron && (
+                            <>
+                              <button
+                                type="button"
+                                role="menuitem"
+                                onClick={() => {
+                                  setAttachMenuOpen(false);
+                                  setReferencePickerSource('drive');
+                                }}
+                                className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
+                              >
+                                <FileText className="h-4 w-4 text-accent" />
+                                <span className="text-[13px] font-medium">{t('references.drive')}</span>
+                              </button>
+                              <button
+                                type="button"
+                                role="menuitem"
+                                onClick={() => {
+                                  setAttachMenuOpen(false);
+                                  setReferencePickerSource('slack');
+                                }}
+                                className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
+                              >
+                                <MessageSquare className="h-4 w-4 text-accent" />
+                                <span className="text-[13px] font-medium">{t('references.slack')}</span>
+                              </button>
+                              <button
+                                type="button"
+                                role="menuitem"
+                                onClick={() => {
+                                  setAttachMenuOpen(false);
+                                  setReferencePickerSource('jira');
+                                }}
+                                className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
+                              >
+                                <Hash className="h-4 w-4 text-accent" />
+                                <span className="text-[13px] font-medium">{t('references.jira')}</span>
+                              </button>
+                              <button
+                                type="button"
+                                role="menuitem"
+                                onClick={() => {
+                                  setAttachMenuOpen(false);
+                                  setReferencePickerSource('confluence');
+                                }}
+                                className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
+                              >
+                                <BookOpen className="h-4 w-4 text-accent" />
+                                <span className="text-[13px] font-medium">
+                                  {t('references.confluence')}
+                                </span>
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
 
-                {dictationAvailable && (
-                  <DictationButton
-                    status={dictationStatus}
-                    errorKind={dictationErrorKind}
-                    disabled={isSubmitting || openRouterKeyRequired}
-                    onToggle={toggleDictation}
-                  />
-                )}
+                  {isElectron && (
+                    <div className="relative" ref={loopMenuRef}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAttachMenuOpen(false);
+                          setLoopMenuOpen((open) => !open);
+                        }}
+                        className={`w-8 h-8 rounded-xl flex items-center justify-center transition-colors ${
+                          chatLoopStatus || loopMenuOpen
+                            ? 'text-accent bg-accent/10 hover:bg-accent/15'
+                            : 'text-text-muted hover:text-text-primary hover:bg-surface-hover'
+                        }`}
+                        title={t('loop.menuButton')}
+                        aria-expanded={loopMenuOpen}
+                        aria-haspopup="dialog"
+                      >
+                        <RefreshCw className="w-4 h-4" />
+                      </button>
+                      <ChatLoopPanel
+                        open={loopMenuOpen}
+                        initialText={prompt.trim()}
+                        activeStatus={chatLoopStatus}
+                        onClose={() => setLoopMenuOpen(false)}
+                        onStart={async ({ kind, prompt: loopPrompt, intervalMs, maxIterations }) => {
+                          await startChatLoop({
+                            kind,
+                            prompt: loopPrompt,
+                            intervalMs,
+                            maxIterations,
+                          });
+                          setPrompt('');
+                          if (textareaRef.current) textareaRef.current.value = '';
+                        }}
+                        onStop={async () => {
+                          await handleStopChatLoop();
+                        }}
+                      />
+                    </div>
+                  )}
+                </div>
 
-                {canStop && (
+                <div className="flex min-w-0 items-center gap-1 shrink-0">
+                  <ThinkingModeToggle />
+                  <ModelSelector />
+                  <HubBudgetMeter />
+
+                  {dictationAvailable && (
+                    <DictationButton
+                      status={dictationStatus}
+                      errorKind={dictationErrorKind}
+                      disabled={isSubmitting || openRouterKeyRequired}
+                      onToggle={toggleDictation}
+                    />
+                  )}
+
+                  {canStop && (
+                    <button
+                      type="button"
+                      onClick={handleStop}
+                      className="w-8 h-8 rounded-xl flex items-center justify-center bg-error/10 text-error hover:bg-error/20 transition-colors"
+                      title={t('chat.stop')}
+                    >
+                      <Square className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                   <button
-                    type="button"
-                    onClick={handleStop}
-                    className="w-8 h-8 rounded-xl flex items-center justify-center bg-error/10 text-error hover:bg-error/20 transition-colors"
-                    title={t('chat.stop')}
+                    type="submit"
+                    disabled={
+                      openRouterKeyRequired ||
+                      (!prompt.trim() &&
+                        !textareaRef.current?.value.trim() &&
+                        pastedImages.length === 0 &&
+                        attachedFiles.length === 0 &&
+                        attachedMeetings.length === 0 &&
+                        attachedReferences.length === 0) ||
+                      isSubmitting
+                    }
+                    className="w-8 h-8 rounded-xl flex items-center justify-center bg-accent text-background disabled:opacity-50 disabled:cursor-not-allowed hover:bg-accent-hover transition-colors"
+                    title={t('chat.sendMessage')}
                   >
-                    <Square className="w-3.5 h-3.5" />
+                    <Send className="w-3.5 h-3.5" />
                   </button>
-                )}
-                <button
-                  type="submit"
-                  disabled={
-                    openRouterKeyRequired ||
-                    (!prompt.trim() &&
-                      !textareaRef.current?.value.trim() &&
-                      pastedImages.length === 0 &&
-                      attachedFiles.length === 0 &&
-                      attachedMeetings.length === 0 &&
-                      attachedReferences.length === 0) ||
-                    isSubmitting
-                  }
-                  className="w-8 h-8 rounded-xl flex items-center justify-center bg-accent text-background disabled:opacity-50 disabled:cursor-not-allowed hover:bg-accent-hover transition-colors"
-                  title={t('chat.sendMessage')}
-                >
-                  <Send className="w-3.5 h-3.5" />
-                </button>
+                </div>
               </div>
             </div>
 
