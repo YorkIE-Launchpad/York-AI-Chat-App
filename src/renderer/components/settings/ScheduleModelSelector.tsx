@@ -10,7 +10,7 @@ import {
   useYorkLlmModels,
   yorkLlmDisplayName,
 } from '../../hooks/useYorkLlmModels';
-import { YORK_LLM_PROVIDER } from '../../../shared/york-llm-config';
+import { YORK_LLM_DISPLAY_NAME, YORK_LLM_PROVIDER } from '../../../shared/york-llm-config';
 
 const isElectron = typeof window !== 'undefined' && window.electronAPI !== undefined;
 
@@ -160,7 +160,7 @@ export function ScheduleModelSelector({
     : selectedModel
       ? shortModelName(selectedModel.name, selectedModel.id)
       : value.provider === YORK_LLM_PROVIDER
-        ? 'York LLM'
+        ? YORK_LLM_DISPLAY_NAME
         : isAutoModelId(value.model)
           ? 'Select model'
           : value.model

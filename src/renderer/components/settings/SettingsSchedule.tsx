@@ -30,6 +30,8 @@ import {
   type WorkspaceDivisionKind,
 } from '../../../shared/workspace-division';
 import { workflowWorkspaceLabel } from '../../../shared/workflows';
+import { isYorkLlmSelection, yorkLlmDisplayName } from '../../hooks/useYorkLlmModels';
+import { YORK_LLM_DISPLAY_NAME, YORK_LLM_PROVIDER } from '../../../shared/york-llm-config';
 
 const isElectron = typeof window !== 'undefined' && window.electronAPI !== undefined;
 
@@ -789,6 +791,7 @@ export function SettingsSchedule({ isActive }: { isActive: boolean }) {
                   : task.lastRunSessionId
                     ? t('schedule.statusUnknown')
                     : t('schedule.statusNone');
+                const modelLabel = formatScheduledTaskModelLabel(task);
                 return (
                   <>
                     <div className="flex items-center justify-between gap-2">
@@ -854,8 +857,8 @@ export function SettingsSchedule({ isActive }: { isActive: boolean }) {
                         path: task.cwd || t('schedule.workspaceNoPath'),
                       })}
                     </div>
-                    <div className="text-xs text-text-muted truncate" title={task.model}>
-                      {t('schedule.modelLabel', { value: task.model })}
+                    <div className="text-xs text-text-muted truncate" title={modelLabel}>
+                      {t('schedule.modelLabel', { value: modelLabel })}
                     </div>
                     {task.lastError && (
                       <div className="text-xs text-error break-all">
@@ -935,6 +938,18 @@ function normalizeScheduleBinding(
     folderName: fields?.folderName ?? null,
     canonicalKey: fields?.canonicalKey ?? null,
   };
+}
+
+function formatScheduledTaskModelLabel(task: ScheduleTask): string {
+  if (
+    isYorkLlmSelection(task.provider, undefined, task.model) ||
+    task.provider === YORK_LLM_PROVIDER
+  ) {
+    return task.model?.trim()
+      ? yorkLlmDisplayName(task.model)
+      : YORK_LLM_DISPLAY_NAME;
+  }
+  return task.model?.trim() || YORK_LLM_DISPLAY_NAME;
 }
 
 function bindingFromTask(task: ScheduleTask): SessionDivisionFields {
