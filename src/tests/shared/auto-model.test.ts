@@ -5,8 +5,12 @@ import {
   tierForScore,
   AUTO_MODEL_ID,
   isAutoModelId,
+  isFrontierCatalogModel,
+  shouldNudgeYorkLlmForRoutinePrompt,
+  ROUTINE_COMPLEXITY_THRESHOLD,
 } from '../../shared/auto-model';
 import type { BackendModelInfo } from '../../shared/backend-config';
+import { DEFAULT_YORK_LLM_BASE_URL } from '../../shared/york-llm-config';
 
 const catalog: BackendModelInfo[] = [
   { id: 'claude-haiku-4-5', name: 'Claude Haiku 4.5', provider: 'anthropic' },
@@ -133,5 +137,63 @@ describe('auto-model', () => {
     const pick = pickAutoModel(freeFrontier, 90, 'max');
     expect(pick.provider).toBe('openrouter');
     expect(pick.modelId).toBe('nvidia/nemotron-3-super-120b-a12b:free');
+  });
+
+  it('recognizes frontier catalog models used for research cues', () => {
+    expect(isFrontierCatalogModel('anthropic', 'claude-fable-5')).toBe(true);
+    expect(isFrontierCatalogModel('openai', 'gpt-5.6-luna')).toBe(true);
+    expect(isFrontierCatalogModel('anthropic', 'claude-haiku-4-5')).toBe(false);
+  });
+
+  it('nudges York LLM only for sticky frontier + routine prompts', () => {
+    expect(
+      shouldNudgeYorkLlmForRoutinePrompt({
+        provider: 'anthropic',
+        model: 'claude-fable-5',
+        prompt: 'summarize this meeting',
+      })
+    ).toBe(true);
+
+    expect(
+      shouldNudgeYorkLlmForRoutinePrompt({
+        provider: 'anthropic',
+        model: 'claude-fable-5',
+        prompt: [
+          'Analyze the architecture trade-offs and design a multi-step migration plan comparing options.',
+          'Prove which approach is better. Evaluate the strategy carefully.',
+          '```ts',
+          'export function example() {}',
+          '```',
+          'See src/main/agent/agent-runner.ts for context.',
+        ].join('\n'),
+      })
+    ).toBe(false);
+
+    expect(
+      shouldNudgeYorkLlmForRoutinePrompt({
+        provider: 'anthropic',
+        model: 'claude-haiku-4-5',
+        prompt: 'summarize this meeting',
+      })
+    ).toBe(false);
+
+    expect(
+      shouldNudgeYorkLlmForRoutinePrompt({
+        provider: 'ollama',
+        model: '/models/a.gguf',
+        baseUrl: DEFAULT_YORK_LLM_BASE_URL,
+        prompt: 'summarize this meeting',
+      })
+    ).toBe(false);
+
+    expect(
+      shouldNudgeYorkLlmForRoutinePrompt({
+        provider: 'anthropic',
+        model: 'auto',
+        prompt: 'summarize this meeting',
+      })
+    ).toBe(false);
+
+    expect(scorePromptComplexity('hi')).toBeLessThan(ROUTINE_COMPLEXITY_THRESHOLD);
   });
 });

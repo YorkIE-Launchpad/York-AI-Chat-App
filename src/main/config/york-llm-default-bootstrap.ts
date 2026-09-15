@@ -1,6 +1,6 @@
 /**
- * One-shot migration / bootstrap: legacy Auto + openrouter/free (and empty model)
- * → York LLM. Does not force-migrate intentional Claude/GPT/Gemini picks.
+ * One-shot migration / bootstrap: legacy openrouter/free (and empty model)
+ * → York LLM. Does not force-migrate intentional Auto / Claude / GPT / Gemini picks.
  */
 import {
   shouldMigrateToYorkLlmDefault,

@@ -3,11 +3,17 @@
  * per message from curated fast / balanced / frontier tiers.
  */
 import type { BackendCloudProvider, BackendModelInfo } from './backend-config';
+import { YORK_LLM_PROVIDER, isYorkLlmBaseUrl } from './york-llm-config';
 
 export const AUTO_MODEL_ID = 'auto';
 
+/** Scores below this map to the fast tier (routine / everyday prompts). */
+export const ROUTINE_COMPLEXITY_THRESHOLD = 35;
+
 export type AutoModelPreference = 'eco' | 'balanced' | 'max';
 export type AutoModelTier = 'fast' | 'balanced' | 'frontier';
+/** Catalog providers plus York LLM (`ollama`) when Auto routes to the shared server. */
+export type AutoModelProvider = BackendCloudProvider | typeof YORK_LLM_PROVIDER;
 
 export interface AutoModelCandidate {
   provider: BackendCloudProvider;
@@ -16,12 +22,15 @@ export interface AutoModelCandidate {
 }
 
 export interface AutoModelPick {
-  provider: BackendCloudProvider;
+  provider: AutoModelProvider;
   modelId: string;
   tier: AutoModelTier;
   score: number;
   reason: string;
 }
+
+/** Hub-catalog Auto pick (never York LLM). */
+export type CatalogAutoModelPick = AutoModelPick & { provider: BackendCloudProvider };
 
 export interface PromptComplexityContext {
   hasImages?: boolean;
@@ -80,7 +89,7 @@ export const AUTO_MODEL_TIERS: Record<AutoModelTier, AutoModelCandidate[]> = {
 };
 
 /** Hardcoded last-resort when the catalog is empty or unreachable. */
-export const AUTO_MODEL_ULTIMATE_FALLBACK: AutoModelPick = {
+export const AUTO_MODEL_ULTIMATE_FALLBACK: CatalogAutoModelPick = {
   provider: 'anthropic',
   modelId: 'claude-sonnet-5',
   tier: 'balanced',
@@ -149,9 +158,44 @@ export function scorePromptComplexity(
 }
 
 function scoreToBaseTier(score: number): AutoModelTier {
-  if (score < 35) return 'fast';
+  if (score < ROUTINE_COMPLEXITY_THRESHOLD) return 'fast';
   if (score < 70) return 'balanced';
   return 'frontier';
+}
+
+/** True when the model id appears in the curated frontier Auto pool (research / hard reasoning). */
+export function isFrontierCatalogModel(
+  provider: string | undefined | null,
+  modelId: string | undefined | null
+): boolean {
+  const id = modelId?.trim();
+  if (!id) return false;
+  const idLower = id.toLowerCase();
+  const providerTrim = provider?.trim().toLowerCase() ?? '';
+  return AUTO_MODEL_TIERS.frontier.some((candidate) => {
+    if (candidate.id.toLowerCase() === idLower) return true;
+    if (providerTrim && candidate.provider === providerTrim && candidate.id === id) return true;
+    return false;
+  });
+}
+
+/**
+ * Soft nudge: sticky frontier model + low-complexity prompt → suggest York LLM.
+ * Skips Auto, York LLM itself, and empty prompts.
+ */
+export function shouldNudgeYorkLlmForRoutinePrompt(options: {
+  provider?: string | null;
+  model?: string | null;
+  baseUrl?: string | null;
+  prompt: string;
+}): boolean {
+  const prompt = options.prompt?.trim() ?? '';
+  if (!prompt) return false;
+  if (isAutoModelId(options.model)) return false;
+  if (isYorkLlmBaseUrl(options.baseUrl)) return false;
+  if (options.provider === YORK_LLM_PROVIDER) return false;
+  if (!isFrontierCatalogModel(options.provider, options.model)) return false;
+  return scorePromptComplexity(prompt) < ROUTINE_COMPLEXITY_THRESHOLD;
 }
 
 function shiftTier(tier: AutoModelTier, delta: number): AutoModelTier {
@@ -189,7 +233,7 @@ export function pickAutoModel(
   score: number,
   preference: AutoModelPreference = 'balanced',
   options: { requireVision?: boolean } = {}
-): AutoModelPick {
+): CatalogAutoModelPick {
   const preferredTier = tierForScore(score, preference);
   const available = new Set(enabledModels.map((m) => catalogKey(m.provider, m.id)));
   const requireVision = Boolean(options.requireVision);

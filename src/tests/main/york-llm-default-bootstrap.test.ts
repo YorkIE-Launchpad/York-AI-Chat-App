@@ -53,6 +53,19 @@ describe('bootstrapYorkLlmDefault', () => {
     );
   });
 
+  it('does not migrate intentional Auto picks', async () => {
+    getAll.mockReturnValue({
+      provider: 'anthropic',
+      model: 'auto',
+    });
+    const { bootstrapYorkLlmDefault } = await import(
+      '../../main/config/york-llm-default-bootstrap'
+    );
+    await bootstrapYorkLlmDefault();
+    expect(listYorkLlmModels).not.toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalled();
+  });
+
   it('does not migrate intentional Claude picks', async () => {
     getAll.mockReturnValue({
       provider: 'anthropic',

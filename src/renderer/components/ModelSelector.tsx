@@ -8,7 +8,14 @@ import {
   BACKEND_PROXY_PLACEHOLDER_KEY,
   isBackendManagedProvider,
 } from '../../shared/backend-config';
-import { isAutoModelId } from '../../shared/auto-model';
+import {
+  AUTO_MODEL_ID,
+  AUTO_PREFERENCE_SHORT_LABELS,
+  isAutoModelId,
+  isAutoModelPreference,
+  isFrontierCatalogModel,
+  type AutoModelPreference,
+} from '../../shared/auto-model';
 import {
   hasOpenRouterUserApiKey,
   isOpenRouterFreeTierModel,
@@ -41,6 +48,8 @@ const PROVIDER_LABELS: Record<BackendCloudProvider, string> = {
 
 const PROVIDER_ORDER: BackendCloudProvider[] = ['anthropic', 'openai', 'gemini', 'openrouter'];
 
+const AUTO_PREFERENCE_ORDER: AutoModelPreference[] = ['eco', 'balanced', 'max'];
+
 function profileKeyForProvider(provider: BackendCloudProvider): ProviderProfileKey {
   return provider;
 }
@@ -50,22 +59,6 @@ function shortModelName(name: string, id: string): string {
   if (name && name !== id) return name;
   const parts = id.split('/');
   return parts[parts.length - 1] || id;
-}
-
-function pickFallbackModel(
-  models: BackendModelInfo[],
-  preferredProvider?: string
-): BackendModelInfo | null {
-  if (models.length === 0) return null;
-  if (preferredProvider) {
-    const sameProvider = models.find((model) => model.provider === preferredProvider);
-    if (sameProvider) return sameProvider;
-  }
-  for (const provider of PROVIDER_ORDER) {
-    const match = models.find((model) => model.provider === provider);
-    if (match) return match;
-  }
-  return models[0] ?? null;
 }
 
 interface ModelSelectorProps {
@@ -87,7 +80,6 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
-  const reconcileKeyRef = useRef<string | null>(null);
   const loadGenRef = useRef(0);
   const {
     models: yorkLlmModels,
@@ -189,6 +181,11 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
     );
   }, [models]);
 
+  const selectedAuto = isAutoModelId(appConfig?.model);
+  const autoPreference: AutoModelPreference = isAutoModelPreference(appConfig?.autoModelPreference)
+    ? appConfig.autoModelPreference
+    : 'balanced';
+
   const selectedYorkLlmModel = useMemo(() => {
     if (!appConfig?.model || isAutoModelId(appConfig.model)) return null;
     if (!isYorkLlmSelection(appConfig.provider, appConfig.baseUrl, appConfig.model)) return null;
@@ -235,6 +232,18 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
     [saveConfig]
   );
 
+  const handleSelectAuto = useCallback(async () => {
+    await saveConfig({ model: AUTO_MODEL_ID });
+    setIsOpen(false);
+  }, [saveConfig]);
+
+  const handleAutoPreference = useCallback(
+    async (preference: AutoModelPreference) => {
+      await saveConfig({ autoModelPreference: preference });
+    },
+    [saveConfig]
+  );
+
   const handleSelect = useCallback(
     async (model: BackendModelInfo) => {
       if (model.provider === 'openrouter' && !hasOpenRouterKey) {
@@ -269,53 +278,31 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
     [hasOpenRouterKey, saveConfig, setSettingsTab, setShowSettings]
   );
 
-  // One-shot migrate legacy Auto → York LLM (or first concrete Hub model). Never
-  // silently rewrite config when a configured model is merely missing from a partial catalog.
-  useEffect(() => {
-    if (!isElectron || isLoading || isSaving || !appConfig) return;
-    if (!isAutoModelId(appConfig.model)) return;
+  const displayName = selectedAuto
+    ? t('workspace.models.autoShort', 'Auto')
+    : selectedModel
+      ? shortModelName(selectedModel.name, selectedModel.id)
+      : selectedYorkLlmModel
+        ? yorkLlmDisplayName(selectedYorkLlmModel.id, selectedYorkLlmModel.name)
+        : isLoading
+          ? 'Loading…'
+          : appConfig?.model &&
+              !isBackendManagedProvider(appConfig.provider) &&
+              !isAutoModelId(appConfig.model)
+            ? shortModelName(appConfig.model, appConfig.model)
+            : appConfig?.provider === YORK_LLM_PROVIDER
+              ? 'York LLM'
+              : 'Select model';
 
-    if (yorkLlmModels[0]) {
-      const key = `auto::york::${yorkLlmModels[0].id}`;
-      if (reconcileKeyRef.current === key) return;
-      reconcileKeyRef.current = key;
-      void handleSelectYorkLlm(yorkLlmModels[0].id);
-      return;
-    }
-
-    if (usableModels.length === 0) return;
-    const fallback = pickFallbackModel(usableModels, appConfig.provider);
-    if (!fallback) return;
-    const reconcileKey = `auto::${fallback.provider}::${fallback.id}`;
-    if (reconcileKeyRef.current === reconcileKey) return;
-    reconcileKeyRef.current = reconcileKey;
-    void handleSelect(fallback);
-  }, [
-    appConfig,
-    handleSelect,
-    handleSelectYorkLlm,
-    isLoading,
-    isSaving,
-    usableModels,
-    yorkLlmModels,
-  ]);
-
-  const displayName = selectedModel
-    ? shortModelName(selectedModel.name, selectedModel.id)
-    : selectedYorkLlmModel
-      ? yorkLlmDisplayName(selectedYorkLlmModel.id, selectedYorkLlmModel.name)
-      : isLoading
-        ? 'Loading…'
-        : appConfig?.model &&
-            !isBackendManagedProvider(appConfig.provider) &&
-            !isAutoModelId(appConfig.model)
-          ? shortModelName(appConfig.model, appConfig.model)
-          : appConfig?.provider === YORK_LLM_PROVIDER
-            ? 'York LLM'
-            : 'Select model';
-
-  const showViaOpenRouter = appConfig?.provider === 'openrouter';
-  const triggerTitle = showViaOpenRouter ? `${displayName} via Openrouter` : displayName;
+  const showViaOpenRouter = appConfig?.provider === 'openrouter' && !selectedAuto;
+  const triggerTitle = selectedAuto
+    ? t(
+        'workspace.models.autoBlurb',
+        'Auto · York for everyday, frontier when hard'
+      )
+    : showViaOpenRouter
+      ? `${displayName} via Openrouter`
+      : displayName;
 
   const isDisabled = isLoading || isSaving;
 
@@ -357,6 +344,67 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
           className="absolute bottom-[calc(100%+8px)] right-0 z-30 w-max min-w-[14rem] max-w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-[1.25rem] border border-border-subtle bg-background shadow-elevated"
         >
           <div className="max-h-[min(28rem,70vh)] overflow-y-auto py-1.5">
+            <div className="px-1.5 py-1">
+              <div className="px-2.5 pb-1 pt-1.5 text-[11px] font-medium tracking-[0.04em] text-text-muted">
+                {t('workspace.models.autoTitle', 'Smart Auto')}
+              </div>
+              <button
+                type="button"
+                role="option"
+                aria-selected={selectedAuto}
+                onClick={() => {
+                  void handleSelectAuto();
+                }}
+                className={`flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left transition-colors ${
+                  selectedAuto
+                    ? 'bg-accent-muted text-accent'
+                    : 'text-text-primary hover:bg-surface-hover'
+                }`}
+              >
+                <span className="min-w-0 flex-1 truncate whitespace-nowrap text-[13px] font-medium">
+                  {t('workspace.models.autoShort', 'Auto')}
+                </span>
+                {selectedAuto && <Check className="h-3.5 w-3.5 shrink-0" />}
+              </button>
+              <div className="px-2.5 pt-1 text-[10px] leading-snug text-text-muted">
+                {t(
+                  'workspace.models.autoBlurb',
+                  'Auto · York for everyday, frontier when hard'
+                )}
+              </div>
+              {selectedAuto && (
+                <div className="mt-1.5 flex flex-wrap gap-1 px-2.5 pb-1">
+                  {AUTO_PREFERENCE_ORDER.map((preference) => {
+                    const isActive = autoPreference === preference;
+                    return (
+                      <button
+                        key={preference}
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void handleAutoPreference(preference);
+                        }}
+                        className={`rounded-lg px-2 py-1 text-[11px] font-medium transition-colors ${
+                          isActive
+                            ? 'bg-accent-muted text-accent'
+                            : 'text-text-muted hover:bg-surface-hover hover:text-text-primary'
+                        }`}
+                        title={
+                          preference === 'eco'
+                            ? t('workspace.models.autoPrefEco', 'Prefer lower cost')
+                            : preference === 'max'
+                              ? t('workspace.models.autoPrefMax', 'Prefer smartest')
+                              : t('workspace.models.autoPrefBalanced', 'Balanced')
+                        }
+                      >
+                        {AUTO_PREFERENCE_SHORT_LABELS[preference]}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
             {(isYorkLlmLoading || yorkLlmModels.length > 0 || isYorkLlmUnavailable) && (
               <div className="px-1.5 py-1">
                 <div className="px-2.5 pb-1 pt-1.5 text-[11px] font-medium tracking-[0.04em] text-text-muted">
@@ -409,6 +457,12 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
                 )}
                 <div className="px-2.5 pt-1 text-[10px] leading-snug text-text-muted">
                   {t(
+                    'workspace.models.yorkLocalLlmUseCase',
+                    'Best for summarize, MCP lookup, everyday chat'
+                  )}
+                </div>
+                <div className="px-2.5 pt-0.5 text-[10px] leading-snug text-text-muted">
+                  {t(
                     'workspace.models.yorkLocalLlmFooter',
                     'Free shared server — no York budget cost. Up to 4 concurrent requests; you may wait in queue during peak use.'
                   )}
@@ -426,6 +480,7 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
                   selectedModel?.provider === model.provider && selectedModel?.id === model.id;
                 const budgetRequiresByok = model.hasBudget === false && !hasOpenRouterKey;
                 const rowDisabled = openRouterDisabled || budgetRequiresByok;
+                const showFrontierCue = isFrontierCatalogModel(model.provider, model.id);
                 return (
                   <button
                     key={`${model.provider}::${model.id}`}
@@ -445,8 +500,18 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
                           : 'text-text-primary hover:bg-surface-hover'
                     }`}
                   >
-                    <span className="min-w-0 flex-1 truncate whitespace-nowrap text-[13px] font-medium">
-                      {shortModelName(model.name, model.id)}
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate whitespace-nowrap text-[13px] font-medium">
+                        {shortModelName(model.name, model.id)}
+                      </span>
+                      {showFrontierCue && !rowDisabled && (
+                        <span className="mt-0.5 block truncate text-[10px] font-normal leading-snug text-text-muted">
+                          {t(
+                            'workspace.models.frontierUseCase',
+                            'Best for research and hard reasoning'
+                          )}
+                        </span>
+                      )}
                     </span>
                     {budgetRequiresByok && (
                       <span className="shrink-0 text-[10px] font-medium tracking-[0.02em] text-text-muted">

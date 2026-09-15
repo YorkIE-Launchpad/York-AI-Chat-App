@@ -80,7 +80,7 @@ describe('york-llm-config', () => {
 
   it('migrates only legacy system defaults to York LLM', () => {
     expect(shouldMigrateToYorkLlmDefault('')).toBe(true);
-    expect(shouldMigrateToYorkLlmDefault('auto')).toBe(true);
+    expect(shouldMigrateToYorkLlmDefault('auto')).toBe(false);
     expect(shouldMigrateToYorkLlmDefault('openrouter/free')).toBe(true);
     expect(shouldMigrateToYorkLlmDefault('claude-sonnet-5', 'anthropic')).toBe(false);
     expect(shouldMigrateToYorkLlmDefault('gpt-5.4', 'openai')).toBe(false);

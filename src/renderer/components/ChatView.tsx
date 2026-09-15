@@ -16,6 +16,7 @@ import { MessageCard } from './MessageCard';
 import { MESSAGE_POINTERS_GUTTER_CLASS, MessagePointers } from './MessagePointers';
 import { MessageQueueList } from './MessageQueueList';
 import { ModelSelector } from './ModelSelector';
+import { YorkLlmRoutineTip } from './YorkLlmRoutineTip';
 import { HubBudgetMeter } from './HubBudgetMeter';
 import { ThinkingModeToggle } from './ThinkingModeToggle';
 import { OpenRouterKeyGateBanner } from './OpenRouterKeyGateBanner';
@@ -2287,6 +2288,8 @@ export function ChatView() {
             {dictationStatus === 'error' && dictationErrorKind === 'client_outdated' ? (
               <ClientOutdatedUpdateActions className="mt-2" />
             ) : null}
+
+            <YorkLlmRoutineTip prompt={prompt} />
 
             <p className="text-[11px] text-text-muted/60 text-center mt-2.5">
               {t('chat.disclaimer')}
