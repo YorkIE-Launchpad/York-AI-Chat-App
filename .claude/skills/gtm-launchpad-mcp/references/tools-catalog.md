@@ -90,8 +90,8 @@ Designer template-category / setup-guide tools may appear in docs but not on thi
 | `update_content_calendar_row` | Patch row | yes | `rowId` + fields to change | Updated row |
 | `delete_content_calendar_row` | Remove row | yes | `rowId` | Deleted |
 | `list_content_calendar_doc_import_runs` | Doc import history | — | optional `page`, `limit`, `status` | Import runs |
-| `get_brand_profile` | Read brand profile | — | — | Brand JSON |
-| `update_brand_profile` | Patch brand fields | yes | `profile` object | Updated profile |
+| `get_brand_profile` | Read brand profile | — | Always inspect `productCatalog`, `faqEntries`, and messaging fields (see SKILL.md Brand profile) | Brand JSON |
+| `update_brand_profile` | Patch brand fields | yes | Named `profile` schema (`productCatalog`, `faqEntries`, messaging, `visualStandards.colors`). GET first; omitted keys stay | Updated profile |
 
 ## Skill library (prompt library)
 
