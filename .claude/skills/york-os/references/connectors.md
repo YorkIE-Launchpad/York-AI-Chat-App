@@ -36,10 +36,20 @@ Load `rnd-launchpad-mcp-sdlc` for release loop / Build / Validate.
 
 ## GTM Launchpad
 
-Connect via Connectors (streamable HTTP + browser OAuth). No fixed inventory
-in-repo — use `mcp_search_tools` on the GTM Launchpad server. Do not invent
-tool names. Prefer when the user asks about GTM / go-to-market product delivery
-(vs R&D Launchpad for client SaaS delivery).
+Load `gtm-launchpad-mcp` for client workflows, pieces, content calendar, brand
+profile, users, skill library, and audit logs. MCP namespace is
+`Gtm-Launchpad` (not the product-platform `Launchpad` server used by R&D).
+
+| Tools (primary)                                                          | Join keys out                         | Typical next                                      |
+| ------------------------------------------------------------------------ | ------------------------------------- | ------------------------------------------------- |
+| `list_accessible_clients`, `resolve_workspace`                           | **clientId**, **projectId**           | pass on every later workspace call                |
+| `list_workflows`, `describe_workflow`, `list_flow_steps`, `get_step_config` | **flowId**, stepName               | configure / update / enable                       |
+| `get_piece_schema`, `get_piece_property_options`, `list_connections`     | piece schema, `authConnectionExternalId` | `configure_*` / `create_step`                  |
+| `set_workflow_status`, `run_workflow`, `get_last_run`                    | run status                            | confirm enable only when status is `ENABLED`      |
+| Calendar / brand / prompts / users / audit tools                         | workspace ids                         | see skill `references/tools-catalog.md`           |
+
+Protocol: mutations preview first, then retry with `confirm: true`. Discover
+live tools via `GetDynamicTools` — RBAC may hide some.
 
 ## R&D Pulse / GTM Pulse
 

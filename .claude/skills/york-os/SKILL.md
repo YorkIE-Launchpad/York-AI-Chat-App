@@ -3,22 +3,23 @@ name: york-os
 description: >-
   York IE company OS router and multi-source tool planner — Hub
   (people/culture/HR/clients/projects), R&D Launchpad (client SaaS delivery),
-  GTM Launchpad (GTM product delivery), R&D Pulse / GTM Pulse (analytics), Slack,
-  Gmail, Drive, Google Calendar, Jira, Confluence, and Zoom-captured meetings.
-  Use for company or work questions; multi-connector tool planning with
-  cross-tool ID chaining; prepare agendas / meeting prep; brief me / catch me up
-  / what's coming up; client status / project status / "how is project Y" /
-  "update on client Z"; who is out; open loops / promises / follow-ups;
-  scheduling or calendar invites; searching across Slack, email, meetings, or
-  Drive; choosing among Hub / Launchpad / Pulse / communications tools.
+  GTM Launchpad (client GTM workflows, content calendar, brand, channel pieces),
+  R&D Pulse / GTM Pulse (analytics), Slack, Gmail, Drive, Google Calendar, Jira,
+  Confluence, and Zoom-captured meetings. Use for company or work questions;
+  multi-connector tool planning with cross-tool ID chaining; prepare agendas /
+  meeting prep; brief me / catch me up / what's coming up; client status /
+  project status / "how is project Y" / "update on client Z"; who is out; open
+  loops / promises / follow-ups; scheduling or calendar invites; searching
+  across Slack, email, meetings, or Drive; choosing among Hub / Launchpad /
+  Pulse / communications tools.
 ---
 
 # York OS — Tool Router
 
 VECOS is York IE’s company OS: one assistant over internal platforms and
 comms. Prefer connected York systems over web search or invented status.
-Deep Hub or Launchpad workflows: load `hub-mcp` or `rnd-launchpad-mcp-sdlc`
-after routing here.
+Deep Hub or Launchpad workflows: load `hub-mcp`, `rnd-launchpad-mcp-sdlc`, or
+`gtm-launchpad-mcp` after routing here.
 
 **References (load when needed):**
 
@@ -35,7 +36,7 @@ after routing here.
 | ------------------- | ------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Hub**             | People, HR, clients, projects, leave, timesheets, allocations, quotations | Hub MCP → follow `hub-mcp`                                                                                                                                                                                                                                                                                            |
 | **R&D Launchpad**   | Client SaaS build & delivery (releases, features, bugs, QA)               | Launchpad MCP → follow `rnd-launchpad-mcp-sdlc`                                                                                                                                                                                                                                                                       |
-| **GTM Launchpad**   | GTM / go-to-market product delivery                                       | GTM Launchpad MCP (discover live tools)                                                                                                                                                                                                                                                                               |
+| **GTM Launchpad**   | Client GTM workflows, content calendar, brand profile, channel pieces     | GTM Launchpad MCP → follow `gtm-launchpad-mcp` (not the product-platform Launchpad namespace)                                                                                                                                                                                                                          |
 | **R&D Pulse**       | Analytics for that R&D product/project                                    | R&D Pulse MCP (discover live tools)                                                                                                                                                                                                                                                                                   |
 | **GTM Pulse**       | GTM / go-to-market analytics                                              | GTM Pulse MCP (discover live tools)                                                                                                                                                                                                                                                                                   |
 | **Slack**           | Chat, DMs, threads                                                        | MCP: `search_messages`, `get_thread`, `get_channel_history`, `get_user`; write: `post_message` (ask; never `#general` / `#virtual-water-cooler`)                                                                                                                                                                      |
@@ -76,11 +77,12 @@ email, client id, or project id a tool already returned.
 | --------------------------- | ------------------------------------------ | ----------------------------------------------------------------------- |
 | Calendar events             | eventId, title, attendee **emails**, links | Hub people/leave; Slack/Gmail; Drive; `meeting_search`                  |
 | Hub employees               | **email**, name, squad                     | Calendar attendees; Slack; Gmail; leave                                 |
-| Hub clients                 | **clientId**, name                         | projects, quotations; Slack/Gmail/Drive/meetings; Launchpad             |
+| Hub clients                 | **clientId**, name                         | projects, quotations; Slack/Gmail/Drive/meetings; R&D Launchpad; GTM Launchpad |
 | Hub quotations              | quotation id, **project ids**              | Hub projects/allocations; Launchpad; Jira                               |
 | Hub projects / summaries    | **projectId**, title, client               | allocations, release notes; Launchpad; Jira; Slack/Gmail/Drive/meetings |
 | Hub allocations             | staff **emails**                           | leave; Slack; Calendar                                                  |
-| Launchpad projects/releases | Launchpad **projectId**, release ids       | scope/QA; Hub by name; Jira; Pulse                                      |
+| R&D Launchpad projects/releases | Launchpad **projectId**, release ids   | scope/QA; Hub by name; Jira; Pulse                                      |
+| GTM Launchpad clients/workflows | **clientId**, **projectId**, **flowId** | `list_accessible_clients` / `resolve_workspace` → workflow tools; Hub by name |
 | Slack search                | channel + `thread_ts`, permalink           | `get_thread`; Sources                                                   |
 | Gmail search                | message id, Drive links                    | `get_email`; Drive content                                              |
 | `meeting_search`            | meeting `id`                               | `meeting_read`                                                          |
@@ -95,7 +97,8 @@ Full map: [connectors.md](references/connectors.md).
 | ---------------------------------------------- | ------------------------------------ | --------------------------------------------------------------------------- |
 | Who is / org / leave / timesheets / staffing   | Hub                                  | `hub-mcp`                                                                   |
 | Who’s out this week                            | Hub `get_leave_wfh_calendar`         | not Google Calendar                                                         |
-| Feature, bug, release, delivery ops            | R&D Launchpad or GTM Launchpad | `rnd-launchpad-mcp-sdlc` (R&D); GTM Launchpad discover live tools; Pulse if metrics |
+| Feature, bug, release, delivery ops            | R&D Launchpad                    | `rnd-launchpad-mcp-sdlc`; Pulse if metrics                                          |
+| GTM workflows / content calendar / brand / pieces | GTM Launchpad                 | `gtm-launchpad-mcp` (session: `clientId` + `projectId`; mutations need `confirm`)   |
 | Metrics, usage, funnel, platform health        | R&D Pulse or GTM Pulse               | discover live tools                                                         |
 | What was said / promised / agreed / open loops | **Comms fan-out**                    | [work-brief.md](references/work-brief.md)                                   |
 | Catch me up / brief me / status with a person  | **Plan + fan-out**                   | [work-brief.md](references/work-brief.md)                                   |
@@ -226,7 +229,8 @@ User: “What did I promise Jay?”
    the connector and identifier as plain text — never invent URLs or sources.
 2. Unavailable/disabled connector → state it; do not pretend you searched it.
    For status/prep, list which systems were checked and which were skipped.
-3. This skill routes and plans. Deep Hub/Launchpad work → load those skills.
+3. This skill routes and plans. Deep Hub / R&D Launchpad / GTM Launchpad work →
+   load `hub-mcp`, `rnd-launchpad-mcp-sdlc`, or `gtm-launchpad-mcp`.
 4. Answer in chat unless the user explicitly asks for a file.
 5. Never invent agenda items, commitments, or client/project status.
 6. Greetings / chit-chat alone (e.g. "hi", "hello", "hey", "thanks"): reply in
