@@ -13,6 +13,7 @@ import {
 import { useAppStore } from '../store';
 import { useIPC } from '../hooks/useIPC';
 import { MessageCard } from './MessageCard';
+import { MESSAGE_POINTERS_GUTTER_CLASS, MessagePointers } from './MessagePointers';
 import { MessageQueueList } from './MessageQueueList';
 import { ModelSelector } from './ModelSelector';
 import { HubBudgetMeter } from './HubBudgetMeter';
@@ -285,6 +286,11 @@ export function ChatView() {
     partialMessage,
     partialThinking,
   ]);
+
+  const showMessagePointers = useMemo(
+    () => displayedMessages.filter((message) => message.role === 'user').length >= 2,
+    [displayedMessages]
+  );
 
   // Format execution time for display
   const formatExecutionTime = useCallback((ms: number): string => {
@@ -1686,128 +1692,144 @@ export function ChatView() {
           ) : null}
         </div>
       ) : null}
-      <div ref={scrollContainerRef} className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
-        <div
-          ref={messagesContainerRef}
-          className="mx-auto w-full min-w-0 max-w-[920px] space-y-5 px-5 py-8 lg:px-8"
-        >
-          {displayedMessages.length === 0 ? (
-            matterChatDraft ? (
-              <div className="rounded-2xl border border-border-muted bg-surface/50 px-4 py-4 space-y-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-[11px] uppercase tracking-[0.14em] text-text-muted">
-                      {t('matter.chatContextTitle')}
-                      {matterChatDraft.contextSummary.sourceLabel
-                        ? ` · ${matterChatDraft.contextSummary.sourceLabel}`
-                        : ''}
-                    </p>
-                    <h3 className="mt-1 text-[15px] font-medium text-text-primary">
-                      {matterChatDraft.contextSummary.title}
-                    </h3>
-                    {matterChatDraft.contextSummary.summary ? (
-                      <p className="mt-1.5 text-sm text-text-secondary">
-                        {matterChatDraft.contextSummary.summary}
+      <div className="relative min-w-0 flex-1 overflow-hidden">
+        <div ref={scrollContainerRef} className="h-full min-w-0 overflow-x-hidden overflow-y-auto">
+          <div
+            ref={messagesContainerRef}
+            className={`mx-auto w-full min-w-0 max-w-[920px] space-y-5 py-8 ${
+              showMessagePointers ? MESSAGE_POINTERS_GUTTER_CLASS : 'px-5 lg:px-8'
+            }`}
+          >
+            {displayedMessages.length === 0 ? (
+              matterChatDraft ? (
+                <div className="rounded-2xl border border-border-muted bg-surface/50 px-4 py-4 space-y-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-[11px] uppercase tracking-[0.14em] text-text-muted">
+                        {t('matter.chatContextTitle')}
+                        {matterChatDraft.contextSummary.sourceLabel
+                          ? ` · ${matterChatDraft.contextSummary.sourceLabel}`
+                          : ''}
                       </p>
+                      <h3 className="mt-1 text-[15px] font-medium text-text-primary">
+                        {matterChatDraft.contextSummary.title}
+                      </h3>
+                      {matterChatDraft.contextSummary.summary ? (
+                        <p className="mt-1.5 text-sm text-text-secondary">
+                          {matterChatDraft.contextSummary.summary}
+                        </p>
+                      ) : null}
+                    </div>
+                    {matterChatDraft.contextSummary.url ? (
+                      <button
+                        type="button"
+                        className="shrink-0 text-[12px] font-medium text-accent hover:underline"
+                        onClick={() => {
+                          const url = matterChatDraft.contextSummary.url;
+                          if (url && window.electronAPI?.openExternal) {
+                            void window.electronAPI.openExternal(url);
+                          }
+                        }}
+                      >
+                        {t('matter.chatContextOpenSource')}
+                      </button>
                     ) : null}
                   </div>
-                  {matterChatDraft.contextSummary.url ? (
-                    <button
-                      type="button"
-                      className="shrink-0 text-[12px] font-medium text-accent hover:underline"
-                      onClick={() => {
-                        const url = matterChatDraft.contextSummary.url;
-                        if (url && window.electronAPI?.openExternal) {
-                          void window.electronAPI.openExternal(url);
-                        }
-                      }}
-                    >
-                      {t('matter.chatContextOpenSource')}
-                    </button>
+                  {matterChatDraft.contextSummary.whyItMatters ? (
+                    <div>
+                      <p className="text-[11px] font-medium text-text-muted">
+                        {t('matter.chatContextWhy')}
+                      </p>
+                      <p className="mt-0.5 text-sm text-text-secondary">
+                        {matterChatDraft.contextSummary.whyItMatters}
+                      </p>
+                    </div>
                   ) : null}
+                  {matterChatDraft.contextSummary.suggestedAction ? (
+                    <div>
+                      <p className="text-[11px] font-medium text-text-muted">
+                        {t('matter.chatContextSuggested')}
+                      </p>
+                      <p className="mt-0.5 text-sm text-text-secondary">
+                        {matterChatDraft.contextSummary.suggestedAction}
+                      </p>
+                    </div>
+                  ) : null}
+                  <p className="text-[12px] text-text-muted">{t('matter.chatContextWaiting')}</p>
                 </div>
-                {matterChatDraft.contextSummary.whyItMatters ? (
-                  <div>
-                    <p className="text-[11px] font-medium text-text-muted">
-                      {t('matter.chatContextWhy')}
-                    </p>
-                    <p className="mt-0.5 text-sm text-text-secondary">
-                      {matterChatDraft.contextSummary.whyItMatters}
-                    </p>
-                  </div>
-                ) : null}
-                {matterChatDraft.contextSummary.suggestedAction ? (
-                  <div>
-                    <p className="text-[11px] font-medium text-text-muted">
-                      {t('matter.chatContextSuggested')}
-                    </p>
-                    <p className="mt-0.5 text-sm text-text-secondary">
-                      {matterChatDraft.contextSummary.suggestedAction}
-                    </p>
-                  </div>
-                ) : null}
-                <p className="text-[12px] text-text-muted">{t('matter.chatContextWaiting')}</p>
-              </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-28 text-text-muted space-y-3 text-center">
+                  <p className="text-[11px] uppercase tracking-[0.16em] text-text-muted/80">
+                    York GrowthOS
+                  </p>
+                  <p className="text-base text-text-secondary">{t('chat.startConversation')}</p>
+                </div>
+              )
             ) : (
-              <div className="flex flex-col items-center justify-center py-28 text-text-muted space-y-3 text-center">
-                <p className="text-[11px] uppercase tracking-[0.16em] text-text-muted/80">
-                  York GrowthOS
-                </p>
-                <p className="text-base text-text-secondary">{t('chat.startConversation')}</p>
+              displayedMessages.map((message, index) => {
+                const isStreaming =
+                  typeof message.id === 'string' && message.id.startsWith('partial-');
+                const isLastAssistant =
+                  message.role === 'assistant' &&
+                  !isStreaming &&
+                  !displayedMessages.slice(index + 1).some((item) => item.role === 'assistant');
+                return (
+                  <div
+                    key={message.id}
+                    data-message-id={message.id}
+                    data-role={message.role}
+                    className="min-w-0 max-w-full"
+                  >
+                    <MessageCard
+                      message={message}
+                      isStreaming={isStreaming}
+                      allMessages={displayedMessages}
+                      onRegenerate={
+                        isLastAssistant && !canStop
+                          ? () => {
+                              void continueSession(message.sessionId, '');
+                            }
+                          : undefined
+                      }
+                    />
+                  </div>
+                );
+              })
+            )}
+
+            {/* Subagent progress indicators */}
+            <SubagentTracker sessionId={activeSessionId} />
+
+            {/* Processing indicator - show when we have an active turn but no streaming content yet */}
+            {showProcessingIndicator && (
+              <div className="flex items-center gap-3 px-4 py-3 rounded-full bg-background/80 border border-border-subtle max-w-md min-w-0">
+                <Loader2 className="w-4 h-4 text-accent animate-spin flex-shrink-0" />
+                <span className="text-sm text-text-secondary truncate">{processingStatusLabel}</span>
               </div>
-            )
-          ) : (
-            displayedMessages.map((message, index) => {
-              const isStreaming =
-                typeof message.id === 'string' && message.id.startsWith('partial-');
-              const isLastAssistant =
-                message.role === 'assistant' &&
-                !isStreaming &&
-                !displayedMessages.slice(index + 1).some((item) => item.role === 'assistant');
-              return (
-                <div key={message.id} className="min-w-0 max-w-full">
-                  <MessageCard
-                    message={message}
-                    isStreaming={isStreaming}
-                    allMessages={displayedMessages}
-                    onRegenerate={
-                      isLastAssistant && !canStop
-                        ? () => {
-                            void continueSession(message.sessionId, '');
-                          }
-                        : undefined
-                    }
-                  />
-                </div>
-              );
-            })
-          )}
+            )}
 
-          {/* Subagent progress indicators */}
-          <SubagentTracker sessionId={activeSessionId} />
+            {/* Real-time execution timer */}
+            {liveElapsed > 0 && (
+              <div className="flex items-center gap-1.5 text-[11px] text-text-muted mt-1 ml-0.5">
+                <Clock className="w-3 h-3" />
+                <span>
+                  {timerActive
+                    ? formatExecutionTime(liveElapsed)
+                    : t('messageCard.executionTime', { time: formatExecutionTime(liveElapsed) })}
+                </span>
+              </div>
+            )}
 
-          {/* Processing indicator - show when we have an active turn but no streaming content yet */}
-          {showProcessingIndicator && (
-            <div className="flex items-center gap-3 px-4 py-3 rounded-full bg-background/80 border border-border-subtle max-w-md min-w-0">
-              <Loader2 className="w-4 h-4 text-accent animate-spin flex-shrink-0" />
-              <span className="text-sm text-text-secondary truncate">{processingStatusLabel}</span>
-            </div>
-          )}
-
-          {/* Real-time execution timer */}
-          {liveElapsed > 0 && (
-            <div className="flex items-center gap-1.5 text-[11px] text-text-muted mt-1 ml-0.5">
-              <Clock className="w-3 h-3" />
-              <span>
-                {timerActive
-                  ? formatExecutionTime(liveElapsed)
-                  : t('messageCard.executionTime', { time: formatExecutionTime(liveElapsed) })}
-              </span>
-            </div>
-          )}
-
-          <div ref={messagesEndRef} />
+            <div ref={messagesEndRef} />
+          </div>
         </div>
+        <MessagePointers
+          messages={displayedMessages}
+          scrollContainerRef={scrollContainerRef}
+          onNavigate={() => {
+            isUserAtBottomRef.current = false;
+          }}
+        />
       </div>
 
       {/* Input */}
