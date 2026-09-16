@@ -66,6 +66,15 @@ export function shouldPreserveReadyOnChecking(opts: {
   return shouldPreserveReadyStatus(opts);
 }
 
+/** Avoid regressing "restart to update" when the feed re-offers an already-downloaded build. */
+export function shouldPreserveReadyOnAvailable(opts: {
+  pendingDownloadVersion: string | null;
+  availableVersion: string;
+}): boolean {
+  if (!opts.pendingDownloadVersion) return false;
+  return !isVersionNewer(opts.availableVersion, opts.pendingDownloadVersion);
+}
+
 export function shouldPreserveReadyOnError(opts: {
   pendingDownloadVersion: string | null;
   currentVersion: string;
@@ -297,6 +306,15 @@ export async function startAutoUpdater(
     });
 
     autoUpdater.on('update-available', (info) => {
+      if (
+        shouldPreserveReadyOnAvailable({
+          pendingDownloadVersion,
+          availableVersion: info.version,
+        })
+      ) {
+        restoreReadyStatus();
+        return;
+      }
       setStatus({
         status: 'available',
         version: info.version,
@@ -327,6 +345,11 @@ export async function startAutoUpdater(
     });
 
     autoUpdater.on('download-progress', (progress) => {
+      // Background re-download of an already-ready build can emit progress while UI
+      // should stay on "restart to update".
+      if (currentStatus.status === 'ready') {
+        return;
+      }
       setStatus({
         status: 'downloading',
         percent: Math.round(progress.percent),

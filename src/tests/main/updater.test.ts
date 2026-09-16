@@ -5,6 +5,7 @@ import {
   READY_STATE_RECHECK_DELAY_MS,
   resolveAutoUpdater,
   shouldEnableAutoUpdater,
+  shouldPreserveReadyOnAvailable,
   shouldPreserveReadyOnChecking,
   shouldPreserveReadyOnError,
   shouldPreserveReadyOnNotAvailable,
@@ -116,5 +117,26 @@ describe('ready-state preservation', () => {
     const args = { pendingDownloadVersion: '1.2.0', currentVersion: '1.1.0' };
     expect(shouldPreserveReadyOnChecking(args)).toBe(true);
     expect(shouldPreserveReadyOnError(args)).toBe(true);
+  });
+
+  it('preserves ready when the feed re-offers the downloaded build', () => {
+    expect(
+      shouldPreserveReadyOnAvailable({
+        pendingDownloadVersion: '1.2.0',
+        availableVersion: '1.2.0',
+      })
+    ).toBe(true);
+    expect(
+      shouldPreserveReadyOnAvailable({
+        pendingDownloadVersion: '1.2.0',
+        availableVersion: '1.1.0',
+      })
+    ).toBe(true);
+    expect(
+      shouldPreserveReadyOnAvailable({
+        pendingDownloadVersion: '1.2.0',
+        availableVersion: '1.3.0',
+      })
+    ).toBe(false);
   });
 });

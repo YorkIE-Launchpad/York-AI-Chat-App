@@ -117,18 +117,26 @@ function SidebarUserAvatar({
 }) {
   const [resolvedSrc, setResolvedSrc] = useState<string | null>(null);
   const [imageFailed, setImageFailed] = useState(false);
+  const loadedImageKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    setImageFailed(false);
-    setResolvedSrc(null);
 
-    if (!image?.trim()) return;
+    if (!image?.trim()) {
+      loadedImageKeyRef.current = null;
+      setImageFailed(false);
+      setResolvedSrc(null);
+      return;
+    }
 
     const trimmed = image.trim();
-    if (trimmed.startsWith('data:') || trimmed.startsWith('blob:')) {
-      setResolvedSrc(trimmed);
+    if (loadedImageKeyRef.current === trimmed && !imageFailed) {
       return;
+    }
+
+    if (loadedImageKeyRef.current !== trimmed) {
+      setImageFailed(false);
+      setResolvedSrc(null);
     }
 
     const loadViaProxy = async () => {
@@ -136,6 +144,7 @@ function SidebarUserAvatar({
       if (authApi?.getAvatarDataUrl) {
         const result = await authApi.getAvatarDataUrl(trimmed);
         if (!cancelled && result.success && result.dataUrl) {
+          loadedImageKeyRef.current = trimmed;
           setResolvedSrc(result.dataUrl);
           return;
         }
@@ -144,15 +153,22 @@ function SidebarUserAvatar({
       }
       // Browser / no IPC: only try direct https URLs (not S3 keys).
       if (!cancelled && /^https?:\/\//i.test(trimmed)) {
+        loadedImageKeyRef.current = trimmed;
         setResolvedSrc(trimmed);
       }
     };
+
+    if (trimmed.startsWith('data:') || trimmed.startsWith('blob:')) {
+      loadedImageKeyRef.current = trimmed;
+      setResolvedSrc(trimmed);
+      return;
+    }
 
     void loadViaProxy();
     return () => {
       cancelled = true;
     };
-  }, [image]);
+  }, [image, imageFailed]);
 
   const showImage = Boolean(resolvedSrc) && !imageFailed;
 
