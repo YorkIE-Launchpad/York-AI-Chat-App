@@ -19,15 +19,15 @@ export class MeetingRealtimeTranscription {
 
   async start(meetingId: string, stream: MediaStream): Promise<void> {
     const config = await window.electronAPI.meetings.getSttProviderConfig();
-    if (config.requested === 'apple') {
-      if (!config.appleSupported) {
-        throw new Error(
-          'On-device Apple transcription requires macOS 26+ and the York GrowthOS speech helper.'
-        );
+    if (config.requested === 'apple' && config.appleSupported) {
+      try {
+        await apple.start(meetingId, stream);
+        this.active = 'apple';
+        return;
+      } catch (error) {
+        console.warn('[Meetings] Apple STT failed, falling back to OpenAI', error);
+        await apple.stop().catch(() => undefined);
       }
-      await apple.start(meetingId, stream);
-      this.active = 'apple';
-      return;
     }
 
     await openAi.start(meetingId, stream);

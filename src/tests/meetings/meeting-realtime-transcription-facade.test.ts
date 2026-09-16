@@ -34,8 +34,10 @@ describe('MeetingRealtimeTranscription facade', () => {
   beforeEach(() => {
     openAiStartMock.mockReset();
     openAiStopMock.mockReset();
+    openAiStopMock.mockResolvedValue(undefined);
     appleStartMock.mockReset();
     appleStopMock.mockReset();
+    appleStopMock.mockResolvedValue(undefined);
     getSttProviderConfigMock.mockReset();
     vi.resetModules();
   });
@@ -58,19 +60,40 @@ describe('MeetingRealtimeTranscription facade', () => {
     expect(openAiStartMock).not.toHaveBeenCalled();
   });
 
-  it('propagates errors when Apple start fails (no OpenAI fallback)', async () => {
+  it('falls back to OpenAI when Apple start fails', async () => {
     getSttProviderConfigMock.mockResolvedValue({
       requested: 'apple',
       platform: 'darwin',
       appleSupported: true,
     });
     appleStartMock.mockRejectedValue(new Error('helper missing'));
+    openAiStartMock.mockResolvedValue(undefined);
 
     const { MeetingRealtimeTranscription } =
       await import('../../renderer/meetings/MeetingRealtimeTranscription');
     const facade = new MeetingRealtimeTranscription();
     const stream = {} as MediaStream;
-    await expect(facade.start('meeting-1', stream)).rejects.toThrow(/helper missing/);
-    expect(openAiStartMock).not.toHaveBeenCalled();
+    await facade.start('meeting-1', stream);
+
+    expect(appleStopMock).toHaveBeenCalled();
+    expect(openAiStartMock).toHaveBeenCalledWith('meeting-1', stream);
+  });
+
+  it('uses OpenAI when Apple is not supported but requested', async () => {
+    getSttProviderConfigMock.mockResolvedValue({
+      requested: 'apple',
+      platform: 'darwin',
+      appleSupported: false,
+    });
+    openAiStartMock.mockResolvedValue(undefined);
+
+    const { MeetingRealtimeTranscription } =
+      await import('../../renderer/meetings/MeetingRealtimeTranscription');
+    const facade = new MeetingRealtimeTranscription();
+    const stream = {} as MediaStream;
+    await facade.start('meeting-1', stream);
+
+    expect(appleStartMock).not.toHaveBeenCalled();
+    expect(openAiStartMock).toHaveBeenCalledWith('meeting-1', stream);
   });
 });

@@ -182,9 +182,21 @@ describe('getRealtimeTranscriptionReadiness', () => {
     expect(getRealtimeTranscriptionReadiness()).toEqual({ ready: true });
   });
 
-  it('is not ready for apple provider when only OpenAI sign-in is available', async () => {
+  it('is ready for apple provider when OpenAI fallback is available', async () => {
     vi.stubEnv('YORK_IE_MEETING_STT_PROVIDER', 'apple');
     isAuthenticatedMock.mockReturnValue(true);
+    checkAppleTranscriptionReadinessMock.mockReturnValue({
+      ready: false,
+      reason: 'Meeting speech transcriber helper is not installed.',
+    });
+    const { getRealtimeTranscriptionReadiness } =
+      await import('../../main/meetings/meeting-realtime-transcription-service');
+    expect(getRealtimeTranscriptionReadiness()).toEqual({ ready: true });
+  });
+
+  it('is not ready for apple provider when neither Apple nor OpenAI is available', async () => {
+    vi.stubEnv('YORK_IE_MEETING_STT_PROVIDER', 'apple');
+    isAuthenticatedMock.mockReturnValue(false);
     checkAppleTranscriptionReadinessMock.mockReturnValue({
       ready: false,
       reason: 'Meeting speech transcriber helper is not installed.',

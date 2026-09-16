@@ -88,8 +88,8 @@ export interface UseDictationResult {
 }
 
 /**
- * Live chat dictation: on-device Apple STT when YORK_IE_MEETING_STT_PROVIDER=apple (macOS 26+),
- * otherwise OpenAI gpt-realtime-translate (WebRTC) + York-minted client secret.
+ * Live chat dictation: prefers on-device Apple STT when YORK_IE_MEETING_STT_PROVIDER=apple,
+ * with OpenAI gpt-realtime-translate (WebRTC) as fallback when Apple is unavailable or fails.
  */
 export function useDictation({
   enabled = true,
@@ -125,7 +125,7 @@ export function useDictation({
     typeof navigator !== 'undefined' &&
     !!navigator.mediaDevices?.getUserMedia;
 
-  const cleanupSession = useCallback(() => {
+  const cleanupAppleDictation = useCallback(() => {
     pcmTapRef.current?.stop();
     pcmTapRef.current = null;
     for (const unsub of appleUnsubsRef.current) {
@@ -136,6 +136,12 @@ export function useDictation({
       usingAppleRef.current = false;
       void window.electronAPI?.dictation?.appleTranscription?.stop().catch(() => undefined);
     }
+    inputLiveRef.current = '';
+    outputLiveRef.current = '';
+  }, []);
+
+  const cleanupSession = useCallback(() => {
+    cleanupAppleDictation();
 
     const peer = peerRef.current;
     peerRef.current = null;
@@ -153,7 +159,7 @@ export function useDictation({
         track.stop();
       }
     }
-  }, []);
+  }, [cleanupAppleDictation]);
 
   useEffect(() => {
     return () => {
@@ -374,15 +380,15 @@ export function useDictation({
       streamRef.current = stream;
 
       const sttConfig = await window.electronAPI.meetings.getSttProviderConfig();
-      if (sttConfig.requested === 'apple') {
-        if (!sttConfig.appleSupported) {
-          throw new Error(
-            'On-device Apple dictation requires macOS 26+ and the York GrowthOS speech helper.'
-          );
+      if (sttConfig.requested === 'apple' && sttConfig.appleSupported) {
+        try {
+          await window.electronAPI.meetings.requestAppleSpeechAccess();
+          await startAppleDictation(stream);
+          return;
+        } catch (appleError) {
+          console.warn('[Dictation] Apple STT failed, falling back to OpenAI', appleError);
+          cleanupAppleDictation();
         }
-        await window.electronAPI.meetings.requestAppleSpeechAccess();
-        await startAppleDictation(stream);
-        return;
       }
 
       if (typeof RTCPeerConnection === 'undefined') {
@@ -411,7 +417,13 @@ export function useDictation({
     } finally {
       startingRef.current = false;
     }
-  }, [cleanupSession, isAvailable, startAppleDictation, startOpenAiDictation]);
+  }, [
+    cleanupAppleDictation,
+    cleanupSession,
+    isAvailable,
+    startAppleDictation,
+    startOpenAiDictation,
+  ]);
 
   const stop = useCallback(() => {
     if (statusRef.current === 'recording' || statusRef.current === 'connecting') {

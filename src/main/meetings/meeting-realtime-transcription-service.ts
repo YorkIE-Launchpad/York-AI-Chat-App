@@ -76,11 +76,18 @@ export function getOpenAiTranscriptionReadiness(): RealtimeTranscriptionReadines
 
 export function getRealtimeTranscriptionReadiness(): RealtimeTranscriptionReadiness {
   const provider = resolveMeetingSttProviderFromEnv();
-  const openAi = getOpenAiTranscriptionReadiness();
   if (provider === 'openai') {
-    return openAi;
+    return getOpenAiTranscriptionReadiness();
   }
-  return checkAppleTranscriptionReadiness();
+  const apple = checkAppleTranscriptionReadiness();
+  if (apple.ready) {
+    return apple;
+  }
+  const openAi = getOpenAiTranscriptionReadiness();
+  if (openAi.ready) {
+    return { ready: true };
+  }
+  return apple.reason ? apple : openAi;
 }
 
 function buildTranscriptionSessionBody(

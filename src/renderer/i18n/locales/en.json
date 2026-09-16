@@ -288,7 +288,7 @@
     "realtimeTranscriptionDelay": "Live transcription latency",
     "transcriptionReady": "Backend transcription is ready",
     "transcriptionReadyApple": "On-device Apple transcription is ready (macOS 26+)",
-    "transcriptionProviderApple": "Live STT & chat dictation: on-device Apple (YORK_IE_MEETING_STT_PROVIDER=apple). Hindi/Gujarati translation is not available on this path.",
+    "transcriptionProviderApple": "Live STT & chat dictation: on-device Apple when available (YORK_IE_MEETING_STT_PROVIDER=apple), with OpenAI fallback. Hindi/Gujarati translation applies on the OpenAI path only.",
     "transcriptionProviderOpenAi": "Live STT: OpenAI via York backend (YORK_IE_MEETING_STT_PROVIDER=openai)",
     "transcriptionNotReady": "Sign in to enable meeting transcription through the York backend.",
     "openConnectors": "Open Connectors / API settings",
