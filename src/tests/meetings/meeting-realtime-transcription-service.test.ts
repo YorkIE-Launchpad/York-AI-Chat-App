@@ -26,9 +26,17 @@ vi.mock('../../shared/backend-config', () => ({
   getBackendProxyBaseUrl: (...args: unknown[]) => getBackendProxyBaseUrlMock(...args),
 }));
 
+const checkAppleTranscriptionReadinessMock = vi.fn();
+
+vi.mock('../../main/meetings/apple-meeting-transcription-service', () => ({
+  checkAppleTranscriptionReadiness: () => checkAppleTranscriptionReadinessMock(),
+}));
+
 describe('createRealtimeTranscriptionSession', () => {
   beforeEach(() => {
     vi.resetModules();
+    vi.unstubAllEnvs();
+    checkAppleTranscriptionReadinessMock.mockReturnValue({ ready: false });
     isAuthenticatedMock.mockReset();
     ensureAuthenticatedSessionMock.mockReset();
     resolveBackendClientApiKeyMock.mockReset();
@@ -146,5 +154,45 @@ describe('createRealtimeTranscriptionSession', () => {
       model: 'gpt-realtime-whisper',
     });
     expect(fallbackBody.session.audio.input.turn_detection).toBeNull();
+  });
+});
+
+describe('getRealtimeTranscriptionReadiness', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.unstubAllEnvs();
+    checkAppleTranscriptionReadinessMock.mockReturnValue({ ready: false });
+    isAuthenticatedMock.mockReturnValue(false);
+  });
+
+  it('requires sign-in when provider is openai', async () => {
+    vi.stubEnv('YORK_IE_MEETING_STT_PROVIDER', 'openai');
+    const { getRealtimeTranscriptionReadiness } =
+      await import('../../main/meetings/meeting-realtime-transcription-service');
+    const result = getRealtimeTranscriptionReadiness();
+    expect(result.ready).toBe(false);
+    expect(result.reason).toMatch(/Sign in/);
+  });
+
+  it('is ready for apple provider when apple readiness passes without sign-in', async () => {
+    vi.stubEnv('YORK_IE_MEETING_STT_PROVIDER', 'apple');
+    checkAppleTranscriptionReadinessMock.mockReturnValue({ ready: true });
+    const { getRealtimeTranscriptionReadiness } =
+      await import('../../main/meetings/meeting-realtime-transcription-service');
+    expect(getRealtimeTranscriptionReadiness()).toEqual({ ready: true });
+  });
+
+  it('is not ready for apple provider when only OpenAI sign-in is available', async () => {
+    vi.stubEnv('YORK_IE_MEETING_STT_PROVIDER', 'apple');
+    isAuthenticatedMock.mockReturnValue(true);
+    checkAppleTranscriptionReadinessMock.mockReturnValue({
+      ready: false,
+      reason: 'Meeting speech transcriber helper is not installed.',
+    });
+    const { getRealtimeTranscriptionReadiness } =
+      await import('../../main/meetings/meeting-realtime-transcription-service');
+    const result = getRealtimeTranscriptionReadiness();
+    expect(result.ready).toBe(false);
+    expect(result.reason).toMatch(/helper/);
   });
 });

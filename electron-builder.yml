@@ -103,6 +103,7 @@ mac:
   extendInfo:
     LSApplicationCategoryType: public.app-category.developer-tools
     NSMicrophoneUsageDescription: 'York GrowthOS needs microphone access to capture your voice during meetings.'
+    NSSpeechRecognitionUsageDescription: 'York GrowthOS uses on-device speech recognition to transcribe meetings when Zoom captions are unavailable.'
     NSAudioCaptureUsageDescription: 'York GrowthOS needs system audio access to capture meeting audio from Zoom, Meet, and other apps.'
     NSScreenCaptureUsageDescription: 'York GrowthOS needs screen and system audio recording for meeting capture and GUI automation.'
     NSAccessibilityUsageDescription: 'York GrowthOS needs accessibility access for GUI automation.'

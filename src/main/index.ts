@@ -75,7 +75,16 @@ import {
   searchExternalReferences,
 } from './references/reference-service';
 import { MeetingExtension } from './meetings/meeting-extension';
+import {
+  createDictationAppleSink,
+  DICTATION_APPLE_SESSION_ID,
+} from './dictation/dictation-apple-sink';
 import { createRealtimeTranslationSession } from './dictation/dictation-service';
+import {
+  appleMeetingTranscriptionService,
+  getMeetingSttProviderConfig,
+  setDictationAppleErrorListener,
+} from './meetings/apple-meeting-transcription-service';
 import { createRealtimeTranscriptionSession } from './meetings/meeting-realtime-transcription-service';
 import { ConfigExtension } from './config/config-extension';
 import { SubagentExtension } from './agent/subagent-extension';
@@ -2126,6 +2135,11 @@ app
     meetingService.setMemoryService(memoryService);
     meetingService.setWikiIngest((m) => wikiService?.ingestMeeting(m));
     wireMeetingServiceEvents(meetingService);
+    setDictationAppleErrorListener((message) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('dictation:appleError', { message });
+      }
+    });
     const askUserQuestionExtension = new AskUserQuestionExtension(sendToRenderer);
     const extensionManager = new AgentRuntimeExtensionManager(
       buildExtensionList(askUserQuestionExtension)
@@ -5767,6 +5781,43 @@ ipcMain.handle(
   }
 );
 
+ipcMain.handle('meetings.getSttProviderConfig', () => getMeetingSttProviderConfig());
+
+ipcMain.handle('meetings.requestAppleSpeechAccess', async () => {
+  if (process.platform !== 'darwin') {
+    throw new Error('Apple speech recognition is only available on macOS');
+  }
+  await appleMeetingTranscriptionService.requestSpeechAccess();
+  return { success: true };
+});
+
+ipcMain.handle('meetings.appleTranscription.start', async (_event, meetingId: string) => {
+  if (process.platform !== 'darwin') {
+    throw new Error('Apple transcription is only available on macOS');
+  }
+  if (!meetingService) {
+    throw new Error('Meeting service not initialized');
+  }
+  if (!meetingId || typeof meetingId !== 'string') {
+    throw new Error('Invalid meeting id');
+  }
+  await appleMeetingTranscriptionService.start(meetingId, meetingService);
+  return { success: true };
+});
+
+ipcMain.handle('meetings.appleTranscription.stop', async () => {
+  await appleMeetingTranscriptionService.stop();
+  return { success: true };
+});
+
+ipcMain.on('meetings.appleTranscription.pcm', (_event, chunk: Buffer | ArrayBuffer) => {
+  if (process.platform !== 'darwin') {
+    return;
+  }
+  const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+  appleMeetingTranscriptionService.pushPcm(buffer);
+});
+
 ipcMain.handle(
   'meetings.appendRealtimeSegment',
   async (
@@ -5807,6 +5858,24 @@ ipcMain.handle(
     });
   }
 );
+
+ipcMain.handle('dictation.appleTranscription.start', async () => {
+  if (process.platform !== 'darwin') {
+    throw new Error('Apple transcription is only available on macOS');
+  }
+  const sink = createDictationAppleSink((channel, payload) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(channel, payload);
+    }
+  });
+  await appleMeetingTranscriptionService.start(DICTATION_APPLE_SESSION_ID, sink);
+  return { success: true };
+});
+
+ipcMain.handle('dictation.appleTranscription.stop', async () => {
+  await appleMeetingTranscriptionService.stop();
+  return { success: true };
+});
 
 ipcMain.handle('meetings.list', () => {
   if (!meetingService) {

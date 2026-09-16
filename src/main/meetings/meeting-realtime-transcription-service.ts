@@ -11,6 +11,8 @@ import {
 } from '../../shared/client-version';
 import { isAuthenticated, ensureAuthenticatedSession } from '../auth/session';
 import { getClientAppVersion, resolveBackendClientApiKey } from '../config/backend-auth';
+import { resolveMeetingSttProviderFromEnv } from '../../shared/meetings/meeting-stt-provider';
+import { checkAppleTranscriptionReadiness } from './apple-meeting-transcription-service';
 import { log, logWarn } from '../utils/logger';
 
 export interface CreateRealtimeTranscriptionSessionOptions {
@@ -62,7 +64,7 @@ export function resolveRealtimeTranscriptionDelay(
   return DEFAULT_DELAY;
 }
 
-export function getRealtimeTranscriptionReadiness(): RealtimeTranscriptionReadiness {
+export function getOpenAiTranscriptionReadiness(): RealtimeTranscriptionReadiness {
   if (!isAuthenticated()) {
     return {
       ready: false,
@@ -70,6 +72,15 @@ export function getRealtimeTranscriptionReadiness(): RealtimeTranscriptionReadin
     };
   }
   return { ready: true };
+}
+
+export function getRealtimeTranscriptionReadiness(): RealtimeTranscriptionReadiness {
+  const provider = resolveMeetingSttProviderFromEnv();
+  const openAi = getOpenAiTranscriptionReadiness();
+  if (provider === 'openai') {
+    return openAi;
+  }
+  return checkAppleTranscriptionReadiness();
 }
 
 function buildTranscriptionSessionBody(
@@ -177,7 +188,7 @@ async function mintClientSecret(
 export async function createRealtimeTranscriptionSession(
   options: CreateRealtimeTranscriptionSessionOptions = {}
 ): Promise<CreateRealtimeTranscriptionSessionResult> {
-  const readiness = getRealtimeTranscriptionReadiness();
+  const readiness = getOpenAiTranscriptionReadiness();
   if (!readiness.ready) {
     throw new Error(readiness.reason || 'Transcription is not configured');
   }

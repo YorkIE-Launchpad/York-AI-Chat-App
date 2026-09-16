@@ -1133,6 +1133,8 @@ export interface MeetingOverview {
   meetingCount: number;
   transcriptionReady: boolean;
   transcriptionReadyReason?: string;
+  meetingSttProvider?: 'openai' | 'apple';
+  appleTranscriptionReady?: boolean;
   permissions: MeetingPermissionStatus;
   capture: MeetingCaptureStatus;
   detectedMeetingApps: string[];

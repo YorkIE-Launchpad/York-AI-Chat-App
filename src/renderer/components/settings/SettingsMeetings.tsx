@@ -530,10 +530,22 @@ export function SettingsMeetings() {
             </div>
           </div>
         )}
+        {overview?.meetingSttProvider === 'apple' && (
+          <p className="mb-2 text-xs text-text-muted">
+            {t('meetings.transcriptionProviderApple')}
+          </p>
+        )}
+        {overview?.meetingSttProvider === 'openai' && (
+          <p className="mb-2 text-xs text-text-muted">
+            {t('meetings.transcriptionProviderOpenAi')}
+          </p>
+        )}
         {overview?.transcriptionReady && (
           <div className="mb-3 flex items-center gap-2 text-sm text-text-secondary">
             <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-            {t('meetings.transcriptionReady')}
+            {overview.meetingSttProvider === 'apple' && overview.appleTranscriptionReady
+              ? t('meetings.transcriptionReadyApple')
+              : t('meetings.transcriptionReady')}
           </div>
         )}
         <label className="block text-sm text-text-secondary">

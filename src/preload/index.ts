@@ -903,6 +903,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('meetings.reportCaptureError', error),
     createRealtimeTranscriptionSession: (): Promise<{ clientSecret: string }> =>
       ipcRenderer.invoke('meetings.createRealtimeTranscriptionSession'),
+    getSttProviderConfig: (): Promise<{
+      requested: 'openai' | 'apple';
+      platform: string;
+      appleSupported: boolean;
+    }> => ipcRenderer.invoke('meetings.getSttProviderConfig'),
+    requestAppleSpeechAccess: (): Promise<{ success: boolean }> =>
+      ipcRenderer.invoke('meetings.requestAppleSpeechAccess'),
+    appleTranscription: {
+      start: (meetingId: string): Promise<{ success: boolean }> =>
+        ipcRenderer.invoke('meetings.appleTranscription.start', meetingId),
+      stop: (): Promise<{ success: boolean }> =>
+        ipcRenderer.invoke('meetings.appleTranscription.stop'),
+      pushPcm: (chunk: ArrayBuffer): void =>
+        ipcRenderer.send('meetings.appleTranscription.pcm', new Uint8Array(chunk)),
+    },
     appendRealtimeSegment: (payload: {
       meetingId: string;
       text: string;
@@ -1027,6 +1042,32 @@ contextBridge.exposeInMainWorld('electronAPI', {
       targetLanguage?: string;
     }): Promise<{ clientSecret: string }> =>
       ipcRenderer.invoke('dictation.createRealtimeSession', payload),
+    appleTranscription: {
+      start: (): Promise<{ success: boolean }> =>
+        ipcRenderer.invoke('dictation.appleTranscription.start'),
+      stop: (): Promise<{ success: boolean }> =>
+        ipcRenderer.invoke('dictation.appleTranscription.stop'),
+      pushPcm: (chunk: ArrayBuffer): void =>
+        ipcRenderer.send('meetings.appleTranscription.pcm', new Uint8Array(chunk)),
+    },
+    onApplePartial: (callback: (payload: { text: string }) => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, payload: { text: string }) =>
+        callback(payload);
+      ipcRenderer.on('dictation:applePartial', listener);
+      return () => ipcRenderer.removeListener('dictation:applePartial', listener);
+    },
+    onAppleFinal: (callback: (payload: { text: string }) => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, payload: { text: string }) =>
+        callback(payload);
+      ipcRenderer.on('dictation:appleFinal', listener);
+      return () => ipcRenderer.removeListener('dictation:appleFinal', listener);
+    },
+    onAppleError: (callback: (payload: { message: string }) => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, payload: { message: string }) =>
+        callback(payload);
+      ipcRenderer.on('dictation:appleError', listener);
+      return () => ipcRenderer.removeListener('dictation:appleError', listener);
+    },
   },
 
   permissions: {
@@ -1582,6 +1623,17 @@ declare global {
         getStatus: () => Promise<MeetingCaptureStatus>;
         reportCaptureError: (error: string) => Promise<{ success: boolean }>;
         createRealtimeTranscriptionSession: () => Promise<{ clientSecret: string }>;
+        getSttProviderConfig: () => Promise<{
+          requested: 'openai' | 'apple';
+          platform: string;
+          appleSupported: boolean;
+        }>;
+        requestAppleSpeechAccess: () => Promise<{ success: boolean }>;
+        appleTranscription: {
+          start: (meetingId: string) => Promise<{ success: boolean }>;
+          stop: () => Promise<{ success: boolean }>;
+          pushPcm: (chunk: ArrayBuffer) => void;
+        };
         appendRealtimeSegment: (payload: {
           meetingId: string;
           text: string;
@@ -1651,6 +1703,14 @@ declare global {
         createRealtimeSession: (payload?: {
           targetLanguage?: string;
         }) => Promise<{ clientSecret: string }>;
+        appleTranscription: {
+          start: () => Promise<{ success: boolean }>;
+          stop: () => Promise<{ success: boolean }>;
+          pushPcm: (chunk: ArrayBuffer) => void;
+        };
+        onApplePartial: (callback: (payload: { text: string }) => void) => () => void;
+        onAppleFinal: (callback: (payload: { text: string }) => void) => () => void;
+        onAppleError: (callback: (payload: { message: string }) => void) => () => void;
       };
       permissions: {
         listSessionAlwaysAllow: (sessionId: string) => Promise<string[]>;

@@ -1,3 +1,5 @@
+import type { MeetingSttProvider } from '../../shared/meetings/meeting-stt-provider';
+
 export type MeetingStatus = 'recording' | 'finalizing' | 'ready' | 'error';
 
 export type RealtimeTranscriptionDelay =
@@ -114,6 +116,8 @@ export interface MeetingOverview {
   meetingCount: number;
   transcriptionReady: boolean;
   transcriptionReadyReason?: string;
+  meetingSttProvider: MeetingSttProvider;
+  appleTranscriptionReady: boolean;
   permissions: MeetingPermissionStatus;
   capture: MeetingCaptureStatus;
   detectedMeetingApps: string[];

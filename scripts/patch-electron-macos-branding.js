@@ -103,6 +103,8 @@ plutilReplace(infoPlist, 'CFBundleIdentifier', BUNDLE_ID);
 const MEETING_USAGE = {
   NSMicrophoneUsageDescription:
     'York GrowthOS needs microphone access to capture your voice during meetings.',
+  NSSpeechRecognitionUsageDescription:
+    'York GrowthOS uses on-device speech recognition to transcribe meetings when Zoom captions are unavailable.',
   NSAudioCaptureUsageDescription:
     'York GrowthOS needs system audio access to capture meeting audio from Zoom, Meet, and other apps.',
   NSScreenCaptureUsageDescription:

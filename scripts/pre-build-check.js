@@ -98,6 +98,12 @@ function buildCheckList(platform, arch) {
         relPath: `resources/tools/darwin-${arch}`,
         type: 'dir',
         severity: 'warn',
+      },
+      {
+        label: `On-device speech helper for macOS ${arch} (York GrowthOS.app)`,
+        relPath: `resources/tools/darwin-${arch}/York GrowthOS.app`,
+        type: 'dir',
+        severity: 'warn',
       }
     );
   } else if (platform === 'win32') {

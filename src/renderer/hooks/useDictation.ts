@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { isClientOutdatedError } from '../../shared/client-version';
+import {
+  startAppleTranscriptionPcmTap,
+  type ApplePcmTap,
+} from '../meetings/apple-transcription-pcm';
 
 export type DictationStatus = 'idle' | 'connecting' | 'recording' | 'error';
 
@@ -84,7 +88,8 @@ export interface UseDictationResult {
 }
 
 /**
- * Live chat dictation via OpenAI gpt-realtime-translate (WebRTC) + York-minted client secret.
+ * Live chat dictation: on-device Apple STT when YORK_IE_MEETING_STT_PROVIDER=apple (macOS 26+),
+ * otherwise OpenAI gpt-realtime-translate (WebRTC) + York-minted client secret.
  */
 export function useDictation({
   enabled = true,
@@ -104,6 +109,9 @@ export function useDictation({
   const getPromptRef = useRef(getPrompt);
   const cancelledRef = useRef(false);
   const startingRef = useRef(false);
+  const pcmTapRef = useRef<ApplePcmTap | null>(null);
+  const appleUnsubsRef = useRef<Array<() => void>>([]);
+  const usingAppleRef = useRef(false);
 
   statusRef.current = status;
   onTranscriptRef.current = onTranscript;
@@ -112,12 +120,23 @@ export function useDictation({
   const isAvailable =
     enabled &&
     typeof window !== 'undefined' &&
-    window.electronAPI?.dictation?.createRealtimeSession !== undefined &&
+    (window.electronAPI?.dictation?.createRealtimeSession !== undefined ||
+      window.electronAPI?.dictation?.appleTranscription?.start !== undefined) &&
     typeof navigator !== 'undefined' &&
-    !!navigator.mediaDevices?.getUserMedia &&
-    typeof RTCPeerConnection !== 'undefined';
+    !!navigator.mediaDevices?.getUserMedia;
 
   const cleanupSession = useCallback(() => {
+    pcmTapRef.current?.stop();
+    pcmTapRef.current = null;
+    for (const unsub of appleUnsubsRef.current) {
+      unsub();
+    }
+    appleUnsubsRef.current = [];
+    if (usingAppleRef.current) {
+      usingAppleRef.current = false;
+      void window.electronAPI?.dictation?.appleTranscription?.stop().catch(() => undefined);
+    }
+
     const peer = peerRef.current;
     peerRef.current = null;
     if (peer) {
@@ -176,34 +195,52 @@ export function useDictation({
     setStatus('idle');
   }, [cleanupSession]);
 
-  const startSession = useCallback(async () => {
-    if (!isAvailable || startingRef.current) {
-      if (!isAvailable) {
-        setErrorKind('unsupported');
-        setStatus('error');
-      }
-      return;
-    }
+  const startAppleDictation = useCallback(
+    async (stream: MediaStream) => {
+      appleUnsubsRef.current.push(
+        window.electronAPI.dictation.onApplePartial(({ text }) => {
+          const trimmed = text.trim();
+          if (!trimmed) {
+            return;
+          }
+          // Apple volatile results are cumulative utterance text (not deltas).
+          inputLiveRef.current = trimmed;
+          outputLiveRef.current = '';
+          publishLivePrompt();
+        })
+      );
+      appleUnsubsRef.current.push(
+        window.electronAPI.dictation.onAppleError(({ message }) => {
+          console.warn('[Dictation] Apple STT error', message);
+          setErrorKind('failed');
+          setStatus('error');
+        })
+      );
+      appleUnsubsRef.current.push(
+        window.electronAPI.dictation.onAppleFinal(({ text }) => {
+          const trimmed = text.trim();
+          if (!trimmed) {
+            return;
+          }
+          // Final matches the last partial — commit once into baseline (avoid baseline+live+final).
+          inputLiveRef.current = '';
+          baselineRef.current = composeLivePrompt(baselineRef.current, trimmed);
+          publishLivePrompt();
+        })
+      );
 
-    startingRef.current = true;
-    cancelledRef.current = false;
-    setErrorKind(null);
-    setStatus('connecting');
-    baselineRef.current = getPromptRef.current?.() ?? '';
-    inputLiveRef.current = '';
-    outputLiveRef.current = '';
+      await window.electronAPI.dictation.appleTranscription.start();
+      usingAppleRef.current = true;
+      pcmTapRef.current = await startAppleTranscriptionPcmTap(stream, (pcm) => {
+        window.electronAPI.dictation.appleTranscription.pushPcm(pcm);
+      });
+      setStatus('recording');
+    },
+    [publishLivePrompt]
+  );
 
-    try {
-      const permissionResult = await window.electronAPI.meetings.requestMicrophoneAccess();
-      if (cancelledRef.current) {
-        return;
-      }
-      if (permissionResult.permissions.microphone === 'denied') {
-        setErrorKind('mic_denied');
-        setStatus('error');
-        return;
-      }
-
+  const startOpenAiDictation = useCallback(
+    async (stream: MediaStream) => {
       const { clientSecret } = await window.electronAPI.dictation.createRealtimeSession({
         targetLanguage: 'en',
       });
@@ -212,21 +249,6 @@ export function useDictation({
       }
       if (!clientSecret) {
         throw new Error('Missing realtime client secret');
-      }
-
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-        video: false,
-      });
-      if (cancelledRef.current) {
-        for (const track of stream.getTracks()) {
-          track.stop();
-        }
-        return;
       }
 
       const pc = new RTCPeerConnection();
@@ -303,6 +325,71 @@ export function useDictation({
       }
 
       setStatus('recording');
+    },
+    [cleanupSession, handleRealtimeEvent]
+  );
+
+  const startSession = useCallback(async () => {
+    if (!isAvailable || startingRef.current) {
+      if (!isAvailable) {
+        setErrorKind('unsupported');
+        setStatus('error');
+      }
+      return;
+    }
+
+    startingRef.current = true;
+    cancelledRef.current = false;
+    setErrorKind(null);
+    setStatus('connecting');
+    baselineRef.current = getPromptRef.current?.() ?? '';
+    inputLiveRef.current = '';
+    outputLiveRef.current = '';
+
+    try {
+      const permissionResult = await window.electronAPI.meetings.requestMicrophoneAccess();
+      if (cancelledRef.current) {
+        return;
+      }
+      if (permissionResult.permissions.microphone === 'denied') {
+        setErrorKind('mic_denied');
+        setStatus('error');
+        return;
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+        video: false,
+      });
+      if (cancelledRef.current) {
+        for (const track of stream.getTracks()) {
+          track.stop();
+        }
+        return;
+      }
+      streamRef.current = stream;
+
+      const sttConfig = await window.electronAPI.meetings.getSttProviderConfig();
+      if (sttConfig.requested === 'apple') {
+        if (!sttConfig.appleSupported) {
+          throw new Error(
+            'On-device Apple dictation requires macOS 26+ and the York GrowthOS speech helper.'
+          );
+        }
+        await window.electronAPI.meetings.requestAppleSpeechAccess();
+        await startAppleDictation(stream);
+        return;
+      }
+
+      if (typeof RTCPeerConnection === 'undefined') {
+        throw new Error('WebRTC is not available');
+      }
+
+      await startOpenAiDictation(stream);
     } catch (error) {
       cleanupSession();
       if (cancelledRef.current) {
@@ -324,7 +411,7 @@ export function useDictation({
     } finally {
       startingRef.current = false;
     }
-  }, [cleanupSession, handleRealtimeEvent, isAvailable]);
+  }, [cleanupSession, isAvailable, startAppleDictation, startOpenAiDictation]);
 
   const stop = useCallback(() => {
     if (statusRef.current === 'recording' || statusRef.current === 'connecting') {

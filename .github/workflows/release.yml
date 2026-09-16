@@ -70,7 +70,10 @@ jobs:
         run: node scripts/prepare-python.js
 
       - name: Prepare GUI tools
-        run: node scripts/prepare-gui-tools.js
+        run: npm run prepare:gui-tools
+
+      - name: Build macOS speech transcriber
+        run: npm run build:speech-transcriber
 
       - name: Build Lima agent
         run: npm run build:lima-agent

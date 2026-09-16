@@ -13,7 +13,7 @@
  *
  * Usage:
  *   npm run upload:s3
- *   npm run build:s3
+ *   npm run build:s3   (includes build:speech-transcriber via npm run build)
  */
 
 'use strict';

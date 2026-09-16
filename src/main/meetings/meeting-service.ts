@@ -9,7 +9,12 @@ import { MeetingNotesService } from './meeting-notes-service';
 import { detectMeetingApps, detectZoomMicUsage } from './meeting-mic-detector';
 import { MeetingStore } from './meeting-store';
 import { sanitizeTranscriptText } from './meeting-transcription-service';
+import {
+  appleMeetingTranscriptionService,
+  checkAppleTranscriptionReadiness,
+} from './apple-meeting-transcription-service';
 import { getRealtimeTranscriptionReadiness } from './meeting-realtime-transcription-service';
+import { resolveMeetingSttProviderFromEnv } from '../../shared/meetings/meeting-stt-provider';
 import { normalizeTranscriptToEnglish } from './meeting-transcript-english';
 import {
   ZoomRtmsDesktopClient,
@@ -480,6 +485,8 @@ export class MeetingService {
   async getOverview(): Promise<MeetingOverview> {
     const runtime = this.getRuntime();
     const readiness = getRealtimeTranscriptionReadiness();
+    const meetingSttProvider = resolveMeetingSttProviderFromEnv();
+    const appleTranscriptionReady = checkAppleTranscriptionReadiness().ready;
     const zoomConnected = this.isZoomConnected();
     const detectedMeetingApps = zoomConnected
       ? this.lastDetectedApps.length
@@ -497,6 +504,8 @@ export class MeetingService {
       meetingCount: this.store.list().length,
       transcriptionReady: readiness.ready,
       transcriptionReadyReason: readiness.reason,
+      meetingSttProvider,
+      appleTranscriptionReady,
       permissions: this.getPermissions(),
       capture: this.getCaptureStatus(),
       detectedMeetingApps,
@@ -782,6 +791,13 @@ export class MeetingService {
     }
 
     await this.requestMicrophoneAccess();
+
+    if (
+      resolveMeetingSttProviderFromEnv() === 'apple' &&
+      checkAppleTranscriptionReadiness().ready
+    ) {
+      await appleMeetingTranscriptionService.requestSpeechAccess();
+    }
 
     const now = Date.now();
     const calendar = await findCurrentCalendarMeeting(now);
@@ -1366,6 +1382,7 @@ export class MeetingService {
 
     this.clearRtmsFallbackTimer();
     this.clearRtmsStartRetryTimer();
+    await appleMeetingTranscriptionService.stop();
 
     // Stop polling but keep the session so we can resync labeled speakers before unlink.
     this.zoomRtms.stopPolling();
