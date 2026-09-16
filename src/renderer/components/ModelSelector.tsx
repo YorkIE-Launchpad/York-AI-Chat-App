@@ -106,14 +106,17 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
   );
 
   const loadModels = useCallback(
-    (opts?: { silent?: boolean }) => {
+    (opts?: { silent?: boolean; forceRefresh?: boolean }) => {
       if (!isElectron) return;
       const gen = ++loadGenRef.current;
       if (!opts?.silent && models.length === 0) setIsLoading(true);
       void (async () => {
         try {
           const usable = activeBudgetSource !== 'project';
-          let items = await window.electronAPI.config.listBackendModels({ usable });
+          let items = await window.electronAPI.config.listBackendModels({
+            usable,
+            forceRefresh: opts?.forceRefresh,
+          });
           if (activeBudgetSource === 'project') {
             items = applyActiveProjectBudgetToModels(items, projectBudgetPercent);
           }
@@ -136,7 +139,7 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
   }, [loadModels, models.length]);
 
   useEffect(() => {
-    const handleCatalogRefresh = () => loadModels({ silent: true });
+    const handleCatalogRefresh = () => loadModels({ silent: true, forceRefresh: true });
     window.addEventListener('york:models-catalog-refreshed', handleCatalogRefresh);
     return () => window.removeEventListener('york:models-catalog-refreshed', handleCatalogRefresh);
   }, [loadModels]);

@@ -409,7 +409,15 @@ export const ContentBlockView = memo(function ContentBlockView({
 
       return (
         <div className={`${isUser ? 'inline-block' : ''}`}>
-          <AttachmentImageThumb src={imageSrc} alt={t('messageCard.pastedContentAlt')} />
+          <AttachmentImageThumb
+            src={imageSrc}
+            alt={t('messageCard.pastedContentAlt')}
+            variant={isUser ? 'fixed' : 'message'}
+            download={{
+              base64: source.data,
+              mediaType: source.media_type,
+            }}
+          />
         </div>
       );
     }

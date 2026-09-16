@@ -1074,6 +1074,192 @@ export function useIPC() {
     ]
   );
 
+  const sendImageTurn = useCallback(
+    async (
+      modelId: string,
+      prompt: string,
+      content: ContentBlock[],
+      options?: {
+        sessionId?: string;
+        title?: string;
+        cwd?: string;
+        incognito?: boolean;
+        division?: 'general' | 'hub';
+      }
+    ): Promise<Session | null> => {
+      setLoading(true);
+      const trimmedPrompt = prompt.trim();
+      if (!trimmedPrompt) {
+        setLoading(false);
+        return null;
+      }
+
+      if (options?.division === 'hub' || options?.division === 'general') {
+        useAppStore.getState().setActiveDivision({ kind: options.division });
+      }
+
+      const activeDivision = useAppStore.getState().activeDivision;
+      const divisionPayload = divisionPayloadFromActiveDivision(activeDivision);
+      const incognito =
+        options?.incognito === true || useAppStore.getState().incognitoDraft === true;
+
+      const sessionId = options?.sessionId;
+      if (sessionId) {
+        const store = useAppStore.getState();
+        const isSessionRunning =
+          store.sessions.find((session) => session.id === sessionId)?.status === 'running';
+        const ss = store.sessionStates[sessionId];
+        const hasActiveTurn = Boolean(ss?.activeTurn);
+        const hasPending = (ss?.pendingTurns?.length ?? 0) > 0;
+        const shouldQueue = isSessionRunning || hasActiveTurn || hasPending;
+        const userMessage: Message = {
+          id: `msg-user-${Date.now()}`,
+          sessionId,
+          role: 'user',
+          content,
+          timestamp: Date.now(),
+          localStatus: shouldQueue ? 'queued' : undefined,
+        };
+        addMessage(sessionId, userMessage);
+        startExecutionClock(sessionId, userMessage.timestamp);
+
+        if (!isElectron) {
+          updateSession(sessionId, { status: 'running' });
+          const mockStepId = `mock-step-${Date.now()}`;
+          activateNextTurn(sessionId, mockStepId);
+          await new Promise((resolve) => setTimeout(resolve, 500));
+          const assistantMessage: Message = {
+            id: `msg-assistant-${Date.now()}`,
+            sessionId,
+            role: 'assistant',
+            content: [{ type: 'text', text: 'Image generation is only available in the desktop app.' }],
+            timestamp: Date.now(),
+          };
+          addMessage(sessionId, assistantMessage);
+          updateSession(sessionId, { status: 'idle' });
+          clearActiveTurn(sessionId, mockStepId);
+          setLoading(false);
+          return null;
+        }
+
+        if (!shouldQueue) {
+          const mockStepId = `pending-step-${Date.now()}`;
+          activateNextTurn(sessionId, mockStepId);
+        }
+
+        send({
+          type: 'session.imageTurn',
+          payload: {
+            sessionId,
+            modelId,
+            prompt: trimmedPrompt,
+            content,
+          },
+        });
+        return null;
+      }
+
+      if (!isElectron) {
+        setLoading(false);
+        return null;
+      }
+
+      const pendingId = `pending-session-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+      const now = Date.now();
+      const optimisticSession: Session = {
+        id: pendingId,
+        title: options?.title || (incognito ? 'Incognito' : 'New Session'),
+        status: 'running',
+        createdAt: now,
+        updatedAt: now,
+        cwd: options?.cwd || '',
+        mountedPaths: [],
+        allowedTools: [
+          'webfetch',
+          'websearch',
+          'read',
+          'write',
+          'edit',
+          'list_directory',
+          'glob',
+          'grep',
+        ],
+        memoryEnabled: !incognito,
+        incognito: incognito || undefined,
+        ...divisionPayload,
+      };
+
+      addSession(optimisticSession);
+      useAppStore.getState().setActiveSession(pendingId);
+
+      const userMessage: Message = {
+        id: `msg-user-${now}`,
+        sessionId: pendingId,
+        role: 'user',
+        content,
+        timestamp: now,
+      };
+      addMessage(pendingId, userMessage);
+      startExecutionClock(pendingId, userMessage.timestamp);
+      const mockStepId = `pending-step-${now}`;
+      activateNextTurn(pendingId, mockStepId);
+
+      try {
+        const session = await invoke<Session>({
+          type: 'session.imageTurn',
+          payload: {
+            modelId,
+            prompt: trimmedPrompt,
+            content,
+            title: options?.title,
+            cwd: options?.cwd,
+            incognito: incognito || undefined,
+            memoryEnabled: incognito ? false : undefined,
+            ...divisionPayload,
+          },
+        });
+        if (session) {
+          replacePendingSession(pendingId, session);
+          bindPendingThinkingStep(session.id);
+          return session;
+        }
+        removeSession(pendingId);
+        useAppStore.getState().setGlobalNotice({
+          id: `notice-image-start-${Date.now()}`,
+          type: 'error',
+          message: i18n.t('composer.imageFailed'),
+          messageKey: 'composer.imageFailed',
+        });
+        setLoading(false);
+        return null;
+      } catch (e) {
+        removeSession(pendingId);
+        clearTurnStateOnServerError(useAppStore.getState());
+        useAppStore.getState().setGlobalNotice({
+          id: `notice-image-start-${Date.now()}`,
+          type: 'error',
+          message: e instanceof Error ? e.message : i18n.t('composer.imageFailed'),
+          messageKey: e instanceof Error ? undefined : 'composer.imageFailed',
+        });
+        setLoading(false);
+        return null;
+      }
+    },
+    [
+      send,
+      invoke,
+      addSession,
+      replacePendingSession,
+      removeSession,
+      addMessage,
+      updateSession,
+      setLoading,
+      activateNextTurn,
+      clearActiveTurn,
+      startExecutionClock,
+    ]
+  );
+
   const stopSession = useCallback(
     (sessionId: string) => {
       cancelQueuedMessages(sessionId);
@@ -1418,6 +1604,7 @@ export function useIPC() {
     startSession,
     createSession,
     continueSession,
+    sendImageTurn,
     stopSession,
     removeQueuedMessage,
     deleteSession,

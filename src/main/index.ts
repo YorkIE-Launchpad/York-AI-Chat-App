@@ -3463,6 +3463,50 @@ ipcMain.handle('shell.openPath', async (_event, filePath: string, cwd?: string) 
 
 const MAX_FILE_DATA_URL_BYTES = 8 * 1024 * 1024; // 8MB cap for renderer previews
 
+ipcMain.handle(
+  'image.saveToDisk',
+  async (
+    _event,
+    payload: { base64?: string; mediaType?: string; defaultFileName?: string }
+  ) => {
+    const base64 = payload?.base64?.trim();
+    const mediaType = payload?.mediaType?.trim() || 'image/png';
+    if (!base64) {
+      return { success: false, error: 'Empty image data' };
+    }
+    const extByMime: Record<string, string> = {
+      'image/png': 'png',
+      'image/jpeg': 'jpg',
+      'image/gif': 'gif',
+      'image/webp': 'webp',
+    };
+    const ext = extByMime[mediaType] ?? 'png';
+    const defaultPath =
+      payload?.defaultFileName?.trim() || `york-image-${Date.now()}.${ext}`;
+    const result = await dialog.showSaveDialog(mainWindow!, {
+      title: 'Save Image',
+      defaultPath,
+      filters: [
+        { name: 'PNG', extensions: ['png'] },
+        { name: 'JPEG', extensions: ['jpg', 'jpeg'] },
+        { name: 'WebP', extensions: ['webp'] },
+        { name: 'GIF', extensions: ['gif'] },
+        { name: 'All Files', extensions: ['*'] },
+      ],
+    });
+    if (result.canceled || !result.filePath) {
+      return { success: false, cancelled: true };
+    }
+    try {
+      fs.writeFileSync(result.filePath, Buffer.from(base64, 'base64'));
+      return { success: true, path: result.filePath };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { success: false, error: message };
+    }
+  }
+);
+
 ipcMain.handle('dialog.selectFiles', async () => {
   const result = await dialog.showOpenDialog({
     properties: ['openFile', 'multiSelections'],
@@ -6183,6 +6227,55 @@ async function handleClientEvent(event: ClientEvent): Promise<unknown> {
         event.payload.prompt,
         event.payload.content
       );
+
+    case 'session.imageTurn':
+      if (event.payload.sessionId) {
+        return sm.runImageTurn(
+          event.payload.sessionId,
+          event.payload.prompt,
+          event.payload.content,
+          event.payload.modelId
+        );
+      }
+      if (getWorkspacePathUnsupportedReason(event.payload.cwd)) {
+        sendToRenderer({
+          type: 'error',
+          payload: {
+            message: getWorkspacePathUnsupportedReason(event.payload.cwd)!,
+          },
+        });
+        return null;
+      }
+      {
+        const divisionOpts = await resolveValidatedSessionDivisionOptions(
+          {
+            division: event.payload.division,
+            hubProjectId: event.payload.hubProjectId,
+            hubProjectName: event.payload.hubProjectName,
+            launchpadProjectId: event.payload.launchpadProjectId,
+            launchpadProjectName: event.payload.launchpadProjectName,
+            folderId: event.payload.folderId,
+            folderName: event.payload.folderName,
+            canonicalKey: event.payload.canonicalKey,
+            clientName: event.payload.clientName,
+            clientProjectIds: event.payload.clientProjectIds,
+          },
+          { db: initDatabase(), sendToRenderer }
+        );
+        return sm.startImageSession(
+          event.payload.title || 'New Session',
+          event.payload.prompt,
+          event.payload.modelId,
+          event.payload.cwd,
+          event.payload.allowedTools,
+          event.payload.content,
+          event.payload.incognito ? false : event.payload.memoryEnabled,
+          {
+            ...divisionOpts,
+            incognito: event.payload.incognito === true,
+          }
+        );
+      }
 
     case 'session.stop':
       return sm.stopSession(event.payload.sessionId);

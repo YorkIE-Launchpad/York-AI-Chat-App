@@ -1,15 +1,18 @@
 import { useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import { X } from 'lucide-react';
+import { Download, X } from 'lucide-react';
+import type { ImageDownloadSource } from '../../utils/save-image';
+import { saveImageToDisk } from '../../utils/save-image';
 
 interface ImageLightboxProps {
   src: string;
   alt?: string;
   onClose: () => void;
+  download?: ImageDownloadSource;
 }
 
-export function ImageLightbox({ src, alt = '', onClose }: ImageLightboxProps) {
+export function ImageLightbox({ src, alt = '', onClose, download }: ImageLightboxProps) {
   const { t } = useTranslation();
   // Defer close so the same click/pointer that dismissed the overlay
   // cannot fall through onto the thumbnail and reopen it.
@@ -49,24 +52,44 @@ export function ImageLightbox({ src, alt = '', onClose }: ImageLightboxProps) {
         }
       }}
     >
-      <button
-        type="button"
-        onMouseDown={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          close();
-        }}
-        onClick={(e) => {
-          // Prevent residual click from reaching elements underneath
-          e.preventDefault();
-          e.stopPropagation();
-        }}
-        className="titlebar-no-drag absolute top-14 right-4 z-[10001] flex h-10 w-10 items-center justify-center rounded-full bg-white/15 text-white hover:bg-white/25 transition-colors pointer-events-auto"
-        title={t('common.close')}
-        aria-label={t('common.close')}
-      >
-        <X className="h-5 w-5" />
-      </button>
+      <div className="titlebar-no-drag absolute top-14 right-4 z-[10001] flex items-center gap-2 pointer-events-auto">
+        {download && (
+          <button
+            type="button"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              void saveImageToDisk(download);
+            }}
+            className="flex h-10 w-10 items-center justify-center rounded-full bg-white/15 text-white hover:bg-white/25 transition-colors"
+            title={t('common.downloadImage')}
+            aria-label={t('common.downloadImage')}
+          >
+            <Download className="h-5 w-5" />
+          </button>
+        )}
+        <button
+          type="button"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            close();
+          }}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+          className="flex h-10 w-10 items-center justify-center rounded-full bg-white/15 text-white hover:bg-white/25 transition-colors"
+          title={t('common.close')}
+          aria-label={t('common.close')}
+        >
+          <X className="h-5 w-5" />
+        </button>
+      </div>
       <img
         src={src}
         alt={alt}

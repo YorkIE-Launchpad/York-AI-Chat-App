@@ -5,6 +5,10 @@ import { useAppStore } from '../../store';
 import { hasOpenRouterUserApiKey } from '../../../shared/openrouter-user-key';
 import { useUpdaterStatus } from '../../hooks/useUpdaterStatus';
 import { HubBudgetUsageCard } from './HubBudgetUsageCard';
+import {
+  notifyBackendModelsCatalogRefreshed,
+  refreshBackendModelsCatalog,
+} from '../../utils/backend-models-catalog';
 
 const isElectron = typeof window !== 'undefined' && window.electronAPI !== undefined;
 
@@ -97,12 +101,9 @@ export function SettingsGeneral() {
     setRefreshingModels(true);
     setModelsRefreshMessage(null);
     try {
-      const items = await window.electronAPI.config.listBackendModels({
-        usable: true,
-        forceRefresh: true,
-      });
+      const items = await refreshBackendModelsCatalog({ usable: true, forceRefresh: true });
       setModelsRefreshMessage(t('general.refreshModelsSuccess', { count: items.length }));
-      window.dispatchEvent(new CustomEvent('york:models-catalog-refreshed'));
+      notifyBackendModelsCatalogRefreshed();
     } catch {
       setModelsRefreshMessage(t('general.refreshModelsFailed'));
     } finally {

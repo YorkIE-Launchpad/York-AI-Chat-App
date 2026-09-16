@@ -19,6 +19,7 @@ import type { ActiveDivision } from '../../shared/workspace-division';
 import type { MatterChatDraft } from '../../shared/matter-chat';
 import type { HubUsageMeterSnapshot } from '../../shared/fe-budget-gate';
 import type { BackendModelInfo } from '../../shared/backend-config';
+import type { ComposerMode } from '../../shared/image-generation';
 import {
   loadActiveDivisionFromStorage,
   saveActiveDivisionToStorage,
@@ -218,6 +219,9 @@ interface AppState {
    */
   backendModelsCatalog: BackendModelInfo[];
 
+  /** Welcome + chat composer: chat (agent) vs image (GPT Image 2.5). */
+  composerMode: ComposerMode;
+
   // Actions
   setSessions: (sessions: Session[]) => void;
   addSession: (session: Session) => void;
@@ -324,6 +328,7 @@ interface AppState {
 
   setHubUsage: (snapshot: HubUsageMeterSnapshot | null) => void;
   setBackendModelsCatalog: (models: BackendModelInfo[]) => void;
+  setComposerMode: (mode: ComposerMode) => void;
 
   setMatterChatDraft: (sessionId: string, draft: MatterChatDraft) => void;
   clearMatterChatDraft: (sessionId: string) => void;
@@ -415,6 +420,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   incognitoDraft: false,
   hubUsage: null,
   backendModelsCatalog: [],
+  composerMode: 'chat',
 
   // Session actions
   setSessions: (sessions) =>
@@ -960,10 +966,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     }),
   setMatterPrepLoadingId: (meetingId) => set({ matterPrepLoadingId: meetingId }),
   setHubUsage: (snapshot) => set({ hubUsage: snapshot }),
-  setBackendModelsCatalog: (models) =>
-    set((state) =>
-      models.length > 0 ? { backendModelsCatalog: models } : state
-    ),
+  setBackendModelsCatalog: (models) => set({ backendModelsCatalog: models }),
+  setComposerMode: (mode) => set({ composerMode: mode }),
   setAskGrowthOSOpen: (open) =>
     set((state) =>
       open

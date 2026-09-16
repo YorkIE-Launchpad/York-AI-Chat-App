@@ -31,6 +31,8 @@ type AttachedFile = {
 
 import welcomeLogoSrc from '../assets/logo.png';
 import { ModelSelector } from './ModelSelector';
+import { ComposerModeDropdown } from './ComposerModeDropdown';
+import { resolveGptImage25ModelId } from '../../shared/image-generation';
 import { HubBudgetMeter } from './HubBudgetMeter';
 import { ThinkingModeToggle } from './ThinkingModeToggle';
 import { OpenRouterKeyGateBanner } from './OpenRouterKeyGateBanner';
@@ -91,7 +93,9 @@ export function WelcomeView() {
   const [isDragging, setIsDragging] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const actionsMenuRef = useRef<HTMLDivElement>(null);
-  const { startSession, changeWorkingDir, isElectron } = useIPC();
+  const { startSession, sendImageTurn, changeWorkingDir, isElectron } = useIPC();
+  const composerMode = useAppStore((state) => state.composerMode);
+  const backendModelsCatalog = useAppStore((state) => state.backendModelsCatalog);
 
   useEffect(() => {
     prefetchChatPanels();
@@ -115,11 +119,13 @@ export function WelcomeView() {
   );
   const canSubmit =
     !openRouterKeyRequired &&
-    (prompt.trim().length > 0 ||
-      pastedImages.length > 0 ||
-      attachedFiles.length > 0 ||
-      attachedMeetings.length > 0 ||
-      attachedReferences.length > 0);
+    (composerMode === 'image'
+      ? prompt.trim().length > 0
+      : prompt.trim().length > 0 ||
+        pastedImages.length > 0 ||
+        attachedFiles.length > 0 ||
+        attachedMeetings.length > 0 ||
+        attachedReferences.length > 0);
   const {
     isOpen: isSlashMenuOpen,
     filteredSkills: slashSkills,
@@ -610,6 +616,81 @@ export function WelcomeView() {
 
     prefetchChatPanels();
 
+    if (composerMode === 'image' && isElectron) {
+      if (!currentPrompt.trim()) return;
+      const modelId = resolveGptImage25ModelId(backendModelsCatalog);
+      if (!modelId) {
+        setGlobalNotice({
+          id: `image-access-${Date.now()}`,
+          type: 'error',
+          message: t('composer.imageAccessRequired'),
+          messageKey: 'composer.imageAccessRequired',
+        });
+        return;
+      }
+      const contentBlocks: ContentBlock[] = [];
+      pastedImages.forEach((img) => {
+        contentBlocks.push({
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: img.mediaType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
+            data: img.base64,
+          },
+        });
+      });
+      for (const file of attachedFiles) {
+        if (!isImageExtension(file.name)) continue;
+        if (file.inlineDataBase64) {
+          const mediaType = (file.type.startsWith('image/') ? file.type : null) || 'image/jpeg';
+          contentBlocks.push({
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: mediaType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
+              data: file.inlineDataBase64,
+            },
+          });
+          continue;
+        }
+        const image = await loadComposerImageFromPath(
+          file.path,
+          file.name,
+          resizeImageIfNeeded,
+          blobToBase64
+        );
+        if (image) {
+          contentBlocks.push({
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: image.mediaType as
+                | 'image/jpeg'
+                | 'image/png'
+                | 'image/gif'
+                | 'image/webp',
+              data: image.base64,
+            },
+          });
+        }
+      }
+      contentBlocks.push({ type: 'text', text: currentPrompt.trim() });
+      const sessionTitle = getInitialSessionTitle(currentPrompt);
+      const promptText = currentPrompt.trim();
+      setIsSubmitting(true);
+      try {
+        clearComposer();
+        await sendImageTurn(modelId, promptText, contentBlocks, {
+          title: sessionTitle,
+          cwd: sessionWorkdir,
+          incognito: incognitoDraft || undefined,
+        });
+      } finally {
+        setIsSubmitting(false);
+      }
+      return;
+    }
+
     // Intercept /loop and /goal on the main welcome composer
     if (isElectron && isLoopSlashInput(currentPrompt.trim())) {
       setIsSubmitting(true);
@@ -1022,7 +1103,11 @@ export function WelcomeView() {
                   isComposingRef.current = false;
                 }}
                 onPaste={handlePaste}
-                placeholder={t('welcome.placeholderSkillHint')}
+                placeholder={
+                  composerMode === 'image'
+                    ? t('composer.imagePromptPlaceholder')
+                    : t('welcome.placeholderSkillHint')
+                }
                 rows={1}
                 style={{ minHeight: '72px', maxHeight: '200px' }}
                 className="w-full resize-none bg-transparent border-none outline-none text-text-primary placeholder:text-text-muted text-base leading-relaxed overflow-hidden"
@@ -1098,22 +1183,24 @@ export function WelcomeView() {
                         className="absolute bottom-[calc(100%+8px)] left-0 z-30 min-w-[14rem] overflow-hidden rounded-[1.25rem] border border-border-subtle bg-background shadow-elevated"
                       >
                         <div className="space-y-0.5 p-1.5">
-                          <button
-                            type="button"
-                            role="menuitem"
-                            onClick={() => {
-                              setActionsMenuOpen(false);
-                              void handleSelectFolder();
-                            }}
-                            className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
-                          >
-                            <FolderOpen className="h-4 w-4 text-text-muted" />
-                            <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
-                              {workingDir
-                                ? workingDir.split(/[/\\]/).pop()
-                                : t('welcome.selectWorkingFolder')}
-                            </span>
-                          </button>
+                          {composerMode !== 'image' && (
+                            <button
+                              type="button"
+                              role="menuitem"
+                              onClick={() => {
+                                setActionsMenuOpen(false);
+                                void handleSelectFolder();
+                              }}
+                              className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
+                            >
+                              <FolderOpen className="h-4 w-4 text-text-muted" />
+                              <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
+                                {workingDir
+                                  ? workingDir.split(/[/\\]/).pop()
+                                  : t('welcome.selectWorkingFolder')}
+                              </span>
+                            </button>
+                          )}
                           {isElectron && (
                             <button
                               type="button"
@@ -1130,7 +1217,7 @@ export function WelcomeView() {
                               </span>
                             </button>
                           )}
-                          {isElectron && (
+                          {composerMode !== 'image' && isElectron && (
                             <button
                               type="button"
                               role="menuitem"
@@ -1147,7 +1234,7 @@ export function WelcomeView() {
                               </span>
                             </button>
                           )}
-                          {isElectron && meetingsReferenceAllowed && (
+                          {composerMode !== 'image' && isElectron && meetingsReferenceAllowed && (
                             <button
                               type="button"
                               role="menuitem"
@@ -1163,7 +1250,7 @@ export function WelcomeView() {
                               </span>
                             </button>
                           )}
-                          {isElectron && (
+                          {composerMode !== 'image' && isElectron && (
                             <>
                               <button
                                 type="button"
@@ -1223,7 +1310,7 @@ export function WelcomeView() {
                               </button>
                             </>
                           )}
-                          {isElectron && (
+                          {composerMode !== 'image' && isElectron && (
                             <button
                               type="button"
                               role="menuitem"
@@ -1271,7 +1358,8 @@ export function WelcomeView() {
                       }}
                     />
                   </div>
-                  {workingDir && (
+                  <ComposerModeDropdown disabled={isSubmitting || openRouterKeyRequired} />
+                  {workingDir && composerMode !== 'image' && (
                     <span
                       className="min-w-0 max-w-[10rem] truncate text-xs text-text-muted"
                       title={workingDir}
@@ -1282,8 +1370,8 @@ export function WelcomeView() {
                 </div>
 
                 <div className="flex flex-shrink-0 items-center gap-2">
-                  <ThinkingModeToggle />
-                  <ModelSelector />
+                  {composerMode !== 'image' && <ThinkingModeToggle />}
+                  {composerMode !== 'image' && <ModelSelector />}
                   <HubBudgetMeter />
                   {dictationAvailable && (
                     <DictationButton

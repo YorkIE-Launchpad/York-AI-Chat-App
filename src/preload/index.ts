@@ -78,6 +78,7 @@ const ALLOWED_CLIENT_EVENTS: ReadonlySet<string> = new Set<ClientEvent['type']>(
   'session.start',
   'session.create',
   'session.continue',
+  'session.imageTurn',
   'session.stop',
   'session.dequeue',
   'session.delete',
@@ -439,6 +440,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
       filePath: string
     ): Promise<{ success: boolean; dataUrl?: string; size?: number; error?: string }> =>
       ipcRenderer.invoke('files.readAsDataUrl', filePath),
+  },
+
+  image: {
+    saveToDisk: (payload: {
+      base64: string;
+      mediaType: string;
+      defaultFileName?: string;
+    }): Promise<{ success: boolean; cancelled?: boolean; error?: string; path?: string }> =>
+      ipcRenderer.invoke('image.saveToDisk', payload),
   },
 
   artifacts: {
@@ -1263,6 +1273,13 @@ declare global {
         readAsDataUrl: (
           filePath: string
         ) => Promise<{ success: boolean; dataUrl?: string; size?: number; error?: string }>;
+      };
+      image: {
+        saveToDisk: (payload: {
+          base64: string;
+          mediaType: string;
+          defaultFileName?: string;
+        }) => Promise<{ success: boolean; cancelled?: boolean; error?: string; path?: string }>;
       };
       artifacts: {
         listRecentFiles: (

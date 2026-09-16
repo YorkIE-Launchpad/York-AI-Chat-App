@@ -16,6 +16,8 @@ import { MessageCard } from './MessageCard';
 import { MESSAGE_POINTERS_GUTTER_CLASS, MessagePointers } from './MessagePointers';
 import { MessageQueueList } from './MessageQueueList';
 import { ModelSelector } from './ModelSelector';
+import { ComposerModeDropdown } from './ComposerModeDropdown';
+import { resolveGptImage25ModelId } from '../../shared/image-generation';
 import { YorkLlmRoutineTip } from './YorkLlmRoutineTip';
 import { HubBudgetMeter } from './HubBudgetMeter';
 import { ThinkingModeToggle } from './ThinkingModeToggle';
@@ -128,8 +130,11 @@ export function ChatView() {
     activeSessionId ? (s.matterChatDraftBySessionId[activeSessionId] ?? null) : null
   );
   const clearMatterChatDraft = useAppStore((s) => s.clearMatterChatDraft);
+  const composerMode = useAppStore((s) => s.composerMode);
+  const backendModelsCatalog = useAppStore((s) => s.backendModelsCatalog);
   const {
     continueSession,
+    sendImageTurn,
     stopSession,
     removeQueuedMessage,
     exportSession,
@@ -1087,17 +1092,95 @@ export function ChatView() {
     // Get value from ref to handle both controlled and uncontrolled cases
     const currentPrompt = textareaRef.current?.value || prompt;
 
+    const imageComposer = composerMode === 'image';
     if (
-      (!currentPrompt.trim() &&
-        pastedImages.length === 0 &&
-        attachedFiles.length === 0 &&
-        attachedMeetings.length === 0 &&
-        attachedReferences.length === 0) ||
+      (imageComposer
+        ? !currentPrompt.trim()
+        : !currentPrompt.trim() &&
+          pastedImages.length === 0 &&
+          attachedFiles.length === 0 &&
+          attachedMeetings.length === 0 &&
+          attachedReferences.length === 0) ||
       !activeSessionId ||
       isSubmitting ||
       openRouterKeyRequired
     )
       return;
+
+    if (imageComposer && isElectron) {
+      const modelId = resolveGptImage25ModelId(backendModelsCatalog);
+      if (!modelId) {
+        setGlobalNotice({
+          id: `image-access-${Date.now()}`,
+          type: 'error',
+          message: t('composer.imageAccessRequired'),
+          messageKey: 'composer.imageAccessRequired',
+        });
+        return;
+      }
+      setIsSubmitting(true);
+      try {
+        const contentBlocks: ContentBlock[] = [];
+        pastedImages.forEach((img) => {
+          contentBlocks.push({
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: img.mediaType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
+              data: img.base64,
+            },
+          });
+        });
+        for (const file of attachedFiles) {
+          if (!isImageExtension(file.name)) continue;
+          if (file.inlineDataBase64) {
+            const mediaType = (file.type.startsWith('image/') ? file.type : null) || 'image/jpeg';
+            contentBlocks.push({
+              type: 'image',
+              source: {
+                type: 'base64',
+                media_type: mediaType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
+                data: file.inlineDataBase64,
+              },
+            });
+            continue;
+          }
+          const image = await loadComposerImageFromPath(
+            file.path,
+            file.name,
+            resizeImageIfNeeded,
+            blobToBase64
+          );
+          if (image) {
+            contentBlocks.push({
+              type: 'image',
+              source: {
+                type: 'base64',
+                media_type: image.mediaType as
+                  | 'image/jpeg'
+                  | 'image/png'
+                  | 'image/gif'
+                  | 'image/webp',
+                data: image.base64,
+              },
+            });
+          }
+        }
+        contentBlocks.push({ type: 'text', text: currentPrompt.trim() });
+        const imagesToRevoke = [...pastedImages];
+        setPrompt('');
+        if (textareaRef.current) textareaRef.current.value = '';
+        imagesToRevoke.forEach((img) => URL.revokeObjectURL(img.url));
+        setPastedImages([]);
+        setAttachedFiles([]);
+        void sendImageTurn(modelId, currentPrompt.trim(), contentBlocks, {
+          sessionId: activeSessionId,
+        });
+      } finally {
+        setIsSubmitting(false);
+      }
+      return;
+    }
 
     if (isSharedChat) {
       if (collabBlocksComposer) {
@@ -2067,7 +2150,11 @@ export function ChatView() {
                     handleSubmit();
                   }
                 }}
-                placeholder={t('chat.typeMessageSkillHint')}
+                placeholder={
+                  composerMode === 'image'
+                    ? t('composer.imagePromptPlaceholder')
+                    : t('chat.typeMessageSkillHint')
+                }
                 disabled={isSubmitting || openRouterKeyRequired || collabBlocksComposer}
                 rows={1}
                 className="w-full min-w-0 resize-none bg-transparent border-none outline-none text-text-primary placeholder:text-text-muted text-[15px] leading-5 py-1 overflow-hidden"
@@ -2108,6 +2195,7 @@ export function ChatView() {
                             <Paperclip className="h-4 w-4 text-text-muted" />
                             <span className="text-[13px] font-medium">{t('welcome.attachFiles')}</span>
                           </button>
+                          {composerMode !== 'image' && (
                           <button
                             type="button"
                             role="menuitem"
@@ -2123,7 +2211,8 @@ export function ChatView() {
                               {t('skills.mentionFromMenu')}
                             </span>
                           </button>
-                          {meetingsReferenceAllowed && (
+                          )}
+                          {composerMode !== 'image' && meetingsReferenceAllowed && (
                             <button
                               type="button"
                               role="menuitem"
@@ -2139,7 +2228,7 @@ export function ChatView() {
                               </span>
                             </button>
                           )}
-                          {isElectron && (
+                          {composerMode !== 'image' && isElectron && (
                             <>
                               <button
                                 type="button"
@@ -2198,7 +2287,9 @@ export function ChatView() {
                     )}
                   </div>
 
-                  {isElectron && (
+                  <ComposerModeDropdown disabled={isSubmitting || openRouterKeyRequired} />
+
+                  {composerMode !== 'image' && isElectron && (
                     <div className="relative" ref={loopMenuRef}>
                       <button
                         type="button"
@@ -2241,8 +2332,8 @@ export function ChatView() {
                 </div>
 
                 <div className="flex min-w-0 items-center gap-1 shrink-0">
-                  <ThinkingModeToggle />
-                  <ModelSelector />
+                  {composerMode !== 'image' && <ThinkingModeToggle />}
+                  {composerMode !== 'image' && <ModelSelector />}
                   <HubBudgetMeter />
 
                   {dictationAvailable && (

@@ -28,6 +28,8 @@ const CATALOG: Record<BackendProvider, Array<{ id: string; name: string }>> = {
     { id: 'gpt-5.3-codex', name: 'GPT-5.3 Codex' },
     { id: 'o3', name: 'o3' },
     { id: 'o4-mini', name: 'o4 Mini' },
+    { id: 'gpt-image-2.5-flare', name: 'GPT Image 2.5 Flare' },
+    { id: 'gpt-image-2.5-sunburst', name: 'GPT Image 2.5 Sunburst' },
   ],
   gemini: [
     { id: 'gemini-3.7-flash', name: 'Gemini 3.7 Flash' },

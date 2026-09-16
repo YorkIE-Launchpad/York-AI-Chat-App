@@ -22,6 +22,7 @@
     "pastedImageAlt": "Pasted {{index}}",
     "copyCode": "Copy code",
     "copied": "Copied",
+    "downloadImage": "Download image",
     "removeImage": "Remove image",
     "removeFile": "Remove file",
     "removeMeeting": "Remove meeting"
@@ -1104,6 +1105,14 @@
       "waiting": "Waiting for York LLM ({{position}} in queue, {{activeCount}}/{{maxConcurrent}} slots in use)",
       "active": "York LLM connected — streaming response"
     }
+  },
+  "composer": {
+    "modeMenu": "Composer mode",
+    "modeChat": "Chat",
+    "modeImage": "Image",
+    "imagePromptPlaceholder": "Describe the image to generate or how to edit attached images…",
+    "imageFailed": "Image generation failed. Please try again.",
+    "imageAccessRequired": "GPT Image 2.5 is not available on your account."
   },
   "chat": {
     "sendMessage": "Send message",

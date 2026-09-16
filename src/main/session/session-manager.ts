@@ -75,6 +75,7 @@ import {
 } from './resolve-session-cwd';
 import type { ChatSearchHit } from '../../shared/chat-search';
 import { filterChatSearchHitsByDivision, type ChatSearchScope } from '../../shared/chat-search';
+import { runGptImageGeneration } from '../images/image-generation-service';
 import type { ActiveDivision } from '../../shared/workspace-division';
 import { resolveExternalReference } from '../references/reference-service';
 
@@ -1019,6 +1020,165 @@ export class SessionManager {
 
     this.collabHooks?.assertCanPrompt?.(sessionId);
     this.enqueuePrompt(session, prompt, content, options);
+  }
+
+  async startImageSession(
+    title: string,
+    prompt: string,
+    modelId: string,
+    cwd?: string,
+    allowedTools?: string[],
+    content?: ContentBlock[],
+    memoryEnabled?: boolean,
+    options?: {
+      division?: SessionDivisionFields['division'];
+      hubProjectId?: string | null;
+      hubProjectName?: string | null;
+      launchpadProjectId?: number | null;
+      launchpadProjectName?: string | null;
+      folderId?: string | null;
+      folderName?: string | null;
+      canonicalKey?: string | null;
+      clientName?: string | null;
+      clientProjectIds?: string | null;
+      incognito?: boolean;
+      autoApproveToolPermissions?: boolean;
+    }
+  ): Promise<Session> {
+    const isIncognito = options?.incognito === true;
+    log('[SessionManager] Starting image session:', title, isIncognito ? '(incognito)' : '');
+
+    const session = this.createSession(
+      isIncognito ? title || 'Incognito' : title,
+      cwd,
+      allowedTools,
+      isIncognito ? false : memoryEnabled,
+      options
+    );
+
+    if (session.incognito) {
+      this.ephemeralSessions.set(session.id, session);
+      this.messageCache.set(session.id, []);
+    } else {
+      this.saveSession(session);
+    }
+
+    void this.runImageTurn(session.id, prompt, content, modelId).catch((err) =>
+      logError('[SessionManager] Image turn failed for new session:', err)
+    );
+    return session;
+  }
+
+  async runImageTurn(
+    sessionId: string,
+    prompt: string,
+    content?: ContentBlock[],
+    modelId?: string
+  ): Promise<void> {
+    const session = this.loadSession(sessionId);
+    if (!session) {
+      throw new Error(`Session not found: ${sessionId}`);
+    }
+    if (!modelId?.trim()) {
+      throw new Error('Image model is required');
+    }
+
+    this.collabHooks?.assertCanPrompt?.(sessionId);
+
+    if (this.activeSessions.has(sessionId)) {
+      throw new Error('Session is busy');
+    }
+
+    const controller = new AbortController();
+    this.activeSessions.set(sessionId, controller);
+    this.updateSessionStatus(sessionId, 'running');
+
+    const normalizedPrompt = prompt.trim();
+    const existingMessages = this.getMessages(sessionId);
+
+    try {
+      let messageContent: ContentBlock[] =
+        content && content.length > 0
+          ? content
+          : [{ type: 'text', text: normalizedPrompt } as TextContent];
+
+      messageContent = await this.processFileAttachments(session, messageContent);
+
+      const userMessage: Message = {
+        id: uuidv4(),
+        sessionId: session.id,
+        role: 'user',
+        content: messageContent,
+        timestamp: Date.now(),
+      };
+      this.saveMessage(userMessage);
+
+      const result = await runGptImageGeneration({
+        modelId: modelId.trim(),
+        prompt: normalizedPrompt,
+        content: messageContent,
+        sessionId: session.id,
+        signal: controller.signal,
+      });
+
+      const assistantMessage: Message = {
+        id: uuidv4(),
+        sessionId: session.id,
+        role: 'assistant',
+        content: [
+          {
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: result.mediaType,
+              data: result.base64,
+            },
+          },
+        ],
+        timestamp: Date.now(),
+      };
+      this.saveMessage(assistantMessage);
+      this.sendToRenderer({
+        type: 'stream.message',
+        payload: { sessionId: session.id, message: assistantMessage },
+      });
+
+      if (!session.incognito) {
+        this.runSessionTitleGeneration(session, normalizedPrompt, existingMessages).catch((err) =>
+          logCtxError('[SessionManager] Title generation failed:', err)
+        );
+      } else if (existingMessages.length === 0) {
+        const localTitle = getDefaultTitleFromPrompt(normalizedPrompt);
+        if (localTitle && localTitle !== session.title) {
+          this.updateSessionTitle(session.id, localTitle);
+          session.title = localTitle;
+        }
+      }
+    } catch (error) {
+      if (controller.signal.aborted) {
+        return;
+      }
+      const errorText = error instanceof Error ? error.message : 'Unknown error';
+      const assistantMessage: Message = {
+        id: uuidv4(),
+        sessionId: session.id,
+        role: 'assistant',
+        content: [{ type: 'text', text: `**Error**: ${errorText}` }],
+        timestamp: Date.now(),
+      };
+      this.saveMessage(assistantMessage);
+      this.sendToRenderer({
+        type: 'stream.message',
+        payload: { sessionId: session.id, message: assistantMessage },
+      });
+      this.sendToRenderer({
+        type: 'error',
+        payload: { message: errorText },
+      });
+    } finally {
+      this.activeSessions.delete(sessionId);
+      this.updateSessionStatus(sessionId, 'idle');
+    }
   }
 
   async generateSessionTitleFromPrompt(prompt: string): Promise<string> {

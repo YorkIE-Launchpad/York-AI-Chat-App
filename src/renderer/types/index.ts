@@ -701,6 +701,30 @@ export type ClientEvent =
       type: 'session.continue';
       payload: { sessionId: string; prompt: string; content?: ContentBlock[] };
     }
+  | {
+      type: 'session.imageTurn';
+      payload: {
+        modelId: string;
+        prompt: string;
+        content?: ContentBlock[];
+        sessionId?: string;
+        title?: string;
+        cwd?: string;
+        allowedTools?: string[];
+        memoryEnabled?: boolean;
+        incognito?: boolean;
+        division?: WorkspaceDivisionKind;
+        hubProjectId?: string | null;
+        hubProjectName?: string | null;
+        launchpadProjectId?: number | null;
+        launchpadProjectName?: string | null;
+        folderId?: string | null;
+        folderName?: string | null;
+        canonicalKey?: string | null;
+        clientName?: string | null;
+        clientProjectIds?: string | null;
+      };
+    }
   | { type: 'session.stop'; payload: { sessionId: string } }
   | { type: 'session.dequeue'; payload: { sessionId: string; queueIndex: number } }
   | { type: 'session.delete'; payload: { sessionId: string } }
