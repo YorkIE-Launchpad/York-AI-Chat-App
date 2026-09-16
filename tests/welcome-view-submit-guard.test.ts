@@ -8,18 +8,15 @@ describe('WelcomeView submit guards', () => {
   it('disables the submit button when there is no text, image, or file to send', () => {
     const source = fs.readFileSync(welcomeViewPath, 'utf8');
 
-    expect(source).toContain('const canSubmit = prompt.trim().length > 0 || pastedImages.length > 0 || attachedFiles.length > 0;');
     expect(source).toContain('disabled={!canSubmit || isSubmitting}');
+    expect(source).toMatch(/const canSubmit[\s\S]*attachedReferences\.length > 0\)/);
   });
 
   it('only clears the composer after startSession returns a created session', () => {
     const source = fs.readFileSync(welcomeViewPath, 'utf8');
 
-    expect(source).toContain('const session = await startSession(sessionTitle, contentBlocks, workingDir || undefined);');
-    expect(source).toContain('if (session) {');
-    expect(source).toContain('setPrompt(\'\');');
-    expect(source).toContain('setPastedImages([]);');
-    expect(source).toContain('setAttachedFiles([]);');
+    expect(source).toContain('const session = await startSession(sessionTitle, contentBlocks, sessionWorkdir');
+    expect(source).toMatch(/if \(session\) \{\s*clearComposer\(\);/);
   });
 
   it('surfaces working-directory picker failures to the global notice toast', () => {

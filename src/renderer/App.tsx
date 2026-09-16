@@ -39,6 +39,7 @@ import { useAuth } from './auth/AuthContext';
 import { LoginPage } from './components/LoginPage';
 import { findLatestHtmlPreviewCandidate, htmlPreviewSignature } from './utils/html-preview';
 import { useWorkspaceBudgetCheck } from './hooks/useWorkspaceBudgetCheck';
+import { prefetchChatPanels } from './utils/prefetch-chat-panels';
 
 const ChatView = lazy(() =>
   import('./components/ChatView').then((module) => ({ default: module.ChatView }))
@@ -112,6 +113,12 @@ function AuthenticatedApp() {
   const settings = useSettings();
   const systemDarkMode = useSystemDarkMode();
   const { showSettings, showMatter, showWorkflows } = useSettingsState();
+
+  useEffect(() => {
+    if (!activeSessionId && !showSettings && !showMatter && !showWorkflows) {
+      prefetchChatPanels();
+    }
+  }, [activeSessionId, showSettings, showMatter, showWorkflows]);
   const setShowMatter = useAppStore((s) => s.setShowMatter);
   const setShowWorkflows = useAppStore((s) => s.setShowWorkflows);
   const setMatterBadgeCount = useAppStore((s) => s.setMatterBadgeCount);

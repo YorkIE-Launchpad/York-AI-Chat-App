@@ -68,6 +68,7 @@ import { needsOpenRouterUserKey } from '../../shared/openrouter-user-key';
 import { divisionBudgetCheckKey } from '../../shared/fe-budget-gate';
 import { divisionLabel } from '../../shared/workspace-division';
 import { WelcomeMatterBriefing } from './matter/WelcomeMatterBriefing';
+import { prefetchChatPanels } from '../utils/prefetch-chat-panels';
 
 export function WelcomeView() {
   const { t } = useTranslation();
@@ -91,6 +92,10 @@ export function WelcomeView() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const actionsMenuRef = useRef<HTMLDivElement>(null);
   const { startSession, changeWorkingDir, isElectron } = useIPC();
+
+  useEffect(() => {
+    prefetchChatPanels();
+  }, []);
   const workingDir = useAppStore((state) => state.workingDir);
   const defaultWorkingDir = useAppStore((state) => state.defaultWorkingDir);
   const sessionWorkdir = workingDir || defaultWorkingDir || undefined;
@@ -603,6 +608,8 @@ export function WelcomeView() {
       return;
     }
 
+    prefetchChatPanels();
+
     // Intercept /loop and /goal on the main welcome composer
     if (isElectron && isLoopSlashInput(currentPrompt.trim())) {
       setIsSubmitting(true);
@@ -735,12 +742,14 @@ export function WelcomeView() {
       attachedFiles[0]?.name || attachedMeetings[0]?.title || attachedReferences[0]?.title
     );
     setIsSubmitting(true);
-    clearComposer();
     try {
       // Opens chat immediately (optimistic pending session); reconciles after IPC.
-      await startSession(sessionTitle, contentBlocks, sessionWorkdir, {
+      const session = await startSession(sessionTitle, contentBlocks, sessionWorkdir, {
         incognito: incognitoDraft || undefined,
       });
+      if (session) {
+        clearComposer();
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -1287,6 +1296,7 @@ export function WelcomeView() {
                   <button
                     type="submit"
                     disabled={!canSubmit || isSubmitting}
+                    onPointerEnter={() => prefetchChatPanels()}
                     className="btn btn-primary px-5 py-2.5 rounded-2xl disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <span>{t('welcome.letsGo')}</span>
