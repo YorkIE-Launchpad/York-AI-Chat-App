@@ -280,10 +280,13 @@ function handleZoomWebhook(req: Request, res: Response): void {
       ? (req as Request & { rawBody: string }).rawBody
       : JSON.stringify(body);
 
-  if (
-    secret &&
-    !verifyZoomWebhookSignature({ body: rawBody, timestamp, signature, secretToken: secret })
-  ) {
+  // Fail closed: never process webhook events without a configured secret.
+  if (!secret) {
+    res.status(503).json({ error: 'ZOOM_WEBHOOK_SECRET_TOKEN is not configured' });
+    return;
+  }
+
+  if (!verifyZoomWebhookSignature({ body: rawBody, timestamp, signature, secretToken: secret })) {
     res.status(401).json({ error: 'Invalid Zoom webhook signature' });
     return;
   }

@@ -10,7 +10,6 @@ import { randomUUID } from 'crypto';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import extract from 'extract-zip';
 import type {
   ContentBlock,
   FileAttachmentContent,
@@ -18,6 +17,7 @@ import type {
   Session,
   TraceStep,
 } from '../../renderer/types';
+import { safeExtractZip } from '../utils/safe-extract-zip';
 import type { WorkspaceDivisionKind } from '../../shared/workspace-division';
 import { log, logError, logWarn } from '../utils/logger';
 import { resolveWritableSessionCwd } from './resolve-session-cwd';
@@ -282,7 +282,7 @@ export async function importSessionFromPath(
 
   try {
     fs.mkdirSync(extractDir, { recursive: true });
-    await extract(sourcePath, { dir: extractDir });
+    await safeExtractZip(sourcePath, extractDir);
 
     const manifestPath = path.join(extractDir, 'manifest.json');
     const chatPath = path.join(extractDir, 'chat.json');

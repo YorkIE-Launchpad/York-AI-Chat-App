@@ -1,0 +1,45 @@
+{
+  "mode": "express",
+  "turnContext": "security_remediation",
+  "bootOk": true,
+  "handlersLoadedOk": null,
+  "healthOk": true,
+  "lintOk": true,
+  "uiStack": "web",
+  "frontendVerifyCommand": "npx vite build",
+  "frontendBuildOk": true,
+  "backendBuildOk": true,
+  "endpoints": [
+    { "method": "GET", "path": "/health", "status": 200, "note": "observed" },
+    { "method": "GET", "path": "/models", "status": 401, "note": "observed — Cognito required" },
+    {
+      "method": "POST",
+      "path": "/zoom/webhooks",
+      "status": 503,
+      "note": "observed — fail-closed without ZOOM_WEBHOOK_SECRET_TOKEN"
+    },
+    { "method": "POST", "path": "/zoom/sessions/register", "status": 401, "note": "Cognito required" },
+    { "method": "GET", "path": "/zoom/sessions/:yorkMeetingId/segments", "status": 401, "note": "Cognito required" },
+    { "method": "DELETE", "path": "/zoom/sessions/:yorkMeetingId", "status": 401, "note": "Cognito required" },
+    { "method": "POST", "path": "/collab/invite", "status": 401, "note": "Cognito required" },
+    { "method": "ALL", "path": "/anthropic/*", "status": 401, "note": "Cognito + org-key budget gate" },
+    { "method": "ALL", "path": "/openai/*", "status": 401, "note": "Cognito + org-key budget gate" },
+    { "method": "ALL", "path": "/gemini/*", "status": 401, "note": "Cognito + org-key budget gate" },
+    { "method": "ALL", "path": "/openrouter/*", "status": 401, "note": "Cognito only (BYOK)" }
+  ],
+  "unmatchedFrontendCalls": [],
+  "authChecks": {
+    "protectedRoutes401": true,
+    "jwtWiredOnProtectedRoutes": true,
+    "googleExchange4xx": null,
+    "credentialsMissing": true,
+    "cognitoJwtRequired": true
+  },
+  "mockScan": {
+    "leftoverCount": 0,
+    "scanRoot": "development-1/src",
+    "items": []
+  },
+  "testsOk": true,
+  "testsSummary": "60 passed (backend tsx --test)"
+}

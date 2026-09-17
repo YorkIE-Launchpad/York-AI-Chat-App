@@ -20,6 +20,18 @@ import type {
   GatewayEvent,
 } from './types';
 import { MessageRouter } from './message-router';
+import { remoteConfigStore } from './remote-config-store';
+
+function timingSafeTokenEqual(provided: string, expected: string): boolean {
+  const a = Buffer.from(provided);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length) {
+    // Compare against self to keep timing roughly constant on length mismatch.
+    crypto.timingSafeEqual(a, a);
+    return false;
+  }
+  return crypto.timingSafeEqual(a, b);
+}
 
 // WebSocket client connection
 interface WSClient {
@@ -259,8 +271,8 @@ export class RemoteGateway extends EventEmitter {
     if (!authorized) {
       log('[Gateway] User not authorized:', message.sender.id);
 
-      // Handle pairing if enabled
-      if (this.config.auth.mode === 'pairing') {
+      // Handle pairing if enabled for this channel (admin approval only — see handlePairingRequest)
+      if (this.shouldOfferPairing(message)) {
         await this.handlePairingRequest(message);
       } else {
         // Send unauthorized response
@@ -336,6 +348,19 @@ export class RemoteGateway extends EventEmitter {
    * Check if user is authorized
    */
   private async checkAuthorization(message: RemoteMessage): Promise<boolean> {
+    // WebSocket clients are authenticated only via shared gateway token (handleWSAuth).
+    if (message.channelType === 'websocket') {
+      return false;
+    }
+
+    // Feishu DM policy is channel-scoped — never widen global gateway auth for Slack/etc.
+    if (message.channelType === 'feishu') {
+      const feishu = remoteConfigStore.getFeishuConfig();
+      if (feishu?.dm) {
+        return this.checkDmPolicy(message, feishu.dm);
+      }
+    }
+
     const { mode, allowlist } = this.config.auth;
 
     switch (mode) {
@@ -354,7 +379,6 @@ export class RemoteGateway extends EventEmitter {
         );
 
       case 'pairing': {
-        // Check if user is paired
         const pairedKey = `${message.channelType}:${message.sender.id}`;
         return this.pairedUsers.has(pairedKey);
       }
@@ -365,6 +389,42 @@ export class RemoteGateway extends EventEmitter {
       default:
         return false;
     }
+  }
+
+  /** Evaluate a channel DM policy without mutating global gateway.auth.mode. */
+  private checkDmPolicy(
+    message: RemoteMessage,
+    dm: { policy: 'open' | 'pairing' | 'allowlist'; allowFrom?: string[] }
+  ): boolean {
+    switch (dm.policy) {
+      case 'open':
+        return true;
+      case 'pairing': {
+        const pairedKey = `${message.channelType}:${message.sender.id}`;
+        return this.pairedUsers.has(pairedKey);
+      }
+      case 'allowlist': {
+        const allowFrom = dm.allowFrom ?? [];
+        const scoped = `${message.channelType}:${message.sender.id}`;
+        return (
+          allowFrom.includes(message.sender.id) ||
+          allowFrom.includes(scoped) ||
+          (this.config.auth.allowlist ?? []).includes(scoped) ||
+          (this.config.auth.allowlist ?? []).includes(message.sender.id)
+        );
+      }
+      default:
+        return false;
+    }
+  }
+
+  private shouldOfferPairing(message: RemoteMessage): boolean {
+    if (message.channelType === 'feishu') {
+      const feishu = remoteConfigStore.getFeishuConfig();
+      if (feishu?.dm?.policy === 'pairing') return true;
+      if (feishu?.dm?.policy) return false;
+    }
+    return this.config.auth.mode === 'pairing';
   }
 
   /**
@@ -382,7 +442,8 @@ export class RemoteGateway extends EventEmitter {
   }
 
   /**
-   * Handle pairing request from unauthorized user
+   * Handle pairing request from unauthorized user.
+   * Pairing completes only via in-app admin approvePairing() — never by echoing the code.
    */
   private async handlePairingRequest(message: RemoteMessage): Promise<void> {
     const userKey = `${message.channelType}:${message.sender.id}`;
@@ -391,45 +452,17 @@ export class RemoteGateway extends EventEmitter {
     if (this.pairingRequests.has(userKey)) {
       const existing = this.pairingRequests.get(userKey)!;
 
-      // Check if message contains the pairing code
-      const inputCode = message.content.text?.trim();
-      if (inputCode === existing.code) {
-        // Pairing successful
-        this.pairedUsers.set(userKey, {
-          userId: message.sender.id,
-          userName: message.sender.name,
-          channelType: message.channelType,
-          pairedAt: Date.now(),
-          lastActiveAt: Date.now(),
-        });
-
-        this.pairingRequests.delete(userKey);
-
-        await this.sendToChannel({
-          channelType: message.channelType,
-          channelId: message.channelId,
-          content: {
-            type: 'text',
-            text: '✅ Pairing successful! You can start using the bot now.',
-          },
-          replyTo: message.id,
-        });
-
-        log('[Gateway] User paired successfully:', userKey);
-        return;
-      }
-
       // Check if expired
       if (Date.now() > existing.expiresAt) {
         this.pairingRequests.delete(userKey);
       } else {
-        // Already has valid pairing request
+        // Already has valid pairing request — do not echo the code back (prevents self-approval).
         await this.sendToChannel({
           channelType: message.channelType,
           channelId: message.channelId,
           content: {
             type: 'text',
-            text: `Please enter your pairing code to verify.\n\nYour pairing code is: **${existing.code}**\n\nSend this code to an administrator for confirmation, or reply with the pairing code to complete pairing.`,
+            text: '⏳ Your pairing request is pending administrator approval in the York desktop app. The code was shown only to the administrator — replying with a code will not complete pairing.',
           },
           replyTo: message.id,
         });
@@ -437,7 +470,7 @@ export class RemoteGateway extends EventEmitter {
       }
     }
 
-    // Generate new pairing code
+    // Generate new pairing code (shown in desktop UI via event; not echoed to the requester)
     const code = this.generatePairingCode();
     const pairingRequest: PairingRequest = {
       code,
@@ -455,14 +488,14 @@ export class RemoteGateway extends EventEmitter {
       channelId: message.channelId,
       content: {
         type: 'text',
-        text: `👋 Hello! First-time use requires pairing verification.\n\nYour pairing code is: **${code}**\n\nSend this code to an administrator for confirmation. The code expires in 10 minutes.`,
+        text: '👋 Hello! First-time use requires pairing verification.\n\nAn administrator must approve your request in the York desktop app. Pairing codes are never accepted from this chat — only via the app approval UI. The request expires in 10 minutes.',
       },
       replyTo: message.id,
     });
 
     log('[Gateway] Generated pairing code for user:', userKey);
 
-    // Emit pairing event for UI notification
+    // Emit pairing event for UI notification (code visible to desktop admin only)
     this.emitEvent('gateway.pairing_request', {
       code,
       channelType: message.channelType,
@@ -759,29 +792,35 @@ export class RemoteGateway extends EventEmitter {
     }
 
     const { token } = message.payload as { token?: string };
+    const expected = this.config.auth.token?.trim() || '';
 
-    if (this.config.auth.mode === 'token') {
-      if (token === this.config.auth.token) {
-        client.authenticated = true;
-        this.sendWSMessage(client.ws, {
-          type: 'auth_result',
-          payload: { success: true },
-          requestId: message.requestId,
-        });
-        log('[Gateway] WS client authenticated:', client.id);
-      } else {
-        this.sendWSMessage(client.ws, {
-          type: 'auth_result',
-          payload: { success: false, error: 'Invalid token' },
-          requestId: message.requestId,
-        });
-      }
-    } else {
-      // Other auth modes don't require token for WS
+    // WebSocket always requires the shared gateway token — allowlist/pairing/open must not bypass.
+    if (!expected) {
+      this.sendWSMessage(client.ws, {
+        type: 'auth_result',
+        payload: {
+          success: false,
+          error:
+            'WebSocket auth requires a configured gateway token. Set a token in Remote Control settings.',
+        },
+        requestId: message.requestId,
+      });
+      return;
+    }
+
+    if (typeof token === 'string' && token.length > 0 && timingSafeTokenEqual(token, expected)) {
       client.authenticated = true;
+      client.userId = 'ws-token';
       this.sendWSMessage(client.ws, {
         type: 'auth_result',
         payload: { success: true },
+        requestId: message.requestId,
+      });
+      log('[Gateway] WS client authenticated:', client.id);
+    } else {
+      this.sendWSMessage(client.ws, {
+        type: 'auth_result',
+        payload: { success: false, error: 'Invalid token' },
         requestId: message.requestId,
       });
     }
@@ -818,7 +857,7 @@ export class RemoteGateway extends EventEmitter {
         isMentioned: true,
       };
 
-      // Route to agent
+      // Route to agent (WS identity already bound via token auth above)
       await this.messageRouter.routeMessage(remoteMessage);
     } catch (error) {
       logError('[Gateway] Error in handleWSClientMessage:', error);

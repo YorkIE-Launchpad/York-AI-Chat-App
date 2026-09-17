@@ -1,0 +1,8 @@
+{
+  "uiRoot": ".",
+  "apiRoot": "backend",
+  "uiRootResolved": "development-1/",
+  "apiRootResolved": "development-1/backend/",
+  "nestedFrontendFolder": false,
+  "notes": "Monorepo-style layout: Express API under backend/; Electron+Vite UI at repository root. No duplicate Frontend/ or frontend/ product tree. Cognito JWT middleware remains on protected HTTP routes; public Zoom OAuth callback and signature-gated webhooks stay outside requireCognito."
+}

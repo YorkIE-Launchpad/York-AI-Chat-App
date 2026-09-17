@@ -17,11 +17,11 @@ import * as os from 'os';
 import * as path from 'path';
 import { app } from 'electron';
 import chokidar, { type FSWatcher } from 'chokidar';
-import extract from 'extract-zip';
 import type { Skill, PluginInstallResult } from '../../renderer/types';
 import type { DatabaseInstance } from '../db/database';
 import { log, logError, logWarn } from '../utils/logger';
 import { isPathWithinRoot } from '../tools/path-containment';
+import { safeExtractZip } from '../utils/safe-extract-zip';
 import { resolveExtractedSkillRoot } from './hub-skills-library-service';
 
 /** Written next to SKILL.md when installing from the Hub skills library. */
@@ -881,7 +881,7 @@ export class SkillsManager {
       const extractDir = path.join(tempRoot, 'extracted');
       await fs.promises.mkdir(extractDir, { recursive: true });
       try {
-        await extract(sourcePath, { dir: extractDir });
+        await safeExtractZip(sourcePath, extractDir);
         const folderPath = await resolveExtractedSkillRoot(extractDir);
         return {
           folderPath,
