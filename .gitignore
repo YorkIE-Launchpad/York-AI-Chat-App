@@ -117,3 +117,29 @@ website/.vitepress/cache/
 
 # Local backend env
 backend/.env
+
+backend/parameters.json
+Frontend/parameters.json
+frontend/parameters.json
+
+# Launchpad local credentials (do not commit)
+**/.env
+!**/.env.example
+**/terraform.tfvars
+**/credentials.json
+# Launchpad agent artifacts (do not commit)
+/.cursor/agents/launchpad-*
+/.cursor/hooks.json
+/.cursor/hooks/approve-agent-cli.sh
+/.cursor/hooks/git-mutate-deny.sh
+/.cursor/hooks/monitor-agent-cli.sh
+/.cursor/hooks/subagent-monitor-start.sh
+/.cursor/hooks/subagent-monitor-stop.sh
+/.cursor/rules/launchpad-*
+/.cursor/skills/launchpad-*/
+/graphify-out/
+/.launchpad/*
+!/.launchpad/migrate-screen-inventory.json
+/.understand-anything/
+__pycache__/
+.venv/

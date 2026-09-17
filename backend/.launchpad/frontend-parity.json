@@ -1,0 +1,7 @@
+{
+  "ok": true,
+  "expectedRoot": ".",
+  "actualRoot": ".",
+  "missingPaths": [],
+  "extraNotes": "Integration UI is the Electron+Vite app at the development-1 repository root (src/, vite.config), not a nested frontend/ or Frontend/ tree. LaunchPad web parity checks apply to that root; full npm run build includes electron-builder packaging and is out of scope for bundler-only verify."
+}

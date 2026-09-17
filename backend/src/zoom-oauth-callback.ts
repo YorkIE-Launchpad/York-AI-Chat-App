@@ -2,8 +2,6 @@ import type { Request, Response, Router } from 'express';
 import { Router as createRouter } from 'express';
 import { logWarn } from './safe-log.js';
 
-const DEFAULT_LOCAL_CALLBACK = 'http://127.0.0.1:19891/callback';
-
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, '&amp;')

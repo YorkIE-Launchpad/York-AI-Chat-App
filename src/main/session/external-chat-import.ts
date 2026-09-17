@@ -6,11 +6,11 @@ import { randomUUID } from 'crypto';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import extract from 'extract-zip';
 import type { Message, MessageRole } from '../../renderer/types';
 import type { ChatExportPayload, PortableSessionMeta } from './session-transfer';
 import { logWarn } from '../utils/logger';
 import { extractPdfText } from '../utils/pdf-text';
+import { safeExtractZip } from '../utils/safe-extract-zip';
 
 export const MAX_EXTERNAL_CONVERSATIONS = 50;
 
@@ -423,7 +423,7 @@ export async function convertExternalChatFile(
     const extractDir = path.join(tempRoot, 'extracted');
     try {
       await fs.promises.mkdir(extractDir, { recursive: true });
-      await extract(sourcePath, { dir: extractDir });
+      await safeExtractZip(sourcePath, extractDir);
 
       // York format — signal caller to use native importer
       if (

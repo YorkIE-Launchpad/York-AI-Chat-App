@@ -2,11 +2,11 @@ import { randomUUID } from 'crypto';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import extract from 'extract-zip';
 import { authConfig } from '../../shared/auth-config';
 import type { Skill } from '../../renderer/types';
 import { AuthRequiredError, ensureAuthenticatedSession } from '../auth/session';
 import { logError, logWarn } from '../utils/logger';
+import { safeExtractZip } from '../utils/safe-extract-zip';
 import type { SkillsManager } from './skills-manager';
 
 const HUB_SKILLS_CATALOG_MAX_PAGES = 25;
@@ -266,7 +266,7 @@ async function withExtractedSkill<T>(
   await fs.promises.mkdir(tempRoot, { recursive: true });
   await fs.promises.writeFile(zipPath, zipBuffer);
   await fs.promises.mkdir(extractDir, { recursive: true });
-  await extract(zipPath, { dir: extractDir });
+  await safeExtractZip(zipPath, extractDir);
 
   try {
     return await fn(extractDir);

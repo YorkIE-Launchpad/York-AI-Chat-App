@@ -1,6 +1,7 @@
 /**
- * FE-owned Hub user AI budget + LaunchPad project budget gating.
- * York LLM proxy does not enforce these — the Electron client gates paid models.
+ * FE-owned Hub user AI budget + LaunchPad project budget gating helpers (UI meters / model picker).
+ * Org-key LLM proxy routes also enforce Hub user AI budget server-side when HUB_API_BASE_URL is set
+ * (see backend/src/budget-gate.ts). OpenRouter remains BYOK and is not gated by Hub FY budget.
  *
  * Project strategies:
  * - hub-only → Hub user AI budget (via allowed-models has_budget)

@@ -176,15 +176,29 @@ export function registerZoomSession(input: {
   };
   sessionsByYorkId.set(record.yorkMeetingId, record);
   if (record.zoomMeetingUuid) {
-    yorkIdByZoomUuid.set(record.zoomMeetingUuid, record.yorkMeetingId);
-    const flushed = flushOrphansIntoSession(record.zoomMeetingUuid, record);
-    if (flushed > 0) {
+    const attemptedUuid = record.zoomMeetingUuid;
+    const claimed = claimZoomUuid(attemptedUuid, record);
+    if (!claimed) {
+      // Do not keep a UUID owned by another user on this session.
+      record.zoomMeetingUuid =
+        existing?.zoomMeetingUuid && existing.zoomMeetingUuid !== attemptedUuid
+          ? existing.zoomMeetingUuid
+          : null;
       log(
-        '[york-ie-backend] Flushed orphan RTMS segments on register',
+        '[york-ie-backend] Zoom UUID already bound to another user — register without that UUID',
         `yorkMeetingId=${record.yorkMeetingId}`,
-        `zoomMeetingUuid=${record.zoomMeetingUuid}`,
-        `count=${flushed}`
+        `zoomMeetingUuid=${attemptedUuid}`
       );
+    } else {
+      const flushed = flushOrphansIntoSession(attemptedUuid, record);
+      if (flushed > 0) {
+        log(
+          '[york-ie-backend] Flushed orphan RTMS segments on register',
+          `yorkMeetingId=${record.yorkMeetingId}`,
+          `zoomMeetingUuid=${attemptedUuid}`,
+          `count=${flushed}`
+        );
+      }
     }
   }
   return record;
@@ -206,35 +220,65 @@ export function getZoomSession(yorkMeetingId: string, userSub: string): ZoomSess
   return record;
 }
 
-export function bindZoomUuidToSession(zoomMeetingUuid: string, yorkMeetingId: string): void {
+/**
+ * Bind a Zoom meeting UUID to a York session.
+ * Rejects cross-user overwrite (session hijack / transcript diversion).
+ * Returns false when the UUID is already owned by a different Cognito user.
+ */
+export function bindZoomUuidToSession(zoomMeetingUuid: string, yorkMeetingId: string): boolean {
   const record = sessionsByYorkId.get(yorkMeetingId);
-  if (!record) return;
+  if (!record) return false;
+
+  if (!claimZoomUuid(zoomMeetingUuid, record)) {
+    return false;
+  }
+
+  if (record.zoomMeetingUuid && record.zoomMeetingUuid !== zoomMeetingUuid) {
+    yorkIdByZoomUuid.delete(record.zoomMeetingUuid);
+  }
   record.zoomMeetingUuid = zoomMeetingUuid;
   record.updatedAt = Date.now();
-  yorkIdByZoomUuid.set(zoomMeetingUuid, yorkMeetingId);
   flushOrphansIntoSession(zoomMeetingUuid, record);
+  return true;
+}
+
+/**
+ * Claim zoomMeetingUuid for record.userSub.
+ * Same user may rebind across their own York sessions; other users cannot steal.
+ */
+function claimZoomUuid(zoomMeetingUuid: string, record: ZoomSessionRecord): boolean {
+  const existingYorkId = yorkIdByZoomUuid.get(zoomMeetingUuid);
+  if (existingYorkId && existingYorkId !== record.yorkMeetingId) {
+    const existing = sessionsByYorkId.get(existingYorkId);
+    if (existing && existing.userSub !== record.userSub) {
+      log(
+        '[york-ie-backend] Rejected Zoom UUID bind — owned by another user',
+        `zoomMeetingUuid=${zoomMeetingUuid}`,
+        `ownerYorkId=${existingYorkId}`,
+        `requesterYorkId=${record.yorkMeetingId}`
+      );
+      return false;
+    }
+    if (existing) {
+      existing.zoomMeetingUuid = null;
+      existing.updatedAt = Date.now();
+    }
+  }
+  yorkIdByZoomUuid.set(zoomMeetingUuid, record.yorkMeetingId);
+  return true;
 }
 
 /**
  * Resolve which York session should receive RTMS packets for a Zoom meeting UUID.
- * Falls back to the most recently updated unbound session when UUID was unknown at register time.
+ * Does not auto-bind unbound sessions (that diverted live transcripts across users).
+ * Unmatched UUIDs stay in the orphan buffer until an explicit register/bind.
  */
 export function resolveSessionForZoomUuid(zoomMeetingUuid: string): ZoomSessionRecord | null {
   const yorkId = yorkIdByZoomUuid.get(zoomMeetingUuid);
   if (yorkId) {
     return sessionsByYorkId.get(yorkId) || null;
   }
-  let latest: ZoomSessionRecord | null = null;
-  for (const record of sessionsByYorkId.values()) {
-    if (record.zoomMeetingUuid) continue;
-    if (!latest || record.updatedAt > latest.updatedAt) {
-      latest = record;
-    }
-  }
-  if (latest) {
-    bindZoomUuidToSession(zoomMeetingUuid, latest.yorkMeetingId);
-  }
-  return latest;
+  return null;
 }
 
 export function appendSegmentToZoomUuid(

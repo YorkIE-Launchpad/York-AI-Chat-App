@@ -198,4 +198,43 @@ describe('zoom-sessions', () => {
       true
     );
   });
+
+  it('rejects Zoom UUID bind from a different Cognito user', () => {
+    registerZoomSession({ yorkMeetingId: 'y-a', userSub: 'user-a', zoomMeetingUuid: 'shared-uuid' });
+    registerZoomSession({ yorkMeetingId: 'y-b', userSub: 'user-b', zoomMeetingUuid: 'shared-uuid' });
+
+    const pageA = listSegmentsAfter('y-a', 'user-a', 0);
+    assert.equal(pageA.segments.length, 0);
+
+    appendSegmentToZoomUuid('shared-uuid', {
+      id: 'seg-1',
+      text: 'owned by A',
+      speaker: 'Ada',
+      speakerUserId: '1',
+      startedAt: 1,
+      endedAt: 2,
+    });
+
+    const afterA = listSegmentsAfter('y-a', 'user-a', 0);
+    assert.equal(afterA.segments.length, 1);
+    assert.equal(afterA.segments[0]?.text, 'owned by A');
+
+    const afterB = listSegmentsAfter('y-b', 'user-b', 0);
+    assert.equal(afterB.segments.length, 0);
+  });
+
+  it('does not auto-bind unbound sessions to an unknown Zoom UUID', () => {
+    registerZoomSession({ yorkMeetingId: 'unbound', userSub: 'u1' });
+    appendSegmentToZoomUuid('unknown-uuid', {
+      id: 'o1',
+      text: 'orphan',
+      speaker: null,
+      speakerUserId: null,
+      startedAt: Date.now(),
+      endedAt: Date.now(),
+    });
+    assert.equal(getOrphanSegmentCountForTests('unknown-uuid'), 1);
+    const page = listSegmentsAfter('unbound', 'u1', 0);
+    assert.equal(page.segments.length, 0);
+  });
 });

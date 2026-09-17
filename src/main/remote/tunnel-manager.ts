@@ -51,6 +51,19 @@ class TunnelManager {
       return null;
     }
 
+    // Refuse to expose the gateway publicly without a WebSocket shared token.
+    const gatewayToken = config.gateway.auth?.token?.trim() || '';
+    if (!gatewayToken) {
+      logError(
+        '[TunnelManager] Refusing to start tunnel: gateway auth token is required when exposing Remote Control publicly'
+      );
+      this.emitStatus({
+        error:
+          'Set a gateway auth token before enabling a public tunnel (WebSocket requires token auth).',
+      });
+      return null;
+    }
+
     this.provider = tunnelConfig.type as 'ngrok' | 'cloudflare' | 'none';
 
     try {

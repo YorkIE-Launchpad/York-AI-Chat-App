@@ -3,6 +3,7 @@ import dotenv from 'dotenv';
 import express from 'express';
 import { requireMinClientVersion } from './client-version.js';
 import { requireCognito } from './cognito-auth.js';
+import { requireOrgKeyBudget } from './budget-gate.js';
 import { createCollabInviteRouter } from './collab/invite-router.js';
 import { attachCollabRelay } from './collab/yjs-relay.js';
 import { listEnabledModels } from './models.js';
@@ -75,9 +76,16 @@ app.get('/models', (_req, res) => {
 app.use('/collab', express.json(), createCollabInviteRouter());
 
 for (const target of PROVIDER_TARGETS) {
-  app.use(target.mountPath, (req, res) => {
-    void proxyToProvider(req, res, target);
-  });
+  if (target.provider === 'openrouter') {
+    // OpenRouter is BYOK — not gated by Hub org AI budget.
+    app.use(target.mountPath, (req, res) => {
+      void proxyToProvider(req, res, target);
+    });
+  } else {
+    app.use(target.mountPath, requireOrgKeyBudget, (req, res) => {
+      void proxyToProvider(req, res, target);
+    });
+  }
 }
 
 const server = app.listen(PORT, HOST, () => {

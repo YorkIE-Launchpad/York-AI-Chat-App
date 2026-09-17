@@ -1,7 +1,10 @@
 /**
  * Shared HTTP page fetch used by ToolExecutor and the agent webfetch tool.
  * http/https only; truncates large bodies for model context.
+ * Blocks private / link-local / metadata IPs (SSRF guard).
  */
+
+import { assertPublicHttpUrl } from './ssrf-guard';
 
 const BODY_CHAR_LIMIT = 20000;
 const FETCH_TIMEOUT_MS = 15000;
@@ -23,16 +26,7 @@ export async function fetchWebPage(url: string): Promise<string> {
     throw new Error('URL is required');
   }
 
-  let parsed: URL;
-  try {
-    parsed = new URL(trimmed);
-  } catch {
-    throw new Error('Invalid URL');
-  }
-
-  if (!['http:', 'https:'].includes(parsed.protocol)) {
-    throw new Error('Only http/https URLs are supported');
-  }
+  const parsed = await assertPublicHttpUrl(trimmed);
 
   let response: Response;
   try {
