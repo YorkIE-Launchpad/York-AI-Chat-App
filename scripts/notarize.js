@@ -21,40 +21,111 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 const { notarize } = require('@electron/notarize');
 
-function signNestedSpeechHelper(appPath) {
-  const identity = process.env.CSC_NAME || process.env.CSC_IDENTITY;
+const ROOT = path.resolve(__dirname, '..');
+const MATTER_WIDGET_ENTITLEMENTS = path.join(
+  ROOT,
+  'native/macos-matter-widget/MatterWidgetExtension/MatterWidgetExtension.entitlements'
+);
+const MATTER_WIDGET_BUNDLE_ID = 'ie.york.app.MatterWidget';
+const SPEECH_HELPER_BUNDLE_ID = 'ie.york.vecos.speech-helper';
+
+function resolveSigningIdentity() {
+  if (process.env.CSC_NAME) {
+    return process.env.CSC_NAME;
+  }
+  if (process.env.CSC_IDENTITY) {
+    return process.env.CSC_IDENTITY;
+  }
+  try {
+    const out = execFileSync('security', ['find-identity', '-v', '-p', 'codesigning'], {
+      encoding: 'utf8',
+    });
+    const match = out.match(/"(Developer ID Application:[^"]+)"/);
+    if (match) {
+      return match[1];
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+function distributionCodesignArgs(identity) {
+  return ['--force', '--options', 'runtime', '--timestamp', '--sign', identity];
+}
+
+function signNestedBundlesForNotarization(appPath) {
+  const identity = resolveSigningIdentity();
   if (!identity) {
+    console.warn(
+      '[notarize] No Developer ID identity found — nested helpers may fail notarization.'
+    );
     return;
   }
-  const helperApp = path.join(
+
+  const speechHelper = path.join(
     appPath,
     'Contents',
     'Resources',
     'tools',
     'York GrowthOS.app'
   );
-  if (!fs.existsSync(helperApp)) {
-    return;
+  if (fs.existsSync(speechHelper)) {
+    console.log('[notarize] Signing nested speech helper bundle...');
+    execFileSync(
+      'codesign',
+      [
+        ...distributionCodesignArgs(identity),
+        '--deep',
+        '--identifier',
+        SPEECH_HELPER_BUNDLE_ID,
+        speechHelper,
+      ],
+      { stdio: 'inherit' }
+    );
   }
-  console.log('[notarize] Signing nested speech helper bundle...');
-  execFileSync(
-    'codesign',
-    [
-      '--force',
-      '--deep',
-      '--options',
-      'runtime',
-      '--sign',
-      identity,
-      '--identifier',
-      'ie.york.vecos.speech-helper',
-      helperApp,
-    ],
-    { stdio: 'inherit' }
+
+  const matterAppex = path.join(
+    appPath,
+    'Contents',
+    'PlugIns',
+    'MatterWidgetExtension.appex'
   );
+  if (fs.existsSync(matterAppex)) {
+    if (process.env.OMIT_MATTER_WIDGET_FOR_NOTARIZE === '1') {
+      console.log('[notarize] OMIT_MATTER_WIDGET_FOR_NOTARIZE=1 — removing Matter widget extension');
+      fs.rmSync(matterAppex, { recursive: true, force: true });
+    } else {
+      console.log('[notarize] Re-signing MatterWidgetExtension.appex for notarization...');
+      try {
+        execFileSync(
+          'codesign',
+          [
+            ...distributionCodesignArgs(identity),
+            '--identifier',
+            MATTER_WIDGET_BUNDLE_ID,
+            '--entitlements',
+            MATTER_WIDGET_ENTITLEMENTS,
+            matterAppex,
+          ],
+          { stdio: 'inherit' }
+        );
+      } catch (error) {
+        console.warn(
+          '[notarize] Matter widget Developer ID sign failed — removing extension so notarization can succeed.'
+        );
+        console.warn(
+          '[notarize] For a notarized desktop widget, set MATTER_WIDGET_DEVELOPMENT_TEAM and provisioning profiles, then rebuild.'
+        );
+        fs.rmSync(matterAppex, { recursive: true, force: true });
+      }
+    }
+  }
+
+  console.log('[notarize] Re-signing main app bundle (deep)...');
   execFileSync(
     'codesign',
-    ['--force', '--deep', '--options', 'runtime', '--sign', identity, appPath],
+    [...distributionCodesignArgs(identity), '--deep', appPath],
     { stdio: 'inherit' }
   );
 }
@@ -87,7 +158,7 @@ exports.default = async function afterSign(context) {
   }
 
   // Built-in electron-builder notarization is disabled (mac.notarize: false).
-  signNestedSpeechHelper(appPath);
+  signNestedBundlesForNotarization(appPath);
   console.log(`[notarize] Notarizing ${appId} at ${appPath} (afterSign only) ...`);
 
   await notarize({

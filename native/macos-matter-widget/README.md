@@ -27,6 +27,8 @@ npm run build:matter-widget
 
 Skip the widget entirely (e.g. speech-helper-only release): `SKIP_MATTER_WIDGET=1 npm run build`
 
+Notarized releases re-sign (or omit) the ad-hoc `.appex` in `scripts/notarize.js` before `notarytool`. To ship without the desktop widget: `OMIT_MATTER_WIDGET_FOR_NOTARIZE=1 npm run build:s3`
+
 Outputs:
 
 - `resources/matter-widget/darwin-<arch>/MatterWidgetExtension.appex`
