@@ -1,6 +1,6 @@
 {
   "name": "york-ie",
-  "version": "4.2.1",
+  "version": "4.2.2",
   "description": "Open-source AI agent desktop app for Windows & macOS — one-click install Claude Code, MCP tools, and Skills with sandbox isolation and multi-model support",
   "keywords": [
     "ai-agent",
@@ -88,7 +88,7 @@
     "@xyflow/react": "12.11.2",
     "archiver": "^7.0.1",
     "aws-jwt-verify": "5.2.1",
-    "better-sqlite3": "^12.8.0",
+    "better-sqlite3": "13.0.3",
     "chokidar": "^4.0.1",
     "concurrently": "^9.1.2",
     "dotenv": "^17.2.3",
@@ -133,7 +133,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "@vitest/coverage-v8": "4.1.5",
     "autoprefixer": "^10.5.0",
-    "electron": "41.10.3",
+    "electron": "43.7.1",
     "electron-builder": "^26.8.1",
     "eslint": "^8.56.0",
     "eslint-plugin-react-hooks": "^4.6.0",
