@@ -85,9 +85,33 @@ module.exports = async function afterPack(context) {
   // Determine the app resources path
   let resourcesDir;
   if (platform === 'darwin') {
-    // macOS: York IE VECOS.app/Contents/Resources/app.asar.unpacked/...
     const appName = `${context.packager.appInfo.productFilename}.app`;
-    resourcesDir = path.join(appOutDir, appName, 'Contents', 'Resources');
+    const appBundle = path.join(appOutDir, appName);
+    const widgetAppex = path.join(appBundle, 'Contents', 'PlugIns', 'MatterWidgetExtension.appex');
+    if (!fs.existsSync(widgetAppex)) {
+      console.warn(
+        '  ⚠ Matter widget extension missing at Contents/PlugIns/MatterWidgetExtension.appex — run npm run build:matter-widget before packaging'
+      );
+    } else {
+      console.log('  ✓ Matter widget extension present in PlugIns');
+    }
+    // macOS: York IE VECOS.app/Contents/Resources/app.asar.unpacked/...
+    resourcesDir = path.join(appBundle, 'Contents', 'Resources');
+    const speechHelper = path.join(
+      resourcesDir,
+      'tools',
+      'York GrowthOS.app',
+      'Contents',
+      'MacOS',
+      'meeting-speech-transcriber'
+    );
+    if (!fs.existsSync(speechHelper)) {
+      console.warn(
+        '  ⚠ On-device speech helper missing at Contents/Resources/tools/York GrowthOS.app — run npm run build:speech-transcriber before packaging'
+      );
+    } else {
+      console.log('  ✓ On-device speech helper present in Resources/tools');
+    }
   } else {
     resourcesDir = path.join(appOutDir, 'resources');
   }

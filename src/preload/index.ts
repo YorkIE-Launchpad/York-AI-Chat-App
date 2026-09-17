@@ -68,6 +68,7 @@ import type { AuthStatusResponse, AuthUser, AuthOAuthDebugInfo } from '../shared
 import type { AllocatedHubProject, PersonalFolder } from '../shared/workspace-division';
 import type { UnifiedCompanyProject } from '../shared/unified-company-projects';
 import type { MatterItemActionInput, MatterRuntimeConfig, MatterSnapshot } from '../shared/matter';
+import type { MatterOpenDeepLink } from '../shared/matter-deeplink';
 
 // Track registered callbacks to prevent duplicate listeners
 let registeredCallback: ((event: ServerEvent) => void) | null = null;
@@ -777,6 +778,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
         callback(snapshot);
       ipcRenderer.on('matter:updated', listener);
       return () => ipcRenderer.removeListener('matter:updated', listener);
+    },
+    onOpenDeepLink: (callback: (link: MatterOpenDeepLink) => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, link: MatterOpenDeepLink) =>
+        callback(link);
+      ipcRenderer.on('matter:openDeepLink', listener);
+      return () => ipcRenderer.removeListener('matter:openDeepLink', listener);
     },
   },
 
@@ -1518,6 +1525,7 @@ declare global {
         clearMute: (key: string) => Promise<MatterSnapshot>;
         buildChatPrompt: (prompt: string, itemIds?: string[]) => Promise<{ prompt: string }>;
         onUpdated: (callback: (snapshot: MatterSnapshot) => void) => () => void;
+        onOpenDeepLink: (callback: (link: MatterOpenDeepLink) => void) => () => void;
       };
       loop: {
         start: (payload: ChatLoopStartInput) => Promise<ChatLoopStatus>;

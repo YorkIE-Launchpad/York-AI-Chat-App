@@ -111,7 +111,8 @@ jobs:
             "mcp/software-dev-server-example.js" \
             "node/bin/node" \
             "lima-agent/index.js" \
-            "skills"; do
+            "skills" \
+            "tools/York GrowthOS.app/Contents/MacOS/meeting-speech-transcriber"; do
             if [ -e "$RESOURCES/$check" ]; then
               echo "  OK: $check"
             else

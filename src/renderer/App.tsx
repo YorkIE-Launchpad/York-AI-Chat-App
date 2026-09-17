@@ -120,6 +120,8 @@ function AuthenticatedApp() {
     }
   }, [activeSessionId, showSettings, showMatter, showWorkflows]);
   const setShowMatter = useAppStore((s) => s.setShowMatter);
+  const openMatterToMeeting = useAppStore((s) => s.openMatterToMeeting);
+  const openMatterToItem = useAppStore((s) => s.openMatterToItem);
   const setShowWorkflows = useAppStore((s) => s.setShowWorkflows);
   const setMatterBadgeCount = useAppStore((s) => s.setMatterBadgeCount);
   const { sidebarCollapsed } = useLayoutState();
@@ -198,6 +200,22 @@ function AuthenticatedApp() {
       off();
     };
   }, [isElectron, setMatterBadgeCount, setShowMatter]);
+
+  useEffect(() => {
+    if (!isElectron || !window.electronAPI?.matter?.onOpenDeepLink) return;
+    const off = window.electronAPI.matter.onOpenDeepLink((link) => {
+      if (link.type === 'home') {
+        setShowMatter(true);
+        return;
+      }
+      if (link.type === 'meeting') {
+        openMatterToMeeting(link.meetingId);
+        return;
+      }
+      openMatterToItem(link.itemId);
+    });
+    return off;
+  }, [isElectron, openMatterToItem, openMatterToMeeting, setShowMatter]);
 
   useEffect(() => {
     if (!isElectron || !window.electronAPI?.meetings) {

@@ -88,6 +88,9 @@ win:
 
 mac:
   icon: resources/icon.icns
+  extraFiles:
+    - from: resources/matter-widget/darwin-${arch}/MatterWidgetExtension.appex
+      to: PlugIns/MatterWidgetExtension.appex
   target:
     - target: dir
       arch:
@@ -101,6 +104,10 @@ mac:
   entitlements: resources/entitlements.mac.plist
   entitlementsInherit: resources/entitlements.mac.plist
   extendInfo:
+    CFBundleURLTypes:
+      - CFBundleURLName: ie.york.app
+        CFBundleURLSchemes:
+          - yorkgrowthos
     LSApplicationCategoryType: public.app-category.developer-tools
     NSMicrophoneUsageDescription: 'York GrowthOS needs microphone access to capture your voice during meetings.'
     NSSpeechRecognitionUsageDescription: 'York GrowthOS uses on-device speech recognition to transcribe meetings when Zoom captions are unavailable.'

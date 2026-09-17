@@ -16,7 +16,48 @@
  * built-in notarization does not run in addition to this hook (which would double
  * upload/poll time for large apps).
  */
+const fs = require('fs');
+const path = require('path');
+const { execFileSync } = require('child_process');
 const { notarize } = require('@electron/notarize');
+
+function signNestedSpeechHelper(appPath) {
+  const identity = process.env.CSC_NAME || process.env.CSC_IDENTITY;
+  if (!identity) {
+    return;
+  }
+  const helperApp = path.join(
+    appPath,
+    'Contents',
+    'Resources',
+    'tools',
+    'York GrowthOS.app'
+  );
+  if (!fs.existsSync(helperApp)) {
+    return;
+  }
+  console.log('[notarize] Signing nested speech helper bundle...');
+  execFileSync(
+    'codesign',
+    [
+      '--force',
+      '--deep',
+      '--options',
+      'runtime',
+      '--sign',
+      identity,
+      '--identifier',
+      'ie.york.vecos.speech-helper',
+      helperApp,
+    ],
+    { stdio: 'inherit' }
+  );
+  execFileSync(
+    'codesign',
+    ['--force', '--deep', '--options', 'runtime', '--sign', identity, appPath],
+    { stdio: 'inherit' }
+  );
+}
 
 exports.default = async function afterSign(context) {
   const { electronPlatformName, appOutDir } = context;
@@ -46,6 +87,7 @@ exports.default = async function afterSign(context) {
   }
 
   // Built-in electron-builder notarization is disabled (mac.notarize: false).
+  signNestedSpeechHelper(appPath);
   console.log(`[notarize] Notarizing ${appId} at ${appPath} (afterSign only) ...`);
 
   await notarize({

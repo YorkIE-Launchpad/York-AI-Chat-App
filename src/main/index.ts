@@ -163,6 +163,12 @@ import {
 import { createScheduledTaskStore } from './schedule/scheduled-task-store';
 import { executeScheduledTask } from './schedule/execute-scheduled-task';
 import { MatterService } from './matter/matter-service';
+import {
+  consumeLaunchDeepLinkArgv,
+  flushPendingMatterDeepLink,
+  installMatterDeepLinkListeners,
+  registerMatterDeepLinkProtocol,
+} from './matter/matter-deeplink-handlers';
 import type { MatterItemActionInput, MatterRuntimeConfig, MatterSnapshot } from '../shared/matter';
 import {
   ChatLoopManager,
@@ -613,6 +619,8 @@ function applyAppBranding() {
 }
 
 applyAppBranding();
+registerMatterDeepLinkProtocol();
+consumeLaunchDeepLinkArgv(process.argv);
 
 // macOS Media Session / Music TCC mitigations run in bootstrap-app-data (imported
 // first) so Chromium never probes MediaPlayer or ~/Music during startup.
@@ -1074,6 +1082,32 @@ function showMeetingOsNotification(options: { title: string; body: string }): vo
   });
 }
 
+function focusMainWindow(): void {
+  const existingWindow =
+    mainWindow && !mainWindow.isDestroyed()
+      ? mainWindow
+      : BrowserWindow.getAllWindows().find((window) => !window.isDestroyed()) ?? null;
+
+  if (!existingWindow) {
+    createWindow();
+    return;
+  }
+
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    mainWindow = existingWindow;
+  }
+  if (existingWindow.isMinimized()) {
+    existingWindow.restore();
+  }
+  existingWindow.show();
+  existingWindow.focus();
+}
+
+const matterDeepLinkAccess = {
+  getMainWindow: () => mainWindow,
+  focusMainWindow,
+};
+
 function createWindow() {
   const savedTheme = getSavedThemePreference();
   applyNativeThemePreference(savedTheme);
@@ -1274,8 +1308,11 @@ function createWindow() {
 
     // Late-open Zoom: deliver auto-start that fired before the renderer was ready.
     flushPendingMeetingsAutoStart();
+    flushPendingMatterDeepLink(matterDeepLinkAccess);
   });
 }
+
+installMatterDeepLinkListeners(matterDeepLinkAccess);
 
 /**
  * Initialize default working directory

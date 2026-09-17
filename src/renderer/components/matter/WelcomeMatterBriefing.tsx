@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowRight, Radio, RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { DEFAULT_MATTER_RUNTIME, type MatterItem, type MatterSnapshot } from '../../../shared/matter';
+import { DEFAULT_MATTER_RUNTIME, type MatterSnapshot } from '../../../shared/matter';
+import { pickTopMatterItems } from '../../../shared/matter-widget';
 import { useAppStore } from '../../store';
 
 function briefLabelKey(
@@ -24,15 +25,6 @@ const EMPTY_SNAPSHOT: Pick<
   criticalCount: 0,
   warningCount: 0,
 };
-
-function pickTopItems(items: MatterItem[], limit = 3): MatterItem[] {
-  const rank = (item: MatterItem) => {
-    if (item.severity === 'critical') return 0;
-    if (item.severity === 'warning') return 1;
-    return 2;
-  };
-  return [...items].sort((a, b) => rank(a) - rank(b)).slice(0, limit);
-}
 
 const SEVERITY_DOT: Record<string, string> = {
   critical: 'bg-red-500',
@@ -82,7 +74,7 @@ export function WelcomeMatterBriefing() {
   }, [matterEnabled, applySnapshot]);
 
   const briefLabel = t(briefLabelKey(new Date().getHours()));
-  const topItems = useMemo(() => pickTopItems(snapshot.items), [snapshot.items]);
+  const topItems = useMemo(() => pickTopMatterItems(snapshot.items), [snapshot.items]);
   const narrative =
     snapshot.morningBrief?.trim() ||
     snapshot.pulse?.trim() ||

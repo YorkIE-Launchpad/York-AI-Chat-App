@@ -65,7 +65,9 @@ CLAUDE.md
 dist*
 resources/node
 resources/tools
+resources/matter-widget
 resources/python
+.build/matter-widget-*
 docs/
 /.mcp.json
 /eng.traineddata

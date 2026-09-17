@@ -1,6 +1,6 @@
 {
   "name": "york-ie",
-  "version": "4.2.0",
+  "version": "4.2.1",
   "description": "Open-source AI agent desktop app for Windows & macOS — one-click install Claude Code, MCP tools, and Skills with sandbox isolation and multi-model support",
   "keywords": [
     "ai-agent",
@@ -39,7 +39,7 @@
   "scripts": {
     "dev": "YORK_IE_APP_DATA_ENV=dev npx concurrently -k -n backend,app \"npm run dev:backend\" \"npm run download:node && npm run brand:electron && npm run build:wsl-agent && npm run build:lima-agent && npm run build:mcp && vite\"",
     "dev:with-python": "YORK_IE_APP_DATA_ENV=dev npm run download:node && npm run brand:electron && npm run prepare:python && npm run build:wsl-agent && npm run build:lima-agent && npm run build:mcp && vite",
-    "build": "npm run download:node && npm run prepare:gui-tools && npm run build:speech-transcriber && npm run prepare:python:all && npm run build:wsl-agent && npm run build:lima-agent && npm run build:mcp && tsc && rimraf dist-electron release && vite build && node scripts/stage-env-prod.js && node scripts/pre-build-check.js && electron-builder",
+    "build": "npm run download:node && npm run prepare:gui-tools && npm run build:speech-transcriber && npm run build:matter-widget && npm run prepare:python:all && npm run build:wsl-agent && npm run build:lima-agent && npm run build:mcp && tsc && rimraf dist-electron release && vite build && node scripts/stage-env-prod.js && node scripts/pre-build-check.js && electron-builder",
     "build:s3": "npm run build && npm run upload:s3",
     "build:win": "node scripts/build-windows.js",
     "version:bump": "node scripts/bump-version.js",
@@ -54,6 +54,7 @@
     "prepare": "husky",
     "prepare:gui-tools": "node scripts/prepare-gui-tools.js && npm run build:mic-probe",
     "build:speech-transcriber": "bash scripts/build-macos-speech-transcriber.sh",
+    "build:matter-widget": "bash scripts/build-macos-matter-widget.sh",
     "build:mic-probe": "bash scripts/build-macos-mic-probe.sh",
     "prepare:python": "node scripts/prepare-python.js",
     "prepare:python:all": "node scripts/prepare-python.js --all",

@@ -98,8 +98,10 @@ export function MatterPage({ onClose }: MatterPageProps) {
   const setMatterBadgeCount = useAppStore((s) => s.setMatterBadgeCount);
   const setMatterChatDraft = useAppStore((s) => s.setMatterChatDraft);
   const matterFocusMeetingId = useAppStore((s) => s.matterFocusMeetingId);
+  const matterFocusItemId = useAppStore((s) => s.matterFocusItemId);
   const matterFocusPrepFullscreen = useAppStore((s) => s.matterFocusPrepFullscreen);
   const setMatterFocusMeetingId = useAppStore((s) => s.setMatterFocusMeetingId);
+  const setMatterFocusItemId = useAppStore((s) => s.setMatterFocusItemId);
 
   const [snapshot, setSnapshot] = useState<MatterSnapshot>(EMPTY_SNAPSHOT);
   const [leftTab, setLeftTab] = useState<MatterLeftTab>('signals');
@@ -137,6 +139,21 @@ export function MatterPage({ onClose }: MatterPageProps) {
     if (!window.electronAPI?.matter) return;
     return window.electronAPI.matter.onUpdated(applySnapshot);
   }, [refresh, applySnapshot]);
+
+  useEffect(() => {
+    if (!matterFocusItemId) return;
+    const exists = snapshot.items.some((i) => i.id === matterFocusItemId);
+    if (exists) {
+      setLeftTab('signals');
+      setSelectedId(matterFocusItemId);
+      setSelectedMeetingId(null);
+      setMatterFocusItemId(null);
+      return;
+    }
+    if (snapshot.items.length === 0 && snapshot.scanning) return;
+    setLeftTab('signals');
+    setMatterFocusItemId(null);
+  }, [matterFocusItemId, snapshot.items, snapshot.scanning, setMatterFocusItemId]);
 
   useEffect(() => {
     if (!matterFocusMeetingId) return;

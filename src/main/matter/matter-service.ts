@@ -32,6 +32,7 @@ import { rankMatterSignals } from './matter-ranker';
 import { MatterScheduler } from './matter-scheduler';
 import { notifyMatterBrief, notifyMatterItem } from './matter-notifications';
 import { selectMatterScanNotifyItems } from '../os-notifications';
+import { publishMatterWidgetSnapshot } from './matter-widget-bridge';
 import {
   shouldFireExpiry,
   shouldFireReminder,
@@ -930,10 +931,12 @@ export class MatterService {
 
   private pushSnapshot(): void {
     try {
+      const snapshot = this.getSnapshot();
       const win = this.getMainWindow?.();
       if (win && !win.isDestroyed()) {
-        win.webContents.send('matter:updated', this.getSnapshot());
+        win.webContents.send('matter:updated', snapshot);
       }
+      publishMatterWidgetSnapshot(snapshot);
     } catch (error) {
       logWarn('[Matter] Failed to push snapshot:', error);
     }

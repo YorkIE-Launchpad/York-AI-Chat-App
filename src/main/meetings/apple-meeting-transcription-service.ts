@@ -7,10 +7,10 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 const execFileAsync = promisify(execFile);
-import { app } from 'electron';
 import { resolveMeetingSttProviderFromEnv } from '../../shared/meetings/meeting-stt-provider';
 import type { MeetingSttProviderConfig } from '../../shared/meetings/meeting-stt-config';
 import { DICTATION_APPLE_SESSION_ID } from '../dictation/dictation-apple-sink';
+import { listMacBundledToolsSearchRoots } from '../utils/macos-bundled-tools';
 import { log, logWarn } from '../utils/logger';
 
 export type AppleTranscriptionErrorListener = (message: string) => void;
@@ -110,34 +110,21 @@ export function resolveMeetingSpeechTranscriberPath(): string | null {
   if (process.platform !== 'darwin') {
     return null;
   }
-  const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
   const candidates: string[] = [];
 
   const pushBundledCandidates = (toolsRoot: string) => {
     for (const bundleName of SPEECH_HELPER_APP_BUNDLE_NAMES) {
       candidates.push(path.join(toolsRoot, bundledSpeechTranscriberExecutable(bundleName)));
     }
+    candidates.push(path.join(toolsRoot, 'bin', 'meeting-speech-transcriber'));
   };
-
-  try {
-    if (app?.isPackaged) {
-      pushBundledCandidates(path.join(process.resourcesPath || '', 'tools', `darwin-${arch}`));
-    }
-  } catch {
-    // app may be unavailable in unit tests
-  }
 
   const projectRootGuesses = [
     path.join(__dirname, '../../../resources/tools'),
     path.join(process.cwd(), 'resources/tools'),
   ];
-  for (const root of projectRootGuesses) {
-    pushBundledCandidates(path.join(root, `darwin-${arch}`));
-  }
-
-  // Fallback: binary with embedded __info_plist (same build as inside .app).
-  for (const root of projectRootGuesses) {
-    candidates.push(path.join(root, `darwin-${arch}`, 'bin', 'meeting-speech-transcriber'));
+  for (const toolsRoot of listMacBundledToolsSearchRoots(projectRootGuesses)) {
+    pushBundledCandidates(toolsRoot);
   }
 
   for (const candidate of candidates) {

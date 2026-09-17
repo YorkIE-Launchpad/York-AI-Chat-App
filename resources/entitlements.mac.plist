@@ -20,6 +20,11 @@
     <true/>
     <key>com.apple.security.device.audio-input</key>
     <true/>
+    <key>com.apple.security.application-groups</key>
+    <array>
+        <string>group.ie.york.app</string>
+        <string>group.ie.york.vecos.dev</string>
+    </array>
 </dict>
 </plist>
 

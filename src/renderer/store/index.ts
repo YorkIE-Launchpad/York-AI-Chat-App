@@ -131,6 +131,8 @@ interface AppState {
   matterBadgeCount: number;
   /** When opening Matter, switch to Calendar and select this meeting id. */
   matterFocusMeetingId: string | null;
+  /** When opening Matter, switch to Signals and select this item id. */
+  matterFocusItemId: string | null;
   /** When true with focus meeting, open prep note fullscreen. */
   matterFocusPrepFullscreen: boolean;
   /** Meeting id currently running Prep (sidebar + Matter detail share this). */
@@ -271,6 +273,8 @@ interface AppState {
   setSettingsTab: (tab: string | null) => void;
   setMatterBadgeCount: (count: number) => void;
   setMatterFocusMeetingId: (meetingId: string | null) => void;
+  setMatterFocusItemId: (itemId: string | null) => void;
+  openMatterToItem: (itemId: string) => void;
   openMatterToMeeting: (
     meetingId: string,
     options?: { prepFullscreen?: boolean }
@@ -390,6 +394,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   settingsTab: null,
   matterBadgeCount: 0,
   matterFocusMeetingId: null,
+  matterFocusItemId: null,
   matterFocusPrepFullscreen: false,
   matterPrepLoadingId: null,
   askGrowthOSOpen: false,
@@ -955,9 +960,22 @@ export const useAppStore = create<AppState>((set, get) => ({
         ? { matterFocusMeetingId: null, matterFocusPrepFullscreen: false }
         : { matterFocusMeetingId: meetingId }
     ),
+  setMatterFocusItemId: (itemId) =>
+    set(itemId == null ? { matterFocusItemId: null } : { matterFocusItemId: itemId }),
+  openMatterToItem: (itemId) =>
+    set({
+      matterFocusItemId: itemId,
+      matterFocusMeetingId: null,
+      matterFocusPrepFullscreen: false,
+      showMatter: true,
+      showSettings: false,
+      showWorkflows: false,
+      activeSessionId: null,
+    }),
   openMatterToMeeting: (meetingId, options) =>
     set({
       matterFocusMeetingId: meetingId,
+      matterFocusItemId: null,
       matterFocusPrepFullscreen: Boolean(options?.prepFullscreen),
       showMatter: true,
       showSettings: false,
