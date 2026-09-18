@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import Database from 'better-sqlite3';
+import { DatabaseSync } from 'node:sqlite';
 import type {
   SharedDocAclEntry,
   SharedDocKind,
@@ -12,7 +12,7 @@ import type {
 
 const MAX_VERSION_HISTORY = 20;
 
-let dbSingleton: Database.Database | null = null;
+let dbSingleton: DatabaseSync | null = null;
 
 function resolveDbPath(): string {
   const fromEnv = process.env.SHARE_DOCS_DB_PATH?.trim();
@@ -21,12 +21,12 @@ function resolveDbPath(): string {
   return join(dataDir, 'share-docs.sqlite');
 }
 
-export function getShareDocDb(dbPath?: string): Database.Database {
+export function getShareDocDb(dbPath?: string): DatabaseSync {
   if (dbSingleton && !dbPath) return dbSingleton;
   const path = dbPath ?? resolveDbPath();
   mkdirSync(dirname(path), { recursive: true });
-  const db = new Database(path);
-  db.pragma('journal_mode = WAL');
+  const db = new DatabaseSync(path);
+  db.exec('PRAGMA journal_mode = WAL');
   db.exec(`
     CREATE TABLE IF NOT EXISTS shared_docs (
       id TEXT PRIMARY KEY,
