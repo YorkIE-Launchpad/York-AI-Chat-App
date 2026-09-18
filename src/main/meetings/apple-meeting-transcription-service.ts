@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
@@ -6,13 +6,13 @@ import * as net from 'node:net';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-const execFileAsync = promisify(execFile);
 import { resolveMeetingSttProviderFromEnv } from '../../shared/meetings/meeting-stt-provider';
 import type { MeetingSttProviderConfig } from '../../shared/meetings/meeting-stt-config';
 import { DICTATION_APPLE_SESSION_ID } from '../dictation/dictation-apple-sink';
 import { listMacBundledToolsSearchRoots } from '../utils/macos-bundled-tools';
 import { log, logWarn } from '../utils/logger';
 
+const execFileAsync = promisify(execFile);
 export type AppleTranscriptionErrorListener = (message: string) => void;
 
 let dictationAppleErrorListener: AppleTranscriptionErrorListener | null = null;
@@ -89,14 +89,31 @@ export function parseAppleHelperEventLine(line: string): AppleHelperEvent | null
   return null;
 }
 
-export function isMacOs26OrNewer(): boolean {
+/**
+ * True on macOS 26+ (Tahoe) and newer (27, …).
+ *
+ * Also accepts major `16`: older SDKs / SYSTEM_VERSION_COMPAT report Tahoe as 16.x
+ * while kern.osproductversion is 26+. When the version string is missing, Darwin 25+
+ * is used as a kernel-side equivalent of macOS 26+.
+ */
+export function isMacOs26OrNewer(systemVersion = readMacOsSystemVersion()): boolean {
   if (process.platform !== 'darwin') {
     return false;
   }
-  const version =
-    typeof process.getSystemVersion === 'function' ? process.getSystemVersion() : '';
-  const major = Number.parseInt(version.split('.')[0] || '0', 10);
-  return Number.isFinite(major) && major >= 26;
+  const major = Number.parseInt(String(systemVersion).split('.')[0] || '', 10);
+  if (Number.isFinite(major) && major > 0) {
+    // 16 = Tahoe compat numbering; 26+ = marketing / current numbering (26, 27, …).
+    return major >= 26 || major === 16;
+  }
+  const darwinMajor = Number.parseInt(os.release().split('.')[0] || '0', 10);
+  return Number.isFinite(darwinMajor) && darwinMajor >= 25;
+}
+
+function readMacOsSystemVersion(): string {
+  if (typeof process.getSystemVersion === 'function') {
+    return process.getSystemVersion();
+  }
+  return '';
 }
 
 const SPEECH_HELPER_APP_BUNDLE_NAMES = ['York GrowthOS.app', 'MeetingSpeechTranscriber.app'];
@@ -190,6 +207,29 @@ export function getMeetingSttProviderConfig(): MeetingSttProviderConfig {
   };
 }
 
+function isAppTranslocationPath(filePath: string): boolean {
+  return filePath.includes('/AppTranslocation/');
+}
+
+function formatSpeechHelperLaunchError(error: unknown, appBundle: string | null): string {
+  const raw = error instanceof Error ? error.message : String(error);
+  if (appBundle && isAppTranslocationPath(appBundle)) {
+    return (
+      'Speech helper could not launch because York GrowthOS is running from a temporary ' +
+      'App Translocation path (usually a quarantined download). Move York GrowthOS.app to ' +
+      '/Applications with Finder, quit, and reopen it from there.'
+    );
+  }
+  if (raw.includes('-10825') || raw.includes('kLSIncompatibleSystemVersionErr')) {
+    return (
+      'Speech helper is incompatible with this macOS version (Launch Services -10825). ' +
+      'Rebuild with npm run build:speech-transcriber so the helper targets macOS 26.0 ' +
+      '(runs on 26 and 27+), then reinstall.'
+    );
+  }
+  return raw || 'Speech recognition authorization failed';
+}
+
 export class AppleMeetingTranscriptionService {
   /** One-shot Speech Recognition prompt (optional; live sessions authorize in the helper). */
   async requestSpeechAccess(): Promise<void> {
@@ -205,21 +245,33 @@ export class AppleMeetingTranscriptionService {
     try {
       if (appBundle) {
         // Launch as a real .app so macOS loads Info.plist and shows the Speech Recognition prompt.
-        await execFileAsync(
-          'open',
-          ['-g', '-j', '-W', '-n', appBundle, '--args', '--authorize-only'],
-          { timeout: 120_000, maxBuffer: 256_000 }
-        );
-        return;
+        try {
+          await execFileAsync(
+            'open',
+            ['-g', '-j', '-W', '-n', appBundle, '--args', '--authorize-only'],
+            { timeout: 120_000, maxBuffer: 256_000 }
+          );
+          return;
+        } catch (openError) {
+          // Direct exec still embeds NSSpeechRecognitionUsageDescription; use when `open`
+          // fails under App Translocation or a mismatched Mach-O minos.
+          logWarn(
+            '[Meetings] open(speech helper) failed; falling back to direct exec',
+            openError
+          );
+          await execFileAsync(helperPath, ['--authorize-only'], {
+            timeout: 120_000,
+            maxBuffer: 256_000,
+          });
+          return;
+        }
       }
       await execFileAsync(helperPath, ['--authorize-only'], {
         timeout: 120_000,
         maxBuffer: 256_000,
       });
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'Speech recognition authorization failed';
-      throw new Error(message);
+      throw new Error(formatSpeechHelperLaunchError(error, appBundle));
     }
   }
 
@@ -292,9 +344,27 @@ export class AppleMeetingTranscriptionService {
             ['-g', '-j', '-n', appBundle, '--args', '--socket', socketPath],
             { timeout: 15_000 }
           );
-        } catch (error) {
-          clearTimeout(timeout);
-          fail(error instanceof Error ? error : new Error(String(error)));
+        } catch (openError) {
+          const helperPath = resolveMeetingSpeechTranscriberPath();
+          if (!helperPath) {
+            clearTimeout(timeout);
+            fail(new Error(formatSpeechHelperLaunchError(openError, appBundle)));
+            return;
+          }
+          logWarn(
+            '[Meetings] open(speech helper) failed; spawning helper directly',
+            openError
+          );
+          try {
+            const child = spawn(helperPath, ['--socket', socketPath], {
+              detached: true,
+              stdio: 'ignore',
+            });
+            child.unref();
+          } catch (spawnError) {
+            clearTimeout(timeout);
+            fail(new Error(formatSpeechHelperLaunchError(spawnError, appBundle)));
+          }
         }
       });
     });

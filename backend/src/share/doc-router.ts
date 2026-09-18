@@ -40,6 +40,12 @@ function parseKind(value: unknown): SharedDocKind | null {
   return null;
 }
 
+/** Express may type route params as `string | string[]`; normalize to a single string. */
+function routeParam(value: string | string[] | undefined): string {
+  if (Array.isArray(value)) return value[0] ?? '';
+  return typeof value === 'string' ? value : '';
+}
+
 export function createShareDocRouter(): Router {
   const router = Router();
 
@@ -125,7 +131,7 @@ export function createShareDocRouter(): Router {
     const caller = requireCaller(req, res);
     if (!caller) return;
 
-    const doc = getSharedDoc(req.params.id);
+    const doc = getSharedDoc(routeParam(req.params.id));
     if (!doc) {
       res.status(404).json({ error: 'Document not found' });
       return;
@@ -142,7 +148,7 @@ export function createShareDocRouter(): Router {
     const caller = requireCaller(req, res);
     if (!caller) return;
 
-    const doc = getSharedDoc(req.params.id);
+    const doc = getSharedDoc(routeParam(req.params.id));
     if (!doc) {
       res.status(404).json({ error: 'Document not found' });
       return;
@@ -184,7 +190,7 @@ export function createShareDocRouter(): Router {
     const caller = requireCaller(req, res);
     if (!caller) return;
 
-    const doc = getSharedDoc(req.params.id);
+    const doc = getSharedDoc(routeParam(req.params.id));
     if (!doc) {
       res.status(404).json({ error: 'Document not found' });
       return;
@@ -214,7 +220,7 @@ export function createShareDocRouter(): Router {
     const caller = requireCaller(req, res);
     if (!caller) return;
 
-    const doc = getSharedDoc(req.params.id);
+    const doc = getSharedDoc(routeParam(req.params.id));
     if (!doc) {
       res.status(404).json({ error: 'Document not found' });
       return;
@@ -224,7 +230,7 @@ export function createShareDocRouter(): Router {
       return;
     }
 
-    const principal = decodeURIComponent(req.params.principal).trim().toLowerCase();
+    const principal = decodeURIComponent(routeParam(req.params.principal)).trim().toLowerCase();
     const updated = removeAcl(doc.id, principal);
     res.json(withAccess(updated, 'owner'));
   });
@@ -233,7 +239,7 @@ export function createShareDocRouter(): Router {
     const caller = requireCaller(req, res);
     if (!caller) return;
 
-    const doc = getSharedDoc(req.params.id);
+    const doc = getSharedDoc(routeParam(req.params.id));
     if (!doc) {
       res.status(404).json({ error: 'Document not found' });
       return;

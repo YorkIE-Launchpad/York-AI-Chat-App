@@ -18,13 +18,21 @@ if [[ ! -f "$SRC" ]]; then
 fi
 
 case "$ARCH" in
-  arm64) DEST_ARCH="arm64" ;;
-  x86_64) DEST_ARCH="x64" ;;
+  arm64) DEST_ARCH="arm64"; SWIFT_TRIPLE_ARCH="arm64" ;;
+  x86_64) DEST_ARCH="x64"; SWIFT_TRIPLE_ARCH="x86_64" ;;
   *)
     echo "[meeting-speech-transcriber] Unsupported arch: $ARCH" >&2
     exit 1
     ;;
 esac
+
+# Pin Mach-O minos to 26.0 (same as Info.plist LSMinimumSystemVersion) so one helper
+# binary runs on both macOS 26 and 27+. Without -target, swiftc defaults to the build
+# machine's OS (e.g. minos 27.0 on a 27 host) and Launch Services fails open(1) with
+# kLSIncompatibleSystemVersionErr (-10825) on macOS 26 / older-SDK Electron.
+SPEECH_HELPER_MIN_OS="26.0"
+SWIFT_TARGET="${SWIFT_TRIPLE_ARCH}-apple-macos${SPEECH_HELPER_MIN_OS}"
+export MACOSX_DEPLOYMENT_TARGET="$SPEECH_HELPER_MIN_OS"
 
 TOOL_ROOT="$TOOLS/darwin-${DEST_ARCH}"
 OUT_DIR="$TOOL_ROOT/bin"
@@ -71,9 +79,10 @@ EOF
 
 PLIST_ABS="$(cd "$(dirname "$PLIST")" && pwd)/$(basename "$PLIST")"
 
-echo "[meeting-speech-transcriber] Compiling for $DEST_ARCH → $OUT"
+echo "[meeting-speech-transcriber] Compiling for $DEST_ARCH (target $SWIFT_TARGET) → $OUT"
 # Embed Info.plist in the binary so TCC sees NSSpeechRecognitionUsageDescription when spawned from Electron.
 swiftc -O -whole-module-optimization \
+  -target "$SWIFT_TARGET" \
   -framework AppKit \
   -framework AVFoundation \
   -framework Speech \
@@ -149,7 +158,7 @@ JSON
     if xcrun actool --compile "$actool_out" "$staging/Assets.xcassets" \
       --app-icon AppIcon \
       --platform macosx \
-      --minimum-deployment-target 26.0 \
+      --minimum-deployment-target "$SPEECH_HELPER_MIN_OS" \
       --output-partial-info-plist /dev/null >/dev/null 2>&1; then
       cp -f "$actool_out/AppIcon.icns" "$resources_dir/AppIcon.icns" 2>/dev/null || cp -f "$icon_src" "$resources_dir/AppIcon.icns"
       if [[ -f "$actool_out/Assets.car" ]]; then

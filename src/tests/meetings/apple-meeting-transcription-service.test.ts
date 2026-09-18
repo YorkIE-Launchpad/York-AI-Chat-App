@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { parseAppleHelperEventLine } from '../../main/meetings/apple-meeting-transcription-service';
+import {
+  isMacOs26OrNewer,
+  parseAppleHelperEventLine,
+} from '../../main/meetings/apple-meeting-transcription-service';
 
 describe('parseAppleHelperEventLine', () => {
   it('parses ready', () => {
@@ -28,5 +31,23 @@ describe('parseAppleHelperEventLine', () => {
   it('ignores invalid lines', () => {
     expect(parseAppleHelperEventLine('not json')).toBeNull();
     expect(parseAppleHelperEventLine('{"type":"partial","text":""}')).toBeNull();
+  });
+});
+
+describe('isMacOs26OrNewer', () => {
+  it('accepts macOS 26 and 27 marketing versions', () => {
+    expect(isMacOs26OrNewer('26.0')).toBe(true);
+    expect(isMacOs26OrNewer('26.1.2')).toBe(true);
+    expect(isMacOs26OrNewer('27.0')).toBe(true);
+  });
+
+  it('accepts Tahoe compat major 16', () => {
+    expect(isMacOs26OrNewer('16.0')).toBe(true);
+    expect(isMacOs26OrNewer('16.0.0')).toBe(true);
+  });
+
+  it('rejects older macOS majors', () => {
+    expect(isMacOs26OrNewer('15.6')).toBe(false);
+    expect(isMacOs26OrNewer('14.0')).toBe(false);
   });
 });
