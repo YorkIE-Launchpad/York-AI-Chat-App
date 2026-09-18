@@ -82,9 +82,10 @@ export function AuthCallbackPage() {
       return;
     }
 
-    const redirectUri = authConfig.hubOAuthRedirectUrl;
-
     void (async () => {
+      const redirectUri =
+        (await window.electronAPI?.auth?.getHubOAuthRedirectUrl?.())?.trim() ||
+        authConfig.hubOAuthRedirectUrl;
       const result = await deliverOAuthCodeToApp(code, redirectUri);
       if (result.success) {
         setMessage('Sign-in complete. Closing…');

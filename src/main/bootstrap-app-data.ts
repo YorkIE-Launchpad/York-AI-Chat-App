@@ -13,6 +13,7 @@ import {
   resolveAppDataEnv,
   resolveAppDataName,
 } from '../shared/app-data-env';
+import { installJitlessSafeFetch } from './http/jitless-fetch';
 
 const appDataEnv = resolveAppDataEnv();
 const appDataName = resolveAppDataName();
@@ -54,3 +55,5 @@ if (process.platform === 'darwin') {
 }
 
 console.log(`[AppData] env=${appDataEnv} userData=${userDataPath}`);
+
+installJitlessSafeFetch();

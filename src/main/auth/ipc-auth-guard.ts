@@ -4,6 +4,7 @@ import { ensureAuthenticatedSession, AuthRequiredError } from './session';
 /** IPC channels that do not require an authenticated session. */
 export const PUBLIC_IPC_CHANNELS = new Set([
   'auth.getStatus',
+  'auth.getHubOAuthRedirectUrl',
   'auth.getOAuthDebug',
   'auth.startGoogleLogin',
   'auth.me',

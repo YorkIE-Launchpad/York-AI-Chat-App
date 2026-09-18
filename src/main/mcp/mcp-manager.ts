@@ -22,6 +22,7 @@ import { createHash } from 'crypto';
 import { app, BrowserWindow, shell } from 'electron';
 
 import path from 'path';
+import { killPidTree } from '../utils/kill-pid-tree';
 import {
   connectWithOAuthRetry,
   isMcpOAuthNonRetryableError,
@@ -402,6 +403,9 @@ export class MCPManager {
   private cognitoBearerTokensByServerId = new Map<string, string>();
   // Background connect retry loops (5s for 5min, then 30s until success/disable)
   private connectRetryControllers = new Map<string, AbortController>();
+  /** STDIO MCP child processes (tracked so quit can SIGKILL orphans we unref'd). */
+  private stdioChildProcesses = new Map<string, import('child_process').ChildProcess>();
+  private shuttingDown = false;
   // Server IDs allowed to open a browser for OAuth during the current connect
   private pendingInteractiveOAuth = new Set<string>();
   // Tracks per-server connection status for UI display
@@ -934,6 +938,35 @@ export class MCPManager {
     }
   }
 
+  /** Stop background reconnect loops and kill MCP child processes immediately on app quit. */
+  prepareForAppQuit(): void {
+    this.shuttingDown = true;
+    this.cancelAllConnectRetries();
+    this.forceKillStdioChildren();
+  }
+
+  private forceKillStdioChildren(): void {
+    for (const [serverId, proc] of this.stdioChildProcesses) {
+      const pid = proc.pid;
+      if (!pid || proc.exitCode != null || proc.signalCode != null) {
+        this.stdioChildProcesses.delete(serverId);
+        continue;
+      }
+      try {
+        // npx/npm exec leaves mcp-remote grandchildren; SIGKILL on the wrapper is not enough.
+        killPidTree(pid, process.pid);
+      } catch (error) {
+        logWarn(`[MCPManager] Failed to kill MCP child tree ${serverId}:`, error);
+      }
+    }
+    this.stdioChildProcesses.clear();
+    try {
+      killPidTree(process.pid, process.pid);
+    } catch {
+      /* ignore */
+    }
+  }
+
   /**
    * Start a background loop that retries connecting every 5s for 5 minutes,
    * then every 30s until the server connects or is disabled.
@@ -1049,6 +1082,9 @@ export class MCPManager {
     config: MCPServerConfig,
     options?: { interactiveOAuth?: boolean; quietStatus?: boolean }
   ): Promise<void> {
+    if (this.shuttingDown) {
+      return;
+    }
     log(`[MCPManager] Connecting to MCP server: ${config.name} (${config.type})`);
 
     // Mark status as connecting at the very start, before any transport creation
@@ -1570,7 +1606,9 @@ export class MCPManager {
             const childProcess = transportAny._process;
             log(`[MCPManager] MCP server process spawned with PID: ${childProcess.pid}`);
 
-            // Unref so this child process doesn't prevent parent exit
+            this.stdioChildProcesses.set(config.id, childProcess);
+
+            // Unref so a graceful disconnect is not blocked; prepareForAppQuit SIGKILLs these.
             childProcess.unref();
 
             // NOTE: Do NOT attach a 'data' listener to process.stdout here.
@@ -1580,6 +1618,7 @@ export class MCPManager {
 
             // Listen to process exit
             childProcess.on('exit', (code: number, signal: string) => {
+              this.stdioChildProcesses.delete(config.id);
               if (code !== null && code !== 0) {
                 logError(`[MCPManager] MCP server process exited with code ${code}`);
               } else if (signal) {
@@ -2147,6 +2186,7 @@ export class MCPManager {
     this.chromeReadyInFlight.delete(serverId);
     this.connectorAccessTokensByServerId.delete(serverId);
     this.cognitoBearerTokensByServerId.delete(serverId);
+    this.stdioChildProcesses.delete(serverId);
 
     log(`[MCPManager] Disconnected from server ${serverId}`);
   }
@@ -2870,7 +2910,15 @@ export class MCPManager {
    * Cleanup on shutdown
    */
   async shutdown(): Promise<void> {
-    await this.disconnectAll();
+    this.shuttingDown = true;
+    this.cancelAllConnectRetries();
+    await Promise.race([
+      this.disconnectAll(),
+      new Promise<void>((resolve) => {
+        setTimeout(resolve, 2500);
+      }),
+    ]);
+    this.forceKillStdioChildren();
   }
 }
 

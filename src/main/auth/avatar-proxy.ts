@@ -1,5 +1,6 @@
 import { authConfig } from '../../shared/auth-config';
 import { extractHubDocumentS3Key, normalizeProfileImageUrl } from './hub-parse';
+import { hubHttpRequest } from './hub-http';
 
 const cache = new Map<string, { dataUrl: string; expiresAt: number }>();
 const CACHE_TTL_MS = 60 * 60 * 1000;
@@ -42,14 +43,15 @@ async function fetchHubPresignedUrl(s3Key: string, bearerTokens: string[]): Prom
 
   for (const token of tokens) {
     try {
-      const res = await fetch(url.toString(), {
+      const res = await hubHttpRequest(url.toString(), {
         headers: {
           Authorization: `Bearer ${token}`,
           Accept: 'application/json',
         },
+        timeoutMs: 12_000,
       });
       if (!res.ok) continue;
-      const body = (await res.json()) as unknown;
+      const body = await res.json<unknown>();
       const signed = extractPresignedUrlFromBody(body);
       if (signed) return signed;
     } catch {
@@ -72,9 +74,12 @@ async function fetchImageBuffer(
       headers.Authorization = `Bearer ${token}`;
     }
     try {
-      const res = await fetch(imageUrl, { headers });
+      const res = await hubHttpRequest(imageUrl, {
+        headers,
+        timeoutMs: 20_000,
+      });
       if (!res.ok) continue;
-      const contentType = res.headers.get('content-type')?.split(';')[0]?.trim() || '';
+      const contentType = res.header('content-type')?.split(';')[0]?.trim() || '';
       if (!contentType.startsWith('image/')) continue;
       const buffer = Buffer.from(await res.arrayBuffer());
       return { buffer, contentType };

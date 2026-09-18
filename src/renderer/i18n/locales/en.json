@@ -107,6 +107,7 @@
     "updateAvailable": "Version {{version}} is available",
     "updateDownloading": "Downloading update… {{percent}}%",
     "updateReady": "Version {{version}} is ready to install",
+    "updatePreparing": "Preparing version {{version}} for install…",
     "updateError": "Update check failed",
     "checkForUpdates": "Check for updates",
     "restartToUpdate": "Restart to update",

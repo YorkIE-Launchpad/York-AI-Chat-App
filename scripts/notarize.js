@@ -20,14 +20,25 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const { notarize } = require('@electron/notarize');
+const {
+  installMacOSLauncherWrapper,
+  MACOS_MAIN_CODE_IDENTIFIER,
+} = require('./install-macos-launcher-wrapper');
 
 const ROOT = path.resolve(__dirname, '..');
+const MAIN_ENTITLEMENTS = path.join(ROOT, 'resources/entitlements.mac.plist');
 const MATTER_WIDGET_ENTITLEMENTS = path.join(
   ROOT,
   'native/macos-matter-widget/MatterWidgetExtension/MatterWidgetExtension.entitlements'
 );
+const MATTER_WIDGET_SYNC_ENTITLEMENTS = path.join(
+  ROOT,
+  'native/macos-matter-widget/matter-widget-sync/MatterWidgetSync.entitlements'
+);
 const MATTER_WIDGET_BUNDLE_ID = 'ie.york.app.MatterWidget';
+const MATTER_WIDGET_SYNC_ID = 'ie.york.app.MatterWidgetSync';
 const SPEECH_HELPER_BUNDLE_ID = 'ie.york.vecos.speech-helper';
+const { verifyMacAppSignatureStrict } = require('./verify-macos-app-signature');
 
 function resolveSigningIdentity() {
   if (process.env.CSC_NAME) {
@@ -54,13 +65,60 @@ function distributionCodesignArgs(identity) {
   return ['--force', '--options', 'runtime', '--timestamp', '--sign', identity];
 }
 
-function signNestedBundlesForNotarization(appPath) {
+function signMacOSLauncherWrapper(appPath, executableName, identity) {
+  const macosDir = path.join(appPath, 'Contents', 'MacOS');
+  const launcherPath = path.join(macosDir, executableName);
+  const realPath = `${launcherPath}.real`;
+  if (!fs.existsSync(realPath)) {
+    return;
+  }
+  console.log(
+    `[notarize] Signing macOS jitless launcher (trampoline + .real as ${MACOS_MAIN_CODE_IDENTIFIER})...`
+  );
+  // Same identifier on trampoline and Electron stub: Squirrel.Mac uses
+  // SecCodeCopySelf on the running *.real process and requires the update
+  // .app to satisfy that designated requirement.
+  execFileSync(
+    'codesign',
+    [
+      ...distributionCodesignArgs(identity),
+      '--identifier',
+      MACOS_MAIN_CODE_IDENTIFIER,
+      '--entitlements',
+      MAIN_ENTITLEMENTS,
+      realPath,
+    ],
+    { stdio: 'inherit' }
+  );
+  execFileSync(
+    'codesign',
+    [
+      ...distributionCodesignArgs(identity),
+      '--identifier',
+      MACOS_MAIN_CODE_IDENTIFIER,
+      '--entitlements',
+      MAIN_ENTITLEMENTS,
+      launcherPath,
+    ],
+    { stdio: 'inherit' }
+  );
+}
+
+function signNestedBundlesForNotarization(appPath, executableName) {
   const identity = resolveSigningIdentity();
   if (!identity) {
-    console.warn(
-      '[notarize] No Developer ID identity found — nested helpers may fail notarization.'
+    throw new Error(
+      '[notarize] No Developer ID Application identity found (CSC_NAME / CSC_IDENTITY / Keychain). ' +
+        'Auto-update builds must be signed before upload:s3.'
     );
-    return;
+  }
+
+  const wrapper = installMacOSLauncherWrapper({
+    appBundlePath: appPath,
+    executableName,
+  });
+  if (wrapper.installed) {
+    console.log('[notarize] Installed macOS jitless launcher wrapper (signed in this hook)');
   }
 
   const speechHelper = path.join(
@@ -122,12 +180,56 @@ function signNestedBundlesForNotarization(appPath) {
     }
   }
 
-  console.log('[notarize] Re-signing main app bundle (deep)...');
+  const matterSyncHelper = path.join(
+    appPath,
+    'Contents',
+    'Resources',
+    'tools',
+    'bin',
+    'matter-widget-sync'
+  );
+  if (fs.existsSync(matterSyncHelper)) {
+    console.log('[notarize] Signing matter-widget-sync (App Group writer)...');
+    try {
+      execFileSync(
+        'codesign',
+        [
+          ...distributionCodesignArgs(identity),
+          '--identifier',
+          MATTER_WIDGET_SYNC_ID,
+          '--entitlements',
+          MATTER_WIDGET_SYNC_ENTITLEMENTS,
+          matterSyncHelper,
+        ],
+        { stdio: 'inherit' }
+      );
+    } catch (error) {
+      console.warn(
+        '[notarize] matter-widget-sync sign failed — widget may stay empty (EPERM on Group Containers):',
+        error instanceof Error ? error.message : error
+      );
+    }
+  }
+
+  signMacOSLauncherWrapper(appPath, executableName, identity);
+
+  console.log(
+    `[notarize] Re-signing main app bundle (identifier ${MACOS_MAIN_CODE_IDENTIFIER}, no --deep)...`
+  );
   execFileSync(
     'codesign',
-    [...distributionCodesignArgs(identity), '--deep', appPath],
+    [
+      ...distributionCodesignArgs(identity),
+      '--identifier',
+      MACOS_MAIN_CODE_IDENTIFIER,
+      '--entitlements',
+      MAIN_ENTITLEMENTS,
+      appPath,
+    ],
     { stdio: 'inherit' }
   );
+
+  verifyMacAppSignatureStrict(appPath, { label: 'post-sign' });
 }
 
 exports.default = async function afterSign(context) {
@@ -158,7 +260,7 @@ exports.default = async function afterSign(context) {
   }
 
   // Built-in electron-builder notarization is disabled (mac.notarize: false).
-  signNestedBundlesForNotarization(appPath);
+  signNestedBundlesForNotarization(appPath, appName);
   console.log(`[notarize] Notarizing ${appId} at ${appPath} (afterSign only) ...`);
 
   await notarize({
@@ -170,4 +272,5 @@ exports.default = async function afterSign(context) {
   });
 
   console.log('[notarize] Done.');
+  verifyMacAppSignatureStrict(appPath, { label: 'post-notarize', assessGatekeeper: true });
 };

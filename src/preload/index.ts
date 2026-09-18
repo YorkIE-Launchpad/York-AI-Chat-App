@@ -291,6 +291,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   auth: {
     getStatus: (): Promise<AuthStatusResponse> => ipcRenderer.invoke('auth.getStatus'),
+    getHubOAuthRedirectUrl: (): Promise<string> => ipcRenderer.invoke('auth.getHubOAuthRedirectUrl'),
     getOAuthDebug: (rendererRedirectUrl?: string): Promise<AuthOAuthDebugInfo> =>
       ipcRenderer.invoke('auth.getOAuthDebug', rendererRedirectUrl),
     startGoogleLogin: (): Promise<AuthStatusResponse & { success: boolean; error?: string }> =>
@@ -1189,6 +1190,7 @@ declare global {
       };
       auth: {
         getStatus: () => Promise<AuthStatusResponse>;
+        getHubOAuthRedirectUrl: () => Promise<string>;
         getOAuthDebug: (rendererRedirectUrl?: string) => Promise<AuthOAuthDebugInfo>;
         startGoogleLogin: () => Promise<AuthStatusResponse & { success: boolean; error?: string }>;
         me: () => Promise<{ success: boolean; user?: AuthUser; error?: string; code?: string }>;

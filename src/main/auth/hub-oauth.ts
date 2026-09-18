@@ -1,16 +1,22 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { authConfig } from '../../shared/auth-config';
+import { authConfig, isHubOAuthViteDevCallbackUrl } from '../../shared/auth-config';
+import { APP_DATA_ENV_VAR } from '../../shared/app-data-env';
 import { parseHubAuthResponse } from './hub-parse';
 import { log } from '../utils/logger';
 import type { AuthOAuthDebugInfo } from '../../shared/auth-types';
-import { closeOAuthBrowserWindow, openOAuthBrowserWindow } from './oauth-browser-window';
+import {
+  closeOAuthBrowserWindow,
+  openOAuthBrowserWindow,
+  showOAuthBrowserHtml,
+} from './oauth-browser-window';
 import {
   ensureOAuthCodeRelayServer,
   getOAuthRelayBaseUrl,
   registerOAuthRelayDeliverer,
   isOAuthRelayListening,
 } from './oauth-relay';
+import { hubHttpRequest } from './hub-http';
 
 export const HUB_OAUTH_CALLBACK_TIMEOUT_MS = 5 * 60 * 1000;
 
@@ -42,20 +48,34 @@ function loopbackHostsMatch(a: string, b: string): boolean {
 }
 
 function redirectUrlUsesViteDevServer(redirectUrl: string): boolean {
+  if (!isHubOAuthViteDevCallbackUrl(redirectUrl)) {
+    return false;
+  }
   const viteDev = process.env.VITE_DEV_SERVER_URL?.trim();
-  if (!viteDev) return false;
+  if (viteDev) {
+    try {
+      const redirect = new URL(redirectUrl);
+      const vite = new URL(viteDev);
+      const redirectPath = redirect.pathname.replace(/\/$/, '') || '/';
+      const samePort =
+        (redirect.port || (redirect.protocol === 'https:' ? '443' : '80')) ===
+        (vite.port || (vite.protocol === 'https:' ? '443' : '80'));
+      return (
+        loopbackHostsMatch(redirect.hostname, vite.hostname) &&
+        samePort &&
+        redirectPath === '/auth/callback'
+      );
+    } catch {
+      return false;
+    }
+  }
   try {
-    const redirect = new URL(redirectUrl);
-    const vite = new URL(viteDev);
-    const redirectPath = redirect.pathname.replace(/\/$/, '') || '/';
-    const samePort =
-      (redirect.port || (redirect.protocol === 'https:' ? '443' : '80')) ===
-      (vite.port || (vite.protocol === 'https:' ? '443' : '80'));
-    return (
-      loopbackHostsMatch(redirect.hostname, vite.hostname) &&
-      samePort &&
-      redirectPath === '/auth/callback'
-    );
+    if (process.env[APP_DATA_ENV_VAR] === 'dev') {
+      return true;
+    }
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { app } = require('electron') as typeof import('electron');
+    return !app.isPackaged;
   } catch {
     return false;
   }
@@ -84,7 +104,6 @@ export function buildOAuthSuccessHtml(title: string, body: string): string {
 }
 
 export function initHubOAuthRelay(): void {
-  ensureOAuthCodeRelayServer();
   registerOAuthRelayDeliverer((code) => submitPendingOAuthCode(code));
 }
 
@@ -104,7 +123,6 @@ function submitPendingOAuthCode(code: string): boolean {
   clearTimeout(pendingViteOAuth.timer);
   pendingViteOAuth.resolve(code);
   pendingViteOAuth = null;
-  closeOAuthBrowserWindow();
   return true;
 }
 
@@ -188,11 +206,12 @@ function createOAuthCallbackServer(
       settled = true;
       response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       response.end(
-        buildOAuthSuccessHtml('Sign-in complete', 'You can return to York GrowthOS now and close this window')
+        buildOAuthSuccessHtml(
+          'Completing sign-in…',
+          'Exchanging credentials with York Hub. This window will close when sign-in succeeds.'
+        )
       );
       resolveCode(authorizationCode);
-      // Close Electron OAuth window as soon as the code arrives (system browsers ignore window.close).
-      closeOAuthBrowserWindow();
       void closeServer(server);
       return;
     }
@@ -295,10 +314,19 @@ export async function getOAuthDebugInfo(
   };
 }
 
+function hubAuthErrorMessage(data: unknown, fallback: string): string {
+  if (!data || typeof data !== 'object') return fallback;
+  const record = data as { message?: string; error?: string };
+  return record.message?.trim() || record.error?.trim() || fallback;
+}
+
 export async function fetchHubGoogleAuthUrl(redirectUrl: string): Promise<string> {
   const apiUrl = buildGoogleOAuthStartApiUrl(redirectUrl);
-  const res = await fetch(apiUrl);
+  const res = await hubHttpRequest(apiUrl);
   const json = (await res.json()) as { data?: { url?: string }; url?: string };
+  if (!res.ok) {
+    throw new Error(hubAuthErrorMessage(json, `Could not start sign-in (${res.status})`));
+  }
   const authUrl = json?.data?.url ?? json?.url;
   if (!authUrl) {
     throw new Error('Invalid response from sign-in service');
@@ -313,14 +341,50 @@ export async function exchangeHubAuthCode(
   const url = new URL(`${authConfig.hubApiUrl}/api/auth/callback`);
   url.searchParams.set('code', code);
   url.searchParams.set('redirect_uri', redirectUri);
-  const res = await fetch(url.toString());
+  const res = await hubHttpRequest(url.toString());
   const data = await res.json();
+  if (!res.ok) {
+    const base = hubAuthErrorMessage(data, `Hub sign-in failed (${res.status})`);
+    if (res.status === 401 || res.status === 403 || res.status === 400) {
+      throw new Error(
+        `${base}. If you recently changed your Google password, sign out of Google in this window (or use an incognito window) and try again.`
+      );
+    }
+    throw new Error(base);
+  }
   const parsed = parseHubAuthResponse(data);
   if (!parsed) {
-    const errBody = data as { message?: string; error?: string };
-    throw new Error(errBody?.message || errBody?.error || 'Unexpected response from Hub');
+    throw new Error(hubAuthErrorMessage(data, 'Unexpected response from Hub'));
   }
   return parsed;
+}
+
+async function finishHubOAuthAfterCode(
+  code: string,
+  redirectUrl: string
+): Promise<HubOAuthCallbackResult> {
+  try {
+    const parsed = await exchangeHubAuthCode(code, redirectUrl);
+    closeOAuthBrowserWindow();
+    return { parsed, redirectUri: redirectUrl };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Sign-in failed';
+    showOAuthBrowserHtml(
+      'Sign-in failed',
+      `${message} Close this window and try again from York GrowthOS.`
+    );
+    throw error;
+  }
+}
+
+function resolveOAuthExchangeRedirectUri(authUrl: string, fallbackRedirect: string): string {
+  try {
+    const cognitoUri = new URL(authUrl).searchParams.get('redirect_uri')?.trim();
+    if (cognitoUri) return cognitoUri;
+  } catch {
+    // ignore
+  }
+  return fallbackRedirect;
 }
 
 /** Full Hub Google OAuth — redirect URL matches Launchpad config (not a random port). */
@@ -331,27 +395,29 @@ export async function runHubGoogleOAuthFlow(): Promise<HubOAuthCallbackResult> {
   if (redirectUrlUsesViteDevServer(redirectUrl)) {
     ensureOAuthCodeRelayServer();
     const authUrl = await fetchHubGoogleAuthUrl(redirectUrl);
+    const exchangeRedirect = resolveOAuthExchangeRedirectUri(authUrl, redirectUrl);
     openOAuthBrowserWindow(authUrl);
-    try {
-      const code = await waitForViteOAuthCode(redirectUrl);
-      const parsed = await exchangeHubAuthCode(code, redirectUrl);
-      return { parsed, redirectUri: redirectUrl };
-    } finally {
-      closeOAuthBrowserWindow();
-    }
+    const code = await waitForViteOAuthCode(redirectUrl);
+    return await finishHubOAuthAfterCode(code, exchangeRedirect);
   }
 
   const listener = await createOAuthCallbackServer(redirectUrl, HUB_OAUTH_CALLBACK_TIMEOUT_MS);
   try {
-    const authUrl = await fetchHubGoogleAuthUrl(redirectUrl);
-    // Prefer an Electron window so we can auto-close after success.
-    // System browsers block window.close() on tabs not opened by script.
+    const authUrl = await fetchHubGoogleAuthUrl(listener.redirectUrl);
+    const exchangeRedirect = resolveOAuthExchangeRedirectUri(authUrl, listener.redirectUrl);
     openOAuthBrowserWindow(authUrl);
     const code = await listener.waitForCode();
-    const parsed = await exchangeHubAuthCode(code, redirectUrl);
-    return { parsed, redirectUri: redirectUrl };
+    return await finishHubOAuthAfterCode(code, exchangeRedirect);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Sign-in failed';
+    if (message.includes('OAuth sign-in timed out')) {
+      showOAuthBrowserHtml(
+        'Sign-in timed out',
+        `${message} Close this window and try again from York GrowthOS.`
+      );
+    }
+    throw error;
   } finally {
-    closeOAuthBrowserWindow();
     await listener.close();
   }
 }
@@ -359,7 +425,7 @@ export async function runHubGoogleOAuthFlow(): Promise<HubOAuthCallbackResult> {
 export async function hubLogoutRequest(accessToken: string, refreshToken?: string): Promise<void> {
   if (!accessToken) return;
   try {
-    await fetch(`${authConfig.hubApiUrl}/api/auth/logout`, {
+    await hubHttpRequest(`${authConfig.hubApiUrl}/api/auth/logout`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -452,15 +518,13 @@ export async function hubRefreshTokens(
   refreshToken: string,
   email: string
 ): Promise<HubRefreshTokensResult> {
-  const controller = new AbortController();
   const timeoutMs = 12_000;
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(`${authConfig.hubApiUrl}/api/auth/refresh`, {
+    const res = await hubHttpRequest(`${authConfig.hubApiUrl}/api/auth/refresh`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ refreshToken, email }),
-      signal: controller.signal,
+      timeoutMs,
     });
 
     let data: unknown = null;
@@ -477,17 +541,7 @@ export async function hubRefreshTokens(
     }
 
     return interpretHubRefreshHttpResponse(res.status, data);
-  } catch (error) {
-    if (
-      (error instanceof Error && error.name === 'AbortError') ||
-      (typeof DOMException !== 'undefined' &&
-        error instanceof DOMException &&
-        error.name === 'AbortError')
-    ) {
-      return { ok: false, reason: 'transient' };
-    }
+  } catch {
     return { ok: false, reason: 'transient' };
-  } finally {
-    clearTimeout(timeoutId);
   }
 }

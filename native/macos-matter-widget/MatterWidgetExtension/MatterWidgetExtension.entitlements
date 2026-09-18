@@ -2,10 +2,16 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
 	<key>com.apple.security.application-groups</key>
 	<array>
+		<!-- Legacy identifiers (pre–macOS 26) -->
 		<string>group.ie.york.app</string>
 		<string>group.ie.york.vecos.dev</string>
+		<!-- macOS 26+ require Team-ID-prefixed App Groups for sandboxed extensions -->
+		<string>7G87G26WW6.group.ie.york.app</string>
+		<string>7G87G26WW6.group.ie.york.vecos.dev</string>
 	</array>
 </dict>
 </plist>

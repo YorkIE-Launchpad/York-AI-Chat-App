@@ -16,6 +16,8 @@ const { execFileSync, spawnSync } = require('node:child_process');
 const PRODUCT_NAME = 'York GrowthOS';
 const BUNDLE_ID = 'ie.york.vecos.dev';
 const BUNDLE_NAME = `${PRODUCT_NAME}.app`;
+const { installMacOSLauncherWrapper } = require('./install-macos-launcher-wrapper');
+
 const ROOT = path.resolve(__dirname, '..');
 const ELECTRON_DIR = path.join(ROOT, 'node_modules', 'electron');
 const DIST_DIR = path.join(ELECTRON_DIR, 'dist');
@@ -115,6 +117,16 @@ for (const [key, value] of Object.entries(MEETING_USAGE)) {
 }
 
 fs.writeFileSync(PATH_TXT, `${BUNDLE_NAME}/Contents/MacOS/Electron`, 'utf8');
+
+const wrapperResult = installMacOSLauncherWrapper({
+  appBundlePath: appBundle,
+  executableName: 'Electron',
+});
+if (wrapperResult.installed) {
+  console.log('[brand:electron] macOS launcher wrapper (jitless on macOS 26+)');
+} else if (wrapperResult.reason !== 'wrapper already installed') {
+  console.warn(`[brand:electron] launcher wrapper skipped: ${wrapperResult.reason}`);
+}
 
 // Electron 41+ uses UNNotification, which requires a valid code signature.
 // Patching Info.plist / icon invalidates the stock signature — re-sign ad-hoc.

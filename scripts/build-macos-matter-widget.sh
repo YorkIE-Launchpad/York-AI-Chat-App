@@ -99,6 +99,10 @@ echo "[matter-widget] Staged → $OUT_WIDGET_ROOT/MatterWidgetExtension.appex"
 TOOL_BIN="$ROOT/resources/tools/darwin-${DEST_ARCH}/bin"
 mkdir -p "$TOOL_BIN"
 RELOAD_OUT="$TOOL_BIN/matter-widget-reload"
+SYNC_OUT="$TOOL_BIN/matter-widget-sync"
+SYNC_SRC="$ROOT/native/macos-matter-widget/matter-widget-sync/main.swift"
+SYNC_ENTITLEMENTS="$ROOT/native/macos-matter-widget/matter-widget-sync/MatterWidgetSync.entitlements"
+SYNC_ID="ie.york.app.MatterWidgetSync"
 
 echo "[matter-widget] Compiling reload helper → $RELOAD_OUT"
 swiftc -O \
@@ -107,5 +111,31 @@ swiftc -O \
   -o "$RELOAD_OUT" \
   "$RELOAD_SRC"
 chmod 755 "$RELOAD_OUT"
+
+echo "[matter-widget] Compiling App Group sync helper → $SYNC_OUT"
+swiftc -O \
+  -framework WidgetKit \
+  -framework Foundation \
+  -o "$SYNC_OUT" \
+  "$SYNC_SRC"
+chmod 755 "$SYNC_OUT"
+
+# Sign sync helper so FileManager can open App Group containers (Node fs cannot).
+SIGN_IDENTITY="${CSC_NAME:-${CSC_IDENTITY:-}}"
+if [[ -z "$SIGN_IDENTITY" ]]; then
+  SIGN_IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null | sed -n 's/.*"\(Developer ID Application:[^"]*\)".*/\1/p' | head -1 || true)"
+fi
+if [[ -n "$SIGN_IDENTITY" ]] && command -v codesign >/dev/null 2>&1; then
+  echo "[matter-widget] codesign sync helper ($SIGN_IDENTITY)"
+  if ! codesign --force --options runtime --timestamp \
+    --identifier "$SYNC_ID" \
+    --entitlements "$SYNC_ENTITLEMENTS" \
+    --sign "$SIGN_IDENTITY" \
+    "$SYNC_OUT"; then
+    echo "[matter-widget] Warning: codesign sync helper failed — widget sync may EPERM until notarize re-signs" >&2
+  fi
+else
+  echo "[matter-widget] Sync helper unsigned here — notarize.js re-signs for release builds"
+fi
 
 echo "[matter-widget] Done"

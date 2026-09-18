@@ -1,6 +1,6 @@
 {
   "name": "york-ie",
-  "version": "4.2.2",
+  "version": "4.6.0",
   "description": "Open-source AI agent desktop app for Windows & macOS — one-click install Claude Code, MCP tools, and Skills with sandbox isolation and multi-model support",
   "keywords": [
     "ai-agent",
@@ -65,7 +65,7 @@
     "test:coverage": "vitest run --coverage",
     "bench": "vitest bench",
     "bench:api": "node scripts/bench-api.mjs",
-    "rebuild": "node -e \"const {execSync}=require('node:child_process'); const v=require('electron/package.json').version; execSync('npm rebuild better-sqlite3 --runtime=electron --target='+v+' --disturl=https://electronjs.org/headers',{stdio:'inherit'})\"",
+    "rebuild": "node scripts/rebuild-electron-native.js",
     "typecheck": "tsc --noEmit",
     "pre-build-check": "node scripts/pre-build-check.js",
     "stage:env-prod": "node scripts/stage-env-prod.js",

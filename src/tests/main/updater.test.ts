@@ -5,22 +5,45 @@ import {
   READY_STATE_RECHECK_DELAY_MS,
   resolveAutoUpdater,
   shouldEnableAutoUpdater,
+  shouldIgnoreDuplicateUpdateDownload,
   shouldPreserveReadyOnAvailable,
   shouldPreserveReadyOnChecking,
   shouldPreserveReadyOnError,
   shouldPreserveReadyOnNotAvailable,
   shouldPreserveReadyStatus,
+  shouldSkipAppQuitTeardownForUpdateInstall,
+  buildMacUpdateInstallScript,
+  getMacShipItDirectory,
+  readMacShipItStagedUpdate,
+  resolveMacUpdateRelaunchExecPath,
+  resolveMacAppBundlePath,
   UPDATE_CHECK_INTERVAL_MS,
   UPDATE_FEED_URL,
+  UPDATE_INSTALL_FORCE_QUIT_MS,
+  UPDATE_INSTALL_QUIT_WATCHDOG_MS,
+  UPDATE_INSTALL_RELAUNCH_EXIT_MS,
+  UPDATE_INSTALL_SHIPIT_SETTLE_MS,
 } from '../../main/updater';
 
 describe('shouldEnableAutoUpdater', () => {
-  it('enables only for packaged macOS', () => {
+  it('enables for packaged macOS', () => {
     expect(shouldEnableAutoUpdater({ isPackaged: true, platform: 'darwin' })).toBe(true);
   });
 
-  it('disables for unpackaged / non-mac platforms', () => {
+  it('enables for unpackaged macOS when app data env is dev', () => {
+    expect(
+      shouldEnableAutoUpdater({ isPackaged: false, platform: 'darwin', appDataEnv: 'dev' })
+    ).toBe(true);
+  });
+
+  it('disables for unpackaged macOS without dev app data env', () => {
     expect(shouldEnableAutoUpdater({ isPackaged: false, platform: 'darwin' })).toBe(false);
+    expect(
+      shouldEnableAutoUpdater({ isPackaged: false, platform: 'darwin', appDataEnv: 'default' })
+    ).toBe(false);
+  });
+
+  it('disables for non-mac platforms', () => {
     expect(shouldEnableAutoUpdater({ isPackaged: true, platform: 'win32' })).toBe(false);
     expect(shouldEnableAutoUpdater({ isPackaged: true, platform: 'linux' })).toBe(false);
   });
@@ -68,6 +91,90 @@ describe('update check scheduling', () => {
 
   it('rechecks soon after a download completes', () => {
     expect(READY_STATE_RECHECK_DELAY_MS).toBe(3_000);
+  });
+
+  it('ignores duplicate update-downloaded while staging or after staged', () => {
+    expect(
+      shouldIgnoreDuplicateUpdateDownload({
+        pendingDownloadVersion: '1.2.0',
+        downloadedVersion: '1.2.0',
+        squirrelStagingReady: true,
+        stagingSquirrelUpdate: false,
+      })
+    ).toBe(true);
+    expect(
+      shouldIgnoreDuplicateUpdateDownload({
+        pendingDownloadVersion: '1.2.0',
+        downloadedVersion: '1.2.0',
+        squirrelStagingReady: false,
+        stagingSquirrelUpdate: true,
+      })
+    ).toBe(true);
+    expect(
+      shouldIgnoreDuplicateUpdateDownload({
+        pendingDownloadVersion: '1.2.0',
+        downloadedVersion: '1.3.0',
+        squirrelStagingReady: true,
+        stagingSquirrelUpdate: false,
+      })
+    ).toBe(false);
+  });
+
+  it('uses bounded timers when restart-to-install does not exit', () => {
+    expect(UPDATE_INSTALL_RELAUNCH_EXIT_MS).toBeGreaterThan(0);
+    expect(UPDATE_INSTALL_FORCE_QUIT_MS).toBeGreaterThan(0);
+    expect(UPDATE_INSTALL_QUIT_WATCHDOG_MS).toBeGreaterThan(UPDATE_INSTALL_RELAUNCH_EXIT_MS);
+    expect(UPDATE_INSTALL_QUIT_WATCHDOG_MS).toBeLessThanOrEqual(60_000);
+    expect(UPDATE_INSTALL_SHIPIT_SETTLE_MS).toBeGreaterThan(UPDATE_INSTALL_FORCE_QUIT_MS);
+  });
+
+  it('skips async quit teardown while Squirrel is installing so the process can exit', () => {
+    expect(shouldSkipAppQuitTeardownForUpdateInstall(true)).toBe(true);
+    expect(shouldSkipAppQuitTeardownForUpdateInstall(false)).toBe(false);
+  });
+
+  it('relaunches the jitless trampoline, not York GrowthOS.real', () => {
+    expect(
+      resolveMacUpdateRelaunchExecPath(
+        '/Applications/York GrowthOS.app/Contents/MacOS/York GrowthOS.real'
+      )
+    ).toBe('/Applications/York GrowthOS.app/Contents/MacOS/York GrowthOS');
+    expect(
+      resolveMacUpdateRelaunchExecPath('/Applications/York GrowthOS.app/Contents/MacOS/York GrowthOS')
+    ).toBe('/Applications/York GrowthOS.app/Contents/MacOS/York GrowthOS');
+  });
+
+  it('resolves the .app bundle for a delayed open(1) relaunch', () => {
+    expect(
+      resolveMacAppBundlePath(
+        '/Applications/York GrowthOS.app/Contents/MacOS/York GrowthOS.real'
+      )
+    ).toBe('/Applications/York GrowthOS.app');
+    expect(resolveMacAppBundlePath('/usr/bin/electron')).toBeNull();
+  });
+
+  it('builds a ditto install script that waits for PID death then swaps the .app', () => {
+    const script = buildMacUpdateInstallScript({
+      pid: 4242,
+      updateBundlePath: '/Caches/update.ABC/York GrowthOS.app',
+      targetBundlePath: '/Applications/York GrowthOS.app',
+      logPath: '/tmp/york-update-install.log',
+    });
+    expect(script).toContain('kill -0 4242');
+    expect(script).toContain("pkill -KILL -f '/PlugIns/MatterWidgetExtension'");
+    expect(script).toContain("pkill -KILL -f '/Frameworks/York GrowthOS Helper'");
+    expect(script).toContain(
+      "ditto --rsrc '/Caches/update.ABC/York GrowthOS.app' '/Applications/York GrowthOS.app'"
+    );
+    expect(script).toContain("open '/Applications/York GrowthOS.app'");
+    expect(script.indexOf('kill -0 4242')).toBeLessThan(script.indexOf('ditto '));
+    expect(script).toContain('still waiting for pid 4242');
+  });
+
+  it('resolves staged ShipIt update paths from ShipItState JSON', () => {
+    // Unit-level shape check — live read is environment-dependent.
+    expect(typeof readMacShipItStagedUpdate).toBe('function');
+    expect(getMacShipItDirectory()).toContain('ie.york.app.ShipIt');
   });
 });
 

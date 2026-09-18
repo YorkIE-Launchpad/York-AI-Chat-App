@@ -35,7 +35,7 @@ describe('york-llm-config', () => {
   });
 
   it('exposes longer York activity timeout and retry budget', () => {
-    expect(YORK_LLM_PROMPT_TIMEOUT_MS).toBe(15 * 60 * 1000);
+    expect(YORK_LLM_PROMPT_TIMEOUT_MS).toBe(60 * 60 * 1000);
     expect(YORK_LLM_SDK_MAX_RETRIES).toBe(3);
   });
 

@@ -1,5 +1,6 @@
 import { authConfig } from '../../shared/auth-config';
 import { coerceProfileImageUrl, normalizeProfileImageUrl } from './hub-parse';
+import { hubHttpRequest } from './hub-http';
 
 const HUB_PROFILE_PATHS = ['/api/auth/me', '/api/users/me', '/api/employees/me'] as const;
 
@@ -65,14 +66,15 @@ export async function fetchHubProfileImage(accessToken: string): Promise<string 
 
   for (const path of HUB_PROFILE_PATHS) {
     try {
-      const res = await fetch(`${authConfig.hubApiUrl}${path}`, {
+      const res = await hubHttpRequest(`${authConfig.hubApiUrl}${path}`, {
         headers: {
           Authorization: `Bearer ${token}`,
           Accept: 'application/json',
         },
+        timeoutMs: 12_000,
       });
       if (!res.ok) continue;
-      const body = (await res.json()) as unknown;
+      const body = await res.json<unknown>();
       const image = extractProfileImageFromBody(body);
       if (image) return image;
     } catch {

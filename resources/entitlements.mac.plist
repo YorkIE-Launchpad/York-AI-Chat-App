@@ -24,6 +24,9 @@
     <array>
         <string>group.ie.york.app</string>
         <string>group.ie.york.vecos.dev</string>
+        <!-- macOS 26+ sandboxed WidgetKit extensions require Team-ID-prefixed groups -->
+        <string>7G87G26WW6.group.ie.york.app</string>
+        <string>7G87G26WW6.group.ie.york.vecos.dev</string>
     </array>
 </dict>
 </plist>

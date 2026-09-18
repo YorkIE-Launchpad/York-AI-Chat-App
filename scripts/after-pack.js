@@ -252,7 +252,10 @@ module.exports = async function afterPack(context) {
     }
   }
 
-  // --- 6. Electron locales: keep only en ---
+  // --- 6. macOS 26+ jitless Mach-O trampoline is installed in scripts/notarize.js
+  // (afterSign) so Developer ID signing covers York GrowthOS.real + the trampoline.
+
+  // --- 7. Electron locales: keep only en ---
   if (platform === 'darwin') {
     const appName = `${context.packager.appInfo.productFilename}.app`;
     const frameworkDir = path.join(

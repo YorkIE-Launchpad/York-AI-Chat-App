@@ -10,23 +10,27 @@ import {
 
 type AuthApi = NonNullable<typeof window.electronAPI>['auth'];
 
+function hasUsableAuthTokens(status: AuthStatusResponse): boolean {
+  const tokens = status.tokens;
+  if (!tokens) return false;
+  return Boolean(tokens.token?.trim() || tokens.accessToken?.trim());
+}
+
 function applyStatusToState(status: AuthStatusResponse): AuthUser | null {
   const user = status.user ? sanitizeUserForStorage(status.user) : null;
-  if (user && status.tokens) {
+  if (user && hasUsableAuthTokens(status)) {
     writeAuthToLocalStorage(
       {
-        token: status.tokens.token,
-        accessToken: status.tokens.accessToken,
-        refreshToken: status.tokens.refreshToken,
+        token: status.tokens!.token,
+        accessToken: status.tokens!.accessToken,
+        refreshToken: status.tokens!.refreshToken,
       },
       user
     );
     return user;
   }
-  if (!user) {
-    clearAuthLocalStorage();
-  }
-  return user;
+  clearAuthLocalStorage();
+  return null;
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -44,7 +48,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const status = await api.getStatus();
     const nextUser = applyStatusToState(status);
     setUser(nextUser);
-    if (nextUser) {
+    if (nextUser && hasUsableAuthTokens(status)) {
       const me = await api.me();
       if (me.success && me.user) {
         const synced = sanitizeUserForStorage(me.user);

@@ -1,5 +1,11 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { hubRefreshTokens, interpretHubRefreshHttpResponse } from '../../main/auth/hub-oauth';
+
+const hubHttpRequest = vi.fn();
+
+vi.mock('../../main/auth/hub-http', () => ({
+  hubHttpRequest: (...args: unknown[]) => hubHttpRequest(...args),
+}));
 
 describe('interpretHubRefreshHttpResponse', () => {
   it('returns tokens on 200 with camelCase fields', () => {
@@ -50,40 +56,38 @@ describe('interpretHubRefreshHttpResponse', () => {
 });
 
 describe('hubRefreshTokens', () => {
+  beforeEach(() => {
+    hubHttpRequest.mockReset();
+  });
+
   afterEach(() => {
-    vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 
   it('returns transient on network failure', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network down')));
+    hubHttpRequest.mockRejectedValue(new Error('network down'));
     const result = await hubRefreshTokens('rt', 'user@york.ie');
     expect(result).toEqual({ ok: false, reason: 'transient' });
   });
 
   it('returns invalid_grant on 401', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({
-        ok: false,
-        status: 401,
-        json: async () => ({ error: 'Unauthorized' }),
-      })
-    );
+    hubHttpRequest.mockResolvedValue({
+      ok: false,
+      status: 401,
+      json: async () => ({ error: 'Unauthorized' }),
+    });
     const result = await hubRefreshTokens('rt', 'user@york.ie');
     expect(result).toEqual({ ok: false, reason: 'invalid_grant' });
   });
 
-  it('returns transient on AbortError (timeout)', async () => {
-    const abortError = new Error('The operation was aborted');
-    abortError.name = 'AbortError';
-    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(abortError));
+  it('returns transient on timeout error', async () => {
+    hubHttpRequest.mockRejectedValue(new Error('Hub request timed out'));
     const result = await hubRefreshTokens('rt', 'user@york.ie');
     expect(result).toEqual({ ok: false, reason: 'transient' });
   });
 
-  it('passes AbortSignal to fetch', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
+  it('passes timeoutMs to hubHttpRequest', async () => {
+    hubHttpRequest.mockResolvedValue({
       ok: true,
       status: 200,
       json: async () => ({
@@ -91,12 +95,12 @@ describe('hubRefreshTokens', () => {
         accessToken: 'access',
       }),
     });
-    vi.stubGlobal('fetch', fetchMock);
     await hubRefreshTokens('rt', 'user@york.ie');
-    expect(fetchMock).toHaveBeenCalledWith(
-      expect.any(String),
+    expect(hubHttpRequest).toHaveBeenCalledWith(
+      expect.stringContaining('/api/auth/refresh'),
       expect.objectContaining({
-        signal: expect.any(AbortSignal),
+        method: 'POST',
+        timeoutMs: 12_000,
       })
     );
   });

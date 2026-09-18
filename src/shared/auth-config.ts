@@ -1,4 +1,5 @@
 import { DEFAULT_ATLASSIAN_MCP_URL } from './mcp-defaults';
+import { APP_DATA_ENV_VAR } from './app-data-env';
 
 function trimTrailingSlash(url: string): string {
   return url.replace(/\/$/, '');
@@ -37,7 +38,178 @@ function readEnv(key: string): string | undefined {
 }
 
 const DEFAULT_HUB_API_URL = 'https://api.uat-hub.yorkdevs.link';
-const DEFAULT_FRONTEND_URL = 'http://localhost:6767';
+const DEFAULT_DESKTOP_OAUTH_REDIRECT = 'http://127.0.0.1:19892/auth/callback';
+
+/** Vite dev server port (`vite.config.ts`); OAuth callback is `{origin}/auth/callback`. */
+export const VITE_DEV_FRONTEND_OAUTH_PORT = 6767;
+
+function isLoopbackHostname(hostname: string): boolean {
+  return (
+    hostname === 'localhost' ||
+    hostname === '127.0.0.1' ||
+    hostname === '[::1]' ||
+    hostname === '::1'
+  );
+}
+
+function normalizeLoopbackHostname(hostname: string): string {
+  if (hostname === '[::1]' || hostname === '::1') return '127.0.0.1';
+  return hostname;
+}
+
+function isViteDevOAuthCallbackUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    if (!isLoopbackHostname(parsed.hostname)) return false;
+    const port = parsed.port || (parsed.protocol === 'https:' ? '443' : '80');
+    const path = parsed.pathname.replace(/\/$/, '') || '/';
+    return port === String(VITE_DEV_FRONTEND_OAUTH_PORT) && path === '/auth/callback';
+  } catch {
+    return false;
+  }
+}
+
+/** True when redirect is the Vite dev OAuth callback (`:6767/auth/callback`). */
+export function isHubOAuthViteDevCallbackUrl(url: string): boolean {
+  return isViteDevOAuthCallbackUrl(url);
+}
+
+function buildViteDevOAuthCallbackUrl(viteDevServerUrl: string): string {
+  try {
+    const vite = new URL(viteDevServerUrl);
+    const host = normalizeLoopbackHostname(vite.hostname);
+    const port = vite.port || String(VITE_DEV_FRONTEND_OAUTH_PORT);
+    return `http://${host}:${port}/auth/callback`;
+  } catch {
+    return `http://127.0.0.1:${VITE_DEV_FRONTEND_OAUTH_PORT}/auth/callback`;
+  }
+}
+
+function readIsPackagedElectron(): boolean | undefined {
+  if (typeof process === 'undefined') return undefined;
+  if (process.env[APP_DATA_ENV_VAR] === 'dev') {
+    return false;
+  }
+  try {
+    // Shared module: only main has electron at runtime; renderer falls through.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { app } = require('electron') as typeof import('electron');
+    return app.isPackaged;
+  } catch {
+    return undefined;
+  }
+}
+
+function readViteDevServerUrl(): string | undefined {
+  const fromEnv = readEnv('VITE_DEV_SERVER_URL');
+  if (fromEnv) return fromEnv;
+  if (typeof process !== 'undefined' && process.env.VITE_DEV_SERVER_URL?.trim()) {
+    return process.env.VITE_DEV_SERVER_URL.trim();
+  }
+  if (typeof import.meta !== 'undefined' && import.meta.env?.DEV) {
+    return `http://127.0.0.1:${VITE_DEV_FRONTEND_OAUTH_PORT}`;
+  }
+  return undefined;
+}
+
+function resolveOAuthDevContext(opts: ResolveHubOAuthRedirectUrlOptions): {
+  isPackaged: boolean;
+  isDev: boolean;
+  viteDev: string | null;
+} {
+  const isPackaged = opts.isPackaged ?? readIsPackagedElectron() ?? false;
+  let viteDev = opts.viteDevServerUrl?.trim() || readViteDevServerUrl() || null;
+  const unpackaged =
+    opts.isPackaged === false ||
+    (opts.isPackaged === undefined && readIsPackagedElectron() === false);
+  const isDev =
+    !isPackaged &&
+    (Boolean(viteDev) ||
+      unpackaged ||
+      (typeof process !== 'undefined' && process.env.NODE_ENV === 'development'));
+  if (isDev && !viteDev) {
+    viteDev = `http://127.0.0.1:${VITE_DEV_FRONTEND_OAUTH_PORT}`;
+  }
+  return { isPackaged, isDev, viteDev };
+}
+
+export type ResolveHubOAuthRedirectUrlOptions = {
+  explicitRedirect?: string | null;
+  frontendUrl?: string | null;
+  viteDevServerUrl?: string | null;
+  /** When true, never use Vite :6767 callback (packaged app has no Vite). */
+  isPackaged?: boolean;
+};
+
+/**
+ * Hub Google OAuth redirect_uri sent to Hub `/api/auth/google` and used at token exchange.
+ * Dev (Vite): `http://localhost:6767/auth/callback` (or `127.0.0.1`) → AuthCallbackPage + relay.
+ * Packaged: loopback `19892` (or explicit non-6767 URL).
+ */
+export function resolveHubOAuthRedirectUrl(
+  opts: ResolveHubOAuthRedirectUrlOptions = {}
+): string {
+  const explicit = opts.explicitRedirect?.trim();
+  const { isPackaged, isDev, viteDev } = resolveOAuthDevContext(opts);
+
+  if (explicit) {
+    // Only packaged builds must not use :6767 (Vite is not running).
+    if (isPackaged && isViteDevOAuthCallbackUrl(explicit)) {
+      return DEFAULT_DESKTOP_OAUTH_REDIRECT;
+    }
+    return normalizeOAuthRedirectUrl(explicit);
+  }
+
+  if (isDev && viteDev) {
+    return normalizeOAuthRedirectUrl(buildViteDevOAuthCallbackUrl(viteDev));
+  }
+
+  const frontend = opts.frontendUrl?.trim();
+  if (frontend) {
+    try {
+      const front = new URL(frontend);
+      if (
+        isPackaged &&
+        isLoopbackHostname(front.hostname) &&
+        (front.port || '80') === String(VITE_DEV_FRONTEND_OAUTH_PORT)
+      ) {
+        return DEFAULT_DESKTOP_OAUTH_REDIRECT;
+      }
+    } catch {
+      /* ignore */
+    }
+    return normalizeOAuthRedirectUrl(`${trimTrailingSlash(frontend)}/auth/callback`);
+  }
+
+  return applyUnpackagedDevOAuthFallback(DEFAULT_DESKTOP_OAUTH_REDIRECT, isPackaged);
+}
+
+function applyUnpackagedDevOAuthFallback(
+  resolved: string,
+  isPackaged: boolean
+): string {
+  if (isPackaged || resolved !== DEFAULT_DESKTOP_OAUTH_REDIRECT) {
+    return resolved;
+  }
+  return normalizeOAuthRedirectUrl(
+    buildViteDevOAuthCallbackUrl(`http://127.0.0.1:${VITE_DEV_FRONTEND_OAUTH_PORT}`)
+  );
+}
+
+function normalizeOAuthRedirectUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname === '[::1]' || parsed.hostname === '::1') {
+      parsed.hostname = '127.0.0.1';
+    }
+    const path = parsed.pathname.replace(/\/$/, '') || '/';
+    parsed.pathname = path;
+    parsed.hash = '';
+    return trimTrailingSlash(parsed.toString());
+  } catch {
+    return trimTrailingSlash(url);
+  }
+}
 
 export const authConfig = {
   get hubApiUrl(): string {
@@ -121,14 +293,13 @@ export const authConfig = {
    * HUB_OAUTH_REDIRECT_URL / VITE_HUB_OAUTH_REDIRECT_URL, else {FRONTEND_URL}/auth/callback
    */
   get hubOAuthRedirectUrl(): string {
-    const frontendUrl = trimTrailingSlash(
-      readEnv('VITE_FRONTEND_URL') ?? readEnv('FRONTEND_URL') ?? DEFAULT_FRONTEND_URL
-    );
-    return trimTrailingSlash(
-      readEnv('HUB_OAUTH_REDIRECT_URL') ??
-        readEnv('VITE_HUB_OAUTH_REDIRECT_URL') ??
-        `${frontendUrl}/auth/callback`
-    );
+    return resolveHubOAuthRedirectUrl({
+      explicitRedirect:
+        readEnv('HUB_OAUTH_REDIRECT_URL') ?? readEnv('VITE_HUB_OAUTH_REDIRECT_URL'),
+      frontendUrl: readEnv('VITE_FRONTEND_URL') ?? readEnv('FRONTEND_URL'),
+      viteDevServerUrl: readViteDevServerUrl(),
+      isPackaged: readIsPackagedElectron(),
+    });
   },
   get cognitoUserPoolId(): string | undefined {
     return (

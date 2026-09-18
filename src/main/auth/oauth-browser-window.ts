@@ -38,3 +38,18 @@ export function openOAuthBrowserWindow(
   });
   void oauthBrowserWindow.loadURL(authUrl);
 }
+
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/** Replace OAuth window content (e.g. after Hub token exchange fails). */
+export function showOAuthBrowserHtml(title: string, body: string): void {
+  if (!oauthBrowserWindow || oauthBrowserWindow.isDestroyed()) return;
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title></head><body><h1>${escapeHtml(title)}</h1><p>${escapeHtml(body)}</p></body></html>`;
+  void oauthBrowserWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+}

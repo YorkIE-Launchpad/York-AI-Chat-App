@@ -32,7 +32,7 @@ import { rankMatterSignals } from './matter-ranker';
 import { MatterScheduler } from './matter-scheduler';
 import { notifyMatterBrief, notifyMatterItem } from './matter-notifications';
 import { selectMatterScanNotifyItems } from '../os-notifications';
-import { publishMatterWidgetSnapshot } from './matter-widget-bridge';
+import { publishMatterWidgetSnapshot, shutdownMatterWidgetBridge } from './matter-widget-bridge';
 import {
   shouldFireExpiry,
   shouldFireReminder,
@@ -92,6 +92,7 @@ function buildLenses(items: MatterItem[], rankedLenses: MatterSnapshot['lenses']
 export class MatterService {
   private readonly store: MatterStore;
   private readonly scheduler: MatterScheduler;
+  private stopped = false;
   private scanning = false;
   private meetingsFetching = false;
   private meetingsLastFetch: number | null = null;
@@ -147,18 +148,26 @@ export class MatterService {
   }
 
   start(): void {
+    this.stopped = false;
     this.scheduler.start();
     // Catch any due reminders / expiry immediately after boot.
     this.processTimeEvents();
+    // Always publish current Matter state to the macOS widget — even outside the
+    // scan window — so the widget does not stay stuck on the empty placeholder
+    // while GrowthOS is already open.
+    this.pushSnapshot({ immediate: true });
     void this.runStartupScan();
   }
 
   stop(): void {
+    this.stopped = true;
     this.scheduler.stop();
+    shutdownMatterWidgetBridge();
   }
 
   /** First scan after boot: wait for enabled Matter connectors to finish connecting. */
   private async runStartupScan(): Promise<void> {
+    if (this.stopped) return;
     const runtime = this.getRuntime();
     if (!runtime.enabled || !this.scheduler.isInScanWindow()) return;
     await this.waitForEnabledConnectors();
@@ -182,6 +191,7 @@ export class MatterService {
     );
 
     while (Date.now() - started < STARTUP_CONNECTOR_WAIT_MS) {
+      if (this.stopped) return;
       const mcp = this.mcpManager;
       if (!mcp) {
         await delay(STARTUP_CONNECTOR_POLL_MS);
@@ -294,6 +304,11 @@ export class MatterService {
     };
   }
 
+  /** Push current Matter state to the macOS WidgetKit extension. */
+  syncWidget(options?: { immediate?: boolean }): void {
+    this.pushSnapshot(options);
+  }
+
   /**
    * Refresh the Calendar meetings list (not signal radar).
    * Cadence is `meetingsIntervalMinutes`, gated by `sources.calendar`.
@@ -302,6 +317,9 @@ export class MatterService {
     reason?: string;
     force?: boolean;
   }): Promise<MatterSnapshot> {
+    if (this.stopped) {
+      return this.getSnapshot();
+    }
     if (this.meetingsFetching) {
       return this.getSnapshot();
     }
@@ -349,12 +367,16 @@ export class MatterService {
     notify?: boolean;
     force?: boolean;
   }): Promise<MatterSnapshot> {
+    if (this.stopped) {
+      return this.getSnapshot();
+    }
     if (this.scanning) {
       return this.getSnapshot();
     }
     const runtime = this.getRuntime();
     // Disabled always wins — even manual Scan now / force.
     if (!runtime.enabled) {
+      this.pushSnapshot();
       return this.getSnapshot();
     }
     if (!options?.force && !this.scheduler.isInScanWindow()) {
@@ -365,6 +387,7 @@ export class MatterService {
         sourcesChecked: [],
         sourcesSkipped: Object.keys(runtime.sources),
       });
+      this.pushSnapshot();
       return this.getSnapshot();
     }
 
@@ -929,14 +952,15 @@ export class MatterService {
     }
   }
 
-  private pushSnapshot(): void {
+  private pushSnapshot(options?: { immediate?: boolean }): void {
+    if (this.stopped) return;
     try {
       const snapshot = this.getSnapshot();
       const win = this.getMainWindow?.();
       if (win && !win.isDestroyed()) {
         win.webContents.send('matter:updated', snapshot);
       }
-      publishMatterWidgetSnapshot(snapshot);
+      publishMatterWidgetSnapshot(snapshot, options);
     } catch (error) {
       logWarn('[Matter] Failed to push snapshot:', error);
     }

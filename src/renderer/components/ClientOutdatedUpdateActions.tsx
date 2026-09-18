@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { RefreshCw } from 'lucide-react';
 import { useUpdaterStatus } from '../hooks/useUpdaterStatus';
+import { shouldShowRestartToUpdate, shouldShowUpdateReadyMessage, isUpdateStagingForInstall } from '../../shared/updater-types';
 
 interface ClientOutdatedUpdateActionsProps {
   className?: string;
@@ -54,7 +55,10 @@ export function ClientOutdatedUpdateActions({
   }
 
   const isChecking = checking || updaterStatus.status === 'checking';
-  const showRestart = updaterStatus.status === 'ready';
+  const showRestart = shouldShowRestartToUpdate(updaterStatus.status, {
+    isViteDev: import.meta.env.DEV,
+    installPrepared: updaterStatus.installPrepared,
+  });
   const showCheck =
     !showRestart &&
     updaterStatus.status !== 'downloading' &&
@@ -78,9 +82,14 @@ export function ClientOutdatedUpdateActions({
           {t('general.updateDownloading', { percent: updaterStatus.percent ?? 0 })}
         </p>
       )}
-      {showRestart && updaterStatus.version && (
+      {shouldShowUpdateReadyMessage(updaterStatus) && updaterStatus.version && (
         <p className="text-xs text-text-secondary">
           {t('general.updateReady', { version: updaterStatus.version })}
+        </p>
+      )}
+      {isUpdateStagingForInstall(updaterStatus) && updaterStatus.version && (
+        <p className="text-xs text-text-muted">
+          {t('general.updatePreparing', { version: updaterStatus.version })}
         </p>
       )}
       {updaterStatus.status === 'error' && (

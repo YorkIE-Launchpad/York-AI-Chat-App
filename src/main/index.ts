@@ -28,6 +28,7 @@ import {
   session,
   systemPreferences,
   globalShortcut,
+  autoUpdater as squirrelAutoUpdater,
 } from 'electron';
 import {
   showOsNotification,
@@ -177,17 +178,25 @@ import {
 } from './loop/chat-loop-manager';
 import { runPiAiOneShot } from './agent/sdk-one-shot';
 import { installIpcAuthGuard } from './auth/ipc-auth-guard';
+import { APP_DATA_ENV_VAR } from '../shared/app-data-env';
 import {
   startAutoUpdater,
   stopAutoUpdater,
+  stopAutoUpdaterChecks,
   isInstallingUpdate,
+  shouldSkipAppQuitTeardownForUpdateInstall,
   getUpdaterStatus,
+  getUpdaterInternalDiagnostics,
   checkForAppUpdates,
   quitAndInstallUpdate,
+  killMacUpdateStragglerProcesses,
 } from './updater';
+import { buildUpdaterDiagnosticsSnapshot } from './updater-diagnostics';
+import { registerUpdateInstallAbortHandler, registerUpdateInstallWillQuitHandler } from './update-quit-coordination';
 import { getPendingWhatsNew, markWhatsNewSeen } from './whats-new/whats-new-service';
 import { warmupJwksCache } from './auth/cognito';
 import { submitViteOAuthCode, getOAuthDebugInfo, initHubOAuthRelay } from './auth/hub-oauth';
+import { stopOAuthCodeRelayServer } from './auth/oauth-relay';
 import { authConfig } from '../shared/auth-config';
 import type { ConnectorId } from '../shared/ipc-types';
 import {
@@ -267,12 +276,26 @@ function resolveDotenvPath(): string {
     : [];
   const projectProdCandidates = [join(projectRoot, '.env.prod'), join(projectRoot, 'env.prod')];
   const projectDev = join(projectRoot, '.env');
-  const preferProd = app.isPackaged || !process.env.VITE_DEV_SERVER_URL;
 
-  if (preferProd) {
-    for (const candidate of [...packagedCandidates, ...projectProdCandidates]) {
+  // `npm run dev` sets YORK_IE_APP_DATA_ENV=dev before Electron starts — always use `.env`.
+  if (process.env[APP_DATA_ENV_VAR] === 'dev' && fs.existsSync(projectDev)) {
+    return projectDev;
+  }
+
+  if (app.isPackaged) {
+    for (const candidate of packagedCandidates) {
       if (fs.existsSync(candidate)) return candidate;
     }
+    for (const candidate of projectProdCandidates) {
+      if (fs.existsSync(candidate)) return candidate;
+    }
+  }
+
+  if (fs.existsSync(projectDev)) {
+    return projectDev;
+  }
+  for (const candidate of projectProdCandidates) {
+    if (fs.existsSync(candidate)) return candidate;
   }
   return projectDev;
 }
@@ -288,7 +311,6 @@ if (dotenvResult.error) {
 
 installIpcAuthGuard();
 initHubOAuthRelay();
-log('[Auth] Hub OAuth redirect URL (Launchpad-compatible):', authConfig.hubOAuthRedirectUrl);
 log('[Auth] Hub MCP URL:', authConfig.hubMcpUrl);
 log('[Auth] Launchpad MCP URL:', authConfig.launchpadMcpUrl);
 log('[Auth] R&D Pulse MCP URL:', authConfig.rndPulseMcpUrl);
@@ -874,7 +896,13 @@ function setupTray() {
       },
     },
     { type: 'separator' },
-    { label: 'Quit', role: 'quit' },
+    {
+      label: 'Quit York GrowthOS',
+      click: () => {
+        isQuitting = true;
+        app.quit();
+      },
+    },
   ]);
   tray.setContextMenu(contextMenu);
 
@@ -1285,6 +1313,17 @@ function createWindow() {
     mainWindow = null;
   });
 
+  // Packaged macOS: closing the window should fully quit (not linger in Dock/tray).
+  mainWindow.on('close', (event) => {
+    if (isInstallingUpdate()) return;
+    if (isQuitting || process.env.VITE_DEV_SERVER_URL) return;
+    if (process.platform === 'darwin' && app.isPackaged) {
+      event.preventDefault();
+      isQuitting = true;
+      app.quit();
+    }
+  });
+
   // Notify renderer about config status after window is ready
   mainWindow.webContents.on('did-finish-load', () => {
     const isConfigured = configStore.isConfigured();
@@ -1606,6 +1645,28 @@ app
 
     // Re-apply after ready so Dock picks up icon/name reliably on macOS.
     applyAppBranding();
+    registerUpdateInstallAbortHandler(resetQuitStateAfterAbortedUpdateInstall);
+    registerUpdateInstallWillQuitHandler(() => {
+      isQuitting = true;
+      stopNavServer();
+      try {
+        sessionManager?.getMCPManager()?.prepareForAppQuit();
+      } catch {
+        /* best-effort */
+      }
+      try {
+        matterService?.stop();
+      } catch {
+        /* best-effort */
+      }
+      try {
+        globalShortcut.unregisterAll();
+      } catch {
+        /* best-effort */
+      }
+      tray?.destroy();
+      tray = null;
+    });
 
     // Smoke test mode: verify the app can start, then exit cleanly
     if (process.argv.includes('--smoke-test')) {
@@ -2260,7 +2321,7 @@ app
     });
 
     // Auto-updater: macOS packaged builds only (S3 generic feed)
-    void startAutoUpdater(log);
+    void startAutoUpdater();
 
     startNavServer(() => mainWindow);
 
@@ -2653,6 +2714,113 @@ app
 let isCleaningUp = false;
 // Tracks explicit quit intent (Cmd+Q, Quit menu, tray Quit) vs window close only
 let isQuitting = false;
+let quitCleanupStarted = false;
+let quitHardExitTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Max time to wait on sandbox/MCP teardown during quit before exiting anyway. */
+const QUIT_CLEANUP_MAX_MS = process.platform === 'darwin' ? 1_500 : 20_000;
+/** Last-resort exit if the event loop is still alive after quit started. */
+const QUIT_HARD_EXIT_MS = process.platform === 'darwin' ? 2_500 : 25_000;
+
+function resetQuitStateAfterAbortedUpdateInstall(): void {
+  isQuitting = false;
+  quitCleanupStarted = false;
+  if (quitHardExitTimer) {
+    clearTimeout(quitHardExitTimer);
+    quitHardExitTimer = null;
+  }
+  logWarn('[AutoUpdater] Reset quit state after aborted update install');
+}
+
+/** Kill Electron helpers / MCP orphans that otherwise keep the Dock "running in background". */
+function forceQuitProcess(reason: string): void {
+  logWarn('[App] Force quit:', reason);
+  try {
+    app.dock?.hide();
+  } catch {
+    /* ignore */
+  }
+  try {
+    killMacUpdateStragglerProcesses();
+  } catch {
+    /* ignore */
+  }
+  try {
+    app.exit(0);
+  } catch {
+    /* ignore */
+  }
+  try {
+    process.exit(0);
+  } catch {
+    /* ignore */
+  }
+  try {
+    process.kill(process.pid, 'SIGKILL');
+  } catch {
+    /* ignore */
+  }
+}
+
+function scheduleHardQuitExit(): void {
+  if (shouldSkipAppQuitTeardownForUpdateInstall(isInstallingUpdate())) return;
+  if (quitHardExitTimer) return;
+  quitHardExitTimer = setTimeout(() => {
+    forceQuitProcess('Quit exceeded time limit');
+  }, QUIT_HARD_EXIT_MS);
+}
+
+/** Stop timers, HTTP listeners, and UI affordances immediately so quit feels instant. */
+function stopBackgroundServicesForQuit(): void {
+  try {
+    app.dock?.hide();
+  } catch {
+    /* ignore */
+  }
+  stopAuthRefreshTimer();
+  stopOAuthCodeRelayServer();
+  stopNavServer();
+  stopConfigFileWatcher();
+  stopAutoUpdater();
+  skillsManager?.stopStorageMonitoring();
+  scheduledTaskManager?.stop();
+  chatLoopManager?.stopAll('shutdown');
+  try {
+    sessionManager?.getMCPManager()?.prepareForAppQuit();
+  } catch (error) {
+    logError('[App] Error stopping MCP servers for quit:', error);
+  }
+  try {
+    matterService?.stop();
+  } catch (error) {
+    logError('[App] Error stopping Matter service:', error);
+  }
+  void meetingService?.stop().catch((error) => {
+    logError('[App] Error stopping meeting capture:', error);
+  });
+  try {
+    globalShortcut.unregisterAll();
+  } catch {
+    /* best-effort */
+  }
+  tray?.destroy();
+  tray = null;
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.hide();
+  }
+}
+
+async function cleanupSandboxResourcesForQuit(): Promise<void> {
+  await Promise.race([
+    cleanupSandboxResources(),
+    new Promise<void>((resolve) => {
+      setTimeout(() => {
+        logWarn('[App] Quit cleanup timed out; proceeding with exit');
+        resolve();
+      }, QUIT_CLEANUP_MAX_MS);
+    }),
+  ]);
+}
 
 function withTimeout<T>(operation: Promise<T>, timeoutMs: number, label: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -2681,14 +2849,7 @@ async function cleanupSandboxResources(): Promise<void> {
   }
   isCleaningUp = true;
 
-  stopNavServer();
-  stopConfigFileWatcher();
-  stopAutoUpdater();
-  skillsManager?.stopStorageMonitoring();
-  scheduledTaskManager?.stop();
-  chatLoopManager?.stopAll('shutdown');
-  tray?.destroy();
-  tray = null;
+  stopBackgroundServicesForQuit();
 
   // Stop remote control
   try {
@@ -2703,12 +2864,14 @@ async function cleanupSandboxResources(): Promise<void> {
   try {
     log('[App] Cleaning up all sandbox sessions...');
 
-    // Cleanup WSL sessions
-    await withTimeout(SandboxSync.cleanupAllSessions(), 30000, 'WSL session cleanup');
+    if (process.platform === 'win32') {
+      await withTimeout(SandboxSync.cleanupAllSessions(), 8000, 'WSL session cleanup');
+    }
 
-    // Cleanup Lima sessions
-    const { LimaSync } = await import('./sandbox/lima-sync');
-    await withTimeout(LimaSync.cleanupAllSessions(), 30000, 'Lima session cleanup');
+    if (process.platform === 'darwin') {
+      const { LimaSync } = await import('./sandbox/lima-sync');
+      await withTimeout(LimaSync.cleanupAllSessions(), 4000, 'Lima session cleanup');
+    }
 
     log('[App] Sandbox sessions cleanup complete');
   } catch (error) {
@@ -2728,7 +2891,7 @@ async function cleanupSandboxResources(): Promise<void> {
     const mcpManager = sessionManager?.getMCPManager();
     if (mcpManager) {
       log('[App] Shutting down MCP servers...');
-      await withTimeout(mcpManager.shutdown(), 5000, 'MCP shutdown');
+      await withTimeout(mcpManager.shutdown(), 2500, 'MCP shutdown');
       log('[App] MCP servers shutdown complete');
     }
   } catch (error) {
@@ -2752,28 +2915,56 @@ app.on('window-all-closed', async () => {
   // The headless path manages its own lifecycle — skip cleanup here.
   if (process.argv.includes('--headless')) return;
 
+  // Squirrel.Mac has begun replacing the .app. Async MCP/Lima teardown here
+  // keeps Electron alive with no windows; the user then force-kills it and
+  // ShipIt never relaunches the new build.
+  if (shouldSkipAppQuitTeardownForUpdateInstall(isInstallingUpdate())) {
+    return;
+  }
+
   if (isQuitting || process.platform !== 'darwin' || process.env.VITE_DEV_SERVER_URL) {
     // Quit when user initiated quit (Cmd+Q/Quit menu), or on Windows/Linux, or macOS dev.
     // On macOS dev mode, also quit — so vite-plugin-electron can restart cleanly
     // without the old process holding the single-instance lock.
-    await cleanupSandboxResources();
+    await cleanupSandboxResourcesForQuit();
     app.quit();
   }
-  // On macOS production window close only (X/Cmd+W), keep app alive — cleanup in before-quit
+  // Packaged macOS: window close triggers app.quit() from the main window close handler.
 });
 
 // Handle SIGTERM/SIGINT (e.g. pkill) — route through app.quit() for clean shutdown
 for (const sig of ['SIGTERM', 'SIGINT'] as const) {
-  process.on(sig, () => app.quit());
+  process.on(sig, () => {
+    if (!isQuitting) {
+      isQuitting = true;
+    }
+    app.quit();
+  });
 }
 
 // Handle app quit - before-quit (for macOS Cmd+Q and other quit methods)
+squirrelAutoUpdater.on('before-quit-for-update', () => {
+  isQuitting = true;
+});
+
 app.on('before-quit', async (event) => {
-  // Let electron-updater replace the app and relaunch without app.exit(0).
-  if (isInstallingUpdate()) {
+  // Update install: sync teardown only, then force-exit. ShipIt is a separate
+  // process and needs this PID gone; lingering here causes "App Still Running"
+  // and a Dock zombie with no automatic relaunch.
+  if (shouldSkipAppQuitTeardownForUpdateInstall(isInstallingUpdate())) {
     isQuitting = true;
-    stopAutoUpdater();
+    stopAutoUpdaterChecks();
     stopNavServer();
+    try {
+      sessionManager?.getMCPManager()?.prepareForAppQuit();
+    } catch {
+      /* best-effort */
+    }
+    try {
+      matterService?.stop();
+    } catch {
+      /* best-effort */
+    }
     try {
       globalShortcut.unregisterAll();
     } catch {
@@ -2787,8 +2978,16 @@ app.on('before-quit', async (event) => {
       /* best-effort */
     }
     closeLogFile();
+    try {
+      app.exit(0);
+    } catch {
+      /* ignore */
+    }
+    process.exit(0);
     return;
   }
+
+  scheduleHardQuitExit();
 
   // In dev mode, exit quickly — no need for async sandbox cleanup
   if (process.env.VITE_DEV_SERVER_URL) {
@@ -2814,27 +3013,35 @@ app.on('before-quit', async (event) => {
     return;
   }
 
-  if (isQuitting) {
-    return;
+  if (quitCleanupStarted) {
+    if (!isInstallingUpdate()) {
+      quitCleanupStarted = false;
+    } else {
+      return;
+    }
   }
 
   isQuitting = true;
+  quitCleanupStarted = true;
   event.preventDefault();
+  stopBackgroundServicesForQuit();
   try {
     try {
       globalShortcut.unregisterAll();
     } catch {
       /* best-effort */
     }
-    await cleanupSandboxResources();
+    await cleanupSandboxResourcesForQuit();
   } catch (error) {
     logError('[App] before-quit cleanup failed, forcing quit:', error);
   }
-  app.exit(0);
+  forceQuitProcess('before-quit cleanup finished');
 });
 
 // IPC Handlers
 ipcMain.handle('auth.getStatus', () => getAuthStatus());
+
+ipcMain.handle('auth.getHubOAuthRedirectUrl', () => authConfig.hubOAuthRedirectUrl);
 
 ipcMain.handle('auth.getOAuthDebug', async (_event, rendererRedirectUrl?: string) => {
   return getOAuthDebugInfo(rendererRedirectUrl);
@@ -3198,9 +3405,21 @@ ipcMain.handle('updater.check', async () => {
   }
 });
 
-ipcMain.handle('updater.quitAndInstall', () => {
+ipcMain.handle('updater.quitAndInstall', async () => {
+  logWarn('[AutoUpdater] IPC updater.quitAndInstall', {
+    status: getUpdaterStatus(),
+    internal: getUpdaterInternalDiagnostics(),
+  });
   try {
-    return quitAndInstallUpdate();
+    const result = await quitAndInstallUpdate();
+    if (result.success) {
+      isQuitting = true;
+    } else {
+      logWarn('[AutoUpdater] IPC updater.quitAndInstall rejected:', result.error);
+      resetQuitStateAfterAbortedUpdateInstall();
+    }
+    logWarn('[AutoUpdater] IPC updater.quitAndInstall result:', result);
+    return result;
   } catch (error) {
     logError('[IPC] updater.quitAndInstall failed:', error);
     return {
@@ -4646,6 +4865,23 @@ ipcMain.handle('logs.export', async () => {
       archive.append(JSON.stringify(diagnosticsSummary, null, 2), {
         name: 'diagnostics-summary.json',
       });
+
+      try {
+        const updaterDiagnostics = buildUpdaterDiagnosticsSnapshot();
+        archive.append(JSON.stringify(updaterDiagnostics, null, 2), {
+          name: 'updater-diagnostics.json',
+        });
+        const shipItStdout = updaterDiagnostics.shipIt as { stdout?: string | null; stderr?: string | null };
+        if (shipItStdout?.stdout) {
+          archive.append(shipItStdout.stdout, { name: 'shipit/ShipIt_stdout.log' });
+        }
+        if (shipItStdout?.stderr) {
+          archive.append(shipItStdout.stderr, { name: 'shipit/ShipIt_stderr.log' });
+        }
+      } catch (updaterDiagError) {
+        logWarn('[Logs] Could not attach updater diagnostics:', updaterDiagError);
+      }
+
       archive.append(
         [
           'York IE VECOS diagnostic bundle',
@@ -4655,6 +4891,10 @@ ipcMain.handle('logs.export', async () => {
           '- Application log files (*.log)',
           '- system-info.json',
           '- diagnostics-summary.json',
+          '- updater-diagnostics.json (auto-update state + ShipIt log tails)',
+          '- shipit/ShipIt_*.log when present (macOS Squirrel install)',
+          '',
+          'Search app logs for [AutoUpdater] (WARN level — written even when developer logs are off).',
           '',
           'diagnostics-summary.json contains a redacted runtime/config snapshot,',
           'plus metadata-only session summaries and recent error traces to speed up debugging.',
@@ -5239,7 +5479,10 @@ ipcMain.handle('matter.getSnapshot', (): MatterSnapshot => {
   // Refresh MCP handle each call — manager may connect after boot
   matterService.setMcpManager(sessionManager?.getMCPManager() ?? null);
   matterService.setMeetingService(meetingService);
-  return matterService.getSnapshot();
+  const snapshot = matterService.getSnapshot();
+  // Keep the macOS widget in sync whenever the UI loads Matter state.
+  matterService.syncWidget();
+  return snapshot;
 });
 
 ipcMain.handle('matter.scanNow', async (): Promise<MatterSnapshot> => {

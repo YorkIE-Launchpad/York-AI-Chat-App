@@ -39,7 +39,7 @@ struct MatterWidgetPayload: Codable {
         scanning: false,
         inScanWindow: false,
         briefKind: "morning",
-        briefText: "Open York GrowthOS to load Matter.",
+        briefText: "Waiting for York GrowthOS to sync Matter…",
         nextMeeting: nil,
         topSignals: []
     )

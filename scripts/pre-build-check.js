@@ -71,6 +71,12 @@ function buildCheckList(platform, arch) {
       type: 'file',
       severity: 'fatal',
     },
+    {
+      label: 'better-sqlite3 native module (npm postinstall / npm run rebuild)',
+      relPath: 'node_modules/better-sqlite3/build/Release/better_sqlite3.node',
+      type: 'file',
+      severity: 'fatal',
+    },
   ];
 
   if (platform === 'darwin') {

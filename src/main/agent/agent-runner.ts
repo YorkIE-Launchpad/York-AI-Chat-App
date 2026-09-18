@@ -3433,7 +3433,7 @@ ${
       // Activity-based timeout: reset whenever the SDK sends events.
       // York LLM is a slow shared server — allow a longer idle gap between events.
       const PROMPT_TIMEOUT_MS = yorkLlmActive ? YORK_LLM_PROMPT_TIMEOUT_MS : 5 * 60 * 1000;
-      const promptTimeoutLabel = yorkLlmActive ? '15 min' : '5 min';
+      const promptTimeoutLabel = `${Math.round(PROMPT_TIMEOUT_MS / 60_000)} min`;
       let activityTimeoutId: ReturnType<typeof setTimeout> | undefined;
       const resetActivityTimeout = () => {
         if (activityTimeoutId) clearTimeout(activityTimeoutId);

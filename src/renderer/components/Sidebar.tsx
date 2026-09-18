@@ -46,6 +46,7 @@ import {
 } from '../../shared/workspace-division';
 import type { ChatSearchHit } from '../../shared/chat-search';
 import { useUpdaterStatus } from '../hooks/useUpdaterStatus';
+import { shouldShowRestartToUpdate } from '../../shared/updater-types';
 
 import sidebarLogoSrc from '../assets/logo.png';
 
@@ -201,7 +202,12 @@ function SidebarUpdateButton({ compact = false }: { compact?: boolean }) {
     quitAndInstall,
   } = useUpdaterStatus();
 
-  if (updaterStatus.status !== 'ready') return null;
+  const showRestart = shouldShowRestartToUpdate(updaterStatus.status, {
+    isViteDev: import.meta.env.DEV,
+    installPrepared: updaterStatus.installPrepared,
+  });
+
+  if (!showRestart) return null;
 
   if (compact) {
     return (

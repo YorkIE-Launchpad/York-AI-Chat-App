@@ -4,6 +4,7 @@ import { ExternalLink, RefreshCw } from 'lucide-react';
 import { useAppStore } from '../../store';
 import { hasOpenRouterUserApiKey } from '../../../shared/openrouter-user-key';
 import { useUpdaterStatus } from '../../hooks/useUpdaterStatus';
+import { shouldShowRestartToUpdate, shouldShowUpdateReadyMessage, isUpdateStagingForInstall } from '../../../shared/updater-types';
 import { HubBudgetUsageCard } from './HubBudgetUsageCard';
 import {
   notifyBackendModelsCatalogRefreshed,
@@ -30,9 +31,15 @@ export function SettingsGeneral() {
     status: updaterStatus,
     checking: updaterChecking,
     installing: updaterInstalling,
+    installError: updaterInstallError,
     checkForUpdates,
     quitAndInstall,
   } = useUpdaterStatus();
+
+  const showRestartButton = shouldShowRestartToUpdate(updaterStatus.status, {
+    isViteDev: import.meta.env.DEV,
+    installPrepared: updaterStatus.installPrepared,
+  });
 
   useEffect(() => {
     try {
@@ -285,24 +292,35 @@ export function SettingsGeneral() {
                   })}
                 </p>
               )}
-              {updaterStatus.status === 'ready' && (
-                <div className="space-y-2">
-                  {updaterStatus.version && (
-                    <p className="text-xs text-text-secondary">
-                      {t('general.updateReady', { version: updaterStatus.version })}
-                    </p>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => void quitAndInstall()}
-                    disabled={updaterInstalling}
-                    className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
-                  >
-                    <RefreshCw className={`h-4 w-4 ${updaterInstalling ? 'animate-spin' : ''}`} />
-                    {t('general.restartToUpdate')}
-                  </button>
-                </div>
+              {shouldShowUpdateReadyMessage(updaterStatus) && updaterStatus.version && (
+                <p className="text-xs text-text-secondary">
+                  {t('general.updateReady', { version: updaterStatus.version })}
+                </p>
               )}
+              {isUpdateStagingForInstall(updaterStatus) && updaterStatus.version && (
+                <p className="text-xs text-text-muted">
+                  {t('general.updatePreparing', { version: updaterStatus.version })}
+                </p>
+              )}
+              {showRestartButton && (
+                <button
+                  type="button"
+                  onClick={() => void quitAndInstall()}
+                  disabled={updaterInstalling}
+                  className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+                >
+                  <RefreshCw className={`h-4 w-4 ${updaterInstalling ? 'animate-spin' : ''}`} />
+                  {t('general.restartToUpdate')}
+                </button>
+              )}
+              {updaterInstallError ? (
+                <p className="text-xs text-red-500" role="alert">
+                  {updaterInstallError}
+                </p>
+              ) : null}
+              {updaterInstalling && updaterStatus.message ? (
+                <p className="text-xs text-text-muted">{updaterStatus.message}</p>
+              ) : null}
               {updaterStatus.status === 'error' && (
                 <p className="text-xs text-red-500">
                   {updaterStatus.message || t('general.updateError')}
@@ -310,6 +328,7 @@ export function SettingsGeneral() {
               )}
 
               {updaterStatus.status !== 'ready' &&
+                !showRestartButton &&
                 updaterStatus.status !== 'downloading' &&
                 updaterStatus.status !== 'available' && (
                   <button

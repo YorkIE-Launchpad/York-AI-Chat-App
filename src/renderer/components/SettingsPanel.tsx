@@ -26,6 +26,7 @@ import { SettingsMemory } from './settings/SettingsMemory';
 import { SettingsMeetings } from './settings/SettingsMeetings';
 import { SettingsMatter } from './settings/SettingsMatter';
 import { useUpdaterStatus } from '../hooks/useUpdaterStatus';
+import { shouldShowRestartToUpdate } from '../../shared/updater-types';
 
 interface SettingsPanelProps {
   onClose: () => void;
@@ -85,6 +86,10 @@ export function SettingsPanel({ onClose, initialTab = 'connectors' }: SettingsPa
     installing: updaterInstalling,
     quitAndInstall,
   } = useUpdaterStatus();
+  const showRestartButton = shouldShowRestartToUpdate(updaterStatus.status, {
+    isViteDev: import.meta.env.DEV,
+    installPrepared: updaterStatus.installPrepared,
+  });
   useEffect(() => {
     try {
       const v = window.electronAPI?.getVersion?.();
@@ -232,7 +237,7 @@ export function SettingsPanel({ onClose, initialTab = 'connectors' }: SettingsPa
             {compactSidebar ? <X className="w-4 h-4 mx-auto" /> : t('common.close')}
           </button>
           {!compactSidebar &&
-            (updaterStatus.status === 'ready' ? (
+            (showRestartButton ? (
               <button
                 type="button"
                 onClick={() => void quitAndInstall()}

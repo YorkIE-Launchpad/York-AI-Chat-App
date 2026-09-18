@@ -23,6 +23,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { fileDigest, buildLatestMacYml } = require('./update-feed');
+const { verifyMacAppSignatureStrict } = require('./verify-macos-app-signature');
 
 const BUCKET = 'york-internal-apps';
 const REGION = 'ap-south-1';
@@ -284,6 +285,14 @@ function discoverAndZipApps(tmpDir) {
       const zipFilename = `${baseName}-${VERSION}-mac-${arch}.zip`;
       const zipPath = path.join(tmpDir, zipFilename);
       const stable = `York-GrowthOS-mac-${arch}.zip`;
+
+      if (process.env.SKIP_MACOS_SIGNATURE_VERIFY !== '1') {
+        console.log(`[upload-s3] Verifying macOS code signature (strict) for ${appName}…`);
+        verifyMacAppSignatureStrict(appPath, { label: appName, assessGatekeeper: true });
+        console.log('  ✓ Signature OK for auto-update');
+      } else {
+        console.warn('[upload-s3] SKIP_MACOS_SIGNATURE_VERIFY=1 — skipping strict codesign check');
+      }
 
       console.log(`\n[upload-s3] Zipping ${appName} → ${zipFilename}`);
       execFileSync(

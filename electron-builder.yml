@@ -6,7 +6,9 @@ directories:
   output: release
   buildResources: resources
 
-npmRebuild: true
+# @electron/rebuild uses node-abi, which may lag new Electron majors (e.g. 43.7.1).
+# Native modules are rebuilt in postinstall (`npm run rebuild` for better-sqlite3).
+npmRebuild: false
 afterPack: ./scripts/after-pack.js
 afterSign: ./scripts/notarize.js
 afterAllArtifactBuild: ./scripts/compress-dmg.js

@@ -11,7 +11,7 @@ export const YORK_LLM_PROVIDER = 'ollama' as const;
 export const LEGACY_DEFAULT_MODEL_IDS = new Set(['openrouter/free']);
 
 /** Activity timeout for York turns (slow shared llama.cpp). Cloud stays at 5 min. */
-export const YORK_LLM_PROMPT_TIMEOUT_MS = 15 * 60 * 1000;
+export const YORK_LLM_PROMPT_TIMEOUT_MS = 60 * 60 * 1000;
 /** SDK auto-retries for idle/network blips on the shared York server. */
 export const YORK_LLM_SDK_MAX_RETRIES = 3;
 

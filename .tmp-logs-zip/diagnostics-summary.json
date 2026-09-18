@@ -1,0 +1,576 @@
+{
+  "exportedAt": "2026-09-17T09:51:15.616Z",
+  "app": {
+    "version": "4.5.2",
+    "isPackaged": true,
+    "platform": "darwin",
+    "arch": "arm64",
+    "nodeVersion": "v24.21.0",
+    "electronVersion": "43.7.1",
+    "chromeVersion": "150.0.7871.250"
+  },
+  "runtime": {
+    "currentWorkingDir": "<home>/york-ie/default_working_dir",
+    "logsDirectory": "<home>/york-ie/logs",
+    "logFileCount": 6,
+    "totalLogSizeBytes": 89387,
+    "devLogsEnabled": false
+  },
+  "config": {
+    "provider": "ollama",
+    "model": "/Users/dhavalj/models/Qwen3.6-35B-A3B/Qwen3.6-35B-A3B-UD-IQ2_M.gguf",
+    "baseUrl": "http://llm.yorkdevs.link:2222/v1",
+    "customProtocol": "openai",
+    "sandboxEnabled": false,
+    "thinkingEnabled": false,
+    "apiKeyConfigured": false,
+    "agentCliPathConfigured": false,
+    "defaultWorkdir": null,
+    "globalSkillsPathConfigured": false
+  },
+  "sandbox": {
+    "mode": "none",
+    "initialized": false
+  },
+  "sessions": {
+    "total": 144,
+    "included": 8,
+    "items": [
+      {
+        "id": "5a975411-5db5-4cd2-8b98-ae0f6cb07b1d",
+        "status": "idle",
+        "cwd": "<home>/york-ie/default_working_dir",
+        "model": "claude-opus-4-8",
+        "createdAt": "2026-09-17T02:37:12.748Z",
+        "updatedAt": "2026-09-17T02:37:58.591Z",
+        "messageCount": 16,
+        "traceStepCount": 9,
+        "errorStepCount": 0,
+        "lastUserMessageMeta": {
+          "timestamp": "2026-09-17T02:37:12.770Z",
+          "blockTypes": [
+            "text"
+          ],
+          "textBlockCount": 1,
+          "imageBlockCount": 0,
+          "fileAttachmentCount": 0,
+          "toolUseCount": 0,
+          "toolResultCount": 0
+        },
+        "lastAssistantMessageMeta": {
+          "timestamp": "2026-09-17T02:37:58.561Z",
+          "blockTypes": [
+            "text"
+          ],
+          "textBlockCount": 1,
+          "imageBlockCount": 0,
+          "fileAttachmentCount": 0,
+          "toolUseCount": 0,
+          "toolResultCount": 0
+        },
+        "latestErrorStep": null
+      },
+      {
+        "id": "7da78559-fe19-4bd3-bca1-c6e5493c6534",
+        "status": "idle",
+        "cwd": "<home>/york-ie/default_working_dir",
+        "model": "claude-opus-4-8",
+        "createdAt": "2026-09-16T18:45:06.404Z",
+        "updatedAt": "2026-09-16T18:45:55.782Z",
+        "messageCount": 4,
+        "traceStepCount": 0,
+        "errorStepCount": 0,
+        "lastUserMessageMeta": {
+          "timestamp": "2026-09-16T18:45:37.418Z",
+          "blockTypes": [
+            "text"
+          ],
+          "textBlockCount": 1,
+          "imageBlockCount": 0,
+          "fileAttachmentCount": 0,
+          "toolUseCount": 0,
+          "toolResultCount": 0
+        },
+        "lastAssistantMessageMeta": {
+          "timestamp": "2026-09-16T18:45:55.765Z",
+          "blockTypes": [
+            "image"
+          ],
+          "textBlockCount": 0,
+          "imageBlockCount": 1,
+          "fileAttachmentCount": 0,
+          "toolUseCount": 0,
+          "toolResultCount": 0
+        },
+        "latestErrorStep": null
+      },
+      {
+        "id": "6782fae9-a1de-4d12-807c-bbd72865c1c9",
+        "status": "idle",
+        "cwd": "<home>/york-ie/default_working_dir",
+        "model": "claude-opus-4-8",
+        "createdAt": "2026-09-15T13:03:35.596Z",
+        "updatedAt": "2026-09-16T10:03:48.604Z",
+        "messageCount": 89,
+        "traceStepCount": 56,
+        "errorStepCount": 0,
+        "lastUserMessageMeta": {
+          "timestamp": "2026-09-16T10:02:39.813Z",
+          "blockTypes": [
+            "text"
+          ],
+          "textBlockCount": 1,
+          "imageBlockCount": 0,
+          "fileAttachmentCount": 0,
+          "toolUseCount": 0,
+          "toolResultCount": 0
+        },
+        "lastAssistantMessageMeta": {
+          "timestamp": "2026-09-16T10:03:48.584Z",
+          "blockTypes": [
+            "text"
+          ],
+          "textBlockCount": 1,
+          "imageBlockCount": 0,
+          "fileAttachmentCount": 0,
+          "toolUseCount": 0,
+          "toolResultCount": 0
+        },
+        "latestErrorStep": null
+      },
+      {
+        "id": "d9e8f2bb-ba1d-428b-a7a8-d938a7192f28",
+        "status": "idle",
+        "cwd": "<home>/york-ie/default_working_dir",
+        "model": "claude-opus-4-8",
+        "createdAt": "2026-09-16T09:05:26.202Z",
+        "updatedAt": "2026-09-16T09:06:03.295Z",
+        "messageCount": 4,
+        "traceStepCount": 1,
+        "errorStepCount": 1,
+        "lastUserMessageMeta": {
+          "timestamp": "2026-09-16T09:05:26.229Z",
+          "blockTypes": [
+            "meeting_attachment",
+            "text"
+          ],
+          "textBlockCount": 1,
+          "imageBlockCount": 0,
+          "fileAttachmentCount": 0,
+          "toolUseCount": 0,
+          "toolResultCount": 0
+        },
+        "lastAssistantMessageMeta": {
+          "timestamp": "2026-09-16T09:06:02.034Z",
+          "blockTypes": [
+            "text"
+          ],
+          "textBlockCount": 1,
+          "imageBlockCount": 0,
+          "fileAttachmentCount": 0,
+          "toolUseCount": 0,
+          "toolResultCount": 0
+        },
+        "latestErrorStep": {
+          "id": "26915fa5-acc0-429c-aa46-a0d3838c281d",
+          "type": "thinking",
+          "status": "error",
+          "toolName": null,
+          "timestamp": "2026-09-16T09:05:26.234Z",
+          "durationMs": null,
+          "contentLength": 0,
+          "toolOutputLength": 0,
+          "toolInputKeys": [],
+          "isError": true
+        }
+      },
+      {
+        "id": "662f25e1-2fbf-46e8-8c9f-b665a09db087",
+        "status": "idle",
+        "cwd": "<home>/tmp/AI Program summary",
+        "model": "claude-opus-4-8",
+        "createdAt": "2026-09-15T05:39:27.312Z",
+        "updatedAt": "2026-09-15T05:48:14.623Z",
+        "messageCount": 44,
+        "traceStepCount": 22,
+        "errorStepCount": 3,
+        "lastUserMessageMeta": {
+          "timestamp": "2026-09-15T05:47:45.357Z",
+          "blockTypes": [
+            "text"
+          ],
+          "textBlockCount": 1,
+          "imageBlockCount": 0,
+          "fileAttachmentCount": 0,
+          "toolUseCount": 0,
+          "toolResultCount": 0
+        },
+        "lastAssistantMessageMeta": {
+          "timestamp": "2026-09-15T05:48:14.594Z",
+          "blockTypes": [
+            "text"
+          ],
+          "textBlockCount": 1,
+          "imageBlockCount": 0,
+          "fileAttachmentCount": 0,
+          "toolUseCount": 0,
+          "toolResultCount": 0
+        },
+        "latestErrorStep": {
+          "id": "toolu_01KDXrhmGUJq2TY7g1QXK3j7",
+          "type": "tool_call",
+          "status": "error",
+          "toolName": "read",
+          "timestamp": "2026-09-15T05:45:23.219Z",
+          "durationMs": null,
+          "contentLength": 0,
+          "toolOutputLength": 52,
+          "toolInputKeys": [],
+          "isError": true
+        }
+      },
+      {
+        "id": "1ef47e12-d0f1-459a-abdb-018bdeb9ba51",
+        "status": "idle",
+        "cwd": "<home>/york-ie/default_working_dir",
+        "model": "claude-opus-4-8",
+        "createdAt": "2026-09-11T10:48:59.278Z",
+        "updatedAt": "2026-09-14T05:41:28.543Z",
+        "messageCount": 141,
+        "traceStepCount": 84,
+        "errorStepCount": 9,
+        "lastUserMessageMeta": {
+          "timestamp": "2026-09-14T05:39:25.614Z",
+          "blockTypes": [
+            "text"
+          ],
+          "textBlockCount": 1,
+          "imageBlockCount": 0,
+          "fileAttachmentCount": 0,
+          "toolUseCount": 0,
+          "toolResultCount": 0
+        },
+        "lastAssistantMessageMeta": {
+          "timestamp": "2026-09-14T05:41:28.512Z",
+          "blockTypes": [
+            "text"
+          ],
+          "textBlockCount": 1,
+          "imageBlockCount": 0,
+          "fileAttachmentCount": 0,
+          "toolUseCount": 0,
+          "toolResultCount": 0
+        },
+        "latestErrorStep": {
+          "id": "toolu_01R63gsn9P8pC9kmAwdpx7c8",
+          "type": "tool_call",
+          "status": "error",
+          "toolName": "edit",
+          "timestamp": "2026-09-11T17:30:17.783Z",
+          "durationMs": null,
+          "contentLength": 0,
+          "toolOutputLength": 130,
+          "toolInputKeys": [],
+          "isError": true
+        }
+      },
+      {
+        "id": "a010a2fd-1ece-4466-b5f0-57477b3daa88",
+        "status": "idle",
+        "cwd": "<home>/york-ie/default_working_dir",
+        "model": "/Users/dhavalj/models/Qwen3.6-35B-A3B/Qwen3.6-35B-A3B-UD-IQ2_M.gguf",
+        "createdAt": "2026-09-10T06:38:07.421Z",
+        "updatedAt": "2026-09-10T06:39:08.435Z",
+        "messageCount": 6,
+        "traceStepCount": 3,
+        "errorStepCount": 1,
+        "lastUserMessageMeta": {
+          "timestamp": "2026-09-10T06:38:07.438Z",
+          "blockTypes": [
+            "text"
+          ],
+          "textBlockCount": 1,
+          "imageBlockCount": 0,
+          "fileAttachmentCount": 0,
+          "toolUseCount": 0,
+          "toolResultCount": 0
+        },
+        "lastAssistantMessageMeta": {
+          "timestamp": "2026-09-10T06:39:08.409Z",
+          "blockTypes": [
+            "thinking",
+            "text"
+          ],
+          "textBlockCount": 1,
+          "imageBlockCount": 0,
+          "fileAttachmentCount": 0,
+          "toolUseCount": 0,
+          "toolResultCount": 0
+        },
+        "latestErrorStep": {
+          "id": "7V9hXqyl33S3CWIx70nDBWqBZuZMHzDq",
+          "type": "tool_call",
+          "status": "error",
+          "toolName": "mcp__Gmail__create_draft",
+          "timestamp": "2026-09-10T06:38:41.516Z",
+          "durationMs": null,
+          "contentLength": 0,
+          "toolOutputLength": 42,
+          "toolInputKeys": [],
+          "isError": true
+        }
+      },
+      {
+        "id": "511b86f3-8c9c-42ba-9c31-7ccfee9f0794",
+        "status": "idle",
+        "cwd": "<home>/york-ie/default_working_dir",
+        "model": "/Users/dhavalj/models/Qwen3.6-35B-A3B/Qwen3.6-35B-A3B-UD-IQ2_M.gguf",
+        "createdAt": "2026-09-09T15:36:00.088Z",
+        "updatedAt": "2026-09-09T15:36:43.391Z",
+        "messageCount": 10,
+        "traceStepCount": 6,
+        "errorStepCount": 0,
+        "lastUserMessageMeta": {
+          "timestamp": "2026-09-09T15:36:00.103Z",
+          "blockTypes": [
+            "text"
+          ],
+          "textBlockCount": 1,
+          "imageBlockCount": 0,
+          "fileAttachmentCount": 0,
+          "toolUseCount": 0,
+          "toolResultCount": 0
+        },
+        "lastAssistantMessageMeta": {
+          "timestamp": "2026-09-09T15:36:43.370Z",
+          "blockTypes": [
+            "thinking",
+            "text"
+          ],
+          "textBlockCount": 1,
+          "imageBlockCount": 0,
+          "fileAttachmentCount": 0,
+          "toolUseCount": 0,
+          "toolResultCount": 0
+        },
+        "latestErrorStep": null
+      }
+    ]
+  },
+  "recentErrorSteps": [
+    {
+      "sessionId": "d9e8f2bb-ba1d-428b-a7a8-d938a7192f28",
+      "id": "26915fa5-acc0-429c-aa46-a0d3838c281d",
+      "type": "thinking",
+      "status": "error",
+      "toolName": null,
+      "timestamp": "2026-09-16T09:05:26.234Z",
+      "durationMs": null,
+      "contentLength": 0,
+      "toolOutputLength": 0,
+      "toolInputKeys": [],
+      "isError": true
+    },
+    {
+      "sessionId": "662f25e1-2fbf-46e8-8c9f-b665a09db087",
+      "id": "toolu_01KDXrhmGUJq2TY7g1QXK3j7",
+      "type": "tool_call",
+      "status": "error",
+      "toolName": "read",
+      "timestamp": "2026-09-15T05:45:23.219Z",
+      "durationMs": null,
+      "contentLength": 0,
+      "toolOutputLength": 52,
+      "toolInputKeys": [],
+      "isError": true
+    },
+    {
+      "sessionId": "662f25e1-2fbf-46e8-8c9f-b665a09db087",
+      "id": "toolu_019oUpoC5wUj2JKmBfWJHeoh",
+      "type": "tool_call",
+      "status": "error",
+      "toolName": "bash",
+      "timestamp": "2026-09-15T05:39:43.046Z",
+      "durationMs": null,
+      "contentLength": 0,
+      "toolOutputLength": 279,
+      "toolInputKeys": [],
+      "isError": true
+    },
+    {
+      "sessionId": "662f25e1-2fbf-46e8-8c9f-b665a09db087",
+      "id": "toolu_017vKJUh2qmBCUZsh4A5Fo6k",
+      "type": "tool_call",
+      "status": "error",
+      "toolName": "bash",
+      "timestamp": "2026-09-15T05:39:40.602Z",
+      "durationMs": null,
+      "contentLength": 0,
+      "toolOutputLength": 111,
+      "toolInputKeys": [],
+      "isError": true
+    },
+    {
+      "sessionId": "1ef47e12-d0f1-459a-abdb-018bdeb9ba51",
+      "id": "toolu_01R63gsn9P8pC9kmAwdpx7c8",
+      "type": "tool_call",
+      "status": "error",
+      "toolName": "edit",
+      "timestamp": "2026-09-11T17:30:17.783Z",
+      "durationMs": null,
+      "contentLength": 0,
+      "toolOutputLength": 130,
+      "toolInputKeys": [],
+      "isError": true
+    },
+    {
+      "sessionId": "1ef47e12-d0f1-459a-abdb-018bdeb9ba51",
+      "id": "toolu_01KBRo1Kbp9vRC9aRxtgdjS2",
+      "type": "tool_call",
+      "status": "error",
+      "toolName": "write",
+      "timestamp": "2026-09-11T14:43:30.223Z",
+      "durationMs": null,
+      "contentLength": 0,
+      "toolOutputLength": 35,
+      "toolInputKeys": [],
+      "isError": true
+    },
+    {
+      "sessionId": "1ef47e12-d0f1-459a-abdb-018bdeb9ba51",
+      "id": "toolu_01AQmwXek2Gk6nvh6jeyKTej",
+      "type": "tool_call",
+      "status": "error",
+      "toolName": "write",
+      "timestamp": "2026-09-11T13:50:38.750Z",
+      "durationMs": null,
+      "contentLength": 0,
+      "toolOutputLength": 35,
+      "toolInputKeys": [],
+      "isError": true
+    },
+    {
+      "sessionId": "1ef47e12-d0f1-459a-abdb-018bdeb9ba51",
+      "id": "toolu_01KJjse2wVj7NbiGzCFsAPJL",
+      "type": "tool_call",
+      "status": "error",
+      "toolName": "AskUserQuestion",
+      "timestamp": "2026-09-11T13:47:37.622Z",
+      "durationMs": null,
+      "contentLength": 0,
+      "toolOutputLength": 45,
+      "toolInputKeys": [],
+      "isError": true
+    },
+    {
+      "sessionId": "1ef47e12-d0f1-459a-abdb-018bdeb9ba51",
+      "id": "toolu_01Fi4KzfeVi7uL6y9JvzixCN",
+      "type": "tool_call",
+      "status": "error",
+      "toolName": "write",
+      "timestamp": "2026-09-11T13:44:58.634Z",
+      "durationMs": null,
+      "contentLength": 0,
+      "toolOutputLength": 35,
+      "toolInputKeys": [],
+      "isError": true
+    },
+    {
+      "sessionId": "1ef47e12-d0f1-459a-abdb-018bdeb9ba51",
+      "id": "toolu_01YZfu1KV9s7b3uUJ9FVGviW",
+      "type": "tool_call",
+      "status": "error",
+      "toolName": "write",
+      "timestamp": "2026-09-11T13:34:53.680Z",
+      "durationMs": null,
+      "contentLength": 0,
+      "toolOutputLength": 35,
+      "toolInputKeys": [],
+      "isError": true
+    },
+    {
+      "sessionId": "1ef47e12-d0f1-459a-abdb-018bdeb9ba51",
+      "id": "toolu_01SN7Kc8Wwefy4o6cxvgTFZk",
+      "type": "tool_call",
+      "status": "error",
+      "toolName": "AskUserQuestion",
+      "timestamp": "2026-09-11T13:33:44.497Z",
+      "durationMs": null,
+      "contentLength": 0,
+      "toolOutputLength": 45,
+      "toolInputKeys": [],
+      "isError": true
+    },
+    {
+      "sessionId": "1ef47e12-d0f1-459a-abdb-018bdeb9ba51",
+      "id": "toolu_01CyikiaEGo5QTQX48iGRyzS",
+      "type": "tool_call",
+      "status": "error",
+      "toolName": "write",
+      "timestamp": "2026-09-11T13:30:54.790Z",
+      "durationMs": null,
+      "contentLength": 0,
+      "toolOutputLength": 35,
+      "toolInputKeys": [],
+      "isError": true
+    },
+    {
+      "sessionId": "1ef47e12-d0f1-459a-abdb-018bdeb9ba51",
+      "id": "toolu_01BYyna1nGkSmQBiPvKCCUYQ",
+      "type": "tool_call",
+      "status": "error",
+      "toolName": "bash",
+      "timestamp": "2026-09-11T13:29:40.595Z",
+      "durationMs": null,
+      "contentLength": 0,
+      "toolOutputLength": 34,
+      "toolInputKeys": [],
+      "isError": true
+    },
+    {
+      "sessionId": "a010a2fd-1ece-4466-b5f0-57477b3daa88",
+      "id": "7V9hXqyl33S3CWIx70nDBWqBZuZMHzDq",
+      "type": "tool_call",
+      "status": "error",
+      "toolName": "mcp__Gmail__create_draft",
+      "timestamp": "2026-09-10T06:38:41.516Z",
+      "durationMs": null,
+      "contentLength": 0,
+      "toolOutputLength": 42,
+      "toolInputKeys": [],
+      "isError": true
+    }
+  ],
+  "logFiles": [
+    {
+      "name": "app-2026-09-17_09-51-04-114-2.log",
+      "size": 5402,
+      "modifiedAt": "2026-09-17T09:51:15.555Z"
+    },
+    {
+      "name": "app-2026-09-17_09-51-03-448-1.log",
+      "size": 1342,
+      "modifiedAt": "2026-09-17T09:51:03.549Z"
+    },
+    {
+      "name": "app-2026-09-17_09-42-04-488-2.log",
+      "size": 34285,
+      "modifiedAt": "2026-09-17T09:49:03.149Z"
+    },
+    {
+      "name": "app-2026-09-17_09-42-03-569-1.log",
+      "size": 1342,
+      "modifiedAt": "2026-09-17T09:42:03.696Z"
+    },
+    {
+      "name": "app-2026-09-17_08-43-17-374-2.log",
+      "size": 45551,
+      "modifiedAt": "2026-09-17T08:58:56.497Z"
+    },
+    {
+      "name": "app-2026-09-17_08-43-16-632-1.log",
+      "size": 1465,
+      "modifiedAt": "2026-09-17T08:43:16.759Z"
+    }
+  ]
+}
