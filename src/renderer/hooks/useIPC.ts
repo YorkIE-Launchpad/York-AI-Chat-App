@@ -1455,6 +1455,52 @@ export function useIPC() {
     return window.electronAPI.collab.shareSession(sessionId);
   }, []);
 
+  const shareArtifactDoc = useCallback(
+    async (input: { sessionId: string; cwd: string; localPath: string; title?: string }) => {
+      if (!isElectron) {
+        return { success: false as const, error: 'Share is only available in the desktop app' };
+      }
+      return window.electronAPI.sharedDocs.shareArtifact(input);
+    },
+    []
+  );
+
+  const listSharedDocs = useCallback(async () => {
+    if (!isElectron) return { success: false as const, error: 'Not available' };
+    return window.electronAPI.sharedDocs.list();
+  }, []);
+
+  const openSharedDoc = useCallback(
+    async (input: { sessionId: string; cwd: string; docId: string }) => {
+      if (!isElectron) return { success: false as const, error: 'Not available' };
+      const result = await window.electronAPI.sharedDocs.open(input);
+      if (!result.success || !result.localPath || !result.doc) {
+        return result;
+      }
+      useAppStore.getState().openHtmlPreview(result.localPath, result.doc.title, result.doc.kind, {
+        docId: result.doc.id,
+        permission: result.doc.permission,
+        version: result.doc.version,
+      });
+      return result;
+    },
+    []
+  );
+
+  const joinSharedDoc = useCallback(
+    async (inviteToken: string, sessionId: string, cwd: string) => {
+      if (!isElectron) {
+        return { success: false as const, error: 'Not available' };
+      }
+      const joined = await window.electronAPI.sharedDocs.join(inviteToken);
+      if (!joined.success || !joined.doc) {
+        return joined;
+      }
+      return openSharedDoc({ sessionId, cwd, docId: joined.doc.id });
+    },
+    [openSharedDoc]
+  );
+
   const joinCollabSession = useCallback(
     async (inviteToken: string) => {
       if (!isElectron) {
@@ -1617,6 +1663,10 @@ export function useIPC() {
     exportSession,
     importSession,
     shareCollabSession,
+    shareArtifactDoc,
+    listSharedDocs,
+    openSharedDoc,
+    joinSharedDoc,
     joinCollabSession,
     leaveCollabSession,
     getCollabState,

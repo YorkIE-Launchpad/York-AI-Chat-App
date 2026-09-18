@@ -43,6 +43,13 @@ import {
   createPdfAwareReadOptions,
 } from '../utils/pdf-text';
 import {
+  listSharedDocLinksForSession,
+} from '../shared-docs/shared-doc-link-store';
+import {
+  sharedDocsService,
+  workspaceRelativePath,
+} from '../shared-docs/shared-docs-service';
+import {
   log,
   logWarn,
   logError,
@@ -1524,7 +1531,8 @@ ${hints.join('\n')}
    */
   private static wrapToolsForCoworkPathRemap(
     tools: ToolDefinition[],
-    workspaceRoot: string
+    workspaceRoot: string,
+    sessionId?: string
   ): ToolDefinition[] {
     if (!workspaceRoot) return tools;
 
@@ -1567,13 +1575,45 @@ ${hints.join('\n')}
             }
             const remapped = remapCoworkVirtualPath(params.path, workspaceRoot);
             const nextParams = remapped === params.path ? params : { ...params, path: remapped };
-            return originalExecute(toolCallId, nextParams, signal, onUpdate, ctx);
+            const result = await originalExecute(toolCallId, nextParams, signal, onUpdate, ctx);
+            if (
+              sessionId &&
+              workspaceRoot &&
+              (toolName === 'write' || toolName === 'edit') &&
+              typeof nextParams.path === 'string'
+            ) {
+              try {
+                const relativePath = workspaceRelativePath(workspaceRoot, nextParams.path);
+                void sharedDocsService.trySyncAfterFileWrite({
+                  sessionId,
+                  cwd: workspaceRoot,
+                  relativePath,
+                });
+              } catch {
+                // ignore path resolution failures for non-workspace writes
+              }
+            }
+            return result;
           },
         } as ToolDefinition;
       }
 
       return tool;
     });
+  }
+
+  private static buildSharedDocsSystemNote(sessionId: string): string {
+    try {
+      const links = listSharedDocLinksForSession(sessionId);
+      if (links.length === 0) return '';
+      const lines = links.map(
+        (link) =>
+          `- ${link.local_path} (permission: ${link.permission}, shared doc id: ${link.doc_id})`
+      );
+      return `Shared York documents in this workspace. When permission is edit or owner, saving these paths syncs to Hub for collaborators:\n${lines.join('\n')}`;
+    } catch {
+      return '';
+    }
   }
 
   private static wrapBashToolWithDefaultTimeout(tools: ToolDefinition[]): ToolDefinition[] {
@@ -2978,8 +3018,11 @@ This folder is for local files only. LaunchPad implement/preview and other remot
         }
       }
 
+      const sharedDocsNote = CoworkAgentRunner.buildSharedDocsSystemNote(session.id);
+
       const coworkAppendPrompt = [
         'You are a York IE VECOS assistant. Be concise, accurate, and tool-capable.',
+        sharedDocsNote,
         buildDivisionSystemPrompt(session, { folderInstructions }),
         session.division === 'project' || session.division === 'client'
           ? buildConnectorScopePromptLines(sessionLinkage)
@@ -3061,7 +3104,8 @@ ${
       // Remap Cowork virtual roots onto the session workspace before other wrappers
       const withCoworkPaths = CoworkAgentRunner.wrapToolsForCoworkPathRemap(
         codingTools as ToolDefinition[],
-        effectiveCwd
+        effectiveCwd,
+        session.id
       );
 
       // Inject a default 120s timeout for bash commands when the model omits one

@@ -16,7 +16,9 @@ import {
   Loader2,
   AlertTriangle,
   FileCode2,
+  Share2,
 } from 'lucide-react';
+import type { SharedDocPermission } from '../../shared/shared-docs/types';
 import { useAppStore } from '../store';
 import { getArtifactLabel } from '../utils/artifact-steps';
 import { MessageMarkdown } from './MessageMarkdown';
@@ -62,6 +64,11 @@ export function HtmlPreviewPanel() {
   const [error, setError] = useState<string | null>(null);
   const [panelWidth, setPanelWidth] = useState(readStoredPreviewWidth);
   const [isResizing, setIsResizing] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareEmail, setShareEmail] = useState('');
+  const [sharePermission, setSharePermission] = useState<SharedDocPermission>('view');
+  const [shareInviteToken, setShareInviteToken] = useState('');
+  const [sharing, setSharing] = useState(false);
   const dragStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
 
   const activeSession = activeSessionId ? sessions.find((s) => s.id === activeSessionId) : null;
@@ -116,6 +123,65 @@ export function HtmlPreviewPanel() {
   useEffect(() => {
     void loadPreview();
   }, [loadPreview]);
+
+  useEffect(() => {
+    if (
+      !activeHtmlPreview?.path ||
+      !activeSessionId ||
+      activeHtmlPreview.shared ||
+      !window.electronAPI?.sharedDocs
+    ) {
+      return;
+    }
+    void window.electronAPI.sharedDocs
+      .getLink({ sessionId: activeSessionId, localPath: activeHtmlPreview.path })
+      .then((result) => {
+        if (!result.success || !result.link) return;
+        const permission = result.link.permission as SharedDocPermission | 'owner';
+        openHtmlPreview(
+          activeHtmlPreview.path,
+          activeHtmlPreview.title,
+          activeHtmlPreview.kind,
+          {
+            docId: result.link.doc_id,
+            permission,
+            version: result.link.version,
+          }
+        );
+      })
+      .catch(() => undefined);
+  }, [activeHtmlPreview?.path, activeSessionId, activeHtmlPreview?.shared, openHtmlPreview]);
+
+  useEffect(() => {
+    if (!window.electronAPI?.sharedDocs?.onSync) return undefined;
+    return window.electronAPI.sharedDocs.onSync((payload) => {
+      if (payload.sessionId !== activeSessionId) return;
+      const preview = useAppStore.getState().activeHtmlPreview;
+      if (!preview || preview.path !== payload.localPath) return;
+      if (payload.synced) {
+        setGlobalNotice({
+          id: `shared-doc-sync-${Date.now()}`,
+          type: 'success',
+          message: t('context.htmlPreviewSyncSuccess'),
+        });
+        if (payload.version && preview.shared) {
+          openHtmlPreview(preview.path, preview.title, preview.kind, {
+            ...preview.shared,
+            version: payload.version,
+          });
+        }
+        openHtmlPreview(preview.path, preview.title, preview.kind, preview.shared);
+        return;
+      }
+      if (payload.error === 'version_conflict') {
+        setGlobalNotice({
+          id: `shared-doc-conflict-${Date.now()}`,
+          type: 'warning',
+          message: t('context.htmlPreviewSyncConflict'),
+        });
+      }
+    });
+  }, [activeSessionId, openHtmlPreview, setGlobalNotice, t]);
 
   useEffect(() => {
     const onWindowResize = () => {
@@ -183,7 +249,111 @@ export function HtmlPreviewPanel() {
     if (!activeHtmlPreview) {
       return;
     }
-    openHtmlPreview(activeHtmlPreview.path, activeHtmlPreview.title, activeHtmlPreview.kind);
+    void (async () => {
+      if (
+        activeHtmlPreview.shared?.docId &&
+        activeSessionId &&
+        cwd &&
+        window.electronAPI?.sharedDocs
+      ) {
+        const remote = await window.electronAPI.sharedDocs.refresh({
+          sessionId: activeSessionId,
+          cwd,
+          docId: activeHtmlPreview.shared.docId,
+        });
+        if (remote.success && remote.refreshed && remote.version) {
+          openHtmlPreview(activeHtmlPreview.path, activeHtmlPreview.title, activeHtmlPreview.kind, {
+            ...activeHtmlPreview.shared,
+            version: remote.version,
+          });
+          return;
+        }
+      }
+      openHtmlPreview(
+        activeHtmlPreview.path,
+        activeHtmlPreview.title,
+        activeHtmlPreview.kind,
+        activeHtmlPreview.shared
+      );
+    })();
+  };
+
+  const handleShare = () => {
+    setShareEmail('');
+    setSharePermission('view');
+    setShareInviteToken('');
+    setShareOpen(true);
+  };
+
+  const handleSubmitShare = async () => {
+    if (!activeHtmlPreview || !activeSessionId || !cwd || !window.electronAPI?.sharedDocs) {
+      return;
+    }
+    setSharing(true);
+    try {
+      let docId = activeHtmlPreview.shared?.docId;
+      let inviteToken = shareInviteToken;
+
+      if (!docId) {
+        const created = await window.electronAPI.sharedDocs.shareArtifact({
+          sessionId: activeSessionId,
+          cwd,
+          localPath: activeHtmlPreview.path,
+          title: activeHtmlPreview.title,
+        });
+        if (!created.success || !created.doc) {
+          throw new Error(created.error || t('context.htmlPreviewShareFailed'));
+        }
+        docId = created.doc.id;
+        inviteToken = created.inviteToken || '';
+        openHtmlPreview(activeHtmlPreview.path, created.doc.title, created.doc.kind, {
+          docId: created.doc.id,
+          permission: 'owner',
+          version: created.doc.version,
+        });
+      }
+
+      if (shareEmail.trim() && docId) {
+        await window.electronAPI.sharedDocs.grantAcl({
+          docId,
+          principal: shareEmail.trim().toLowerCase(),
+          permission: sharePermission,
+        });
+      }
+
+      if (docId && !inviteToken) {
+        const invite = await window.electronAPI.sharedDocs.createInvite({
+          docId,
+          permission: 'view',
+        });
+        if (invite.success && invite.inviteToken) {
+          inviteToken = invite.inviteToken;
+        }
+      }
+
+      if (inviteToken) {
+        setShareInviteToken(inviteToken);
+        try {
+          await navigator.clipboard.writeText(inviteToken);
+        } catch {
+          // ignore clipboard failures
+        }
+      }
+
+      setGlobalNotice({
+        id: `share-doc-${Date.now()}`,
+        type: 'success',
+        message: t('context.htmlPreviewShareDone'),
+      });
+    } catch (error) {
+      setGlobalNotice({
+        id: `share-doc-fail-${Date.now()}`,
+        type: 'error',
+        message: error instanceof Error ? error.message : t('context.htmlPreviewShareFailed'),
+      });
+    } finally {
+      setSharing(false);
+    }
   };
 
   const handleReveal = async () => {
@@ -275,7 +445,24 @@ export function HtmlPreviewPanel() {
           <p className="text-[10px] text-text-muted truncate" title={activeHtmlPreview.path}>
             {activeHtmlPreview.path}
           </p>
+          {activeHtmlPreview.shared && (
+            <p className="text-[10px] text-accent-primary truncate">
+              {t('context.htmlPreviewSharedBadge', {
+                permission: activeHtmlPreview.shared.permission,
+                version: activeHtmlPreview.shared.version,
+              })}
+            </p>
+          )}
         </div>
+        <button
+          type="button"
+          onClick={handleShare}
+          className="w-7 h-7 rounded-md flex items-center justify-center hover:bg-surface-hover text-text-muted hover:text-text-primary transition-colors"
+          title={t('context.htmlPreviewShare')}
+          aria-label={t('context.htmlPreviewShare')}
+        >
+          <Share2 className="w-3.5 h-3.5" />
+        </button>
         <button
           type="button"
           onClick={handleRefresh}
@@ -313,6 +500,58 @@ export function HtmlPreviewPanel() {
           <X className="w-3.5 h-3.5" />
         </button>
       </div>
+
+      {shareOpen && (
+        <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/30 p-4">
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="w-full max-w-sm rounded-xl border border-border-subtle bg-background p-4 shadow-lg"
+          >
+            <h3 className="text-sm font-medium text-text-primary">{t('context.htmlPreviewShareTitle')}</h3>
+            <label className="mt-3 block text-xs text-text-muted">{t('context.htmlPreviewShareEmail')}</label>
+            <input
+              type="email"
+              value={shareEmail}
+              onChange={(e) => setShareEmail(e.target.value)}
+              className="mt-1 w-full rounded-lg border border-border-subtle bg-surface px-3 py-2 text-sm"
+              placeholder="name@york.ie"
+            />
+            <label className="mt-3 block text-xs text-text-muted">{t('context.htmlPreviewSharePermission')}</label>
+            <select
+              value={sharePermission}
+              onChange={(e) => setSharePermission(e.target.value as SharedDocPermission)}
+              className="mt-1 w-full rounded-lg border border-border-subtle bg-surface px-3 py-2 text-sm"
+            >
+              <option value="view">{t('context.htmlPreviewShareView')}</option>
+              <option value="edit">{t('context.htmlPreviewShareEdit')}</option>
+            </select>
+            {shareInviteToken && (
+              <p className="mt-3 text-[10px] text-text-muted break-all">
+                {t('context.htmlPreviewShareInvite')}: {shareInviteToken}
+              </p>
+            )}
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-lg px-3 py-1.5 text-sm text-text-secondary hover:bg-surface-hover"
+                onClick={() => setShareOpen(false)}
+                disabled={sharing}
+              >
+                {t('common.cancel', { defaultValue: 'Cancel' })}
+              </button>
+              <button
+                type="button"
+                className="rounded-lg bg-accent px-3 py-1.5 text-sm text-white disabled:opacity-50"
+                onClick={() => void handleSubmitShare()}
+                disabled={sharing}
+              >
+                {sharing ? t('common.loading', { defaultValue: 'Working…' }) : t('context.htmlPreviewShareCopy')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className={`flex-1 min-h-0 relative ${isMarkdown ? 'bg-background' : 'bg-white'}`}>
         {loading && !content && (

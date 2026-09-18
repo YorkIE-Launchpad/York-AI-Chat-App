@@ -4,6 +4,7 @@ import express from 'express';
 import { requireMinClientVersion } from './client-version.js';
 import { requireCognito } from './cognito-auth.js';
 import { createCollabInviteRouter } from './collab/invite-router.js';
+import { createShareDocRouter } from './share/doc-router.js';
 import { attachCollabRelay } from './collab/yjs-relay.js';
 import { listEnabledModels } from './models.js';
 import { proxyToProvider, type ProviderTarget } from './proxy.js';
@@ -73,6 +74,9 @@ app.get('/models', (_req, res) => {
 
 // Stateless collab invite JWT sign/verify (no room storage).
 app.use('/collab', express.json(), createCollabInviteRouter());
+
+// Shared artifact documents (SQLite metadata + Hub S3 blobs).
+app.use('/share/docs', express.json(), createShareDocRouter());
 
 for (const target of PROVIDER_TARGETS) {
   app.use(target.mountPath, (req, res) => {

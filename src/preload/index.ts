@@ -260,6 +260,39 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
   },
 
+  sharedDocs: {
+    shareArtifact: (input: {
+      sessionId: string;
+      cwd: string;
+      localPath: string;
+      title?: string;
+    }) => ipcRenderer.invoke('sharedDocs.shareArtifact', input),
+    list: () => ipcRenderer.invoke('sharedDocs.list'),
+    open: (input: { sessionId: string; cwd: string; docId: string }) =>
+      ipcRenderer.invoke('sharedDocs.open', input),
+    refresh: (input: { sessionId: string; cwd: string; docId: string }) =>
+      ipcRenderer.invoke('sharedDocs.refresh', input),
+    push: (input: { sessionId: string; cwd: string; localPath: string }) =>
+      ipcRenderer.invoke('sharedDocs.push', input),
+    join: (inviteToken: string) => ipcRenderer.invoke('sharedDocs.join', inviteToken),
+    grantAcl: (input: { docId: string; principal: string; permission: 'view' | 'edit' }) =>
+      ipcRenderer.invoke('sharedDocs.grantAcl', input),
+    createInvite: (input: { docId: string; permission: 'view' | 'edit' }) =>
+      ipcRenderer.invoke('sharedDocs.createInvite', input),
+    getLink: (input: { sessionId: string; localPath: string }) =>
+      ipcRenderer.invoke('sharedDocs.getLink', input),
+    onSync: (
+      callback: (payload: import('../shared/shared-docs/types').SharedDocsSyncEvent) => void
+    ): (() => void) => {
+      const listener = (
+        _: Electron.IpcRendererEvent,
+        payload: import('../shared/shared-docs/types').SharedDocsSyncEvent
+      ) => callback(payload);
+      ipcRenderer.on('sharedDocs:sync', listener);
+      return () => ipcRenderer.removeListener('sharedDocs:sync', listener);
+    },
+  },
+
   // Platform info
   platform: process.platform,
 
@@ -1173,6 +1206,81 @@ declare global {
         ) => () => void;
         onAwareness: (
           callback: (payload: import('../shared/collab/types').CollabAwarenessEvent) => void
+        ) => () => void;
+      };
+      sharedDocs: {
+        shareArtifact: (input: {
+          sessionId: string;
+          cwd: string;
+          localPath: string;
+          title?: string;
+        }) => Promise<{
+          success: boolean;
+          doc?: import('../shared/shared-docs/types').SharedDocWithAccess;
+          inviteToken?: string;
+          error?: string;
+        }>;
+        list: () => Promise<{
+          success: boolean;
+          docs?: import('../shared/shared-docs/types').SharedDocWithAccess[];
+          error?: string;
+        }>;
+        open: (input: { sessionId: string; cwd: string; docId: string }) => Promise<{
+          success: boolean;
+          doc?: import('../shared/shared-docs/types').SharedDocWithAccess;
+          localPath?: string;
+          error?: string;
+        }>;
+        refresh: (input: { sessionId: string; cwd: string; docId: string }) => Promise<{
+          success: boolean;
+          refreshed?: boolean;
+          version?: number;
+          localPath?: string;
+          error?: string;
+        }>;
+        push: (input: { sessionId: string; cwd: string; localPath: string }) => Promise<{
+          success: boolean;
+          doc?: import('../shared/shared-docs/types').SharedDocWithAccess;
+          error?: string;
+        }>;
+        join: (inviteToken: string) => Promise<{
+          success: boolean;
+          doc?: import('../shared/shared-docs/types').SharedDocWithAccess;
+          error?: string;
+        }>;
+        grantAcl: (input: {
+          docId: string;
+          principal: string;
+          permission: 'view' | 'edit';
+        }) => Promise<{
+          success: boolean;
+          doc?: import('../shared/shared-docs/types').SharedDocWithAccess;
+          error?: string;
+        }>;
+        createInvite: (input: { docId: string; permission: 'view' | 'edit' }) => Promise<{
+          success: boolean;
+          docId?: string;
+          permission?: import('../shared/shared-docs/types').SharedDocPermission;
+          inviteToken?: string;
+          error?: string;
+        }>;
+        getLink: (input: { sessionId: string; localPath: string }) => Promise<{
+          success: boolean;
+          link?: {
+            doc_id: string;
+            local_path: string;
+            s3_key: string;
+            version: number;
+            permission: string;
+            session_id: string;
+            title: string;
+            kind: string;
+            updated_at: number;
+          };
+          error?: string;
+        }>;
+        onSync: (
+          callback: (payload: import('../shared/shared-docs/types').SharedDocsSyncEvent) => void
         ) => () => void;
       };
       platform: NodeJS.Platform;

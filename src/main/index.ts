@@ -240,6 +240,10 @@ import { eventRequiresSessionManager } from './client-event-utils';
 import { getUnsupportedWorkspacePathReason } from './workspace-path-constraints';
 import { CollabSyncService } from './collab/collab-sync-service';
 import {
+  sharedDocsService,
+  setSharedDocsSyncNotifier,
+} from './shared-docs/shared-docs-service';
+import {
   log,
   logWarn,
   logError,
@@ -367,6 +371,11 @@ function wireCollabSyncService(): void {
       });
     },
     getWindow: () => mainWindow,
+  });
+  setSharedDocsSyncNotifier((payload) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('sharedDocs:sync', payload);
+    }
   });
   sessionManager.setCollabHooks({
     assertCanPrompt: (sessionId) => collabSyncService?.assertCanPrompt(sessionId),
@@ -5041,6 +5050,120 @@ ipcMain.handle('collab.releaseTurn', async (_event, sessionId: string) => {
     return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
   }
 });
+
+ipcMain.handle(
+  'sharedDocs.shareArtifact',
+  async (
+    _event,
+    input: { sessionId: string; cwd: string; localPath: string; title?: string }
+  ) => {
+    try {
+      const result = await sharedDocsService.shareLocalArtifact(input);
+      return { success: true, ...result };
+    } catch (error) {
+      logError('[SharedDocs] shareArtifact failed:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  }
+);
+
+ipcMain.handle('sharedDocs.list', async () => {
+  try {
+    const docs = await sharedDocsService.listDocs();
+    return { success: true, docs };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+ipcMain.handle(
+  'sharedDocs.open',
+  async (_event, input: { sessionId: string; cwd: string; docId: string }) => {
+    try {
+      const result = await sharedDocsService.materializeSharedDoc(input);
+      return { success: true, ...result };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  }
+);
+
+ipcMain.handle(
+  'sharedDocs.refresh',
+  async (_event, input: { sessionId: string; cwd: string; docId: string }) => {
+    try {
+      const result = await sharedDocsService.syncLocalLinkIfRemoteNewer(input);
+      return { success: true, ...result };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  }
+);
+
+ipcMain.handle(
+  'sharedDocs.push',
+  async (_event, input: { sessionId: string; cwd: string; localPath: string }) => {
+    try {
+      const doc = await sharedDocsService.pushLocalEdits(input);
+      return { success: true, doc };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      return { success: false, error: message };
+    }
+  }
+);
+
+ipcMain.handle('sharedDocs.join', async (_event, inviteToken: string) => {
+  try {
+    const doc = await sharedDocsService.joinByInvite(inviteToken);
+    return { success: true, doc };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+ipcMain.handle(
+  'sharedDocs.grantAcl',
+  async (
+    _event,
+    input: { docId: string; principal: string; permission: 'view' | 'edit' }
+  ) => {
+    try {
+      const doc = await sharedDocsService.grantAcl(
+        input.docId,
+        input.principal,
+        input.permission
+      );
+      return { success: true, doc };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  }
+);
+
+ipcMain.handle(
+  'sharedDocs.createInvite',
+  async (_event, input: { docId: string; permission: 'view' | 'edit' }) => {
+    try {
+      const invite = await sharedDocsService.createInvite(input.docId, input.permission);
+      return { success: true, ...invite };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  }
+);
+
+ipcMain.handle(
+  'sharedDocs.getLink',
+  async (_event, input: { sessionId: string; localPath: string }) => {
+    try {
+      const link = sharedDocsService.getLinkForPath(input.sessionId, input.localPath);
+      return { success: true, link };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  }
+);
 
 ipcMain.handle('session.import', async () => {
   try {

@@ -123,6 +123,7 @@ interface AppState {
     title?: string;
     kind: 'html' | 'markdown';
     revision: number;
+    shared?: import('../../shared/shared-docs/types').SharedDocPreviewMeta;
   } | null;
   showSettings: boolean;
   showMatter: boolean;
@@ -265,7 +266,12 @@ interface AppState {
   toggleContextPanel: () => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
   setContextPanelCollapsed: (collapsed: boolean) => void;
-  openHtmlPreview: (path: string, title?: string, kind?: 'html' | 'markdown') => void;
+  openHtmlPreview: (
+    path: string,
+    title?: string,
+    kind?: 'html' | 'markdown',
+    shared?: import('../../shared/shared-docs/types').SharedDocPreviewMeta
+  ) => void;
   closeHtmlPreview: () => void;
   setShowSettings: (show: boolean) => void;
   setShowMatter: (show: boolean) => void;
@@ -903,7 +909,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => ({ contextPanelCollapsed: !state.contextPanelCollapsed })),
   setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
   setContextPanelCollapsed: (collapsed) => set({ contextPanelCollapsed: collapsed }),
-  openHtmlPreview: (path, title, kind) =>
+  openHtmlPreview: (path, title, kind, shared) =>
     set((state) => {
       const trimmed = path.trim();
       if (!trimmed) {
@@ -913,12 +919,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       const samePath = prev?.path === trimmed;
       const resolvedKind =
         kind || (samePath ? prev?.kind : undefined) || previewKindFromPath(trimmed) || 'html';
+      const resolvedShared =
+        shared !== undefined ? shared : samePath ? prev?.shared : undefined;
       return {
         activeHtmlPreview: {
           path: trimmed,
           title: title?.trim() || (samePath ? prev?.title : undefined) || undefined,
           kind: resolvedKind,
           revision: samePath ? (prev?.revision ?? 0) + 1 : 1,
+          shared: resolvedShared,
         },
         contextPanelCollapsed: false,
       };
