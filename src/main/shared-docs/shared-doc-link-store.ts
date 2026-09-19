@@ -5,7 +5,7 @@ export interface SharedDocLinkRow {
   doc_id: string;
   local_path: string;
   s3_key: string;
-  version: number;
+  s3_updated_at: string;
   permission: string;
   session_id: string;
   title: string;
@@ -14,6 +14,14 @@ export interface SharedDocLinkRow {
 }
 
 let schemaReady = false;
+
+function migrateLegacyVersionColumn(db: ReturnType<typeof getDatabase>): void {
+  const cols = db.prepare('PRAGMA table_info(shared_doc_links)').all() as Array<{ name: string }>;
+  const names = new Set(cols.map((c) => c.name));
+  if (names.has('s3_updated_at')) return;
+  if (!names.has('doc_id')) return;
+  db.exec(`ALTER TABLE shared_doc_links ADD COLUMN s3_updated_at TEXT NOT NULL DEFAULT ''`);
+}
 
 function ensureSchema(): void {
   if (schemaReady) return;
@@ -24,7 +32,7 @@ function ensureSchema(): void {
       session_id TEXT NOT NULL,
       local_path TEXT NOT NULL,
       s3_key TEXT NOT NULL,
-      version INTEGER NOT NULL,
+      s3_updated_at TEXT NOT NULL DEFAULT '',
       permission TEXT NOT NULL,
       title TEXT NOT NULL,
       kind TEXT NOT NULL,
@@ -32,6 +40,7 @@ function ensureSchema(): void {
       PRIMARY KEY (doc_id, session_id)
     );
   `);
+  migrateLegacyVersionColumn(db);
   schemaReady = true;
 }
 
@@ -40,7 +49,7 @@ export function upsertSharedDocLink(row: {
   sessionId: string;
   localPath: string;
   s3Key: string;
-  version: number;
+  s3UpdatedAt: string;
   permission: SharedDocPermission | 'owner';
   title: string;
   kind: SharedDocKind;
@@ -50,12 +59,12 @@ export function upsertSharedDocLink(row: {
   const now = Date.now();
   db.prepare(
     `INSERT INTO shared_doc_links (
-      doc_id, session_id, local_path, s3_key, version, permission, title, kind, updated_at
+      doc_id, session_id, local_path, s3_key, s3_updated_at, permission, title, kind, updated_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(doc_id, session_id) DO UPDATE SET
       local_path = excluded.local_path,
       s3_key = excluded.s3_key,
-      version = excluded.version,
+      s3_updated_at = excluded.s3_updated_at,
       permission = excluded.permission,
       title = excluded.title,
       kind = excluded.kind,
@@ -65,7 +74,7 @@ export function upsertSharedDocLink(row: {
     row.sessionId,
     row.localPath,
     row.s3Key,
-    row.version,
+    row.s3UpdatedAt,
     row.permission,
     row.title,
     row.kind,

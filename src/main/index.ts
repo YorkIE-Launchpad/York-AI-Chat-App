@@ -5067,9 +5067,12 @@ ipcMain.handle(
   }
 );
 
-ipcMain.handle('sharedDocs.list', async () => {
+ipcMain.handle('sharedDocs.list', async (_event, sessionId: string) => {
   try {
-    const docs = await sharedDocsService.listDocs();
+    if (typeof sessionId !== 'string' || !sessionId.trim()) {
+      return { success: false, error: 'sessionId is required' };
+    }
+    const docs = sharedDocsService.listDocsForSession(sessionId.trim());
     return { success: true, docs };
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
@@ -5078,7 +5081,10 @@ ipcMain.handle('sharedDocs.list', async () => {
 
 ipcMain.handle(
   'sharedDocs.open',
-  async (_event, input: { sessionId: string; cwd: string; docId: string }) => {
+  async (
+    _event,
+    input: { sessionId: string; cwd: string; docId: string; doc?: import('../shared/shared-docs/types').SharedDocWithAccess }
+  ) => {
     try {
       const result = await sharedDocsService.materializeSharedDoc(input);
       return { success: true, ...result };
@@ -5093,6 +5099,18 @@ ipcMain.handle(
   async (_event, input: { sessionId: string; cwd: string; docId: string }) => {
     try {
       const result = await sharedDocsService.syncLocalLinkIfRemoteNewer(input);
+      return { success: true, ...result };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  }
+);
+
+ipcMain.handle(
+  'sharedDocs.restoreFromS3',
+  async (_event, input: { sessionId: string; cwd: string; docId: string }) => {
+    try {
+      const result = await sharedDocsService.restoreFromRemote(input);
       return { success: true, ...result };
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
@@ -5123,29 +5141,13 @@ ipcMain.handle('sharedDocs.join', async (_event, inviteToken: string) => {
 });
 
 ipcMain.handle(
-  'sharedDocs.grantAcl',
+  'sharedDocs.createInvite',
   async (
     _event,
-    input: { docId: string; principal: string; permission: 'view' | 'edit' }
+    input: { docId: string; permission: 'view' | 'edit'; sessionId: string }
   ) => {
     try {
-      const doc = await sharedDocsService.grantAcl(
-        input.docId,
-        input.principal,
-        input.permission
-      );
-      return { success: true, doc };
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
-    }
-  }
-);
-
-ipcMain.handle(
-  'sharedDocs.createInvite',
-  async (_event, input: { docId: string; permission: 'view' | 'edit' }) => {
-    try {
-      const invite = await sharedDocsService.createInvite(input.docId, input.permission);
+      const invite = await sharedDocsService.createInvite(input);
       return { success: true, ...invite };
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };

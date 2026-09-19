@@ -1465,13 +1465,18 @@ export function useIPC() {
     []
   );
 
-  const listSharedDocs = useCallback(async () => {
+  const listSharedDocs = useCallback(async (sessionId: string) => {
     if (!isElectron) return { success: false as const, error: 'Not available' };
-    return window.electronAPI.sharedDocs.list();
+    return window.electronAPI.sharedDocs.list(sessionId);
   }, []);
 
   const openSharedDoc = useCallback(
-    async (input: { sessionId: string; cwd: string; docId: string }) => {
+    async (input: {
+      sessionId: string;
+      cwd: string;
+      docId: string;
+      doc?: import('../../shared/shared-docs/types').SharedDocWithAccess;
+    }) => {
       if (!isElectron) return { success: false as const, error: 'Not available' };
       const result = await window.electronAPI.sharedDocs.open(input);
       if (!result.success || !result.localPath || !result.doc) {
@@ -1480,7 +1485,7 @@ export function useIPC() {
       useAppStore.getState().openHtmlPreview(result.localPath, result.doc.title, result.doc.kind, {
         docId: result.doc.id,
         permission: result.doc.permission,
-        version: result.doc.version,
+        s3UpdatedAt: result.doc.s3UpdatedAt,
       });
       return result;
     },
@@ -1496,7 +1501,7 @@ export function useIPC() {
       if (!joined.success || !joined.doc) {
         return joined;
       }
-      return openSharedDoc({ sessionId, cwd, docId: joined.doc.id });
+      return openSharedDoc({ sessionId, cwd, docId: joined.doc.id, doc: joined.doc });
     },
     [openSharedDoc]
   );

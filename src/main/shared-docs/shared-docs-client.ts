@@ -1,6 +1,7 @@
 import { resolveBackendUrl } from '../../shared/backend-config';
 import { YORK_APP_VERSION_HEADER } from '../../shared/client-version';
 import type {
+  SharedDocKind,
   SharedDocPermission,
   SharedDocWithAccess,
 } from '../../shared/shared-docs/types';
@@ -46,62 +47,18 @@ async function backendJson<T>(
   return json as T;
 }
 
-export async function createSharedDocRecord(input: {
-  title: string;
-  kind: 'html' | 'markdown';
-  s3Key: string;
-  contentType: string;
-}): Promise<SharedDocWithAccess> {
-  return backendJson<SharedDocWithAccess>('/share/docs', {
-    method: 'POST',
-    body: input,
-  });
-}
-
-export async function listSharedDocs(): Promise<SharedDocWithAccess[]> {
-  const res = await backendJson<{ docs: SharedDocWithAccess[] }>('/share/docs');
-  return res.docs ?? [];
-}
-
-export async function getSharedDoc(docId: string): Promise<SharedDocWithAccess> {
-  return backendJson<SharedDocWithAccess>(`/share/docs/${encodeURIComponent(docId)}`);
-}
-
-export async function pushSharedDocVersion(input: {
+export async function createSharedDocInvite(input: {
   docId: string;
   s3Key: string;
-  expectedVersion: number;
-}): Promise<SharedDocWithAccess> {
-  return backendJson<SharedDocWithAccess>(
-    `/share/docs/${encodeURIComponent(input.docId)}`,
-    {
-      method: 'PATCH',
-      body: { s3Key: input.s3Key, expectedVersion: input.expectedVersion },
-    }
-  );
-}
-
-export async function updateSharedDocAcl(
-  docId: string,
-  principal: string,
-  permission: SharedDocPermission
-): Promise<SharedDocWithAccess> {
-  return backendJson<SharedDocWithAccess>(
-    `/share/docs/${encodeURIComponent(docId)}/acl`,
-    {
-      method: 'POST',
-      body: { principal, permission },
-    }
-  );
-}
-
-export async function createSharedDocInvite(
-  docId: string,
-  permission: SharedDocPermission
-): Promise<{ docId: string; permission: SharedDocPermission; inviteToken: string }> {
-  return backendJson(`/share/docs/${encodeURIComponent(docId)}/invite`, {
+  title: string;
+  kind: SharedDocKind;
+  contentType: string;
+  permission: SharedDocPermission;
+  ttlSec?: number;
+}): Promise<{ docId: string; permission: SharedDocPermission; inviteToken: string }> {
+  return backendJson('/share/docs/invite', {
     method: 'POST',
-    body: { permission },
+    body: input,
   });
 }
 

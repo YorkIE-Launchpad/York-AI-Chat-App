@@ -1,18 +1,6 @@
 export type SharedDocKind = 'html' | 'markdown';
 export type SharedDocPermission = 'view' | 'edit';
 
-export interface SharedDocAclEntry {
-  principal: string;
-  permission: SharedDocPermission;
-}
-
-export interface SharedDocVersionEntry {
-  version: number;
-  s3Key: string;
-  updatedBy: string;
-  updatedAt: string;
-}
-
 export interface SharedDocRecord {
   id: string;
   ownerSub: string;
@@ -20,12 +8,8 @@ export interface SharedDocRecord {
   title: string;
   kind: SharedDocKind;
   s3Key: string;
-  version: number;
+  s3UpdatedAt: string;
   contentType: string;
-  createdAt: string;
-  updatedAt: string;
-  acl: SharedDocAclEntry[];
-  versions: SharedDocVersionEntry[];
 }
 
 export type SharedDocAccess = SharedDocPermission | 'owner';

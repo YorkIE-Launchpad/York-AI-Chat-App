@@ -75,7 +75,7 @@ app.get('/models', (_req, res) => {
 // Stateless collab invite JWT sign/verify (no room storage).
 app.use('/collab', express.json(), createCollabInviteRouter());
 
-// Shared artifact documents (SQLite metadata + Hub S3 blobs).
+// Shared artifact documents — stateless invite JWTs (no doc registry); blobs in Hub S3.
 app.use('/share/docs', express.json(), createShareDocRouter());
 
 for (const target of PROVIDER_TARGETS) {

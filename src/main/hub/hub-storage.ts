@@ -22,6 +22,7 @@ async function getHubBearerTokens(): Promise<string[]> {
 export interface HubStorageUploadResult {
   s3Key: string;
   url: string;
+  lastModified: string;
 }
 
 function extractS3KeyFromBody(body: unknown): string | null {
@@ -35,6 +36,52 @@ function extractS3KeyFromBody(body: unknown): string | null {
     if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
   }
   return null;
+}
+
+function extractLastModifiedFromBody(body: unknown): string | null {
+  if (!body || typeof body !== 'object') return null;
+  const root = body as Record<string, unknown>;
+  const data =
+    root.data != null && typeof root.data === 'object'
+      ? (root.data as Record<string, unknown>)
+      : null;
+  for (const candidate of [
+    root.lastModified,
+    root.LastModified,
+    data?.lastModified,
+    data?.LastModified,
+  ]) {
+    if (typeof candidate === 'string' && candidate.trim()) {
+      return new Date(candidate.trim()).toISOString();
+    }
+  }
+  return null;
+}
+
+function lastModifiedFromHttpDate(value: string | null): string | null {
+  if (!value?.trim()) return null;
+  const parsed = Date.parse(value.trim());
+  if (Number.isNaN(parsed)) return null;
+  return new Date(parsed).toISOString();
+}
+
+export async function fetchHubObjectLastModified(s3Key: string): Promise<string> {
+  const signedUrl = await fetchHubPresignedGetUrl(s3Key);
+  const tokens = await getHubBearerTokens();
+  const authAttempts: (string | undefined)[] = [undefined, ...tokens];
+  for (const token of authAttempts) {
+    const headers: Record<string, string> = { Accept: '*/*' };
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const res = await hubHttpRequest(signedUrl, {
+      method: 'HEAD',
+      headers,
+      timeoutMs: 12_000,
+    });
+    if (!res.ok) continue;
+    const fromHeader = lastModifiedFromHttpDate(res.header('last-modified') ?? null);
+    if (fromHeader) return fromHeader;
+  }
+  return new Date().toISOString();
 }
 
 export async function uploadFileToHubStorage(input: {
@@ -98,7 +145,9 @@ export async function uploadFileToHubStorage(input: {
     const s3Key = extractS3KeyFromBody(json);
     if (!s3Key) continue;
     const signedUrl = extractPresignedUrlFromBody(json) ?? '';
-    return { s3Key, url: signedUrl };
+    const fromBody = extractLastModifiedFromBody(json);
+    const lastModified = fromBody ?? (await fetchHubObjectLastModified(s3Key));
+    return { s3Key, url: signedUrl, lastModified };
   }
 
   throw new Error('Hub storage upload failed');
@@ -124,7 +173,9 @@ export async function fetchHubPresignedGetUrl(s3Key: string): Promise<string> {
   throw new Error('Could not presign Hub object');
 }
 
-export async function downloadHubObjectToBuffer(s3Key: string): Promise<Buffer> {
+export async function downloadHubObjectToBuffer(
+  s3Key: string
+): Promise<{ buffer: Buffer; lastModified: string }> {
   const signedUrl = await fetchHubPresignedGetUrl(s3Key);
   const tokens = await getHubBearerTokens();
   const authAttempts: (string | undefined)[] = [undefined, ...tokens];
@@ -134,7 +185,17 @@ export async function downloadHubObjectToBuffer(s3Key: string): Promise<Buffer> 
     const res = await hubHttpRequest(signedUrl, { headers, timeoutMs: 60_000 });
     if (!res.ok) continue;
     const buf = await res.arrayBuffer();
-    return Buffer.from(buf);
+    const fromHeader = lastModifiedFromHttpDate(res.header('last-modified') ?? null);
+    const lastModified = fromHeader ?? (await fetchHubObjectLastModified(s3Key));
+    return { buffer: Buffer.from(buf), lastModified };
   }
   throw new Error('Failed to download shared document from Hub');
+}
+
+export function isRemoteS3Newer(remoteIso: string, localIso: string): boolean {
+  const remoteMs = Date.parse(remoteIso);
+  const localMs = Date.parse(localIso);
+  if (Number.isNaN(remoteMs)) return false;
+  if (Number.isNaN(localMs) || !localIso.trim()) return Boolean(remoteIso.trim());
+  return remoteMs > localMs;
 }

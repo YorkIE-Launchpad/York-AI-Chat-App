@@ -3,11 +3,9 @@ import type {
   SharedDocAccess,
   SharedDocPermission,
   SharedDocRecord,
+  SharedDocWithAccess,
 } from './types.js';
-
-function normalizePrincipal(value: string): string {
-  return value.trim().toLowerCase();
-}
+import type { DocInvitePayload } from './doc-invite.js';
 
 export function resolveCallerFromPayload(payload: Record<string, unknown>): CognitoCaller | null {
   const sub = payload.sub;
@@ -19,19 +17,30 @@ export function resolveCallerFromPayload(payload: Record<string, unknown>): Cogn
   return { sub: sub.trim(), email };
 }
 
-export function getDocAccess(doc: SharedDocRecord, caller: CognitoCaller): SharedDocAccess | null {
-  if (doc.ownerSub === caller.sub) return 'owner';
+export function accessForCaller(payload: DocInvitePayload, caller: CognitoCaller): SharedDocAccess {
+  if (payload.ownerSub === caller.sub) return 'owner';
+  return payload.permission;
+}
 
-  const principals = new Set<string>();
-  principals.add(normalizePrincipal(caller.sub));
-  if (caller.email) principals.add(normalizePrincipal(caller.email));
+export function docFromInvitePayload(
+  payload: DocInvitePayload,
+  permission: SharedDocAccess
+): SharedDocWithAccess {
+  return {
+    id: payload.docId,
+    ownerSub: payload.ownerSub,
+    ownerEmail: payload.ownerEmail,
+    title: payload.title,
+    kind: payload.kind,
+    s3Key: payload.s3Key,
+    s3UpdatedAt: '',
+    contentType: payload.contentType,
+    permission,
+  };
+}
 
-  for (const entry of doc.acl) {
-    const p = normalizePrincipal(entry.principal);
-    if (principals.has(p)) {
-      return entry.permission;
-    }
-  }
+export function normalizePermission(value: unknown): SharedDocPermission | null {
+  if (value === 'view' || value === 'edit') return value;
   return null;
 }
 
@@ -41,9 +50,4 @@ export function canView(access: SharedDocAccess | null): boolean {
 
 export function canEdit(access: SharedDocAccess | null): boolean {
   return access === 'owner' || access === 'edit';
-}
-
-export function normalizePermission(value: unknown): SharedDocPermission | null {
-  if (value === 'view' || value === 'edit') return value;
-  return null;
 }

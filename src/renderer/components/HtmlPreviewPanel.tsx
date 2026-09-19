@@ -17,6 +17,7 @@ import {
   AlertTriangle,
   FileCode2,
   Share2,
+  CloudDownload,
 } from 'lucide-react';
 import type { SharedDocPermission } from '../../shared/shared-docs/types';
 import { useAppStore } from '../store';
@@ -65,10 +66,10 @@ export function HtmlPreviewPanel() {
   const [panelWidth, setPanelWidth] = useState(readStoredPreviewWidth);
   const [isResizing, setIsResizing] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
-  const [shareEmail, setShareEmail] = useState('');
   const [sharePermission, setSharePermission] = useState<SharedDocPermission>('view');
   const [shareInviteToken, setShareInviteToken] = useState('');
   const [sharing, setSharing] = useState(false);
+  const [restoring, setRestoring] = useState(false);
   const dragStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
 
   const activeSession = activeSessionId ? sessions.find((s) => s.id === activeSessionId) : null;
@@ -145,7 +146,7 @@ export function HtmlPreviewPanel() {
           {
             docId: result.link.doc_id,
             permission,
-            version: result.link.version,
+            s3UpdatedAt: result.link.s3_updated_at,
           }
         );
       })
@@ -164,10 +165,10 @@ export function HtmlPreviewPanel() {
           type: 'success',
           message: t('context.htmlPreviewSyncSuccess'),
         });
-        if (payload.version && preview.shared) {
+        if (payload.s3UpdatedAt && preview.shared) {
           openHtmlPreview(preview.path, preview.title, preview.kind, {
             ...preview.shared,
-            version: payload.version,
+            s3UpdatedAt: payload.s3UpdatedAt,
           });
         }
         openHtmlPreview(preview.path, preview.title, preview.kind, preview.shared);
@@ -261,10 +262,10 @@ export function HtmlPreviewPanel() {
           cwd,
           docId: activeHtmlPreview.shared.docId,
         });
-        if (remote.success && remote.refreshed && remote.version) {
+        if (remote.success && remote.refreshed && remote.s3UpdatedAt) {
           openHtmlPreview(activeHtmlPreview.path, activeHtmlPreview.title, activeHtmlPreview.kind, {
             ...activeHtmlPreview.shared,
-            version: remote.version,
+            s3UpdatedAt: remote.s3UpdatedAt,
           });
           return;
         }
@@ -278,8 +279,60 @@ export function HtmlPreviewPanel() {
     })();
   };
 
+  const handleRestoreFromCloud = () => {
+    if (
+      !activeHtmlPreview?.shared?.docId ||
+      !activeSessionId ||
+      !cwd ||
+      !window.electronAPI?.sharedDocs?.restoreFromS3
+    ) {
+      return;
+    }
+    const confirmed = window.confirm(t('context.htmlPreviewRestoreConfirm'));
+    if (!confirmed) return;
+    setRestoring(true);
+    void window.electronAPI.sharedDocs
+      .restoreFromS3({
+        sessionId: activeSessionId,
+        cwd,
+        docId: activeHtmlPreview.shared.docId,
+      })
+      .then((result) => {
+        if (!result.success) {
+          throw new Error(result.error || t('context.htmlPreviewRestoreFailed'));
+        }
+        if (result.s3UpdatedAt && activeHtmlPreview.shared) {
+          openHtmlPreview(activeHtmlPreview.path, activeHtmlPreview.title, activeHtmlPreview.kind, {
+            ...activeHtmlPreview.shared,
+            s3UpdatedAt: result.s3UpdatedAt,
+          });
+        } else {
+          openHtmlPreview(
+            activeHtmlPreview.path,
+            activeHtmlPreview.title,
+            activeHtmlPreview.kind,
+            activeHtmlPreview.shared
+          );
+        }
+        setGlobalNotice({
+          id: `shared-doc-restore-${Date.now()}`,
+          type: 'success',
+          message: result.backupPath
+            ? t('context.htmlPreviewRestoreDoneWithBackup', { path: result.backupPath })
+            : t('context.htmlPreviewRestoreDone'),
+        });
+      })
+      .catch((error) => {
+        setGlobalNotice({
+          id: `shared-doc-restore-fail-${Date.now()}`,
+          type: 'error',
+          message: error instanceof Error ? error.message : t('context.htmlPreviewRestoreFailed'),
+        });
+      })
+      .finally(() => setRestoring(false));
+  };
+
   const handleShare = () => {
-    setShareEmail('');
     setSharePermission('view');
     setShareInviteToken('');
     setShareOpen(true);
@@ -309,22 +362,15 @@ export function HtmlPreviewPanel() {
         openHtmlPreview(activeHtmlPreview.path, created.doc.title, created.doc.kind, {
           docId: created.doc.id,
           permission: 'owner',
-          version: created.doc.version,
+          s3UpdatedAt: created.doc.s3UpdatedAt,
         });
       }
 
-      if (shareEmail.trim() && docId) {
-        await window.electronAPI.sharedDocs.grantAcl({
-          docId,
-          principal: shareEmail.trim().toLowerCase(),
-          permission: sharePermission,
-        });
-      }
-
-      if (docId && !inviteToken) {
+      if (docId && !inviteToken && activeSessionId) {
         const invite = await window.electronAPI.sharedDocs.createInvite({
           docId,
-          permission: 'view',
+          permission: sharePermission,
+          sessionId: activeSessionId,
         });
         if (invite.success && invite.inviteToken) {
           inviteToken = invite.inviteToken;
@@ -449,11 +495,25 @@ export function HtmlPreviewPanel() {
             <p className="text-[10px] text-accent-primary truncate">
               {t('context.htmlPreviewSharedBadge', {
                 permission: activeHtmlPreview.shared.permission,
-                version: activeHtmlPreview.shared.version,
+                updated: activeHtmlPreview.shared.s3UpdatedAt
+                  ? new Date(activeHtmlPreview.shared.s3UpdatedAt).toLocaleString()
+                  : t('context.htmlPreviewSharedUnknownTime'),
               })}
             </p>
           )}
         </div>
+        {activeHtmlPreview.shared && (
+          <button
+            type="button"
+            onClick={handleRestoreFromCloud}
+            disabled={restoring}
+            className="w-7 h-7 rounded-md flex items-center justify-center hover:bg-surface-hover text-text-muted hover:text-text-primary transition-colors disabled:opacity-50"
+            title={t('context.htmlPreviewRestoreFromCloud')}
+            aria-label={t('context.htmlPreviewRestoreFromCloud')}
+          >
+            <CloudDownload className={`w-3.5 h-3.5 ${restoring ? 'animate-pulse' : ''}`} />
+          </button>
+        )}
         <button
           type="button"
           onClick={handleShare}
@@ -509,14 +569,7 @@ export function HtmlPreviewPanel() {
             className="w-full max-w-sm rounded-xl border border-border-subtle bg-background p-4 shadow-lg"
           >
             <h3 className="text-sm font-medium text-text-primary">{t('context.htmlPreviewShareTitle')}</h3>
-            <label className="mt-3 block text-xs text-text-muted">{t('context.htmlPreviewShareEmail')}</label>
-            <input
-              type="email"
-              value={shareEmail}
-              onChange={(e) => setShareEmail(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-border-subtle bg-surface px-3 py-2 text-sm"
-              placeholder="name@york.ie"
-            />
+            <p className="mt-2 text-xs text-text-muted">{t('context.htmlPreviewShareInviteHint')}</p>
             <label className="mt-3 block text-xs text-text-muted">{t('context.htmlPreviewSharePermission')}</label>
             <select
               value={sharePermission}

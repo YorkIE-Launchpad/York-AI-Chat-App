@@ -13,14 +13,12 @@
   "dependencies": {
     "@zoom/rtms": "^1.1.0",
     "aws-jwt-verify": "^5.2.1",
-    "better-sqlite3": "13.0.3",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "ws": "^8.21.3"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.12",
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
     "@types/node": "^22.10.2",

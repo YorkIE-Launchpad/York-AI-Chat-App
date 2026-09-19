@@ -796,10 +796,10 @@ export function Sidebar() {
   };
 
   const handleOpenSharedDocsList = () => {
-    if (!isElectron) return;
+    if (!isElectron || !activeSessionId) return;
     setSharedDocsModalOpen(true);
     setLoadingSharedDocs(true);
-    void listSharedDocs()
+    void listSharedDocs(activeSessionId)
       .then((result) => {
         if (result.success && result.docs) {
           setSharedDocsList(result.docs);
@@ -1089,7 +1089,10 @@ export function Sidebar() {
                     <div className="min-w-0">
                       <p className="text-sm truncate">{doc.title}</p>
                       <p className="text-[10px] text-text-muted">
-                        {doc.permission} · v{doc.version}
+                        {doc.permission}
+                        {doc.s3UpdatedAt
+                          ? ` · ${new Date(doc.s3UpdatedAt).toLocaleString()}`
+                          : ''}
                       </p>
                     </div>
                     <button

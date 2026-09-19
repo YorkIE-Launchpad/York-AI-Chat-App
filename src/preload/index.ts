@@ -267,18 +267,25 @@ contextBridge.exposeInMainWorld('electronAPI', {
       localPath: string;
       title?: string;
     }) => ipcRenderer.invoke('sharedDocs.shareArtifact', input),
-    list: () => ipcRenderer.invoke('sharedDocs.list'),
-    open: (input: { sessionId: string; cwd: string; docId: string }) =>
-      ipcRenderer.invoke('sharedDocs.open', input),
+    list: (sessionId: string) => ipcRenderer.invoke('sharedDocs.list', sessionId),
+    open: (input: {
+      sessionId: string;
+      cwd: string;
+      docId: string;
+      doc?: import('../shared/shared-docs/types').SharedDocWithAccess;
+    }) => ipcRenderer.invoke('sharedDocs.open', input),
     refresh: (input: { sessionId: string; cwd: string; docId: string }) =>
       ipcRenderer.invoke('sharedDocs.refresh', input),
+    restoreFromS3: (input: { sessionId: string; cwd: string; docId: string }) =>
+      ipcRenderer.invoke('sharedDocs.restoreFromS3', input),
     push: (input: { sessionId: string; cwd: string; localPath: string }) =>
       ipcRenderer.invoke('sharedDocs.push', input),
     join: (inviteToken: string) => ipcRenderer.invoke('sharedDocs.join', inviteToken),
-    grantAcl: (input: { docId: string; principal: string; permission: 'view' | 'edit' }) =>
-      ipcRenderer.invoke('sharedDocs.grantAcl', input),
-    createInvite: (input: { docId: string; permission: 'view' | 'edit' }) =>
-      ipcRenderer.invoke('sharedDocs.createInvite', input),
+    createInvite: (input: {
+      docId: string;
+      permission: 'view' | 'edit';
+      sessionId: string;
+    }) => ipcRenderer.invoke('sharedDocs.createInvite', input),
     getLink: (input: { sessionId: string; localPath: string }) =>
       ipcRenderer.invoke('sharedDocs.getLink', input),
     onSync: (
@@ -1220,12 +1227,17 @@ declare global {
           inviteToken?: string;
           error?: string;
         }>;
-        list: () => Promise<{
+        list: (sessionId: string) => Promise<{
           success: boolean;
           docs?: import('../shared/shared-docs/types').SharedDocWithAccess[];
           error?: string;
         }>;
-        open: (input: { sessionId: string; cwd: string; docId: string }) => Promise<{
+        open: (input: {
+          sessionId: string;
+          cwd: string;
+          docId: string;
+          doc?: import('../shared/shared-docs/types').SharedDocWithAccess;
+        }) => Promise<{
           success: boolean;
           doc?: import('../shared/shared-docs/types').SharedDocWithAccess;
           localPath?: string;
@@ -1234,8 +1246,15 @@ declare global {
         refresh: (input: { sessionId: string; cwd: string; docId: string }) => Promise<{
           success: boolean;
           refreshed?: boolean;
-          version?: number;
+          s3UpdatedAt?: string;
           localPath?: string;
+          error?: string;
+        }>;
+        restoreFromS3: (input: { sessionId: string; cwd: string; docId: string }) => Promise<{
+          success: boolean;
+          s3UpdatedAt?: string;
+          localPath?: string;
+          backupPath?: string;
           error?: string;
         }>;
         push: (input: { sessionId: string; cwd: string; localPath: string }) => Promise<{
@@ -1248,16 +1267,11 @@ declare global {
           doc?: import('../shared/shared-docs/types').SharedDocWithAccess;
           error?: string;
         }>;
-        grantAcl: (input: {
+        createInvite: (input: {
           docId: string;
-          principal: string;
           permission: 'view' | 'edit';
+          sessionId: string;
         }) => Promise<{
-          success: boolean;
-          doc?: import('../shared/shared-docs/types').SharedDocWithAccess;
-          error?: string;
-        }>;
-        createInvite: (input: { docId: string; permission: 'view' | 'edit' }) => Promise<{
           success: boolean;
           docId?: string;
           permission?: import('../shared/shared-docs/types').SharedDocPermission;
@@ -1270,7 +1284,7 @@ declare global {
             doc_id: string;
             local_path: string;
             s3_key: string;
-            version: number;
+            s3_updated_at: string;
             permission: string;
             session_id: string;
             title: string;

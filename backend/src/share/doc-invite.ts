@@ -2,13 +2,23 @@
  * Stateless shared-document invite JWTs (HMAC).
  */
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import type { SharedDocKind, SharedDocPermission } from './types.js';
 
 const DEFAULT_TTL_SEC = 7 * 24 * 60 * 60;
 const INVITE_TYP = 'york-shared-doc-invite';
 
-export interface DocInvitePayload {
+export interface DocInviteDocument {
   docId: string;
-  permission: 'view' | 'edit';
+  s3Key: string;
+  title: string;
+  kind: SharedDocKind;
+  contentType: string;
+  ownerSub: string;
+  ownerEmail: string;
+}
+
+export interface DocInvitePayload extends DocInviteDocument {
+  permission: SharedDocPermission;
   iat: number;
   exp: number;
   typ: typeof INVITE_TYP;
@@ -35,17 +45,29 @@ function signHs256(signingInput: string, secret: string): string {
 }
 
 export function signDocInvite(
-  docId: string,
-  permission: 'view' | 'edit',
+  doc: DocInviteDocument,
+  permission: SharedDocPermission,
   options?: { ttlSec?: number; nowSec?: number }
 ): string {
-  const trimmed = docId.trim();
-  if (!trimmed) throw new Error('docId is required');
+  const docId = doc.docId.trim();
+  const s3Key = doc.s3Key.trim();
+  if (!docId) throw new Error('docId is required');
+  if (!s3Key) throw new Error('s3Key is required');
+  if (permission !== 'view' && permission !== 'edit') {
+    throw new Error('permission must be view or edit');
+  }
+
   const nowSec = options?.nowSec ?? Math.floor(Date.now() / 1000);
   const ttlSec = options?.ttlSec ?? DEFAULT_TTL_SEC;
   const header = base64url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
   const payload: DocInvitePayload = {
-    docId: trimmed,
+    docId,
+    s3Key,
+    title: doc.title.trim().slice(0, 500),
+    kind: doc.kind,
+    contentType: doc.contentType.trim() || 'text/plain',
+    ownerSub: doc.ownerSub.trim(),
+    ownerEmail: doc.ownerEmail.trim().toLowerCase(),
     permission,
     iat: nowSec,
     exp: nowSec + ttlSec,
@@ -100,6 +122,21 @@ export function verifyDocInvite(
   }
   if (typeof payload.docId !== 'string' || !payload.docId.trim()) {
     return { ok: false, error: 'Invite missing docId' };
+  }
+  if (typeof payload.s3Key !== 'string' || !payload.s3Key.trim()) {
+    return { ok: false, error: 'Invite missing s3Key' };
+  }
+  if (typeof payload.title !== 'string' || !payload.title.trim()) {
+    return { ok: false, error: 'Invite missing title' };
+  }
+  if (payload.kind !== 'html' && payload.kind !== 'markdown') {
+    return { ok: false, error: 'Invite missing kind' };
+  }
+  if (typeof payload.contentType !== 'string' || !payload.contentType.trim()) {
+    return { ok: false, error: 'Invite missing contentType' };
+  }
+  if (typeof payload.ownerSub !== 'string' || !payload.ownerSub.trim()) {
+    return { ok: false, error: 'Invite missing ownerSub' };
   }
   if (payload.permission !== 'view' && payload.permission !== 'edit') {
     return { ok: false, error: 'Invite missing permission' };
