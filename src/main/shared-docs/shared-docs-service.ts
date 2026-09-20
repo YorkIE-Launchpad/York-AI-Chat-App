@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
 import type { SharedDocKind, SharedDocWithAccess } from '../../shared/shared-docs/types';
+import { sharedDocAccessCanEdit } from '../../shared/shared-docs/types';
 import { ensureAuthenticatedSession } from '../auth/session';
 import {
   downloadHubObjectToBuffer,
@@ -143,7 +144,10 @@ export class SharedDocsService {
     backupBeforeWrite?: boolean;
   }): Promise<{ localPath: string; s3UpdatedAt: string; backupPath?: string }> {
     if (input.backupBeforeWrite) {
-      await assertCanEditSharedDoc(input.doc.id);
+      if (!sharedDocAccessCanEdit(input.doc.permission)) {
+        throw new Error('Read-only shared document');
+      }
+      await assertCanEditSharedDoc(input.doc.id, input.doc.permission);
     }
     const resolved = resolveInSession(input.cwd, input.localPath);
     let backupPath: string | undefined;
@@ -290,6 +294,9 @@ export class SharedDocsService {
     if (!link) {
       throw new Error('Document link not found');
     }
+    if (!sharedDocAccessCanEdit(link.permission)) {
+      throw new Error('Read-only shared document');
+    }
     const doc = linkToDoc(link);
     return this.writeRemoteToLink({
       sessionId: input.sessionId,
@@ -309,11 +316,11 @@ export class SharedDocsService {
     if (!link) {
       throw new Error('Not a linked shared document');
     }
-    if (link.permission !== 'edit' && link.permission !== 'owner') {
+    if (!sharedDocAccessCanEdit(link.permission)) {
       throw new Error('Read-only shared document');
     }
 
-    await assertCanEditSharedDoc(link.doc_id);
+    await assertCanEditSharedDoc(link.doc_id, link.permission);
 
     const remoteUpdatedAt = await fetchHubObjectLastModified(link.s3_key);
     if (isRemoteS3Newer(remoteUpdatedAt, link.s3_updated_at)) {
@@ -366,6 +373,9 @@ export class SharedDocsService {
     if (!link) {
       throw new Error('Document link not found');
     }
+    if (!sharedDocAccessCanEdit(link.permission)) {
+      throw new Error('Read-only shared document');
+    }
     return createSharedDocInvite({
       docId: link.doc_id,
       s3Key: link.s3_key,
@@ -393,7 +403,7 @@ export class SharedDocsService {
     try {
       const link = getSharedDocLinkByLocalPath(input.sessionId, input.relativePath);
       if (!link) return { synced: false };
-      if (link.permission !== 'edit' && link.permission !== 'owner') {
+      if (!sharedDocAccessCanEdit(link.permission)) {
         return { synced: false };
       }
       const doc = await this.pushLocalEdits({

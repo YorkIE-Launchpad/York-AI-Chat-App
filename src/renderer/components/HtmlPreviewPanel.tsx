@@ -141,7 +141,9 @@ export function HtmlPreviewPanel() {
       return undefined;
     }
     const canEdit = Boolean(sharedCanEdit);
-    void lockApi.watch({ docId: sharedDocId, canEdit }).then((result) => {
+    void lockApi
+      .watch({ docId: sharedDocId, canEdit, sessionId: activeSessionId ?? undefined })
+      .then((result) => {
       if (result.success && result.state) {
         setDocLock(result.state);
       }
@@ -155,7 +157,7 @@ export function HtmlPreviewPanel() {
       unsub();
       void lockApi.unwatch({ docId: sharedDocId, canEdit });
     };
-  }, [sharedDocId, sharedCanEdit]);
+  }, [sharedDocId, sharedCanEdit, activeSessionId]);
 
   useEffect(() => {
     if (
@@ -541,7 +543,7 @@ export function HtmlPreviewPanel() {
             </p>
           )}
         </div>
-        {activeHtmlPreview.shared && (
+        {activeHtmlPreview.shared && sharedCanEdit && (
           <button
             type="button"
             onClick={handleRestoreFromCloud}
@@ -553,15 +555,17 @@ export function HtmlPreviewPanel() {
             <CloudDownload className={`w-3.5 h-3.5 ${restoring ? 'animate-pulse' : ''}`} />
           </button>
         )}
-        <button
-          type="button"
-          onClick={handleShare}
-          className="w-7 h-7 rounded-md flex items-center justify-center hover:bg-surface-hover text-text-muted hover:text-text-primary transition-colors"
-          title={t('context.htmlPreviewShare')}
-          aria-label={t('context.htmlPreviewShare')}
-        >
-          <Share2 className="w-3.5 h-3.5" />
-        </button>
+        {(!activeHtmlPreview.shared || sharedCanEdit) && (
+          <button
+            type="button"
+            onClick={handleShare}
+            className="w-7 h-7 rounded-md flex items-center justify-center hover:bg-surface-hover text-text-muted hover:text-text-primary transition-colors"
+            title={t('context.htmlPreviewShare')}
+            aria-label={t('context.htmlPreviewShare')}
+          >
+            <Share2 className="w-3.5 h-3.5" />
+          </button>
+        )}
         <button
           type="button"
           onClick={handleRefresh}
@@ -609,6 +613,11 @@ export function HtmlPreviewPanel() {
               name: docLock.holderName || docLock.lease?.holderName || 'Someone',
             })}
           </p>
+        </div>
+      ) : null}
+      {sharedDocId && !sharedCanEdit ? (
+        <div className="border-b border-border-muted bg-surface/60 px-3 py-1.5 text-[10px] text-text-muted">
+          {t('context.sharedDocViewOnly')}
         </div>
       ) : null}
       {sharedDocId && sharedCanEdit && docLock && !docLock.holderIsOther && docLock.lease ? (

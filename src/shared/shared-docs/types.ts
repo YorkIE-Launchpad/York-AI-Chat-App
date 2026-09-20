@@ -1,6 +1,12 @@
 export type SharedDocKind = 'html' | 'markdown';
 export type SharedDocPermission = 'view' | 'edit';
 
+export function sharedDocAccessCanEdit(
+  permission: SharedDocPermission | 'owner' | string | undefined
+): boolean {
+  return permission === 'edit' || permission === 'owner';
+}
+
 export interface SharedDocRecord {
   id: string;
   ownerSub: string;

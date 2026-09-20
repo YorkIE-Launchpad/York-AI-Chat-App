@@ -1190,7 +1190,9 @@ export function ChatView() {
       setGlobalNotice({
         id: `notice-shared-doc-${Date.now()}`,
         type: 'warning',
-        message: t('chat.sharedDocComposerLocked', { name: sharedDocBlockName }),
+        message: sharedDocViewOnlyOpen
+          ? t('chat.sharedDocViewOnlyComposerLocked')
+          : t('chat.sharedDocComposerLocked', { name: sharedDocBlockName }),
       });
       return;
     }
@@ -1588,7 +1590,8 @@ export function ChatView() {
     }
     return Object.values(sharedDocLocks).find((lock) => lock.holderIsOther) ?? null;
   }, [activeHtmlPreview?.shared?.docId, sharedDocLocks]);
-  const sharedDocBlocksComposer = Boolean(sharedDocBlockingLock);
+  const sharedDocViewOnlyOpen = activeHtmlPreview?.shared?.permission === 'view';
+  const sharedDocBlocksComposer = Boolean(sharedDocBlockingLock) || sharedDocViewOnlyOpen;
   const sharedDocBlockName =
     sharedDocBlockingLock?.holderName ||
     sharedDocBlockingLock?.lease?.holderName ||
@@ -1818,7 +1821,11 @@ export function ChatView() {
       {/* Messages */}
       {sharedDocBlocksComposer ? (
         <div className="shrink-0 border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-sm text-amber-900 dark:text-amber-100 lg:px-8">
-          <p>{t('chat.sharedDocComposerLocked', { name: sharedDocBlockName })}</p>
+          <p>
+            {sharedDocViewOnlyOpen
+              ? t('chat.sharedDocViewOnlyComposerLocked')
+              : t('chat.sharedDocComposerLocked', { name: sharedDocBlockName })}
+          </p>
         </div>
       ) : null}
       {isSharedChat ? (

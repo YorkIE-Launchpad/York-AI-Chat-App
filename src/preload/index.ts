@@ -299,7 +299,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       return () => ipcRenderer.removeListener('sharedDocs:sync', listener);
     },
     lock: {
-      watch: (input: { docId: string; canEdit: boolean }) =>
+      watch: (input: { docId: string; canEdit: boolean; sessionId?: string }) =>
         ipcRenderer.invoke('sharedDocs.lock.watch', input),
       unwatch: (input: { docId: string; canEdit: boolean }) =>
         ipcRenderer.invoke('sharedDocs.lock.unwatch', input),
@@ -1316,7 +1316,7 @@ declare global {
           callback: (payload: import('../shared/shared-docs/types').SharedDocsSyncEvent) => void
         ) => () => void;
         lock: {
-          watch: (input: { docId: string; canEdit: boolean }) => Promise<{
+          watch: (input: { docId: string; canEdit: boolean; sessionId?: string }) => Promise<{
             success: boolean;
             state?: import('../shared/shared-docs/lock-types').SharedDocLockState;
             error?: string;

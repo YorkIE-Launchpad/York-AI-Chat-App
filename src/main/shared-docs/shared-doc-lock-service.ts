@@ -17,6 +17,7 @@ import {
 } from '../../shared/collab/shared-session-doc';
 import type { SharedDocLockState } from '../../shared/shared-docs/lock-types';
 import { SHARED_DOC_LOCK_HELD } from '../../shared/shared-docs/lock-types';
+import { sharedDocAccessCanEdit } from '../../shared/shared-docs/types';
 import { CollabWsProvider, type CollabWsStatus } from '../collab/collab-ws-provider';
 import { getCognitoSubFromSession } from '../collab/collab-sync-service';
 import { getCurrentSession, ensureAuthenticatedSession } from '../auth/session';
@@ -281,7 +282,13 @@ export function setSharedDocLockService(service: SharedDocLockService | null): v
   sharedDocLockService = service;
 }
 
-export async function assertCanEditSharedDoc(docId: string): Promise<void> {
+export async function assertCanEditSharedDoc(
+  docId: string,
+  permission: import('../../shared/shared-docs/types').SharedDocWithAccess['permission'] | string
+): Promise<void> {
+  if (!sharedDocAccessCanEdit(permission)) {
+    throw new Error('Read-only shared document');
+  }
   const svc = getSharedDocLockService();
   if (!svc) {
     throw new Error('Shared document lock service unavailable');

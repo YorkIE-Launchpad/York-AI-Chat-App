@@ -247,6 +247,8 @@ import {
   SharedDocLockService,
   setSharedDocLockService,
 } from './shared-docs/shared-doc-lock-service';
+import { getSharedDocLink } from './shared-docs/shared-doc-link-store';
+import { sharedDocAccessCanEdit } from '../shared/shared-docs/types';
 import {
   log,
   logWarn,
@@ -5177,14 +5179,19 @@ ipcMain.handle(
 
 ipcMain.handle(
   'sharedDocs.lock.watch',
-  async (_event, input: { docId: string; canEdit: boolean }) => {
+  async (_event, input: { docId: string; canEdit: boolean; sessionId?: string }) => {
     try {
       if (!sharedDocLockService) {
         return { success: false, error: 'Lock service unavailable' };
       }
-      const state = await sharedDocLockService.watchDoc(input.docId, {
-        canEdit: Boolean(input.canEdit),
-      });
+      let canEdit = Boolean(input.canEdit);
+      if (canEdit && input.sessionId?.trim()) {
+        const link = getSharedDocLink(input.docId.trim(), input.sessionId.trim());
+        if (!link || !sharedDocAccessCanEdit(link.permission)) {
+          canEdit = false;
+        }
+      }
+      const state = await sharedDocLockService.watchDoc(input.docId, { canEdit });
       return { success: true, state };
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };

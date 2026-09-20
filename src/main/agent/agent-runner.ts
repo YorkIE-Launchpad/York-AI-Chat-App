@@ -43,8 +43,10 @@ import {
   createPdfAwareReadOptions,
 } from '../utils/pdf-text';
 import {
+  getSharedDocLinkByLocalPath,
   listSharedDocLinksForSession,
 } from '../shared-docs/shared-doc-link-store';
+import { sharedDocAccessCanEdit } from '../../shared/shared-docs/types';
 import {
   sharedDocsService,
   workspaceRelativePath,
@@ -1575,6 +1577,26 @@ ${hints.join('\n')}
             }
             const remapped = remapCoworkVirtualPath(params.path, workspaceRoot);
             const nextParams = remapped === params.path ? params : { ...params, path: remapped };
+            if (
+              sessionId &&
+              workspaceRoot &&
+              (toolName === 'write' || toolName === 'edit')
+            ) {
+              try {
+                const relativePath = workspaceRelativePath(workspaceRoot, nextParams.path);
+                const link = getSharedDocLinkByLocalPath(sessionId, relativePath);
+                if (link && !sharedDocAccessCanEdit(link.permission)) {
+                  throw new Error(
+                    `Read-only shared document: cannot modify ${relativePath}`
+                  );
+                }
+              } catch (error) {
+                if (error instanceof Error && error.message.startsWith('Read-only shared')) {
+                  throw error;
+                }
+                // ignore path resolution failures for non-workspace writes
+              }
+            }
             const result = await originalExecute(toolCallId, nextParams, signal, onUpdate, ctx);
             if (
               sessionId &&
