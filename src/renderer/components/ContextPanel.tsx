@@ -46,6 +46,7 @@ import {
 import type { TraceStep, MCPServerInfo, ContentBlock, ToolUseContent, PermissionRule } from '../types';
 import type { ConnectorStatus } from './settings/shared';
 import { getMcpToolDisplayName } from './message/toolHelpers';
+import { SharedDocsPanelControls } from './SharedDocsPanelControls';
 import {
   DEFAULT_CONFLUENCE_MCP_SERVER_ID,
   DEFAULT_GOOGLE_CALENDAR_MCP_SERVER_ID,
@@ -111,13 +112,6 @@ export function ContextPanel() {
   );
   const [copiedPath, setCopiedPath] = useState(false);
   const [isChangingDir, setIsChangingDir] = useState(false);
-  const [recentWorkspaceFiles, setRecentWorkspaceFiles] = useState<
-    Array<{
-      path: string;
-      modifiedAt: number;
-      size: number;
-    }>
-  >([]);
 
   const handleCopyPath = async (path: string) => {
     try {
@@ -157,11 +151,6 @@ export function ContextPanel() {
       : rawModelName
     : '—';
 
-  const completedStepCount = useMemo(
-    () => steps.reduce((n, s) => n + (s.status === 'completed' ? 1 : 0), 0),
-    [steps]
-  );
-
   const mcpToolDisplayNames = useMemo(() => {
     const displayNames = new Map<string, string>();
 
@@ -197,52 +186,6 @@ export function ContextPanel() {
     return displayNames;
   }, [messages, steps]);
 
-  useEffect(() => {
-    if (contextPanelCollapsed) {
-      return;
-    }
-    if (
-      typeof window === 'undefined' ||
-      !window.electronAPI?.artifacts?.listRecentFiles ||
-      !currentWorkingDir ||
-      !activeSession?.createdAt
-    ) {
-      setRecentWorkspaceFiles([]);
-      return;
-    }
-
-    let cancelled = false;
-    const timer = setTimeout(async () => {
-      try {
-        const files = await window.electronAPI.artifacts.listRecentFiles(
-          currentWorkingDir,
-          activeSession.createdAt,
-          50
-        );
-        if (!cancelled) {
-          setRecentWorkspaceFiles(files || []);
-        }
-      } catch (error) {
-        if (!cancelled) {
-          console.error('Failed to load recent workspace files:', error);
-          setRecentWorkspaceFiles([]);
-        }
-      }
-    }, 500);
-
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [
-    activeSession?.createdAt,
-    activeSessionId,
-    steps.length,
-    completedStepCount,
-    contextPanelCollapsed,
-    currentWorkingDir,
-  ]);
-
   const displayArtifacts = useMemo(() => {
     const seenPaths = new Set<string>();
     const items: Array<{ label: string; path: string }> = [];
@@ -268,22 +211,8 @@ export function ContextPanel() {
       });
     }
 
-    for (const file of recentWorkspaceFiles) {
-      const resolvedPath = resolveArtifactPath(file.path, currentWorkingDir);
-      const key = resolvedPath.trim();
-      if (!key || seenPaths.has(key)) {
-        continue;
-      }
-
-      seenPaths.add(key);
-      items.push({
-        label: getArtifactLabel(file.path),
-        path: resolvedPath,
-      });
-    }
-
     return items;
-  }, [currentWorkingDir, displayArtifactSteps, recentWorkspaceFiles]);
+  }, [currentWorkingDir, displayArtifactSteps]);
 
   useEffect(() => {
     if (contextPanelCollapsed || !activeSessionId) {
@@ -462,6 +391,7 @@ export function ContextPanel() {
         <span className="text-xs font-medium text-text-muted uppercase tracking-wider">
           {t('context.context')}
         </span>
+        <SharedDocsPanelControls />
       </div>
 
       {/* Session Stats */}

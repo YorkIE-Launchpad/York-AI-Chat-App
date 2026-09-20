@@ -18,9 +18,45 @@ let schemaReady = false;
 function migrateLegacyVersionColumn(db: ReturnType<typeof getDatabase>): void {
   const cols = db.prepare('PRAGMA table_info(shared_doc_links)').all() as Array<{ name: string }>;
   const names = new Set(cols.map((c) => c.name));
-  if (names.has('s3_updated_at')) return;
   if (!names.has('doc_id')) return;
-  db.exec(`ALTER TABLE shared_doc_links ADD COLUMN s3_updated_at TEXT NOT NULL DEFAULT ''`);
+
+  // Older builds used integer `version`; newer builds use `s3_updated_at`.
+  // CREATE TABLE IF NOT EXISTS does not rewrite existing tables, so both columns can
+  // coexist after a partial migration — and INSERT without `version` then fails
+  // SQLITE_CONSTRAINT_NOTNULL.
+  if (!names.has('s3_updated_at')) {
+    db.exec(`ALTER TABLE shared_doc_links ADD COLUMN s3_updated_at TEXT NOT NULL DEFAULT ''`);
+  }
+
+  if (!names.has('version')) return;
+
+  try {
+    db.exec(`ALTER TABLE shared_doc_links DROP COLUMN version`);
+  } catch {
+    // SQLite < 3.35 has no DROP COLUMN — rebuild without the legacy column.
+    db.exec(`
+      CREATE TABLE shared_doc_links_migrated (
+        doc_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        local_path TEXT NOT NULL,
+        s3_key TEXT NOT NULL,
+        s3_updated_at TEXT NOT NULL DEFAULT '',
+        permission TEXT NOT NULL,
+        title TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (doc_id, session_id)
+      );
+      INSERT INTO shared_doc_links_migrated (
+        doc_id, session_id, local_path, s3_key, s3_updated_at, permission, title, kind, updated_at
+      )
+      SELECT
+        doc_id, session_id, local_path, s3_key, s3_updated_at, permission, title, kind, updated_at
+      FROM shared_doc_links;
+      DROP TABLE shared_doc_links;
+      ALTER TABLE shared_doc_links_migrated RENAME TO shared_doc_links;
+    `);
+  }
 }
 
 function ensureSchema(): void {

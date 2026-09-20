@@ -298,6 +298,25 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on('sharedDocs:sync', listener);
       return () => ipcRenderer.removeListener('sharedDocs:sync', listener);
     },
+    lock: {
+      watch: (input: { docId: string; canEdit: boolean }) =>
+        ipcRenderer.invoke('sharedDocs.lock.watch', input),
+      unwatch: (input: { docId: string; canEdit: boolean }) =>
+        ipcRenderer.invoke('sharedDocs.lock.unwatch', input),
+      getState: (docId: string) => ipcRenderer.invoke('sharedDocs.lock.getState', docId),
+      acquire: (docId: string) => ipcRenderer.invoke('sharedDocs.lock.acquire', docId),
+      release: (docId: string) => ipcRenderer.invoke('sharedDocs.lock.release', docId),
+      onState: (
+        callback: (state: import('../shared/shared-docs/lock-types').SharedDocLockState) => void
+      ): (() => void) => {
+        const listener = (
+          _: Electron.IpcRendererEvent,
+          state: import('../shared/shared-docs/lock-types').SharedDocLockState
+        ) => callback(state);
+        ipcRenderer.on('sharedDocLock:state', listener);
+        return () => ipcRenderer.removeListener('sharedDocLock:state', listener);
+      },
+    },
   },
 
   // Platform info
@@ -1296,6 +1315,35 @@ declare global {
         onSync: (
           callback: (payload: import('../shared/shared-docs/types').SharedDocsSyncEvent) => void
         ) => () => void;
+        lock: {
+          watch: (input: { docId: string; canEdit: boolean }) => Promise<{
+            success: boolean;
+            state?: import('../shared/shared-docs/lock-types').SharedDocLockState;
+            error?: string;
+          }>;
+          unwatch: (input: { docId: string; canEdit: boolean }) => Promise<{
+            success: boolean;
+            error?: string;
+          }>;
+          getState: (docId: string) => Promise<{
+            success: boolean;
+            state?: import('../shared/shared-docs/lock-types').SharedDocLockState | null;
+            error?: string;
+          }>;
+          acquire: (docId: string) => Promise<{
+            success: boolean;
+            state?: import('../shared/shared-docs/lock-types').SharedDocLockState;
+            error?: string;
+          }>;
+          release: (docId: string) => Promise<{
+            success: boolean;
+            state?: import('../shared/shared-docs/lock-types').SharedDocLockState | null;
+            error?: string;
+          }>;
+          onState: (
+            callback: (state: import('../shared/shared-docs/lock-types').SharedDocLockState) => void
+          ) => () => void;
+        };
       };
       platform: NodeJS.Platform;
       getSystemTheme: () => Promise<{ shouldUseDarkColors: boolean }>;

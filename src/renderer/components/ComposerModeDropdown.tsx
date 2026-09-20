@@ -65,14 +65,15 @@ export function ComposerModeDropdown({ disabled }: { disabled?: boolean }) {
     composerMode === 'image' ? t('composer.modeImage') : t('composer.modeChat');
 
   return (
-    <div ref={rootRef} className="relative">
+    <div ref={rootRef} className="composer-mode-dropdown relative">
       <button
         type="button"
         disabled={disabled}
         onClick={() => setOpen((value) => !value)}
-        className="flex h-8 max-w-[7.5rem] items-center gap-1 rounded-xl px-2 text-[12px] font-medium text-text-muted transition-colors hover:bg-surface-hover hover:text-text-primary disabled:opacity-50"
+        className="flex h-8 max-w-[7.5rem] shrink-0 items-center gap-1 rounded-xl px-2 text-[12px] font-medium text-text-muted transition-colors hover:bg-surface-hover hover:text-text-primary disabled:opacity-50"
         aria-expanded={open}
         aria-haspopup="listbox"
+        aria-label={label}
         title={t('composer.modeMenu')}
       >
         {composerMode === 'image' ? (
@@ -80,8 +81,8 @@ export function ComposerModeDropdown({ disabled }: { disabled?: boolean }) {
         ) : (
           <MessageSquare className="h-3.5 w-3.5 shrink-0" />
         )}
-        <span className="truncate">{label}</span>
-        <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-70" />
+        <span className="composer-mode-label truncate">{label}</span>
+        <ChevronDown className="composer-compact-chevron h-3.5 w-3.5 shrink-0 opacity-70" />
       </button>
       {open && (
         <div

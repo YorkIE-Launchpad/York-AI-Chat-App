@@ -138,6 +138,60 @@ describe('jitless-fetch', () => {
     }
   });
 
+  it('jitlessFetch honors redirect:manual so OAuth can read Location', async () => {
+    server = createServer((req, res) => {
+      if (req.url?.startsWith('/oauth/authorize')) {
+        res.writeHead(302, {
+          Location: '/mcp/authorize?request_id=req-abc',
+          'Set-Cookie': 'mcp_consent=cookie-value; Path=/; HttpOnly',
+        });
+        res.end();
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end('<html>consent</html>');
+    });
+    await new Promise<void>((resolve) => {
+      server!.listen(0, '127.0.0.1', () => {
+        const addr = server!.address();
+        const port = typeof addr === 'object' && addr ? addr.port : 0;
+        baseUrl = `http://127.0.0.1:${port}`;
+        resolve();
+      });
+    });
+
+    const response = await jitlessFetch(`${baseUrl}/oauth/authorize?client_id=x`, {
+      redirect: 'manual',
+    });
+    expect(response.status).toBe(302);
+    expect(response.headers.get('location')).toBe('/mcp/authorize?request_id=req-abc');
+    expect(response.headers.get('set-cookie')).toContain('mcp_consent=cookie-value');
+  });
+
+  it('jitlessFetch follows redirects by default', async () => {
+    server = createServer((req, res) => {
+      if (req.url === '/start') {
+        res.writeHead(302, { Location: '/done' });
+        res.end();
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ landed: true }));
+    });
+    await new Promise<void>((resolve) => {
+      server!.listen(0, '127.0.0.1', () => {
+        const addr = server!.address();
+        const port = typeof addr === 'object' && addr ? addr.port : 0;
+        baseUrl = `http://127.0.0.1:${port}`;
+        resolve();
+      });
+    });
+
+    const response = await jitlessFetch(`${baseUrl}/start`);
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ landed: true });
+  });
+
   it('installJitlessSafeFetch patches global fetch when WebAssembly is missing', () => {
     const originalWasm = globalThis.WebAssembly;
     const originalFetch = globalThis.fetch;

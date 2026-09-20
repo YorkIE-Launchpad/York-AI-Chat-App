@@ -47,6 +47,7 @@ import {
   Users,
 } from 'lucide-react';
 import type { CollabRoomState } from '../../shared/collab/types';
+import type { SharedDocLockState } from '../../shared/shared-docs/lock-types';
 import { isScrollNearBottom, resolveSessionScrollTop } from '../utils/chat-scroll-position';
 import {
   useSlashCommands,
@@ -142,6 +143,7 @@ export function ChatView() {
     getCollabState,
     acquireCollabTurn,
     getSessionMessages,
+    listSharedDocs,
     isElectron,
   } = useIPC();
   const [prompt, setPrompt] = useState('');
@@ -184,6 +186,8 @@ export function ChatView() {
   const [loopNotice, setLoopNotice] = useState<string | null>(null);
   const [collabState, setCollabState] = useState<CollabRoomState | null>(null);
   const [collabInviteShown, setCollabInviteShown] = useState<string | null>(null);
+  const [sharedDocLocks, setSharedDocLocks] = useState<Record<string, SharedDocLockState>>({});
+  const activeHtmlPreview = useAppStore((s) => s.activeHtmlPreview);
   const attachMenuRef = useRef<HTMLDivElement>(null);
   const loopMenuRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -1182,6 +1186,15 @@ export function ChatView() {
       return;
     }
 
+    if (sharedDocBlocksComposer) {
+      setGlobalNotice({
+        id: `notice-shared-doc-${Date.now()}`,
+        type: 'warning',
+        message: t('chat.sharedDocComposerLocked', { name: sharedDocBlockName }),
+      });
+      return;
+    }
+
     if (isSharedChat) {
       if (collabBlocksComposer) {
         setGlobalNotice({
@@ -1517,6 +1530,49 @@ export function ChatView() {
     };
   }, [activeSessionId, getCollabState, isElectron]);
 
+  useEffect(() => {
+    const lockApi = window.electronAPI?.sharedDocs?.lock;
+    if (!activeSessionId || !isElectron || !lockApi) {
+      setSharedDocLocks({});
+      return undefined;
+    }
+    let cancelled = false;
+    const watchedRef: { current: Array<{ docId: string; canEdit: boolean }> } = { current: [] };
+
+    void listSharedDocs(activeSessionId).then(async (result) => {
+      if (cancelled || !result.success || !result.docs) return;
+      const editDocs = result.docs.filter(
+        (doc) => doc.permission === 'edit' || doc.permission === 'owner'
+      );
+      for (const doc of editDocs) {
+        const entry = { docId: doc.id, canEdit: false };
+        watchedRef.current.push(entry);
+        const watchResult = await lockApi.watch(entry);
+        if (cancelled) {
+          void lockApi.unwatch(entry);
+          return;
+        }
+        if (watchResult.success && watchResult.state) {
+          setSharedDocLocks((prev) => ({ ...prev, [doc.id]: watchResult.state! }));
+        }
+      }
+    });
+
+    const unsub = lockApi.onState((state) => {
+      setSharedDocLocks((prev) => ({ ...prev, [state.docId]: state }));
+    });
+
+    return () => {
+      cancelled = true;
+      unsub();
+      for (const entry of watchedRef.current) {
+        void lockApi.unwatch(entry);
+      }
+      watchedRef.current = [];
+      setSharedDocLocks({});
+    };
+  }, [activeSessionId, isElectron, listSharedDocs]);
+
   const isSharedChat = Boolean(activeSession?.collabRoomId || collabState?.roomId);
   const leaseHeldByOther = Boolean(
     collabState?.lease &&
@@ -1524,6 +1580,19 @@ export function ChatView() {
       collabState.lease.holderSub !== collabState.localSub
   );
   const collabBlocksComposer = isSharedChat && collabState != null && leaseHeldByOther;
+
+  const sharedDocBlockingLock = useMemo(() => {
+    const previewId = activeHtmlPreview?.shared?.docId;
+    if (previewId && sharedDocLocks[previewId]?.holderIsOther) {
+      return sharedDocLocks[previewId];
+    }
+    return Object.values(sharedDocLocks).find((lock) => lock.holderIsOther) ?? null;
+  }, [activeHtmlPreview?.shared?.docId, sharedDocLocks]);
+  const sharedDocBlocksComposer = Boolean(sharedDocBlockingLock);
+  const sharedDocBlockName =
+    sharedDocBlockingLock?.holderName ||
+    sharedDocBlockingLock?.lease?.holderName ||
+    'Someone';
   const showCollabWaitingPeer =
     Boolean(collabState) &&
     collabState?.role === 'member' &&
@@ -1747,6 +1816,11 @@ export function ChatView() {
       )}
 
       {/* Messages */}
+      {sharedDocBlocksComposer ? (
+        <div className="shrink-0 border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-sm text-amber-900 dark:text-amber-100 lg:px-8">
+          <p>{t('chat.sharedDocComposerLocked', { name: sharedDocBlockName })}</p>
+        </div>
+      ) : null}
       {isSharedChat ? (
         <div className="shrink-0 border-b border-border-muted bg-surface/80 px-4 py-2 text-sm text-text-secondary lg:px-8">
           {showCollabWaitingPeer ? (
@@ -1918,7 +1992,7 @@ export function ChatView() {
 
       {/* Input */}
       <div className="min-w-0 shrink-0 border-t border-border-muted bg-background/92 backdrop-blur-md">
-        <div className="mx-auto w-full min-w-0 max-w-[920px] space-y-3 px-5 pb-5 pt-4 lg:px-8">
+        <div className="mx-auto w-full min-w-0 max-w-[920px] space-y-3 px-3 pb-4 pt-3 sm:px-5 sm:pb-5 sm:pt-4 lg:px-8">
           {queuedCount > 0 && (
             <MessageQueueList
               messages={queuedMessages}
@@ -2067,7 +2141,7 @@ export function ChatView() {
             )}
 
             <div
-              className={`relative flex min-w-0 flex-col gap-2 p-2.5 rounded-[1.5rem] bg-background/88 border border-border-muted shadow-soft transition-colors ${
+              className={`composer-shell relative flex min-w-0 flex-col gap-2 p-2.5 rounded-[1.5rem] bg-background/88 border border-border-muted shadow-soft transition-colors ${
                 isDragging ? 'ring-2 ring-accent bg-accent/5' : ''
               }`}
             >
@@ -2155,12 +2229,17 @@ export function ChatView() {
                     ? t('composer.imagePromptPlaceholder')
                     : t('chat.typeMessageSkillHint')
                 }
-                disabled={isSubmitting || openRouterKeyRequired || collabBlocksComposer}
+                disabled={
+                  isSubmitting ||
+                  openRouterKeyRequired ||
+                  collabBlocksComposer ||
+                  sharedDocBlocksComposer
+                }
                 rows={1}
                 className="w-full min-w-0 resize-none bg-transparent border-none outline-none text-text-primary placeholder:text-text-muted text-[15px] leading-5 py-1 overflow-hidden"
               />
 
-              <div className="flex min-w-0 items-center justify-between gap-1.5">
+              <div className="composer-toolbar">
                 <div className="flex min-w-0 items-center gap-1">
                   <div className="relative" ref={attachMenuRef}>
                     <button
@@ -2331,7 +2410,7 @@ export function ChatView() {
                   )}
                 </div>
 
-                <div className="flex min-w-0 items-center gap-1 shrink-0">
+                <div className="composer-toolbar-end">
                   {composerMode !== 'image' && <ThinkingModeToggle />}
                   {composerMode !== 'image' && <ModelSelector />}
                   <HubBudgetMeter />
@@ -2367,7 +2446,7 @@ export function ChatView() {
                         attachedReferences.length === 0) ||
                       isSubmitting
                     }
-                    className="w-8 h-8 rounded-xl flex items-center justify-center bg-accent text-background disabled:opacity-50 disabled:cursor-not-allowed hover:bg-accent-hover transition-colors"
+                    className="w-8 h-8 shrink-0 rounded-xl flex items-center justify-center bg-accent text-background disabled:opacity-50 disabled:cursor-not-allowed hover:bg-accent-hover transition-colors"
                     title={t('chat.sendMessage')}
                   >
                     <Send className="w-3.5 h-3.5" />

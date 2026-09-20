@@ -931,7 +931,7 @@ export function WelcomeView() {
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
               onDrop={handleDrop}
-              className={`relative rounded-[1.9rem] border border-border-muted bg-background/85 shadow-soft px-5 py-5 space-y-4 transition-colors ${
+              className={`composer-shell relative rounded-[1.9rem] border border-border-muted bg-background/85 shadow-soft px-3 py-4 space-y-4 transition-colors sm:px-5 sm:py-5 ${
                 isDragging ? 'ring-2 ring-accent bg-accent/5' : ''
               }`}
             >
@@ -1156,7 +1156,7 @@ export function WelcomeView() {
               />
 
               {/* Bottom Actions */}
-              <div className="flex items-center justify-between gap-3 pt-3 border-t border-border-muted">
+              <div className="composer-toolbar border-t border-border-muted pt-3">
                 <div className="flex min-w-0 items-center gap-2">
                   <div className="relative" ref={actionsMenuRef}>
                     <button
@@ -1361,7 +1361,7 @@ export function WelcomeView() {
                   <ComposerModeDropdown disabled={isSubmitting || openRouterKeyRequired} />
                   {workingDir && composerMode !== 'image' && (
                     <span
-                      className="min-w-0 max-w-[10rem] truncate text-xs text-text-muted"
+                      className="composer-working-dir min-w-0 max-w-[10rem] truncate text-xs text-text-muted"
                       title={workingDir}
                     >
                       {workingDir.split(/[/\\]/).pop()}
@@ -1369,7 +1369,7 @@ export function WelcomeView() {
                   )}
                 </div>
 
-                <div className="flex flex-shrink-0 items-center gap-2">
+                <div className="composer-toolbar-end gap-2">
                   {composerMode !== 'image' && <ThinkingModeToggle />}
                   {composerMode !== 'image' && <ModelSelector />}
                   <HubBudgetMeter />
@@ -1385,9 +1385,10 @@ export function WelcomeView() {
                     type="submit"
                     disabled={!canSubmit || isSubmitting}
                     onPointerEnter={() => prefetchChatPanels()}
-                    className="btn btn-primary px-5 py-2.5 rounded-2xl disabled:opacity-50 disabled:cursor-not-allowed"
+                    aria-label={t('welcome.letsGo')}
+                    className="btn btn-primary shrink-0 px-3 py-2.5 rounded-2xl disabled:opacity-50 disabled:cursor-not-allowed sm:px-5"
                   >
-                    <span>{t('welcome.letsGo')}</span>
+                    <span className="composer-submit-label">{t('welcome.letsGo')}</span>
                     <ArrowRight className="w-4 h-4" />
                   </button>
                 </div>

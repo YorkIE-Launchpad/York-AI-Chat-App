@@ -33,9 +33,7 @@ import {
   Layers,
   Users,
   Link2,
-  FileText,
 } from 'lucide-react';
-import type { SharedDocWithAccess } from '../../shared/shared-docs/types';
 import type { Session } from '../types';
 import { DivisionSwitcher } from './DivisionSwitcher';
 import { NextUpMeeting } from './matter/NextUpMeeting';
@@ -272,9 +270,6 @@ export function Sidebar() {
     getSessionTraceSteps,
     importSession,
     joinCollabSession,
-    joinSharedDoc,
-    listSharedDocs,
-    openSharedDoc,
     isElectron,
   } = useIPC();
   const setGlobalNotice = useAppStore((s) => s.setGlobalNotice);
@@ -290,15 +285,7 @@ export function Sidebar() {
   const [joinModalOpen, setJoinModalOpen] = useState(false);
   const [joinInviteDraft, setJoinInviteDraft] = useState('');
   const [joiningShared, setJoiningShared] = useState(false);
-  const [joinDocModalOpen, setJoinDocModalOpen] = useState(false);
-  const [joinDocDraft, setJoinDocDraft] = useState('');
-  const [joiningDoc, setJoiningDoc] = useState(false);
-  const [sharedDocsModalOpen, setSharedDocsModalOpen] = useState(false);
-  const [sharedDocsList, setSharedDocsList] = useState<SharedDocWithAccess[]>([]);
-  const [loadingSharedDocs, setLoadingSharedDocs] = useState(false);
   const joinInputRef = useRef<HTMLInputElement>(null);
-  const joinDocInputRef = useRef<HTMLInputElement>(null);
-  const workingDir = useAppStore((s) => s.workingDir);
   const [searchHits, setSearchHits] = useState<ChatSearchHit[]>([]);
   const [searchBusy, setSearchBusy] = useState(false);
   const [searchAllWorkspaces, setSearchAllWorkspaces] = useState(false);
@@ -788,71 +775,6 @@ export function Sidebar() {
     requestAnimationFrame(() => joinInputRef.current?.focus());
   };
 
-  const handleJoinSharedDoc = () => {
-    if (!isElectron) return;
-    setJoinDocDraft('');
-    setJoinDocModalOpen(true);
-    requestAnimationFrame(() => joinDocInputRef.current?.focus());
-  };
-
-  const handleOpenSharedDocsList = () => {
-    if (!isElectron || !activeSessionId) return;
-    setSharedDocsModalOpen(true);
-    setLoadingSharedDocs(true);
-    void listSharedDocs(activeSessionId)
-      .then((result) => {
-        if (result.success && result.docs) {
-          setSharedDocsList(result.docs);
-        } else {
-          setSharedDocsList([]);
-        }
-      })
-      .finally(() => setLoadingSharedDocs(false));
-  };
-
-  const handleSubmitJoinSharedDoc = async () => {
-    const token = joinDocDraft.trim();
-    if (!token || joiningDoc || !activeSessionId) return;
-    const session = sessions.find((s) => s.id === activeSessionId);
-    const cwd = session?.cwd || workingDir;
-    if (!cwd) {
-      setGlobalNotice({
-        id: `join-doc-${Date.now()}`,
-        type: 'error',
-        message: 'Select a workspace folder before opening a shared document.',
-      });
-      return;
-    }
-    setJoiningDoc(true);
-    try {
-      const result = await joinSharedDoc(token, activeSessionId, cwd);
-      if (result.success) {
-        setJoinDocModalOpen(false);
-        setJoinDocDraft('');
-        setGlobalNotice({
-          id: `join-doc-ok-${Date.now()}`,
-          type: 'success',
-          message: '',
-          messageKey: 'sidebar.joinSharedDocSuccess',
-        });
-      } else {
-        setGlobalNotice({
-          id: `join-doc-fail-${Date.now()}`,
-          type: 'error',
-          message: result.error || t('sidebar.joinSharedDocFailed'),
-        });
-      }
-    } catch (error) {
-      setGlobalNotice({
-        id: `join-doc-fail-${Date.now()}`,
-        type: 'error',
-        message: error instanceof Error ? error.message : t('sidebar.joinSharedDocFailed'),
-      });
-    } finally {
-      setJoiningDoc(false);
-    }
-  };
-
   const handleCloseJoinModal = () => {
     if (joiningShared) return;
     setJoinModalOpen(false);
@@ -1013,111 +935,6 @@ export function Sidebar() {
         )
       : null;
 
-  const joinSharedDocModal =
-    joinDocModalOpen && typeof document !== 'undefined'
-      ? createPortal(
-          <div
-            className="fixed inset-0 z-[90] flex items-center justify-center bg-black/20 p-4 backdrop-blur-sm animate-fade-in"
-            onClick={() => !joiningDoc && setJoinDocModalOpen(false)}
-          >
-            <div
-              role="dialog"
-              aria-modal="true"
-              className="w-full max-w-md rounded-2xl border border-border-subtle bg-background p-4 shadow-xl"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <h3 className="text-sm font-medium text-text-primary">{t('sidebar.joinSharedDoc')}</h3>
-              <p className="mt-1 text-xs text-text-muted">{t('sidebar.joinSharedDocPrompt')}</p>
-              <input
-                ref={joinDocInputRef}
-                type="text"
-                value={joinDocDraft}
-                onChange={(e) => setJoinDocDraft(e.target.value)}
-                disabled={joiningDoc}
-                className="mt-3 w-full rounded-xl border border-border-subtle bg-surface px-3 py-2 text-sm"
-              />
-              <div className="mt-3 flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setJoinDocModalOpen(false)}
-                  disabled={joiningDoc}
-                  className="rounded-xl px-3 py-1.5 text-sm text-text-secondary hover:bg-surface-hover"
-                >
-                  {t('common.cancel')}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void handleSubmitJoinSharedDoc()}
-                  disabled={joiningDoc || !joinDocDraft.trim()}
-                  className="rounded-xl bg-accent px-3 py-1.5 text-sm font-medium text-white"
-                >
-                  {t('sidebar.joinSharedDoc')}
-                </button>
-              </div>
-            </div>
-          </div>,
-          document.body
-        )
-      : null;
-
-  const sharedDocsModal =
-    sharedDocsModalOpen && typeof document !== 'undefined'
-      ? createPortal(
-          <div
-            className="fixed inset-0 z-[90] flex items-center justify-center bg-black/20 p-4 backdrop-blur-sm"
-            onClick={() => setSharedDocsModalOpen(false)}
-          >
-            <div
-              role="dialog"
-              aria-modal="true"
-              className="w-full max-w-lg rounded-2xl border border-border-subtle bg-background p-4 shadow-xl max-h-[70vh] overflow-hidden flex flex-col"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <h3 className="text-sm font-medium text-text-primary">{t('sidebar.sharedDocsList')}</h3>
-              <div className="mt-3 flex-1 overflow-y-auto space-y-2">
-                {loadingSharedDocs && (
-                  <p className="text-xs text-text-muted">{t('common.loading', { defaultValue: 'Loading…' })}</p>
-                )}
-                {!loadingSharedDocs && sharedDocsList.length === 0 && (
-                  <p className="text-xs text-text-muted">{t('sidebar.sharedDocsEmpty')}</p>
-                )}
-                {sharedDocsList.map((doc) => (
-                  <div
-                    key={doc.id}
-                    className="flex items-center justify-between gap-2 rounded-lg border border-border-subtle px-3 py-2"
-                  >
-                    <div className="min-w-0">
-                      <p className="text-sm truncate">{doc.title}</p>
-                      <p className="text-[10px] text-text-muted">
-                        {doc.permission}
-                        {doc.s3UpdatedAt
-                          ? ` · ${new Date(doc.s3UpdatedAt).toLocaleString()}`
-                          : ''}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      className="text-xs text-accent-primary hover:underline shrink-0"
-                      onClick={() => {
-                        if (!activeSessionId) return;
-                        const session = sessions.find((s) => s.id === activeSessionId);
-                        const cwd = session?.cwd || workingDir;
-                        if (!cwd) return;
-                        void openSharedDoc({ sessionId: activeSessionId, cwd, docId: doc.id });
-                        setSharedDocsModalOpen(false);
-                      }}
-                    >
-                      {t('sidebar.sharedDocsOpen')}
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>,
-          document.body
-        )
-      : null;
-
   if (sidebarCollapsed) {
     return (
       <>
@@ -1269,8 +1086,6 @@ export function Sidebar() {
         </div>
       </aside>
       {joinSharedModal}
-      {joinSharedDocModal}
-      {sharedDocsModal}
       </>
     );
   }
@@ -1352,24 +1167,6 @@ export function Sidebar() {
               title={t('sidebar.joinSharedChat')}
             >
               <Link2 className="w-4 h-4" />
-            </button>
-            <button
-              onClick={handleJoinSharedDoc}
-              disabled={!isElectron}
-              className="flex h-full flex-1 items-center justify-center rounded-lg border border-border-subtle bg-background/60 text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary disabled:opacity-50"
-              aria-label={t('sidebar.joinSharedDoc')}
-              title={t('sidebar.joinSharedDoc')}
-            >
-              <FileText className="w-4 h-4" />
-            </button>
-            <button
-              onClick={handleOpenSharedDocsList}
-              disabled={!isElectron}
-              className="flex h-full flex-1 items-center justify-center rounded-lg border border-border-subtle bg-background/60 text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary disabled:opacity-50"
-              aria-label={t('sidebar.sharedDocsList')}
-              title={t('sidebar.sharedDocsList')}
-            >
-              <Layers className="w-4 h-4" />
             </button>
           </div>
 
@@ -2011,8 +1808,6 @@ export function Sidebar() {
       )}
     </aside>
     {joinSharedModal}
-    {joinSharedDocModal}
-    {sharedDocsModal}
     </>
   );
 }

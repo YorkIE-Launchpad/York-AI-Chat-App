@@ -385,6 +385,89 @@
   }
 }
 
+/* Composer toolbar — size against the chat panel, not the viewport (split preview). */
+.composer-shell {
+  container-type: inline-size;
+  container-name: composer;
+}
+
+.composer-toolbar {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.375rem 0.375rem;
+}
+
+.composer-toolbar-end {
+  display: flex;
+  min-width: 0;
+  max-width: 100%;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.25rem;
+  margin-left: auto;
+}
+
+.composer-model-selector {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.composer-model-selector > button {
+  max-width: min(11rem, 100%);
+}
+
+.composer-model-via {
+  display: none;
+}
+
+@container composer (min-width: 36rem) {
+  .composer-model-via {
+    display: inline;
+  }
+}
+
+@container composer (max-width: 28rem) {
+  .composer-budget-meter {
+    display: none;
+  }
+
+  .composer-mode-label {
+    display: none;
+  }
+
+  .composer-mode-dropdown > button {
+    max-width: 2rem;
+    justify-content: center;
+    padding-inline: 0;
+  }
+
+  .composer-working-dir {
+    display: none;
+  }
+
+  .composer-submit-label {
+    display: none;
+  }
+
+  .composer-model-selector > button {
+    max-width: 7.25rem;
+  }
+}
+
+@container composer (max-width: 22rem) {
+  .composer-compact-chevron {
+    display: none;
+  }
+
+  .composer-model-selector > button {
+    max-width: 5.5rem;
+    padding-inline: 0.375rem;
+  }
+}
+
 /* Respect reduced motion preferences */
 @media (prefers-reduced-motion: reduce) {
   *,

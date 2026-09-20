@@ -324,11 +324,14 @@ function AuthenticatedApp() {
     setSidebarCollapsed(width < 800);
   }, [width, activeHtmlPreview, setContextPanelCollapsed, setSidebarCollapsed]);
 
+  useEffect(() => {
+    lastHtmlPreviewSig.current = null;
+  }, [activeSessionId]);
+
   // Auto-open / refresh right-side preview when the agent writes HTML/markdown artifacts.
   // Signature-gated so closing the panel does not immediately reopen the same write.
   useEffect(() => {
     if (!activeSessionId) {
-      lastHtmlPreviewSig.current = null;
       return;
     }
     const steps = sessionStates[activeSessionId]?.traceSteps;
@@ -341,7 +344,7 @@ function AuthenticatedApp() {
     if (!candidate) {
       return;
     }
-    const sig = htmlPreviewSignature(candidate);
+    const sig = `${activeSessionId}::${htmlPreviewSignature(candidate)}`;
     if (lastHtmlPreviewSig.current === sig) {
       return;
     }
@@ -493,7 +496,7 @@ function AuthenticatedApp() {
             fallback={<ContextPanelFallback />}
           >
             <Suspense fallback={<ContextPanelFallback />}>
-              <ContextPanel />
+              <ContextPanel key={activeSessionId} />
             </Suspense>
           </PanelErrorBoundary>
         )}

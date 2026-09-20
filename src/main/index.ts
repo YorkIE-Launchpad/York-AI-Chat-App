@@ -244,6 +244,10 @@ import {
   setSharedDocsSyncNotifier,
 } from './shared-docs/shared-docs-service';
 import {
+  SharedDocLockService,
+  setSharedDocLockService,
+} from './shared-docs/shared-doc-lock-service';
+import {
   log,
   logWarn,
   logError,
@@ -331,6 +335,7 @@ app.disableHardwareAcceleration();
 let mainWindow: BrowserWindow | null = null;
 let sessionManager: SessionManager | null = null;
 let collabSyncService: CollabSyncService | null = null;
+let sharedDocLockService: SharedDocLockService | null = null;
 let skillsManager: SkillsManager | null = null;
 let pluginRuntimeService: PluginRuntimeService | null = null;
 let memoryService: MemoryService | null = null;
@@ -348,6 +353,9 @@ let folderManager: FolderManager | null = null;
 function wireCollabSyncService(): void {
   if (!sessionManager) return;
   collabSyncService?.dispose();
+  sharedDocLockService?.dispose();
+  sharedDocLockService = new SharedDocLockService(() => mainWindow);
+  setSharedDocLockService(sharedDocLockService);
   collabSyncService = new CollabSyncService({
     getSession: (id) => sessionManager!.getSession(id),
     listSessions: () => sessionManager!.listSessions(),
@@ -5166,6 +5174,66 @@ ipcMain.handle(
     }
   }
 );
+
+ipcMain.handle(
+  'sharedDocs.lock.watch',
+  async (_event, input: { docId: string; canEdit: boolean }) => {
+    try {
+      if (!sharedDocLockService) {
+        return { success: false, error: 'Lock service unavailable' };
+      }
+      const state = await sharedDocLockService.watchDoc(input.docId, {
+        canEdit: Boolean(input.canEdit),
+      });
+      return { success: true, state };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  }
+);
+
+ipcMain.handle(
+  'sharedDocs.lock.unwatch',
+  async (_event, input: { docId: string; canEdit: boolean }) => {
+    try {
+      sharedDocLockService?.unwatchDoc(input.docId, { canEdit: Boolean(input.canEdit) });
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  }
+);
+
+ipcMain.handle('sharedDocs.lock.getState', async (_event, docId: string) => {
+  try {
+    const state = sharedDocLockService?.getState(docId) ?? null;
+    return { success: true, state };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
+
+ipcMain.handle('sharedDocs.lock.acquire', async (_event, docId: string) => {
+  try {
+    if (!sharedDocLockService) {
+      return { success: false, error: 'Lock service unavailable' };
+    }
+    const state = await sharedDocLockService.acquireDocAsync(docId);
+    return { success: true, state };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    return { success: false, error: message };
+  }
+});
+
+ipcMain.handle('sharedDocs.lock.release', async (_event, docId: string) => {
+  try {
+    const state = sharedDocLockService?.releaseDoc(docId) ?? null;
+    return { success: true, state };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+});
 
 ipcMain.handle('session.import', async () => {
   try {

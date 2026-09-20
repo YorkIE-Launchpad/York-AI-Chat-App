@@ -123,7 +123,7 @@ export function HubBudgetMeter() {
     <button
       type="button"
       onClick={openSettings}
-      className={`flex h-8 w-[3.25rem] shrink-0 cursor-pointer flex-col justify-center gap-0.5 rounded-xl border px-1.5 transition-colors hover:bg-surface-hover ${toneBorderClass(userTone)}`}
+      className={`composer-budget-meter flex h-8 w-[3.25rem] shrink-0 cursor-pointer flex-col justify-center gap-0.5 rounded-xl border px-1.5 transition-colors hover:bg-surface-hover ${toneBorderClass(userTone)}`}
       title={tooltip}
       aria-label={tooltip}
     >

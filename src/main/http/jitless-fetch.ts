@@ -374,12 +374,27 @@ export function hubHttpRequest(urlString: string, init: HubHttpInit = {}): Promi
   }).then(toHubHttpResponse);
 }
 
+function resolveRedirectMode(
+  initRedirect: RequestRedirect | undefined,
+  requestRedirect: RequestRedirect | undefined
+): RequestRedirect {
+  return initRedirect ?? requestRedirect ?? 'follow';
+}
+
+function maxRedirectsForMode(mode: RequestRedirect): number {
+  // Hub MCP authorize (and similar OAuth) needs the 302 Location + Set-Cookie.
+  // Always following redirects made authorize look like a 200 HTML page.
+  if (mode === 'manual' || mode === 'error') return 0;
+  return 5;
+}
+
 async function jitlessFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   let urlString: string;
   let method = init?.method ?? 'GET';
   let headers = normalizeHeaders(init?.headers);
   let body: BodyInit | null | undefined = init?.body ?? undefined;
   let signal: AbortSignal | undefined = init?.signal ?? undefined;
+  let redirectMode: RequestRedirect = resolveRedirectMode(init?.redirect, undefined);
 
   if (typeof Request !== 'undefined' && input instanceof Request) {
     urlString = input.url;
@@ -389,6 +404,7 @@ async function jitlessFetch(input: RequestInfo | URL, init?: RequestInit): Promi
       body = await input.clone().text();
     }
     signal = init?.signal ?? input.signal ?? undefined;
+    redirectMode = resolveRedirectMode(init?.redirect, input.redirect);
   } else if (input instanceof URL) {
     urlString = input.toString();
   } else {
@@ -397,13 +413,23 @@ async function jitlessFetch(input: RequestInfo | URL, init?: RequestInit): Promi
 
   const encodedBody = await encodeRequestBody(body ?? undefined, headers);
 
-  return performNodeHttpFetch(urlString, {
+  const response = await performNodeHttpFetch(urlString, {
     method,
     headers,
     body: encodedBody,
     signal,
-    maxRedirects: 5,
+    maxRedirects: maxRedirectsForMode(redirectMode),
   });
+
+  if (
+    redirectMode === 'error' &&
+    REDIRECT_STATUSES.has(response.status) &&
+    response.headers.get('location')
+  ) {
+    throw new TypeError(`URI redirected with status ${response.status}`);
+  }
+
+  return response;
 }
 
 let fetchPolyfillInstalled = false;

@@ -20,9 +20,12 @@ import {
   CloudDownload,
 } from 'lucide-react';
 import type { SharedDocPermission } from '../../shared/shared-docs/types';
+import type { SharedDocLockState } from '../../shared/shared-docs/lock-types';
+import { SHARED_DOC_LOCK_HELD } from '../../shared/shared-docs/lock-types';
 import { useAppStore } from '../store';
 import { getArtifactLabel } from '../utils/artifact-steps';
 import { MessageMarkdown } from './MessageMarkdown';
+import { SharedDocsPanelControls } from './SharedDocsPanelControls';
 
 const MIN_PREVIEW_WIDTH = 280;
 const MAX_PREVIEW_WIDTH_RATIO = 0.75;
@@ -70,11 +73,17 @@ export function HtmlPreviewPanel() {
   const [shareInviteToken, setShareInviteToken] = useState('');
   const [sharing, setSharing] = useState(false);
   const [restoring, setRestoring] = useState(false);
+  const [docLock, setDocLock] = useState<SharedDocLockState | null>(null);
   const dragStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
 
   const activeSession = activeSessionId ? sessions.find((s) => s.id === activeSessionId) : null;
   const cwd = activeSession?.cwd || workingDir;
   const isMarkdown = activeHtmlPreview?.kind === 'markdown';
+  const sharedDocId = activeHtmlPreview?.shared?.docId;
+  const sharedCanEdit =
+    activeHtmlPreview?.shared?.permission === 'edit' ||
+    activeHtmlPreview?.shared?.permission === 'owner';
+  const docLockedByOther = Boolean(docLock?.holderIsOther);
 
   const title = useMemo(() => {
     if (!activeHtmlPreview) {
@@ -124,6 +133,29 @@ export function HtmlPreviewPanel() {
   useEffect(() => {
     void loadPreview();
   }, [loadPreview]);
+
+  useEffect(() => {
+    const lockApi = window.electronAPI?.sharedDocs?.lock;
+    if (!sharedDocId || !lockApi) {
+      setDocLock(null);
+      return undefined;
+    }
+    const canEdit = Boolean(sharedCanEdit);
+    void lockApi.watch({ docId: sharedDocId, canEdit }).then((result) => {
+      if (result.success && result.state) {
+        setDocLock(result.state);
+      }
+    });
+    const unsub = lockApi.onState((state) => {
+      if (state.docId === sharedDocId) {
+        setDocLock(state);
+      }
+    });
+    return () => {
+      unsub();
+      void lockApi.unwatch({ docId: sharedDocId, canEdit });
+    };
+  }, [sharedDocId, sharedCanEdit]);
 
   useEffect(() => {
     if (
@@ -179,6 +211,13 @@ export function HtmlPreviewPanel() {
           id: `shared-doc-conflict-${Date.now()}`,
           type: 'warning',
           message: t('context.htmlPreviewSyncConflict'),
+        });
+      }
+      if (payload.error === SHARED_DOC_LOCK_HELD) {
+        setGlobalNotice({
+          id: `shared-doc-lock-${Date.now()}`,
+          type: 'warning',
+          message: t('context.htmlPreviewSyncDocLock'),
         });
       }
     });
@@ -506,7 +545,7 @@ export function HtmlPreviewPanel() {
           <button
             type="button"
             onClick={handleRestoreFromCloud}
-            disabled={restoring}
+            disabled={restoring || docLockedByOther}
             className="w-7 h-7 rounded-md flex items-center justify-center hover:bg-surface-hover text-text-muted hover:text-text-primary transition-colors disabled:opacity-50"
             title={t('context.htmlPreviewRestoreFromCloud')}
             aria-label={t('context.htmlPreviewRestoreFromCloud')}
@@ -550,6 +589,7 @@ export function HtmlPreviewPanel() {
         >
           <ExternalLink className="w-3.5 h-3.5" />
         </button>
+        <SharedDocsPanelControls />
         <button
           type="button"
           onClick={closeHtmlPreview}
@@ -560,6 +600,22 @@ export function HtmlPreviewPanel() {
           <X className="w-3.5 h-3.5" />
         </button>
       </div>
+
+      {sharedDocId && docLock?.holderIsOther ? (
+        <div className="flex items-start gap-2 border-b border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-100">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <p>
+            {t('context.sharedDocSomeoneEditing', {
+              name: docLock.holderName || docLock.lease?.holderName || 'Someone',
+            })}
+          </p>
+        </div>
+      ) : null}
+      {sharedDocId && sharedCanEdit && docLock && !docLock.holderIsOther && docLock.lease ? (
+        <div className="border-b border-border-muted bg-surface/60 px-3 py-1.5 text-[10px] text-text-muted">
+          {t('context.sharedDocYouAreEditing')}
+        </div>
+      ) : null}
 
       {shareOpen && (
         <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/30 p-4">

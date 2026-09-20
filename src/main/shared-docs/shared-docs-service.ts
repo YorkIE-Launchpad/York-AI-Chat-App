@@ -21,14 +21,33 @@ import {
   type SharedDocLinkRow,
   upsertSharedDocLink,
 } from './shared-doc-link-store';
+import { assertCanEditSharedDoc } from './shared-doc-lock-service';
+import { SHARED_DOC_LOCK_HELD } from '../../shared/shared-docs/lock-types';
+import {
+  isDoubleExtensionLeaf,
+  sharedDocFileName,
+  titleBaseFromPathOrTitle,
+} from '../../shared/shared-docs/filename';
 
 function safeFileBase(title: string): string {
   const trimmed = title.trim() || 'document';
   return trimmed.replace(/[^\w.-]+/g, '_').slice(0, 80);
 }
 
-function extForKind(kind: 'html' | 'markdown'): string {
-  return kind === 'markdown' ? 'md' : 'html';
+function resolveSharedDocRelPath(
+  doc: SharedDocWithAccess,
+  link: SharedDocLinkRow | undefined
+): string {
+  const relDir = join('shared', doc.id);
+  const canonical = join(relDir, sharedDocFileName(doc.title, doc.kind));
+  if (!link?.local_path) {
+    return canonical;
+  }
+  const leaf = link.local_path.split('/').pop() ?? '';
+  if (isDoubleExtensionLeaf(leaf)) {
+    return canonical;
+  }
+  return link.local_path;
 }
 
 function contentTypeForKind(kind: 'html' | 'markdown'): string {
@@ -123,6 +142,9 @@ export class SharedDocsService {
     localPath: string;
     backupBeforeWrite?: boolean;
   }): Promise<{ localPath: string; s3UpdatedAt: string; backupPath?: string }> {
+    if (input.backupBeforeWrite) {
+      await assertCanEditSharedDoc(input.doc.id);
+    }
     const resolved = resolveInSession(input.cwd, input.localPath);
     let backupPath: string | undefined;
     if (input.backupBeforeWrite && existsSync(resolved.absolutePath)) {
@@ -155,11 +177,11 @@ export class SharedDocsService {
     const resolved = resolveInSession(input.cwd, input.localPath);
     const absPath = resolved.absolutePath;
     const kind = previewKindFromPath(absPath);
-    const title = input.title?.trim() || safeFileBase(absPath);
+    const title = input.title?.trim() || titleBaseFromPathOrTitle(absPath);
 
     const docId = randomUUID();
     const folder = sharedDocHubFolder(docId);
-    const fileName = `${safeFileBase(title)}.${extForKind(kind)}`;
+    const fileName = sharedDocFileName(title, kind);
     const upload = await uploadFileToHubStorage({
       filePath: absPath,
       folder,
@@ -219,9 +241,7 @@ export class SharedDocsService {
             throw new Error('Document link not found — join with an invite first');
           })());
 
-    const relDir = join('shared', doc.id);
-    const fileName = `${safeFileBase(doc.title)}.${extForKind(doc.kind)}`;
-    const relPath = link?.local_path ?? join(relDir, fileName);
+    const relPath = resolveSharedDocRelPath(doc, link);
 
     const result = await this.writeRemoteToLink({
       sessionId: input.sessionId,
@@ -293,6 +313,8 @@ export class SharedDocsService {
       throw new Error('Read-only shared document');
     }
 
+    await assertCanEditSharedDoc(link.doc_id);
+
     const remoteUpdatedAt = await fetchHubObjectLastModified(link.s3_key);
     if (isRemoteS3Newer(remoteUpdatedAt, link.s3_updated_at)) {
       throw new Error('version_conflict');
@@ -303,7 +325,7 @@ export class SharedDocsService {
     const upload = await uploadFileToHubStorage({
       filePath: resolved.absolutePath,
       folder,
-      fileName: `${safeFileBase(link.title)}.${extForKind(link.kind as SharedDocKind)}`,
+      fileName: sharedDocFileName(link.title, link.kind as SharedDocKind),
     });
 
     const doc: SharedDocWithAccess = {
@@ -388,7 +410,12 @@ export class SharedDocsService {
       return { synced: true };
     } catch (error) {
       logError('[SharedDocs] sync after write failed:', error);
-      const message = error instanceof Error ? error.message : String(error);
+      const message =
+        error instanceof Error && (error as Error & { code?: string }).code === SHARED_DOC_LOCK_HELD
+          ? SHARED_DOC_LOCK_HELD
+          : error instanceof Error
+            ? error.message
+            : String(error);
       syncNotifier?.({
         sessionId: input.sessionId,
         localPath: input.relativePath,

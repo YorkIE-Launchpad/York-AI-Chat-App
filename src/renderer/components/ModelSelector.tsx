@@ -310,7 +310,7 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
   const isDisabled = isLoading || isSaving;
 
   return (
-    <div ref={rootRef} className={`relative hidden sm:block ${className}`}>
+    <div ref={rootRef} className={`composer-model-selector relative ${className}`}>
       <button
         type="button"
         onClick={() => {
@@ -319,23 +319,23 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
         disabled={isDisabled}
         aria-haspopup="listbox"
         aria-expanded={isOpen}
-        className={`inline-flex h-8 max-w-[11rem] items-center gap-1 rounded-xl px-2 py-0 text-left transition-colors ${
+        className={`inline-flex h-8 w-full min-w-0 max-w-[11rem] items-center gap-1 rounded-xl px-2 py-0 text-left transition-colors ${
           isOpen
             ? 'bg-surface-hover text-text-primary'
             : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
         } disabled:cursor-not-allowed`}
         title={triggerTitle}
       >
-        <span className="inline-flex min-w-0 items-baseline gap-1 text-[12px] font-medium tracking-[-0.01em]">
+        <span className="inline-flex min-w-0 flex-1 items-baseline gap-1 text-[12px] font-medium tracking-[-0.01em]">
           <span className="truncate">{displayName}</span>
           {showViaOpenRouter && (
-            <span className="hidden lg:inline shrink-0 font-normal text-text-muted">
+            <span className="composer-model-via shrink-0 font-normal text-text-muted">
               {t('workspace.models.viaOpenRouter', 'via Openrouter')}
             </span>
           )}
         </span>
         <ChevronDown
-          className={`h-3 w-3 shrink-0 text-text-muted transition-transform ${
+          className={`composer-compact-chevron h-3 w-3 shrink-0 text-text-muted transition-transform ${
             isOpen ? 'rotate-180' : ''
           }`}
         />
@@ -344,7 +344,7 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
       {isOpen && (
         <div
           role="listbox"
-          className="absolute bottom-[calc(100%+8px)] right-0 z-30 w-max min-w-[14rem] max-w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-[1.25rem] border border-border-subtle bg-background shadow-elevated"
+          className="absolute bottom-[calc(100%+8px)] right-0 z-30 w-max min-w-[min(14rem,100cqw)] max-w-[min(24rem,calc(100cqw-0.5rem))] overflow-hidden rounded-[1.25rem] border border-border-subtle bg-background shadow-elevated"
         >
           <div className="max-h-[min(28rem,70vh)] overflow-y-auto py-1.5">
             <div className="px-1.5 py-1">
