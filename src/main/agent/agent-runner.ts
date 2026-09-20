@@ -1583,7 +1583,7 @@ ${hints.join('\n')}
               (toolName === 'write' || toolName === 'edit')
             ) {
               try {
-                const relativePath = workspaceRelativePath(workspaceRoot, nextParams.path);
+                const relativePath = workspaceRelativePath(workspaceRoot, remapped);
                 const link = getSharedDocLinkByLocalPath(sessionId, relativePath);
                 if (link && !sharedDocAccessCanEdit(link.permission)) {
                   throw new Error(
