@@ -36,6 +36,7 @@ import {
   YORK_LLM_PROVIDER,
   yorkLlmSelectionPayload,
 } from '../../shared/york-llm-config';
+import { isGptImage25ModelId } from '../../shared/image-generation';
 
 const isElectron = typeof window !== 'undefined' && window.electronAPI !== undefined;
 
@@ -96,13 +97,18 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
     () => sessionFieldsFromActiveDivision(activeDivision),
     [activeDivision]
   );
+  /** Image-only models belong in Image composer mode, not the chat picker. */
+  const chatCatalogModels = useMemo(
+    () => models.filter((model) => !isGptImage25ModelId(model.id)),
+    [models]
+  );
   const usableModels = useMemo(
     () =>
       filterModelsForOpenRouterKey(
-        filterModelsForDivision(models, divisionSession),
+        filterModelsForDivision(chatCatalogModels, divisionSession),
         appConfig?.openRouterUserApiKey
       ),
-    [appConfig?.openRouterUserApiKey, divisionSession, models]
+    [appConfig?.openRouterUserApiKey, chatCatalogModels, divisionSession]
   );
 
   const loadModels = useCallback(
@@ -170,7 +176,7 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
   }, [isOpen, loadModels, loadYorkLlmModels]);
 
   const groupedModels = useMemo(() => {
-    return models.reduce<Record<BackendCloudProvider, BackendModelInfo[]>>(
+    return chatCatalogModels.reduce<Record<BackendCloudProvider, BackendModelInfo[]>>(
       (acc, model) => {
         (acc[model.provider] ||= []).push(model);
         return acc;
@@ -182,7 +188,7 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
         openrouter: [],
       }
     );
-  }, [models]);
+  }, [chatCatalogModels]);
 
   const selectedAuto = isAutoModelId(appConfig?.model);
   const autoPreference: AutoModelPreference = isAutoModelPreference(appConfig?.autoModelPreference)
@@ -601,7 +607,7 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
               );
             })}
 
-            {!isLoading && models.length === 0 && (
+            {!isLoading && chatCatalogModels.length === 0 && (
               <div className="px-4 py-2 text-[11px] leading-snug text-text-muted">
                 {activeDivision?.kind === 'hub' || activeDivision?.kind === 'project'
                   ? t('workspace.models.askManager')
@@ -609,15 +615,15 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
               </div>
             )}
             {!isLoading &&
-              models.length > 0 &&
+              chatCatalogModels.length > 0 &&
               !hasOpenRouterKey &&
               (activeDivision?.kind === 'hub' || activeDivision?.kind === 'project') &&
-              models.some((m) => m.provider !== 'openrouter' && m.hasBudget === false) && (
+              chatCatalogModels.some((m) => m.provider !== 'openrouter' && m.hasBudget === false) && (
                 <div className="border-t border-border-subtle px-4 py-2 text-[11px] leading-snug text-text-muted">
                   {t('workspace.models.askManager')}
                 </div>
               )}
-            {!isLoading && models.some((m) => m.provider === 'openrouter') && (
+            {!isLoading && chatCatalogModels.some((m) => m.provider === 'openrouter') && (
               <div className="border-t border-border-subtle px-4 py-2 text-[11px] leading-snug text-text-muted">
                 {hasOpenRouterKey
                   ? t(

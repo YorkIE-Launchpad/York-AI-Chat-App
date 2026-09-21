@@ -26,7 +26,7 @@ import { SettingsMemory } from './settings/SettingsMemory';
 import { SettingsMeetings } from './settings/SettingsMeetings';
 import { SettingsMatter } from './settings/SettingsMatter';
 import { useUpdaterStatus } from '../hooks/useUpdaterStatus';
-import { shouldShowRestartToUpdate } from '../../shared/updater-types';
+import { shouldShowRestartToUpdate, shouldShowUpdateReadyMessage, isUpdateStagingForInstall } from '../../shared/updater-types';
 
 interface SettingsPanelProps {
   onClose: () => void;
@@ -83,7 +83,10 @@ export function SettingsPanel({ onClose, initialTab = 'connectors' }: SettingsPa
   const [appVersion, setAppVersion] = useState('');
   const {
     status: updaterStatus,
+    checking: updaterChecking,
     installing: updaterInstalling,
+    installError: updaterInstallError,
+    checkForUpdates,
     quitAndInstall,
   } = useUpdaterStatus();
   const showRestartButton = shouldShowRestartToUpdate(updaterStatus.status, {
@@ -161,12 +164,6 @@ export function SettingsPanel({ onClose, initialTab = 'connectors' }: SettingsPa
       description: t('settings.scheduleDesc'),
     },
     {
-      id: 'logs' as TabId,
-      label: t('settings.logs'),
-      icon: AlertCircle,
-      description: t('settings.logsDesc'),
-    },
-    {
       id: 'profile' as TabId,
       label: t('settings.profile'),
       icon: User,
@@ -177,6 +174,12 @@ export function SettingsPanel({ onClose, initialTab = 'connectors' }: SettingsPa
       label: t('settings.general'),
       icon: Globe,
       description: t('settings.generalDesc'),
+    },
+    {
+      id: 'logs' as TabId,
+      label: t('settings.logs'),
+      icon: AlertCircle,
+      description: t('settings.logsDesc'),
     },
   ];
   const activeTabMeta = tabs.find((tab) => tab.id === activeTab);
@@ -228,30 +231,115 @@ export function SettingsPanel({ onClose, initialTab = 'connectors' }: SettingsPa
           ))}
         </div>
         <div
-          className={`${compactSidebar ? 'p-1.5' : 'p-4'} border-t border-border-muted flex-shrink-0`}
-        >          <button
+          className={`${compactSidebar ? 'p-1.5' : 'p-4'} border-t border-border-muted flex-shrink-0 space-y-2`}
+        >
+          <button
             onClick={onClose}
             className={`w-full py-2 ${compactSidebar ? 'px-2' : 'px-4'} rounded-lg bg-background hover:bg-background transition-colors text-text-secondary text-sm`}
             title={compactSidebar ? t('common.close') : undefined}
           >
             {compactSidebar ? <X className="w-4 h-4 mx-auto" /> : t('common.close')}
           </button>
-          {!compactSidebar &&
-            (showRestartButton ? (
-              <button
-                type="button"
-                onClick={() => void quitAndInstall()}
-                disabled={updaterInstalling}
-                className="w-full mt-2 inline-flex items-center justify-center gap-1.5 rounded-lg bg-accent px-3 py-2 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${updaterInstalling ? 'animate-spin' : ''}`} />
-                {t('general.restartToUpdate')}
-              </button>
-            ) : (
-              <p className="text-[10px] text-text-muted text-center mt-2 select-text">
-                v{appVersion}
-              </p>
-            ))}
+
+          {!compactSidebar && appVersion && (
+            <p className="text-[10px] text-text-muted text-center select-text">
+              {t('general.versionLabel', { version: appVersion })}
+            </p>
+          )}
+
+          {updaterStatus.status !== 'unsupported' && (
+            <div className={`${compactSidebar ? 'space-y-1' : 'space-y-1.5'}`}>
+              {!compactSidebar && (
+                <>
+                  {updaterStatus.status === 'idle' && (
+                    <p className="text-[10px] text-text-muted text-center">
+                      {t('general.updateUpToDate')}
+                    </p>
+                  )}
+                  {(updaterStatus.status === 'checking' || updaterChecking) && (
+                    <p className="text-[10px] text-text-muted text-center">
+                      {t('general.updateChecking')}
+                    </p>
+                  )}
+                  {updaterStatus.status === 'available' && updaterStatus.version && (
+                    <p className="text-[10px] text-text-secondary text-center">
+                      {t('general.updateAvailable', { version: updaterStatus.version })}
+                    </p>
+                  )}
+                  {updaterStatus.status === 'downloading' && (
+                    <p className="text-[10px] text-text-secondary text-center">
+                      {t('general.updateDownloading', {
+                        percent: updaterStatus.percent ?? 0,
+                      })}
+                    </p>
+                  )}
+                  {shouldShowUpdateReadyMessage(updaterStatus) && updaterStatus.version && (
+                    <p className="text-[10px] text-text-secondary text-center">
+                      {t('general.updateReady', { version: updaterStatus.version })}
+                    </p>
+                  )}
+                  {isUpdateStagingForInstall(updaterStatus) && updaterStatus.version && (
+                    <p className="text-[10px] text-text-muted text-center">
+                      {t('general.updatePreparing', { version: updaterStatus.version })}
+                    </p>
+                  )}
+                  {updaterInstallError ? (
+                    <p className="text-[10px] text-red-500 text-center" role="alert">
+                      {updaterInstallError}
+                    </p>
+                  ) : null}
+                  {updaterInstalling && updaterStatus.message ? (
+                    <p className="text-[10px] text-text-muted text-center">{updaterStatus.message}</p>
+                  ) : null}
+                  {updaterStatus.status === 'error' && (
+                    <p className="text-[10px] text-red-500 text-center">
+                      {updaterStatus.message || t('general.updateError')}
+                    </p>
+                  )}
+                </>
+              )}
+
+              {showRestartButton ? (
+                <button
+                  type="button"
+                  onClick={() => void quitAndInstall()}
+                  disabled={updaterInstalling}
+                  title={t('general.restartToUpdate')}
+                  className={`w-full inline-flex items-center justify-center gap-1.5 rounded-lg bg-accent ${
+                    compactSidebar ? 'p-2' : 'px-3 py-2'
+                  } text-xs font-medium text-white hover:opacity-90 disabled:opacity-50`}
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${updaterInstalling ? 'animate-spin' : ''}`} />
+                  {!compactSidebar && t('general.restartToUpdate')}
+                </button>
+              ) : (
+                updaterStatus.status !== 'ready' &&
+                updaterStatus.status !== 'downloading' &&
+                updaterStatus.status !== 'available' && (
+                  <button
+                    type="button"
+                    onClick={() => void checkForUpdates()}
+                    disabled={updaterChecking || updaterStatus.status === 'checking'}
+                    title={t('general.checkForUpdates')}
+                    className={`w-full inline-flex items-center justify-center gap-1.5 rounded-lg border border-border ${
+                      compactSidebar ? 'p-2' : 'px-3 py-1.5'
+                    } text-[11px] text-text-secondary hover:border-accent/50 hover:text-text-primary disabled:opacity-50`}
+                  >
+                    <RefreshCw
+                      className={`w-3.5 h-3.5 ${
+                        updaterChecking || updaterStatus.status === 'checking' ? 'animate-spin' : ''
+                      }`}
+                    />
+                    {!compactSidebar && t('general.checkForUpdates')}
+                  </button>
+                )
+              )}
+            </div>
+          )}
+
+          {compactSidebar && appVersion && !showRestartButton && (
+            <p className="text-[9px] text-text-muted text-center select-text">v{appVersion}</p>
+          )}
         </div>
       </div>
 
