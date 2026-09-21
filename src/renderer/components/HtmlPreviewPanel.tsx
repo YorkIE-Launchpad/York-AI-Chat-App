@@ -25,8 +25,6 @@ import { SHARED_DOC_LOCK_HELD } from '../../shared/shared-docs/lock-types';
 import { useAppStore } from '../store';
 import { getArtifactLabel } from '../utils/artifact-steps';
 import { MessageMarkdown } from './MessageMarkdown';
-import { SharedDocsPanelControls } from './SharedDocsPanelControls';
-
 const MIN_PREVIEW_WIDTH = 280;
 const MAX_PREVIEW_WIDTH_RATIO = 0.75;
 const DEFAULT_PREVIEW_WIDTH = 520;
@@ -75,6 +73,7 @@ export function HtmlPreviewPanel() {
   const [restoring, setRestoring] = useState(false);
   const [docLock, setDocLock] = useState<SharedDocLockState | null>(null);
   const dragStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  const hydrateAttemptRef = useRef<string | null>(null);
 
   const activeSession = activeSessionId ? sessions.find((s) => s.id === activeSessionId) : null;
   const cwd = activeSession?.cwd || workingDir;
@@ -116,6 +115,42 @@ export function HtmlPreviewPanel() {
         cwd ?? undefined
       );
       if (!result.success || typeof result.content !== 'string') {
+        const docId = activeHtmlPreview.shared?.docId;
+        const missing = /ENOENT|no such file/i.test(result.error || '');
+        const attemptKey = docId ? `${docId}:${activeHtmlPreview.path}` : '';
+        if (
+          docId &&
+          missing &&
+          activeSessionId &&
+          cwd &&
+          window.electronAPI?.sharedDocs &&
+          hydrateAttemptRef.current !== attemptKey
+        ) {
+          hydrateAttemptRef.current = attemptKey;
+          const opened = await window.electronAPI.sharedDocs.open({
+            sessionId: activeSessionId,
+            cwd,
+            docId,
+          });
+          if (opened.success && opened.localPath) {
+            const retry = await window.electronAPI.artifacts.readTextFile(opened.localPath, cwd);
+            if (retry.success && typeof retry.content === 'string') {
+              if (opened.localPath !== activeHtmlPreview.path && opened.doc) {
+                openHtmlPreview(opened.localPath, opened.doc.title, opened.doc.kind, {
+                  docId: opened.doc.id,
+                  permission: opened.doc.permission,
+                  s3UpdatedAt: opened.doc.s3UpdatedAt,
+                });
+              }
+              setContent(retry.content);
+              setError(null);
+              return;
+            }
+          }
+          setContent(null);
+          setError(opened.error || result.error || t('context.htmlPreviewFailed'));
+          return;
+        }
         setContent(null);
         setError(result.error || t('context.htmlPreviewFailed'));
         return;
@@ -128,7 +163,15 @@ export function HtmlPreviewPanel() {
     } finally {
       setLoading(false);
     }
-  }, [activeHtmlPreview?.path, activeHtmlPreview?.revision, cwd, t]);
+  }, [
+    activeHtmlPreview?.path,
+    activeHtmlPreview?.revision,
+    activeHtmlPreview?.shared,
+    activeSessionId,
+    cwd,
+    openHtmlPreview,
+    t,
+  ]);
 
   useEffect(() => {
     void loadPreview();
@@ -394,6 +437,7 @@ export function HtmlPreviewPanel() {
           cwd,
           localPath: activeHtmlPreview.path,
           title: activeHtmlPreview.title,
+          permission: sharePermission,
         });
         if (!created.success || !created.doc) {
           throw new Error(created.error || t('context.htmlPreviewShareFailed'));
@@ -407,7 +451,7 @@ export function HtmlPreviewPanel() {
         });
       }
 
-      if (docId && !inviteToken && activeSessionId) {
+      if (docId && activeSessionId) {
         const invite = await window.electronAPI.sharedDocs.createInvite({
           docId,
           permission: sharePermission,
@@ -593,7 +637,6 @@ export function HtmlPreviewPanel() {
         >
           <ExternalLink className="w-3.5 h-3.5" />
         </button>
-        <SharedDocsPanelControls />
         <button
           type="button"
           onClick={closeHtmlPreview}

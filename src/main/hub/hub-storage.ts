@@ -84,33 +84,38 @@ export async function fetchHubObjectLastModified(s3Key: string): Promise<string>
   return new Date().toISOString();
 }
 
-export async function uploadFileToHubStorage(input: {
-  filePath: string;
+function contentTypeForFileName(fileName: string, override?: string): string {
+  if (override?.trim()) return override.trim();
+  const ext = fileName.includes('.') ? fileName.split('.').pop()?.toLowerCase() : '';
+  if (ext === 'html') return 'text/html';
+  if (ext === 'md') return 'text/markdown';
+  if (ext === 'json') return 'application/json';
+  return 'application/octet-stream';
+}
+
+async function uploadHubStorageBuffer(input: {
+  buffer: Buffer;
   folder: string;
-  fileName?: string;
+  fileName: string;
+  contentType?: string;
 }): Promise<HubStorageUploadResult> {
   const tokens = await getHubBearerTokens();
   if (tokens.length === 0) {
     throw new Error('Sign in required to upload to Hub storage');
   }
 
-  const buffer = readFileSync(input.filePath);
-  const fileName = input.fileName?.trim() || basename(input.filePath);
+  const buffer = input.buffer;
+  const fileName = input.fileName.trim();
   const folder = input.folder.trim();
   if (!folder) throw new Error('folder is required');
+  if (!fileName) throw new Error('fileName is required');
 
   const base = authConfig.hubApiUrl.replace(/\/$/, '');
   const url = `${base}/api/storage/upload`;
 
   const boundary = `----YorkHubUpload${Date.now()}`;
   const chunks: Buffer[] = [];
-  const ext = fileName.includes('.') ? fileName.split('.').pop()?.toLowerCase() : '';
-  const contentType =
-    ext === 'html'
-      ? 'text/html'
-      : ext === 'md'
-        ? 'text/markdown'
-        : 'application/octet-stream';
+  const contentType = contentTypeForFileName(fileName, input.contentType);
 
   chunks.push(Buffer.from(`--${boundary}\r\n`));
   chunks.push(
@@ -151,6 +156,25 @@ export async function uploadFileToHubStorage(input: {
   }
 
   throw new Error('Hub storage upload failed');
+}
+
+export async function uploadBufferToHubStorage(input: {
+  buffer: Buffer;
+  folder: string;
+  fileName: string;
+  contentType?: string;
+}): Promise<HubStorageUploadResult> {
+  return uploadHubStorageBuffer(input);
+}
+
+export async function uploadFileToHubStorage(input: {
+  filePath: string;
+  folder: string;
+  fileName?: string;
+}): Promise<HubStorageUploadResult> {
+  const buffer = readFileSync(input.filePath);
+  const fileName = input.fileName?.trim() || basename(input.filePath);
+  return uploadHubStorageBuffer({ buffer, folder: input.folder, fileName });
 }
 
 export async function fetchHubPresignedGetUrl(s3Key: string): Promise<string> {

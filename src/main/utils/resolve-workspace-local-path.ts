@@ -18,6 +18,8 @@ export interface ResolveWorkspaceLocalPathOptions {
   userDataDefaultWorkingDir: string;
   existsSync?: (filePath: string) => boolean;
   caseInsensitive?: boolean;
+  /** Return an in-workspace path even when the file is not on disk yet. */
+  allowMissing?: boolean;
 }
 
 /**
@@ -105,6 +107,9 @@ export function resolveWorkspaceLocalPath(
 
   const remapped = toAbsolute(filePath, baseDir, true);
   if (isAllowed(remapped)) {
+    if (options.allowMissing) {
+      return { path: remapped, baseDir };
+    }
     return { error: `ENOENT: no such file or directory, stat '${remapped}'` };
   }
 

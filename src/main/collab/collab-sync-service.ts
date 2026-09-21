@@ -9,18 +9,21 @@ import { resolveBackendUrl } from '../../shared/backend-config';
 import {
   clearLeaseIfHolderOffline,
   canPromptWithLease,
-  commitCollabMessage,
+  collabMessageFingerprint,
   getCollabMaps,
   isLeaseHeldByOther,
   listOrderedMessages,
   messageToCollabPortable,
+  readCollabMeta,
   readMembers,
   readTurnLease,
   refreshLease,
   releaseLeaseIfHolder,
   seedCollabMeta,
+  setCollabTitle,
   tryAcquireLease,
   upsertCollabMember,
+  upsertCollabMessage,
   type CollabPortableMessage,
 } from '../../shared/collab/shared-session-doc';
 import type { CollabRoomState } from '../../shared/collab/types';
@@ -44,7 +47,7 @@ interface RoomRuntime {
   peersOnline: boolean;
   applyingRemote: boolean;
   leaseRefreshTimer: ReturnType<typeof setInterval> | null;
-  knownMessageIds: Set<string>;
+  knownFingerprints: Map<string, string>;
 }
 
 /** @internal test helper shape for installRoomForTests */
@@ -57,6 +60,12 @@ export interface CollabSyncDeps {
   saveMessage: (message: Message) => void;
   /** Notify renderer of a message projected from a peer (stream.message). */
   emitStreamMessage: (message: Message) => void;
+  /** Update an existing local message projected from a peer. */
+  updateStoredMessage?: (message: Message) => void;
+  /** Persist a title learned from the shared doc. */
+  updateSessionTitle?: (sessionId: string, title: string) => void;
+  loadRoomSnapshot?: (roomId: string) => Uint8Array | null;
+  saveRoomSnapshot?: (roomId: string, update: Uint8Array) => void;
   createJoinedSession: (input: {
     title: string;
     roomId: string;
@@ -112,6 +121,7 @@ function backendWsBase(): string {
 export class CollabSyncService {
   private roomsBySession = new Map<string, RoomRuntime>();
   private sessionByRoom = new Map<string, string>();
+  private snapshotTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   constructor(private deps: CollabSyncDeps) {}
 
@@ -330,7 +340,27 @@ export class CollabSyncService {
     });
 
     this.deps.updateSessionCollab(created.id, { collabRoomId: roomId, collabRole: 'member' });
+    const rt = this.roomsBySession.get(created.id);
+    if (rt) {
+      await Promise.race([
+        rt.provider.whenRemoteUpdate,
+        new Promise((resolve) => setTimeout(resolve, 3000)),
+      ]);
+      this.projectRemoteMessages(rt);
+    }
     return { sessionId: created.id, roomId };
+  }
+
+  /** Keep every shared chat connected so peers can pull history without this window focused on it. */
+  async reconnectAllShared(): Promise<void> {
+    const sessions = this.deps.listSessions().filter((session) => session.collabRoomId);
+    for (const session of sessions) {
+      try {
+        await this.reconnectIfNeeded(session.id);
+      } catch (error) {
+        logError('[Collab] reconnect shared session failed:', error);
+      }
+    }
   }
 
   async reconnectIfNeeded(sessionId: string): Promise<void> {
@@ -371,34 +401,44 @@ export class CollabSyncService {
       role: input.role,
     });
 
-    if (input.seedFromLocal) {
-      const session = this.deps.getSession(input.sessionId);
-      if (session) {
-        seedCollabMeta(
-          doc,
-          {
-            title: session.title,
-            division: session.division,
-            hubProjectId: session.hubProjectId,
-            hubProjectName: session.hubProjectName,
-            launchpadProjectId: session.launchpadProjectId,
-            launchpadProjectName: session.launchpadProjectName,
-            createdBySub: input.sub,
-            createdAt: session.createdAt,
-          },
-          { sub: input.sub, displayName: input.displayName }
-        );
-        for (const message of this.deps.getMessages(input.sessionId)) {
-          if (message.localStatus === 'queued' || message.localStatus === 'cancelled') continue;
-          commitCollabMessage(doc, messageToCollabPortable(message));
-        }
-      }
+    const snapshot = this.deps.loadRoomSnapshot?.(input.roomId);
+    if (snapshot && snapshot.byteLength > 0) {
+      Y.applyUpdate(doc, snapshot);
+    }
+
+    const session = this.deps.getSession(input.sessionId);
+    const existingTitle = readCollabMeta(doc).title;
+    if (input.seedFromLocal && session && !existingTitle) {
+      seedCollabMeta(
+        doc,
+        {
+          title: session.title,
+          division: session.division,
+          hubProjectId: session.hubProjectId,
+          hubProjectName: session.hubProjectName,
+          launchpadProjectId: session.launchpadProjectId,
+          launchpadProjectName: session.launchpadProjectName,
+          createdBySub: input.sub,
+          createdAt: session.createdAt,
+        },
+        { sub: input.sub, displayName: input.displayName }
+      );
     } else {
       upsertCollabMember(doc, input.sub, {
         displayName: input.displayName,
-        role: 'member',
+        role: input.role === 'owner' ? 'owner' : 'member',
         joinedAt: Date.now(),
       });
+    }
+
+    if (input.seedFromLocal && session) {
+      for (const message of this.deps.getMessages(input.sessionId)) {
+        if (message.localStatus === 'queued' || message.localStatus === 'cancelled') continue;
+        upsertCollabMessage(doc, messageToCollabPortable(message));
+      }
+      if (session.title.trim() && (!readCollabMeta(doc).title || input.role === 'owner')) {
+        setCollabTitle(doc, session.title);
+      }
     }
 
     const params = new URLSearchParams();
@@ -424,7 +464,9 @@ export class CollabSyncService {
       peersOnline: false,
       applyingRemote: false,
       leaseRefreshTimer: null,
-      knownMessageIds: new Set(listOrderedMessages(doc).map((m) => m.id)),
+      knownFingerprints: new Map(
+        listOrderedMessages(doc).map((message) => [message.id, collabMessageFingerprint(message)])
+      ),
     };
 
     const provider = new CollabWsProvider({
@@ -439,7 +481,7 @@ export class CollabSyncService {
     rt.provider = provider;
 
     // Observe remote message commits
-    const { messages, messageOrder, turnLease, members } = getCollabMaps(doc);
+    const { messages, messageOrder, turnLease, members, meta } = getCollabMaps(doc);
     const onRemoteChange = () => {
       if (rt.applyingRemote) return;
       this.projectRemoteMessages(rt);
@@ -447,8 +489,10 @@ export class CollabSyncService {
     };
     messages.observe(onRemoteChange);
     messageOrder.observe(onRemoteChange);
+    meta.observe(onRemoteChange);
     turnLease.observe(() => this.emitState(input.sessionId));
     members.observe(() => this.emitState(input.sessionId));
+    doc.on('update', () => this.scheduleSnapshot(rt));
 
     awareness.on('change', () => {
       const states = awareness.getStates();
@@ -493,14 +537,19 @@ export class CollabSyncService {
   private projectRemoteMessages(rt: RoomRuntime): void {
     const ordered = listOrderedMessages(rt.doc);
     for (const portable of ordered) {
-      if (rt.knownMessageIds.has(portable.id)) continue;
-      rt.knownMessageIds.add(portable.id);
+      const fingerprint = collabMessageFingerprint(portable);
+      const previous = rt.knownFingerprints.get(portable.id);
+      if (previous === fingerprint) continue;
+      const message = portableToMessage(portable, rt.sessionId);
       rt.applyingRemote = true;
       try {
-        const message = portableToMessage(portable, rt.sessionId);
-        this.deps.saveMessage(message);
-        // saveMessage alone does not notify the renderer — push live UI update.
-        this.deps.emitStreamMessage(message);
+        if (!previous) {
+          this.deps.saveMessage(message);
+          this.deps.emitStreamMessage(message);
+        } else {
+          this.deps.updateStoredMessage?.(message);
+        }
+        rt.knownFingerprints.set(portable.id, fingerprint);
       } catch (error) {
         logError('[Collab] Failed to project remote message:', error);
       } finally {
@@ -508,15 +557,46 @@ export class CollabSyncService {
       }
     }
 
-    // Update title from meta if present
+    this.projectRemoteTitle(rt);
+  }
+
+  private projectRemoteTitle(rt: RoomRuntime): void {
     const title = getCollabMaps(rt.doc).meta.get('title');
-    if (typeof title === 'string' && title.trim()) {
-      const session = this.deps.getSession(rt.sessionId);
-      if (session && session.title !== title) {
+    if (typeof title !== 'string' || !title.trim()) return;
+    const session = this.deps.getSession(rt.sessionId);
+    if (!session || session.title === title) return;
+    rt.applyingRemote = true;
+    try {
+      if (this.deps.updateSessionTitle) {
+        this.deps.updateSessionTitle(rt.sessionId, title);
+      } else {
         session.title = title;
         this.deps.emitSessionUpdate?.(session);
       }
+    } finally {
+      rt.applyingRemote = false;
     }
+  }
+
+  private scheduleSnapshot(rt: RoomRuntime): void {
+    if (!this.deps.saveRoomSnapshot) return;
+    const pending = this.snapshotTimers.get(rt.roomId);
+    if (pending) clearTimeout(pending);
+    this.snapshotTimers.set(
+      rt.roomId,
+      setTimeout(() => {
+        this.snapshotTimers.delete(rt.roomId);
+        if (!this.roomsBySession.has(rt.sessionId)) return;
+        this.deps.saveRoomSnapshot?.(rt.roomId, Y.encodeStateAsUpdate(rt.doc));
+      }, 400)
+    );
+  }
+
+  private flushSnapshot(rt: RoomRuntime): void {
+    const pending = this.snapshotTimers.get(rt.roomId);
+    if (pending) clearTimeout(pending);
+    this.snapshotTimers.delete(rt.roomId);
+    this.deps.saveRoomSnapshot?.(rt.roomId, Y.encodeStateAsUpdate(rt.doc));
   }
 
   /** Called after local saveMessage for shared sessions (finished turns only). */
@@ -536,9 +616,15 @@ export class CollabSyncService {
       if (!hasSubstance) return;
     }
     const portable = messageToCollabPortable(message);
-    if (commitCollabMessage(rt.doc, portable)) {
-      rt.knownMessageIds.add(message.id);
-    }
+    rt.knownFingerprints.set(portable.id, collabMessageFingerprint(portable));
+    upsertCollabMessage(rt.doc, portable);
+  }
+
+  /** Push a local rename into the shared doc so peers see the same title. */
+  onLocalTitleChanged(sessionId: string, title: string): void {
+    const rt = this.roomsBySession.get(sessionId);
+    if (!rt || rt.applyingRemote) return;
+    setCollabTitle(rt.doc, title);
   }
 
   /** Accumulate stream.partial deltas into awareness for spectators. */
@@ -628,6 +714,7 @@ export class CollabSyncService {
       this.stopLeaseRefresh(rt);
       const sub = getCognitoSubFromSession();
       if (sub) releaseLeaseIfHolder(rt.doc, sub);
+      this.flushSnapshot(rt);
       rt.provider.destroy();
       rt.doc.destroy();
       this.roomsBySession.delete(sessionId);

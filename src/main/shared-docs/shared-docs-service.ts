@@ -1,20 +1,33 @@
-import { randomUUID } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
-import type { SharedDocKind, SharedDocWithAccess } from '../../shared/shared-docs/types';
+import type {
+  SharedDocKind,
+  SharedDocPermission,
+  SharedDocWithAccess,
+} from '../../shared/shared-docs/types';
 import { sharedDocAccessCanEdit } from '../../shared/shared-docs/types';
+import {
+  createSharedDocCode,
+  parseSharedDocCode,
+  parseSharedDocManifest,
+  sharedDocContentFileName,
+  sharedDocContentKey,
+  sharedDocManifestKey,
+  type SharedDocManifest,
+} from '../../shared/shared-docs/share-code';
 import { ensureAuthenticatedSession } from '../auth/session';
 import {
   downloadHubObjectToBuffer,
   fetchHubObjectLastModified,
   isRemoteS3Newer,
   sharedDocHubFolder,
+  uploadBufferToHubStorage,
   uploadFileToHubStorage,
 } from '../hub/hub-storage';
 import { resolveWorkspaceLocalPath } from '../utils/resolve-workspace-local-path';
 import { remapCoworkVirtualPath } from '../agent/cowork-path-remap';
 import { logError } from '../utils/logger';
-import { createSharedDocInvite, joinSharedDoc } from './shared-docs-client';
+import { joinSharedDoc } from './shared-docs-client';
 import {
   getSharedDocLink,
   getSharedDocLinkByLocalPath,
@@ -75,12 +88,14 @@ function decodeJwtClaims(idToken: string): { sub?: string; email?: string } {
 
 function resolveInSession(
   cwd: string,
-  filePath: string
+  filePath: string,
+  allowMissing = false
 ): { absolutePath: string; relativePath: string } {
   const resolved = resolveWorkspaceLocalPath(filePath, {
     preferredBaseDir: cwd,
     defaultWorkingDir: cwd,
     userDataDefaultWorkingDir: cwd,
+    allowMissing,
   });
   if ('error' in resolved) {
     throw new Error(resolved.error);
@@ -100,6 +115,7 @@ function linkToDoc(link: SharedDocLinkRow): SharedDocWithAccess {
     s3UpdatedAt: link.s3_updated_at,
     contentType: contentTypeForKind(link.kind as SharedDocKind),
     permission: link.permission as SharedDocWithAccess['permission'],
+    localPath: link.local_path,
   };
 }
 
@@ -136,6 +152,39 @@ export function setSharedDocsSyncNotifier(
 }
 
 export class SharedDocsService {
+  private async downloadHubObject(keys: string[]): Promise<{ buffer: Buffer; lastModified: string }> {
+    const unique = [...new Set(keys.map((key) => key.trim()).filter(Boolean))];
+    let lastError: Error | null = null;
+    for (const key of unique) {
+      try {
+        return await downloadHubObjectToBuffer(key);
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+      }
+    }
+    throw new Error(
+      `Could not download shared document from Hub storage. ${lastError?.message || 'The object was not found in S3.'}`
+    );
+  }
+
+  private async publishManifest(manifest: SharedDocManifest): Promise<void> {
+    await uploadBufferToHubStorage({
+      buffer: Buffer.from(JSON.stringify(manifest), 'utf8'),
+      folder: sharedDocHubFolder(manifest.id),
+      fileName: 'manifest.json',
+      contentType: 'application/json',
+    });
+  }
+
+  private async loadManifest(docId: string): Promise<SharedDocManifest> {
+    const downloaded = await this.downloadHubObject([sharedDocManifestKey(docId)]);
+    const manifest = parseSharedDocManifest(downloaded.buffer.toString('utf8'));
+    if (!manifest) {
+      throw new Error('Shared document manifest in Hub storage is invalid');
+    }
+    return manifest;
+  }
+
   private async writeRemoteToLink(input: {
     sessionId: string;
     cwd: string;
@@ -149,20 +198,44 @@ export class SharedDocsService {
       }
       await assertCanEditSharedDoc(input.doc.id, input.doc.permission);
     }
-    const resolved = resolveInSession(input.cwd, input.localPath);
+    const resolved = resolveInSession(input.cwd, input.localPath, true);
     let backupPath: string | undefined;
     if (input.backupBeforeWrite && existsSync(resolved.absolutePath)) {
       backupPath = backupLocalFile(resolved.absolutePath);
     }
+    const kind = input.doc.kind;
+    let manifest: SharedDocManifest | null = null;
+    try {
+      manifest = await this.loadManifest(input.doc.id);
+    } catch {
+      manifest = null;
+    }
+    let downloaded: { buffer: Buffer; lastModified: string };
+    try {
+      downloaded = await this.downloadHubObject([
+        manifest?.s3Key || '',
+        input.doc.s3Key,
+        sharedDocContentKey(input.doc.id, kind),
+      ]);
+    } catch (error) {
+      if (existsSync(resolved.absolutePath)) {
+        return {
+          localPath: resolved.relativePath,
+          s3UpdatedAt: input.doc.s3UpdatedAt,
+          backupPath,
+        };
+      }
+      throw error;
+    }
     mkdirSync(dirname(resolved.absolutePath), { recursive: true });
-    const { buffer, lastModified } = await downloadHubObjectToBuffer(input.doc.s3Key);
-    writeFileSync(resolved.absolutePath, buffer);
+    writeFileSync(resolved.absolutePath, downloaded.buffer);
+    const lastModified = downloaded.lastModified;
 
     upsertSharedDocLink({
       docId: input.doc.id,
       sessionId: input.sessionId,
       localPath: resolved.relativePath,
-      s3Key: input.doc.s3Key,
+      s3Key: manifest?.s3Key || input.doc.s3Key,
       s3UpdatedAt: lastModified,
       permission: input.doc.permission,
       title: input.doc.title,
@@ -177,15 +250,16 @@ export class SharedDocsService {
     cwd: string;
     localPath: string;
     title?: string;
+    permission?: SharedDocPermission;
   }): Promise<{ doc: SharedDocWithAccess; inviteToken: string }> {
     const resolved = resolveInSession(input.cwd, input.localPath);
     const absPath = resolved.absolutePath;
     const kind = previewKindFromPath(absPath);
     const title = input.title?.trim() || titleBaseFromPathOrTitle(absPath);
 
-    const docId = randomUUID();
+    const docId = createSharedDocCode();
     const folder = sharedDocHubFolder(docId);
-    const fileName = sharedDocFileName(title, kind);
+    const fileName = sharedDocContentFileName(kind);
     const upload = await uploadFileToHubStorage({
       filePath: absPath,
       folder,
@@ -194,17 +268,20 @@ export class SharedDocsService {
 
     const session = await ensureAuthenticatedSession();
     const claims = decodeJwtClaims(session.idToken);
+    const ownerSub = claims.sub ?? '';
+    const ownerEmail = claims.email ?? session.user.email.toLowerCase();
 
     const doc: SharedDocWithAccess = {
       id: docId,
-      ownerSub: claims.sub ?? '',
-      ownerEmail: claims.email ?? session.user.email.toLowerCase(),
+      ownerSub,
+      ownerEmail,
       title,
       kind,
       s3Key: upload.s3Key,
       s3UpdatedAt: upload.lastModified,
       contentType: contentTypeForKind(kind),
       permission: 'owner',
+      localPath: resolved.relativePath,
     };
 
     upsertSharedDocLink({
@@ -218,16 +295,20 @@ export class SharedDocsService {
       kind,
     });
 
-    const invite = await createSharedDocInvite({
-      docId,
-      s3Key: upload.s3Key,
+    await this.publishManifest({
+      id: docId,
       title,
       kind,
       contentType: contentTypeForKind(kind),
-      permission: 'view',
+      fileName,
+      s3Key: upload.s3Key,
+      ownerSub,
+      ownerEmail,
+      permission: input.permission === 'edit' ? 'edit' : 'view',
+      updatedAt: upload.lastModified,
     });
 
-    return { doc, inviteToken: invite.inviteToken };
+    return { doc, inviteToken: docId };
   }
 
   async materializeSharedDoc(input: {
@@ -267,8 +348,15 @@ export class SharedDocsService {
     if (!link) {
       throw new Error('Document link not found');
     }
-    const remoteUpdatedAt = await fetchHubObjectLastModified(link.s3_key);
-    if (!isRemoteS3Newer(remoteUpdatedAt, link.s3_updated_at)) {
+    const resolved = resolveInSession(input.cwd, link.local_path, true);
+    const missingLocal = !existsSync(resolved.absolutePath);
+    let remoteUpdatedAt = link.s3_updated_at;
+    try {
+      remoteUpdatedAt = await fetchHubObjectLastModified(link.s3_key);
+    } catch (error) {
+      if (!missingLocal) throw error;
+    }
+    if (!missingLocal && !isRemoteS3Newer(remoteUpdatedAt, link.s3_updated_at)) {
       return {
         refreshed: false,
         s3UpdatedAt: link.s3_updated_at || remoteUpdatedAt,
@@ -329,10 +417,11 @@ export class SharedDocsService {
 
     const resolved = resolveInSession(input.cwd, link.local_path);
     const folder = sharedDocHubFolder(link.doc_id);
+    const kind = link.kind as SharedDocKind;
     const upload = await uploadFileToHubStorage({
       filePath: resolved.absolutePath,
       folder,
-      fileName: sharedDocFileName(link.title, link.kind as SharedDocKind),
+      fileName: sharedDocContentFileName(kind),
     });
 
     const doc: SharedDocWithAccess = {
@@ -353,15 +442,70 @@ export class SharedDocsService {
       kind: link.kind as SharedDocKind,
     });
 
+    const existingManifest = await this.loadManifest(link.doc_id).catch(() => null);
+    await this.publishManifest({
+      id: link.doc_id,
+      title: link.title,
+      kind,
+      contentType: contentTypeForKind(kind),
+      fileName: sharedDocContentFileName(kind),
+      s3Key: upload.s3Key,
+      ownerSub: existingManifest?.ownerSub || '',
+      ownerEmail: existingManifest?.ownerEmail || '',
+      permission:
+        link.permission === 'owner'
+          ? existingManifest?.permission || 'edit'
+          : (link.permission as SharedDocPermission),
+      updatedAt: upload.lastModified,
+    });
+
     return doc;
+  }
+
+  async hydrateSession(sessionId: string, cwd: string): Promise<void> {
+    for (const link of listSharedDocLinksForSession(sessionId)) {
+      try {
+        const resolved = resolveInSession(cwd, link.local_path, true);
+        if (existsSync(resolved.absolutePath)) continue;
+        await this.writeRemoteToLink({
+          sessionId,
+          cwd,
+          doc: linkToDoc(link),
+          localPath: link.local_path,
+        });
+      } catch (error) {
+        logError('[SharedDocs] hydrate failed:', error);
+      }
+    }
   }
 
   listDocsForSession(sessionId: string): SharedDocWithAccess[] {
     return listSharedDocLinksForSession(sessionId).map(linkToDoc);
   }
 
-  joinByInvite(inviteToken: string): Promise<SharedDocWithAccess> {
-    return joinSharedDoc(inviteToken.trim());
+  async joinByInvite(inviteToken: string): Promise<SharedDocWithAccess> {
+    const code = parseSharedDocCode(inviteToken);
+    if (!code) {
+      return joinSharedDoc(inviteToken.trim());
+    }
+    const manifest = await this.loadManifest(code);
+    const session = await ensureAuthenticatedSession();
+    const claims = decodeJwtClaims(session.idToken);
+    const permission: SharedDocWithAccess['permission'] =
+      claims.sub && manifest.ownerSub && claims.sub === manifest.ownerSub
+        ? 'owner'
+        : manifest.permission;
+    return {
+      id: manifest.id,
+      ownerSub: manifest.ownerSub,
+      ownerEmail: manifest.ownerEmail,
+      title: manifest.title,
+      kind: manifest.kind,
+      s3Key: manifest.s3Key,
+      s3UpdatedAt: manifest.updatedAt,
+      contentType: manifest.contentType,
+      permission,
+    };
   }
 
   async createInvite(input: {
@@ -376,14 +520,21 @@ export class SharedDocsService {
     if (!sharedDocAccessCanEdit(link.permission)) {
       throw new Error('Read-only shared document');
     }
-    return createSharedDocInvite({
-      docId: link.doc_id,
-      s3Key: link.s3_key,
+    const kind = link.kind as SharedDocKind;
+    const existingManifest = await this.loadManifest(link.doc_id).catch(() => null);
+    await this.publishManifest({
+      id: link.doc_id,
       title: link.title,
-      kind: link.kind as SharedDocKind,
-      contentType: contentTypeForKind(link.kind as SharedDocKind),
+      kind,
+      contentType: contentTypeForKind(kind),
+      fileName: existingManifest?.fileName || sharedDocContentFileName(kind),
+      s3Key: existingManifest?.s3Key || link.s3_key,
+      ownerSub: existingManifest?.ownerSub || '',
+      ownerEmail: existingManifest?.ownerEmail || '',
       permission: input.permission,
+      updatedAt: link.s3_updated_at || new Date().toISOString(),
     });
+    return { docId: link.doc_id, permission: input.permission, inviteToken: link.doc_id };
   }
 
   getLinkForPath(sessionId: string, localPath: string) {

@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import { FileText, Layers } from 'lucide-react';
 import { useAppStore } from '../store';
 import { useIPC } from '../hooks/useIPC';
 import type { SharedDocWithAccess } from '../../shared/shared-docs/types';
@@ -34,7 +33,9 @@ export function SharedDocsPanelControls() {
     if (!isElectron || !activeSessionId) return;
     setSharedDocsModalOpen(true);
     setLoadingSharedDocs(true);
-    void listSharedDocs(activeSessionId)
+    const session = sessions.find((s) => s.id === activeSessionId);
+    const cwd = session?.cwd || workingDir || undefined;
+    void listSharedDocs(activeSessionId, cwd)
       .then((result) => {
         if (result.success && result.docs) {
           setSharedDocsList(result.docs);
@@ -57,7 +58,9 @@ export function SharedDocsPanelControls() {
       return;
     }
     setLoadingSharedDocs(true);
-    void listSharedDocs(activeSessionId)
+    const session = sessions.find((s) => s.id === activeSessionId);
+    const cwd = session?.cwd || workingDir || undefined;
+    void listSharedDocs(activeSessionId, cwd)
       .then((result) => {
         if (result.success && result.docs) {
           setSharedDocsList(result.docs);
@@ -66,7 +69,7 @@ export function SharedDocsPanelControls() {
         }
       })
       .finally(() => setLoadingSharedDocs(false));
-  }, [activeSessionId, sharedDocsModalOpen, listSharedDocs]);
+  }, [activeSessionId, sharedDocsModalOpen, listSharedDocs, sessions, workingDir]);
 
   const handleSubmitJoinSharedDoc = async () => {
     const token = joinDocDraft.trim();
@@ -220,26 +223,22 @@ export function SharedDocsPanelControls() {
 
   return (
     <>
-      <div className="ml-auto flex items-center gap-0.5">
+      <div className="flex flex-col px-2 pb-1">
         <button
           type="button"
           onClick={handleJoinSharedDoc}
           disabled={!isElectron || !activeSessionId}
-          className="w-7 h-7 rounded-md flex items-center justify-center hover:bg-surface-hover text-text-muted hover:text-text-primary transition-colors disabled:opacity-50"
-          aria-label={t('sidebar.joinSharedDoc')}
-          title={t('sidebar.joinSharedDoc')}
+          className="rounded-md px-2 py-1.5 text-left text-xs text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors disabled:opacity-50"
         >
-          <FileText className="w-3.5 h-3.5" />
+          {t('sidebar.joinSharedDoc')}
         </button>
         <button
           type="button"
           onClick={handleOpenSharedDocsList}
           disabled={!isElectron || !activeSessionId}
-          className="w-7 h-7 rounded-md flex items-center justify-center hover:bg-surface-hover text-text-muted hover:text-text-primary transition-colors disabled:opacity-50"
-          aria-label={t('sidebar.sharedDocsList')}
-          title={t('sidebar.sharedDocsList')}
+          className="rounded-md px-2 py-1.5 text-left text-xs text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors disabled:opacity-50"
         >
-          <Layers className="w-3.5 h-3.5" />
+          {t('sidebar.sharedDocsList')}
         </button>
       </div>
       {joinSharedDocModal}

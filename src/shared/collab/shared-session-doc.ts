@@ -168,14 +168,42 @@ export function listOrderedMessages(doc: Y.Doc): CollabPortableMessage[] {
   return ordered;
 }
 
+export function collabMessageFingerprint(message: CollabPortableMessage): string {
+  return JSON.stringify(message);
+}
+
 /** Insert message if missing (dedupe by id). */
 export function commitCollabMessage(doc: Y.Doc, message: CollabPortableMessage): boolean {
+  return upsertCollabMessage(doc, message) === 'inserted';
+}
+
+/** Insert, or replace content when the same id already exists. Does not duplicate order. */
+export function upsertCollabMessage(
+  doc: Y.Doc,
+  message: CollabPortableMessage
+): 'inserted' | 'updated' | 'unchanged' {
   const { messages, messageOrder } = getCollabMaps(doc);
-  if (messages.has(message.id)) return false;
-  doc.transact(() => {
-    messages.set(message.id, message);
-    messageOrder.push([message.id]);
-  });
+  const existing = messages.get(message.id);
+  if (!existing) {
+    doc.transact(() => {
+      messages.set(message.id, message);
+      messageOrder.push([message.id]);
+    });
+    return 'inserted';
+  }
+  if (collabMessageFingerprint(existing) === collabMessageFingerprint(message)) {
+    return 'unchanged';
+  }
+  messages.set(message.id, message);
+  return 'updated';
+}
+
+export function setCollabTitle(doc: Y.Doc, title: string): boolean {
+  const trimmed = title.trim();
+  if (!trimmed) return false;
+  const meta = getCollabMaps(doc).meta;
+  if (meta.get('title') === trimmed) return false;
+  meta.set('title', trimmed);
   return true;
 }
 

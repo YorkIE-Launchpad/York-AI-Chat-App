@@ -65,4 +65,19 @@ describe('resolveWorkspaceLocalPath', () => {
       error: `ENOENT: no such file or directory, stat '${path.join(workspace, 'outputs', 'missing.html')}'`,
     });
   });
+
+  it('returns a writable path when allowMissing is set and the file is not on disk yet', () => {
+    const requested = 'shared/doc-1/hii.html';
+    const resolved = resolveWorkspaceLocalPath(requested, {
+      preferredBaseDir: workspace,
+      defaultWorkingDir: workspace,
+      userDataDefaultWorkingDir: workspace,
+      allowMissing: true,
+    });
+
+    expect(resolved).toEqual({
+      path: path.join(workspace, 'shared', 'doc-1', 'hii.html'),
+      baseDir: workspace,
+    });
+  });
 });

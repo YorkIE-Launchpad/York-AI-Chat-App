@@ -44,6 +44,7 @@ import {
   Shield,
 } from 'lucide-react';
 import type { TraceStep, MCPServerInfo, ContentBlock, ToolUseContent, PermissionRule } from '../types';
+import type { SharedDocWithAccess } from '../../shared/shared-docs/types';
 import type { ConnectorStatus } from './settings/shared';
 import { getMcpToolDisplayName } from './message/toolHelpers';
 import { SharedDocsPanelControls } from './SharedDocsPanelControls';
@@ -100,7 +101,7 @@ export function ContextPanel() {
     if (!activeSessionId) return EMPTY_SESSION_ALWAYS_ALLOW;
     return s.sessionAlwaysAllowBySession[activeSessionId] ?? EMPTY_SESSION_ALWAYS_ALLOW;
   });
-  const { getMCPServers, changeWorkingDir } = useIPC();
+  const { getMCPServers, changeWorkingDir, listSharedDocs, openSharedDoc } = useIPC();
   const [artifactsOpen, setArtifactsOpen] = useState(true);
   const [permissionsOpen, setPermissionsOpen] = useState(true);
   const [resettingAlwaysAllow, setResettingAlwaysAllow] = useState(false);
@@ -112,6 +113,7 @@ export function ContextPanel() {
   );
   const [copiedPath, setCopiedPath] = useState(false);
   const [isChangingDir, setIsChangingDir] = useState(false);
+  const [sharedDocItems, setSharedDocItems] = useState<SharedDocWithAccess[]>([]);
 
   const handleCopyPath = async (path: string) => {
     try {
@@ -134,6 +136,21 @@ export function ContextPanel() {
   const activeSession = activeSessionId ? sessions.find((s) => s.id === activeSessionId) : null;
   const currentWorkingDir = activeSession?.cwd || workingDir;
   const { displayArtifactSteps } = getArtifactSteps(steps);
+
+  useEffect(() => {
+    if (!activeSessionId || !currentWorkingDir || !window.electronAPI?.sharedDocs) {
+      setSharedDocItems([]);
+      return;
+    }
+    let cancelled = false;
+    void listSharedDocs(activeSessionId, currentWorkingDir).then((result) => {
+      if (cancelled) return;
+      setSharedDocItems(result.success && result.docs ? result.docs : []);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSessionId, currentWorkingDir, listSharedDocs]);
   const canShowItemInFolder =
     typeof window !== 'undefined' && !!window.electronAPI?.showItemInFolder;
 
@@ -188,7 +205,7 @@ export function ContextPanel() {
 
   const displayArtifacts = useMemo(() => {
     const seenPaths = new Set<string>();
-    const items: Array<{ label: string; path: string }> = [];
+    const items: Array<{ label: string; path: string; doc?: SharedDocWithAccess }> = [];
 
     for (const step of displayArtifactSteps) {
       const fallbackPath =
@@ -211,8 +228,27 @@ export function ContextPanel() {
       });
     }
 
+    for (const doc of sharedDocItems) {
+      if (!doc.localPath) continue;
+      const resolvedPath = resolveArtifactPath(doc.localPath, currentWorkingDir);
+      const key = resolvedPath.trim();
+      if (!key) continue;
+      const existing = items.find((item) => item.path === key);
+      if (existing) {
+        existing.doc = doc;
+        if (!existing.label) existing.label = doc.title;
+        continue;
+      }
+      seenPaths.add(key);
+      items.push({
+        label: doc.title || getArtifactLabel(doc.localPath),
+        path: resolvedPath,
+        doc,
+      });
+    }
+
     return items;
-  }, [currentWorkingDir, displayArtifactSteps]);
+  }, [currentWorkingDir, displayArtifactSteps, sharedDocItems]);
 
   useEffect(() => {
     if (contextPanelCollapsed || !activeSessionId) {
@@ -391,7 +427,6 @@ export function ContextPanel() {
         <span className="text-xs font-medium text-text-muted uppercase tracking-wider">
           {t('context.context')}
         </span>
-        <SharedDocsPanelControls />
       </div>
 
       {/* Session Stats */}
@@ -437,6 +472,7 @@ export function ContextPanel() {
 
         {artifactsOpen && (
           <div className="pb-2 max-h-64 overflow-y-auto">
+            <SharedDocsPanelControls />
             {displayArtifacts.length === 0 ? (
               <div className="flex items-center gap-2 px-4 py-2 text-xs text-text-muted">
                 <Layers className="w-3.5 h-3.5 shrink-0" />
@@ -478,6 +514,27 @@ export function ContextPanel() {
                       className={`flex items-center gap-2 px-4 py-1.5 transition-colors ${canClick ? 'cursor-pointer hover:bg-surface-hover' : ''}`}
                       onClick={async () => {
                         if (!canClick) return;
+                        if (artifact.doc && activeSessionId && currentWorkingDir) {
+                          const opened = await openSharedDoc({
+                            sessionId: activeSessionId,
+                            cwd: currentWorkingDir,
+                            docId: artifact.doc.id,
+                            doc: artifact.doc,
+                          });
+                          if (!opened.success && artifactPath && canPreview) {
+                            openHtmlPreview(
+                              artifactPath,
+                              label,
+                              previewKindFromPath(artifactPath) ?? undefined,
+                              {
+                                docId: artifact.doc.id,
+                                permission: artifact.doc.permission,
+                                s3UpdatedAt: artifact.doc.s3UpdatedAt,
+                              }
+                            );
+                          }
+                          return;
+                        }
                         if (canPreview && artifactPath) {
                           openHtmlPreview(
                             artifactPath,

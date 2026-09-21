@@ -136,6 +136,7 @@ export class SessionManager {
   private collabHooks: {
     assertCanPrompt?: (sessionId: string) => void;
     onLocalMessageSaved?: (sessionId: string, message: Message) => void;
+    onLocalTitleChanged?: (sessionId: string, title: string) => void;
     onStreamPartial?: (sessionId: string, delta: string) => void;
     onAgentRunStart?: (sessionId: string) => void;
     onAgentRunEnd?: (sessionId: string) => void;
@@ -193,6 +194,7 @@ export class SessionManager {
     hooks: {
       assertCanPrompt?: (sessionId: string) => void;
       onLocalMessageSaved?: (sessionId: string, message: Message) => void;
+      onLocalTitleChanged?: (sessionId: string, title: string) => void;
       onStreamPartial?: (sessionId: string, delta: string) => void;
       onAgentRunStart?: (sessionId: string) => void;
       onAgentRunEnd?: (sessionId: string) => void;
@@ -2019,6 +2021,7 @@ export class SessionManager {
       type: 'session.update',
       payload: { sessionId, updates: { title } },
     });
+    this.collabHooks?.onLocalTitleChanged?.(sessionId, title);
     return true;
   }
 
@@ -2345,6 +2348,7 @@ export class SessionManager {
       type: 'stream.messageUpdate',
       payload: { sessionId, message: updated },
     });
+    this.collabHooks?.onLocalMessageSaved?.(sessionId, updated);
   }
 
   private readMessagesFromDb(sessionId: string): Message[] {

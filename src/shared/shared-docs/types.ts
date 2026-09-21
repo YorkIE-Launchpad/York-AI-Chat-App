@@ -21,6 +21,8 @@ export interface SharedDocRecord {
 /** Caller-specific view of a shared document. */
 export interface SharedDocWithAccess extends SharedDocRecord {
   permission: SharedDocPermission | 'owner';
+  /** Workspace-relative path of the local copy, when one exists on this machine. */
+  localPath?: string;
 }
 
 export interface SharedDocLocalLink {

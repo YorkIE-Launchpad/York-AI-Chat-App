@@ -266,8 +266,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
       cwd: string;
       localPath: string;
       title?: string;
+      permission?: 'view' | 'edit';
     }) => ipcRenderer.invoke('sharedDocs.shareArtifact', input),
-    list: (sessionId: string) => ipcRenderer.invoke('sharedDocs.list', sessionId),
+    list: (sessionId: string, cwd?: string) =>
+      ipcRenderer.invoke('sharedDocs.list', { sessionId, cwd }),
     open: (input: {
       sessionId: string;
       cwd: string;
@@ -1240,13 +1242,14 @@ declare global {
           cwd: string;
           localPath: string;
           title?: string;
+          permission?: 'view' | 'edit';
         }) => Promise<{
           success: boolean;
           doc?: import('../shared/shared-docs/types').SharedDocWithAccess;
           inviteToken?: string;
           error?: string;
         }>;
-        list: (sessionId: string) => Promise<{
+        list: (sessionId: string, cwd?: string) => Promise<{
           success: boolean;
           docs?: import('../shared/shared-docs/types').SharedDocWithAccess[];
           error?: string;

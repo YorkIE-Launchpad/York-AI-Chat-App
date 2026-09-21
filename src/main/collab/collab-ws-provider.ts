@@ -31,12 +31,18 @@ export class CollabWsProvider {
   private destroyed = false;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private shouldReconnect = true;
+  private markSynced: (() => void) | null = null;
+  /** Resolves when a peer sends document state (sync step 2 or an update). */
+  readonly whenRemoteUpdate: Promise<void>;
 
   constructor(options: CollabWsProviderOptions) {
     this.doc = options.doc;
     this.awareness = options.awareness ?? new awarenessProtocol.Awareness(options.doc);
     this.url = options.url;
     this.onStatus = options.onStatus;
+    this.whenRemoteUpdate = new Promise((resolve) => {
+      this.markSynced = resolve;
+    });
 
     this.doc.on('update', this.handleDocUpdate);
     this.awareness.on('update', this.handleAwarenessUpdate);
@@ -102,6 +108,9 @@ export class CollabWsProvider {
         );
         this.send(encoding.toUint8Array(awEncoder));
       }
+      // Stateless relay drops anything sent before the peer joined.
+      // Push the whole doc so history arrives even if their sync step 1 was missed.
+      this.pushLocalState();
     });
 
     ws.on('message', (data) => {
@@ -128,11 +137,27 @@ export class CollabWsProvider {
     });
   }
 
+  private noteRemoteSync(buf: Uint8Array): void {
+    try {
+      const peek = decoding.createDecoder(buf);
+      decoding.readVarUint(peek);
+      const syncType = decoding.readVarUint(peek);
+      // 1 = sync step 2, 2 = incremental update. Step 1 is only a state vector.
+      if (syncType === 1 || syncType === 2) {
+        this.markSynced?.();
+        this.markSynced = null;
+      }
+    } catch {
+      // ignore malformed frames
+    }
+  }
+
   private readMessage(buf: Uint8Array): void {
     const decoder = decoding.createDecoder(buf);
     const messageType = decoding.readVarUint(decoder);
     switch (messageType) {
       case MESSAGE_SYNC: {
+        this.noteRemoteSync(buf);
         const encoder = encoding.createEncoder();
         encoding.writeVarUint(encoder, MESSAGE_SYNC);
         syncProtocol.readSyncMessage(decoder, encoder, this.doc, this);
@@ -158,18 +183,30 @@ export class CollabWsProvider {
     return this.ws?.readyState === WebSocket.OPEN;
   }
 
-  /** Re-announce sync step 1 so peers exchange latest doc state. */
+  /** Send this doc's full state as a Yjs update so peers merge history. */
+  pushLocalState(): void {
+    if (!this.connected || this.destroyed) return;
+    const encoder = encoding.createEncoder();
+    encoding.writeVarUint(encoder, MESSAGE_SYNC);
+    syncProtocol.writeUpdate(encoder, Y.encodeStateAsUpdate(this.doc));
+    this.send(encoding.toUint8Array(encoder));
+  }
+
+  /** Re-announce sync step 1 and push local state so a newly joined peer gets history. */
   requestSync(): void {
     if (!this.connected || this.destroyed) return;
     const encoder = encoding.createEncoder();
     encoding.writeVarUint(encoder, MESSAGE_SYNC);
     syncProtocol.writeSyncStep1(encoder, this.doc);
     this.send(encoding.toUint8Array(encoder));
+    this.pushLocalState();
   }
 
   destroy(): void {
     this.destroyed = true;
     this.shouldReconnect = false;
+    this.markSynced?.();
+    this.markSynced = null;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.doc.off('update', this.handleDocUpdate);
     this.awareness.off('update', this.handleAwarenessUpdate);

@@ -1456,7 +1456,13 @@ export function useIPC() {
   }, []);
 
   const shareArtifactDoc = useCallback(
-    async (input: { sessionId: string; cwd: string; localPath: string; title?: string }) => {
+    async (input: {
+      sessionId: string;
+      cwd: string;
+      localPath: string;
+      title?: string;
+      permission?: 'view' | 'edit';
+    }) => {
       if (!isElectron) {
         return { success: false as const, error: 'Share is only available in the desktop app' };
       }
@@ -1465,9 +1471,9 @@ export function useIPC() {
     []
   );
 
-  const listSharedDocs = useCallback(async (sessionId: string) => {
+  const listSharedDocs = useCallback(async (sessionId: string, cwd?: string) => {
     if (!isElectron) return { success: false as const, error: 'Not available' };
-    return window.electronAPI.sharedDocs.list(sessionId);
+    return window.electronAPI.sharedDocs.list(sessionId, cwd);
   }, []);
 
   const openSharedDoc = useCallback(

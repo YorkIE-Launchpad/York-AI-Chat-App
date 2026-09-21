@@ -240,6 +240,10 @@ import { eventRequiresSessionManager } from './client-event-utils';
 import { getUnsupportedWorkspacePathReason } from './workspace-path-constraints';
 import { CollabSyncService } from './collab/collab-sync-service';
 import {
+  loadCollabRoomSnapshot,
+  saveCollabRoomSnapshot,
+} from './collab/collab-snapshot-store';
+import {
   sharedDocsService,
   setSharedDocsSyncNotifier,
 } from './shared-docs/shared-docs-service';
@@ -371,6 +375,14 @@ function wireCollabSyncService(): void {
         payload: { sessionId: message.sessionId, message },
       });
     },
+    updateStoredMessage: (message) => {
+      sessionManager!.updatePublishedMessage(message.sessionId, message.id, message.content);
+    },
+    updateSessionTitle: (sessionId, title) => {
+      sessionManager!.setSessionTitle(sessionId, title);
+    },
+    loadRoomSnapshot: loadCollabRoomSnapshot,
+    saveRoomSnapshot: saveCollabRoomSnapshot,
     createJoinedSession: (input) => sessionManager!.createJoinedCollabSession(input),
     updateSessionCollab: (sessionId, collab) =>
       sessionManager!.updateSessionCollab(sessionId, collab),
@@ -391,10 +403,15 @@ function wireCollabSyncService(): void {
     assertCanPrompt: (sessionId) => collabSyncService?.assertCanPrompt(sessionId),
     onLocalMessageSaved: (sessionId, message) =>
       collabSyncService?.onLocalMessageSaved(sessionId, message),
+    onLocalTitleChanged: (sessionId, title) =>
+      collabSyncService?.onLocalTitleChanged(sessionId, title),
     onStreamPartial: (sessionId, delta) => collabSyncService?.onStreamPartial(sessionId, delta),
     onAgentRunStart: (sessionId) => collabSyncService?.onAgentRunStart(sessionId),
     onAgentRunEnd: (sessionId) => collabSyncService?.onAgentRunEnd(sessionId),
   });
+  if (isAuthenticated()) {
+    void collabSyncService.reconnectAllShared();
+  }
 }
 
 /** Pending workflow approval resolvers keyed by runId:nodeId. */
@@ -3070,6 +3087,7 @@ ipcMain.handle('auth.startGoogleLogin', async () => {
   try {
     const status = await startGoogleLogin(mainWindow);
     startAuthRefreshTimer(() => mainWindow);
+    void collabSyncService?.reconnectAllShared();
     return { success: true, ...status };
   } catch (error) {
     logError('[Auth] Google login failed:', error);
@@ -3121,6 +3139,7 @@ ipcMain.handle('auth.logout', async () => {
   stopAuthRefreshTimer();
   clearHubAllocationsCache();
   clearHubGovernanceModelsCache();
+  collabSyncService?.dispose();
   await authLogout(mainWindow);
   return { success: true };
 });
@@ -3150,6 +3169,7 @@ ipcMain.handle('auth.submitOAuthCode', async (_event, code: string, redirectUri:
     startAuthRefreshTimer(() => mainWindow);
     clearHubAllocationsCache();
     clearHubGovernanceModelsCache();
+    void collabSyncService?.reconnectAllShared();
     return { success: true, ...status };
   } catch (error) {
     logError('[Auth] OAuth callback failed:', error);
@@ -5065,7 +5085,13 @@ ipcMain.handle(
   'sharedDocs.shareArtifact',
   async (
     _event,
-    input: { sessionId: string; cwd: string; localPath: string; title?: string }
+    input: {
+      sessionId: string;
+      cwd: string;
+      localPath: string;
+      title?: string;
+      permission?: 'view' | 'edit';
+    }
   ) => {
     try {
       const result = await sharedDocsService.shareLocalArtifact(input);
@@ -5077,17 +5103,25 @@ ipcMain.handle(
   }
 );
 
-ipcMain.handle('sharedDocs.list', async (_event, sessionId: string) => {
-  try {
-    if (typeof sessionId !== 'string' || !sessionId.trim()) {
-      return { success: false, error: 'sessionId is required' };
+ipcMain.handle(
+  'sharedDocs.list',
+  async (_event, input: string | { sessionId?: string; cwd?: string }) => {
+    try {
+      const sessionId = typeof input === 'string' ? input : input?.sessionId;
+      const cwd = typeof input === 'string' ? undefined : input?.cwd;
+      if (typeof sessionId !== 'string' || !sessionId.trim()) {
+        return { success: false, error: 'sessionId is required' };
+      }
+      if (typeof cwd === 'string' && cwd.trim()) {
+        await sharedDocsService.hydrateSession(sessionId.trim(), cwd.trim());
+      }
+      const docs = sharedDocsService.listDocsForSession(sessionId.trim());
+      return { success: true, docs };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
     }
-    const docs = sharedDocsService.listDocsForSession(sessionId.trim());
-    return { success: true, docs };
-  } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
   }
-});
+);
 
 ipcMain.handle(
   'sharedDocs.open',
