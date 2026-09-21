@@ -1,6 +1,4 @@
 import { Suspense, lazy, useEffect, useRef, useCallback, useState } from 'react';
-import { useTranslation } from 'react-i18next';
-import { RefreshCw } from 'lucide-react';
 import { useAppStore } from './store';
 import {
   useActiveSessionId,
@@ -27,6 +25,7 @@ import { GlobalNoticeToast } from './components/GlobalNoticeToast';
 import { WhatsNewModal } from './components/WhatsNewModal';
 import { AskGrowthOSPopup } from './components/AskGrowthOSPopup';
 import { ChatSearchModal, useChatSearchHotkey } from './components/ChatSearchModal';
+import { ToolsConnectingStatus } from './components/ToolsConnectingStatus';
 import { useWhatsNew } from './hooks/useWhatsNew';
 import { useAskGrowthOSHotkey } from './hooks/useAskGrowthOSHotkey';
 import {
@@ -107,7 +106,6 @@ function App() {
 }
 
 function AuthenticatedApp() {
-  const { t } = useTranslation();
   // --- Store state via selectors (each subscription is minimally scoped) ---
   const activeSessionId = useActiveSessionId();
   const settings = useSettings();
@@ -146,7 +144,7 @@ function AuthenticatedApp() {
   const openHtmlPreview = useAppStore((s) => s.openHtmlPreview);
 
   const { listSessions, getSessionMessages, getSessionTraceSteps, isElectron } = useIPC();
-  const { ready: toolsReady } = useToolsReady(isElectron);
+  const toolsReadyState = useToolsReady(isElectron);
   const { width } = useWindowSize();
   const { payload: whatsNewPayload, dismiss: dismissWhatsNew } = useWhatsNew();
   useAskGrowthOSHotkey(true);
@@ -410,19 +408,8 @@ function AuthenticatedApp() {
 
         {/* Main Content Area */}
         <main className="flex-1 min-h-0 min-w-0 flex flex-col overflow-hidden bg-background">
-          {!showSettings && !showMatter && !showWorkflows && !toolsReady && (
-            <div
-              className="px-4 py-2 text-xs text-text-secondary border-b border-border-muted bg-surface/60 flex items-center gap-2 shrink-0"
-              role="status"
-              aria-live="polite"
-            >
-              <RefreshCw
-                className="w-3.5 h-3.5 animate-spin shrink-0 text-text-muted"
-                style={{ animationDuration: '3s' }}
-                aria-hidden="true"
-              />
-              <span>{t('chat.toolsNotReady')}</span>
-            </div>
+          {!showSettings && !showMatter && !showWorkflows && !activeSessionId && (
+            <ToolsConnectingStatus toolsReadyState={toolsReadyState} />
           )}
           {showSettings ? (
             <PanelErrorBoundary

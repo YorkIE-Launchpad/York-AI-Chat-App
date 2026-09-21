@@ -1140,6 +1140,8 @@
     "connectorCount_one": "{{count}} connector",
     "connectorCount_other": "{{count}} connectors",
     "toolsNotReady": "Tools are still connecting…",
+    "toolsConnectingCount_one": "{{count}} tool still connecting…",
+    "toolsConnectingCount_other": "{{count}} tools still connecting…",
     "incognitoBanner": "Incognito — this chat won’t be saved or used for memory",
     "queueListTitle_one": "{{count}} queued",
     "queueListTitle_other": "{{count}} queued",
