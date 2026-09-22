@@ -115,6 +115,12 @@ function applyProviderAuth(
       headers.set('x-goog-api-key', apiKey);
       break;
     }
+    case 'typesafe': {
+      const apiKey = getProviderApiKey(provider);
+      if (!apiKey) return;
+      headers.set('authorization', `Bearer ${apiKey}`);
+      break;
+    }
     default:
       break;
   }
@@ -182,7 +188,11 @@ export async function proxyToProvider(
     const apiKey = getProviderApiKey(target.provider);
     if (!apiKey) {
       res.status(503).json({
-        error: `Provider ${target.provider} is not configured. Set ${target.provider.toUpperCase()}_API_KEY in backend/.env`,
+        error: `Provider ${target.provider} is not configured. Set ${
+          target.provider === 'typesafe'
+            ? 'TYPESAFE_API_KEY'
+            : `${target.provider.toUpperCase()}_API_KEY`
+        } in backend/.env`,
       });
       return;
     }

@@ -1871,6 +1871,24 @@ app
         },
         runAgentWatchCheck: async (prompt) => {
           const config = configStore.getAll();
+          try {
+            const { jevWatchChanged } = await import('./jev/memory-watch-workflow-jev');
+            const jev = await jevWatchChanged({
+              checkPrompt: prompt,
+              previous: '',
+              current: prompt,
+            });
+            if (jev) {
+              return {
+                changed: jev.changed,
+                summary: jev.changed
+                  ? `Jev detected material change (noul=${jev.noul.toFixed(2)})`
+                  : `Jev: no material change (noul=${jev.noul.toFixed(2)})`,
+              };
+            }
+          } catch {
+            // Fall through to LLM.
+          }
           const result = await runPiAiOneShot(
             `${prompt}\n\nReply with JSON only: {"changed":boolean,"summary":string}`,
             'You are a change detector. Return JSON only.',
@@ -2388,6 +2406,24 @@ app
       },
       runAgentWatchCheck: async (prompt) => {
         const config = configStore.getAll();
+        try {
+          const { jevWatchChanged } = await import('./jev/memory-watch-workflow-jev');
+          const jev = await jevWatchChanged({
+            checkPrompt: prompt,
+            previous: '',
+            current: prompt,
+          });
+          if (jev) {
+            return {
+              changed: jev.changed,
+              summary: jev.changed
+                ? `Jev detected material change (noul=${jev.noul.toFixed(2)})`
+                : `Jev: no material change (noul=${jev.noul.toFixed(2)})`,
+            };
+          }
+        } catch {
+          // Fall through to LLM.
+        }
         const result = await runPiAiOneShot(
           `${prompt}\n\nReply with JSON only: {"changed":boolean,"summary":string}`,
           'You are a change detector. Return JSON only.',
@@ -4383,6 +4419,38 @@ ipcMain.handle('skills.getAll', async () => {
     throw error;
   }
 });
+
+ipcMain.handle(
+  'skills.rankForQuery',
+  async (
+    _event,
+    payload: {
+      query?: string;
+      skills?: Array<{ name: string; description?: string }>;
+    }
+  ) => {
+    try {
+      const query = typeof payload?.query === 'string' ? payload.query.trim() : '';
+      const skills = Array.isArray(payload?.skills) ? payload.skills : [];
+      if (!query || skills.length === 0) {
+        return { names: skills.map((s) => s.name), source: 'lexical' as const };
+      }
+      const { jevRankSkills, lexicalRankSkills } = await import('./jev/skill-select-jev');
+      const jevNames = await jevRankSkills({ query, skills });
+      if (jevNames) {
+        return { names: jevNames, source: 'jev' as const };
+      }
+      return {
+        names: lexicalRankSkills(query, skills).map((s) => s.name),
+        source: 'lexical' as const,
+      };
+    } catch (error) {
+      logError('[Skills] Error ranking skills:', error);
+      const skills = Array.isArray(payload?.skills) ? payload.skills : [];
+      return { names: skills.map((s) => s.name), source: 'lexical' as const };
+    }
+  }
+);
 
 ipcMain.handle('skills.install', async (_event, skillPath: string) => {
   try {

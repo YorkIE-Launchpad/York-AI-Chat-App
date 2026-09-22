@@ -20,7 +20,7 @@ import {
   isWorkflowAgentExecutionContext,
 } from '../../shared/workflows';
 import {
-  buildWorkflowFromDescription,
+  buildWorkflowFromDescriptionAsync,
   buildWorkflowFromGraphInput,
   WorkflowGraphValidationError,
 } from './workflow-build';
@@ -208,7 +208,7 @@ export function createWorkflowTools(workflowService: WorkflowService): AgentRunt
         }
 
         if (!save) {
-          const built = buildWorkflowFromDescription(description);
+          const built = await buildWorkflowFromDescriptionAsync(description);
           return {
             content: [
               {

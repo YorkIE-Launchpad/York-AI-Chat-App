@@ -333,13 +333,14 @@ function yorkOsReferenceMarkdown(
  */
 export function expandYorkOsSkillIntent(
   prompt: string,
-  skills: ExpandableSkillRef[]
+  skills: ExpandableSkillRef[],
+  forcedKind?: YorkOsReferenceKind | null
 ): SkillIntentExpandResult {
   if (hasSkillBlock(prompt, YORK_OS_SKILL_BLOCK_RE)) {
     return { expanded: false, text: prompt };
   }
 
-  const kind = classifyYorkOsIntent(prompt);
+  const kind = forcedKind !== undefined ? forcedKind : classifyYorkOsIntent(prompt);
   if (!kind) {
     return { expanded: false, text: prompt };
   }
@@ -352,6 +353,51 @@ export function expandYorkOsSkillIntent(
   return wrapExpanded(prompt, skill, yorkOsReferenceMarkdown(skill, kind), { reference: kind });
 }
 
+/**
+ * Prefer Jev skill/playbook Choice; fall back to regex classifiers.
+ */
+export async function resolveSkillIntentExpansions(
+  prompt: string,
+  skills: ExpandableSkillRef[]
+): Promise<SkillIntentExpandResult[]> {
+  const results: SkillIntentExpandResult[] = [];
+  let jevIntent: string | null = null;
+  try {
+    const { jevClassifySkillIntent } = await import('../jev/auto-skill-jev');
+    jevIntent = await jevClassifySkillIntent(prompt);
+  } catch {
+    jevIntent = null;
+  }
+
+  const forceLaunchPad = jevIntent === 'launchpad';
+  const forceHtml = jevIntent === 'html_artifact';
+  const forceGoal = jevIntent === 'goal_runner';
+  const yorkKindFromJev: YorkOsReferenceKind | null | undefined =
+    jevIntent === 'meeting_prep'
+      ? 'meeting-prep'
+      : jevIntent === 'work_brief'
+        ? 'work-brief'
+        : jevIntent === 'client_status'
+          ? 'client-status'
+          : jevIntent === 'project_status'
+            ? 'project-status'
+            : jevIntent === 'confluence'
+              ? 'confluence'
+              : jevIntent === 'york_os_core'
+                ? 'core'
+                : jevIntent === 'none'
+                  ? null
+                  : undefined;
+
+  results.push(
+    expandLaunchPadSkillIntent(prompt, skills, forceLaunchPad ? { force: true } : undefined)
+  );
+  results.push(expandYorkOsSkillIntent(prompt, skills, yorkKindFromJev));
+  results.push(expandHtmlArtifactSkillIntent(prompt, skills, forceHtml));
+  results.push(expandGoalRunnerSkillIntent(prompt, skills, forceGoal));
+  return results;
+}
+
 export function isHtmlArtifactIntent(prompt: string): boolean {
   const text = stripSkillBlocks(prompt);
   if (!text) return false;
@@ -362,12 +408,13 @@ export function isHtmlArtifactIntent(prompt: string): boolean {
 
 export function expandHtmlArtifactSkillIntent(
   prompt: string,
-  skills: ExpandableSkillRef[]
+  skills: ExpandableSkillRef[],
+  force?: boolean
 ): SkillIntentExpandResult {
   if (hasSkillBlock(prompt, HTML_ARTIFACT_SKILL_BLOCK_RE)) {
     return { expanded: false, text: prompt };
   }
-  if (!isHtmlArtifactIntent(prompt)) {
+  if (!force && !isHtmlArtifactIntent(prompt)) {
     return { expanded: false, text: prompt };
   }
   const skill = findSkill(skills, HTML_ARTIFACT_SKILL_NAME);
@@ -392,12 +439,13 @@ export function isGoalRunnerIntent(prompt: string): boolean {
 
 export function expandGoalRunnerSkillIntent(
   prompt: string,
-  skills: ExpandableSkillRef[]
+  skills: ExpandableSkillRef[],
+  force?: boolean
 ): SkillIntentExpandResult {
   if (hasSkillBlock(prompt, GOAL_RUNNER_SKILL_BLOCK_RE)) {
     return { expanded: false, text: prompt };
   }
-  if (!isGoalRunnerIntent(prompt)) {
+  if (!force && !isGoalRunnerIntent(prompt)) {
     return { expanded: false, text: prompt };
   }
   const skill = findSkill(skills, GOAL_RUNNER_SKILL_NAME);

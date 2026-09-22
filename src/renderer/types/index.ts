@@ -1197,6 +1197,10 @@ export interface AppConfig {
   memoryRuntime?: MemoryRuntimeConfig;
   /** User OpenRouter API key for General/Folders; required before those workspaces chat. */
   openRouterUserApiKey?: string;
+  /** TypeSafe API key for Jev decisions (secret). */
+  typesafeApiKey?: string;
+  /** Kill-switch for TypeSafe Jev; default true. */
+  jevEnabled?: boolean;
   meetingsEnabled?: boolean;
   meetingsRuntime?: MeetingsRuntimeConfig;
   matterEnabled?: boolean;

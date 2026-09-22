@@ -253,6 +253,29 @@ export function resolveSessionToolPermission(
   return decision;
 }
 
+/**
+ * Soften unknown MCP `ask` via Jev when available; otherwise same as resolveSessionToolPermission.
+ */
+export async function resolveSessionToolPermissionAsync(
+  sessionId: string,
+  toolName: string,
+  input: Record<string, unknown>
+): Promise<'allow' | 'deny' | 'ask'> {
+  const decision = resolveSessionToolPermission(sessionId, toolName, input);
+  if (decision !== 'ask') return decision;
+  if (!toolName.toLowerCase().startsWith('mcp__')) return decision;
+  try {
+    const { softPermissionAskWithJev } = await import('../jev/permissions-jev');
+    return softPermissionAskWithJev({
+      toolName,
+      argsSummary: JSON.stringify(input).slice(0, 800),
+      fallback: decision,
+    });
+  } catch {
+    return decision;
+  }
+}
+
 export function forgetSessionPermissions(sessionId: string): void {
   alwaysAllowBySession.delete(sessionId);
   autoApproveToolPermissionsBySession.delete(sessionId);

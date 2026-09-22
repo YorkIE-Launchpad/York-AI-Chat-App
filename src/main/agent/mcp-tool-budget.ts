@@ -174,21 +174,84 @@ export function searchMcpTools(
     filtered = [...filtered].sort((a, b) => a.name.localeCompare(b.name));
   }
 
-  return filtered.slice(0, limit).map((tool) => {
-    const hit: McpSearchToolHit = {
-      name: tool.name,
-      server: tool.serverName,
-      description: augmentMcpToolDescription(
-        tool.name,
-        tool.description || `MCP tool from ${tool.serverName}`
-      ),
-      parameters: summarizeInputParams(tool.inputSchema),
-    };
-    if (includeSchema) {
-      hit.inputSchema = tool.inputSchema;
+  return filtered.slice(0, limit).map((tool) => toSearchHit(tool, includeSchema));
+}
+
+function toSearchHit(tool: MCPTool, includeSchema: boolean): McpSearchToolHit {
+  const hit: McpSearchToolHit = {
+    name: tool.name,
+    server: tool.serverName,
+    description: augmentMcpToolDescription(
+      tool.name,
+      tool.description || `MCP tool from ${tool.serverName}`
+    ),
+    parameters: summarizeInputParams(tool.inputSchema),
+  };
+  if (includeSchema) {
+    hit.inputSchema = tool.inputSchema;
+  }
+  return hit;
+}
+
+/**
+ * Async MCP search: tries Jev relevance ranking, falls back to lexical searchMcpTools.
+ */
+export async function searchMcpToolsAsync(
+  tools: MCPTool[],
+  options: {
+    query?: string;
+    server?: string;
+    limit?: number;
+    includeSchema?: boolean;
+  } = {}
+): Promise<McpSearchToolHit[]> {
+  const query = options.query?.trim() ?? '';
+  const limit = Math.min(Math.max(1, options.limit ?? DEFAULT_SEARCH_LIMIT), MAX_SEARCH_LIMIT);
+  const includeSchema = Boolean(options.includeSchema);
+
+  if (query) {
+    try {
+      const { runMcpJevSearch } = await import('../jev/mcp-jev');
+      let pool = tools;
+      const serverFilter = options.server?.trim().toLowerCase();
+      if (serverFilter) {
+        pool = pool.filter((tool) => tool.serverName.toLowerCase().includes(serverFilter));
+      }
+      const jev = await runMcpJevSearch({
+        query,
+        tools: pool,
+        candidateLimit: Math.max(limit * 2, 24),
+        topK: limit,
+      });
+      if (jev?.needMcp && jev.rankedToolNames.length > 0) {
+        const byName = new Map(pool.map((t) => [t.name, t]));
+        const ordered: MCPTool[] = [];
+        for (const name of jev.rankedToolNames) {
+          const tool = byName.get(name);
+          if (tool) ordered.push(tool);
+        }
+        // Append any lexical leftovers not in Jev ranking.
+        if (ordered.length < limit) {
+          const lexical = searchMcpTools(pool, { query, limit });
+          for (const hit of lexical) {
+            if (ordered.length >= limit) break;
+            if (!ordered.some((t) => t.name === hit.name)) {
+              const tool = byName.get(hit.name);
+              if (tool) ordered.push(tool);
+            }
+          }
+        }
+        return ordered.slice(0, limit).map((tool) => toSearchHit(tool, includeSchema));
+      }
+      if (jev && !jev.needMcp) {
+        return [];
+      }
+    } catch {
+      // Fall through to lexical.
     }
-    return hit;
-  });
+  }
+
+  return searchMcpTools(tools, options);
 }
 
 function summarizeDroppedByServer(mcpTools: MCPTool[]): string {
@@ -265,7 +328,7 @@ export function buildMcpMetaTools(
         include_schema?: boolean;
       };
       const available = resolveAllowedMcpTools(mcpManager, allowedToolNames, division);
-      const matches = searchMcpTools(available, {
+      const matches = await searchMcpToolsAsync(available, {
         query,
         server,
         limit,

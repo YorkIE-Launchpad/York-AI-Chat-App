@@ -83,6 +83,8 @@ function createMockConfigStore(overrides: Partial<AppConfig> = {}) {
       storageRoot: '',
     },
     matterEnabled: true,
+    jevEnabled: true,
+    typesafeApiKey: '',
     matterRuntime: {
       enabled: true,
       windowStartHour: 8,

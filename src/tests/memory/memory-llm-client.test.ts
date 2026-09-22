@@ -65,6 +65,8 @@ function makeConfig(timeoutMs: number): AppConfig {
       storageRoot: '',
     },
     matterEnabled: true,
+    jevEnabled: true,
+    typesafeApiKey: '',
     matterRuntime: {
       enabled: true,
       windowStartHour: 8,

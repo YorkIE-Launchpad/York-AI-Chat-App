@@ -152,3 +152,34 @@ export function pickPinboardMcpTools(
   }
   return picked;
 }
+
+/** Dynamic pinboard via Jev when a prompt is available; else static pick. */
+export async function pickPinboardMcpToolsAsync(
+  mcpManager: MCPManager | null,
+  mcpToolDefs: ToolDefinition[],
+  maxCount: number,
+  prompt?: string
+): Promise<ToolDefinition[]> {
+  const staticPick = pickPinboardMcpTools(mcpManager, mcpToolDefs, maxCount);
+  if (!prompt?.trim() || !mcpManager || maxCount <= 0) return staticPick;
+
+  try {
+    const { runMcpJevPinboardPick } = await import('../jev/mcp-jev');
+    const catalog = mcpManager.getTools().filter(isPinboardMcpTool);
+    const names = await runMcpJevPinboardPick({
+      prompt,
+      pinboardCandidates: catalog,
+      maxPick: maxCount,
+    });
+    if (!names || names.length === 0) return staticPick;
+    const defByName = new Map(mcpToolDefs.map((tool) => [tool.name, tool]));
+    const picked: ToolDefinition[] = [];
+    for (const name of names) {
+      const def = defByName.get(name);
+      if (def) picked.push(def);
+    }
+    return picked.length > 0 ? picked : staticPick;
+  } catch {
+    return staticPick;
+  }
+}

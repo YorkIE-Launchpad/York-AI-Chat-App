@@ -83,6 +83,14 @@ export function getBackendProxyBaseUrl(
   }
 }
 
+/**
+ * TypeSafe Jev (System One) proxy root.
+ * SDK calls `{baseURL}/v1/systemone`, so do not append `/v1` here.
+ */
+export function getTypesafeProxyBaseUrl(backendUrl: string = resolveBackendUrl()): string {
+  return `${backendUrl.replace(/\/+$/, '')}/typesafe`;
+}
+
 export interface BackendModelInfo {
   id: string;
   name: string;

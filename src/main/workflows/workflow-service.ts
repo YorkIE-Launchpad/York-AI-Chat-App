@@ -19,7 +19,7 @@ import {
   normalizeWorkflowBinding,
 } from '../../shared/workflows';
 import {
-  buildWorkflowFromDescription,
+  buildWorkflowFromDescriptionAsync,
   buildWorkflowFromGraphInput,
   getCronTriggerConfig,
   validateWorkflowGraph,
@@ -192,7 +192,7 @@ export class WorkflowService {
       log(`[Workflow] Reusing draft ${existing.id} for identical description`);
       return { workflow: existing, reused: true };
     }
-    const built = buildWorkflowFromDescription(raw);
+    const built = await buildWorkflowFromDescriptionAsync(raw);
     let name = built.input.name;
     if (this.titleResolver) {
       try {

@@ -30,7 +30,17 @@ export function needsEnglishTranslation(text: string): boolean {
 export async function normalizeTranscriptToEnglish(text: string): Promise<string> {
   const trimmed = text.trim();
   if (!trimmed) return '';
-  if (!needsEnglishTranslation(trimmed)) {
+  let needsTranslate = needsEnglishTranslation(trimmed);
+  if (!needsTranslate) {
+    try {
+      const { jevNeedsEnglishTranslation } = await import('../jev/permissions-jev');
+      const jev = await jevNeedsEnglishTranslation(trimmed);
+      if (jev != null) needsTranslate = jev;
+    } catch {
+      // Heuristic stands.
+    }
+  }
+  if (!needsTranslate) {
     return trimmed;
   }
   if (!isAuthenticated()) {

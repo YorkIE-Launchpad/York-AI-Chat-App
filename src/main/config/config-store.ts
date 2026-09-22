@@ -163,6 +163,18 @@ export interface AppConfig {
    */
   openRouterUserApiKey?: string;
 
+  /**
+   * TypeSafe API key for Jev (System One) decisions.
+   * Falls back to TYPESAFE_API_KEY env. Never export to plaintext config.
+   */
+  typesafeApiKey?: string;
+
+  /**
+   * When false, skip Jev and use heuristic/LLM decision paths.
+   * Default true; calls still no-op without an API key.
+   */
+  jevEnabled: boolean;
+
   // Meeting capture toggle
   meetingsEnabled: boolean;
 
@@ -246,6 +258,7 @@ const DIRECT_READ_KEYS = new Set<keyof AppConfig>([
   'memoryEnabled',
   'superContextMode',
   'mcpWriteAccessEnabled',
+  'jevEnabled',
   'meetingsEnabled',
   'matterEnabled',
   'enableThinking',
@@ -270,6 +283,7 @@ export const EXPORTABLE_FIELDS: (keyof AppConfig)[] = [
   'memoryEnabled',
   'superContextMode',
   'mcpWriteAccessEnabled',
+  'jevEnabled',
   'meetingsEnabled',
   'matterEnabled',
   'model',
@@ -296,6 +310,7 @@ export const FIELD_VALIDATORS: Record<string, (v: unknown) => boolean> = {
   memoryEnabled: (v) => typeof v === 'boolean',
   superContextMode: (v) => v === 'off' || v === 'cold_intent' || v === 'always',
   mcpWriteAccessEnabled: (v) => typeof v === 'boolean',
+  jevEnabled: (v) => typeof v === 'boolean',
   meetingsEnabled: (v) => typeof v === 'boolean',
   matterEnabled: (v) => typeof v === 'boolean',
   model: (v) => typeof v === 'string',
@@ -391,6 +406,8 @@ const defaultConfig: AppConfig = {
   superContextMode: 'cold_intent',
   mcpWriteAccessEnabled: true,
   openRouterUserApiKey: '',
+  typesafeApiKey: '',
+  jevEnabled: true,
   memoryRuntime: {
     llm: {
       inheritFromActive: true,
@@ -1258,6 +1275,9 @@ export class ConfigStore {
         typeof raw.openRouterUserApiKey === 'string'
           ? raw.openRouterUserApiKey
           : defaultConfig.openRouterUserApiKey,
+      typesafeApiKey:
+        typeof raw.typesafeApiKey === 'string' ? raw.typesafeApiKey : defaultConfig.typesafeApiKey,
+      jevEnabled: toBoolean(raw.jevEnabled, defaultConfig.jevEnabled),
       meetingsEnabled: toBoolean(raw.meetingsEnabled, defaultConfig.meetingsEnabled),
       meetingsRuntime: normalizeMeetingsRuntimeConfig(raw.meetingsRuntime),
       matterEnabled: toBoolean(
@@ -1726,6 +1746,9 @@ export class ConfigStore {
         updates.openRouterUserApiKey !== undefined
           ? updates.openRouterUserApiKey
           : current.openRouterUserApiKey,
+      typesafeApiKey:
+        updates.typesafeApiKey !== undefined ? updates.typesafeApiKey : current.typesafeApiKey,
+      jevEnabled: updates.jevEnabled !== undefined ? updates.jevEnabled : current.jevEnabled,
       meetingsEnabled:
         updates.meetingsEnabled !== undefined ? updates.meetingsEnabled : current.meetingsEnabled,
       meetingsRuntime:

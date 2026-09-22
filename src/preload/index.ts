@@ -613,6 +613,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Skills methods
   skills: {
     getAll: (): Promise<Skill[]> => ipcRenderer.invoke('skills.getAll'),
+    rankForQuery: (payload: {
+      query: string;
+      skills: Array<{ name: string; description?: string }>;
+    }): Promise<{ names: string[]; source: 'jev' | 'lexical' }> =>
+      ipcRenderer.invoke('skills.rankForQuery', payload),
     install: (skillPath: string): Promise<{ success: boolean; skill: Skill }> =>
       ipcRenderer.invoke('skills.install', skillPath),
     delete: (skillId: string): Promise<{ success: boolean }> =>
@@ -1530,6 +1535,10 @@ declare global {
       };
       skills: {
         getAll: () => Promise<Skill[]>;
+        rankForQuery: (payload: {
+          query: string;
+          skills: Array<{ name: string; description?: string }>;
+        }) => Promise<{ names: string[]; source: 'jev' | 'lexical' }>;
         install: (skillPath: string) => Promise<{ success: boolean; skill: Skill }>;
         delete: (skillId: string) => Promise<{ success: boolean }>;
         setEnabled: (skillId: string, enabled: boolean) => Promise<{ success: boolean }>;

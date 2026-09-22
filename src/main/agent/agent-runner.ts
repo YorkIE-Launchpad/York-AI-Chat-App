@@ -29,7 +29,7 @@ import {
   rememberAlwaysAllow,
   listSessionAlwaysAllow,
   upsertToolPermission,
-  resolveSessionToolPermission,
+  resolveSessionToolPermissionAsync,
 } from '../config/permission-rules-store';
 import {
   MCP_WRITE_DISABLED_MESSAGE,
@@ -78,10 +78,7 @@ import {
   HTML_ARTIFACT_SKILL_NAME,
   LAUNCHPAD_SKILL_NAME,
   YORK_OS_SKILL_NAME,
-  expandGoalRunnerSkillIntent,
-  expandHtmlArtifactSkillIntent,
-  expandLaunchPadSkillIntent,
-  expandYorkOsSkillIntent,
+  resolveSkillIntentExpansions,
 } from '../skills/skill-intent-expand';
 import {
   discoverSkillsFromPaths,
@@ -196,7 +193,7 @@ import {
   MULTI_STEER_INCOMPLETE_REASONS,
   INCOMPLETE_TURN_MULTI_STEER_MAX,
   buildIncompleteTurnSteerMessage,
-  detectIncompleteTurn,
+  detectIncompleteTurnAsync,
   incompleteTurnFailureMessage,
   summarizeContentBlocks,
   type TurnContentSummary,
@@ -1310,7 +1307,7 @@ ${hints.join('\n')}
         const toolName: string = ctx.toolCall?.name ?? '';
         const input: Record<string, unknown> = ctx.args ?? {};
 
-        const decision = resolveSessionToolPermission(sessionId, toolName, input);
+        const decision = await resolveSessionToolPermissionAsync(sessionId, toolName, input);
         // Human-readable name for prompts/messages (e.g. MCP sanitized
         // 'mcp__chrome__chrome_screenshot__ab12' → 'chrome_screenshot').
         // Rule matching and rememberAlwaysAllow still use the canonical
@@ -2686,36 +2683,29 @@ ${hints.join('\n')}
           } else {
             // Intent injections are independent (LaunchPad + york-os can both apply).
             // One-shot per session so history doesn't grow by a full SKILL.md each message.
-            const intentExpansions = [
-              {
-                name: LAUNCHPAD_SKILL_NAME,
-                expand: () => expandLaunchPadSkillIntent(prompt, expandableSkills),
-                logLabel: 'LaunchPad delivery',
-              },
-              {
-                name: YORK_OS_SKILL_NAME,
-                expand: () => expandYorkOsSkillIntent(prompt, expandableSkills),
-                logLabel: 'York OS company',
-              },
-              {
-                name: HTML_ARTIFACT_SKILL_NAME,
-                expand: () => expandHtmlArtifactSkillIntent(prompt, expandableSkills),
-                logLabel: 'HTML artifact',
-              },
-              {
-                name: GOAL_RUNNER_SKILL_NAME,
-                expand: () => expandGoalRunnerSkillIntent(prompt, expandableSkills),
-                logLabel: 'goal-runner',
-              },
+            // Jev Choice routes skill/playbook when available; regex remains the fallback.
+            const expansions = await resolveSkillIntentExpansions(prompt, expandableSkills);
+            const labels = [
+              'LaunchPad delivery',
+              'York OS company',
+              'HTML artifact',
+              'goal-runner',
             ];
-            for (const item of intentExpansions) {
-              if (historyHasSkillBody(item.name)) continue;
-              const expansion = item.expand();
+            const names = [
+              LAUNCHPAD_SKILL_NAME,
+              YORK_OS_SKILL_NAME,
+              HTML_ARTIFACT_SKILL_NAME,
+              GOAL_RUNNER_SKILL_NAME,
+            ];
+            for (let i = 0; i < expansions.length; i += 1) {
+              const expansion = expansions[i]!;
+              const name = names[i]!;
+              if (historyHasSkillBody(name)) continue;
               if (!expansion.expanded || !expansion.block) continue;
               expandedUserPrompt = `${expansion.block}\n\n${expandedUserPrompt}`;
-              markInjected(item.name);
+              markInjected(name);
               log(
-                `[CoworkAgentRunner] Auto-injected ${item.logLabel} skill /${expansion.skillName} (one-shot)`
+                `[CoworkAgentRunner] Auto-injected ${labels[i]} skill /${expansion.skillName} (one-shot)`
               );
             }
           }
@@ -4361,14 +4351,14 @@ ${
 
         if (canAttemptIncompleteRecovery) {
           const evaluateIncomplete = () =>
-            detectIncompleteTurn({
+            detectIncompleteTurnAsync({
               userPrompt: prompt,
               toolsInvoked: toolsInvokedThisTurn,
               finalAssistant: finalAssistantSummary,
               launchPadProgress: this.getLaunchPadProgressSnapshot(session.id, prompt),
             });
 
-          let incomplete = evaluateIncomplete();
+          let incomplete = await evaluateIncomplete();
           if (incomplete.incomplete) {
             const multiSteer = MULTI_STEER_INCOMPLETE_REASONS.has(incomplete.reason);
             const maxSteers = multiSteer ? INCOMPLETE_TURN_MULTI_STEER_MAX : 1;
@@ -4418,7 +4408,7 @@ ${
               ) {
                 break;
               }
-              incomplete = evaluateIncomplete();
+              incomplete = await evaluateIncomplete();
               if (!multiSteer) break;
             }
 

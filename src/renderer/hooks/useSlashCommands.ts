@@ -106,6 +106,7 @@ export function useSlashCommands(prompt: string, cursorIndex: number = prompt.le
   const [dismissed, setDismissed] = useState(false);
   const [manualOpen, setManualOpen] = useState(false);
   const [meetingsReferenceAllowed, setMeetingsReferenceAllowed] = useState(false);
+  const [rankedNames, setRankedNames] = useState<string[]>([]);
   const skillsStorageChangedAt = useAppStore((state) => state.skillsStorageChangedAt);
   const appConfig = useAppStore((state) => state.appConfig);
 
@@ -193,14 +194,76 @@ export function useSlashCommands(prompt: string, cursorIndex: number = prompt.le
         ]
       : [];
 
-    const combined = [...builtin, ...skills];
-    if (!query) return combined;
-    return combined.filter((skill) => {
+    if (!query) return [...builtin, ...skills];
+
+    // Lexical filter first (sync). Jev reorders catalog portion via rankedNames.
+    const catalogFiltered = skills.filter((skill) => {
       const name = skill.name.toLowerCase();
       const description = (skill.description ?? '').toLowerCase();
       return name.includes(query) || description.includes(query);
     });
-  }, [isOpen, trigger, manualOpen, skills, meetingsReferenceAllowed]);
+
+    const builtinFiltered = builtin.filter((skill) => {
+      const name = skill.name.toLowerCase();
+      const description = (skill.description ?? '').toLowerCase();
+      return name.includes(query) || description.includes(query);
+    });
+
+    if (rankedNames.length === 0) {
+      return [...builtinFiltered, ...catalogFiltered];
+    }
+
+    const byName = new Map(catalogFiltered.map((s) => [s.name.toLowerCase(), s]));
+    const ordered: Skill[] = [];
+    const seen = new Set<string>();
+    for (const name of rankedNames) {
+      const skill = byName.get(name.toLowerCase());
+      if (skill && !seen.has(skill.id)) {
+        ordered.push(skill);
+        seen.add(skill.id);
+      }
+    }
+    for (const skill of catalogFiltered) {
+      if (!seen.has(skill.id)) ordered.push(skill);
+    }
+    return [...builtinFiltered, ...ordered];
+  }, [isOpen, trigger, manualOpen, skills, meetingsReferenceAllowed, rankedNames]);
+
+  // Debounced Jev rank for catalog skills when the query changes.
+  useEffect(() => {
+    if (!isOpen || !isElectron) {
+      setRankedNames([]);
+      return;
+    }
+    const query = (trigger?.query ?? '').trim();
+    if (!query || skills.length === 0) {
+      setRankedNames([]);
+      return;
+    }
+
+    let cancelled = false;
+    const handle = window.setTimeout(() => {
+      void window.electronAPI.skills
+        .rankForQuery({
+          query,
+          skills: skills.map((s) => ({
+            name: s.name,
+            description: s.description,
+          })),
+        })
+        .then((result) => {
+          if (!cancelled) setRankedNames(result.names);
+        })
+        .catch(() => {
+          if (!cancelled) setRankedNames([]);
+        });
+    }, 200);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(handle);
+    };
+  }, [isOpen, trigger?.query, skills]);
 
   useEffect(() => {
     setSelectedIndex(0);

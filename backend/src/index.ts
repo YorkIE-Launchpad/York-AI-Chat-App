@@ -31,6 +31,7 @@ const PROVIDER_TARGETS: ProviderTarget[] = [
     mountPath: '/gemini',
   },
   { provider: 'openrouter', upstreamOrigin: 'https://openrouter.ai/api', mountPath: '/openrouter' },
+  { provider: 'typesafe', upstreamOrigin: 'https://api.typesafe.ai', mountPath: '/typesafe' },
 ];
 
 const app = express();

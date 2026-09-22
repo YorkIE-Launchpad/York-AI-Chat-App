@@ -112,12 +112,37 @@ function toolsInclude(toolsInvoked: readonly string[], target: string): boolean 
   return toolsInvoked.some((t) => normalizeToolName(t) === needle);
 }
 
+export async function isActionableUserPromptAsync(prompt: string): Promise<boolean> {
+  if (isActionableUserPrompt(prompt)) return true;
+  try {
+    const { jevIsActionablePrompt } = await import('../jev/memory-watch-workflow-jev');
+    const jev = await jevIsActionablePrompt(prompt);
+    if (jev != null) return jev;
+  } catch {
+    // Regex stands.
+  }
+  return false;
+}
+
 /**
  * Decide whether a completed prompt turn looks incomplete and should be
  * auto-continued (steer) or reported to the user.
  */
 export function detectIncompleteTurn(input: IncompleteTurnInput): IncompleteTurnDecision {
-  const actionable = isActionableUserPrompt(input.userPrompt);
+  return detectIncompleteTurnWithActionable(input, isActionableUserPrompt(input.userPrompt));
+}
+
+export async function detectIncompleteTurnAsync(
+  input: IncompleteTurnInput
+): Promise<IncompleteTurnDecision> {
+  const actionable = await isActionableUserPromptAsync(input.userPrompt);
+  return detectIncompleteTurnWithActionable(input, actionable);
+}
+
+function detectIncompleteTurnWithActionable(
+  input: IncompleteTurnInput,
+  actionable: boolean
+): IncompleteTurnDecision {
   const lp = input.launchPadProgress;
   const { hasText, hasThinking, hasToolUse } = input.finalAssistant;
 

@@ -41,21 +41,29 @@ export function getSuperContextMode(): SuperContextMode {
   return DEFAULT_SUPER_CONTEXT_MODE;
 }
 
-export function shouldRunSuperContext(
+export async function shouldRunSuperContext(
   input: SuperContextScoutInput,
   mode: SuperContextMode = getSuperContextMode()
-): boolean {
+): Promise<boolean> {
   if (mode === 'off') return false;
   if (mode === 'always') return true;
-  // cold_intent (default)
-  return input.isColdStart || isBriefLikeIntent(input.prompt);
+  if (input.isColdStart) return true;
+  if (isBriefLikeIntent(input.prompt)) return true;
+  try {
+    const { jevIsBriefLikeIntent } = await import('../jev/memory-watch-workflow-jev');
+    const jev = await jevIsBriefLikeIntent(input.prompt);
+    if (jev != null) return jev;
+  } catch {
+    // Heuristic already checked.
+  }
+  return false;
 }
 
 export async function buildSuperContextPrefix(
   input: SuperContextScoutInput,
   deps: SuperContextDependencies
 ): Promise<string | undefined> {
-  if (!shouldRunSuperContext(input)) {
+  if (!(await shouldRunSuperContext(input))) {
     return undefined;
   }
 

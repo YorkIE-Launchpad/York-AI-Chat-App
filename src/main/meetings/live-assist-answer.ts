@@ -1,6 +1,6 @@
 import { configStore } from '../config/config-store';
 import { runPiAiOneShot, runPiAiStream } from '../agent/sdk-one-shot';
-import { searchMcpTools, type McpSearchToolHit } from '../agent/mcp-tool-budget';
+import { searchMcpToolsAsync, type McpSearchToolHit } from '../agent/mcp-tool-budget';
 import { compressToolResultTextForModel } from '../agent/mcp-tool-payload';
 import { MCP_PINBOARD_SERVER_KEYS } from '../agent/mcp-tool-pinboard';
 import { normalizeMcpToolResultForModel } from '../agent/tool-result-utils';
@@ -42,14 +42,17 @@ function extractKeywords(question: string): string {
     .join(' ');
 }
 
-function buildLeanToolCatalog(mcpManager: MCPManager, question: string): McpSearchToolHit[] {
+async function buildLeanToolCatalog(
+  mcpManager: MCPManager,
+  question: string
+): Promise<McpSearchToolHit[]> {
   const allTools = mcpManager.getTools();
   const pinboardTools = allTools.filter((tool) => {
     const serverKey = tool.serverName.toLowerCase().replace(/[^a-z0-9]/g, '');
     return MCP_PINBOARD_SERVER_KEYS.has(serverKey);
   });
   const query = extractKeywords(question);
-  return searchMcpTools(pinboardTools.length > 0 ? pinboardTools : allTools, {
+  return searchMcpToolsAsync(pinboardTools.length > 0 ? pinboardTools : allTools, {
     query: query || undefined,
     limit: CATALOG_LIMIT,
   });
@@ -234,24 +237,49 @@ export async function answerLiveAssistQuestion(
   options: LiveAssistAnswerOptions
 ): Promise<string | null> {
   const config = configStore.getAll();
-  const catalog = buildLeanToolCatalog(options.mcpManager, options.question);
+  const catalog = await buildLeanToolCatalog(options.mcpManager, options.question);
   const catalogText = formatToolCatalogForPrompt(catalog);
   const availableNames = new Set(options.mcpManager.getTools().map((tool) => tool.name));
 
   let calls: LiveAssistMcpCall[] = [];
   options.onProgress?.('planning');
+
   try {
-    const planResult = await runPiAiOneShot(
-      buildLiveAssistAnswerPlanPrompt(options, catalogText),
-      'Return JSON only.',
-      config,
-      { maxTokens: 256, temperature: 0 }
-    );
-    calls = parsePlanJson(planResult.text)
-      .slice(0, MAX_MCP_CALLS)
-      .filter((call) => availableNames.has(call.tool_name));
-  } catch (error) {
-    logWarn('[LiveAssist] Answer plan failed:', error);
+    const { jevPickLiveAssistTools } = await import('../jev/live-assist-jev');
+    const jevPick = await jevPickLiveAssistTools({
+      question: options.question,
+      catalog: catalog.map((t) => ({
+        name: t.name,
+        server: t.server,
+        description: t.description,
+      })),
+    });
+    if (jevPick) {
+      if (jevPick.researchNeeded) {
+        calls = jevPick.toolNames
+          .filter((name) => availableNames.has(name))
+          .slice(0, MAX_MCP_CALLS)
+          .map((tool_name) => ({ tool_name, arguments: {} }));
+      }
+    }
+  } catch {
+    // Fall through to LLM planner.
+  }
+
+  if (calls.length === 0) {
+    try {
+      const planResult = await runPiAiOneShot(
+        buildLiveAssistAnswerPlanPrompt(options, catalogText),
+        'Return JSON only.',
+        config,
+        { maxTokens: 256, temperature: 0 }
+      );
+      calls = parsePlanJson(planResult.text)
+        .slice(0, MAX_MCP_CALLS)
+        .filter((call) => availableNames.has(call.tool_name));
+    } catch (error) {
+      logWarn('[LiveAssist] Answer plan failed:', error);
+    }
   }
 
   const pipelineDeadline = Date.now() + PIPELINE_TIMEOUT_MS;

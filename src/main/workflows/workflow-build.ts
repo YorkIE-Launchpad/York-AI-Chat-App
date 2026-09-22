@@ -190,6 +190,41 @@ function splitActionSteps(action: string): string[] {
  * Author a workflow graph from free text — used by UI Propose and agent without graph.
  */
 export function buildWorkflowFromDescription(description: string): WorkflowBuildResult {
+  return buildWorkflowFromDescriptionWithFlags(description, null);
+}
+
+export async function buildWorkflowFromDescriptionAsync(
+  description: string
+): Promise<WorkflowBuildResult> {
+  let flags: {
+    wantsApproval: boolean;
+    wantsNotify: boolean;
+    wantsUserInput: boolean;
+  } | null = null;
+  try {
+    const { jevWorkflowFlags } = await import('../jev/memory-watch-workflow-jev');
+    const jev = await jevWorkflowFlags(description);
+    if (jev) {
+      flags = {
+        wantsApproval: jev.wantsApproval,
+        wantsNotify: jev.wantsNotify,
+        wantsUserInput: jev.wantsUserInput,
+      };
+    }
+  } catch {
+    flags = null;
+  }
+  return buildWorkflowFromDescriptionWithFlags(description, flags);
+}
+
+function buildWorkflowFromDescriptionWithFlags(
+  description: string,
+  jevFlags: {
+    wantsApproval: boolean;
+    wantsNotify: boolean;
+    wantsUserInput: boolean;
+  } | null
+): WorkflowBuildResult {
   const raw = description.trim();
   if (raw.length < 3) {
     throw new WorkflowGraphValidationError('Description is too short.');
@@ -288,7 +323,7 @@ export function buildWorkflowFromDescription(description: string): WorkflowBuild
     summary.push(`Agent: ${labelForStep(step, i)}`);
   });
 
-  if (wantsUserInput(raw)) {
+  if (jevFlags?.wantsUserInput ?? wantsUserInput(raw)) {
     const id = 'input_1';
     nodes.push({
       id,
@@ -313,7 +348,7 @@ export function buildWorkflowFromDescription(description: string): WorkflowBuild
     summary.push('Input: collect user answers');
   }
 
-  if (wantsApproval(raw)) {
+  if (jevFlags?.wantsApproval ?? wantsApproval(raw)) {
     const id = 'approval_1';
     nodes.push({
       id,
@@ -333,7 +368,10 @@ export function buildWorkflowFromDescription(description: string): WorkflowBuild
   }
 
   // Notify only when explicitly requested (or a channel was named for messaging)
-  if (wantsNotify(raw) || (channelHit && /\b(slack|email|notify|message)\b/i.test(raw))) {
+  if (
+    (jevFlags?.wantsNotify ?? wantsNotify(raw)) ||
+    (channelHit && /\b(slack|email|notify|message)\b/i.test(raw))
+  ) {
     const id = 'notify_1';
     nodes.push({
       id,

@@ -141,11 +141,30 @@ export async function resolveAutoModelIfNeeded(
   }
 
   const preference = normalizeAutoModelPreference(input.preference);
-  const score = scorePromptComplexity(input.promptText, {
+  let score = scorePromptComplexity(input.promptText, {
     hasImages: input.hasImages,
     messageCount: input.messageCount,
     contextChars: input.contextChars,
   });
+
+  try {
+    const { jevScoreAutoTier } = await import('../jev/auto-skill-jev');
+    const jev = await jevScoreAutoTier({
+      prompt: input.promptText,
+      context: {
+        hasImages: input.hasImages,
+        messageCount: input.messageCount,
+        contextChars: input.contextChars,
+      },
+    });
+    if (jev) {
+      score = jev.score;
+      log(`[AutoModel] Jev complexity score=${score} tier=${jev.tier}`);
+    }
+  } catch {
+    // Keep heuristic score.
+  }
+
   const preferredTier = tierForScore(score, preference);
 
   // York LLM for routine (fast) asks — skip when images need vision-capable cloud models.

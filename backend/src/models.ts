@@ -1,4 +1,4 @@
-export type BackendProvider = 'anthropic' | 'openai' | 'gemini' | 'openrouter';
+export type BackendProvider = 'anthropic' | 'openai' | 'gemini' | 'openrouter' | 'typesafe';
 
 export interface BackendModelEntry {
   id: string;
@@ -68,6 +68,8 @@ const CATALOG: Record<BackendProvider, Array<{ id: string; name: string }>> = {
     { id: 'google/gemini-3.5-flash', name: 'Gemini 3.5 Flash' },
     { id: 'google/gemini-3.1-pro-preview', name: 'Gemini 3.1 Pro' },
   ],
+  // Decision API (System One) — not listed as a chat model in Auto.
+  typesafe: [],
 };
 
 const ENV_KEY_BY_PROVIDER: Record<BackendProvider, string> = {
@@ -75,6 +77,7 @@ const ENV_KEY_BY_PROVIDER: Record<BackendProvider, string> = {
   openai: 'OPENAI_API_KEY',
   gemini: 'GEMINI_API_KEY',
   openrouter: 'OPENROUTER_API_KEY',
+  typesafe: 'TYPESAFE_API_KEY',
 };
 
 export function providerHasKey(provider: BackendProvider): boolean {

@@ -1465,7 +1465,25 @@ export async function enrichCalendarMeeting(options: {
             scored.push({ name: channelName, id: channelId, score });
           }
           scored.sort((a, b) => b.score - a.score);
-          const top = scored.slice(0, 3);
+          let top = scored.slice(0, 3);
+          try {
+            const { jevScoreCalendarChannel } = await import('../jev/permissions-jev');
+            const jev = await jevScoreCalendarChannel({
+              meetingTitle: originalTitle || '',
+              attendees: attendees.map((a) =>
+                typeof a === 'string' ? a : a.email || a.name || ''
+              ),
+              channels: scored.slice(0, 12).map((c) => ({ id: c.id, name: c.name })),
+            });
+            if (jev) {
+              const match = scored.find((c) => c.id === jev.channelId);
+              if (match) {
+                top = [{ ...match, score: Math.max(match.score, Math.round(jev.score * 10)) }];
+              }
+            }
+          } catch {
+            // Lexical channel scores stand.
+          }
           for (const ch of top) {
             let detail = `Matched channel (score ${ch.score})`;
             if (histTool) {

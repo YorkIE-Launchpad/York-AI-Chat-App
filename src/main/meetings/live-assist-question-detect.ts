@@ -94,6 +94,26 @@ export async function classifyLiveQuestion(
   candidateLine: string
 ): Promise<LiveQuestionClassification | null> {
   const { text: candidateText } = stripSpeakerPrefix(candidateLine);
+
+  try {
+    const { jevClassifyLiveAnswerable } = await import('../jev/live-assist-jev');
+    const jev = await jevClassifyLiveAnswerable({
+      transcriptWindow,
+      candidateLine: candidateText || candidateLine,
+    });
+    if (jev) {
+      if (jev.answerable) {
+        return {
+          answerable: true,
+          question: candidateText || candidateLine,
+        };
+      }
+      return { answerable: false, question: candidateText || candidateLine };
+    }
+  } catch {
+    // Fall through to LLM classifier.
+  }
+
   const prompt = [
     'You classify whether a live meeting utterance is an answerable question for an assistant.',
     'Return JSON only: {"answerable":boolean,"question":string}',

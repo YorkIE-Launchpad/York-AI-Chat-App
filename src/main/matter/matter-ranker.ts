@@ -1,7 +1,7 @@
 import type { AppConfig } from '../config/config-store';
 import { runPiAiOneShot } from '../agent/sdk-one-shot';
 import { applyBackendManagedCredentials } from '../../shared/backend-config';
-import { logWarn } from '../utils/logger';
+import { log, logWarn } from '../utils/logger';
 import type { WelcomeProfile } from '../../shared/welcome-actions';
 import type {
   MatterCategory,
@@ -26,6 +26,8 @@ import {
   isPersonalCalendarHold,
   looksLikeJunkTitle,
 } from './matter-collector';
+import { isJevEnabled } from '../jev/jev-client';
+import { runMatterJevDecisions, type MatterJevSignalDecision } from '../jev/matter-jev';
 
 /** Fixed model for Matter ranking (OpenAI via backend proxy). */
 const MATTER_RANKER_MODEL = 'gpt-5.6-luna';
@@ -541,6 +543,253 @@ export async function rankMatterSignals(options: {
 
   const rankerPool = selectSignalsForRanker(signals, MATTER_RANKER_POOL_SIZE);
 
+  if (isJevEnabled()) {
+    try {
+      const jevRanked = await rankMatterSignalsViaJev({
+        config,
+        profile,
+        rankerPool,
+        allSignals: signals,
+        softMax,
+      });
+      if (jevRanked) {
+        log('[Matter] Ranked via Jev decisions + narrative LLM');
+        return jevRanked;
+      }
+    } catch (error) {
+      logWarn('[Matter] Jev rank path failed, falling back to LLM:', error);
+    }
+  }
+
+  return rankMatterSignalsViaLlm({
+    config,
+    profile,
+    signals,
+    rankerPool,
+    softMax,
+    sensitivity,
+    sourcePrompts,
+  });
+}
+
+async function rankMatterSignalsViaJev(options: {
+  config: AppConfig;
+  profile: WelcomeProfile | null;
+  rankerPool: RawMatterSignal[];
+  allSignals: RawMatterSignal[];
+  softMax: number;
+}): Promise<RankedMatterResult | null> {
+  const { config, profile, rankerPool, allSignals, softMax } = options;
+  const decisions = await runMatterJevDecisions({ signals: rankerPool, profile });
+  if (!decisions) return null;
+
+  const decisionByFp = new Map(decisions.signals.map((d) => [d.fingerprint, d]));
+
+  const keptSignals = rankerPool.filter((s) => {
+    const d = decisionByFp.get(s.fingerprint);
+    return d?.keep === true;
+  });
+
+  const baseItems = buildItemsFromJevDecisions(keptSignals, decisionByFp, profile, softMax);
+  if (baseItems.length === 0) {
+    const empty = heuristicRank([], profile, softMax);
+    return {
+      ...empty,
+      pulse: 'Nothing needs your action right now.',
+      lenses: decisions.lenses.map((l) => ({
+        id: l.id,
+        status: l.status,
+        summary: 'Nothing pressing in this lens.',
+      })),
+    };
+  }
+
+  // Narrative-only LLM for survivors (pulse/brief/summary/why/suggestedAction).
+  let narrativeByFp = new Map<string, Record<string, unknown>>();
+  let pulse: string | null = null;
+  let brief: string | null = null;
+  try {
+    const creds = applyBackendManagedCredentials({
+      provider: 'openai',
+      apiKey: '',
+      baseUrl: '',
+    });
+    const oneShotConfig: AppConfig = {
+      ...config,
+      model: MATTER_RANKER_MODEL,
+      provider: 'openai',
+      customProtocol: 'openai',
+      baseUrl: creds.baseUrl || config.baseUrl,
+      apiKey: creds.apiKey || config.apiKey,
+    };
+    const narrativePrompt = [
+      'You write short Matter copy for items ALREADY selected for this person.',
+      'Return JSON only: {"pulse":string,"brief":string|null,"items":[{"fingerprint":string,"summary":string,"whyItMatters":string,"suggestedAction":string|null,"title":string}]}',
+      'Do not drop or add fingerprints. Prefer existing titles unless junk.',
+      '',
+      JSON.stringify(
+        {
+          profile: profile
+            ? {
+                name: profile.name,
+                title: profile.title,
+                function: profile.functionName,
+              }
+            : null,
+          items: baseItems.map((item) => ({
+            fingerprint: item.fingerprint,
+            title: item.title,
+            source: item.source,
+            severity: item.severity,
+            category: item.category,
+            summaryHint: item.summary,
+          })),
+        },
+        null,
+        2
+      ),
+    ].join('\n');
+
+    const result = await runPiAiOneShot(
+      narrativePrompt,
+      'Return JSON only. No ranking decisions.',
+      oneShotConfig,
+      { usageFeature: 'matter_scan', usageSessionId: 'matter_scan' }
+    );
+    const parsed = extractJsonObject(result.text) as {
+      pulse?: unknown;
+      brief?: unknown;
+      items?: unknown;
+    };
+    if (typeof parsed.pulse === 'string' && parsed.pulse.trim()) {
+      pulse = parsed.pulse.trim();
+    }
+    if (typeof parsed.brief === 'string' && parsed.brief.trim()) {
+      brief = parsed.brief.trim();
+    }
+    if (Array.isArray(parsed.items)) {
+      for (const raw of parsed.items) {
+        if (!raw || typeof raw !== 'object') continue;
+        const item = raw as Record<string, unknown>;
+        const fp = typeof item.fingerprint === 'string' ? item.fingerprint.trim() : '';
+        if (fp) narrativeByFp.set(fp, item);
+      }
+    }
+  } catch (error) {
+    logWarn('[Matter] Jev narrative LLM failed; using collector text:', error);
+  }
+
+  const items = attachRawFromSignals(
+    baseItems.map((baseItem) => {
+      const narr = narrativeByFp.get(baseItem.fingerprint);
+      if (!narr) return baseItem;
+      const title =
+        typeof narr.title === 'string' &&
+        narr.title.trim() &&
+        !isRollupTitle(narr.title) &&
+        !looksLikeJunkTitle(narr.title)
+          ? narr.title.trim().slice(0, 120)
+          : baseItem.title;
+      return {
+        ...baseItem,
+        title,
+        summary:
+          typeof narr.summary === 'string' && narr.summary.trim()
+            ? narr.summary.trim()
+            : baseItem.summary,
+        whyItMatters:
+          typeof narr.whyItMatters === 'string' && narr.whyItMatters.trim()
+            ? narr.whyItMatters.trim()
+            : baseItem.whyItMatters,
+        suggestedAction:
+          typeof narr.suggestedAction === 'string'
+            ? narr.suggestedAction
+            : baseItem.suggestedAction,
+      };
+    }),
+    allSignals
+  );
+
+  const heuristicLenses = heuristicRank(keptSignals, profile, softMax).lenses;
+  const lenses = decisions.lenses.map((l) => {
+    const fallback = heuristicLenses.find((h) => h.id === l.id);
+    return {
+      id: l.id,
+      status: l.status,
+      summary: fallback?.summary || 'Nothing pressing in this lens.',
+    };
+  });
+
+  return {
+    pulse:
+      pulse ||
+      (items.length === 0
+        ? 'Nothing needs your action right now.'
+        : `${items.length} action${items.length === 1 ? '' : 's'} on your radar.`),
+    brief,
+    items,
+    lenses,
+  };
+}
+
+function buildItemsFromJevDecisions(
+  keptSignals: RawMatterSignal[],
+  decisionByFp: Map<string, MatterJevSignalDecision>,
+  profile: WelcomeProfile | null,
+  softMax: number
+): RankedMatterResult['items'] {
+  const mapped = keptSignals.map((s) => {
+    const d = decisionByFp.get(s.fingerprint)!;
+    const dueAt = s.dueAt ?? s.occurredAt ?? null;
+    const times = deriveMatterTimeFields({
+      dueAt,
+      expiresAt: s.expiresAt ?? null,
+      source: s.source,
+    });
+    const rankScore = d.rankScore;
+    return {
+      fingerprint: s.fingerprint,
+      title: s.title.slice(0, 90),
+      summary: s.summary,
+      whyItMatters:
+        s.whyHint ||
+        (profile?.title
+          ? `Needs your action as ${profile.title}.`
+          : 'Needs your action from connected work tools.'),
+      severity: d.severity,
+      orbit: orbitFromRankScore(rankScore, {
+        dueAt: times.dueAt,
+        fallbackOrbit: d.orbit,
+      }),
+      category: d.category,
+      source: s.source,
+      confidence: d.confidence,
+      suggestedAction: s.suggestedAction || null,
+      rankScore,
+      sourceRef: enrichSourceRef(s.sourceRef || {}, s.rawDetails || s.rawExcerpt),
+      rawDetails: s.rawDetails || s.rawExcerpt || null,
+      dueAt: times.dueAt,
+      remindAt: times.remindAt,
+      expiresAt: times.expiresAt,
+    };
+  });
+
+  return capRankedItemsBySource(
+    mapped.sort((a, b) => b.rankScore - a.rankScore),
+    softMax
+  );
+}
+
+async function rankMatterSignalsViaLlm(options: {
+  config: AppConfig;
+  profile: WelcomeProfile | null;
+  signals: RawMatterSignal[];
+  rankerPool: RawMatterSignal[];
+  softMax: number;
+  sensitivity: MatterSensitivity;
+  sourcePrompts?: MatterSourcePrompts | null;
+}): Promise<RankedMatterResult> {
+  const { config, profile, signals, rankerPool, softMax, sensitivity, sourcePrompts } = options;
   try {
     const creds = applyBackendManagedCredentials({
       provider: 'openai',

@@ -14,6 +14,20 @@ export class MemoryNavigator {
     questionDate: string | undefined,
     visibleContext: string
   ): Promise<NavigationDecision> {
+    try {
+      const { jevMemorySufficient } = await import('../jev/memory-watch-workflow-jev');
+      const jev = await jevMemorySufficient({ question, visibleContext });
+      if (jev?.sufficient) {
+        return {
+          sufficient: true,
+          reason: 'jev_sufficient',
+          actions: [],
+        };
+      }
+    } catch {
+      // Fall through to LLM navigator.
+    }
+
     const response = await this.llm.complete({
       systemPrompt: this.systemPrompt,
       userPrompt: [
