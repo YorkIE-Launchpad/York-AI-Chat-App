@@ -1,12 +1,12 @@
 /**
- * Shared TypeSafe Jev constants — version pin and confidence thresholds.
+ * Shared TypeSafe Jev constants — model alias and confidence thresholds.
  * Thresholds live in code (not prompts) so they can be tuned per consequence.
  */
 
-/** Version-pinned model for production thresholds. */
-export const JEV_MODEL = 'jev-1.13.0';
+/** Product model alias (tracks TypeSafe latest). */
+export const JEV_MODEL = 'jev-latest';
 
-/** Soft alias for experiments only — prefer JEV_MODEL in product paths. */
+/** Alias kept for callers that want an explicit “latest” name. */
 export const JEV_MODEL_LATEST = 'jev-latest';
 
 /** Act on Matter keep when confidence >= this. */

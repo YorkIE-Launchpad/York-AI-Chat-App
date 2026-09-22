@@ -40,7 +40,7 @@ describe('proxyToProvider TypeSafe Jev', () => {
       lastUpstreamHeaders = { ...req.headers };
       lastUpstreamPath = req.url || '';
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ model: 'jev-1.13.0', answers: {}, usage: {} }));
+      res.end(JSON.stringify({ model: 'jev-latest', answers: {}, usage: {} }));
     });
     upstreamPort = await listen(upstream);
 
@@ -74,7 +74,7 @@ describe('proxyToProvider TypeSafe Jev', () => {
 
   it('injects TYPESAFE_API_KEY as Bearer and strips client Cognito auth', async () => {
     const body = JSON.stringify({
-      model: 'jev-1.13.0',
+      model: 'jev-latest',
       state: 'hello',
       questions: { q: { type: 'noul', instructions: 'Is this a greeting?' } },
     });
@@ -113,7 +113,7 @@ describe('proxyToProvider TypeSafe Jev', () => {
     const saved = process.env.TYPESAFE_API_KEY;
     delete process.env.TYPESAFE_API_KEY;
     try {
-      const body = JSON.stringify({ model: 'jev-1.13.0', state: 'x', questions: {} });
+      const body = JSON.stringify({ model: 'jev-latest', state: 'x', questions: {} });
       const status = await new Promise<number>((resolve, reject) => {
         const req = http.request(
           {
