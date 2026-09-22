@@ -184,7 +184,7 @@ describe('SessionManager processQueue concurrency', () => {
     expect(idleCount).toBe(1);
   });
 
-  it('finally block does not restart processQueue (no duplicate queue possible)', async () => {
+  it('finally block does not restart processQueue when the queue is empty', async () => {
     const manager = new SessionManager(db, sendToRenderer);
 
     // Track how many times processQueue is entered by spying on activeSessions.set
@@ -242,6 +242,84 @@ describe('SessionManager processQueue concurrency', () => {
 
     // processQueue should have been entered exactly once (not re-entered from finally)
     expect(processQueueEntries).toBe(1);
+  });
+
+  it('finally restarts processQueue when leftover prompts remain after abort', async () => {
+    const manager = new SessionManager(db, sendToRenderer);
+
+    let processQueueEntries = 0;
+    const origProcessQueue = (
+      manager as unknown as { processQueue: (s: unknown) => Promise<void> }
+    ).processQueue.bind(manager);
+    (manager as unknown as { processQueue: (s: unknown) => Promise<void> }).processQueue = async (
+      session: unknown
+    ) => {
+      processQueueEntries++;
+      return origProcessQueue(session);
+    };
+
+    let resolveFirst!: () => void;
+    const firstBarrier = new Promise<void>((resolve) => {
+      resolveFirst = resolve;
+    });
+
+    const processPromptMock = vi
+      .fn()
+      .mockImplementationOnce(async () => {
+        await firstBarrier;
+      })
+      .mockResolvedValue(undefined);
+
+    (manager as unknown as { processPrompt: () => Promise<void> }).processPrompt =
+      processPromptMock;
+    (manager as unknown as { loadSession: (id: string) => unknown }).loadSession = (
+      id: string
+    ) => ({
+      id,
+      title: 'Test',
+      created_at: Date.now(),
+      updated_at: Date.now(),
+      status: 'running' as const,
+      cwd: '/tmp',
+    });
+
+    const session = {
+      id: 's1',
+      title: 'Test',
+      created_at: Date.now(),
+      updated_at: Date.now(),
+      status: 'idle' as const,
+      cwd: '/tmp',
+    };
+
+    (manager as unknown as { enqueuePrompt: (s: unknown, p: string) => void }).enqueuePrompt(
+      session,
+      'prompt 1'
+    );
+
+    await new Promise((r) => setTimeout(r, 10));
+    expect(processQueueEntries).toBe(1);
+
+    // Simulate Stop aborting the queue controller while processPrompt is still in flight,
+    // then a second user prompt arriving before unwind finishes.
+    const activeSessions = (
+      manager as unknown as { activeSessions: Map<string, AbortController> }
+    ).activeSessions;
+    const controller = activeSessions.get('s1');
+    expect(controller).toBeTruthy();
+    controller!.abort();
+
+    (manager as unknown as { enqueuePrompt: (s: unknown, p: string) => void }).enqueuePrompt(
+      session,
+      'prompt after stop'
+    );
+
+    resolveFirst();
+    await new Promise((r) => setTimeout(r, 50));
+
+    // First processQueue exits on abort; finally should restart for the leftover.
+    expect(processQueueEntries).toBe(2);
+    expect(processPromptMock).toHaveBeenCalledTimes(2);
   });
 });
 

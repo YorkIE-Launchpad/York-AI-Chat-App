@@ -35,6 +35,7 @@ import {
   MCP_WRITE_DISABLED_MESSAGE,
   isMcpWriteAccessDenied,
 } from '../config/mcp-write-access-store';
+import type { AskUserQuestionExtension } from '../tools/ask-user-question-extension';
 import { PathResolver } from '../sandbox/path-resolver';
 import { MCPManager } from '../mcp/mcp-manager';
 import { mcpConfigStore } from '../mcp/mcp-config-store';
@@ -381,18 +382,27 @@ function getBundledNodePaths(): { node: string; npx: string } | null {
   }
   const platform = process.platform;
   const arch = process.arch;
-  let resourcesPath: string;
-  if (!app.isPackaged) {
-    const projectRoot = path.join(__dirname, '..', '..');
-    resourcesPath = path.join(projectRoot, 'resources', 'node', `${platform}-${arch}`);
-  } else {
-    resourcesPath = path.join(process.resourcesPath, 'node');
+  const projectRoot = path.join(__dirname, '..', '..');
+  // Branded Electron in local dev reports isPackaged=true without extraResources;
+  // try packaged layout first, then resources/node/{platform}-{arch}.
+  const candidates: string[] = [];
+  if (app.isPackaged) {
+    candidates.push(path.join(process.resourcesPath, 'node'));
   }
-  const binDir = platform === 'win32' ? resourcesPath : path.join(resourcesPath, 'bin');
-  const nodePath = path.join(binDir, platform === 'win32' ? 'node.exe' : 'node');
-  const npxPath = path.join(binDir, platform === 'win32' ? 'npx.cmd' : 'npx');
-  cachedBundledNodePaths =
-    fs.existsSync(nodePath) && fs.existsSync(npxPath) ? { node: nodePath, npx: npxPath } : null;
+  candidates.push(path.join(projectRoot, 'resources', 'node', `${platform}-${arch}`));
+
+  const nodeExe = platform === 'win32' ? 'node.exe' : 'node';
+  const npxExe = platform === 'win32' ? 'npx.cmd' : 'npx';
+  for (const resourcesPath of candidates) {
+    const binDir = platform === 'win32' ? resourcesPath : path.join(resourcesPath, 'bin');
+    const nodePath = path.join(binDir, nodeExe);
+    const npxPath = path.join(binDir, npxExe);
+    if (fs.existsSync(nodePath) && fs.existsSync(npxPath)) {
+      cachedBundledNodePaths = { node: nodePath, npx: npxPath };
+      return cachedBundledNodePaths;
+    }
+  }
+  cachedBundledNodePaths = null;
   return cachedBundledNodePaths;
 }
 
@@ -823,6 +833,7 @@ export class CoworkAgentRunner {
   private _pluginRuntimeService?: PluginRuntimeService;
   private _skillsAdapter?: SkillsAdapter;
   private extensionManager?: AgentRuntimeExtensionManager;
+  private askUserQuestionExtension?: AskUserQuestionExtension;
   private activeControllers: Map<string, AbortController> = new Map();
   private piSessions: Map<string, CachedPiSession> = new Map();
   private toolDisplayNameCache: Map<string, string> = new Map();
@@ -1157,7 +1168,8 @@ ${hints.join('\n')}
     mcpManager?: MCPManager,
     pluginRuntimeService?: PluginRuntimeService,
     skillsAdapter?: SkillsAdapter,
-    extensionManager?: AgentRuntimeExtensionManager
+    extensionManager?: AgentRuntimeExtensionManager,
+    askUserQuestionExtension?: AskUserQuestionExtension
   ) {
     this.sendToRenderer = options.sendToRenderer;
     this.saveMessage = options.saveMessage;
@@ -1168,6 +1180,7 @@ ${hints.join('\n')}
     this._pluginRuntimeService = pluginRuntimeService;
     this._skillsAdapter = skillsAdapter;
     this.extensionManager = extensionManager;
+    this.askUserQuestionExtension = askUserQuestionExtension;
 
     log('[CoworkAgentRunner] Initialized with York IE agent SDK');
     log('[CoworkAgentRunner] Skills enabled: settingSources=[user, project], Skill tool enabled');
@@ -3494,6 +3507,11 @@ ${
       const resetActivityTimeout = () => {
         if (activityTimeoutId) clearTimeout(activityTimeoutId);
         activityTimeoutId = setTimeout(() => {
+          // Waiting on AskUserQuestion is intentional idle — keep the turn alive.
+          if (this.askUserQuestionExtension?.hasPending(session.id)) {
+            resetActivityTimeout();
+            return;
+          }
           logWarn(
             `[CoworkAgentRunner] Prompt timed out (no activity for ${promptTimeoutLabel}), aborting`
           );
@@ -4684,6 +4702,14 @@ ${
   cancel(sessionId: string): void {
     const controller = this.activeControllers.get(sessionId);
     if (controller) controller.abort();
+    // Host AbortController only silences subscribe handlers — abort the real
+    // pi agent loop so prompt() returns and Stop cannot leave a ghost run.
+    const cached = this.piSessions.get(sessionId);
+    if (cached) {
+      void cached.session.abort().catch((err) => {
+        logWarn('[CoworkAgentRunner] piSession.abort failed:', err);
+      });
+    }
   }
 
   private sendTraceStep(sessionId: string, step: TraceStep): void {

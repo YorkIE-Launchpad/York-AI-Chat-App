@@ -287,7 +287,8 @@ export class SessionManager {
       this.mcpManager,
       this.pluginRuntimeService,
       undefined,
-      this.extensionManager
+      this.extensionManager,
+      this.askUserQuestionExtension
     );
   }
 
@@ -1809,15 +1810,36 @@ export class SessionManager {
         log('[SessionManager] Continuing queue with newly arrived prompts:', session.id);
       }
     } finally {
-      // Only clean up here — no restart logic needed since the outer loop
-      // already handles re-checking. activeSessions is only deleted once
-      // there are truly no pending items remaining.
+      // activeSessions is only deleted once the outer loop exits (abort or drain).
       this.activeSessions.delete(session.id);
       const queue = this.promptQueues.get(session.id);
       if (queue && queue.length === 0) {
         this.promptQueues.delete(session.id);
       }
       this.updateSessionStatus(session.id, 'idle');
+
+      // Prompts enqueued while a Stop/abort was winding down would otherwise
+      // sit orphaned (enqueue saw activeSessions and only queued). Restart.
+      const leftover = this.promptQueues.get(session.id);
+      if (leftover && leftover.length > 0 && !this.activeSessions.has(session.id)) {
+        const latestSession = this.loadSession(session.id);
+        if (latestSession) {
+          log(
+            '[SessionManager] Restarting queue after unwind with leftover prompts:',
+            session.id,
+            leftover.length
+          );
+          this.processQueue(latestSession).catch((err) => {
+            logError('[SessionManager] Queue restart error:', err);
+            this.sendToRenderer({
+              type: 'error',
+              payload: {
+                message: `Failed to process message: ${err instanceof Error ? err.message : String(err)}`,
+              },
+            });
+          });
+        }
+      }
     }
   }
 
@@ -1825,6 +1847,9 @@ export class SessionManager {
   stopSession(sessionId: string): void {
     log('[SessionManager] Stopping session:', sessionId);
     this.titleGenerationTokens.delete(sessionId);
+    // Unblock AskUserQuestion first, then abort the pi agent so it does not
+    // continue after a cancelled "proceed with assumptions" tool result.
+    this.askUserQuestionExtension?.dismissSessionQuestions(sessionId, 'session stopped');
     this.agentRunner.cancel(sessionId);
     // Cancel any pending sudo password requests for this session
     for (const [toolUseId, entry] of this.pendingSudoPasswords) {
@@ -1834,8 +1859,6 @@ export class SessionManager {
         this.sendToRenderer({ type: 'sudo.password.dismiss', payload: { toolUseId } });
       }
     }
-    // Cancel pending AskUserQuestion waits so the agent Promise cannot hang
-    this.askUserQuestionExtension?.dismissSessionQuestions(sessionId, 'session stopped');
     // Also abort any pending controller we tracked
     const controller = this.activeSessions.get(sessionId);
     if (controller) {

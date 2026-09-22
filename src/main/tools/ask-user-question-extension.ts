@@ -29,8 +29,11 @@ type PendingQuestion = {
   questionId: string;
   sessionId: string;
   toolUseId: string;
-  resolve: (result: AskResult) => void;
+  /** Settle the wait Promise exactly once (answer / cancel / timeout / abort). */
+  settle: (result: AskResult) => void;
   timeout: NodeJS.Timeout;
+  abortHandler?: () => void;
+  signal?: AbortSignal;
 };
 
 type AskResult =
@@ -220,8 +223,8 @@ function createAskUserQuestionTool(
         maxItems: 4,
       }),
     }),
-    async execute(toolCallId: string, params: unknown) {
-      return extension.executeAsk(sessionId, toolCallId, params);
+    async execute(toolCallId: string, params: unknown, signal?: AbortSignal) {
+      return extension.executeAsk(sessionId, toolCallId, params, signal);
     },
   };
 }
@@ -244,7 +247,8 @@ export class AskUserQuestionExtension implements AgentRuntimeExtension {
   async executeAsk(
     sessionId: string,
     toolCallId: string,
-    params: unknown
+    params: unknown,
+    signal?: AbortSignal
   ): Promise<{ content: Array<{ type: 'text'; text: string }>; details: unknown }> {
     const askCount = this.asksThisRun.get(sessionId) ?? 0;
     if (askCount >= ASK_USER_QUESTION_MAX_PER_RUN) {
@@ -303,26 +307,55 @@ export class AskUserQuestionExtension implements AgentRuntimeExtension {
     };
 
     const result = await new Promise<AskResult>((resolve) => {
-      const timeout = setTimeout(() => {
-        const pending = this.pending.get(questionId);
-        if (!pending) {
+      let settled = false;
+      const settle = (askResult: AskResult) => {
+        if (settled) {
           return;
         }
-        this.pending.delete(questionId);
+        settled = true;
+        const pending = this.pending.get(questionId);
+        if (pending) {
+          clearTimeout(pending.timeout);
+          if (pending.signal && pending.abortHandler) {
+            pending.signal.removeEventListener('abort', pending.abortHandler);
+          }
+          this.pending.delete(questionId);
+        }
+        resolve(askResult);
+      };
+
+      if (signal?.aborted) {
+        settle({ kind: 'cancelled', reason: 'aborted' });
+        return;
+      }
+
+      const timeout = setTimeout(() => {
         this.sendToRenderer({
           type: 'question.dismiss',
           payload: { questionId, sessionId },
         });
-        resolve({ kind: 'timeout' });
+        settle({ kind: 'timeout' });
       }, ASK_USER_QUESTION_TIMEOUT_MS);
+
+      const abortHandler = () => {
+        this.sendToRenderer({
+          type: 'question.dismiss',
+          payload: { questionId, sessionId },
+        });
+        settle({ kind: 'cancelled', reason: 'aborted' });
+      };
 
       this.pending.set(questionId, {
         questionId,
         sessionId,
         toolUseId,
-        resolve,
+        settle,
         timeout,
+        abortHandler,
+        signal,
       });
+
+      signal?.addEventListener('abort', abortHandler, { once: true });
 
       this.sendToRenderer({
         type: 'question.request',
@@ -370,15 +403,23 @@ export class AskUserQuestionExtension implements AgentRuntimeExtension {
     };
   }
 
+  /** True while this session has an unanswered AskUserQuestion wait. */
+  hasPending(sessionId: string): boolean {
+    for (const pending of this.pending.values()) {
+      if (pending.sessionId === sessionId) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   handleQuestionResponse(questionId: string, answer: string): boolean {
     const pending = this.pending.get(questionId);
     if (!pending) {
       logWarn(`[AskUserQuestion] No pending question for ID: ${questionId}`);
       return false;
     }
-    clearTimeout(pending.timeout);
-    this.pending.delete(questionId);
-    pending.resolve({ kind: 'answered', answersJson: answer });
+    pending.settle({ kind: 'answered', answersJson: answer });
     return true;
   }
 
@@ -388,28 +429,24 @@ export class AskUserQuestionExtension implements AgentRuntimeExtension {
     if (!pending) {
       return false;
     }
-    clearTimeout(pending.timeout);
-    this.pending.delete(questionId);
     this.sendToRenderer({
       type: 'question.dismiss',
       payload: { questionId, sessionId: pending.sessionId },
     });
-    pending.resolve({ kind: 'cancelled', reason });
+    pending.settle({ kind: 'cancelled', reason });
     return true;
   }
 
   dismissSessionQuestions(sessionId: string, reason = 'session stopped'): void {
-    for (const [questionId, pending] of [...this.pending.entries()]) {
+    for (const [, pending] of [...this.pending.entries()]) {
       if (pending.sessionId !== sessionId) {
         continue;
       }
-      clearTimeout(pending.timeout);
-      this.pending.delete(questionId);
       this.sendToRenderer({
         type: 'question.dismiss',
-        payload: { questionId, sessionId },
+        payload: { questionId: pending.questionId, sessionId },
       });
-      pending.resolve({ kind: 'cancelled', reason });
+      pending.settle({ kind: 'cancelled', reason });
     }
     this.asksThisRun.delete(sessionId);
   }

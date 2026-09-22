@@ -190,8 +190,66 @@ describe('AskUserQuestionExtension', () => {
       questions: [{ question: 'Q?', options: [{ label: 'A', recommended: true }] }],
     });
 
+    expect(extension.hasPending(session.id)).toBe(true);
     extension.dismissSessionQuestions(session.id, 'session stopped');
+    expect(extension.hasPending(session.id)).toBe(false);
     const result = await pending;
     expect(result.content[0].text).toContain('session stopped');
+  });
+
+  it('AbortSignal cancels pending ask and dismisses UI', async () => {
+    const session = makeSession();
+    await extension.beforeSessionRun({
+      session,
+      prompt: 'hi',
+      existingMessages: [],
+      isColdStart: true,
+    });
+
+    const controller = new AbortController();
+    const pending = extension.executeAsk(
+      session.id,
+      'tool-abort',
+      {
+        questions: [{ question: 'Pick?', options: [{ label: 'A', recommended: true }] }],
+      },
+      controller.signal
+    );
+
+    expect(events.some((e) => e.type === 'question.request')).toBe(true);
+    expect(extension.hasPending(session.id)).toBe(true);
+
+    controller.abort();
+    const result = await pending;
+    expect(result.content[0].text).toContain('aborted');
+    expect(events.some((e) => e.type === 'question.dismiss')).toBe(true);
+    expect(extension.hasPending(session.id)).toBe(false);
+  });
+
+  it('already-aborted signal cancels without opening UI', async () => {
+    const session = makeSession();
+    await extension.beforeSessionRun({
+      session,
+      prompt: 'hi',
+      existingMessages: [],
+      isColdStart: true,
+    });
+
+    const controller = new AbortController();
+    controller.abort();
+    events.length = 0;
+
+    const result = await extension.executeAsk(
+      session.id,
+      'tool-preabort',
+      {
+        questions: [{ question: 'Pick?', options: [{ label: 'A', recommended: true }] }],
+      },
+      controller.signal
+    );
+
+    expect(result.content[0].text).toContain('aborted');
+    expect(events.filter((e) => e.type === 'question.request')).toHaveLength(0);
+    expect(extension.hasPending(session.id)).toBe(false);
   });
 });

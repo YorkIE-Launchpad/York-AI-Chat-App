@@ -419,6 +419,10 @@ export class MCPManager {
   /**
    * Get bundled Node.js path
    * Returns the path to the bundled node/npx binaries
+   *
+   * Packaged builds use extraResources (`Contents/Resources/node`). Branded Electron
+   * in local dev also reports `app.isPackaged === true`, so we fall back to
+   * `resources/node/{platform}-{arch}` (same pattern as getMcpServerPath).
    */
   private getBundledNodePath(): { node: string; npx: string } | null {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -430,48 +434,40 @@ export class MCPManager {
 
     const platform = os.platform();
     const arch = os.arch();
+    const projectRoot = path.join(__dirname, '..', '..');
+    const candidates: string[] = [];
 
-    // In production, resources are in app.asar.unpacked or extraResources
-    let resourcesPath: string;
-
-    if (!app.isPackaged) {
-      // Development: use downloaded node in resources/node
-      // __dirname is dist-electron/main, so go up to project root
-      log('[MCPManager] Development mode, using downloaded node in resources/node');
-      const projectRoot = path.join(__dirname, '..', '..');
-      resourcesPath = path.join(projectRoot, 'resources', 'node', `${platform}-${arch}`);
-    } else {
-      // Production: use bundled node in extraResources
-      log('[MCPManager] Production mode, using bundled node in extraResources');
-      resourcesPath = path.join(process.resourcesPath, 'node');
+    if (app.isPackaged) {
+      candidates.push(path.join(process.resourcesPath, 'node'));
     }
+    candidates.push(path.join(projectRoot, 'resources', 'node', `${platform}-${arch}`));
 
-    log(`[MCPManager] Looking for bundled Node.js at: ${resourcesPath}`);
-
-    if (!fs.existsSync(resourcesPath)) {
-      logWarn(`[MCPManager] Bundled Node.js not found at: ${resourcesPath}`);
-      return null;
-    }
-
-    // Determine binary paths based on platform
-    const binDir = platform === 'win32' ? resourcesPath : path.join(resourcesPath, 'bin');
     const nodeExe = platform === 'win32' ? 'node.exe' : 'node';
     const npxExe = platform === 'win32' ? 'npx.cmd' : 'npx';
 
-    const nodePath = path.join(binDir, nodeExe);
-    const npxPath = path.join(binDir, npxExe);
+    for (const resourcesPath of candidates) {
+      log(`[MCPManager] Looking for bundled Node.js at: ${resourcesPath}`);
+      if (!fs.existsSync(resourcesPath)) {
+        logWarn(`[MCPManager] Bundled Node.js not found at: ${resourcesPath}`);
+        continue;
+      }
 
-    // Verify files exist
-    if (fs.existsSync(nodePath) && fs.existsSync(npxPath)) {
-      log(`[MCPManager] Found bundled Node.js: ${nodePath}`);
-      log(`[MCPManager] Found bundled npx: ${npxPath}`);
-      return { node: nodePath, npx: npxPath };
-    } else {
+      const binDir = platform === 'win32' ? resourcesPath : path.join(resourcesPath, 'bin');
+      const nodePath = path.join(binDir, nodeExe);
+      const npxPath = path.join(binDir, npxExe);
+
+      if (fs.existsSync(nodePath) && fs.existsSync(npxPath)) {
+        log(`[MCPManager] Found bundled Node.js: ${nodePath}`);
+        log(`[MCPManager] Found bundled npx: ${npxPath}`);
+        return { node: nodePath, npx: npxPath };
+      }
+
       logWarn(
         `[MCPManager] Bundled binaries incomplete - node: ${fs.existsSync(nodePath)}, npx: ${fs.existsSync(npxPath)}`
       );
-      return null;
     }
+
+    return null;
   }
 
   /**
