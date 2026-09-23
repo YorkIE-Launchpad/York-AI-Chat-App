@@ -1,8 +1,10 @@
 import {
   buildTitlePrompt,
-  getDefaultTitleFromPrompt,
+  isAutomaticSessionTitle,
+  isEchoTitle,
   normalizeGeneratedTitle,
   shouldGenerateTitle,
+  succinctTitleFromPrompt,
 } from './session-title-utils';
 
 type TitleFlowDeps = {
@@ -18,6 +20,12 @@ type TitleFlowDeps = {
   shouldAbort?: () => boolean;
   log: (message: string, ...args: unknown[]) => void;
 };
+
+function localSuccinctTitle(prompt: string, currentTitle: string): string | null {
+  const fallback = succinctTitleFromPrompt(prompt);
+  if (!fallback || fallback === currentTitle) return null;
+  return fallback;
+}
 
 export async function maybeGenerateSessionTitle(deps: TitleFlowDeps): Promise<void> {
   if (deps.shouldAbort?.()) {
@@ -52,7 +60,7 @@ export async function maybeGenerateSessionTitle(deps: TitleFlowDeps): Promise<vo
     generatedTitle = normalizeGeneratedTitle(await deps.generateTitle(titlePrompt), deps.prompt);
   } catch (error) {
     deps.log('[SessionTitle] Generation failed', deps.sessionId, error);
-    return;
+    generatedTitle = null;
   }
 
   if (deps.shouldAbort?.()) {
@@ -60,14 +68,27 @@ export async function maybeGenerateSessionTitle(deps: TitleFlowDeps): Promise<vo
     return;
   }
 
+  if (generatedTitle && isEchoTitle(deps.prompt, generatedTitle)) {
+    deps.log('[SessionTitle] Rejected echo of the user message', deps.sessionId, generatedTitle);
+    generatedTitle = null;
+  }
+
   if (!generatedTitle) {
-    deps.log('[SessionTitle] No title generated', deps.sessionId);
-    return;
+    const fallback = localSuccinctTitle(deps.prompt, deps.currentTitle);
+    if (!fallback) {
+      deps.log('[SessionTitle] No title generated', deps.sessionId);
+      return;
+    }
+    generatedTitle = fallback;
+    deps.log('[SessionTitle] Using local succinct title', deps.sessionId, generatedTitle);
   }
 
   const latestTitle = deps.getLatestTitle();
-  const defaultTitle = getDefaultTitleFromPrompt(deps.prompt);
-  if (latestTitle && latestTitle !== deps.currentTitle && latestTitle !== defaultTitle) {
+  if (
+    latestTitle &&
+    latestTitle !== deps.currentTitle &&
+    !isAutomaticSessionTitle(latestTitle, deps.prompt)
+  ) {
     deps.log('[SessionTitle] Skip: title changed before update', deps.sessionId);
     return;
   }

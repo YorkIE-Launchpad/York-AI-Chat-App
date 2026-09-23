@@ -37,10 +37,7 @@ vi.mock('../src/main/mcp/mcp-config-store', () => ({
 }));
 
 import { SessionManager } from '../src/main/session/session-manager';
-import {
-  buildTitlePrompt,
-  getDefaultTitleFromPrompt,
-} from '../src/main/session/session-title-utils';
+import { buildTitlePrompt, succinctTitleFromPrompt } from '../src/main/session/session-title-utils';
 import { buildScheduledTaskTitle } from '../src/shared/schedule/task-title';
 
 describe('SessionManager scheduled title generation', () => {
@@ -67,7 +64,7 @@ describe('SessionManager scheduled title generation', () => {
     expect(title).toBe('[Scheduled Task] Paper search summary');
   });
 
-  it('falls back to default prompt title when model title generation returns null', async () => {
+  it('falls back to a succinct title when model title generation returns null', async () => {
     const proto = SessionManager.prototype as unknown as {
       generateSessionTitleFromPrompt(prompt: string, cwd?: string): Promise<string>;
       generateScheduledTaskTitle(prompt: string, cwd?: string): Promise<string>;
@@ -82,6 +79,7 @@ describe('SessionManager scheduled title generation', () => {
 
     const title = await proto.generateScheduledTaskTitle.call(fakeManager, prompt, '/tmp/project');
 
-    expect(title).toBe(buildScheduledTaskTitle(getDefaultTitleFromPrompt(prompt)));
+    expect(title).toBe(buildScheduledTaskTitle('Use Chrome to Search and Summarize'));
+    expect(succinctTitleFromPrompt(prompt)).toBe('Use Chrome to Search and Summarize');
   });
 });

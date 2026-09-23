@@ -1,5 +1,5 @@
 import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
+import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
 import type {
   SharedDocKind,
   SharedDocPermission,
@@ -12,6 +12,7 @@ import {
   parseSharedDocManifest,
   sharedDocContentFileName,
   sharedDocContentKey,
+  sharedDocIdFromWorkspacePath,
   sharedDocManifestKey,
   type SharedDocManifest,
 } from '../../shared/shared-docs/share-code';
@@ -212,10 +213,12 @@ export class SharedDocsService {
     }
     let downloaded: { buffer: Buffer; lastModified: string };
     try {
+      const leaf = basename(input.localPath);
       downloaded = await this.downloadHubObject([
         manifest?.s3Key || '',
         input.doc.s3Key,
         sharedDocContentKey(input.doc.id, kind),
+        leaf ? `${sharedDocHubFolder(input.doc.id)}/${leaf}` : '',
       ]);
     } catch (error) {
       if (existsSync(resolved.absolutePath)) {
@@ -460,6 +463,33 @@ export class SharedDocsService {
     });
 
     return doc;
+  }
+
+  /**
+   * If `absolutePath` is `.../shared/<docId>/<file>` and the file is not on disk,
+   * download it from Hub storage. Returns false when the path is not a shared doc.
+   */
+  async ensureLocalSharedFile(absolutePath: string): Promise<boolean> {
+    if (existsSync(absolutePath)) return true;
+    const docId = sharedDocIdFromWorkspacePath(absolutePath);
+    if (!docId) return false;
+    const leaf = basename(absolutePath);
+    const kind = previewKindFromPath(absolutePath);
+    let manifest: SharedDocManifest | null = null;
+    try {
+      manifest = await this.loadManifest(docId);
+    } catch {
+      manifest = null;
+    }
+    const downloaded = await this.downloadHubObject([
+      manifest?.s3Key || '',
+      sharedDocContentKey(docId, kind),
+      leaf ? `${sharedDocHubFolder(docId)}/${leaf}` : '',
+      sharedDocContentKey(docId, kind === 'html' ? 'markdown' : 'html'),
+    ]);
+    mkdirSync(dirname(absolutePath), { recursive: true });
+    writeFileSync(absolutePath, downloaded.buffer);
+    return true;
   }
 
   async hydrateSession(sessionId: string, cwd: string): Promise<void> {

@@ -319,6 +319,19 @@ export function isLeaseHeldByOther(doc: Y.Doc, sub: string, now = Date.now()): b
  * Clear lease if holderSub is not among online peer subs (stale holder left).
  * Returns true if lease was cleared.
  */
+/**
+ * SQLite primary keys are global. When a shared message id already belongs to
+ * another local session, store the projection under this session-scoped id.
+ */
+export function collabProjectionMessageId(sessionId: string, portableId: string): string {
+  return `collab:${sessionId}:${portableId}`;
+}
+
+/** True for rows created by collabProjectionMessageId (do not seed these back into Yjs). */
+export function isCollabProjectionCopy(sessionId: string, messageId: string): boolean {
+  return messageId.startsWith(`collab:${sessionId}:`);
+}
+
 export function clearLeaseIfHolderOffline(
   doc: Y.Doc,
   onlineSubs: Set<string>,

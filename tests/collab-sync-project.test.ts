@@ -156,4 +156,56 @@ describe('CollabSyncService remote projection', () => {
 
     service.dispose();
   });
+
+  it('emits the session-local copy when the shared id already belongs to another chat', () => {
+    const emitStreamMessage = vi.fn();
+    const saveMessage = vi.fn();
+    const service = new CollabSyncService({
+      getSession: () => null,
+      listSessions: () => [],
+      getMessages: () => [],
+      saveMessage,
+      persistProjectedMessage: (message) => ({
+        message: { ...message, id: `collab:${message.sessionId}:${message.id}` },
+        inserted: true,
+      }),
+      emitStreamMessage,
+      createJoinedSession: () => {
+        throw new Error('unused');
+      },
+      updateSessionCollab: () => undefined,
+      getWindow: () => null,
+    });
+
+    const doc = new Y.Doc();
+    const awareness = new awarenessProtocol.Awareness(doc);
+    const rt: CollabRoomRuntimeForTests = {
+      sessionId: 'session-shared',
+      roomId: 'room_test',
+      role: 'member',
+      inviteToken: 'room_test',
+      doc,
+      awareness,
+      provider: { destroy: vi.fn(), requestSync: vi.fn() } as never,
+      connection: 'connected',
+      peersOnline: true,
+      applyingRemote: false,
+      leaseRefreshTimer: null,
+      knownFingerprints: new Map(),
+    };
+    service.installRoomForTests(rt);
+
+    commitCollabMessage(doc, messageToCollabPortable(sampleMessage('remote-1', 'from owner')));
+    service.flushRemoteProjectionForTests('session-shared');
+
+    expect(saveMessage).not.toHaveBeenCalled();
+    expect(emitStreamMessage).toHaveBeenCalledTimes(1);
+    expect(emitStreamMessage.mock.calls[0]?.[0]).toMatchObject({
+      id: 'collab:session-shared:remote-1',
+      sessionId: 'session-shared',
+    });
+    expect(rt.knownFingerprints.has('remote-1')).toBe(true);
+
+    service.dispose();
+  });
 });

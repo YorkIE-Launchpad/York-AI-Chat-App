@@ -198,3 +198,138 @@ describe('SessionManager message cache', () => {
     expect(msgs).toHaveLength(3);
   });
 });
+
+describe('SessionManager shared-chat projection', () => {
+  it('stores a copy when the shared message id already belongs to another session', () => {
+    const rows = new Map<
+      string,
+      {
+        id: string;
+        session_id: string;
+        role: string;
+        content: string;
+        timestamp: number;
+        token_usage: null;
+        execution_time_ms: null;
+      }
+    >();
+    rows.set('remote-1', {
+      id: 'remote-1',
+      session_id: 'owner-session',
+      role: 'user',
+      content: JSON.stringify([{ type: 'text', text: 'hello' }]),
+      timestamp: 1,
+      token_usage: null,
+      execution_time_ms: null,
+    });
+
+    const db = {
+      sessions: {
+        create: vi.fn(),
+        get: vi.fn(),
+        getAll: vi.fn(() => []),
+        update: vi.fn(),
+        delete: vi.fn(),
+      },
+      messages: {
+        create: vi.fn((row: { id: string; session_id: string; role: string; content: string; timestamp: number }) => {
+          rows.set(row.id, {
+            id: row.id,
+            session_id: row.session_id,
+            role: row.role,
+            content: row.content,
+            timestamp: row.timestamp,
+            token_usage: null,
+            execution_time_ms: null,
+          });
+        }),
+        update: vi.fn(),
+        getById: vi.fn((id: string) => rows.get(id)),
+        getBySessionId: vi.fn((sessionId: string) =>
+          [...rows.values()].filter((row) => row.session_id === sessionId)
+        ),
+        delete: vi.fn(),
+        deleteBySessionId: vi.fn(),
+      },
+      traceSteps: {
+        create: vi.fn(),
+        update: vi.fn(),
+        getBySessionId: vi.fn(() => []),
+        deleteBySessionId: vi.fn(),
+      },
+    };
+
+    const manager = new SessionManager(db as unknown as DatabaseInstance, vi.fn());
+    const result = manager.applyProjectedCollabMessage({
+      id: 'remote-1',
+      sessionId: 'joined-session',
+      role: 'user',
+      content: [{ type: 'text', text: 'hello' }],
+      timestamp: 1,
+    });
+
+    expect(result.inserted).toBe(true);
+    expect(result.message.id).toBe('collab:joined-session:remote-1');
+    expect(rows.get('remote-1')?.session_id).toBe('owner-session');
+    expect(manager.getMessages('joined-session').map((message) => message.id)).toEqual([
+      'collab:joined-session:remote-1',
+    ]);
+  });
+
+  it('updates the existing row when the shared message id already belongs to this session', () => {
+    const content = JSON.stringify([{ type: 'text', text: 'hello' }]);
+    const rows = new Map([
+      [
+        'remote-1',
+        {
+          id: 'remote-1',
+          session_id: 'joined-session',
+          role: 'user',
+          content,
+          timestamp: 1,
+          token_usage: null,
+          execution_time_ms: null,
+        },
+      ],
+    ]);
+    const db = {
+      sessions: {
+        create: vi.fn(),
+        get: vi.fn(),
+        getAll: vi.fn(() => []),
+        update: vi.fn(),
+        delete: vi.fn(),
+      },
+      messages: {
+        create: vi.fn(),
+        update: vi.fn(),
+        getById: vi.fn((id: string) => rows.get(id)),
+        getBySessionId: vi.fn((sessionId: string) =>
+          [...rows.values()].filter((row) => row.session_id === sessionId)
+        ),
+        delete: vi.fn(),
+        deleteBySessionId: vi.fn(),
+      },
+      traceSteps: {
+        create: vi.fn(),
+        update: vi.fn(),
+        getBySessionId: vi.fn(() => []),
+        deleteBySessionId: vi.fn(),
+      },
+    };
+
+    const manager = new SessionManager(db as unknown as DatabaseInstance, vi.fn());
+    const result = manager.applyProjectedCollabMessage({
+      id: 'remote-1',
+      sessionId: 'joined-session',
+      role: 'user',
+      content: [{ type: 'text', text: 'hello again' }],
+      timestamp: 1,
+    });
+
+    expect(result.inserted).toBe(false);
+    expect(result.message.id).toBe('remote-1');
+    expect(db.messages.create).not.toHaveBeenCalled();
+    expect(db.messages.update).toHaveBeenCalled();
+  });
+});

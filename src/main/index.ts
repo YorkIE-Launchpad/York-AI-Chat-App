@@ -378,6 +378,7 @@ function wireCollabSyncService(): void {
     updateStoredMessage: (message) => {
       sessionManager!.updatePublishedMessage(message.sessionId, message.id, message.content);
     },
+    persistProjectedMessage: (message) => sessionManager!.applyProjectedCollabMessage(message),
     updateSessionTitle: (sessionId, title) => {
       sessionManager!.setSessionTitle(sessionId, title);
     },
@@ -3703,12 +3704,14 @@ const MAX_HTML_PREVIEW_BYTES = 2 * 1024 * 1024; // 2MB cap for srcDoc previews
 
 function resolveAppWorkspaceLocalPath(
   filePath: string,
-  preferredBaseDir?: string
+  preferredBaseDir?: string,
+  allowMissing = false
 ): { path: string; baseDir: string } | { error: string } {
   return resolveWorkspaceLocalPath(filePath, {
     preferredBaseDir,
     defaultWorkingDir: getWorkingDir() || '',
     userDataDefaultWorkingDir: join(app.getPath('userData'), 'default_working_dir'),
+    allowMissing,
   });
 }
 
@@ -3726,7 +3729,8 @@ ipcMain.handle(
 
       const resolved = resolveAppWorkspaceLocalPath(
         filePath.trim(),
-        cwd && typeof cwd === 'string' && isAbsolute(cwd) ? cwd : undefined
+        cwd && typeof cwd === 'string' && isAbsolute(cwd) ? cwd : undefined,
+        true
       );
       if ('error' in resolved) {
         return { success: false, error: resolved.error };
@@ -3736,6 +3740,16 @@ ipcMain.handle(
       const ext = extname(normalizedPath).toLowerCase();
       if (ext !== '.html' && ext !== '.htm' && ext !== '.md' && ext !== '.markdown') {
         return { success: false, error: 'Only HTML and Markdown files can be previewed' };
+      }
+
+      if (!fs.existsSync(normalizedPath)) {
+        const hydrated = await sharedDocsService.ensureLocalSharedFile(normalizedPath);
+        if (!hydrated && !fs.existsSync(normalizedPath)) {
+          return {
+            success: false,
+            error: `ENOENT: no such file or directory, stat '${normalizedPath}'`,
+          };
+        }
       }
 
       const stat = fs.statSync(normalizedPath);

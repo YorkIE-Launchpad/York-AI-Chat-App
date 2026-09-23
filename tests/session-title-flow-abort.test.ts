@@ -56,29 +56,29 @@ describe('maybeGenerateSessionTitle — generator exception handling', () => {
         throw new Error('Network error');
       }),
     });
-    // Should resolve without throwing
+    // Should resolve without throwing, and still store a local title.
     await expect(maybeGenerateSessionTitle(deps)).resolves.toBeUndefined();
-    expect(deps.updateTitle).not.toHaveBeenCalled();
-    expect(deps.markAttempt).not.toHaveBeenCalled();
+    expect(deps.updateTitle).toHaveBeenCalledWith('Write a Summary Report');
+    expect(deps.markAttempt).toHaveBeenCalledTimes(1);
   });
 
-  it('does not update title when generator returns null', async () => {
+  it('stores a local succinct title when generator returns null', async () => {
     const deps = makeDeps({ generateTitle: vi.fn(async () => null) });
     await maybeGenerateSessionTitle(deps);
-    expect(deps.updateTitle).not.toHaveBeenCalled();
-    expect(deps.markAttempt).not.toHaveBeenCalled();
+    expect(deps.updateTitle).toHaveBeenCalledWith('Write a Summary Report');
+    expect(deps.markAttempt).toHaveBeenCalledTimes(1);
   });
 
-  it('does not update title when generator returns empty string', async () => {
+  it('stores a local succinct title when generator returns empty string', async () => {
     const deps = makeDeps({ generateTitle: vi.fn(async () => '') });
     await maybeGenerateSessionTitle(deps);
-    expect(deps.updateTitle).not.toHaveBeenCalled();
+    expect(deps.updateTitle).toHaveBeenCalledWith('Write a Summary Report');
   });
 
-  it('does not update title when generator returns a placeholder like "(no content)"', async () => {
+  it('stores a local succinct title when generator returns a placeholder like "(no content)"', async () => {
     const deps = makeDeps({ generateTitle: vi.fn(async () => '(no content)') });
     await maybeGenerateSessionTitle(deps);
-    expect(deps.updateTitle).not.toHaveBeenCalled();
+    expect(deps.updateTitle).toHaveBeenCalledWith('Write a Summary Report');
   });
 });
 
@@ -132,14 +132,15 @@ describe('maybeGenerateSessionTitle — happy path', () => {
     expect(deps.updateTitle).toHaveBeenCalledWith('Quoted Title');
   });
 
-  it('does not update title when the model returns a Chinese title for an English prompt', async () => {
+  it('uses a local English title when the model returns a Chinese title for an English prompt', async () => {
     const deps = makeDeps({
       prompt: 'Help me plan the product launch',
       currentTitle: getDefaultTitleFromPrompt('Help me plan the product launch'),
+      getLatestTitle: () => getDefaultTitleFromPrompt('Help me plan the product launch'),
       generateTitle: vi.fn(async () => '产品发布计划'),
     });
     await maybeGenerateSessionTitle(deps);
-    expect(deps.updateTitle).not.toHaveBeenCalled();
-    expect(deps.markAttempt).not.toHaveBeenCalled();
+    expect(deps.updateTitle).toHaveBeenCalledWith('Plan the Product Launch');
+    expect(deps.markAttempt).toHaveBeenCalledTimes(1);
   });
 });

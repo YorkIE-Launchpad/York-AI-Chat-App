@@ -962,6 +962,7 @@ export async function generateTitleWithSdk(
       titlePrompt,
       [
         'Generate a concise conversation title.',
+        'Name the topic in a few words. Do not copy the user sentence.',
         'Match the language rules in the user message exactly.',
         'If the user request is English or any non-CJK language, the title must be English only — never Chinese.',
         'Reply with only the title text and no extra markup.',

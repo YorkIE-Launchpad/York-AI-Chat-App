@@ -28,6 +28,17 @@ describe('session title utils', () => {
     ).toBe(false);
   });
 
+  it('still generates when the current title is the local succinct title', () => {
+    expect(
+      shouldGenerateTitle({
+        userMessageCount: 1,
+        currentTitle: 'Check My API Key',
+        prompt: 'hello check my api key',
+        hasAttempted: false,
+      })
+    ).toBe(true);
+  });
+
   it('skips when title was manually changed', () => {
     expect(
       shouldGenerateTitle({
@@ -55,6 +66,8 @@ describe('session title utils', () => {
     expect(prompt).toContain('English only');
     expect(prompt).toContain('Do not use Chinese');
     expect(prompt).toContain('Help me make a PPT');
+    expect(prompt).toContain('API Key Check');
+    expect(prompt).toContain('Do not copy the user sentence');
     expect(prompt).not.toContain('same language as the user request');
   });
 
@@ -83,6 +96,10 @@ describe('session title utils', () => {
   it('normalizes generated title by taking first line and stripping quotes', () => {
     const title = normalizeGeneratedTitle('"  My Title  "\nSecond line');
     expect(title).toBe('My Title');
+  });
+
+  it('strips a Title prefix from the model output', () => {
+    expect(normalizeGeneratedTitle('Title: API Key Check')).toBe('API Key Check');
   });
 
   it('drops synthetic empty placeholder titles', () => {

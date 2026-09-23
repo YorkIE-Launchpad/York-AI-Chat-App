@@ -8,11 +8,19 @@ describe('session title flow', () => {
     expect(harness.updatedTitle).toBe('Short title');
   });
 
-  it('does not update when generator fails', async () => {
+  it('uses a local succinct title when the generator fails', async () => {
     const harness = createTitleFlowHarness({ generatedTitle: null });
     await harness.runFirstMessage('Help me make a PPT');
-    expect(harness.updatedTitle).toBe(null);
-    expect(harness.hasAttempted).toBe(false);
+    expect(harness.updatedTitle).toBe('Make a PPT');
+    expect(harness.hasAttempted).toBe(true);
+  });
+
+  it('replaces a title that only copies the user message', async () => {
+    const harness = createTitleFlowHarness({
+      generatedTitle: 'hello check my api key',
+    });
+    await harness.runFirstMessage('hello check my api key');
+    expect(harness.updatedTitle).toBe('Check My API Key');
   });
 
   it('does not override manual title changes', async () => {

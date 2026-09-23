@@ -58,8 +58,9 @@ import {
 import { maybeGenerateSessionTitle } from './session-title-flow';
 import {
   buildTitlePrompt,
-  getDefaultTitleFromPrompt,
+  isEchoTitle,
   normalizeGeneratedTitle,
+  succinctTitleFromPrompt,
 } from './session-title-utils';
 import { generateTitleWithSdk } from '../agent/sdk-one-shot';
 import { buildScheduledTaskTitle } from '../../shared/schedule/task-title';
@@ -78,6 +79,7 @@ import { filterChatSearchHitsByDivision, type ChatSearchScope } from '../../shar
 import { runGptImageGeneration } from '../images/image-generation-service';
 import type { ActiveDivision } from '../../shared/workspace-division';
 import { resolveExternalReference } from '../references/reference-service';
+import { collabProjectionMessageId } from '../../shared/collab/shared-session-doc';
 
 interface AgentRunner {
   run(session: Session, prompt: string, existingMessages: Message[]): Promise<void>;
@@ -1151,7 +1153,7 @@ export class SessionManager {
           logCtxError('[SessionManager] Title generation failed:', err)
         );
       } else if (existingMessages.length === 0) {
-        const localTitle = getDefaultTitleFromPrompt(normalizedPrompt);
+        const localTitle = succinctTitleFromPrompt(normalizedPrompt);
         if (localTitle && localTitle !== session.title) {
           this.updateSessionTitle(session.id, localTitle);
           session.title = localTitle;
@@ -1196,7 +1198,10 @@ export class SessionManager {
       'session-title-preview'
     );
     const normalizedGenerated = normalizeGeneratedTitle(generated, normalizedPrompt);
-    return normalizedGenerated ?? getDefaultTitleFromPrompt(normalizedPrompt);
+    if (normalizedGenerated && !isEchoTitle(normalizedPrompt, normalizedGenerated)) {
+      return normalizedGenerated;
+    }
+    return succinctTitleFromPrompt(normalizedPrompt);
   }
 
   async generateScheduledTaskTitle(prompt: string): Promise<string> {
@@ -1595,13 +1600,13 @@ export class SessionManager {
           }
 
           // Title generation is no longer concurrent with the first turn, to avoid competing with the main request for the same upstream quota/channel and feeling slower.
-          // Incognito: skip LLM title generation; keep local "Incognito" / first-prompt title only.
+          // Incognito: skip LLM title generation; keep the local succinct title only.
           if (!session.incognito) {
             this.runSessionTitleGeneration(session, prompt, existingMessages).catch((err) =>
               logCtxError('[SessionManager] Title generation failed:', err)
             );
           } else if (existingMessages.length === 0) {
-            const localTitle = getDefaultTitleFromPrompt(prompt);
+            const localTitle = succinctTitleFromPrompt(prompt);
             if (localTitle && localTitle !== session.title) {
               this.updateSessionTitle(session.id, localTitle);
               session.title = localTitle;
@@ -2374,6 +2379,80 @@ export class SessionManager {
     this.collabHooks?.onLocalMessageSaved?.(sessionId, updated);
   }
 
+  /**
+   * Persist a shared-chat message into this session.
+   * `messages.id` is a global primary key, so a peer transcript that reuses an
+   * id already stored for another local session is saved as a session-scoped copy.
+   */
+  applyProjectedCollabMessage(message: Message): { message: Message; inserted: boolean } {
+    const existing = this.db.messages.getById?.(message.id);
+    if (!existing) {
+      try {
+        this.saveMessage(message);
+        return { message, inserted: true };
+      } catch (error) {
+        if (!isSqliteUniqueConstraint(error)) throw error;
+        const raced = this.db.messages.getById?.(message.id);
+        if (!raced || raced.session_id === message.sessionId) {
+          this.writeProjectedContent(message);
+          return { message, inserted: false };
+        }
+        const copy: Message = {
+          ...message,
+          id: collabProjectionMessageId(message.sessionId, message.id),
+        };
+        const copyRow = this.db.messages.getById?.(copy.id);
+        if (!copyRow) {
+          this.saveMessage(copy);
+          return { message: copy, inserted: true };
+        }
+        if (copyRow.session_id !== message.sessionId) {
+          throw new Error(`Could not store shared message ${message.id}`);
+        }
+        this.writeProjectedContent(copy);
+        return { message: copy, inserted: false };
+      }
+    }
+
+    if (existing.session_id === message.sessionId) {
+      this.writeProjectedContent(message);
+      return { message, inserted: false };
+    }
+
+    const copy: Message = {
+      ...message,
+      id: collabProjectionMessageId(message.sessionId, message.id),
+    };
+    const copyRow = this.db.messages.getById?.(copy.id);
+    if (!copyRow) {
+      this.saveMessage(copy);
+      return { message: copy, inserted: true };
+    }
+    if (copyRow.session_id !== message.sessionId) {
+      throw new Error(`Could not store shared message ${message.id}`);
+    }
+    this.writeProjectedContent(copy);
+    return { message: copy, inserted: false };
+  }
+
+  /** Update content when the row is already in this session. Skip identical writes. */
+  private writeProjectedContent(message: Message): void {
+    const serialized = JSON.stringify(message.content);
+    const row = this.db.messages.getById?.(message.id);
+    if (row && row.session_id === message.sessionId && row.content === serialized) {
+      const cached = this.messageCache.get(message.sessionId);
+      if (cached && !cached.some((item) => item.id === message.id)) {
+        cached.push(message);
+      }
+      return;
+    }
+    const cached = this.messageCache.get(message.sessionId);
+    if (cached && !cached.some((item) => item.id === message.id)) {
+      cached.push(message);
+    }
+    this.updatePublishedMessage(message.sessionId, message.id, message.content);
+  }
+
   private readMessagesFromDb(sessionId: string): Message[] {
     const rows = this.db.messages.getBySessionId(sessionId);
     return rows.map((row) => ({
@@ -2586,4 +2665,12 @@ export class SessionManager {
 
     this.db.traceSteps.update(stepId, rowUpdates);
   }
+}
+
+function isSqliteUniqueConstraint(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const code = (error as { code?: string }).code;
+  if (code === 'SQLITE_CONSTRAINT_PRIMARYKEY' || code === 'SQLITE_CONSTRAINT') return true;
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes('UNIQUE constraint failed');
 }

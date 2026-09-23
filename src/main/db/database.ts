@@ -44,6 +44,7 @@ export interface DatabaseInstance {
       updates: Partial<Pick<MessageRow, 'execution_time_ms' | 'content'>>
     ) => void;
     getBySessionId: (sessionId: string) => MessageRow[];
+    getById?: (id: string) => MessageRow | undefined;
     delete: (id: string) => void;
     deleteBySessionId: (sessionId: string) => void;
   };
@@ -1152,6 +1153,10 @@ export function initDatabase(): DatabaseInstance {
     SELECT * FROM messages WHERE session_id = ? ORDER BY timestamp ASC
   `);
 
+  const getMessageByIdStmt = rawDb.prepare(`
+    SELECT * FROM messages WHERE id = ?
+  `);
+
   const updateMessageStmt = rawDb.prepare(`
     UPDATE messages SET execution_time_ms = ? WHERE id = ?
   `);
@@ -1447,6 +1452,10 @@ export function initDatabase(): DatabaseInstance {
 
       getBySessionId: (sessionId: string): MessageRow[] => {
         return getMessagesBySessionStmt.all(sessionId) as MessageRow[];
+      },
+
+      getById: (id: string): MessageRow | undefined => {
+        return getMessageByIdStmt.get(id) as MessageRow | undefined;
       },
 
       delete: (id: string) => {

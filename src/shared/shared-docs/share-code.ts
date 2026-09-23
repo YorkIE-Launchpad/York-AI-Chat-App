@@ -25,6 +25,14 @@ export function createSharedDocCode(): string {
   return randomBytes(9).toString('base64url');
 }
 
+/** Pull a shared-doc id out of `.../shared/<id>/<file>`. */
+export function sharedDocIdFromWorkspacePath(filePath: string): string | null {
+  const normalized = filePath.trim().replace(/\\/g, '/');
+  const match = normalized.match(/(?:^|\/)shared\/([a-zA-Z0-9_-]{8,64})\/[^/]+$/);
+  if (!match?.[1]) return null;
+  return parseSharedDocCode(match[1]);
+}
+
 /**
  * Accept a short code or `york-doc:` prefix.
  * Legacy JWTs (three dot-separated parts) are not codes.

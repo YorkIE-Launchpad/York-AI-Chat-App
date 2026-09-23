@@ -24,6 +24,7 @@ import {
   tryAcquireLease,
   upsertCollabMember,
   upsertCollabMessage,
+  isCollabProjectionCopy,
   type CollabPortableMessage,
 } from '../../shared/collab/shared-session-doc';
 import type { CollabRoomState } from '../../shared/collab/types';
@@ -62,6 +63,11 @@ export interface CollabSyncDeps {
   emitStreamMessage: (message: Message) => void;
   /** Update an existing local message projected from a peer. */
   updateStoredMessage?: (message: Message) => void;
+  /**
+   * Insert or update a projected message. Copies the row when `messages.id`
+   * already belongs to a different local session.
+   */
+  persistProjectedMessage?: (message: Message) => { message: Message; inserted: boolean };
   /** Persist a title learned from the shared doc. */
   updateSessionTitle?: (sessionId: string, title: string) => void;
   loadRoomSnapshot?: (roomId: string) => Uint8Array | null;
@@ -408,7 +414,7 @@ export class CollabSyncService {
 
     const session = this.deps.getSession(input.sessionId);
     const existingTitle = readCollabMeta(doc).title;
-    if (input.seedFromLocal && session && !existingTitle) {
+    if (input.seedFromLocal && input.role === 'owner' && session && !existingTitle) {
       seedCollabMeta(
         doc,
         {
@@ -434,10 +440,10 @@ export class CollabSyncService {
     if (input.seedFromLocal && session) {
       for (const message of this.deps.getMessages(input.sessionId)) {
         if (message.localStatus === 'queued' || message.localStatus === 'cancelled') continue;
+        // Copies exist only so this session can display a peer row whose id is
+        // already stored for another local chat. Seeding them would duplicate the transcript.
+        if (isCollabProjectionCopy(input.sessionId, message.id)) continue;
         upsertCollabMessage(doc, messageToCollabPortable(message));
-      }
-      if (session.title.trim() && (!readCollabMeta(doc).title || input.role === 'owner')) {
-        setCollabTitle(doc, session.title);
       }
     }
 
@@ -464,9 +470,9 @@ export class CollabSyncService {
       peersOnline: false,
       applyingRemote: false,
       leaseRefreshTimer: null,
-      knownFingerprints: new Map(
-        listOrderedMessages(doc).map((message) => [message.id, collabMessageFingerprint(message)])
-      ),
+      // Empty on purpose: snapshot and seeded history still need a SQLite write.
+      // Pre-marking them known skipped projection and left the joiner with an empty chat.
+      knownFingerprints: new Map(),
     };
 
     const provider = new CollabWsProvider({
@@ -530,11 +536,18 @@ export class CollabSyncService {
       this.startLeaseRefresh(rt, input.sub);
     }
 
+    // History is loaded from SQLite when the chat opens. Notifying here would
+    // mark every past user message as a pending turn.
+    this.projectRemoteMessages(rt, { notifyRenderer: false });
     this.emitState(input.sessionId);
     log(`[Collab] connected session=${input.sessionId} room=${input.roomId} role=${input.role}`);
   }
 
-  private projectRemoteMessages(rt: RoomRuntime): void {
+  private projectRemoteMessages(
+    rt: RoomRuntime,
+    options?: { notifyRenderer?: boolean }
+  ): void {
+    const notifyRenderer = options?.notifyRenderer !== false;
     const ordered = listOrderedMessages(rt.doc);
     for (const portable of ordered) {
       const fingerprint = collabMessageFingerprint(portable);
@@ -543,9 +556,14 @@ export class CollabSyncService {
       const message = portableToMessage(portable, rt.sessionId);
       rt.applyingRemote = true;
       try {
-        if (!previous) {
+        if (this.deps.persistProjectedMessage) {
+          const stored = this.deps.persistProjectedMessage(message);
+          if (notifyRenderer && (stored.inserted || !previous)) {
+            this.deps.emitStreamMessage(stored.message);
+          }
+        } else if (!previous) {
           this.deps.saveMessage(message);
-          this.deps.emitStreamMessage(message);
+          if (notifyRenderer) this.deps.emitStreamMessage(message);
         } else {
           this.deps.updateStoredMessage?.(message);
         }

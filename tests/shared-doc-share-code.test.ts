@@ -4,6 +4,7 @@ import {
   parseSharedDocCode,
   parseSharedDocManifest,
   sharedDocContentKey,
+  sharedDocIdFromWorkspacePath,
   sharedDocManifestKey,
 } from '../src/shared/shared-docs/share-code';
 
@@ -38,5 +39,11 @@ describe('shared doc share codes', () => {
     expect(sharedDocContentKey('abc12345', 'html')).toBe(
       'guild-collaboration/york-shared-docs/abc12345/content.html'
     );
+    expect(
+      sharedDocIdFromWorkspacePath(
+        '/Users/me/Library/Application Support/york-ie/default_working_dir/shared/6c18e746-56d6-4068-9dc2-9421c87bdaf5/hii.html'
+      )
+    ).toBe('6c18e746-56d6-4068-9dc2-9421c87bdaf5');
+    expect(sharedDocIdFromWorkspacePath('/tmp/notes.md')).toBeNull();
   });
 });
