@@ -88,6 +88,23 @@ describe('shared-session-doc', () => {
     expect(readTurnLease(doc, now + 5000)).toBeNull();
   });
 
+  it('takes over an idle lease but not one with an active run', () => {
+    const doc = new Y.Doc();
+    const now = 1_000_000;
+    tryAcquireLease(doc, { sub: 'a', displayName: 'Ada' }, { now, runId: 'run-1' });
+    const blocked = tryAcquireLease(doc, { sub: 'b', displayName: 'Bob' }, { now, takeIdle: true });
+    expect(blocked.ok).toBe(false);
+
+    tryAcquireLease(doc, { sub: 'a', displayName: 'Ada' }, { now, runId: null });
+    const taken = tryAcquireLease(
+      doc,
+      { sub: 'b', displayName: 'Bob' },
+      { now, takeIdle: true, runId: 'run-2' }
+    );
+    expect(taken.ok).toBe(true);
+    expect(readTurnLease(doc, now)).toMatchObject({ holderSub: 'b', runId: 'run-2' });
+  });
+
   it('allows prompt when lease is free or held by self', () => {
     const doc = new Y.Doc();
     const now = 1_000_000;

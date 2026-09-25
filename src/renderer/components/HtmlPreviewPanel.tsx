@@ -428,9 +428,11 @@ export function HtmlPreviewPanel() {
     }
     setSharing(true);
     try {
-      let docId = activeHtmlPreview.shared?.docId;
+      const docId = activeHtmlPreview.shared?.docId;
       let inviteToken = shareInviteToken;
 
+      // A new share returns a code for the chosen permission. For an existing doc,
+      // mint a fresh code so it points at the latest uploaded version.
       if (!docId) {
         const created = await window.electronAPI.sharedDocs.shareArtifact({
           sessionId: activeSessionId,
@@ -442,24 +444,22 @@ export function HtmlPreviewPanel() {
         if (!created.success || !created.doc) {
           throw new Error(created.error || t('context.htmlPreviewShareFailed'));
         }
-        docId = created.doc.id;
         inviteToken = created.inviteToken || '';
         openHtmlPreview(activeHtmlPreview.path, created.doc.title, created.doc.kind, {
           docId: created.doc.id,
           permission: 'owner',
           s3UpdatedAt: created.doc.s3UpdatedAt,
         });
-      }
-
-      if (docId && activeSessionId) {
+      } else {
         const invite = await window.electronAPI.sharedDocs.createInvite({
           docId,
           permission: sharePermission,
           sessionId: activeSessionId,
         });
-        if (invite.success && invite.inviteToken) {
-          inviteToken = invite.inviteToken;
+        if (!invite.success || !invite.inviteToken) {
+          throw new Error(invite.error || t('context.htmlPreviewShareFailed'));
         }
+        inviteToken = invite.inviteToken;
       }
 
       if (inviteToken) {

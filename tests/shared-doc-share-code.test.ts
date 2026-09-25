@@ -1,31 +1,52 @@
 import { describe, expect, it } from 'vitest';
 import {
-  createSharedDocCode,
+  createSharedDocId,
   parseSharedDocCode,
   parseSharedDocManifest,
-  sharedDocContentKey,
+  sharedDocCodeFromManifestKey,
+  sharedDocFolder,
   sharedDocIdFromWorkspacePath,
-  sharedDocManifestKey,
 } from '../src/shared/shared-docs/share-code';
 
 describe('shared doc share codes', () => {
-  it('creates a short code and rejects JWTs', () => {
-    const code = createSharedDocCode();
-    expect(code.length).toBeLessThanOrEqual(16);
-    expect(parseSharedDocCode(code)).toBe(code);
-    expect(parseSharedDocCode(`york-doc:${code}`)).toBe(code);
-    expect(parseSharedDocCode('header.payload.signature')).toBeNull();
+  it('encodes the Hub manifest key into a short code and back', () => {
+    const docId = createSharedDocId();
+    expect(docId).toMatch(/^[A-Za-z0-9]{10}$/);
+
+    const manifestKey = `${sharedDocFolder(docId)}/m-1790000000123-k3j9zq.json`;
+    const code = sharedDocCodeFromManifestKey(docId, manifestKey);
+    expect(code.length).toBeLessThanOrEqual(28);
+    expect(code).not.toContain('.');
+    expect(parseSharedDocCode(code)).toEqual({ docId, manifestKey });
+    expect(parseSharedDocCode(`york-doc:${code}`)).toEqual({ docId, manifestKey });
   });
 
-  it('parses a manifest and builds deterministic Hub keys', () => {
+  it('falls back to a verbatim key code for unexpected Hub key shapes', () => {
+    const docId = 'abcdEFGH12';
+    const manifestKey = `${sharedDocFolder(docId)}/manifest_renamed-17900.json`;
+    const code = sharedDocCodeFromManifestKey(docId, manifestKey);
+    expect(code.startsWith('k_')).toBe(true);
+    expect(parseSharedDocCode(code)).toEqual({ docId, manifestKey });
+  });
+
+  it('rejects legacy tokens, UUIDs and keys outside the shared-docs folder', () => {
+    expect(parseSharedDocCode('header.payload.signature')).toBeNull();
+    expect(parseSharedDocCode('6c18e746-56d6-4068-9dc2-9421c87bdaf5')).toBeNull();
+    const outside = `k_${Buffer.from('hub-requests/secret.pdf').toString('base64url')}`;
+    expect(parseSharedDocCode(outside)).toBeNull();
+    const traversal = `k_${Buffer.from('guild-collaboration/york-shared-docs/../x.json').toString('base64url')}`;
+    expect(parseSharedDocCode(traversal)).toBeNull();
+  });
+
+  it('parses a manifest and reads doc ids from workspace paths', () => {
     const manifest = parseSharedDocManifest(
       JSON.stringify({
-        id: 'abc12345',
+        id: 'abcdEFGH12',
         title: 'Hii',
         kind: 'html',
         contentType: 'text/html',
         fileName: 'content.html',
-        s3Key: 'guild-collaboration/york-shared-docs/abc12345/content.html',
+        s3Key: 'guild-collaboration/york-shared-docs/abcdEFGH12/content-1790000000000-abc123.html',
         ownerSub: 'sub',
         ownerEmail: 'a@york.ie',
         permission: 'view',
@@ -33,12 +54,6 @@ describe('shared doc share codes', () => {
       })
     );
     expect(manifest?.title).toBe('Hii');
-    expect(sharedDocManifestKey('abc12345')).toBe(
-      'guild-collaboration/york-shared-docs/abc12345/manifest.json'
-    );
-    expect(sharedDocContentKey('abc12345', 'html')).toBe(
-      'guild-collaboration/york-shared-docs/abc12345/content.html'
-    );
     expect(
       sharedDocIdFromWorkspacePath(
         '/Users/me/Library/Application Support/york-ie/default_working_dir/shared/6c18e746-56d6-4068-9dc2-9421c87bdaf5/hii.html'

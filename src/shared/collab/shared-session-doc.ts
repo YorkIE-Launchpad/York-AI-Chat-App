@@ -235,24 +235,27 @@ export type AcquireLeaseResult =
 
 /**
  * Acquire lease if empty/expired or already held by self.
+ * With `takeIdle`, a lease held by someone else without an active run is taken over.
  */
 export function tryAcquireLease(
   doc: Y.Doc,
   holder: { sub: string; displayName: string },
-  options?: { runId?: string | null; now?: number; ttlMs?: number }
+  options?: { runId?: string | null; now?: number; ttlMs?: number; takeIdle?: boolean }
 ): AcquireLeaseResult {
   const now = options?.now ?? Date.now();
   const ttlMs = options?.ttlMs ?? COLLAB_LEASE_TTL_MS;
   const current = readTurnLease(doc, now);
-  if (current && current.holderSub !== holder.sub) {
+  const heldByOther = !!current && current.holderSub !== holder.sub;
+  if (heldByOther && !(options?.takeIdle && !current.runId)) {
     return { ok: false, reason: 'held_by_other', holder: current };
   }
+  const ownCurrent = heldByOther ? null : current;
 
   const lease: CollabTurnLease = {
     holderSub: holder.sub,
     holderName: holder.displayName,
-    runId: options?.runId ?? current?.runId ?? null,
-    acquiredAt: current?.holderSub === holder.sub ? current.acquiredAt : now,
+    runId: options?.runId !== undefined ? options.runId : (ownCurrent?.runId ?? null),
+    acquiredAt: ownCurrent ? ownCurrent.acquiredAt : now,
     expiresAt: now + ttlMs,
   };
 

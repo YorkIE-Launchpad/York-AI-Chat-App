@@ -21,6 +21,7 @@ import { sharedDocAccessCanEdit } from '../../shared/shared-docs/types';
 import { CollabWsProvider, type CollabWsStatus } from '../collab/collab-ws-provider';
 import { getCognitoSubFromSession } from '../collab/collab-sync-service';
 import { getCurrentSession, ensureAuthenticatedSession } from '../auth/session';
+import { getBackendAuthHeaders } from '../config/backend-auth';
 import { log } from '../utils/logger';
 
 interface DocRoomRuntime {
@@ -33,9 +34,13 @@ interface DocRoomRuntime {
   watchers: number;
   canEditWatchers: number;
   leaseRefreshTimer: ReturnType<typeof setInterval> | null;
+  editIdleTimer: ReturnType<typeof setTimeout> | null;
   localSub: string;
   displayName: string;
 }
+
+/** The edit lock is held while edits keep arriving and released after this much quiet. */
+const EDIT_LOCK_IDLE_MS = 2 * 60_000;
 
 function backendWsBase(): string {
   const http = resolveBackendUrl().replace(/\/$/, '');
@@ -51,6 +56,7 @@ function isValidDocRoomId(docId: string): boolean {
 
 export class SharedDocLockService {
   private roomsByDocId = new Map<string, DocRoomRuntime>();
+  private preferHttpRelay = false;
 
   constructor(private getWindow: () => BrowserWindow | null) {}
 
@@ -103,14 +109,19 @@ export class SharedDocLockService {
       clearInterval(rt.leaseRefreshTimer);
       rt.leaseRefreshTimer = null;
     }
+    if (rt.editIdleTimer) {
+      clearTimeout(rt.editIdleTimer);
+      rt.editIdleTimer = null;
+    }
   }
 
-  private maybeAcquireForRoom(rt: DocRoomRuntime): void {
-    if (rt.canEditWatchers <= 0) return;
-    const result = tryAcquireLease(rt.doc, { sub: rt.localSub, displayName: rt.displayName });
-    if (result.ok) {
-      this.startLeaseRefresh(rt);
-    }
+  private scheduleEditIdleRelease(rt: DocRoomRuntime): void {
+    if (rt.editIdleTimer) clearTimeout(rt.editIdleTimer);
+    rt.editIdleTimer = setTimeout(() => {
+      rt.editIdleTimer = null;
+      if (this.roomsByDocId.get(rt.docId) !== rt) return;
+      this.releaseDoc(rt.docId);
+    }, EDIT_LOCK_IDLE_MS);
   }
 
   private async ensureConnected(docId: string): Promise<DocRoomRuntime> {
@@ -150,6 +161,7 @@ export class SharedDocLockService {
       watchers: 0,
       canEditWatchers: 0,
       leaseRefreshTimer: null,
+      editIdleTimer: null,
       localSub: sub,
       displayName,
     };
@@ -161,6 +173,12 @@ export class SharedDocLockService {
       onStatus: (status) => {
         rt.connection = status;
         this.emitState(trimmed);
+      },
+      httpUrl: `${resolveBackendUrl().replace(/\/$/, '')}/collab/rooms/${encodeURIComponent(trimmed)}/frames`,
+      getHttpHeaders: () => getBackendAuthHeaders(),
+      forceHttp: this.preferHttpRelay,
+      onTransport: (transport) => {
+        if (transport === 'http') this.preferHttpRelay = true;
       },
     });
     rt.provider = provider;
@@ -177,7 +195,6 @@ export class SharedDocLockService {
       }
       onlineSubs.add(rt.localSub);
       clearLeaseIfHolderOffline(doc, onlineSubs);
-      this.maybeAcquireForRoom(rt);
       this.emitState(trimmed);
     });
 
@@ -191,7 +208,6 @@ export class SharedDocLockService {
     rt.watchers += 1;
     if (options.canEdit) {
       rt.canEditWatchers += 1;
-      this.maybeAcquireForRoom(rt);
     }
     this.emitState(rt.docId);
     return this.buildState(rt);
@@ -246,6 +262,7 @@ export class SharedDocLockService {
       throw err;
     }
     this.startLeaseRefresh(rt);
+    this.scheduleEditIdleRelease(rt);
     this.emitState(rt.docId);
   }
 

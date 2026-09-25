@@ -239,6 +239,7 @@ import {
 import { eventRequiresSessionManager } from './client-event-utils';
 import { getUnsupportedWorkspacePathReason } from './workspace-path-constraints';
 import { CollabSyncService } from './collab/collab-sync-service';
+import { getBackendAuthHeaders } from './config/backend-auth';
 import {
   loadCollabRoomSnapshot,
   saveCollabRoomSnapshot,
@@ -372,7 +373,7 @@ function wireCollabSyncService(): void {
     emitStreamMessage: (message) => {
       sendToRenderer({
         type: 'stream.message',
-        payload: { sessionId: message.sessionId, message },
+        payload: { sessionId: message.sessionId, message, remote: true },
       });
     },
     updateStoredMessage: (message) => {
@@ -394,6 +395,7 @@ function wireCollabSyncService(): void {
       });
     },
     getWindow: () => mainWindow,
+    getRelayHeaders: () => getBackendAuthHeaders(),
   });
   setSharedDocsSyncNotifier((payload) => {
     if (mainWindow && !mainWindow.isDestroyed()) {

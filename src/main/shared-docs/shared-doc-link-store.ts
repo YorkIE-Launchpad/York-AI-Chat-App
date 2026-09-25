@@ -137,6 +137,15 @@ export function getSharedDocLinkByLocalPath(
     .get(sessionId, localPath) as SharedDocLinkRow | undefined;
 }
 
+/** Newest link for a doc in any session (used to rehydrate a missing `shared/<id>/…` file). */
+export function getLatestSharedDocLinkByDocId(docId: string): SharedDocLinkRow | undefined {
+  ensureSchema();
+  const db = getDatabase();
+  return db
+    .prepare('SELECT * FROM shared_doc_links WHERE doc_id = ? ORDER BY updated_at DESC LIMIT 1')
+    .get(docId) as SharedDocLinkRow | undefined;
+}
+
 export function listSharedDocLinksForSession(sessionId: string): SharedDocLinkRow[] {
   ensureSchema();
   const db = getDatabase();

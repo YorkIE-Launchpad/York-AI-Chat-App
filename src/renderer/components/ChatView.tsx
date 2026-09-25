@@ -1855,6 +1855,12 @@ export function ChatView() {
               {collabRoomIdLabel ? ` · ID ${collabRoomIdLabel}` : ''}
             </p>
           ) : null}
+          {collabState && collabState.connection !== 'connected' ? (
+            <p className="text-xs text-text-muted">
+              {t(collabState.connection === 'connecting' ? 'chat.collabConnecting' : 'chat.collabOffline')}
+              {collabRoomIdLabel ? ` · ID ${collabRoomIdLabel}` : ''}
+            </p>
+          ) : null}
         </div>
       ) : null}
       <div className="relative min-w-0 flex-1 overflow-hidden">

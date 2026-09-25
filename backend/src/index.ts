@@ -4,6 +4,7 @@ import express from 'express';
 import { requireMinClientVersion } from './client-version.js';
 import { requireCognito } from './cognito-auth.js';
 import { createCollabInviteRouter } from './collab/invite-router.js';
+import { createCollabHttpRelayRouter } from './collab/http-relay.js';
 import { createShareDocRouter } from './share/doc-router.js';
 import { attachCollabRelay } from './collab/yjs-relay.js';
 import { listEnabledModels } from './models.js';
@@ -72,6 +73,9 @@ app.use(requireMinClientVersion);
 app.get('/models', (_req, res) => {
   res.json({ models: listEnabledModels() });
 });
+
+// Long-poll Yjs relay for proxies that drop WebSocket upgrades (memory only, like /collab/ws).
+app.use('/collab', createCollabHttpRelayRouter());
 
 // Stateless collab invite JWT sign/verify (no room storage).
 app.use('/collab', express.json(), createCollabInviteRouter());

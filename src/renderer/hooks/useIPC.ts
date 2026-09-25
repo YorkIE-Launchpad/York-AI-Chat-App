@@ -209,9 +209,14 @@ export function useIPC() {
             delete pendingPartials[event.payload.sessionId];
             // Clear thinking buffer too — final thinking is in the message content blocks
             delete pendingThinking[event.payload.sessionId];
-            store.addMessage(event.payload.sessionId, event.payload.message);
+            store.addMessage(event.payload.sessionId, event.payload.message, {
+              remote: event.payload.remote,
+            });
             // Keep activeTurn across text+tool_use rounds so later partials still render.
-            if (shouldClearActiveTurnOnStreamMessage(event.payload.message)) {
+            if (
+              !event.payload.remote &&
+              shouldClearActiveTurnOnStreamMessage(event.payload.message)
+            ) {
               delete pendingThinkingStepIds[event.payload.sessionId];
               store.clearActiveTurn(event.payload.sessionId);
             }

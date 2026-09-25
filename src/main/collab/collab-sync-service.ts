@@ -11,7 +11,6 @@ import {
   canPromptWithLease,
   collabMessageFingerprint,
   getCollabMaps,
-  isLeaseHeldByOther,
   listOrderedMessages,
   messageToCollabPortable,
   readCollabMeta,
@@ -31,7 +30,7 @@ import type { CollabRoomState } from '../../shared/collab/types';
 import { createCollabRoomId, parseCollabRoomId } from '../../shared/collab/room-id';
 import type { Message, Session } from '../../renderer/types';
 import { getCurrentSession, ensureAuthenticatedSession } from '../auth/session';
-import { log, logError } from '../utils/logger';
+import { log, logError, logWarn } from '../utils/logger';
 import { CollabWsProvider, type CollabWsStatus } from './collab-ws-provider';
 
 export type { CollabRoomState } from '../../shared/collab/types';
@@ -84,6 +83,8 @@ export interface CollabSyncDeps {
   ) => void;
   emitSessionUpdate?: (session: Session) => void;
   getWindow: () => BrowserWindow | null;
+  /** Auth headers for the HTTP long-poll relay (used when WebSocket upgrades are refused). */
+  getRelayHeaders?: () => Promise<Record<string, string>>;
 }
 
 function decodeJwtPayload(token: string): Record<string, unknown> | null {
@@ -128,6 +129,7 @@ export class CollabSyncService {
   private roomsBySession = new Map<string, RoomRuntime>();
   private sessionByRoom = new Map<string, string>();
   private snapshotTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private preferHttpRelay = false;
 
   constructor(private deps: CollabSyncDeps) {}
 
@@ -258,18 +260,11 @@ export class CollabSyncService {
     if (!sub) throw new Error('Authentication required');
     const displayName = getCurrentSession()?.user?.name || getCurrentSession()?.user?.email || 'User';
 
-    if (isLeaseHeldByOther(rt.doc, sub)) {
-      const lease = readTurnLease(rt.doc);
-      throw new Error(
-        `This shared chat turn belongs to ${lease?.holderName || 'someone else'}. Take the turn before sending a prompt.`
-      );
-    }
-
-    // Free lease (or already ours) — acquire/refresh so we own the turn for this send
-    const result = tryAcquireLease(rt.doc, { sub, displayName });
+    // The lease marks an active agent run; an idle lease left by a teammate is taken over.
+    const result = tryAcquireLease(rt.doc, { sub, displayName }, { runId: randomUUID(), takeIdle: true });
     if (!result.ok) {
       throw new Error(
-        `This shared chat turn belongs to ${result.holder?.holderName || 'someone else'}. Take the turn before sending a prompt.`
+        `${result.holder?.holderName || 'A teammate'} is running the agent in this shared chat. Wait until it finishes.`
       );
     }
     this.startLeaseRefresh(rt, sub);
@@ -477,11 +472,23 @@ export class CollabSyncService {
 
     const provider = new CollabWsProvider({
       url,
+      httpUrl: `${backendHttpBase()}/collab/rooms/${encodeURIComponent(input.roomId)}/frames`,
+      getHttpHeaders: this.deps.getRelayHeaders,
+      forceHttp: this.preferHttpRelay,
       doc,
       awareness,
       onStatus: (status) => {
         rt.connection = status;
         this.emitState(input.sessionId);
+      },
+      onTransport: (transport, reason) => {
+        if (transport === 'http') {
+          // Every room on this backend sits behind the same proxy; skip the doomed WS attempt next time.
+          this.preferHttpRelay = true;
+          if (reason && reason !== 'forced') {
+            logWarn(`[Collab] ${reason}; using HTTP relay for room=${input.roomId}`);
+          }
+        }
       },
     });
     rt.provider = provider;
@@ -513,10 +520,7 @@ export class CollabSyncService {
       // Always count ourselves as online for lease checks
       onlineSubs.add(input.sub);
 
-      const cleared = clearLeaseIfHolderOffline(doc, onlineSubs);
-      if (cleared || !readTurnLease(doc)) {
-        tryAcquireLease(doc, { sub: input.sub, displayName: input.displayName });
-      }
+      clearLeaseIfHolderOffline(doc, onlineSubs);
 
       // New peer appeared — pull latest transcript
       if (rt.peersOnline && !wasPeersOnline) {
@@ -530,11 +534,8 @@ export class CollabSyncService {
     this.roomsBySession.set(input.sessionId, rt);
     this.sessionByRoom.set(input.roomId, input.sessionId);
 
-    // Anyone connecting acquires if lease is free (owner and member)
-    tryAcquireLease(doc, { sub: input.sub, displayName: input.displayName });
-    if (canPromptWithLease(doc, input.sub)) {
-      this.startLeaseRefresh(rt, input.sub);
-    }
+    // No run is active right after connecting, so a lease restored from a snapshot is stale.
+    releaseLeaseIfHolder(doc, input.sub);
 
     // History is loaded from SQLite when the chat opens. Notifying here would
     // mark every past user message as a pending turn.
@@ -670,10 +671,10 @@ export class CollabSyncService {
     const sub = getCognitoSubFromSession();
     if (!sub) throw new Error('Authentication required');
     const displayName = getCurrentSession()?.user?.name || 'User';
-    const result = tryAcquireLease(rt.doc, { sub, displayName });
+    const result = tryAcquireLease(rt.doc, { sub, displayName }, { takeIdle: true });
     if (!result.ok) {
       throw new Error(
-        `Turn held by ${result.holder?.holderName || 'someone else'}. Wait until they finish or the lease expires.`
+        `${result.holder?.holderName || 'A teammate'} is running the agent in this shared chat. Wait until it finishes.`
       );
     }
     this.startLeaseRefresh(rt, sub);
@@ -697,18 +698,21 @@ export class CollabSyncService {
     if (!rt) return;
     const sub = getCognitoSubFromSession();
     if (!sub) return;
-    refreshLease(rt.doc, sub, { runId: randomUUID() });
-    this.startLeaseRefresh(rt, sub);
+    const displayName = getCurrentSession()?.user?.name || getCurrentSession()?.user?.email || 'User';
+    const current = readTurnLease(rt.doc);
+    const result = tryAcquireLease(rt.doc, { sub, displayName }, {
+      runId: current?.holderSub === sub && current.runId ? current.runId : randomUUID(),
+    });
+    if (result.ok) this.startLeaseRefresh(rt, sub);
   }
 
   onAgentRunEnd(sessionId: string): void {
     const rt = this.roomsBySession.get(sessionId);
     if (!rt) return;
     this.setStreamingPartial(sessionId, null);
-    // Keep lease so owner can send follow-ups; just stop aggressive refresh
     this.stopLeaseRefresh(rt);
     const sub = getCognitoSubFromSession();
-    if (sub) refreshLease(rt.doc, sub, { runId: null });
+    if (sub) releaseLeaseIfHolder(rt.doc, sub);
     this.emitState(sessionId);
   }
 

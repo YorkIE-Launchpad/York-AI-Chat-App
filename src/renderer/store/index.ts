@@ -237,7 +237,7 @@ interface AppState {
   setIncognitoDraft: (enabled: boolean) => void;
   setSessionScrollPosition: (sessionId: string, scrollTop: number) => void;
 
-  addMessage: (sessionId: string, message: Message) => void;
+  addMessage: (sessionId: string, message: Message, options?: { remote?: boolean }) => void;
   updateMessage: (sessionId: string, messageId: string, updates: Partial<Message>) => void;
   startExecutionClock: (sessionId: string, startAt: number) => void;
   finishExecutionClock: (sessionId: string, endAt?: number) => void;
@@ -606,7 +606,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     })),
 
   // Message actions
-  addMessage: (sessionId, message) =>
+  addMessage: (sessionId, message, options) =>
     set((state) => {
       const ss = getSession(state.sessionStates, sessionId);
       const messages = ss.messages;
@@ -616,7 +616,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       let updatedMessages = messages;
       let updatedPendingTurns = ss.pendingTurns;
 
-      if (message.role === 'user') {
+      // Shared-chat messages from teammates never start a local turn.
+      if (options?.remote) {
+        updatedMessages = [...messages, message];
+      } else if (message.role === 'user') {
         updatedMessages = [...messages, message];
         updatedPendingTurns = [...ss.pendingTurns, message.id];
       } else {
