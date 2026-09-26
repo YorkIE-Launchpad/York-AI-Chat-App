@@ -39,19 +39,13 @@ import type { AskUserQuestionExtension } from '../tools/ask-user-question-extens
 import { PathResolver } from '../sandbox/path-resolver';
 import { MCPManager } from '../mcp/mcp-manager';
 import { mcpConfigStore } from '../mcp/mcp-config-store';
-import {
-  annotateReadToolForPdfs,
-  createPdfAwareReadOptions,
-} from '../utils/pdf-text';
+import { annotateReadToolForPdfs, createPdfAwareReadOptions } from '../utils/pdf-text';
 import {
   getSharedDocLinkByLocalPath,
   listSharedDocLinksForSession,
 } from '../shared-docs/shared-doc-link-store';
 import { sharedDocAccessCanEdit } from '../../shared/shared-docs/types';
-import {
-  sharedDocsService,
-  workspaceRelativePath,
-} from '../shared-docs/shared-docs-service';
+import { sharedDocsService, workspaceRelativePath } from '../shared-docs/shared-docs-service';
 import {
   log,
   logWarn,
@@ -125,16 +119,11 @@ import {
   toUserFacingErrorText,
 } from './agent-runner-message-end';
 import {
-  applyPiModelRuntimeOverrides,
-  buildSyntheticPiModel,
+  buildSyntheticPiModelFromRuntimeConfig,
   resolvePiRegistryModel,
   resolvePiRouteProtocol,
-  resolveSyntheticPiModelFallback,
 } from './pi-model-resolution';
-import {
-  applyOpenRouterClaudeCacheHints,
-  enableLongAnthropicPromptCache,
-} from './prompt-cache';
+import { applyOpenRouterClaudeCacheHints, enableLongAnthropicPromptCache } from './prompt-cache';
 import {
   injectAnthropicContextEditing,
   pruneMessagesForLiveTurn,
@@ -363,9 +352,7 @@ export function serializeMessageContentForHistory(content: ContentBlock[]): stri
         const title = (block as { title?: string }).title || 'Reference';
         const source = (block as { source?: string }).source || '';
         const url = (block as { url?: string }).url || '';
-        parts.push(
-          `[Attached ${source || 'reference'}: ${title}${url ? ` — ${url}` : ''}]`
-        );
+        parts.push(`[Attached ${source || 'reference'}: ${title}${url ? ` — ${url}` : ''}]`);
         break;
       }
     }
@@ -1211,10 +1198,7 @@ ${hints.join('\n')}
    * Runs every turn (not only at compact) so long agent loops stop re-billing
    * giant Hub/MCP dumps. Safe to call once per new pi session.
    */
-  private installLiveContextHooks(
-    piSession: PiAgentSession,
-    api: string | undefined | null
-  ): void {
+  private installLiveContextHooks(piSession: PiAgentSession, api: string | undefined | null): void {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const agent = (piSession as any).agent;
     if (!agent) {
@@ -1345,13 +1329,7 @@ ${hints.join('\n')}
             // Send the display name to the renderer so the dialog shows a
             // human-readable tool name; canonical `toolName` is still used
             // for rule matching above and "always allow" memory below.
-            result = await requestPermission(
-              sessionId,
-              toolUseId,
-              displayName,
-              input,
-              toolName
-            );
+            result = await requestPermission(sessionId, toolUseId, displayName, input, toolName);
           } catch (permErr) {
             logError(
               `[CoworkAgentRunner] Permission request failed for '${toolName}' — failing closed`,
@@ -1587,18 +1565,12 @@ ${hints.join('\n')}
             }
             const remapped = remapCoworkVirtualPath(params.path, workspaceRoot);
             const nextParams = remapped === params.path ? params : { ...params, path: remapped };
-            if (
-              sessionId &&
-              workspaceRoot &&
-              (toolName === 'write' || toolName === 'edit')
-            ) {
+            if (sessionId && workspaceRoot && (toolName === 'write' || toolName === 'edit')) {
               try {
                 const relativePath = workspaceRelativePath(workspaceRoot, remapped);
                 const link = getSharedDocLinkByLocalPath(sessionId, relativePath);
                 if (link && !sharedDocAccessCanEdit(link.permission)) {
-                  throw new Error(
-                    `Read-only shared document: cannot modify ${relativePath}`
-                  );
+                  throw new Error(`Read-only shared document: cannot modify ${relativePath}`);
                 }
               } catch (error) {
                 if (error instanceof Error && error.message.startsWith('Read-only shared')) {
@@ -2116,10 +2088,7 @@ ${hints.join('\n')}
             });
             runtimeConfig.apiKey = creds.apiKey || runtimeConfig.apiKey;
             runtimeConfig.baseUrl = creds.baseUrl || runtimeConfig.baseUrl;
-          } else if (
-            session.provider === 'ollama' &&
-            session.model?.includes('.gguf')
-          ) {
+          } else if (session.provider === 'ollama' && session.model?.includes('.gguf')) {
             runtimeConfig.baseUrl = resolveYorkLlmBaseUrl();
             runtimeConfig.apiKey = resolveYorkLlmApiKey() || runtimeConfig.apiKey;
             runtimeConfig.customProtocol = 'openai';
@@ -2235,32 +2204,22 @@ ${hints.join('\n')}
 
       if (!piModel) {
         usedSyntheticModel = true;
-        // Synthetic fallback: construct a Model for unknown/custom models
-        const synthetic = resolveSyntheticPiModelFallback({
-          rawModel: modelString,
-          resolvedModelString: modelString,
-          rawProvider: resolvedProvider,
-          routeProtocol: configProtocol,
-          baseUrl: effectiveBaseUrl,
-        });
-        piModel = buildSyntheticPiModel(
-          synthetic.modelId,
-          synthetic.provider,
-          configProtocol,
-          effectiveBaseUrl,
-          undefined,
-          undefined,
-          runtimeConfig.contextWindow,
-          runtimeConfig.maxTokens
+        // Synthetic fallback: construct a Model for unknown/custom models.
+        // Reads contextWindow/maxTokens from the flat runtime AppConfig; model/provider
+        // come from the (possibly auto-routed) resolution above.
+        piModel = buildSyntheticPiModelFromRuntimeConfig(
+          {
+            ...runtimeConfig,
+            model: modelString,
+            provider: resolvedProvider,
+            customProtocol: resolvedCustomProtocol,
+          },
+          {
+            resolvedModelString: modelString,
+            routeProtocol: configProtocol,
+            effectiveBaseUrl,
+          }
         );
-        // Apply the same runtime overrides (developer role compat, base URL, API downgrade)
-        // that resolvePiRegistryModel applies to registry models
-        piModel = applyPiModelRuntimeOverrides(piModel, {
-          configProvider: configProtocol,
-          customBaseUrl: effectiveBaseUrl,
-          rawProvider: resolvedProvider,
-          customProtocol: resolvedCustomProtocol,
-        });
         logCtxWarn(
           '[CoworkAgentRunner] Model not in pi-ai registry, using synthetic model:',
           modelString,
@@ -3480,9 +3439,7 @@ ${
           clearTimeout(ollamaColdStartTimerId);
         }
         this.sendTraceUpdate(session.id, thinkingStepId, {
-          title: yorkLlmActive
-            ? 'Connected to York LLM — streaming…'
-            : 'Processing request...',
+          title: yorkLlmActive ? 'Connected to York LLM — streaming…' : 'Processing request...',
         });
         if (provider === 'ollama') {
           log(
@@ -4260,29 +4217,19 @@ ${
                 customProtocol: fallback.customProtocol,
               });
               if (!yorkModel) {
-                const synthetic = resolveSyntheticPiModelFallback({
-                  rawModel: fallback.modelId,
-                  resolvedModelString: fallback.modelId,
-                  rawProvider: fallback.provider,
-                  routeProtocol: yorkProtocol,
-                  baseUrl: fallback.baseUrl,
-                });
-                yorkModel = buildSyntheticPiModel(
-                  synthetic.modelId,
-                  synthetic.provider,
-                  yorkProtocol,
-                  fallback.baseUrl,
-                  undefined,
-                  undefined,
-                  runtimeConfig.contextWindow,
-                  runtimeConfig.maxTokens
+                yorkModel = buildSyntheticPiModelFromRuntimeConfig(
+                  {
+                    ...runtimeConfig,
+                    model: fallback.modelId,
+                    provider: fallback.provider,
+                    customProtocol: fallback.customProtocol,
+                  },
+                  {
+                    resolvedModelString: fallback.modelId,
+                    routeProtocol: yorkProtocol,
+                    effectiveBaseUrl: fallback.baseUrl,
+                  }
                 );
-                yorkModel = applyPiModelRuntimeOverrides(yorkModel, {
-                  configProvider: yorkProtocol,
-                  customBaseUrl: fallback.baseUrl,
-                  rawProvider: fallback.provider,
-                  customProtocol: fallback.customProtocol,
-                });
               }
 
               if (!yorkModel) {

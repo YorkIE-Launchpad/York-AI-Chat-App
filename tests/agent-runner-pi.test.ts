@@ -95,7 +95,7 @@ describe('CoworkAgentRunner York IE SDK integration', () => {
   it('uses the normalized route protocol so openrouter follows the openai-compatible path', () => {
     expect(agentRunnerContent).toContain('resolvePiRouteProtocol');
     expect(agentRunnerContent).toContain('const configProtocol = resolvePiRouteProtocol(');
-    expect(agentRunnerContent).toContain('resolveSyntheticPiModelFallback');
+    expect(agentRunnerContent).toContain('buildSyntheticPiModelFromRuntimeConfig');
   });
 
   it('nudges the model to proceed with reasonable assumptions', () => {
@@ -105,9 +105,7 @@ describe('CoworkAgentRunner York IE SDK integration', () => {
   });
 
   it('routes MCP image results through structured helpers instead of stringifying base64 into text', () => {
-    expect(agentRunnerContent).toContain(
-      "from './tool-result-utils'"
-    );
+    expect(agentRunnerContent).toContain("from './tool-result-utils'");
     expect(agentRunnerContent).toContain('normalizeMcpToolResultForModel(result');
     expect(agentRunnerContent).toContain('normalizeToolExecutionResultForUi');
     expect(agentRunnerContent).not.toContain('else textParts.push(JSON.stringify(part));');
@@ -133,9 +131,20 @@ describe('CoworkAgentRunner York IE SDK integration', () => {
     expect(agentRunnerContent).toContain('CHAT FIRST');
     expect(agentRunnerContent).toContain('CHAT FIRST does not block MCP tools');
     expect(agentRunnerContent).toContain('GREETINGS / CHIT-CHAT ONLY');
-    expect(agentRunnerContent).toContain('do NOT invent or execute tasks from memory or prior context');
-    expect(agentRunnerContent).toContain('START DOING THE WORK — only when the user asked for something actionable');
+    expect(agentRunnerContent).toContain(
+      'do NOT invent or execute tasks from memory or prior context'
+    );
+    expect(agentRunnerContent).toContain(
+      'START DOING THE WORK — only when the user asked for something actionable'
+    );
     expect(agentRunnerContent).toContain('websearch first to find URLs');
     expect(agentRunnerContent).toContain('Follow any <skill> block already injected');
+  });
+
+  it('forwards flat runtimeConfig contextWindow and maxTokens into synthetic model resolution', () => {
+    expect(agentRunnerContent).toMatch(
+      /buildSyntheticPiModelFromRuntimeConfig\(\s*\{\s*\.\.\.runtimeConfig,/
+    );
+    expect(agentRunnerContent).not.toContain('buildSyntheticPiModel(');
   });
 });

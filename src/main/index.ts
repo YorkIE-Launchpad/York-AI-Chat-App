@@ -123,6 +123,7 @@ import {
   type AppTheme,
   type CreateConfigSetPayload,
 } from './config/config-store';
+import { buildAgentRuntimeSignature } from './config/agent-runtime-signature';
 import {
   startConfigFileWatcher,
   stopConfigFileWatcher,
@@ -4060,18 +4061,6 @@ ipcMain.handle('config.getPresets', () => {
   }
 });
 
-const buildAgentRuntimeSignature = (config: AppConfig): string =>
-  JSON.stringify({
-    provider: config.provider,
-    apiKey: config.apiKey,
-    baseUrl: config.baseUrl,
-    customProtocol: config.customProtocol,
-    model: config.model,
-    enableThinking: config.enableThinking,
-    memoryEnabled: config.memoryEnabled,
-    memoryRuntime: config.memoryRuntime,
-  });
-
 const syncConfigAfterMutation = async (previousConfig: AppConfig) => {
   // Mark as configured if any config set has usable credentials
   configStore.set('isConfigured', configStore.hasAnyUsableCredentials());
@@ -5733,9 +5722,9 @@ ipcMain.handle('remote.getRemoteSessions', () => {
   }
 });
 
-ipcMain.handle('remote.clearRemoteSession', (_event, sessionId: string) => {
+ipcMain.handle('remote.clearRemoteSession', async (_event, sessionId: string) => {
   try {
-    const success = remoteManager.clearRemoteSession(sessionId);
+    const success = await remoteManager.clearRemoteSession(sessionId);
     return { success };
   } catch (error) {
     logError('[Remote] Error clearing remote session:', error);

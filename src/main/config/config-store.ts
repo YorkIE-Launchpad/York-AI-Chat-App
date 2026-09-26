@@ -297,6 +297,31 @@ export const EXPORTABLE_FIELDS: (keyof AppConfig)[] = [
 ];
 
 /**
+ * True for a finite number greater than zero. Rejects NaN/Infinity so callers
+ * that claim "valid positive number" cannot persist non-finite overrides.
+ */
+function isValidPositiveNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0;
+}
+
+/**
+ * Assign an optional positive numeric field, or drop it. electron-store/conf
+ * throws if a present key is explicitly `undefined`, and spreading a previous
+ * config can leak a stale override when the next profile omits the field.
+ */
+function assignOptionalPositiveNumber<K extends 'contextWindow' | 'maxTokens'>(
+  result: { contextWindow?: number; maxTokens?: number },
+  key: K,
+  value: unknown
+): void {
+  if (isValidPositiveNumber(value)) {
+    result[key] = value;
+  } else {
+    delete result[key];
+  }
+}
+
+/**
  * Per-field type/value validators applied when importing the plaintext config
  * file (see `importSafeConfig`). Fields not listed here are accepted as-is.
  */
@@ -318,8 +343,8 @@ export const FIELD_VALIDATORS: Record<string, (v: unknown) => boolean> = {
   provider: (v) =>
     typeof v === 'string' &&
     ['openrouter', 'anthropic', 'custom', 'openai', 'gemini', 'ollama'].includes(v),
-  contextWindow: (v) => typeof v === 'number' && v > 0,
-  maxTokens: (v) => typeof v === 'number' && v > 0,
+  contextWindow: isValidPositiveNumber,
+  maxTokens: isValidPositiveNumber,
   profileDosPrompt: (v) => typeof v === 'string',
   profileDontsPrompt: (v) => typeof v === 'string',
   profileCustomPrompt: (v) => typeof v === 'string',
@@ -658,10 +683,9 @@ function normalizeMeetingsRuntimeConfig(raw: unknown): MeetingsRuntimeConfig {
     liveAssistInstructions:
       typeof value.liveAssistInstructions === 'string'
         ? value.liveAssistInstructions
-        : defaultConfig.meetingsRuntime.liveAssistInstructions ?? '',
+        : (defaultConfig.meetingsRuntime.liveAssistInstructions ?? ''),
     liveAssistIntervalMs:
-      typeof value.liveAssistIntervalMs === 'number' &&
-      Number.isFinite(value.liveAssistIntervalMs)
+      typeof value.liveAssistIntervalMs === 'number' && Number.isFinite(value.liveAssistIntervalMs)
         ? Math.max(30_000, Math.min(300_000, Math.round(value.liveAssistIntervalMs)))
         : (defaultConfig.meetingsRuntime.liveAssistIntervalMs ?? 90_000),
   };
@@ -891,12 +915,8 @@ export class ConfigStore {
       model,
     };
     // Preserve optional numeric fields so callers don't silently lose user-set values
-    if (typeof profile?.contextWindow === 'number' && profile.contextWindow > 0) {
-      result.contextWindow = profile.contextWindow;
-    }
-    if (typeof profile?.maxTokens === 'number' && profile.maxTokens > 0) {
-      result.maxTokens = profile.maxTokens;
-    }
+    assignOptionalPositiveNumber(result, 'contextWindow', profile?.contextWindow);
+    assignOptionalPositiveNumber(result, 'maxTokens', profile?.maxTokens);
     const backendProvider = backendProviderForProfileKey(profileKey);
     if (backendProvider) {
       result.apiKey = BACKEND_PROXY_PLACEHOLDER_KEY;
@@ -1313,6 +1333,8 @@ export class ConfigStore {
           : defaultConfig.profileCustomPrompt,
       isConfigured: toBoolean(raw.isConfigured, defaultConfig.isConfigured),
     };
+    assignOptionalPositiveNumber(result, 'contextWindow', projected.contextWindow);
+    assignOptionalPositiveNumber(result, 'maxTokens', projected.maxTokens);
     this.normalizeModelIds(result);
     return result;
   }
@@ -1338,7 +1360,7 @@ export class ConfigStore {
     const activeConfigSet =
       nextConfigSets.find((set) => set.id === requestedActiveConfigSetId) || nextConfigSets[0];
     const projected = this.projectFromConfigSet(activeConfigSet);
-    return {
+    const result: AppConfig = {
       ...base,
       provider: projected.provider,
       customProtocol: projected.customProtocol,
@@ -1351,6 +1373,10 @@ export class ConfigStore {
       activeConfigSetId: activeConfigSet.id,
       configSets: nextConfigSets,
     };
+    // Clear rather than leave stale: `...base` can carry the previous set's value.
+    assignOptionalPositiveNumber(result, 'contextWindow', projected.contextWindow);
+    assignOptionalPositiveNumber(result, 'maxTokens', projected.maxTokens);
+    return result;
   }
 
   private buildUniqueConfigSetName(
