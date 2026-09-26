@@ -127,6 +127,8 @@ export function buildHubUsagePayloadFromPiUsage(
   const modelId = (input.modelId || '').trim();
   const provider = (input.provider || '').trim();
   if (!modelId || !provider) return null;
+  // OpenRouter always runs on the user's own key — York does not pay, so Hub never sees it.
+  if (provider.toLowerCase() === 'openrouter') return null;
 
   const usage = asRecord(input.usage) || {};
   const promptTokens = numberField(

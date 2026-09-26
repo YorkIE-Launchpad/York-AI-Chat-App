@@ -217,7 +217,35 @@ function normalizeClaudeId(id: string): string {
   return id.replace(/-\d{8}$/, '').replace(/-(\d+)-(\d+)$/, '-$1.$2');
 }
 
-/** Candidate OpenRouter ids for a (provider, model) pair, most specific first. */
+/** Id-prefix / provider aliases → OpenRouter vendor namespace. */
+const VENDOR_ALIASES: Record<string, string> = {
+  anthropic: 'anthropic',
+  openai: 'openai',
+  google: 'google',
+  gemini: 'google',
+  moonshotai: 'moonshotai',
+  moonshot: 'moonshotai',
+};
+
+/** OpenRouter vendor for a bare model id (by family), else from the route provider. */
+function inferVendor(bare: string, provider: string): string | null {
+  if (bare.startsWith('claude-')) return 'anthropic';
+  if (bare.startsWith('gemini-') || bare.startsWith('gemma-')) return 'google';
+  if (/^(gpt-|o\d|chatgpt-)/.test(bare)) return 'openai';
+  if (bare.startsWith('kimi-')) return 'moonshotai';
+  return VENDOR_ALIASES[provider] ?? null;
+}
+
+/** Vendor-specific id normalization so bare / prefixed / dated / dashed ids all meet. */
+function normalizeBareId(vendor: string, bare: string): string {
+  if (vendor === 'anthropic') return normalizeClaudeId(bare);
+  return stripDatedSnapshot(bare);
+}
+
+/**
+ * Candidate OpenRouter ids for a (provider, model) pair, most specific first.
+ * Accepts bare (`claude-opus-4-8`) or vendor-prefixed (`anthropic/claude-opus-4.8`) ids.
+ */
 export function pricingKeysForModel(provider: string, modelId: string): string[] {
   const id = modelId.trim().toLowerCase();
   const prov = provider.trim().toLowerCase();
@@ -227,26 +255,15 @@ export function pricingKeysForModel(provider: string, modelId: string): string[]
     if (key && !keys.includes(key)) keys.push(key);
   };
 
-  if (id.includes('/')) {
-    const slash = id.indexOf('/');
-    const vendor = id.slice(0, slash);
-    const bare = id.slice(slash + 1);
-    add(id);
-    if (vendor === 'anthropic') add(`anthropic/${normalizeClaudeId(bare)}`);
-    return keys;
-  }
+  const slash = id.indexOf('/');
+  const prefix = slash >= 0 ? id.slice(0, slash) : '';
+  const bare = slash >= 0 ? id.slice(slash + 1) : id;
+  if (prefix) add(id);
 
-  if (prov === 'anthropic' || id.startsWith('claude-')) {
-    add(`anthropic/${normalizeClaudeId(id)}`);
-    add(`anthropic/${id}`);
-  } else if (prov === 'gemini' || prov === 'google' || id.startsWith('gemini-')) {
-    add(`google/${id}`);
-  } else if (prov === 'openai' || /^(gpt-|o\d|chatgpt-)/.test(id)) {
-    add(`openai/${id}`);
-    add(`openai/${stripDatedSnapshot(id)}`);
-  } else if (id.startsWith('kimi-')) {
-    add(`moonshotai/${id}`);
-  }
+  const vendor = (prefix && VENDOR_ALIASES[prefix]) || (prefix ? prefix : inferVendor(bare, prov));
+  if (!vendor) return keys;
+  add(`${vendor}/${normalizeBareId(vendor, bare)}`);
+  add(`${vendor}/${bare}`);
   return keys;
 }
 

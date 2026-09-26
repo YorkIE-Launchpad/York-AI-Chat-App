@@ -518,7 +518,7 @@ export async function runPiAiOneShot(
       if (!yorkLlmActive) {
         reportHubGovernanceUsageFromCompletion({
           modelId: String(resolvedModel.id || effectiveConfig.model || ''),
-          provider: String(resolvedModel.provider || activeProvider || ''),
+          provider: String(activeProvider || resolvedModel.provider || ''),
           sessionId: options?.usageSessionId?.trim() || 'one_shot',
           division: options?.division?.division ?? null,
           hubProjectId: options?.division?.hubProjectId ?? null,
@@ -564,7 +564,7 @@ export async function runPiAiOneShot(
     if (!yorkLlmActive) {
       reportHubGovernanceUsageFromCompletion({
         modelId: String(resolvedModel.id || effectiveConfig.model || ''),
-        provider: String(resolvedModel.provider || activeProvider || ''),
+        provider: String(activeProvider || resolvedModel.provider || ''),
         sessionId: options?.usageSessionId?.trim() || 'one_shot',
         division: options?.division?.division ?? null,
         hubProjectId: options?.division?.hubProjectId ?? null,
@@ -830,7 +830,7 @@ async function runPiAiStreamInner(
       if (!yorkLlmActive) {
         reportHubGovernanceUsageFromCompletion({
           modelId: String(resolvedModel.id || effectiveConfig.model || ''),
-          provider: String(resolvedModel.provider || activeProvider || ''),
+          provider: String(activeProvider || resolvedModel.provider || ''),
           sessionId: options?.usageSessionId?.trim() || 'one_shot',
           division: options?.division?.division ?? null,
           hubProjectId: options?.division?.hubProjectId ?? null,
@@ -865,7 +865,7 @@ async function runPiAiStreamInner(
     if (!yorkLlmActive) {
       reportHubGovernanceUsageFromCompletion({
         modelId: String(resolvedModel.id || effectiveConfig.model || ''),
-        provider: String(resolvedModel.provider || activeProvider || ''),
+        provider: String(activeProvider || resolvedModel.provider || ''),
         sessionId: options?.usageSessionId?.trim() || 'one_shot',
         division: options?.division?.division ?? null,
         hubProjectId: options?.division?.hubProjectId ?? null,

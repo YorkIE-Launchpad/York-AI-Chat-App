@@ -3706,7 +3706,8 @@ ${
                 if (yorkLlmActive || (msg as { role?: unknown })?.role !== 'assistant') return;
                 reportHubGovernanceUsageFromCompletion({
                   modelId: activePiModel.id,
-                  provider: String(activePiModel.provider || provider || ''),
+                  // Route provider, not pi's: OpenRouter ids can resolve to a google/openai registry entry.
+                  provider: String(resolvedProvider || activePiModel.provider || provider || ''),
                   sessionId: session.id,
                   hubProjectId: session.hubProjectId,
                   folderId: session.folderId,

@@ -19,6 +19,24 @@ describe('pricingKeysForModel', () => {
       'anthropic/claude-opus-4.8'
     );
   });
+
+  it('prices bare and vendor-prefixed ids identically for every vendor', () => {
+    const pairs: Array<[string, string, string]> = [
+      ['anthropic', 'claude-fable-5', 'anthropic/claude-fable-5'],
+      ['anthropic', 'claude-haiku-4-5', 'anthropic/claude-haiku-4.5'],
+      ['anthropic', 'claude-opus-5-5', 'anthropic/claude-opus-5-5'],
+      ['openai', 'gpt-5.6-luna', 'openai/gpt-5.6-luna'],
+      ['openai', 'gpt-image-2.5-flare-2026-09-08', 'openai/gpt-image-2.5-flare'],
+      ['gemini', 'gemini-3.7-flash', 'google/gemini-3.7-flash'],
+      ['gemini', 'gemini-3.7-flash', 'gemini/gemini-3.7-flash'],
+      ['custom', 'kimi-k3', 'moonshotai/kimi-k3'],
+    ];
+    for (const [provider, bare, prefixed] of pairs) {
+      const a = resolveModelPricing(provider, bare);
+      expect(a, bare).not.toBeNull();
+      expect(resolveModelPricing(provider, prefixed), prefixed).toEqual(a);
+    }
+  });
 });
 
 describe('parseOpenRouterModelPricing', () => {

@@ -744,7 +744,7 @@ describe('buildHubUsagePayloadFromPiUsage', () => {
     expect(payload?.metadata).toMatchObject({ cost_source: 'list_price' });
   });
 
-  it('applies long-context tier and keeps free OpenRouter models at 0', () => {
+  it('applies long-context tier', () => {
     const long = buildHubUsagePayloadFromPiUsage({
       modelId: 'gpt-5.6-luna',
       provider: 'openai',
@@ -752,14 +752,19 @@ describe('buildHubUsagePayloadFromPiUsage', () => {
       usage: { input: 300_000, output: 0 },
     });
     expect(long?.cost).toBeCloseTo(0.12);
+  });
 
-    const free = buildHubUsagePayloadFromPiUsage({
-      modelId: 'qwen/qwen3-coder:free',
-      provider: 'openrouter',
-      sessionId: 's1',
-      usage: { input: 5000, output: 500 },
-    });
-    expect(free?.cost).toBe(0);
+  it('never builds a payload for OpenRouter (user-key) usage', () => {
+    for (const modelId of ['anthropic/claude-opus-4.8', 'qwen/qwen3-coder:free', 'openrouter/auto']) {
+      expect(
+        buildHubUsagePayloadFromPiUsage({
+          modelId,
+          provider: 'OpenRouter',
+          sessionId: 's1',
+          usage: { input: 5000, output: 500, cost: { total: 1.23 } },
+        })
+      ).toBeNull();
+    }
   });
 
   it('prices gpt-image-2.5 edits with separate text/image input rates', () => {

@@ -658,7 +658,7 @@ export async function runChildAgentSession(
         if (msg && !yorkLlmActive) {
           reportHubGovernanceUsageFromCompletion({
             modelId: String(piModel.id || ''),
-            provider: String(piModel.provider || activeProvider || ''),
+            provider: String(activeProvider || piModel.provider || ''),
             sessionId: input.parentSessionId || subagentId,
             division: input.division?.division ?? null,
             hubProjectId: input.division?.hubProjectId ?? null,
