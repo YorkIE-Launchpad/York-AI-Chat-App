@@ -24,7 +24,11 @@ import type { SharedDocLockState } from '../../shared/shared-docs/lock-types';
 import { SHARED_DOC_LOCK_HELD } from '../../shared/shared-docs/lock-types';
 import { useAppStore } from '../store';
 import { getArtifactLabel } from '../utils/artifact-steps';
+import { findHtmlPreviewCandidates } from '../utils/html-preview';
+import type { TraceStep } from '../types';
 import { MessageMarkdown } from './MessageMarkdown';
+
+const EMPTY_STEPS: TraceStep[] = [];
 const MIN_PREVIEW_WIDTH = 280;
 const MAX_PREVIEW_WIDTH_RATIO = 0.75;
 const DEFAULT_PREVIEW_WIDTH = 520;
@@ -75,8 +79,18 @@ export function HtmlPreviewPanel() {
   const dragStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const hydrateAttemptRef = useRef<string | null>(null);
 
+  const traceSteps = useAppStore((s) =>
+    s.activeSessionId
+      ? (s.sessionStates[s.activeSessionId]?.traceSteps ?? EMPTY_STEPS)
+      : EMPTY_STEPS
+  );
+
   const activeSession = activeSessionId ? sessions.find((s) => s.id === activeSessionId) : null;
   const cwd = activeSession?.cwd || workingDir;
+  const previewTabs = useMemo(
+    () => findHtmlPreviewCandidates(traceSteps, cwd),
+    [traceSteps, cwd]
+  );
   const isMarkdown = activeHtmlPreview?.kind === 'markdown';
   const sharedDocId = activeHtmlPreview?.shared?.docId;
   const sharedCanEdit =
@@ -642,6 +656,39 @@ export function HtmlPreviewPanel() {
           <X className="w-3.5 h-3.5" />
         </button>
       </div>
+
+      {previewTabs.length > 1 && (
+        <div
+          role="tablist"
+          className="flex items-center gap-1 px-2 py-1.5 border-b border-border-muted overflow-x-auto shrink-0"
+        >
+          {previewTabs.map((tab) => {
+            const selected = tab.path === activeHtmlPreview.path;
+            const label = tab.title || getArtifactLabel(tab.path);
+            return (
+              <button
+                key={tab.path}
+                type="button"
+                role="tab"
+                aria-selected={selected}
+                title={tab.path}
+                onClick={() => {
+                  if (!selected) {
+                    openHtmlPreview(tab.path, tab.title, tab.kind);
+                  }
+                }}
+                className={`shrink-0 max-w-[180px] truncate rounded-md px-2 py-1 text-[11px] transition-colors ${
+                  selected
+                    ? 'bg-surface-hover text-text-primary font-medium'
+                    : 'text-text-muted hover:bg-surface-hover hover:text-text-primary'
+                }`}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {sharedDocId && docLock?.holderIsOther ? (
         <div className="flex items-start gap-2 border-b border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-100">

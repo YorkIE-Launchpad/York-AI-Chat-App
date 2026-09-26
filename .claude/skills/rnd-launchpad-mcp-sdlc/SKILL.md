@@ -37,9 +37,11 @@ Make **material progress** on the assigned project goal:
 5. **Record** durable state + end with status lines (see below).
 6. **Loop** — do not wait for a human unless blocked on a real fork (credentials, product choice, auth failure after retries).
 
-### Status lines (required for continuous / goal modes)
+### Status lines (goal ticks only)
 
-End every autonomous tick with (when applicable):
+Only on goal turns (user turn contains "Continue working toward this goal" and
+asks for `GOAL_STATUS`, or carries a `[Goal mode]` line) end the reply with the
+block below. On ordinary chat turns, do **not** emit these lines.
 
 ```
 PHASE: discover|plan|build|validate|ship|blocked

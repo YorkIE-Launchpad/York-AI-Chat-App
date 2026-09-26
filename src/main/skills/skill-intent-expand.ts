@@ -45,6 +45,8 @@ export type SkillIntentExpandResult = {
   skillName?: string;
   reason?: 'force' | 'intent';
   reference?: YorkOsReferenceKind | null;
+  /** Goal-runner only: this turn is a goal turn and must end with a GOAL_STATUS line. */
+  goalTurn?: boolean;
 };
 
 export type YorkOsReferenceKind =
@@ -424,16 +426,32 @@ export function expandHtmlArtifactSkillIntent(
   return wrapExpanded(prompt, skill);
 }
 
-export function isGoalRunnerIntent(prompt: string): boolean {
+/** `/goal` start or an automated goal-loop tick (already carries GOAL_STATUS instructions). */
+export function isGoalTickPrompt(prompt: string): boolean {
   const text = stripSkillBlocks(prompt);
   if (!text) return false;
   if (/\bGOAL_STATUS\b/.test(text)) return true;
   if (/\bcontinue working toward (this |the )?goal\b/i.test(text)) return true;
-  if (/\bkeep going until done\b/i.test(text)) return true;
-  if (/\bfinish (this |the )?goal\b/i.test(text)) return true;
-  if (/\bmake tests pass\b/i.test(text)) return true;
-  if (/\bship (this |the |a )?fix\b/i.test(text)) return true;
   if (/^\/goal\b/i.test(text)) return true;
+  return false;
+}
+
+/**
+ * Goal-shaped ask: the user explicitly wants autonomous work until an outcome is reached
+ * ("keep going until tests pass", "don't stop until it's shipped"). Plain one-off asks
+ * ("fix this bug", "make tests pass") are not goals.
+ */
+export function isGoalRunnerIntent(prompt: string): boolean {
+  if (isGoalTickPrompt(prompt)) return true;
+  const text = stripSkillBlocks(prompt);
+  if (!text) return false;
+  const persist =
+    /\b(keep (going|working|at it|iterating|trying)|don'?t stop|do not stop|work (on (it|this|that) )?|continue( working)?|loop|iterate|run autonomously)\b[^.?!\n]{0,60}?\buntil\b[^.?!\n]{0,60}?\b(done|finished|complete[d]?|green|pass(es|ing)?|fixed|resolved|shipped|works?|working|succeeds?|live|deployed|met|achieved)\b/i;
+  if (persist.test(text)) return true;
+  if (/\b(until|till) (it'?s |it is |everything is |all )?(done|finished|complete)\b/i.test(text) &&
+    /\b(keep|continue|don'?t stop|do not stop|autonomous(ly)?)\b/i.test(text)) {
+    return true;
+  }
   return false;
 }
 
@@ -442,15 +460,16 @@ export function expandGoalRunnerSkillIntent(
   skills: ExpandableSkillRef[],
   force?: boolean
 ): SkillIntentExpandResult {
-  if (hasSkillBlock(prompt, GOAL_RUNNER_SKILL_BLOCK_RE)) {
+  const goalTurn = Boolean(force) || isGoalRunnerIntent(prompt);
+  if (!goalTurn) {
     return { expanded: false, text: prompt };
   }
-  if (!force && !isGoalRunnerIntent(prompt)) {
-    return { expanded: false, text: prompt };
+  if (hasSkillBlock(prompt, GOAL_RUNNER_SKILL_BLOCK_RE)) {
+    return { expanded: false, text: prompt, goalTurn };
   }
   const skill = findSkill(skills, GOAL_RUNNER_SKILL_NAME);
   if (!skill) {
-    return { expanded: false, text: prompt };
+    return { expanded: false, text: prompt, goalTurn };
   }
-  return wrapExpanded(prompt, skill);
+  return { ...wrapExpanded(prompt, skill), goalTurn };
 }

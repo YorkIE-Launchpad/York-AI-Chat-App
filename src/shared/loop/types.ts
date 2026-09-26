@@ -83,6 +83,12 @@ export type ParsedLoopCommand =
 export const GOAL_STATUS_COMPLETE = 'GOAL_STATUS: complete';
 export const GOAL_STATUS_IN_PROGRESS = 'GOAL_STATUS: in_progress';
 
+/** Appended (agent-only) to auto-detected goal turns; goal-runner keys the status contract on it. */
+export const GOAL_TURN_MARKER = [
+  '[Goal mode] Treat this request as a goal: work it to completion with evidence (goal-runner skill).',
+  `End this reply with ${GOAL_STATUS_COMPLETE} or ${GOAL_STATUS_IN_PROGRESS}.`,
+].join('\n');
+
 export function buildGoalTickPrompt(goal: string): string {
   return [
     'Continue working toward this goal until it is fully done (use the goal-runner skill when available):',

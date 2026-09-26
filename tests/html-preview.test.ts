@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { TraceStep } from '../src/renderer/types';
 import {
+  findHtmlPreviewCandidates,
   findLatestHtmlPreviewCandidate,
   htmlPreviewSignature,
   isHtmlPath,
@@ -204,5 +205,32 @@ describe('findLatestHtmlPreviewCandidate', () => {
     );
     expect(candidate?.title).toBe('Sports Data Provider Evaluation 2026 Client Report');
     expect(candidate?.kind).toBe('html');
+  });
+});
+
+describe('findHtmlPreviewCandidates', () => {
+  const write = (id: string, path: string): TraceStep => ({
+    id,
+    type: 'tool_call',
+    status: 'completed',
+    title: 'Write',
+    toolName: 'Write',
+    toolInput: { path, content: 'x' },
+    toolOutput: `File written: ${path}`,
+    timestamp: 1,
+  });
+
+  it('returns every previewable write, deduped by path in first-seen order', () => {
+    const steps = [
+      write('w1', 'outputs/a.html'),
+      write('w2', 'outputs/b.md'),
+      write('w3', 'outputs/data.xlsx'),
+      write('w4', 'outputs/a.html'),
+      write('w5', 'outputs/c.html'),
+    ];
+
+    const candidates = findHtmlPreviewCandidates(steps, '/workspace');
+    expect(candidates.map((c) => c.path.split('/').pop())).toEqual(['a.html', 'b.md', 'c.html']);
+    expect(candidates[0].stepId).toBe('w4');
   });
 });

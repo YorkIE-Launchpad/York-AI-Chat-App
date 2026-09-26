@@ -86,6 +86,48 @@ function parseArtifactToolOutput(toolOutput: string | undefined): {
   return null;
 }
 
+function candidateFromStep(
+  step: TraceStep,
+  cwd?: string | null
+): HtmlPreviewCandidate | null {
+  if (step.status !== 'completed' || step.isError) {
+    return null;
+  }
+
+  if (step.toolName === 'artifact') {
+    const fromArtifact = parseArtifactToolOutput(step.toolOutput);
+    if (!fromArtifact) {
+      return null;
+    }
+    return {
+      path: resolveArtifactPath(fromArtifact.path, cwd),
+      title: fromArtifact.title,
+      kind: fromArtifact.kind,
+      stepId: step.id,
+    };
+  }
+
+  if (!step.toolName || !FILE_TOOL_NAMES.has(step.toolName)) {
+    return null;
+  }
+
+  const rawPath =
+    extractFilePathFromToolOutput(step.toolOutput) ||
+    extractFilePathFromToolInput(step.toolInput) ||
+    '';
+  const kind = previewKindFromPath(rawPath);
+  if (!kind) {
+    return null;
+  }
+
+  return {
+    path: resolveArtifactPath(rawPath, cwd),
+    title: getArtifactLabel(rawPath),
+    kind,
+    stepId: step.id,
+  };
+}
+
 /**
  * Walks newest → oldest completed steps and returns the latest previewable
  * artifact (HTML or markdown) from write/edit tools or ```artifact fences.
@@ -95,47 +137,35 @@ export function findLatestHtmlPreviewCandidate(
   cwd?: string | null
 ): HtmlPreviewCandidate | null {
   for (let i = steps.length - 1; i >= 0; i -= 1) {
-    const step = steps[i];
-    if (step.status !== 'completed' || step.isError) {
-      continue;
+    const candidate = candidateFromStep(steps[i], cwd);
+    if (candidate) {
+      return candidate;
     }
-
-    if (step.toolName === 'artifact') {
-      const fromArtifact = parseArtifactToolOutput(step.toolOutput);
-      if (fromArtifact) {
-        return {
-          path: resolveArtifactPath(fromArtifact.path, cwd),
-          title: fromArtifact.title,
-          kind: fromArtifact.kind,
-          stepId: step.id,
-        };
-      }
-      continue;
-    }
-
-    if (!step.toolName || !FILE_TOOL_NAMES.has(step.toolName)) {
-      continue;
-    }
-
-    const rawPath =
-      extractFilePathFromToolOutput(step.toolOutput) ||
-      extractFilePathFromToolInput(step.toolInput) ||
-      '';
-    const kind = previewKindFromPath(rawPath);
-    if (!kind) {
-      continue;
-    }
-
-    const resolved = resolveArtifactPath(rawPath, cwd);
-    return {
-      path: resolved,
-      title: getArtifactLabel(rawPath),
-      kind,
-      stepId: step.id,
-    };
   }
-
   return null;
+}
+
+/**
+ * All distinct previewable artifacts in the session, ordered by first
+ * appearance. Each entry carries the newest step that touched its path.
+ */
+export function findHtmlPreviewCandidates(
+  steps: TraceStep[],
+  cwd?: string | null
+): HtmlPreviewCandidate[] {
+  const byPath = new Map<string, HtmlPreviewCandidate>();
+  for (const step of steps) {
+    const candidate = candidateFromStep(step, cwd);
+    if (!candidate) {
+      continue;
+    }
+    const prev = byPath.get(candidate.path);
+    byPath.set(candidate.path, {
+      ...candidate,
+      title: candidate.title || prev?.title,
+    });
+  }
+  return Array.from(byPath.values());
 }
 
 export function htmlPreviewSignature(candidate: HtmlPreviewCandidate): string {

@@ -2,21 +2,28 @@
 name: goal-runner
 description: >-
   Auto-detect goal type and drive work to completion across multi-tick /goal
-  loops and one-shot “keep going until done” tasks. Use when the user starts
-  /goal, an automation tick says continue working toward a goal, the prompt
-  mentions GOAL_STATUS, or they ask to keep working, finish a goal, make
-  tests pass, ship a fix, or continue until done. Classify the goal, pick the
-  right playbook, take concrete steps, and only signal complete when objective
-  criteria are met.
+  loops and goal-shaped asks. Use when the user starts /goal, an automation
+  tick says "Continue working toward this goal", the turn carries a
+  "[Goal mode]" line, or the user explicitly asks to keep working until an
+  outcome is reached ("keep going until tests pass", "don't stop until it
+  ships"). Not for ordinary one-off requests. Classify the goal, pick the
+  right playbook, take concrete steps, and only signal complete when
+  objective criteria are met.
 ---
 
 # Goal runner — detect type, work until done
 
-You are operating under a **goal loop** or a finish-until-done request. Prefer
-progress over narration. Use this skill on the **first** goal tick and every
+You are operating under a **goal loop** or a goal-shaped request. Prefer
+progress over narration. Use this skill on the **first** goal turn and every
 continuation until the goal is truly complete.
 
-## Status contract (required)
+## Status contract (goal turns only)
+
+A **goal turn** is a user turn that starts with `/goal`, contains "Continue
+working toward this goal" plus the `GOAL_STATUS` instruction, or carries a
+`[Goal mode]` line. Decide per turn: any other user message — including
+follow-ups in the same chat after this skill was loaded — is a normal turn:
+answer normally and **never** emit a `GOAL_STATUS` line.
 
 End **every** goal-tick reply with exactly one of these lines (last line preferred):
 

@@ -73,8 +73,10 @@ import {
   HTML_ARTIFACT_SKILL_NAME,
   LAUNCHPAD_SKILL_NAME,
   YORK_OS_SKILL_NAME,
+  isGoalTickPrompt,
   resolveSkillIntentExpansions,
 } from '../skills/skill-intent-expand';
+import { GOAL_TURN_MARKER } from '../../shared/loop/types';
 import {
   discoverSkillsFromPaths,
   expandAtSkillMentions,
@@ -2679,6 +2681,10 @@ ${hints.join('\n')}
               log(
                 `[CoworkAgentRunner] Auto-injected ${labels[i]} skill /${expansion.skillName} (one-shot)`
               );
+            }
+            if (expansions[3]?.goalTurn && !isGoalTickPrompt(prompt)) {
+              expandedUserPrompt = `${expandedUserPrompt}\n\n${GOAL_TURN_MARKER}`;
+              log('[CoworkAgentRunner] Auto-detected goal prompt; goal mode for this turn');
             }
           }
         }

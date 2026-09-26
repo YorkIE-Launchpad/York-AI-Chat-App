@@ -38,7 +38,8 @@ const SKILL_CRITERIA: Record<JevSkillIntent, string> = {
   confluence: 'Confluence / wiki document work',
   launchpad: 'R&D LaunchPad delivery / release / preview',
   html_artifact: 'Create HTML presentation / one-pager / deck artifact',
-  goal_runner: 'Goal runner / keep going until done / GOAL_STATUS',
+  goal_runner:
+    'User explicitly asks for autonomous work until an outcome is reached (e.g. "keep going until tests pass", "don\'t stop until it ships"). NOT ordinary one-off fix / implement / question requests',
   york_os_core: 'General York OS / Hub / multi-connector company question',
   none: 'No special skill injection',
 };
@@ -84,6 +85,8 @@ export async function jevScoreAutoTier(options: {
   return { tier, score: rawScore, confidence };
 }
 
+const GOAL_RUNNER_MIN_CONFIDENCE = 0.75;
+
 export async function jevClassifySkillIntent(prompt: string): Promise<JevSkillIntent | null> {
   if (!isJevEnabled() || !prompt.trim()) return null;
   const result = await runJevDecision(
@@ -95,5 +98,10 @@ export async function jevClassifySkillIntent(prompt: string): Promise<JevSkillIn
   );
   if (!result || result.answers.intent?.type !== 'choice') return null;
   const picked = result.answers.intent.choice as JevSkillIntent;
-  return picked in SKILL_CRITERIA ? picked : 'none';
+  if (!(picked in SKILL_CRITERIA)) return 'none';
+  // Goal mode changes the reply contract, so low-confidence picks defer to regex detection.
+  if (picked === 'goal_runner' && result.answers.intent.confidence < GOAL_RUNNER_MIN_CONFIDENCE) {
+    return null;
+  }
+  return picked;
 }

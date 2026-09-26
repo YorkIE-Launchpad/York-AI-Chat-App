@@ -299,8 +299,33 @@ describe('goal-runner intent', () => {
   it('matches goal ticks and keep-going asks', () => {
     expect(isGoalRunnerIntent('Continue working toward this goal')).toBe(true);
     expect(isGoalRunnerIntent('GOAL_STATUS: in_progress')).toBe(true);
-    expect(isGoalRunnerIntent('keep going until done')).toBe(true);
+    expect(isGoalRunnerIntent('/goal ship the login fix')).toBe(true);
     expect(isGoalRunnerIntent('what is the weather today?')).toBe(false);
+  });
+
+  it('auto-detects goal-shaped asks', () => {
+    expect(isGoalRunnerIntent('keep going until done')).toBe(true);
+    expect(isGoalRunnerIntent("Fix the login bug and don't stop until tests pass")).toBe(true);
+    expect(isGoalRunnerIntent('keep working on the migration until preview is live')).toBe(true);
+    expect(isGoalRunnerIntent('work on it until CI is green')).toBe(true);
+    expect(isGoalRunnerIntent('Autonomously refactor the auth module, keep at it till done')).toBe(
+      true
+    );
+  });
+
+  it('does not match ordinary work asks', () => {
+    expect(isGoalRunnerIntent('make tests pass for the auth module')).toBe(false);
+    expect(isGoalRunnerIntent('ship a fix for the crash')).toBe(false);
+    expect(isGoalRunnerIntent('fix the login bug')).toBe(false);
+    expect(isGoalRunnerIntent('what did we finish until last week?')).toBe(false);
+    expect(isGoalRunnerIntent('Summarize the PRD')).toBe(false);
+  });
+
+  it('flags goal turns even when the skill body is already present', () => {
+    const result = expandGoalRunnerSkillIntent('keep going until tests pass', []);
+    expect(result.expanded).toBe(false);
+    expect(result.goalTurn).toBe(true);
+    expect(expandGoalRunnerSkillIntent('fix the login bug', []).goalTurn).toBeUndefined();
   });
 
   it('injects goal-runner skill body', () => {
