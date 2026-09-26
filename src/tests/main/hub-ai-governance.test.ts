@@ -106,6 +106,18 @@ describe('parseHubGovernanceModels', () => {
     ]);
   });
 
+  it('accepts Hub display-cased providers', () => {
+    expect(
+      parseHubGovernanceModels({
+        models: [
+          { id: 'claude-opus-5-5', name: 'Opus 5.5', provider: 'Anthropic' },
+          { id: 'gpt-5.6-luna', name: 'Luna', provider: 'Openai' },
+          { id: 'gemini-3.7-flash', name: 'Flash', provider: 'Google' },
+        ],
+      }).map((m) => m.provider)
+    ).toEqual(['anthropic', 'openai', 'gemini']);
+  });
+
   it('falls back name to id and accepts model_id', () => {
     expect(
       parseHubGovernanceModels({
@@ -711,6 +723,105 @@ describe('buildHubUsagePayloadFromPiUsage', () => {
     });
   });
 
+  it('prices synthetic-model usage (cost 0) from list prices', () => {
+    const payload = buildHubUsagePayloadFromPiUsage({
+      modelId: 'claude-opus-4-8',
+      provider: 'anthropic',
+      sessionId: 's1',
+      usage: {
+        input: 1_000_000,
+        output: 100_000,
+        cacheRead: 1_000_000,
+        cacheWrite: 0,
+        totalTokens: 2_100_000,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      },
+    });
+    expect(payload?.input_cost).toBeCloseTo(5);
+    expect(payload?.output_cost).toBeCloseTo(2.5);
+    expect(payload?.cached_cost).toBeCloseTo(0.5);
+    expect(payload?.cost).toBeCloseTo(8);
+    expect(payload?.metadata).toMatchObject({ cost_source: 'list_price' });
+  });
+
+  it('applies long-context tier and keeps free OpenRouter models at 0', () => {
+    const long = buildHubUsagePayloadFromPiUsage({
+      modelId: 'gpt-5.6-luna',
+      provider: 'openai',
+      sessionId: 's1',
+      usage: { input: 300_000, output: 0 },
+    });
+    expect(long?.cost).toBeCloseTo(0.12);
+
+    const free = buildHubUsagePayloadFromPiUsage({
+      modelId: 'qwen/qwen3-coder:free',
+      provider: 'openrouter',
+      sessionId: 's1',
+      usage: { input: 5000, output: 500 },
+    });
+    expect(free?.cost).toBe(0);
+  });
+
+  it('prices gpt-image-2.5 edits with separate text/image input rates', () => {
+    const payload = buildHubUsagePayloadFromPiUsage({
+      modelId: 'gpt-image-2.5-sunburst-2026-09-08',
+      provider: 'openai',
+      sessionId: 's1',
+      feature: 'image_generation',
+      usage: extractVisionApiUsage({
+        input_tokens: 1_500_000,
+        input_tokens_details: { text_tokens: 500_000, image_tokens: 1_000_000 },
+        output_tokens: 100_000,
+        total_tokens: 1_600_000,
+      }),
+    });
+    expect(payload).toMatchObject({
+      prompt_tokens: 500_000,
+      image_tokens: 1_000_000,
+      completion_tokens: 100_000,
+      total_tokens: 1_600_000,
+    });
+    // text 0.5M×$5 + image 1M×$8 + output 0.1M×$30
+    expect(payload?.input_cost).toBeCloseTo(10.5);
+    expect(payload?.output_cost).toBeCloseTo(3);
+    expect(payload?.cost).toBeCloseTo(13.5);
+  });
+
+  it('charges unknown models at default claude-opus-4.5 rates', () => {
+    const payload = buildHubUsagePayloadFromPiUsage({
+      modelId: 'mystery-model-9',
+      provider: 'custom',
+      sessionId: 's1',
+      usage: { input: 1_000_000, output: 100_000, cacheRead: 1_000_000, cacheWrite: 100_000 },
+    });
+    // 1M×$5 + 0.1M×$25 + 1M×$0.5 + 0.1M×$6.25
+    expect(payload?.cost).toBeCloseTo(8.625);
+    expect(payload?.metadata).toMatchObject({ cost_source: 'default_price' });
+  });
+
+  it('keeps pi-reported cost when non-zero', () => {
+    const payload = buildHubUsagePayloadFromPiUsage({
+      modelId: 'claude-opus-4-8',
+      provider: 'anthropic',
+      sessionId: 's1',
+      usage: { input: 10, output: 5, cost: { total: 0.42 } },
+    });
+    expect(payload?.cost).toBe(0.42);
+    expect(payload?.metadata?.cost_source).toBeUndefined();
+  });
+
+  it('moves non-UUID hub project ids to metadata instead of project_id', () => {
+    const payload = buildHubUsagePayloadFromPiUsage({
+      modelId: 'gpt-4o',
+      provider: 'openai',
+      sessionId: 's1',
+      hubProjectId: 'alpha-id',
+      usage: { input: 1, output: 1 },
+    });
+    expect(payload?.project_id).toBeUndefined();
+    expect(payload?.metadata).toMatchObject({ hub_project_ref: 'alpha-id' });
+  });
+
   it('honors feature override and merges extra metadata', () => {
     const payload = buildHubUsagePayloadFromPiUsage({
       modelId: 'gpt-5.6-luna',
@@ -743,6 +854,16 @@ describe('extractVisionApiUsage', () => {
       output: 10,
       totalTokens: 60,
     });
+  });
+
+  it('splits Images API text/image/cached input tokens', () => {
+    expect(
+      extractVisionApiUsage({
+        input_tokens: 300,
+        input_tokens_details: { text_tokens: 100, image_tokens: 200, cached_tokens: 40 },
+        output_tokens: 50,
+      })
+    ).toEqual({ input: 60, imageInput: 200, cacheRead: 40, output: 50, totalTokens: 350 });
   });
 
   it('returns null when empty', () => {

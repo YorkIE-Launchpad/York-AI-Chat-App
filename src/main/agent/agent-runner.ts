@@ -3701,9 +3701,32 @@ ${
             case 'message_end': {
               // Unified handler: send the final assistant message to the renderer.
               // Works for all providers (some emit 'done' via message_update, others don't).
-              if (controller.signal.aborted) break;
-
               const msg = event.message;
+              const reportTurnUsage = (status: 'ok' | 'error', errorCode?: string) => {
+                if (yorkLlmActive || (msg as { role?: unknown })?.role !== 'assistant') return;
+                reportHubGovernanceUsageFromCompletion({
+                  modelId: activePiModel.id,
+                  provider: String(activePiModel.provider || provider || ''),
+                  sessionId: session.id,
+                  hubProjectId: session.hubProjectId,
+                  folderId: session.folderId,
+                  launchpadProjectId: session.launchpadProjectId,
+                  division: session.division,
+                  usage: (msg as { usage?: unknown }).usage,
+                  responseId:
+                    typeof (msg as { responseId?: unknown }).responseId === 'string'
+                      ? (msg as { responseId: string }).responseId
+                      : null,
+                  latencyMs: Date.now() - promptStartedAt,
+                  status,
+                  errorCode,
+                });
+              };
+              if (controller.signal.aborted) {
+                reportTurnUsage('error', 'aborted');
+                break;
+              }
+
               if (process.env.YORK_IE_LOG_SDK_MESSAGES_FULL === '1') {
                 log('[CoworkAgentRunner] message_end raw message:', safeStringify(msg, 2));
               }
@@ -3775,29 +3798,12 @@ ${
                 const userFacing = isOpenRouterAccountLimitError(resolvedProvider, rawError)
                   ? openRouterLimitUserMessage(true)
                   : resolvedPayload.errorText;
-                if (!yorkLlmActive) {
-                  reportHubGovernanceUsageFromCompletion({
-                    modelId: activePiModel.id,
-                    provider: String(activePiModel.provider || provider || ''),
-                    sessionId: session.id,
-                    hubProjectId: session.hubProjectId,
-                    folderId: session.folderId,
-                    launchpadProjectId: session.launchpadProjectId,
-                    division: session.division,
-                    usage: (msg as { usage?: unknown }).usage,
-                    responseId:
-                      typeof (msg as { responseId?: unknown }).responseId === 'string'
-                        ? (msg as { responseId: string }).responseId
-                        : null,
-                    latencyMs: Date.now() - promptStartedAt,
-                    status: 'error',
-                    errorCode: 'message_end_error',
-                  });
-                }
+                reportTurnUsage('error', 'message_end_error');
                 emitTerminalError(userFacing);
                 break;
               }
               if (resolvedPayload.shouldEmitMessage) {
+                reportTurnUsage('ok');
                 const contentBlocks: ContentBlock[] = [];
                 for (const block of resolvedPayload.effectiveContent) {
                   if (block.type === 'text') {
@@ -3900,24 +3906,6 @@ ${
                     model: activePiModel.id,
                     tokenUsage,
                   };
-                  if (!yorkLlmActive) {
-                    reportHubGovernanceUsageFromCompletion({
-                      modelId: activePiModel.id,
-                      provider: String(activePiModel.provider || provider || ''),
-                      sessionId: session.id,
-                      hubProjectId: session.hubProjectId,
-                      folderId: session.folderId,
-                      launchpadProjectId: session.launchpadProjectId,
-                      division: session.division,
-                      usage: msgWithUsage.usage,
-                      responseId:
-                        typeof (msg as { responseId?: unknown }).responseId === 'string'
-                          ? (msg as { responseId: string }).responseId
-                          : null,
-                      latencyMs: Date.now() - promptStartedAt,
-                      status: 'ok',
-                    });
-                  }
                   // Recovery succeeded — clear deferred transient error so the turn
                   // is not marked failed and incomplete-turn steering can still run.
                   pendingRetryableError = undefined;

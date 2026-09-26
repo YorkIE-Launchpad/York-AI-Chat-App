@@ -652,7 +652,9 @@ export async function runChildAgentSession(
         const msg = event.message as unknown as {
           usage?: unknown;
           responseId?: unknown;
+          stopReason?: unknown;
         };
+        const failed = msg?.stopReason === 'error' || msg?.stopReason === 'aborted';
         if (msg && !yorkLlmActive) {
           reportHubGovernanceUsageFromCompletion({
             modelId: String(piModel.id || ''),
@@ -666,7 +668,8 @@ export async function runChildAgentSession(
             usage: msg.usage,
             responseId: typeof msg.responseId === 'string' ? msg.responseId : null,
             latencyMs: Date.now() - startTime,
-            status: 'ok',
+            status: failed ? 'error' : 'ok',
+            errorCode: failed ? String(msg.stopReason) : null,
             metadata: {
               subagent_id: subagentId,
               model_mode: modelMode,

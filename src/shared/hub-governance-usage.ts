@@ -3,6 +3,12 @@
  * Safe to import from MCP subprocesses.
  */
 
+import {
+  computeModelUsageCost,
+  DEFAULT_MODEL_PRICING,
+  resolveModelPricing,
+} from './model-pricing';
+
 export const HUB_USAGE_SOURCE = 'vecos';
 export const HUB_USAGE_FEATURE_DEFAULT = 'chat';
 export const HUB_USAGE_PATH = '/api/ai-governance/usage';
@@ -21,10 +27,12 @@ export interface HubGovernanceUsagePayload {
   completion_tokens?: number;
   total_tokens?: number;
   cached_tokens?: number;
+  image_tokens?: number;
   cost?: number;
   currency?: string;
   input_cost?: number;
   output_cost?: number;
+  cached_cost?: number;
   latency_ms?: number;
   status: 'ok' | 'error';
   error_code?: string;
@@ -52,6 +60,9 @@ export interface BuildHubUsageInput {
   errorCode?: string | null;
   occurredAt?: Date;
 }
+
+/** Hub validates `project_id` with @IsUUID — any other value 400s the whole event. */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value)
@@ -135,17 +146,22 @@ export function buildHubUsagePayloadFromPiUsage(
   const totalFromUsage = numberField(usage, 'totalTokens', 'total_tokens', 'total');
   const cacheRead = numberField(usage, 'cacheRead', 'cache_read', 'cached_tokens');
   const cacheWrite = numberField(usage, 'cacheWrite', 'cache_write');
+  const imageInputTokens = numberField(usage, 'imageInput', 'image_tokens');
   const cachedTokens =
     cacheRead !== undefined || cacheWrite !== undefined
       ? (cacheRead ?? 0) + (cacheWrite ?? 0)
       : undefined;
 
   const costObj = asRecord(usage.cost);
-  const inputCost = costObj ? numberField(costObj, 'input') : undefined;
-  const outputCost = costObj ? numberField(costObj, 'output') : undefined;
+  let inputCost = costObj ? numberField(costObj, 'input') : undefined;
+  let outputCost = costObj ? numberField(costObj, 'output') : undefined;
   const cacheReadCost = costObj ? numberField(costObj, 'cacheRead', 'cache_read') : undefined;
   const cacheWriteCost = costObj ? numberField(costObj, 'cacheWrite', 'cache_write') : undefined;
-  const totalCost =
+  let cachedCost =
+    (cacheReadCost ?? 0) + (cacheWriteCost ?? 0) > 0
+      ? (cacheReadCost ?? 0) + (cacheWriteCost ?? 0)
+      : undefined;
+  let totalCost =
     (costObj ? numberField(costObj, 'total') : undefined) ??
     numberField(usage, 'cost') ??
     (inputCost !== undefined ||
@@ -157,9 +173,35 @@ export function buildHubUsagePayloadFromPiUsage(
 
   const totalTokens =
     totalFromUsage ??
-    (promptTokens !== undefined || completionTokens !== undefined
-      ? (promptTokens ?? 0) + (completionTokens ?? 0)
+    (promptTokens !== undefined ||
+    completionTokens !== undefined ||
+    imageInputTokens !== undefined
+      ? (promptTokens ?? 0) + (completionTokens ?? 0) + (imageInputTokens ?? 0)
       : undefined);
+
+  // Hub budgets sum `cost` only; synthetic pi models (not in the registry) report 0.
+  let costSource: 'list_price' | 'default_price' | undefined;
+  const billableTokens =
+    (promptTokens ?? 0) +
+    (completionTokens ?? 0) +
+    (cacheRead ?? 0) +
+    (cacheWrite ?? 0) +
+    (imageInputTokens ?? 0);
+  if (!(totalCost !== undefined && totalCost > 0) && billableTokens > 0) {
+    const listPricing = resolveModelPricing(provider, modelId);
+    const computed = computeModelUsageCost(listPricing ?? DEFAULT_MODEL_PRICING, {
+      input: promptTokens,
+      output: completionTokens,
+      cacheRead,
+      cacheWrite,
+      imageInput: imageInputTokens,
+    });
+    totalCost = computed.total;
+    inputCost = computed.input;
+    outputCost = computed.output;
+    cachedCost = computed.cached > 0 ? computed.cached : undefined;
+    costSource = listPricing ? 'list_price' : 'default_price';
+  }
 
   const hasTokens =
     promptTokens !== undefined ||
@@ -170,6 +212,10 @@ export function buildHubUsagePayloadFromPiUsage(
   if (!hasTokens && !hasCost) return null;
 
   const metadata: Record<string, unknown> = {};
+  const hubProjectId = (input.hubProjectId || '').trim();
+  const projectIdIsUuid = UUID_RE.test(hubProjectId);
+  if (hubProjectId && !projectIdIsUuid) metadata.hub_project_ref = hubProjectId;
+  if (costSource) metadata.cost_source = costSource;
   if (input.division) metadata.workspace = input.division;
   if (input.folderId) metadata.folder_id = input.folderId;
   if (input.launchpadProjectId != null) {
@@ -193,19 +239,21 @@ export function buildHubUsagePayloadFromPiUsage(
     status: input.status ?? 'ok',
   };
 
-  if (input.hubProjectId) payload.project_id = input.hubProjectId;
+  if (projectIdIsUuid) payload.project_id = hubProjectId;
   const requestId = (input.responseId || '').trim();
   if (requestId) payload.request_id = requestId;
   if (promptTokens !== undefined) payload.prompt_tokens = promptTokens;
   if (completionTokens !== undefined) payload.completion_tokens = completionTokens;
   if (totalTokens !== undefined) payload.total_tokens = totalTokens;
   if (cachedTokens !== undefined) payload.cached_tokens = cachedTokens;
+  if (imageInputTokens !== undefined) payload.image_tokens = imageInputTokens;
   if (totalCost !== undefined) {
     payload.cost = totalCost;
     payload.currency = 'USD';
   }
   if (inputCost !== undefined) payload.input_cost = inputCost;
   if (outputCost !== undefined) payload.output_cost = outputCost;
+  if (cachedCost !== undefined) payload.cached_cost = cachedCost;
   if (
     typeof input.latencyMs === 'number' &&
     Number.isFinite(input.latencyMs) &&
@@ -220,8 +268,10 @@ export function buildHubUsagePayloadFromPiUsage(
 }
 
 /**
- * Normalize OpenAI chat-completions or Anthropic messages `usage` into a pi-like shape
- * accepted by buildHubUsagePayloadFromPiUsage.
+ * Normalize OpenAI chat-completions, OpenAI Images, or Anthropic messages `usage`
+ * into a pi-like shape accepted by buildHubUsagePayloadFromPiUsage.
+ * Images API `input_tokens_details` splits text vs image input (billed differently);
+ * `input` then holds uncached text tokens only, matching pi-ai's convention.
  */
 export function extractVisionApiUsage(raw: unknown): Record<string, number> | null {
   const usage = asRecord(raw);
@@ -252,7 +302,17 @@ export function extractVisionApiUsage(raw: unknown): Record<string, number> | nu
   }
 
   const out: Record<string, number> = {};
-  if (promptTokens !== undefined) out.input = promptTokens;
+  const inputDetails = asRecord(usage.input_tokens_details) || asRecord(usage.prompt_tokens_details);
+  const imageTokens = inputDetails ? numberField(inputDetails, 'image_tokens') : undefined;
+  const cachedTokens = inputDetails ? numberField(inputDetails, 'cached_tokens') : undefined;
+  if (promptTokens !== undefined) {
+    const textTokens =
+      (inputDetails ? numberField(inputDetails, 'text_tokens') : undefined) ??
+      promptTokens - (imageTokens ?? 0);
+    out.input = Math.max(0, textTokens - (cachedTokens ?? 0));
+  }
+  if (imageTokens !== undefined) out.imageInput = imageTokens;
+  if (cachedTokens !== undefined && cachedTokens > 0) out.cacheRead = cachedTokens;
   if (completionTokens !== undefined) out.output = completionTokens;
   if (totalTokens !== undefined) {
     out.totalTokens = totalTokens;

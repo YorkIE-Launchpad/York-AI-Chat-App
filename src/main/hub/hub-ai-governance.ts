@@ -26,6 +26,7 @@ import {
   type HubGovernanceUsageIngestResult,
   type HubGovernanceUsagePayload,
 } from '../../shared/hub-governance-usage';
+import { ensureModelPricingFresh } from '../../shared/model-pricing';
 import { ensureAuthenticatedSession } from '../auth/session';
 import { log, logWarn } from '../utils/logger';
 
@@ -166,6 +167,13 @@ function booleanField(row: Record<string, unknown>, ...keys: string[]): boolean 
   return undefined;
 }
 
+/** Hub admins enter display casing (`Anthropic`, `Openai`, `Google`). */
+function normalizeHubProvider(value: string | null): string | null {
+  if (!value) return null;
+  const lower = value.toLowerCase();
+  return lower === 'google' ? 'gemini' : lower;
+}
+
 function isSuccessEnvelope(json: unknown): boolean {
   const root = asRecord(json);
   if (!root) return Array.isArray(json);
@@ -191,7 +199,7 @@ export function parseHubGovernanceModels(payload: unknown): BackendModelInfo[] {
 
     const id = stringField(row, 'id', 'model_id');
     const name = stringField(row, 'name') || id;
-    const providerRaw = stringField(row, 'provider');
+    const providerRaw = normalizeHubProvider(stringField(row, 'provider'));
     if (!id || !providerRaw) continue;
 
     if (!isBackendManagedProvider(providerRaw)) {
@@ -780,6 +788,8 @@ export async function postHubGovernanceUsageForToken(input: {
     const root = asRecord(result.json) || {};
     const data = asRecord(root.data) || asRecord(result.json) || {};
     const parsed = parseHubGovernanceUsageResponse(result.json);
+    userBudgetCache = null;
+    projectBudgetCache = null;
     if (parsed.userBudgetPercent != null && parsed.userBudgetPercent >= 100) {
       clearHubGovernanceModelsCache();
     }
@@ -821,6 +831,48 @@ function broadcastHubUsage(snapshot: HubUsageMeterSnapshot): void {
   }
 }
 
+async function postUsageWithAuth(
+  auth: { token: string; alternateToken: string | null },
+  payload: HubGovernanceUsagePayload,
+  fetchFn?: FetchFn
+): Promise<void> {
+  const { token, alternateToken } = auth;
+  const result = await postHubGovernanceUsageForToken({
+    token,
+    alternateToken,
+    payload,
+    fetchFn,
+  });
+  broadcastHubUsage({
+    userBudgetPercent: result.userBudgetPercent,
+    projectBudgetPercent: result.projectBudgetPercent,
+    lastTurnTokens: result.totalTokens,
+    updatedAt: Date.now(),
+  });
+}
+
+function logUsagePostFailure(error: unknown): void {
+  if (error instanceof HubAiGovernanceError) {
+    logWarn('[HubAiGovernance] usage POST failed:', error.status, error.message);
+  } else {
+    logWarn('[HubAiGovernance] usage POST failed:', error);
+  }
+}
+
+const unpricedModelsWarned = new Set<string>();
+
+function warnIfUnpriced(payload: HubGovernanceUsagePayload): void {
+  if (payload.metadata?.cost_source !== 'default_price') return;
+  const key = `${payload.provider}/${payload.model_id}`;
+  if (unpricedModelsWarned.has(key)) return;
+  unpricedModelsWarned.add(key);
+  logWarn(
+    '[HubAiGovernance] No list price for',
+    key,
+    '— charging default claude-opus-4.5 rates; add it to PRICING_SNAPSHOT'
+  );
+}
+
 /**
  * Post a usage event. Swallows errors (log only) — safe for fire-and-forget from agent stream.
  */
@@ -829,36 +881,32 @@ export async function postHubGovernanceUsage(
   options?: { fetchFn?: FetchFn }
 ): Promise<void> {
   try {
-    const { token, alternateToken } = await resolveAccessToken();
-    const result = await postHubGovernanceUsageForToken({
-      token,
-      alternateToken,
-      payload,
-      fetchFn: options?.fetchFn,
-    });
-    broadcastHubUsage({
-      userBudgetPercent: result.userBudgetPercent,
-      projectBudgetPercent: result.projectBudgetPercent,
-      lastTurnTokens: result.totalTokens,
-      updatedAt: Date.now(),
-    });
+    await postUsageWithAuth(await resolveAccessToken(), payload, options?.fetchFn);
   } catch (error) {
-    if (error instanceof HubAiGovernanceError) {
-      logWarn('[HubAiGovernance] usage POST failed:', error.status, error.message);
-    } else {
-      logWarn('[HubAiGovernance] usage POST failed:', error);
-    }
+    logUsagePostFailure(error);
   }
 }
 
 /**
  * Build + post usage from pi-ai message_end context. Fire-and-forget safe.
  * No-ops when payload cannot be built (no tokens/cost).
+ * Live list prices are refreshed only after auth succeeds (no network when signed out).
  */
 export function reportHubGovernanceUsageFromCompletion(input: BuildHubUsageInput): void {
-  const payload = buildHubUsagePayloadFromPiUsage(input);
-  if (!payload) return;
-  void postHubGovernanceUsage(payload);
+  if (!buildHubUsagePayloadFromPiUsage(input)) return;
+  const occurredAt = input.occurredAt ?? new Date();
+  void (async () => {
+    try {
+      const auth = await resolveAccessToken();
+      await ensureModelPricingFresh();
+      const payload = buildHubUsagePayloadFromPiUsage({ ...input, occurredAt });
+      if (!payload) return;
+      warnIfUnpriced(payload);
+      await postUsageWithAuth(auth, payload);
+    } catch (error) {
+      logUsagePostFailure(error);
+    }
+  })();
 }
 
 /** Fire-and-forget Hub usage for MCP vision completions (main-process auth). */
