@@ -15,10 +15,8 @@ import { configStore } from '../config/config-store';
 import { getClientAppVersion, resolveBackendClientApiKey } from '../config/backend-auth';
 import type { MCPManager } from '../mcp/mcp-manager';
 import { log, logError } from '../utils/logger';
-import {
-  annotateReadToolForPdfs,
-  createPdfAwareReadOptions,
-} from '../utils/pdf-text';
+import { resolveWritableSessionCwd } from '../session/resolve-session-cwd';
+import { annotateReadToolForPdfs, createPdfAwareReadOptions } from '../utils/pdf-text';
 import type { CheckpointService } from '../orchestration/checkpoint-service';
 
 /** Optional durable checkpoints for child subagents (M3). */
@@ -52,10 +50,7 @@ import {
   resolvePiRouteProtocol,
   resolveSyntheticPiModelFallback,
 } from './pi-model-resolution';
-import {
-  applyOpenRouterClaudeCacheHints,
-  enableLongAnthropicPromptCache,
-} from './prompt-cache';
+import { applyOpenRouterClaudeCacheHints, enableLongAnthropicPromptCache } from './prompt-cache';
 import { getSharedAuthStorage, ModelRegistry } from './shared-auth';
 import { fetchBackendModels } from '../config/backend-client';
 import {
@@ -200,7 +195,12 @@ function buildFlatMcpTools(
           p && typeof p === 'object' ? (p as Record<string, unknown>) : {},
           mcpTool.inputSchema
         );
-        const prepared = prepareProjectScopedMcpArgs(mcpTool.name, leanArgs, division, resolvedLinkage);
+        const prepared = prepareProjectScopedMcpArgs(
+          mcpTool.name,
+          leanArgs,
+          division,
+          resolvedLinkage
+        );
         if (prepared.kind === 'block') {
           emitProjectScopeBlock(
             onProjectScopeViolation,
@@ -220,7 +220,11 @@ function buildFlatMcpTools(
         });
         const text = prepared.filterResult
           ? compressToolResultTextForModel(
-              applyCompanyProjectScopedMcpResultFilter(mcpTool.name, normalizedResult.text, division)
+              applyCompanyProjectScopedMcpResultFilter(
+                mcpTool.name,
+                normalizedResult.text,
+                division
+              )
             )
           : normalizedResult.text;
         return {
@@ -398,6 +402,8 @@ export interface RunChildAgentSessionInput {
   emitProgress?: boolean;
   /** Parent session workspace division (provider gating is FE-owned). */
   division?: Partial<SessionDivisionFields> | null;
+  /** Parent session working directory; child file tools resolve against it. */
+  cwd?: string | null;
   /** Hub usage feature tag (default: subagent). */
   usageFeature?: string;
 }
@@ -515,7 +521,7 @@ export async function runChildAgentSession(
     const authStorage = getSharedAuthStorage();
     const modelRegistry = new ModelRegistry(authStorage);
     const config = configStore.getAll();
-    const cwd = config.defaultWorkdir || process.cwd();
+    const cwd = resolveWritableSessionCwd([input.cwd, config.defaultWorkdir, process.cwd()]);
     const yorkLlmActive = shouldSkipHubUsageForYorkLlm(piModel.baseUrl || config.baseUrl);
     if (yorkLlmActive) {
       piModel = {
@@ -526,9 +532,7 @@ export async function runChildAgentSession(
 
     let customTools: ToolDefinition[] = [];
     const codingTools = includeCodingTools
-      ? annotateReadToolForPdfs(
-          createCodingTools(cwd, { read: createPdfAwareReadOptions() })
-        )
+      ? annotateReadToolForPdfs(createCodingTools(cwd, { read: createPdfAwareReadOptions() }))
       : [];
     const onProjectScopeViolation = createProjectScopeViolationReporter({
       sessionId: input.parentSessionId,
@@ -600,10 +604,7 @@ export async function runChildAgentSession(
     await resourceLoader.reload();
 
     enableLongAnthropicPromptCache();
-    piModel = applyOpenRouterClaudeCacheHints(
-      piModel,
-      input.parentSessionId || subagentId
-    );
+    piModel = applyOpenRouterClaudeCacheHints(piModel, input.parentSessionId || subagentId);
 
     const { session: childSession } = await createAgentSession({
       model: piModel,

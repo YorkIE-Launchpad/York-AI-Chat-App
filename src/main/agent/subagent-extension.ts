@@ -35,7 +35,8 @@ function createSpawnSubagentTool(
   requestPermission: PermissionHandler | null,
   getParentAbortSignal: () => AbortSignal | null,
   concurrencyState: { active: number },
-  division?: Partial<SessionDivisionFields> | null
+  division?: Partial<SessionDivisionFields> | null,
+  cwd?: string | null
 ): AgentRuntimeCustomTool {
   return {
     name: 'spawn_subagent',
@@ -121,6 +122,7 @@ function createSpawnSubagentTool(
         concurrencyState,
         emitProgress: true,
         division,
+        cwd,
         usageFeature: 'subagent',
       });
 
@@ -153,7 +155,8 @@ export class SubagentExtension implements AgentRuntimeExtension {
           this.requestPermission,
           this.getParentAbortSignal,
           this.concurrencyState,
-          context.session
+          context.session,
+          context.session.cwd
         ),
       ],
     };

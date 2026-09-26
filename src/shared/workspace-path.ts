@@ -115,7 +115,8 @@ export function resolvePathAgainstWorkspace(
     return pathValue;
   }
 
-  if (!workspacePath) {
+  // Home-relative paths are expanded by the main process (no `os` here).
+  if (!workspacePath || pathValue === '~' || /^~[/\\]/.test(pathValue)) {
     return pathValue;
   }
 

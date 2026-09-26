@@ -187,10 +187,10 @@ export function HtmlPreviewPanel() {
     void lockApi
       .watch({ docId: sharedDocId, canEdit, sessionId: activeSessionId ?? undefined })
       .then((result) => {
-      if (result.success && result.state) {
-        setDocLock(result.state);
-      }
-    });
+        if (result.success && result.state) {
+          setDocLock(result.state);
+        }
+      });
     const unsub = lockApi.onState((state) => {
       if (state.docId === sharedDocId) {
         setDocLock(state);
@@ -216,16 +216,11 @@ export function HtmlPreviewPanel() {
       .then((result) => {
         if (!result.success || !result.link) return;
         const permission = result.link.permission as SharedDocPermission | 'owner';
-        openHtmlPreview(
-          activeHtmlPreview.path,
-          activeHtmlPreview.title,
-          activeHtmlPreview.kind,
-          {
-            docId: result.link.doc_id,
-            permission,
-            s3UpdatedAt: result.link.s3_updated_at,
-          }
-        );
+        openHtmlPreview(activeHtmlPreview.path, activeHtmlPreview.title, activeHtmlPreview.kind, {
+          docId: result.link.doc_id,
+          permission,
+          s3UpdatedAt: result.link.s3_updated_at,
+        });
       })
       .catch(() => undefined);
   }, [activeHtmlPreview?.path, activeSessionId, activeHtmlPreview?.shared, openHtmlPreview]);
@@ -676,9 +671,15 @@ export function HtmlPreviewPanel() {
             aria-modal="true"
             className="w-full max-w-sm rounded-xl border border-border-subtle bg-background p-4 shadow-lg"
           >
-            <h3 className="text-sm font-medium text-text-primary">{t('context.htmlPreviewShareTitle')}</h3>
-            <p className="mt-2 text-xs text-text-muted">{t('context.htmlPreviewShareInviteHint')}</p>
-            <label className="mt-3 block text-xs text-text-muted">{t('context.htmlPreviewSharePermission')}</label>
+            <h3 className="text-sm font-medium text-text-primary">
+              {t('context.htmlPreviewShareTitle')}
+            </h3>
+            <p className="mt-2 text-xs text-text-muted">
+              {t('context.htmlPreviewShareInviteHint')}
+            </p>
+            <label className="mt-3 block text-xs text-text-muted">
+              {t('context.htmlPreviewSharePermission')}
+            </label>
             <select
               value={sharePermission}
               onChange={(e) => setSharePermission(e.target.value as SharedDocPermission)}
@@ -707,7 +708,9 @@ export function HtmlPreviewPanel() {
                 onClick={() => void handleSubmitShare()}
                 disabled={sharing}
               >
-                {sharing ? t('common.loading', { defaultValue: 'Working…' }) : t('context.htmlPreviewShareCopy')}
+                {sharing
+                  ? t('common.loading', { defaultValue: 'Working…' })
+                  : t('context.htmlPreviewShareCopy')}
               </button>
             </div>
           </div>
@@ -724,7 +727,14 @@ export function HtmlPreviewPanel() {
         {error && !loading && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-6 text-center bg-background">
             <AlertTriangle className="w-5 h-5 text-warning" />
-            <p className="text-xs text-text-secondary">{error}</p>
+            <p className="text-xs text-text-secondary">
+              {/ENOENT|no such file/i.test(error)
+                ? t('context.htmlPreviewNotFound')
+                : /outside workspace/i.test(error)
+                  ? t('context.htmlPreviewOutsideWorkspace')
+                  : error}
+            </p>
+            <p className="text-[11px] text-text-muted break-all">{activeHtmlPreview.path}</p>
             <button
               type="button"
               onClick={handleRefresh}

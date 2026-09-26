@@ -54,11 +54,13 @@ import {
   HubAllocationsError,
   listAllocatedProjects,
 } from './hub/hub-allocations';
-import { clearHubGovernanceModelsCache, fetchUserAiBudget, fetchProjectAiBudget, HubAiGovernanceError } from './hub/hub-ai-governance';
 import {
-  fetchProjectBudget,
-  LaunchPadProjectsError,
-} from './launchpad/launchpad-projects';
+  clearHubGovernanceModelsCache,
+  fetchUserAiBudget,
+  fetchProjectAiBudget,
+  HubAiGovernanceError,
+} from './hub/hub-ai-governance';
+import { fetchProjectBudget, LaunchPadProjectsError } from './launchpad/launchpad-projects';
 import { listUnifiedCompanyProjects } from './launchpad/unified-projects';
 import { createFolderManager, type FolderManager } from './folders/folder-manager';
 import { PluginCatalogService } from './skills/plugin-catalog-service';
@@ -101,7 +103,10 @@ import { SuperContextExtension } from './supercontext/supercontext-extension';
 import { CheckpointService } from './orchestration/checkpoint-service';
 import { WorkflowService } from './workflows/workflow-service';
 import { WorkflowExtension } from './workflows/workflow-extension';
-import { createWorkflowScheduleBridge, sweepOrphanedWorkflowSchedules } from './workflows/workflow-schedule-bridge';
+import {
+  createWorkflowScheduleBridge,
+  sweepOrphanedWorkflowSchedules,
+} from './workflows/workflow-schedule-bridge';
 import {
   parseWorkflowSchedulePrompt,
   formatWorkflowSessionTitle,
@@ -130,7 +135,15 @@ import { bootstrapYorkLlmDefault } from './config/york-llm-default-bootstrap';
 import { fetchBackendModels } from './config/backend-client';
 import { installYorkLlmFetchGate } from './york-llm/york-llm-fetch-gate';
 import { getYorkLlmGateSnapshot, subscribeYorkLlmQueue } from './york-llm/york-llm-gate';
-import { setPermissionRules, decidePermission, listSessionAlwaysAllow, clearSessionAlwaysAllow, upsertToolPermission, rememberAlwaysAllow, getPermissionRules } from './config/permission-rules-store';
+import {
+  setPermissionRules,
+  decidePermission,
+  listSessionAlwaysAllow,
+  clearSessionAlwaysAllow,
+  upsertToolPermission,
+  rememberAlwaysAllow,
+  getPermissionRules,
+} from './config/permission-rules-store';
 import {
   setMcpWriteAccessEnabled,
   setMcpWriteAccessServerSource,
@@ -192,7 +205,10 @@ import {
   killMacUpdateStragglerProcesses,
 } from './updater';
 import { buildUpdaterDiagnosticsSnapshot } from './updater-diagnostics';
-import { registerUpdateInstallAbortHandler, registerUpdateInstallWillQuitHandler } from './update-quit-coordination';
+import {
+  registerUpdateInstallAbortHandler,
+  registerUpdateInstallWillQuitHandler,
+} from './update-quit-coordination';
 import { getPendingWhatsNew, markWhatsNewSeen } from './whats-new/whats-new-service';
 import { warmupJwksCache } from './auth/cognito';
 import { submitViteOAuthCode, getOAuthDebugInfo, initHubOAuthRelay } from './auth/hub-oauth';
@@ -240,14 +256,8 @@ import { eventRequiresSessionManager } from './client-event-utils';
 import { getUnsupportedWorkspacePathReason } from './workspace-path-constraints';
 import { CollabSyncService } from './collab/collab-sync-service';
 import { getBackendAuthHeaders } from './config/backend-auth';
-import {
-  loadCollabRoomSnapshot,
-  saveCollabRoomSnapshot,
-} from './collab/collab-snapshot-store';
-import {
-  sharedDocsService,
-  setSharedDocsSyncNotifier,
-} from './shared-docs/shared-docs-service';
+import { loadCollabRoomSnapshot, saveCollabRoomSnapshot } from './collab/collab-snapshot-store';
+import { sharedDocsService, setSharedDocsSyncNotifier } from './shared-docs/shared-docs-service';
 import {
   SharedDocLockService,
   setSharedDocLockService,
@@ -266,7 +276,7 @@ import {
   isDevLogsEnabled,
 } from './utils/logger';
 import { listRecentWorkspaceFiles } from './utils/recent-workspace-files';
-import { resolveWorkspaceLocalPath } from './utils/resolve-workspace-local-path';
+import { expandHomePath, resolveWorkspaceLocalPath } from './utils/resolve-workspace-local-path';
 import { buildDiagnosticsSummary } from './utils/diagnostics-summary';
 import {
   parseHeadlessArgs,
@@ -281,6 +291,8 @@ import {
 
 // Current working directory (persisted between sessions)
 let currentWorkingDir: string | null = null;
+// Headless `--cwd` wins over the configured default workdir.
+let workingDirFromCli = false;
 
 // Dev → `.env`; production / packaged → staged `env.prod` / `.env.prod` (fallback `.env`)
 // Note: electron-builder ignores `.env*` *source* files, so packaged builds ship `env.prod`.
@@ -423,11 +435,7 @@ const pendingWorkflowApprovals = new Map<string, (decision: 'allow' | 'deny') =>
 /** Pending workflow input resolvers keyed by runId:nodeId. */
 const pendingWorkflowInputs = new Map<
   string,
-  (
-    result:
-      | { kind: 'submitted'; answers: Record<string, string> }
-      | { kind: 'cancelled' }
-  ) => void
+  (result: { kind: 'submitted'; answers: Record<string, string> } | { kind: 'cancelled' }) => void
 >();
 
 /** Wait until a chat session reaches idle or error (agent turn finished). */
@@ -494,7 +502,13 @@ function wireWikiAndOrchestration(db: ReturnType<typeof initDatabase>): void {
 function buildExtensionList(
   askUserQuestionExtension: AskUserQuestionExtension
 ): import('./extensions/agent-runtime-extension').AgentRuntimeExtension[] {
-  if (!memoryService || !wikiService || !meetingService || !workflowService || !summaryTreeService) {
+  if (
+    !memoryService ||
+    !wikiService ||
+    !meetingService ||
+    !workflowService ||
+    !summaryTreeService
+  ) {
     throw new Error('Core services not ready for extension list');
   }
   return [
@@ -1153,7 +1167,7 @@ function focusMainWindow(): void {
   const existingWindow =
     mainWindow && !mainWindow.isDestroyed()
       ? mainWindow
-      : BrowserWindow.getAllWindows().find((window) => !window.isDestroyed()) ?? null;
+      : (BrowserWindow.getAllWindows().find((window) => !window.isDestroyed()) ?? null);
 
   if (!existingWindow) {
     createWindow();
@@ -1378,7 +1392,7 @@ function createWindow() {
     // Send app default working directory to renderer
     sendToRenderer({
       type: 'workdir.changed',
-      payload: { path: currentWorkingDir || '', isDefault: true },
+      payload: { path: getWorkingDir() || '', isDefault: true },
     });
 
     // Start sandbox bootstrap after window is loaded
@@ -1413,11 +1427,48 @@ function initializeDefaultWorkingDir(): string {
   return currentWorkingDir;
 }
 
+function isExistingDirectory(dirPath: string): boolean {
+  try {
+    return fs.statSync(dirPath).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 /**
- * Get current working directory
+ * App default workspace for new chats, schedules and workflows:
+ * configured `defaultWorkdir` when it exists, else userData/default_working_dir.
  */
 function getWorkingDir(): string | null {
+  const configured = (configStore.get('defaultWorkdir') || '').trim();
+  if (
+    !workingDirFromCli &&
+    configured &&
+    isAbsolute(configured) &&
+    isExistingDirectory(configured)
+  ) {
+    return resolve(configured);
+  }
   return currentWorkingDir;
+}
+
+/**
+ * Folders outside the session workspace that the agent writes to by design
+ * (skills authored via skill-creator, plugins). Previews and "open" accept
+ * files under these roots.
+ */
+function getAppManagedFileRoots(): string[] {
+  const userData = app.getPath('userData');
+  const roots = [
+    join(userData, 'claude'),
+    join(app.getPath('home'), '.claude', 'skills'),
+    join(app.getPath('home'), '.claude', 'plugins'),
+  ];
+  const configuredSkills = (configStore.get('globalSkillsPath') || '').trim();
+  if (configuredSkills && isAbsolute(configuredSkills)) {
+    roots.push(configuredSkills);
+  }
+  return roots;
 }
 
 function getWorkspacePathUnsupportedReason(workspacePath?: string): string | null {
@@ -1849,6 +1900,7 @@ app
 
       // Set working directory from --cwd flag
       currentWorkingDir = headlessArgs.cwd;
+      workingDirFromCli = Boolean(headlessArgs.cwd);
       log('[Headless] Working directory:', currentWorkingDir);
 
       // Initialize scheduled task manager (runs in background)
@@ -2266,7 +2318,7 @@ app
     initializeDefaultWorkingDir();
     log('Working directory:', currentWorkingDir);
     // Remote sessions use the global working directory by default
-    remoteManager.setDefaultWorkingDirectory(currentWorkingDir || undefined);
+    remoteManager.setDefaultWorkingDirectory(getWorkingDir() || undefined);
 
     // Initialize database
     const db = initDatabase();
@@ -2477,7 +2529,7 @@ app
     workflowService?.setScheduleBridge(
       createWorkflowScheduleBridge(
         () => scheduledTaskManager,
-        () => configStore.get('defaultWorkdir') || currentWorkingDir || process.cwd()
+        () => getWorkingDir() || process.cwd()
       )
     );
     scheduledTaskManager.start();
@@ -2561,7 +2613,7 @@ app
         if (!sessionManager) throw new Error('Session manager not initialized');
         const def = workflowService?.get(workflowId);
         const workflowName = def?.name || 'Workflow';
-        const cwd = configStore.get('defaultWorkdir') || currentWorkingDir || process.cwd();
+        const cwd = getWorkingDir() || process.cwd();
         const stepPrompt = prompt.includes('[[YORK_WORKFLOW_AGENT_STEP]]')
           ? prompt
           : `[[YORK_WORKFLOW_AGENT_STEP]]\n${prompt}`;
@@ -2670,8 +2722,7 @@ app
           },
         });
         return await new Promise<
-          | { kind: 'submitted'; answers: Record<string, string> }
-          | { kind: 'cancelled' }
+          { kind: 'submitted'; answers: Record<string, string> } | { kind: 'cancelled' }
         >((resolve) => {
           pendingWorkflowInputs.set(key, resolve);
         });
@@ -3434,10 +3485,7 @@ ipcMain.handle('permissions.clearSessionAlwaysAllow', (_event, sessionId: string
 
 ipcMain.handle(
   'permissions.setToolRule',
-  (
-    _event,
-    payload: { tool: string; action: 'allow' | 'deny' | 'ask'; sessionId?: string }
-  ) => {
+  (_event, payload: { tool: string; action: 'allow' | 'deny' | 'ask'; sessionId?: string }) => {
     const tool = typeof payload?.tool === 'string' ? payload.tool.trim() : '';
     const action = payload?.action;
     if (!tool || (action !== 'allow' && action !== 'deny' && action !== 'ask')) {
@@ -3577,6 +3625,7 @@ async function revealFileInFolder(filePath: string, cwd?: string): Promise<boole
     }
     normalizedPath = localPath;
   }
+  normalizedPath = expandHomePath(normalizedPath);
 
   const defaultWorkingDir = getWorkingDir() || '';
   const userDataDefaultWorkingDir = join(app.getPath('userData'), 'default_working_dir');
@@ -3584,9 +3633,11 @@ async function revealFileInFolder(filePath: string, cwd?: string): Promise<boole
     cwd && isAbsolute(cwd)
       ? cwd
       : defaultWorkingDir || userDataDefaultWorkingDir || app.getPath('home');
+  // Revealing in Finder/Explorer is read-only, so any existing file is fine.
   const existingResolved = resolveAppWorkspaceLocalPath(
     normalizedPath,
-    cwd && isAbsolute(cwd) ? cwd : undefined
+    cwd && isAbsolute(cwd) ? cwd : undefined,
+    { allowOutsideRoots: true }
   );
   if (!('error' in existingResolved)) {
     normalizedPath = existingResolved.path;
@@ -3704,16 +3755,63 @@ ipcMain.handle(
 
 const MAX_HTML_PREVIEW_BYTES = 2 * 1024 * 1024; // 2MB cap for srcDoc previews
 
+/** Extensions safe to hand to the OS default app even when outside the workspace. */
+const OPENABLE_OUTSIDE_WORKSPACE_EXTS = new Set([
+  '.md',
+  '.markdown',
+  '.txt',
+  '.html',
+  '.htm',
+  '.pdf',
+  '.csv',
+  '.tsv',
+  '.json',
+  '.xml',
+  '.yaml',
+  '.yml',
+  '.log',
+  '.rtf',
+  '.docx',
+  '.doc',
+  '.xlsx',
+  '.xls',
+  '.pptx',
+  '.ppt',
+  '.odt',
+  '.ods',
+  '.odp',
+  '.pages',
+  '.numbers',
+  '.key',
+  '.png',
+  '.jpg',
+  '.jpeg',
+  '.gif',
+  '.webp',
+  '.svg',
+  '.heic',
+  '.bmp',
+  '.tiff',
+  '.mp3',
+  '.wav',
+  '.m4a',
+  '.mp4',
+  '.mov',
+  '.webm',
+]);
+
 function resolveAppWorkspaceLocalPath(
   filePath: string,
   preferredBaseDir?: string,
-  allowMissing = false
-): { path: string; baseDir: string } | { error: string } {
+  options: { allowMissing?: boolean; allowOutsideRoots?: boolean } = {}
+): ReturnType<typeof resolveWorkspaceLocalPath> {
   return resolveWorkspaceLocalPath(filePath, {
     preferredBaseDir,
     defaultWorkingDir: getWorkingDir() || '',
     userDataDefaultWorkingDir: join(app.getPath('userData'), 'default_working_dir'),
-    allowMissing,
+    extraRoots: getAppManagedFileRoots(),
+    allowMissing: options.allowMissing,
+    allowOutsideRoots: options.allowOutsideRoots,
   });
 }
 
@@ -3729,10 +3827,12 @@ ipcMain.handle(
         return { success: false, error: 'Invalid path' };
       }
 
+      // Read-only Markdown/HTML preview (sandboxed iframe), so an existing
+      // absolute file outside the workspace (e.g. ~/Desktop) is acceptable.
       const resolved = resolveAppWorkspaceLocalPath(
         filePath.trim(),
         cwd && typeof cwd === 'string' && isAbsolute(cwd) ? cwd : undefined,
-        true
+        { allowMissing: true, allowOutsideRoots: true }
       );
       if ('error' in resolved) {
         return { success: false, error: resolved.error };
@@ -3779,8 +3879,16 @@ ipcMain.handle('shell.openPath', async (_event, filePath: string, cwd?: string) 
     }
     const resolved = resolveAppWorkspaceLocalPath(
       filePath.trim(),
-      cwd && typeof cwd === 'string' && isAbsolute(cwd) ? cwd : undefined
+      cwd && typeof cwd === 'string' && isAbsolute(cwd) ? cwd : undefined,
+      { allowOutsideRoots: true }
     );
+    if (
+      !('error' in resolved) &&
+      resolved.outsideWorkspace &&
+      !OPENABLE_OUTSIDE_WORKSPACE_EXTS.has(extname(resolved.path).toLowerCase())
+    ) {
+      return { success: false, error: 'Path outside workspace' };
+    }
     if ('error' in resolved) {
       // When no workspace root is available, still allow absolute open.
       if (resolved.error === 'No workspace directory') {
@@ -3812,10 +3920,7 @@ const MAX_FILE_DATA_URL_BYTES = 8 * 1024 * 1024; // 8MB cap for renderer preview
 
 ipcMain.handle(
   'image.saveToDisk',
-  async (
-    _event,
-    payload: { base64?: string; mediaType?: string; defaultFileName?: string }
-  ) => {
+  async (_event, payload: { base64?: string; mediaType?: string; defaultFileName?: string }) => {
     const base64 = payload?.base64?.trim();
     const mediaType = payload?.mediaType?.trim() || 'image/png';
     if (!base64) {
@@ -3828,8 +3933,7 @@ ipcMain.handle(
       'image/webp': 'webp',
     };
     const ext = extByMime[mediaType] ?? 'png';
-    const defaultPath =
-      payload?.defaultFileName?.trim() || `york-image-${Date.now()}.${ext}`;
+    const defaultPath = payload?.defaultFileName?.trim() || `york-image-${Date.now()}.${ext}`;
     const result = await dialog.showSaveDialog(mainWindow!, {
       title: 'Save Image',
       defaultPath,
@@ -4994,7 +5098,10 @@ ipcMain.handle('logs.export', async () => {
         archive.append(JSON.stringify(updaterDiagnostics, null, 2), {
           name: 'updater-diagnostics.json',
         });
-        const shipItStdout = updaterDiagnostics.shipIt as { stdout?: string | null; stderr?: string | null };
+        const shipItStdout = updaterDiagnostics.shipIt as {
+          stdout?: string | null;
+          stderr?: string | null;
+        };
         if (shipItStdout?.stdout) {
           archive.append(shipItStdout.stdout, { name: 'shipit/ShipIt_stdout.log' });
         }
@@ -5211,7 +5318,12 @@ ipcMain.handle(
   'sharedDocs.open',
   async (
     _event,
-    input: { sessionId: string; cwd: string; docId: string; doc?: import('../shared/shared-docs/types').SharedDocWithAccess }
+    input: {
+      sessionId: string;
+      cwd: string;
+      docId: string;
+      doc?: import('../shared/shared-docs/types').SharedDocWithAccess;
+    }
   ) => {
     try {
       const result = await sharedDocsService.materializeSharedDoc(input);
@@ -5270,10 +5382,7 @@ ipcMain.handle('sharedDocs.join', async (_event, inviteToken: string) => {
 
 ipcMain.handle(
   'sharedDocs.createInvite',
-  async (
-    _event,
-    input: { docId: string; permission: 'view' | 'edit'; sessionId: string }
-  ) => {
+  async (_event, input: { docId: string; permission: 'view' | 'edit'; sessionId: string }) => {
     try {
       const invite = await sharedDocsService.createInvite(input);
       return { success: true, ...invite };
@@ -5370,7 +5479,10 @@ ipcMain.handle('session.import', async () => {
       title: 'Import Chat',
       properties: ['openFile'],
       filters: [
-        { name: 'Chat exports', extensions: ['yorkchat', 'zip', 'json', 'md', 'markdown', 'txt', 'pdf'] },
+        {
+          name: 'Chat exports',
+          extensions: ['yorkchat', 'zip', 'json', 'md', 'markdown', 'txt', 'pdf'],
+        },
         { name: 'York Chat', extensions: ['yorkchat', 'zip'] },
         { name: 'ChatGPT / Claude JSON', extensions: ['json', 'zip'] },
         { name: 'Transcript', extensions: ['md', 'markdown', 'txt', 'pdf'] },
@@ -5383,7 +5495,7 @@ ipcMain.handle('session.import', async () => {
     }
 
     const sourcePath = openResult.filePaths[0];
-    const cwd = currentWorkingDir || configStore.get('defaultWorkdir') || undefined;
+    const cwd = getWorkingDir() || undefined;
     const lower = sourcePath.toLowerCase();
 
     const { convertExternalChatFile } = await import('./session/external-chat-import');
@@ -5392,16 +5504,10 @@ ipcMain.handle('session.import', async () => {
     if (external && external.payloads.length > 0) {
       const sessions = [];
       for (const payload of external.payloads) {
-        const session = sessionManager.importSessionFromPayload(
-          payload,
-          new Map(),
-          { cwd }
-        );
+        const session = sessionManager.importSessionFromPayload(payload, new Map(), { cwd });
         sessions.push(session);
       }
-      log(
-        `[Session] Imported ${sessions.length} chat(s) from ${external.source} export`
-      );
+      log(`[Session] Imported ${sessions.length} chat(s) from ${external.source} export`);
       return {
         success: true,
         session: sessions[0],
@@ -5411,8 +5517,7 @@ ipcMain.handle('session.import', async () => {
       };
     }
 
-    const looksLikeYorkPackage =
-      lower.endsWith('.yorkchat') || lower.endsWith('.zip');
+    const looksLikeYorkPackage = lower.endsWith('.yorkchat') || lower.endsWith('.zip');
     if (!looksLikeYorkPackage) {
       return {
         success: false,
@@ -5686,7 +5791,10 @@ ipcMain.handle('schedule.create', async (_event, payload: ScheduledTaskCreateInp
   }
   const normalizedPrompt = payload.prompt.trim();
   const title = await resolveScheduledTaskTitle(normalizedPrompt, payload.cwd, payload.title);
-  const divisionValidated = await validateSessionDivisionAgainstAllocations(payload, initDatabase());
+  const divisionValidated = await validateSessionDivisionAgainstAllocations(
+    payload,
+    initDatabase()
+  );
   if (divisionValidated.demoted) {
     emitSessionDivisionDemotionNotice(sendToRenderer, divisionValidated.reason);
   }
@@ -6027,26 +6135,20 @@ ipcMain.handle('wiki.getByPath', (_event, pagePath: string) => {
   if (!wikiService) throw new Error('Wiki service not initialized');
   return wikiService.getByPath(pagePath);
 });
-ipcMain.handle(
-  'wiki.update',
-  (_event, payload: { id: string; body: string; title?: string }) => {
-    if (!wikiService) throw new Error('Wiki service not initialized');
-    return wikiService.updatePage(payload.id, payload.body, payload.title);
-  }
-);
+ipcMain.handle('wiki.update', (_event, payload: { id: string; body: string; title?: string }) => {
+  if (!wikiService) throw new Error('Wiki service not initialized');
+  return wikiService.updatePage(payload.id, payload.body, payload.title);
+});
 ipcMain.handle('wiki.count', () => {
   if (!wikiService) throw new Error('Wiki service not initialized');
   return { count: wikiService.count() };
 });
 
 // ── Summary Tree (OpenHuman-aligned hierarchy over wiki) ─────────────────────
-ipcMain.handle(
-  'summaryTree.getGraph',
-  (_event, options?: { includeSourceLeaves?: boolean }) => {
-    if (!summaryTreeService) throw new Error('Summary tree service not initialized');
-    return summaryTreeService.getGraph(options);
-  }
-);
+ipcMain.handle('summaryTree.getGraph', (_event, options?: { includeSourceLeaves?: boolean }) => {
+  if (!summaryTreeService) throw new Error('Summary tree service not initialized');
+  return summaryTreeService.getGraph(options);
+});
 ipcMain.handle('summaryTree.stats', () => {
   if (!summaryTreeService) throw new Error('Summary tree service not initialized');
   return summaryTreeService.stats();
@@ -6137,7 +6239,10 @@ ipcMain.handle(
     }
   ) => {
     if (!workflowService) throw new Error('Workflow service not initialized');
-    const divisionValidated = await validateSessionDivisionAgainstAllocations(payload, initDatabase());
+    const divisionValidated = await validateSessionDivisionAgainstAllocations(
+      payload,
+      initDatabase()
+    );
     if (divisionValidated.demoted) {
       emitSessionDivisionDemotionNotice(sendToRenderer, divisionValidated.reason);
     }
@@ -6223,11 +6328,7 @@ ipcMain.handle('workflows.delete', async (_event, id: string) => {
 });
 ipcMain.handle(
   'workflows.propose',
-  async (
-    _event,
-    description: string,
-    binding?: Partial<WorkflowBinding> | null
-  ) => {
+  async (_event, description: string, binding?: Partial<WorkflowBinding> | null) => {
     if (!workflowService) throw new Error('Workflow service not initialized');
     const result = await workflowService.proposeFromDescription(description, { binding });
     return result.workflow;
@@ -6251,10 +6352,7 @@ ipcMain.handle('workflows.getRun', (_event, runId: string) => {
 });
 ipcMain.handle(
   'workflows.submitInput',
-  (
-    _event,
-    payload: { runId: string; nodeId: string; answers: Record<string, string> }
-  ) => {
+  (_event, payload: { runId: string; nodeId: string; answers: Record<string, string> }) => {
     const runId = typeof payload?.runId === 'string' ? payload.runId.trim() : '';
     const nodeId = typeof payload?.nodeId === 'string' ? payload.nodeId.trim() : '';
     if (!runId || !nodeId) {
@@ -6262,9 +6360,7 @@ ipcMain.handle(
     }
     const answers =
       payload?.answers && typeof payload.answers === 'object' && !Array.isArray(payload.answers)
-        ? Object.fromEntries(
-            Object.entries(payload.answers).map(([k, v]) => [k, String(v ?? '')])
-          )
+        ? Object.fromEntries(Object.entries(payload.answers).map(([k, v]) => [k, String(v ?? '')]))
         : {};
     const key = `${runId}:${nodeId}`;
     const pending = pendingWorkflowInputs.get(key);
@@ -6276,24 +6372,21 @@ ipcMain.handle(
     return { success: true };
   }
 );
-ipcMain.handle(
-  'workflows.cancelInput',
-  (_event, payload: { runId: string; nodeId: string }) => {
-    const runId = typeof payload?.runId === 'string' ? payload.runId.trim() : '';
-    const nodeId = typeof payload?.nodeId === 'string' ? payload.nodeId.trim() : '';
-    if (!runId || !nodeId) {
-      throw new Error('runId and nodeId are required');
-    }
-    const key = `${runId}:${nodeId}`;
-    const pending = pendingWorkflowInputs.get(key);
-    if (!pending) {
-      throw new Error('No pending input request for this workflow step');
-    }
-    pendingWorkflowInputs.delete(key);
-    pending({ kind: 'cancelled' });
-    return { success: true };
+ipcMain.handle('workflows.cancelInput', (_event, payload: { runId: string; nodeId: string }) => {
+  const runId = typeof payload?.runId === 'string' ? payload.runId.trim() : '';
+  const nodeId = typeof payload?.nodeId === 'string' ? payload.nodeId.trim() : '';
+  if (!runId || !nodeId) {
+    throw new Error('runId and nodeId are required');
   }
-);
+  const key = `${runId}:${nodeId}`;
+  const pending = pendingWorkflowInputs.get(key);
+  if (!pending) {
+    throw new Error('No pending input request for this workflow step');
+  }
+  pendingWorkflowInputs.delete(key);
+  pending({ kind: 'cancelled' });
+  return { success: true };
+});
 
 ipcMain.handle('meetings.getOverview', async () => {
   if (!meetingService) {
@@ -6334,31 +6427,29 @@ ipcMain.handle(
     title?: string,
     options?: { liveAssist?: boolean; liveAssistInstructions?: string }
   ) => {
-  if (!meetingService) {
-    throw new Error('Meeting service not initialized');
-  }
-  const meeting = await meetingService.start(title, options);
-  if (meeting.liveAssist?.enabled && liveAssistService) {
-    await liveAssistService.enableForMeeting(meeting.id, {
-      instructions: meeting.liveAssist.instructions,
-      focusChat: true,
+    if (!meetingService) {
+      throw new Error('Meeting service not initialized');
+    }
+    const meeting = await meetingService.start(title, options);
+    if (meeting.liveAssist?.enabled && liveAssistService) {
+      await liveAssistService.enableForMeeting(meeting.id, {
+        instructions: meeting.liveAssist.instructions,
+        focusChat: true,
+      });
+    }
+    showMeetingOsNotification({
+      title: 'Live capture in progress',
+      body: meeting.title
+        ? `York is capturing "${meeting.title}". Notes will save to History when it ends.`
+        : 'York is capturing this call. Notes will save to History when it ends.',
     });
+    return meeting;
   }
-  showMeetingOsNotification({
-    title: 'Live capture in progress',
-    body: meeting.title
-      ? `York is capturing "${meeting.title}". Notes will save to History when it ends.`
-      : 'York is capturing this call. Notes will save to History when it ends.',
-  });
-  return meeting;
-});
+);
 
 ipcMain.handle(
   'meetings.setLiveAssist',
-  async (
-    _event,
-    payload: { enabled: boolean; instructions?: string; focusChat?: boolean }
-  ) => {
+  async (_event, payload: { enabled: boolean; instructions?: string; focusChat?: boolean }) => {
     if (!meetingService || !liveAssistService) {
       throw new Error('Meeting service not initialized');
     }
@@ -6410,18 +6501,15 @@ ipcMain.handle('meetings.reportCaptureError', (_event, error: string) => {
   return { success: true };
 });
 
-ipcMain.handle(
-  'meetings.createRealtimeTranscriptionSession',
-  async () => {
-    if (!meetingService) {
-      throw new Error('Meeting service not initialized');
-    }
-    const runtime = meetingService.getRuntime();
-    return createRealtimeTranscriptionSession({
-      delay: runtime.realtimeTranscriptionDelay,
-    });
+ipcMain.handle('meetings.createRealtimeTranscriptionSession', async () => {
+  if (!meetingService) {
+    throw new Error('Meeting service not initialized');
   }
-);
+  const runtime = meetingService.getRuntime();
+  return createRealtimeTranscriptionSession({
+    delay: runtime.realtimeTranscriptionDelay,
+  });
+});
 
 ipcMain.handle('meetings.getSttProviderConfig', () => getMeetingSttProviderConfig());
 
@@ -6481,10 +6569,7 @@ ipcMain.handle(
 
 ipcMain.handle(
   'meetings.appendRealtimeTranscriptPreview',
-  async (
-    _event,
-    payload: { meetingId: string; itemId?: string; partialText: string }
-  ) => {
+  async (_event, payload: { meetingId: string; itemId?: string; partialText: string }) => {
     if (!meetingService) {
       throw new Error('Meeting service not initialized');
     }
@@ -6925,8 +7010,7 @@ async function handleClientEvent(event: ClientEvent): Promise<unknown> {
       const pending = pendingWorkflowApprovals.get(event.payload.toolUseId);
       if (pending) {
         pendingWorkflowApprovals.delete(event.payload.toolUseId);
-        const decision =
-          event.payload.result === 'deny' ? 'deny' : ('allow' as const);
+        const decision = event.payload.result === 'deny' ? 'deny' : ('allow' as const);
         pending(decision);
         return { success: true };
       }
@@ -6978,7 +7062,7 @@ async function handleClientEvent(event: ClientEvent): Promise<unknown> {
       const dialogDefaultPath =
         event.payload.currentPath && isAbsolute(event.payload.currentPath)
           ? event.payload.currentPath
-          : currentWorkingDir || undefined;
+          : getWorkingDir() || undefined;
       const workdirResult = await dialog.showOpenDialog(mainWindow!, {
         properties: ['openDirectory'],
         title: 'Select Working Directory',

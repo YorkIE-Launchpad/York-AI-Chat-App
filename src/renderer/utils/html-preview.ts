@@ -96,7 +96,7 @@ export function findLatestHtmlPreviewCandidate(
 ): HtmlPreviewCandidate | null {
   for (let i = steps.length - 1; i >= 0; i -= 1) {
     const step = steps[i];
-    if (step.status !== 'completed') {
+    if (step.status !== 'completed' || step.isError) {
       continue;
     }
 

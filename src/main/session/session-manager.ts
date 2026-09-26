@@ -44,7 +44,11 @@ import { mcpConfigStore } from '../mcp/mcp-config-store';
 import { PluginRuntimeService } from '../skills/plugin-runtime-service';
 import { AgentRuntimeExtensionManager } from '../extensions/agent-runtime-extension-manager';
 import type { AskUserQuestionExtension } from '../tools/ask-user-question-extension';
-import { forgetSessionPermissions, rememberAutoApproveToolPermissions, sessionAutoApprovesToolPermissions } from '../config/permission-rules-store';
+import {
+  forgetSessionPermissions,
+  rememberAutoApproveToolPermissions,
+  sessionAutoApprovesToolPermissions,
+} from '../config/permission-rules-store';
 import { PERMISSION_ASK_TIMEOUT_MS } from '../../shared/permission-policy';
 import {
   log,
@@ -70,10 +74,7 @@ import {
   type SessionDivisionFields,
 } from '../../shared/workspace-division';
 import type { ChatExportPayload } from './session-transfer';
-import {
-  isUnusableSessionCwd,
-  resolveWritableSessionCwd,
-} from './resolve-session-cwd';
+import { isUnusableSessionCwd, resolveWritableSessionCwd } from './resolve-session-cwd';
 import type { ChatSearchHit } from '../../shared/chat-search';
 import { filterChatSearchHitsByDivision, type ChatSearchScope } from '../../shared/chat-search';
 import { runGptImageGeneration } from '../images/image-generation-service';
@@ -213,7 +214,7 @@ export class SessionManager {
     let userDataDefault: string | undefined;
     try {
       // Lazy require keeps unit tests that don't boot Electron happier.
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
       const { app } = require('electron') as typeof import('electron');
       if (app?.getPath) {
         userDataDefault = path.join(app.getPath('userData'), 'default_working_dir');
@@ -221,24 +222,40 @@ export class SessionManager {
     } catch {
       // non-electron / test harness
     }
-    return resolveWritableSessionCwd([
-      cwd,
-      configStore.get('defaultWorkdir'),
-      process.env.YORK_IE_WORKDIR,
-      process.env.WORKDIR,
-      process.env.DEFAULT_CWD,
-      userDataDefault,
-      process.cwd(),
-    ]);
+    return resolveWritableSessionCwd(
+      [
+        cwd,
+        configStore.get('defaultWorkdir'),
+        process.env.YORK_IE_WORKDIR,
+        process.env.WORKDIR,
+        process.env.DEFAULT_CWD,
+        userDataDefault,
+        process.cwd(),
+      ],
+      { creatable: [userDataDefault] }
+    );
   }
 
-  /** Stage attachments under `<writable-cwd>/.tmp`, healing unusable session.cwd. */
-  private ensureSessionTmpDir(session: Session): string {
+  /**
+   * Make sure `session.cwd` points at an existing, usable folder before the
+   * agent runs. Legacy chats (NULL cwd), `/`, and deleted/unmounted folders are
+   * moved to the app default so tools never resolve against `process.cwd()`.
+   */
+  private healSessionCwd(session: Session): string {
     const base = this.resolveSessionCwd(session.cwd);
     if (!session.cwd || isUnusableSessionCwd(session.cwd) || path.resolve(session.cwd) !== base) {
+      logWarn('[SessionManager] Healing session cwd:', {
+        sessionId: session.id,
+        from: session.cwd ?? null,
+        to: base,
+      });
       session.cwd = base;
       session.mountedPaths = this.buildMountedPaths(base);
-      if (!session.incognito) {
+      const ephemeral = this.ephemeralSessions.get(session.id);
+      if (ephemeral) {
+        ephemeral.cwd = base;
+        ephemeral.mountedPaths = session.mountedPaths;
+      } else if (!session.incognito) {
         try {
           this.db.sessions.update(session.id, {
             cwd: base,
@@ -249,10 +266,24 @@ export class SessionManager {
           logWarn('[SessionManager] Failed to persist healed session cwd:', error);
         }
       }
+      this.agentRunner?.clearSdkSession?.(session.id);
+      this.sendToRenderer({
+        type: 'session.update',
+        payload: {
+          sessionId: session.id,
+          updates: { cwd: base, mountedPaths: session.mountedPaths },
+        },
+      });
     }
     if (!fs.existsSync(base)) {
       fs.mkdirSync(base, { recursive: true });
     }
+    return base;
+  }
+
+  /** Stage attachments under `<writable-cwd>/.tmp`, healing unusable session.cwd. */
+  private ensureSessionTmpDir(session: Session): string {
+    const base = this.healSessionCwd(session);
     const tmpDir = path.join(base, '.tmp');
     if (!fs.existsSync(tmpDir)) {
       fs.mkdirSync(tmpDir, { recursive: true });
@@ -787,11 +818,7 @@ export class SessionManager {
   }
 
   /** Create a local session shell for a joined shared room. */
-  createJoinedCollabSession(input: {
-    title: string;
-    roomId: string;
-    role: 'member';
-  }): Session {
+  createJoinedCollabSession(input: { title: string; roomId: string; role: 'member' }): Session {
     const session = this.createSession(input.title, undefined, undefined, true);
     session.collabRoomId = input.roomId;
     session.collabRole = input.role;
@@ -822,7 +849,11 @@ export class SessionManager {
     if (!options?.activeDivision || options.scope === 'all') {
       return hits;
     }
-    return filterChatSearchHitsByDivision(hits, options.activeDivision, options.scope ?? 'workspace');
+    return filterChatSearchHitsByDivision(
+      hits,
+      options.activeDivision,
+      options.scope ?? 'workspace'
+    );
   }
 
   /**
@@ -1434,6 +1465,8 @@ export class SessionManager {
             : 'none'
         );
 
+        this.healSessionCwd(session);
+
         // Ensure sandbox is initialized for this workspace
         await this.ensureSandboxInitialized(session);
 
@@ -1458,9 +1491,7 @@ export class SessionManager {
             (c) => c.type === 'file_attachment'
           ) as FileAttachmentContent[];
           if (fileAttachments.length > 0) {
-            const hasPdf = fileAttachments.some((f) =>
-              f.filename.toLowerCase().endsWith('.pdf')
-            );
+            const hasPdf = fileAttachments.some((f) => f.filename.toLowerCase().endsWith('.pdf'));
             const fileInfo = fileAttachments
               .map(
                 (f) =>

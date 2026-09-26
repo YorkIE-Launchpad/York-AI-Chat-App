@@ -15,7 +15,9 @@ describe('resolveWritableSessionCwd', () => {
   });
 
   it('skips / and empty candidates so attachments never stage under /.tmp', () => {
-    const resolved = resolveWritableSessionCwd(['/', '', null, undefined, '/tmp/york-safe']);
+    const resolved = resolveWritableSessionCwd(['/', '', null, undefined, '/tmp/york-safe'], {
+      isDirectory: () => true,
+    });
     expect(resolved).toBe(path.resolve('/tmp/york-safe'));
     expect(resolved).not.toBe('/');
     expect(path.join(resolved, '.tmp')).not.toBe('/.tmp');

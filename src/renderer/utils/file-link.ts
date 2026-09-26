@@ -14,7 +14,58 @@ const cjkFilenamePattern = new RegExp(
   `(?:^|${boundaryPattern.source})([\\p{Script=Han}0-9_-]+\\.[A-Za-z0-9]{1,8})`,
   'gu'
 );
-const pathPattern = /(?:[A-Za-z]:[\\/]|\\\\|\/)[^\r\n]+?\.[a-z0-9]{1,8}/gi;
+// The extension must end at a boundary so dotted folders (`.claude/`, `proj.v2/`)
+// keep extending the match instead of cutting the path short. Spaces are allowed
+// (`Application Support`) but not sentence punctuation followed by a space.
+const pathPattern =
+  /(?:[A-Za-z]:[\\/]|\\\\|~\/|\/)(?:(?![.,;:!?]\s)[^\r\n`"<>|*?])*?\.[a-z0-9]{1,8}(?=$|[\s\])}>"'`,;:!?。，、：；]|\.(?=\s|$))/gi;
+
+const WEB_TLDS = new Set([
+  'com',
+  'org',
+  'net',
+  'io',
+  'ai',
+  'co',
+  'dev',
+  'app',
+  'gov',
+  'edu',
+  'info',
+  'biz',
+  'us',
+  'uk',
+  'in',
+  'ca',
+  'au',
+  'de',
+  'fr',
+  'jp',
+  'cn',
+  'tech',
+  'xyz',
+  'cloud',
+  'site',
+  'online',
+  'store',
+  'tv',
+  'ly',
+  'gg',
+  'so',
+  'fm',
+]);
+const PRODUCT_NAME_PATTERN =
+  /^(?:node|next|nuxt|vue|react|express|three|d3|chart|ember|angular|alpine|solid|svelte|socket|p5|moment|day|ml5|tensorflow|backbone)\.js$/i;
+
+/** `example.com`, `www.foo.io/path` — web hosts, not local files. */
+export function looksLikeWebDomain(value: string): boolean {
+  const trimmed = value.trim().toLowerCase();
+  if (!trimmed || /[\s\\]/.test(trimmed)) return false;
+  const host = trimmed.split('/')[0];
+  if (host.startsWith('www.')) return true;
+  if (!/^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/.test(host)) return false;
+  return WEB_TLDS.has(host.slice(host.lastIndexOf('.') + 1));
+}
 
 function isBoundaryChar(ch?: string): boolean {
   if (!ch) return true;
@@ -22,9 +73,10 @@ function isBoundaryChar(ch?: string): boolean {
 }
 
 function tokenHasUrlPrefix(text: string, index: number): boolean {
-  const tokenStart = text.lastIndexOf(' ', index) + 1;
-  const token = text.slice(tokenStart, index);
-  return /(?:https?:\/\/|file:\/\/|mailto:)/i.test(token);
+  const before = text.slice(0, index);
+  const tokenStart = Math.max(before.lastIndexOf(' '), before.lastIndexOf('\n')) + 1;
+  const token = text.slice(tokenStart, index + 2);
+  return /(?:[a-z][a-z0-9+.-]*:\/\/|mailto:)/i.test(token);
 }
 
 function trimTrailingPunctuation(value: string): string {
@@ -87,6 +139,13 @@ export function splitTextByFileMentions(text: string): FileTextPart[] {
     }
 
     if (!extensionHasLetter(value)) {
+      continue;
+    }
+
+    if (
+      match.source !== 'path' &&
+      (looksLikeWebDomain(value) || PRODUCT_NAME_PATTERN.test(value))
+    ) {
       continue;
     }
 

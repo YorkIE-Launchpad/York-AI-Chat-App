@@ -7,8 +7,11 @@ import {
   splitTextByFileMentions,
   splitChildrenByFileMentions,
   getFileLinkButtonClassName,
+  looksLikeWebDomain,
 } from '../../utils/file-link';
+import { buildSessionFileIndex, lookupSessionFile } from '../../utils/session-file-index';
 import { resolvePathAgainstWorkspace } from '../../../shared/workspace-path';
+import { decodePathSafely } from '../../../shared/local-file-path';
 import {
   DEFAULT_JIRA_SITE_ORIGIN,
   isJiraRestApiUrl,
@@ -85,8 +88,20 @@ export const ContentBlockView = memo(function ContentBlockView({
   // Prefer the message's own session cwd so file links open the chat workspace,
   // not a stale/global default_working_dir.
   const currentWorkingDir = messageSession?.cwd || activeSession?.cwd || workingDir;
+  const fileIndexSessionId = message?.sessionId || activeSessionId;
+  const sessionTraceSteps = useAppStore((s) =>
+    fileIndexSessionId ? s.sessionStates[fileIndexSessionId]?.traceSteps : undefined
+  );
+  const sessionFileIndex = useMemo(
+    () => buildSessionFileIndex(sessionTraceSteps, currentWorkingDir),
+    [sessionTraceSteps, currentWorkingDir]
+  );
 
-  const resolveFilePath = (value: string) => resolvePathAgainstWorkspace(value, currentWorkingDir);
+  // Bare names like `SKILL.md` often refer to files the agent wrote outside the
+  // workspace (e.g. the skills folder) — prefer those over guessing under cwd.
+  const resolveFilePath = (value: string) =>
+    lookupSessionFile(sessionFileIndex, value) ??
+    resolvePathAgainstWorkspace(value, currentWorkingDir);
 
   const renderFileButton = (value: string, key?: string) => (
     <button
@@ -166,7 +181,14 @@ export const ContentBlockView = memo(function ContentBlockView({
           );
         }
 
-        const localFilePath = resolveLocalFilePathFromHref(href, currentWorkingDir);
+        const bareDomainHref =
+          href && !/^[a-z][a-z0-9+.-]*:/i.test(href.trim()) && looksLikeWebDomain(href)
+            ? `https://${href.trim()}`
+            : undefined;
+        const localFilePath = bareDomainHref
+          ? null
+          : ((href ? lookupSessionFile(sessionFileIndex, decodePathSafely(href)) : null) ??
+            resolveLocalFilePathFromHref(href, currentWorkingDir));
         if (localFilePath) {
           return (
             <button
@@ -206,7 +228,8 @@ export const ContentBlockView = memo(function ContentBlockView({
           );
         }
 
-        const safeHref = href && /^(?:https?:|mailto:)/i.test(href) ? href : undefined;
+        const safeHref =
+          bareDomainHref ?? (href && /^(?:https?:|mailto:)/i.test(href) ? href : undefined);
         if (!safeHref) {
           // Non-openable hrefs (invented memory URLs, junk schemes, bare fragments)
           // should not look clickable.
@@ -325,7 +348,7 @@ export const ContentBlockView = memo(function ContentBlockView({
       },
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [currentWorkingDir, setGlobalNotice, t]
+    [currentWorkingDir, sessionFileIndex, setGlobalNotice, t]
   );
 
   switch (block.type) {

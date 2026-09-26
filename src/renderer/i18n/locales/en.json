@@ -1223,6 +1223,8 @@
     "htmlPreviewEmpty": "Nothing to preview",
     "htmlPreviewFailed": "Unable to load preview",
     "htmlPreviewOpenFailed": "Unable to open the file",
+    "htmlPreviewNotFound": "This file doesn't exist yet or was moved.",
+    "htmlPreviewOutsideWorkspace": "This file is outside the chat's working folder.",
     "htmlPreviewShare": "Share document",
     "htmlPreviewSharedBadge": "Shared · {{permission}} · {{updated}}",
     "htmlPreviewSharedUnknownTime": "cloud time unknown",

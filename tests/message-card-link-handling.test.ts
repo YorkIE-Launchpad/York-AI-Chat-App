@@ -17,10 +17,8 @@ describe('MessageCard local link handling', () => {
   it('renders local markdown links as folder-locate buttons instead of target-blank anchors', () => {
     const source = readAllMessageContent();
 
-    expect(source).toContain(
-      'const localFilePath = resolveLocalFilePathFromHref(href, currentWorkingDir);'
-    );
-    expect(source).toContain("title={localFilePath}");
+    expect(source).toContain('resolveLocalFilePathFromHref(href, currentWorkingDir);');
+    expect(source).toContain('title={localFilePath}');
     expect(source).toContain('await window.electronAPI.showItemInFolder(');
     expect(source).toContain('localFilePath,');
     expect(source).toContain('currentWorkingDir ?? undefined');
@@ -39,6 +37,7 @@ describe('MessageCard local link handling', () => {
   it('treats Windows forward-slash paths as absolute file targets', () => {
     const source = readAllMessageContent();
 
-    expect(source).toContain('const resolveFilePath = (value: string) => resolvePathAgainstWorkspace(value, currentWorkingDir);');
+    expect(source).toContain('lookupSessionFile(sessionFileIndex, value) ??');
+    expect(source).toContain('resolvePathAgainstWorkspace(value, currentWorkingDir);');
   });
 });
