@@ -73,8 +73,13 @@ export function hasStreamingText(partialMessage: string, partialThinking: string
  * Label for the wait-status pill from the latest running TraceStep.
  * Prefers tool_call titles, then other non-compaction steps, then compaction.
  * Returns null when nothing useful is available (caller falls back to i18n).
+ * Steps older than `sinceTimestamp` (the active turn's user message) are ignored
+ * so a step left 'running' by an earlier stopped turn cannot label this one.
  */
-export function resolveActiveTurnStatusLabel(traceSteps: TraceStep[]): string | null {
+export function resolveActiveTurnStatusLabel(
+  traceSteps: TraceStep[],
+  sinceTimestamp?: number
+): string | null {
   let runningTool: TraceStep | undefined;
   let runningOther: TraceStep | undefined;
   let runningCompaction: TraceStep | undefined;
@@ -82,6 +87,7 @@ export function resolveActiveTurnStatusLabel(traceSteps: TraceStep[]): string | 
   for (let i = traceSteps.length - 1; i >= 0; i -= 1) {
     const step = traceSteps[i];
     if (step.status !== 'running') continue;
+    if (sinceTimestamp !== undefined && step.timestamp < sinceTimestamp) continue;
 
     if (step.type === 'tool_call') {
       if (!runningTool) runningTool = step;

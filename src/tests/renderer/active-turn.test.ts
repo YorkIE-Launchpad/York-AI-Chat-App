@@ -205,6 +205,28 @@ describe('active-turn helpers', () => {
     ).toBe('Bash');
   });
 
+  it('ignores running steps left over from an earlier stopped turn', () => {
+    const steps = [
+      traceStep({
+        id: 'ask-1',
+        type: 'tool_call',
+        status: 'running',
+        title: 'AskUserQuestion',
+        toolName: 'AskUserQuestion',
+        timestamp: 1_000,
+      }),
+      traceStep({
+        id: 'think-2',
+        type: 'thinking',
+        status: 'running',
+        title: 'Processing request...',
+        timestamp: 5_000,
+      }),
+    ];
+    expect(resolveActiveTurnStatusLabel(steps)).toBe('AskUserQuestion');
+    expect(resolveActiveTurnStatusLabel(steps, 4_000)).toBe('Processing request...');
+  });
+
   it('detects in-progress tool_use for the anchored turn', () => {
     const withOpenTool: Message[] = [
       msg('u1', 'user', 'run tool'),

@@ -3361,6 +3361,9 @@ ${
       const loopGuard = new LoopGuard();
       // Track tools + final assistant content so we can detect "search then stop" turns.
       const toolsInvokedThisTurn: string[] = [];
+      // tool_call trace steps still 'running'; any left at run end are closed so a
+      // stopped AskUserQuestion cannot keep driving the next turn's status pill.
+      const openToolTraceSteps = new Map<string, string>();
       let finalAssistantSummary: TurnContentSummary = {
         hasText: false,
         hasThinking: false,
@@ -3541,10 +3544,12 @@ ${
 
       const unsubscribe = piSession.subscribe((event) => {
         try {
-          if (controller.signal.aborted) return;
+          // A tool resolved by Stop (e.g. dismissed AskUserQuestion) still reports its
+          // result so the tool_use gets a tool_result and its trace step closes.
+          if (controller.signal.aborted && event.type !== 'tool_execution_end') return;
 
           // Reset activity timeout on meaningful events
-          resetActivityTimeout();
+          if (!controller.signal.aborted) resetActivityTimeout();
 
           if (event.type === 'message_update') {
             const updateType = event.assistantMessageEvent.type;
@@ -3594,8 +3599,12 @@ ${
                 const partial = ame.partial;
                 const toolContent = partial?.content?.[ame.contentIndex];
                 const toolName = toolContent?.type === 'toolCall' ? toolContent.name : 'unknown';
-                const toolCallId = toolContent?.type === 'toolCall' ? toolContent.id : uuidv4();
+                const toolCallId = toolContent?.type === 'toolCall' ? toolContent.id : undefined;
+                // Without the real id the step could never be closed by tool_execution_end;
+                // tool_execution_start opens it instead.
+                if (!toolCallId) break;
                 const toolDisplayName = this.getToolDisplayName(toolName);
+                openToolTraceSteps.set(toolCallId, toolName);
                 this.sendTraceStep(session.id, {
                   id: toolCallId,
                   type: 'tool_call',
@@ -3889,6 +3898,20 @@ ${
               if (typeof event.toolName === 'string' && event.toolName) {
                 toolsInvokedThisTurn.push(event.toolName);
               }
+              if (event.toolCallId && !openToolTraceSteps.has(event.toolCallId)) {
+                const startedToolName =
+                  typeof event.toolName === 'string' && event.toolName ? event.toolName : 'unknown';
+                openToolTraceSteps.set(event.toolCallId, startedToolName);
+                this.sendTraceStep(session.id, {
+                  id: event.toolCallId,
+                  type: 'tool_call',
+                  status: 'running',
+                  title: this.getToolDisplayName(startedToolName),
+                  toolName: startedToolName,
+                  toolInput: (event.args as Record<string, unknown>) || {},
+                  timestamp: Date.now(),
+                });
+              }
               // ── Loop guard layer 2: per-tool cumulative frequency ──
               // LaunchPad status polls (incl. meta mcp_call_tool during LP delivery)
               // may run for hours — do not frequency-abort them.
@@ -3910,8 +3933,8 @@ ${
             }
 
             case 'tool_execution_end': {
-              if (controller.signal.aborted) break;
               const toolCallId = event.toolCallId;
+              openToolTraceSteps.delete(toolCallId);
               const isError = event.isError;
               const normalizedToolResult = normalizeToolExecutionResultForUi(event.result);
               const outputText = normalizedToolResult.content;
@@ -4403,6 +4426,14 @@ ${
         } catch (e) {
           logWarn('[CoworkAgentRunner] unsubscribe error:', e);
         }
+        for (const [openToolCallId, openToolName] of openToolTraceSteps) {
+          this.sendTraceUpdate(session.id, openToolCallId, {
+            status: 'error',
+            title: `${this.getToolDisplayName(openToolName)} (cancelled)`,
+            toolName: openToolName,
+          });
+        }
+        openToolTraceSteps.clear();
         yorkSlotRelease?.();
         yorkSlotRelease = undefined;
         yorkQueueUnsub?.();

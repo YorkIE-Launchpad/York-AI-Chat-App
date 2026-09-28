@@ -111,7 +111,7 @@ export function ChatView() {
   const setGlobalNotice = useAppStore((s) => s.setGlobalNotice);
   const setStoreChatLoopStatus = useAppStore((s) => s.setChatLoopStatus);
   const yorkLlmQueue = useAppStore((s) =>
-    activeSessionId ? s.yorkLlmQueueBySessionId[activeSessionId] ?? null : null
+    activeSessionId ? (s.yorkLlmQueueBySessionId[activeSessionId] ?? null) : null
   );
   const activeDivision = useAppStore((s) => s.activeDivision);
   const appConfig = useAppStore((s) => s.appConfig);
@@ -220,11 +220,12 @@ export function ChatView() {
     !hasTextResponseForTurn &&
     !hasStreamingText(partialMessage, partialThinking) &&
     !hasInProgressToolUseForTurn(messages, activeTurn?.userMessageId);
+  const activeTurnStartedAt = activeTurn?.userMessageId
+    ? messages.find((message) => message.id === activeTurn.userMessageId)?.timestamp
+    : undefined;
   const processingStatusLabel =
-    resolveActiveTurnStatusLabel(traceSteps) ??
-    (activeTurn && isPendingStepId(activeTurn.stepId)
-      ? t('chat.starting')
-      : t('chat.processing'));
+    resolveActiveTurnStatusLabel(traceSteps, activeTurnStartedAt) ??
+    (activeTurn && isPendingStepId(activeTurn.stepId) ? t('chat.starting') : t('chat.processing'));
   const isSessionRunning = activeSession?.status === 'running';
   const canStop = isSessionRunning || hasActiveTurn || pendingCount > 0;
 
@@ -936,8 +937,7 @@ export function ChatView() {
 
       // Brand is the first header child; leave a modest min width for the title.
       const brandEl = headerEl.firstElementChild;
-      const brandWidth =
-        brandEl instanceof HTMLElement ? brandEl.getBoundingClientRect().width : 0;
+      const brandWidth = brandEl instanceof HTMLElement ? brandEl.getBoundingClientRect().width : 0;
       const minTitleWidth = 72;
 
       let usedByActionSiblings = 0;
@@ -1514,8 +1514,7 @@ export function ChatView() {
         if (!prev) return prev;
         const lease = payload.lease;
         const localSub = prev.localSub;
-        const canPrompt =
-          Boolean(localSub) && (!lease || lease.holderSub === localSub);
+        const canPrompt = Boolean(localSub) && (!lease || lease.holderSub === localSub);
         return {
           ...prev,
           awarenessPartial: payload.partial,
@@ -1578,8 +1577,8 @@ export function ChatView() {
   const isSharedChat = Boolean(activeSession?.collabRoomId || collabState?.roomId);
   const leaseHeldByOther = Boolean(
     collabState?.lease &&
-      collabState.localSub &&
-      collabState.lease.holderSub !== collabState.localSub
+    collabState.localSub &&
+    collabState.lease.holderSub !== collabState.localSub
   );
   const collabBlocksComposer = isSharedChat && collabState != null && leaseHeldByOther;
 
@@ -1593,9 +1592,7 @@ export function ChatView() {
   const sharedDocViewOnlyOpen = activeHtmlPreview?.shared?.permission === 'view';
   const sharedDocBlocksComposer = Boolean(sharedDocBlockingLock) || sharedDocViewOnlyOpen;
   const sharedDocBlockName =
-    sharedDocBlockingLock?.holderName ||
-    sharedDocBlockingLock?.lease?.holderName ||
-    'Someone';
+    sharedDocBlockingLock?.holderName || sharedDocBlockingLock?.lease?.holderName || 'Someone';
   const showCollabWaitingPeer =
     Boolean(collabState) &&
     collabState?.role === 'member' &&
@@ -1627,13 +1624,7 @@ export function ChatView() {
       });
     }
     prevPeersOnlineRef.current = peersOnline;
-  }, [
-    activeSessionId,
-    collabState?.peersOnline,
-    getSessionMessages,
-    isElectron,
-    isSharedChat,
-  ]);
+  }, [activeSessionId, collabState?.peersOnline, getSessionMessages, isElectron, isSharedChat]);
 
   // Auto-adjust textarea height based on content / available width
   const adjustTextareaHeight = useCallback(() => {
@@ -1830,9 +1821,7 @@ export function ChatView() {
       ) : null}
       {isSharedChat ? (
         <div className="shrink-0 border-b border-border-muted bg-surface/80 px-4 py-2 text-sm text-text-secondary lg:px-8">
-          {showCollabWaitingPeer ? (
-            <p>{t('chat.collabWaitingPeer')}</p>
-          ) : null}
+          {showCollabWaitingPeer ? <p>{t('chat.collabWaitingPeer')}</p> : null}
           {collabBlocksComposer && collabState?.lease ? (
             <div className="flex flex-wrap items-center gap-2">
               <span>
@@ -1857,7 +1846,11 @@ export function ChatView() {
           ) : null}
           {collabState && collabState.connection !== 'connected' ? (
             <p className="text-xs text-text-muted">
-              {t(collabState.connection === 'connecting' ? 'chat.collabConnecting' : 'chat.collabOffline')}
+              {t(
+                collabState.connection === 'connecting'
+                  ? 'chat.collabConnecting'
+                  : 'chat.collabOffline'
+              )}
               {collabRoomIdLabel ? ` · ID ${collabRoomIdLabel}` : ''}
             </p>
           ) : null}
@@ -1975,7 +1968,9 @@ export function ChatView() {
             {showProcessingIndicator && (
               <div className="flex items-center gap-3 px-4 py-3 rounded-full bg-background/80 border border-border-subtle max-w-md min-w-0">
                 <Loader2 className="w-4 h-4 text-accent animate-spin flex-shrink-0" />
-                <span className="text-sm text-text-secondary truncate">{processingStatusLabel}</span>
+                <span className="text-sm text-text-secondary truncate">
+                  {processingStatusLabel}
+                </span>
               </div>
             )}
 
@@ -2285,24 +2280,26 @@ export function ChatView() {
                             className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
                           >
                             <Paperclip className="h-4 w-4 text-text-muted" />
-                            <span className="text-[13px] font-medium">{t('welcome.attachFiles')}</span>
-                          </button>
-                          {composerMode !== 'image' && (
-                          <button
-                            type="button"
-                            role="menuitem"
-                            onClick={() => {
-                              setAttachMenuOpen(false);
-                              openSkillPicker();
-                              requestAnimationFrame(() => textareaRef.current?.focus());
-                            }}
-                            className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
-                          >
-                            <Package className="h-4 w-4 text-accent" />
                             <span className="text-[13px] font-medium">
-                              {t('skills.mentionFromMenu')}
+                              {t('welcome.attachFiles')}
                             </span>
                           </button>
+                          {composerMode !== 'image' && (
+                            <button
+                              type="button"
+                              role="menuitem"
+                              onClick={() => {
+                                setAttachMenuOpen(false);
+                                openSkillPicker();
+                                requestAnimationFrame(() => textareaRef.current?.focus());
+                              }}
+                              className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
+                            >
+                              <Package className="h-4 w-4 text-accent" />
+                              <span className="text-[13px] font-medium">
+                                {t('skills.mentionFromMenu')}
+                              </span>
+                            </button>
                           )}
                           {composerMode !== 'image' && meetingsReferenceAllowed && (
                             <button
@@ -2332,7 +2329,9 @@ export function ChatView() {
                                 className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
                               >
                                 <FileText className="h-4 w-4 text-accent" />
-                                <span className="text-[13px] font-medium">{t('references.drive')}</span>
+                                <span className="text-[13px] font-medium">
+                                  {t('references.drive')}
+                                </span>
                               </button>
                               <button
                                 type="button"
@@ -2344,7 +2343,9 @@ export function ChatView() {
                                 className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
                               >
                                 <MessageSquare className="h-4 w-4 text-accent" />
-                                <span className="text-[13px] font-medium">{t('references.slack')}</span>
+                                <span className="text-[13px] font-medium">
+                                  {t('references.slack')}
+                                </span>
                               </button>
                               <button
                                 type="button"
@@ -2356,7 +2357,9 @@ export function ChatView() {
                                 className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
                               >
                                 <Hash className="h-4 w-4 text-accent" />
-                                <span className="text-[13px] font-medium">{t('references.jira')}</span>
+                                <span className="text-[13px] font-medium">
+                                  {t('references.jira')}
+                                </span>
                               </button>
                               <button
                                 type="button"
@@ -2405,7 +2408,12 @@ export function ChatView() {
                         initialText={prompt.trim()}
                         activeStatus={chatLoopStatus}
                         onClose={() => setLoopMenuOpen(false)}
-                        onStart={async ({ kind, prompt: loopPrompt, intervalMs, maxIterations }) => {
+                        onStart={async ({
+                          kind,
+                          prompt: loopPrompt,
+                          intervalMs,
+                          maxIterations,
+                        }) => {
                           await startChatLoop({
                             kind,
                             prompt: loopPrompt,

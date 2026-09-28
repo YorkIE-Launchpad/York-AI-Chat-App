@@ -21,9 +21,7 @@ describe('AskUserQuestion stop/abort wiring', () => {
   });
 
   it('activity timeout reschedules while AskUserQuestion is pending', () => {
-    expect(agentRunnerContent).toContain(
-      'this.askUserQuestionExtension?.hasPending(session.id)'
-    );
+    expect(agentRunnerContent).toContain('this.askUserQuestionExtension?.hasPending(session.id)');
     expect(agentRunnerContent).toContain('Waiting on AskUserQuestion is intentional idle');
   });
 
@@ -37,10 +35,28 @@ describe('AskUserQuestion stop/abort wiring', () => {
     expect(cancelIdx).toBeGreaterThan(dismissIdx);
   });
 
-  it('processQueue finally restarts when leftover prompts remain', () => {
-    expect(sessionManagerContent).toContain(
-      'Restarting queue after unwind with leftover prompts'
+  it('tool_execution_end is still handled after Stop so the tool trace step closes', () => {
+    expect(agentRunnerContent).toContain(
+      "if (controller.signal.aborted && event.type !== 'tool_execution_end') return;"
     );
+    const endIdx = agentRunnerContent.indexOf("case 'tool_execution_end': {");
+    expect(endIdx).toBeGreaterThan(-1);
+    const endBlock = agentRunnerContent.slice(endIdx, endIdx + 200);
+    expect(endBlock).not.toContain('if (controller.signal.aborted) break;');
+    expect(endBlock).toContain('openToolTraceSteps.delete(toolCallId)');
+  });
+
+  it('run cleanup closes tool trace steps that never finished', () => {
+    const loopIdx = agentRunnerContent.indexOf(
+      'for (const [openToolCallId, openToolName] of openToolTraceSteps)'
+    );
+    expect(loopIdx).toBeGreaterThan(-1);
+    const loopBlock = agentRunnerContent.slice(loopIdx, loopIdx + 300);
+    expect(loopBlock).toContain("status: 'error'");
+  });
+
+  it('processQueue finally restarts when leftover prompts remain', () => {
+    expect(sessionManagerContent).toContain('Restarting queue after unwind with leftover prompts');
     expect(sessionManagerContent).toContain('leftover.length > 0');
   });
 });
