@@ -3025,10 +3025,11 @@ This folder is for local files only. LaunchPad implement/preview and other remot
 4. START DOING THE WORK — only when the user asked for something actionable. No restating the task, no "here is my plan" preamble, no waiting for confirmation.
 5. Follow any <skill> block already injected in this turn. Do not skip it or re-Read the same SKILL.md.
 6. Named York people: Hub-resolve email first. Calendar create/update/delete: call the tool (approval UI may prompt) — do not hand a copy-paste invite.
-7. Research: websearch first to find URLs, then webfetch the best pages. Chrome MCP is only for interactive login/click/screenshot flows. For relative time windows like "within two days", assume the most recent two relevant publication days unless the user specifies otherwise.${workspaceScopeRule}${
+7. Research: websearch first to find URLs, then webfetch the best pages. Chrome MCP is only for interactive login/click/screenshot flows. For relative time windows like "within two days", assume the most recent two relevant publication days unless the user specifies otherwise. For complex or multi-part tasks, research completely BEFORE building: run several distinct queries covering official docs/specs, current versions, limits/pricing, and known pitfalls; fetch 2–4 authoritative pages; and gather every detail the deliverable depends on in that first pass so later turns don't need rework. Run independent searches/fetches in parallel.
+8. Improvement / follow-up requests: change only what was asked. Reuse the research, files, and tool results already in this conversation — do not re-research, regenerate the whole deliverable, or re-run unaffected steps. Edit in place, verify the changed part, and reply with what changed. If you find a real issue while doing this, say so plainly and propose the fix.${workspaceScopeRule}${
           process.platform === 'darwin'
             ? `
-8. macOS privacy: Never scan the entire home directory, and do not read ~/Music, ~/Pictures, or ~/Movies — that triggers system permission prompts (including a spurious Apple Music / media-library dialog). Prefer the workspace, MCP/Drive, or a user-specified folder; only touch Desktop/Downloads/Documents when the request clearly needs those folders.`
+9. macOS privacy: Never scan the entire home directory, and do not read ~/Music, ~/Pictures, or ~/Movies — that triggers system permission prompts (including a spurious Apple Music / media-library dialog). Prefer the workspace, MCP/Drive, or a user-specified folder; only touch Desktop/Downloads/Documents when the request clearly needs those folders.`
             : ''
         }`,
         profileInstructionsPrompt,

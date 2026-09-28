@@ -49,7 +49,7 @@ import {
   rememberAutoApproveToolPermissions,
   sessionAutoApprovesToolPermissions,
 } from '../config/permission-rules-store';
-import { PERMISSION_ASK_TIMEOUT_MS } from '../../shared/permission-policy';
+import { PERMISSION_AUTO_APPROVE_MS } from '../../shared/permission-policy';
 import {
   log,
   logError,
@@ -2592,15 +2592,16 @@ export class SessionManager {
 
     try {
       return await new Promise<PermissionResult>((resolve) => {
-        const expiresAt = Date.now() + PERMISSION_ASK_TIMEOUT_MS;
+        const expiresAt = Date.now() + PERMISSION_AUTO_APPROVE_MS;
         const timeoutId = setTimeout(() => {
           this.pendingPermissions.delete(toolUseId);
-          resolve('timeout');
+          log(`[SessionManager] Permission for '${toolName}' auto-approved after no response`);
+          resolve('allow');
           this.sendToRenderer({
             type: 'permission.dismiss',
-            payload: { toolUseId, reason: 'timeout' },
+            payload: { toolUseId, reason: 'auto_approved' },
           });
-        }, PERMISSION_ASK_TIMEOUT_MS);
+        }, PERMISSION_AUTO_APPROVE_MS);
         this.pendingPermissions.set(toolUseId, (result: PermissionResult) => {
           clearTimeout(timeoutId);
           resolve(result);

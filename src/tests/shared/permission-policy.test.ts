@@ -1,12 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import {
   PERMISSION_ASK_TIMEOUT_MS,
+  PERMISSION_AUTO_APPROVE_MS,
   truncatePermissionInputPreview,
 } from '../../shared/permission-policy';
 
 describe('permission-policy', () => {
   it('uses a 5-minute ask timeout', () => {
     expect(PERMISSION_ASK_TIMEOUT_MS).toBe(5 * 60 * 1000);
+  });
+
+  it('auto-approves local asks after 60 seconds', () => {
+    expect(PERMISSION_AUTO_APPROVE_MS).toBe(60 * 1000);
   });
 
   it('keeps path fields and truncates large write content', () => {

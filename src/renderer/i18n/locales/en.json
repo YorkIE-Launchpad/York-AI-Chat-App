@@ -1609,6 +1609,8 @@
     "alwaysAllow": "Always allow this tool",
     "moreQueued": "{{count}} more permission request(s) waiting",
     "expiresIn": "Expires in {{time}}",
+    "autoApprovesIn": "Auto-approves in {{time}}",
+    "autoApproved": "No response — permission was auto-approved.",
     "timedOut": "Permission request timed out. Ask the agent to retry, or set the tool to Allow in the Context panel.",
     "requestExpired": "That permission request already expired. Ask the agent to retry.",
     "useTool": "Use the {{toolName}} tool",

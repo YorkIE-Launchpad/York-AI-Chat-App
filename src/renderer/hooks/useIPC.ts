@@ -303,6 +303,13 @@ export function useIPC() {
                 message: '',
                 messageKey: 'permission.timedOut',
               });
+            } else if (event.payload.reason === 'auto_approved') {
+              store.setGlobalNotice({
+                id: `permission-auto-approved-${event.payload.toolUseId}`,
+                type: 'info',
+                message: '',
+                messageKey: 'permission.autoApproved',
+              });
             }
             break;
           }
@@ -909,7 +916,11 @@ export function useIPC() {
         division?: 'general' | 'hub';
       }
     ) => {
-      console.log('[useIPC] Creating idle session:', title, options?.incognito ? '(incognito)' : '');
+      console.log(
+        '[useIPC] Creating idle session:',
+        title,
+        options?.incognito ? '(incognito)' : ''
+      );
 
       if (options?.division === 'hub' || options?.division === 'general') {
         useAppStore.getState().setActiveDivision({ kind: options.division });
@@ -1137,7 +1148,9 @@ export function useIPC() {
             id: `msg-assistant-${Date.now()}`,
             sessionId,
             role: 'assistant',
-            content: [{ type: 'text', text: 'Image generation is only available in the desktop app.' }],
+            content: [
+              { type: 'text', text: 'Image generation is only available in the desktop app.' },
+            ],
             timestamp: Date.now(),
           };
           addMessage(sessionId, assistantMessage);

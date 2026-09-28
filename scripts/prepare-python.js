@@ -43,7 +43,14 @@ const BUNDLED_GUI_PACKAGES = [
   'pillow',
   'pyobjc-framework-Quartz',
 ];
-const BUNDLED_RUNTIME_FINGERPRINT = BUNDLED_GUI_PACKAGES.join('|');
+// Used by src/main/utils/pdf-text.ts so the agent Read tool can extract PDF text.
+// typing_extensions is a pypdf dependency on Python < 3.11.
+const BUNDLED_DOC_PACKAGES = [
+  'pypdf',
+  'typing_extensions',
+];
+const BUNDLED_PACKAGES = [...BUNDLED_GUI_PACKAGES, ...BUNDLED_DOC_PACKAGES];
+const BUNDLED_RUNTIME_FINGERPRINT = BUNDLED_PACKAGES.join('|');
 // Use the correct GitHub API endpoint (v3, no trailing slash)
 const RELEASES_API = `https://api.github.com/repos/${GITHUB_REPO}/releases?per_page=30`;
 
@@ -315,19 +322,60 @@ function extractArchive(archivePath, destDir) {
   execSync(extractCmd, { stdio: 'inherit' });
 }
 
-function ensurePipAvailable(pythonBin) {
+function hasPip(pythonBin) {
   try {
     execSync(`${JSON.stringify(pythonBin)} -m pip --version`, { stdio: 'ignore' });
+    return true;
   } catch {
-    execSync(`${JSON.stringify(pythonBin)} -m ensurepip --upgrade`, { stdio: 'inherit' });
+    return false;
   }
 }
 
-function installPackages(siteDir, platformTag, pythonBin) {
+/**
+ * Ensure the bundled python has pip. cleanPythonRuntime strips pip and ensurepip,
+ * so on re-runs bootstrap it via get-pip.py (removed again by the next cleanup).
+ */
+async function ensurePipAvailable(pythonBin) {
+  if (hasPip(pythonBin)) return;
+  try {
+    execSync(`${JSON.stringify(pythonBin)} -m ensurepip --upgrade`, { stdio: 'inherit' });
+    if (hasPip(pythonBin)) return;
+  } catch {
+    // ensurepip already removed
+  }
+  const getPip = path.join(DOWNLOAD_DIR, 'get-pip.py');
+  if (!exists(getPip)) {
+    console.log('⬇️  Downloading get-pip.py');
+    await download('https://bootstrap.pypa.io/get-pip.py', getPip);
+  }
+  execSync(`${JSON.stringify(pythonBin)} ${JSON.stringify(getPip)} --no-warn-script-location`, {
+    stdio: 'inherit',
+  });
+}
+
+/**
+ * A cross-arch runtime (e.g. darwin-x64 on Apple Silicon without Rosetta) can't
+ * execute; pip only needs to run somewhere since wheels are chosen by --platform.
+ */
+function resolveRunnablePython(pythonBin) {
+  try {
+    execSync(`${JSON.stringify(pythonBin)} -c "pass"`, { stdio: 'ignore' });
+    return pythonBin;
+  } catch {
+    const hostArch = process.arch === 'arm64' ? 'arm64' : 'x64';
+    const hostPython = path.join(OUTPUT_ROOT, `${process.platform}-${hostArch}`, 'bin', 'python3');
+    if (hostPython !== pythonBin && exists(hostPython)) {
+      console.log(`[prepare:python] ${pythonBin} is not runnable here; using ${hostPython} for pip`);
+      return hostPython;
+    }
+    return pythonBin;
+  }
+}
+
+async function installPackages(siteDir, platformTag, pythonBin) {
   ensureDir(siteDir);
 
-  const pipPython = process.env.YORK_IE_PIP_PYTHON || pythonBin;
-  const packageSpecs = [...BUNDLED_GUI_PACKAGES];
+  const packageSpecs = [...BUNDLED_PACKAGES];
   const pythonRoot = path.resolve(siteDir, '..');
   const runtimeMarkerFile = resolveRuntimeVersionFile(pythonRoot);
   const runtimeMarker = exists(runtimeMarkerFile)
@@ -337,13 +385,15 @@ function installPackages(siteDir, platformTag, pythonBin) {
   // Avoid re-install if already present
   const hasPillow = exists(path.join(siteDir, 'PIL'));
   const hasQuartz = exists(path.join(siteDir, 'Quartz'));
-  if (hasPillow && hasQuartz && runtimeMarker === BUNDLED_RUNTIME_FINGERPRINT) {
+  const hasPypdf = exists(path.join(siteDir, 'pypdf'));
+  if (hasPillow && hasQuartz && hasPypdf && runtimeMarker === BUNDLED_RUNTIME_FINGERPRINT) {
     console.log(`✓ Python packages already present in ${siteDir}`);
     return;
   }
 
   console.log(`📦 Installing Python packages into ${siteDir} (platform=${platformTag})...`);
-  ensurePipAvailable(pipPython);
+  const pipPython = process.env.YORK_IE_PIP_PYTHON || resolveRunnablePython(pythonBin);
+  if (!process.env.YORK_IE_PIP_PYTHON) await ensurePipAvailable(pipPython);
 
   // Install wheels into a target directory (no need to run the bundled python)
   // NOTE: requires network access and a working pip on the build machine.
@@ -355,6 +405,11 @@ function installPackages(siteDir, platformTag, pythonBin) {
 
   execSync(cmd, { stdio: 'inherit' });
   fs.writeFileSync(runtimeMarkerFile, BUNDLED_RUNTIME_FINGERPRINT, 'utf-8');
+
+  const pipRoot = path.resolve(pipPython, '..', '..');
+  if (pipRoot !== pythonRoot && pipRoot.startsWith(OUTPUT_ROOT)) {
+    cleanPythonRuntime(pipRoot, path.join(pipRoot, 'site-packages'));
+  }
 }
 
 /**
@@ -373,6 +428,7 @@ function cleanPythonRuntime(destDir, siteDir) {
     'Quartz', 'AppKit', 'Foundation', 'CoreFoundation',
     'objc', 'PyObjCTools',
     'pyobjc_core', 'pyobjc_framework_Cocoa', 'pyobjc_framework_Quartz',
+    'pypdf', 'typing_extensions', 'typing_extensions.py',
   ]);
 
   // Match package dirs and their .dist-info counterparts
@@ -533,7 +589,7 @@ async function preparePlatformArch(platform, arch) {
   }
 
   // Install packages for GUI automation
-  installPackages(siteDir, target.platformTag, pythonBin);
+  await installPackages(siteDir, target.platformTag, pythonBin);
 
   // Clean site-packages of non-whitelisted packages (also runs after pip install)
   cleanPythonRuntime(destDir, siteDir);

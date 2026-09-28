@@ -5,7 +5,7 @@ import { useAppStore } from '../store';
 import type { PermissionRequest } from '../types';
 import { Shield, X, Check, AlertTriangle } from 'lucide-react';
 import {
-  PERMISSION_ASK_TIMEOUT_MS,
+  PERMISSION_AUTO_APPROVE_MS,
   truncatePermissionInputPreview,
 } from '../../shared/permission-policy';
 
@@ -24,7 +24,7 @@ export function PermissionDialog({ permission }: PermissionDialogProps) {
   const { t } = useTranslation();
   const { respondToPermission } = useIPC();
   const queuedCount = useAppStore((s) => s.permissionQueue.length);
-  const expiresAt = permission.expiresAt ?? Date.now() + PERMISSION_ASK_TIMEOUT_MS;
+  const expiresAt = permission.expiresAt ?? Date.now() + PERMISSION_AUTO_APPROVE_MS;
   const [msRemaining, setMsRemaining] = useState(() => Math.max(0, expiresAt - Date.now()));
 
   useEffect(() => {
@@ -81,7 +81,7 @@ export function PermissionDialog({ permission }: PermissionDialogProps) {
               {getToolDescription(permission.toolName)}
             </p>
             <p className="text-xs text-text-muted mt-1 tabular-nums">
-              {t('permission.expiresIn', { time: formatCountdown(msRemaining) })}
+              {t('permission.autoApprovesIn', { time: formatCountdown(msRemaining) })}
             </p>
             {queuedCount > 0 ? (
               <p className="text-xs text-text-muted mt-1">

@@ -5,6 +5,13 @@
 /** How long a permission Ask dialog waits before auto-expiring. */
 export const PERMISSION_ASK_TIMEOUT_MS = 5 * 60 * 1000;
 
+/**
+ * How long the local permission dialog waits before auto-approving.
+ * Must stay well below the agent's idle timeout so an unanswered ask
+ * doesn't abort the whole turn.
+ */
+export const PERMISSION_AUTO_APPROVE_MS = 60 * 1000;
+
 const PREVIEW_MAX_CHARS = 2000;
 
 /**

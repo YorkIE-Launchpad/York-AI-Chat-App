@@ -2,7 +2,10 @@ import type { ActiveDivision, WorkspaceDivisionKind } from '../../shared/workspa
 import type { ChatSearchScope } from '../../shared/chat-search';
 import type { ExternalReferenceContent } from '../../shared/external-reference';
 
-export type { ExternalReferenceContent, ExternalReferenceSource } from '../../shared/external-reference';
+export type {
+  ExternalReferenceContent,
+  ExternalReferenceSource,
+} from '../../shared/external-reference';
 
 // Session types
 export interface Session {
@@ -814,7 +817,7 @@ export type ServerEvent =
   | { type: 'permission.request'; payload: PermissionRequest }
   | {
       type: 'permission.dismiss';
-      payload: { toolUseId: string; reason?: 'timeout' | 'cancelled' };
+      payload: { toolUseId: string; reason?: 'timeout' | 'cancelled' | 'auto_approved' };
     }
   | {
       type: 'permission.sessionAlwaysAllow';
@@ -1029,12 +1032,7 @@ export interface MemoryRuntimeConfig {
   promptIterationRounds?: number;
 }
 
-export type RealtimeTranscriptionDelay =
-  | 'minimal'
-  | 'low'
-  | 'medium'
-  | 'high'
-  | 'xhigh';
+export type RealtimeTranscriptionDelay = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
 
 export interface MeetingsRuntimeConfig {
   realtimeTranscriptionDelay: RealtimeTranscriptionDelay;
