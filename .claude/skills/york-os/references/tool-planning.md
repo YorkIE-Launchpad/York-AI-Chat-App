@@ -10,7 +10,9 @@ preamble — start calling tools immediately after forming the plan.
    status vs commitments vs Hub HR vs Launchpad delivery vs metrics).
 2. **Draft a compact plan** (internal): phases, systems, join keys, parallel
    batches. Use playbooks:
-   - Meeting prep → [meeting-prep.md](meeting-prep.md)
+   - Meeting prep → [meeting-prep.md](meeting-prep.md): classify each meeting
+     first, then Playbook A (recurring: history + action-item verification) or
+     Playbook B (one-off: party research)
    - Person / open loops → [work-brief.md](work-brief.md)
    - Client → [client-status.md](client-status.md)
    - Project → [project-status.md](project-status.md)
@@ -66,6 +68,8 @@ Phase 5: synthesize + Sources; checked: …; skipped: …
 ## Anti-patterns
 
 - Calendar-only answer to “prepare agendas”.
+- Meeting prep that dumps per-connector findings instead of a cited,
+  agenda-first brief, or lists last time's action items without checking them.
 - Hub-only answer to “client status” when Slack/Gmail/Launchpad are connected.
 - Asking the user for an email/id already returned by a tool.
 - Web search as a substitute for connected York systems.

@@ -3,10 +3,8 @@ import { calendarOrbitSeverity } from '../src/shared/matter-time';
 import {
   MEETING_PREP_MARKER,
   buildEnrichedMeetingTitle,
-  buildMeetingPrepNote,
   cleanSlackPrepText,
   extractBrowseUrls,
-  formatPriorMeetingHit,
   isMeetingPrepNote,
   isVagueMeetingTitle,
   parseEventAttendees,
@@ -76,7 +74,7 @@ describe('parseEventAttendees', () => {
   });
 });
 
-describe('buildEnrichedMeetingTitle + buildMeetingPrepNote', () => {
+describe('buildEnrichedMeetingTitle', () => {
   const attendees = [
     { name: 'Ada Lovelace', email: 'ada@york.ie' },
     { name: 'Bob Smith', email: 'bob@client.com' },
@@ -111,87 +109,9 @@ describe('buildEnrichedMeetingTitle + buildMeetingPrepNote', () => {
     ).toBe('Sync');
   });
 
-  it('builds prep note with marker and sections', () => {
-    const enrichedTitle = buildEnrichedMeetingTitle({
-      originalTitle: 'Meeting',
-      attendees: attendees.slice(0, 2),
-      topicHint: 'Q3 roadmap',
-    });
-    const note = buildMeetingPrepNote({
-      originalTitle: 'Meeting',
-      when: '2026-08-11T15:00:00Z → 2026-08-11T15:30:00Z',
-      attendees: attendees.slice(0, 2),
-      enrichedTitle,
-      hits: [
-        {
-          source: 'slack',
-          label: 'DM · Ada',
-          detail: 'Can we follow up on pricing before the call?',
-          url: 'https://slack.com/archives/D1/p1',
-        },
-        {
-          source: 'channel',
-          label: '#acme-eng',
-          detail: 'Need owner for Q3 deck',
-        },
-        {
-          source: 'gmail',
-          label: 'Re: Acme Q3 roadmap',
-          detail: 'Attached latest deck — please review action items',
-          url: 'https://mail.google.com/mail/u/0/#all/abc',
-        },
-        formatPriorMeetingHit({
-          id: 'm1',
-          title: 'Acme sync',
-          startedAt: Date.parse('2026-08-01T15:00:00Z'),
-          notes: {
-            summary: 'Aligned on pricing',
-            keyTopics: ['pricing', 'timeline'],
-            actionItems: ['Ada to send proposal', 'Bob to confirm budget'],
-          },
-        }),
-      ],
-    });
-    expect(note.startsWith(MEETING_PREP_MARKER)).toBe(true);
-    expect(note).toContain('**Meeting:** Meeting');
-    expect(note).toContain('Ada Lovelace <ada@york.ie>');
-    expect(note).toMatch(/\*\*Meeting:\*\*[^\n]+\n\n\*\*When:\*\*/);
-    expect(note).not.toContain('### Invite notes');
-    expect(note).toContain('### Recent Slack (DMs / people)');
-    expect(note).toContain('DM · Ada');
-    expect(note).toContain('### Mutual / project channels');
-    expect(note).toContain('#acme-eng');
-    expect(note).toContain('### Email');
-    expect(note).toContain('Re: Acme Q3 roadmap');
-    expect(note).toContain('### Prior Zoom meetings');
-    expect(note).toContain('Action items: Ada to send proposal');
-    expect(note).toContain('### Open loops / action items');
-    expect(note).toMatch(/Ada to send proposal/);
-    expect(note).toContain('### Suggested agenda');
-    expect(note).toContain('### Connectors');
-    expect(note).toContain('### Sources');
-  });
-
   it('strips Slack mention IDs from prep text', () => {
-    expect(cleanSlackPrepText('nileshs: <@U076ER71DB4>, thanks')).toBe(
-      'nileshs: @someone, thanks'
-    );
+    expect(cleanSlackPrepText('nileshs: <@U076ER71DB4>, thanks')).toBe('nileshs: @someone, thanks');
     expect(cleanSlackPrepText('<@U076ER71DB4|Kalrav> hi')).toBe('@Kalrav hi');
-    const note = buildMeetingPrepNote({
-      originalTitle: 'Sync',
-      when: 'Wed',
-      attendees: [],
-      enrichedTitle: 'Sync',
-      hits: [
-        {
-          source: 'slack',
-          label: '#eng · Ada',
-          detail: 'ping <@U076ER71DB4> about the blocker',
-        },
-      ],
-    });
-    expect(note).not.toMatch(/U076ER71DB4/);
-    expect(note).toContain('@someone');
   });
 });
 
@@ -224,24 +144,7 @@ describe('parseSlackSearchBody / parseSlackHistoryBody (prep)', () => {
   });
 });
 
-describe('formatPriorMeetingHit + channel scoring', () => {
-  it('surfaces action items and topics in the hit detail', () => {
-    const hit = formatPriorMeetingHit({
-      id: 'abc',
-      title: 'Launchpad QA',
-      startedAt: Date.parse('2026-08-20T12:00:00Z'),
-      notes: {
-        summary: 'Walked through flaky tests',
-        keyTopics: ['CI', 'flake'],
-        actionItems: ['Fix flaky e2e', 'Retest tomorrow'],
-      },
-    });
-    expect(hit.source).toBe('meeting');
-    expect(hit.label).toContain('Launchpad QA');
-    expect(hit.detail).toContain('Action items: Fix flaky e2e');
-    expect(hit.detail).toContain('Topics: CI; flake');
-  });
-
+describe('channel scoring', () => {
   it('scores channels with title and project tokens', () => {
     const attendees = [{ name: 'Ada', email: 'ada@york.ie' }];
     expect(scoreChannelName('general', attendees, ['acme'])).toBe(0);

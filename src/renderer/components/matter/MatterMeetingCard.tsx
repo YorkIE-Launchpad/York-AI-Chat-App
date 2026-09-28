@@ -1,6 +1,6 @@
 import { CalendarDays } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { MEETING_PREP_MARKER, type MatterMeeting } from '../../../shared/matter';
+import { MEETING_PREP_MARKER, meetingPrepKind, type MatterMeeting } from '../../../shared/matter';
 import {
   calendarOrbitSeverity,
   formatDueRelative,
@@ -21,7 +21,10 @@ function meetingSubtitle(meeting: MatterMeeting): string {
   if (!summary) return when;
   if (!when) return summary;
   if (summary === meeting.when || summary.startsWith(meeting.when)) {
-    const rest = summary.slice(meeting.when.length).replace(/^\s*·\s*/, '').trim();
+    const rest = summary
+      .slice(meeting.when.length)
+      .replace(/^\s*·\s*/, '')
+      .trim();
     return rest ? `${when} · ${rest}` : when;
   }
   // Already friendly or custom
@@ -35,6 +38,7 @@ function meetingSubtitle(meeting: MatterMeeting): string {
 export function MatterMeetingCard({ meeting, selected, onSelect }: MatterMeetingCardProps) {
   const { t } = useTranslation();
   const hasPrep = Boolean(meeting.rawDetails?.trim().startsWith(MEETING_PREP_MARKER));
+  const prepKind = meetingPrepKind(meeting.rawDetails);
   const { orbit } = calendarOrbitSeverity(meeting.startMs);
   const subtitle = meetingSubtitle(meeting);
 
@@ -65,13 +69,18 @@ export function MatterMeetingCard({ meeting, selected, onSelect }: MatterMeeting
               </span>
             ) : null}
           </div>
-          <p className="mt-0.5 text-[11px] text-text-secondary line-clamp-2">
-            {subtitle}
-          </p>
+          <p className="mt-0.5 text-[11px] text-text-secondary line-clamp-2">{subtitle}</p>
           <div className="mt-1.5 flex flex-wrap gap-1">
             <span className="rounded-md border border-border-subtle px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-text-muted">
               {orbit}
             </span>
+            {prepKind ? (
+              <span className="rounded-md border border-border-subtle px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-text-secondary">
+                {prepKind === 'recurring'
+                  ? t('matter.meetingKindRecurring')
+                  : t('matter.meetingKindOneOff')}
+              </span>
+            ) : null}
             {hasPrep ? (
               <span className="rounded-md border border-accent/30 bg-accent/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-accent">
                 {t('matter.meetingPrepped')}

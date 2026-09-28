@@ -85,6 +85,28 @@ export const MATTER_MIN_SNOOZE_MS = 60 * 60 * 1000;
 /** Stable marker for calendar prep notes stored in MatterMeeting.rawDetails. */
 export const MEETING_PREP_MARKER = '## Meeting prep';
 
+export type MeetingPrepKind = 'recurring' | 'one_off';
+
+/** Labels written into the prep note header; `meetingPrepKind` parses them back. */
+export const MEETING_PREP_KIND_LABELS: Record<MeetingPrepKind, string> = {
+  recurring: 'Recurring',
+  one_off: 'One-off',
+};
+
+/** Meeting kind from a prep note header line (`**Title** · when · Recurring (weekly) · …`). */
+export function meetingPrepKind(rawDetails: string | null | undefined): MeetingPrepKind | null {
+  const text = rawDetails?.trim();
+  if (!text?.startsWith(MEETING_PREP_MARKER)) return null;
+  const header = text
+    .slice(MEETING_PREP_MARKER.length)
+    .split('\n')
+    .find((line) => line.trim());
+  if (!header) return null;
+  if (/·\s*Recurring\b/.test(header)) return 'recurring';
+  if (/·\s*One-off\b/.test(header)) return 'one_off';
+  return null;
+}
+
 /** Dedicated meetings list poll — independent of Matter signal `intervalMinutes`. */
 export const DEFAULT_MATTER_MEETINGS_INTERVAL_MINUTES = 15;
 

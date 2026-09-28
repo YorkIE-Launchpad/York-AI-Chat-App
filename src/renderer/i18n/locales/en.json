@@ -936,6 +936,8 @@
     "meetingDetailTitle": "Meeting",
     "meetingUntitled": "Untitled meeting",
     "meetingPrepped": "Prepped",
+    "meetingKindRecurring": "Recurring",
+    "meetingKindOneOff": "One-off",
     "meetingNoPrepYet": "No prep yet — click Prep to gather context from connected connectors.",
     "nextUp": "Next up",
     "nextUpOpen": "Open meeting in Matter",

@@ -21,7 +21,11 @@ import {
 import { normalizeMatterRuntimeConfig } from './matter-config';
 import { log, logError, logWarn } from '../utils/logger';
 import { createMatterStore, type MatterStore } from './matter-store';
-import { collectCalendarMeetings, collectMatterSignals, getEnabledMatterServerIds } from './matter-collector';
+import {
+  collectCalendarMeetings,
+  collectMatterSignals,
+  getEnabledMatterServerIds,
+} from './matter-collector';
 import {
   enrichCalendarMeeting,
   isMeetingPrepNote,
@@ -313,10 +317,7 @@ export class MatterService {
    * Refresh the Calendar meetings list (not signal radar).
    * Cadence is `meetingsIntervalMinutes`, gated by `sources.calendar`.
    */
-  async fetchMeetings(options?: {
-    reason?: string;
-    force?: boolean;
-  }): Promise<MatterSnapshot> {
+  async fetchMeetings(options?: { reason?: string; force?: boolean }): Promise<MatterSnapshot> {
     if (this.stopped) {
       return this.getSnapshot();
     }
@@ -663,16 +664,14 @@ export class MatterService {
     let title = meeting.title;
 
     try {
-      const tools = this.mcpManager.getTools().filter(
-        (t) => t.serverId === DEFAULT_GOOGLE_CALENDAR_MCP_SERVER_ID
-      );
+      const tools = this.mcpManager
+        .getTools()
+        .filter((t) => t.serverId === DEFAULT_GOOGLE_CALENDAR_MCP_SERVER_ID);
       const getTool = tools.find((t) => {
         const original = (t.originalName || '').toLowerCase();
         const name = t.name.toLowerCase();
         return (
-          original === 'get_event' ||
-          original.includes('get_event') ||
-          name.includes('get_event')
+          original === 'get_event' || original.includes('get_event') || name.includes('get_event')
         );
       });
       if (getTool) {
@@ -709,6 +708,14 @@ export class MatterService {
     const attendeeSource = isMeetingPrepNote(inviteBody) ? meeting.summary || '' : inviteBody;
     const attendees = parseEventAttendees(attendeeSource || inviteBody);
 
+    let selfEmail: string | null = null;
+    try {
+      const profile = await resolveWelcomeProfile({ mcpManager: this.mcpManager });
+      selfEmail = profile?.email || null;
+    } catch (error) {
+      logWarn('[Matter] Profile lookup for prep failed:', error);
+    }
+
     const enriched = await enrichCalendarMeeting({
       mcpManager: this.mcpManager,
       meetingService: this.meetingService,
@@ -716,7 +723,10 @@ export class MatterService {
       when,
       attendees,
       eventUrl,
-      inviteBody,
+      inviteBody: isMeetingPrepNote(inviteBody) ? '' : inviteBody,
+      eventId,
+      config: configStore.getAll(),
+      selfEmail,
     });
 
     this.store.updateMeeting(meeting.id, {
@@ -728,7 +738,12 @@ export class MatterService {
     this.store.recordAction({
       fingerprint: meeting.fingerprint,
       action: 'open',
-      meta: { prep: true, meetingId: meeting.id, connectors: enriched.connectors },
+      meta: {
+        prep: true,
+        meetingId: meeting.id,
+        kind: enriched.kind ?? null,
+        connectors: enriched.connectors,
+      },
     });
 
     this.pushSnapshot();

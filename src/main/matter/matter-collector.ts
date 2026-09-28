@@ -44,7 +44,6 @@ export {
   parseEventAttendees,
   parseSlackSearchBody,
   buildEnrichedMeetingTitle,
-  buildMeetingPrepNote,
   enrichCalendarMeeting,
 } from './matter-calendar-enrichment';
 export type { ParsedSlackSearchMessage } from './matter-calendar-enrichment';

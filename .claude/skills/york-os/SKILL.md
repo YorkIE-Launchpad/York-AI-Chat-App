@@ -25,7 +25,7 @@ Deep Hub or Launchpad workflows: load `hub-mcp`, `rnd-launchpad-mcp-sdlc`, or
 
 - [connectors.md](references/connectors.md) — tools + join keys
 - [tool-planning.md](references/tool-planning.md) — plan-then-execute (500+ tools)
-- [meeting-prep.md](references/meeting-prep.md) — agendas / prep
+- [meeting-prep.md](references/meeting-prep.md) — agendas / prep (recurring vs one-off playbooks)
 - [work-brief.md](references/work-brief.md) — catch-me-up / person / open loops
 - [client-status.md](references/client-status.md) — client account briefs
 - [project-status.md](references/project-status.md) — project delivery briefs
@@ -36,7 +36,7 @@ Deep Hub or Launchpad workflows: load `hub-mcp`, `rnd-launchpad-mcp-sdlc`, or
 | ------------------- | ------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Hub**             | People, HR, clients, projects, leave, timesheets, allocations, quotations | Hub MCP → follow `hub-mcp`                                                                                                                                                                                                                                                                                            |
 | **R&D Launchpad**   | Client SaaS build & delivery (releases, features, bugs, QA)               | Launchpad MCP → follow `rnd-launchpad-mcp-sdlc`                                                                                                                                                                                                                                                                       |
-| **GTM Launchpad**   | Client GTM workflows, content calendar, brand profile, channel pieces     | GTM Launchpad MCP → follow `gtm-launchpad-mcp` (not the product-platform Launchpad namespace)                                                                                                                                                                                                                          |
+| **GTM Launchpad**   | Client GTM workflows, content calendar, brand profile, channel pieces     | GTM Launchpad MCP → follow `gtm-launchpad-mcp` (not the product-platform Launchpad namespace)                                                                                                                                                                                                                         |
 | **R&D Pulse**       | Analytics for that R&D product/project                                    | R&D Pulse MCP (discover live tools)                                                                                                                                                                                                                                                                                   |
 | **GTM Pulse**       | GTM / go-to-market analytics                                              | GTM Pulse MCP (discover live tools)                                                                                                                                                                                                                                                                                   |
 | **Slack**           | Chat, DMs, threads                                                        | MCP: `search_messages`, `get_thread`, `get_channel_history`, `get_user`; write: `post_message` (ask; never `#general` / `#virtual-water-cooler`)                                                                                                                                                                      |
@@ -73,44 +73,44 @@ For multi-source company asks (prep, brief, status, open loops, catch-me-up):
 Reuse every useful key from prior results. Never ask the user for a company
 email, client id, or project id a tool already returned.
 
-| From                        | Extract                                    | Feed into                                                               |
-| --------------------------- | ------------------------------------------ | ----------------------------------------------------------------------- |
-| Calendar events             | eventId, title, attendee **emails**, links | Hub people/leave; Slack/Gmail; Drive; `meeting_search`                  |
-| Hub employees               | **email**, name, squad                     | Calendar attendees; Slack; Gmail; leave                                 |
-| Hub clients                 | **clientId**, name                         | projects, quotations; Slack/Gmail/Drive/meetings; R&D Launchpad; GTM Launchpad |
-| Hub quotations              | quotation id, **project ids**              | Hub projects/allocations; Launchpad; Jira                               |
-| Hub projects / summaries    | **projectId**, title, client               | allocations, release notes; Launchpad; Jira; Slack/Gmail/Drive/meetings |
-| Hub allocations             | staff **emails**                           | leave; Slack; Calendar                                                  |
-| R&D Launchpad projects/releases | Launchpad **projectId**, release ids   | scope/QA; Hub by name; Jira; Pulse                                      |
-| GTM Launchpad clients/workflows | **clientId**, **projectId**, **flowId** | `list_accessible_clients` / `resolve_workspace` → workflow tools; Hub by name |
-| Slack search                | channel + `thread_ts`, permalink           | `get_thread`; Sources                                                   |
-| Gmail search                | message id, Drive links                    | `get_email`; Drive content                                              |
-| `meeting_search`            | meeting `id`                               | `meeting_read`                                                          |
-| Jira / Confluence           | issue key / page id                        | get issue/page                                                          |
-| Pulse                       | live metric tools                          | after identity known, if metrics/status is broad                        |
+| From                            | Extract                                    | Feed into                                                                      |
+| ------------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------ |
+| Calendar events                 | eventId, title, attendee **emails**, links | Hub people/leave; Slack/Gmail; Drive; `meeting_search`                         |
+| Hub employees                   | **email**, name, squad                     | Calendar attendees; Slack; Gmail; leave                                        |
+| Hub clients                     | **clientId**, name                         | projects, quotations; Slack/Gmail/Drive/meetings; R&D Launchpad; GTM Launchpad |
+| Hub quotations                  | quotation id, **project ids**              | Hub projects/allocations; Launchpad; Jira                                      |
+| Hub projects / summaries        | **projectId**, title, client               | allocations, release notes; Launchpad; Jira; Slack/Gmail/Drive/meetings        |
+| Hub allocations                 | staff **emails**                           | leave; Slack; Calendar                                                         |
+| R&D Launchpad projects/releases | Launchpad **projectId**, release ids       | scope/QA; Hub by name; Jira; Pulse                                             |
+| GTM Launchpad clients/workflows | **clientId**, **projectId**, **flowId**    | `list_accessible_clients` / `resolve_workspace` → workflow tools; Hub by name  |
+| Slack search                    | channel + `thread_ts`, permalink           | `get_thread`; Sources                                                          |
+| Gmail search                    | message id, Drive links                    | `get_email`; Drive content                                                     |
+| `meeting_search`                | meeting `id`                               | `meeting_read`                                                                 |
+| Jira / Confluence               | issue key / page id                        | get issue/page                                                                 |
+| Pulse                           | live metric tools                          | after identity known, if metrics/status is broad                               |
 
 Full map: [connectors.md](references/connectors.md).
 
 ## Intent → sources
 
-| User intent                                    | Start here                           | Then                                                                        |
-| ---------------------------------------------- | ------------------------------------ | --------------------------------------------------------------------------- |
-| Who is / org / leave / timesheets / staffing   | Hub                                  | `hub-mcp`                                                                   |
-| Who’s out this week                            | Hub `get_leave_wfh_calendar`         | not Google Calendar                                                         |
-| Feature, bug, release, delivery ops            | R&D Launchpad                    | `rnd-launchpad-mcp-sdlc`; Pulse if metrics                                          |
-| GTM workflows / content calendar / brand / pieces | GTM Launchpad                 | `gtm-launchpad-mcp` (session: `clientId` + `projectId`; mutations need `confirm`)   |
-| Metrics, usage, funnel, platform health        | R&D Pulse or GTM Pulse               | discover live tools                                                         |
-| What was said / promised / agreed / open loops | **Comms fan-out**                    | [work-brief.md](references/work-brief.md)                                   |
-| Catch me up / brief me / status with a person  | **Plan + fan-out**                   | [work-brief.md](references/work-brief.md)                                   |
-| **Client status** / update on client Z         | Hub clients                          | [client-status.md](references/client-status.md) — all relevant connectors   |
-| **Project status** / how is project Y          | Hub projects                         | [project-status.md](references/project-status.md) — Hub + Launchpad + comms |
-| Google Docs / Sheets / decks in Drive            | Drive                                | Gmail if email context helps                                                |
-| **Confluence page / wiki / internal process doc** | Confluence                           | `getConfluenceSpaces` → parent page → `createConfluencePage`                |
-| List only: “what’s on my calendar Tuesday”     | Google Calendar `list_events`        | `get_event` if detail needed                                                |
-| **Prep / prepare agendas / prep for meetings** | Calendar then **Enrichment fan-out** | [meeting-prep.md](references/meeting-prep.md)                               |
-| Schedule / invite / “set up a meeting with …”  | Hub resolve → Calendar               | **Schedule with a person**                                                  |
-| Meeting notes / “what did we discuss”          | `meeting_search` → `meeting_read`    | Slack/Gmail if needed                                                       |
-| Jira tickets / Confluence wiki                 | Jira / Confluence                    | Hub/Launchpad if delivery context                                           |
+| User intent                                       | Start here                                           | Then                                                                              |
+| ------------------------------------------------- | ---------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Who is / org / leave / timesheets / staffing      | Hub                                                  | `hub-mcp`                                                                         |
+| Who’s out this week                               | Hub `get_leave_wfh_calendar`                         | not Google Calendar                                                               |
+| Feature, bug, release, delivery ops               | R&D Launchpad                                        | `rnd-launchpad-mcp-sdlc`; Pulse if metrics                                        |
+| GTM workflows / content calendar / brand / pieces | GTM Launchpad                                        | `gtm-launchpad-mcp` (session: `clientId` + `projectId`; mutations need `confirm`) |
+| Metrics, usage, funnel, platform health           | R&D Pulse or GTM Pulse                               | discover live tools                                                               |
+| What was said / promised / agreed / open loops    | **Comms fan-out**                                    | [work-brief.md](references/work-brief.md)                                         |
+| Catch me up / brief me / status with a person     | **Plan + fan-out**                                   | [work-brief.md](references/work-brief.md)                                         |
+| **Client status** / update on client Z            | Hub clients                                          | [client-status.md](references/client-status.md) — all relevant connectors         |
+| **Project status** / how is project Y             | Hub projects                                         | [project-status.md](references/project-status.md) — Hub + Launchpad + comms       |
+| Google Docs / Sheets / decks in Drive             | Drive                                                | Gmail if email context helps                                                      |
+| **Confluence page / wiki / internal process doc** | Confluence                                           | `getConfluenceSpaces` → parent page → `createConfluencePage`                      |
+| List only: “what’s on my calendar Tuesday”        | Google Calendar `list_events`                        | `get_event` if detail needed                                                      |
+| **Prep / prepare agendas / prep for meetings**    | Calendar `get_event` → classify recurring vs one-off | [meeting-prep.md](references/meeting-prep.md) Playbook A or B                     |
+| Schedule / invite / “set up a meeting with …”     | Hub resolve → Calendar                               | **Schedule with a person**                                                        |
+| Meeting notes / “what did we discuss”             | `meeting_search` → `meeting_read`                    | Slack/Gmail if needed                                                             |
+| Jira tickets / Confluence wiki                    | Jira / Confluence                                    | Hub/Launchpad if delivery context                                                 |
 
 **List vs prep:** listing the calendar is Calendar-only. Preparing agendas,
 briefing, or enriching meetings is **never** Calendar-alone — run enrichment.
@@ -135,13 +135,19 @@ Do not route Confluence document asks to local HTML (`outputs/`) or Google Drive
 For “prepare agendas”, “prep for next week”, “brief me on my meetings”:
 
 1. Calendar `list_events` for the window → skip noise (focus blocks) →
-   `get_event` for each real meeting → emails, title, links.
-2. **Parallel:** Hub resolve key attendees + leave for the week; Slack
-   `search_messages` (+ `get_thread`); Gmail `search_emails` / `get_email`;
-   `meeting_search` → `meeting_read`; Drive when links/titles imply docs;
-   Jira/Launchpad/Confluence when title/attendees imply delivery.
-3. Synthesize **per-meeting** agendas grounded in sources. Never invent
-   talking points. End with `Sources:`.
+   `get_event` for each real meeting → emails, title, links, recurrence.
+2. **Classify** each meeting. Recurring (`RecurringEventId` / RRULE / repeated
+   title) → Playbook A: past instances via `search_events`, `meeting_search` →
+   `meeting_read` for last time's action items, then verify **each** item
+   against Slack / Gmail / Jira / Drive since the last occurrence (Done /
+   In progress / Still open / No update found). One-off → Playbook B: research
+   the parties (Hub people/clients, company site, 180-day Gmail/Slack history).
+3. **Parallel** context sweep for both: Slack DMs + best shared channel, Gmail
+   with attendees, Drive, Jira/Launchpad/Confluence when delivery-ish, Hub leave.
+4. Synthesize a short **agenda-first brief** per meeting: bottom line, what
+   changed / who you're meeting, action-item status, 3–6 agenda topics with
+   “why now”. Cite inline `[n]`; skip empty sections; numbered Sources only
+   at the end. Never invent talking points or statuses.
 
 Details: [meeting-prep.md](references/meeting-prep.md).
 
