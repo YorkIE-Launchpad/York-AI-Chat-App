@@ -2,16 +2,23 @@
  * macOS auto-update via electron-updater + S3 generic feed.
  * Downloads in the background; install is user-triggered via quitAndInstall.
  */
-import { app, BrowserWindow, autoUpdater as squirrelAutoUpdater } from 'electron';
+import { app, BrowserWindow, shell, autoUpdater as squirrelAutoUpdater } from 'electron';
 import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
-import type { UpdaterStatus, UpdaterStatusKind } from '../shared/updater-types';
+import type {
+  ManualUpdateDownloadResult,
+  UpdaterStatus,
+  UpdaterStatusKind,
+} from '../shared/updater-types';
 import { resolveAppDataEnv } from '../shared/app-data-env';
 import { logWarn } from './utils/logger';
-import { notifyUpdateInstallAborted, notifyUpdateInstallWillQuit } from './update-quit-coordination';
+import {
+  notifyUpdateInstallAborted,
+  notifyUpdateInstallWillQuit,
+} from './update-quit-coordination';
 
 function persistUpdaterLog(message: string, detail?: unknown): void {
   if (detail === undefined) {
@@ -21,8 +28,29 @@ function persistUpdaterLog(message: string, detail?: unknown): void {
   logWarn('[AutoUpdater]', message, detail);
 }
 
-export const UPDATE_FEED_URL =
-  'https://york-internal-apps.s3.ap-south-1.amazonaws.com/york-workos/latest';
+export const UPDATE_RELEASES_BASE_URL =
+  'https://york-internal-apps.s3.ap-south-1.amazonaws.com/york-workos';
+
+export const UPDATE_FEED_URL = `${UPDATE_RELEASES_BASE_URL}/latest`;
+
+/** Must match electron-builder `productName` (used in versioned DMG filenames). */
+export const MAC_PRODUCT_NAME = 'York GrowthOS';
+
+/** Versioned DMG uploaded by scripts/upload-s3.js: `{version}/{productName}-{version}-mac-{arch}.dmg`. */
+export function buildVersionedMacDmgUrl(version: string, arch: string): string {
+  const filename = `${MAC_PRODUCT_NAME}-${version}-mac-${arch}.dmg`;
+  return `${UPDATE_RELEASES_BASE_URL}/${encodeURIComponent(version)}/${encodeURIComponent(filename)}`;
+}
+
+export function parseLatestMacYmlVersion(yml: string): string | null {
+  const match = yml.match(/^version:\s*['"]?([0-9][^'"\s]*)['"]?\s*$/m);
+  return match ? match[1] : null;
+}
+
+/** Only arm64 is published today; try the running arch first so x64 builds work if added. */
+export function macDmgArchCandidates(arch: string): string[] {
+  return Array.from(new Set([arch, 'arm64']));
+}
 
 /** Base cadence between background update checks (1 hour). */
 export const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
@@ -272,12 +300,11 @@ export function buildMacUpdateInstallScript(opts: {
   targetBundlePath: string;
   logPath?: string;
 }): string {
-  const logPath =
-    opts.logPath ?? path.join(getMacShipItDirectory(), 'york-update-install.log');
+  const logPath = opts.logPath ?? path.join(getMacShipItDirectory(), 'york-update-install.log');
   const update = opts.updateBundlePath.replace(/\/$/, '');
   const target = opts.targetBundlePath.replace(/\/$/, '');
   // Quote for zsh single-quoted strings (paths may contain spaces).
-  const q = (value: string): string => `'${value.replace(/'/g, `'\"'\"'`)}'`;
+  const q = (value: string): string => `'${value.replace(/'/g, `'"'"'`)}'`;
   return [
     `LOG=${q(logPath)}`,
     `exec >>"$LOG" 2>&1`,
@@ -375,10 +402,7 @@ function spawnDetachedMacUpdateInstaller(staged: {
     // The nohup child is not Electron's child and survives app.exit / SIGKILL.
     const installerPid = execFileSync(
       '/bin/zsh',
-      [
-        '-c',
-        `nohup /bin/zsh ${JSON.stringify(scriptPath)} </dev/null >/dev/null 2>&1 & echo $!`,
-      ],
+      ['-c', `nohup /bin/zsh ${JSON.stringify(scriptPath)} </dev/null >/dev/null 2>&1 & echo $!`],
       { encoding: 'utf8', timeout: 5000 }
     ).trim();
     persistUpdaterLog('Detached mac update installer started', {
@@ -820,6 +844,65 @@ export async function quitAndInstallUpdate(): Promise<{ success: boolean; error?
   }
 }
 
+async function fetchLatestFeedVersion(fetchImpl: typeof fetch): Promise<string | null> {
+  try {
+    const res = await fetchImpl(`${UPDATE_FEED_URL}/latest-mac.yml?t=${Date.now()}`, {
+      cache: 'no-store',
+    });
+    if (!res.ok) return null;
+    return parseLatestMacYmlVersion(await res.text());
+  } catch (err) {
+    persistUpdaterLog('Manual download: failed to read latest-mac.yml', err);
+    return null;
+  }
+}
+
+async function urlExists(fetchImpl: typeof fetch, url: string): Promise<boolean> {
+  try {
+    const res = await fetchImpl(url, { method: 'HEAD', cache: 'no-store' });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Resolve the version-pinned DMG for the latest release so users can replace the
+ * app manually when in-place updates fail (read-only volume, signature errors, …).
+ */
+export async function resolveManualUpdateDownload(opts?: {
+  fetchImpl?: typeof fetch;
+  arch?: string;
+  statusVersion?: string;
+}): Promise<{ version: string; url: string }> {
+  const fetchImpl = opts?.fetchImpl ?? fetch;
+  const version =
+    (await fetchLatestFeedVersion(fetchImpl)) ?? opts?.statusVersion ?? currentStatus.version;
+  if (!version) {
+    throw new Error('Could not determine the latest York GrowthOS version.');
+  }
+  for (const arch of macDmgArchCandidates(opts?.arch ?? process.arch)) {
+    const url = buildVersionedMacDmgUrl(version, arch);
+    if (await urlExists(fetchImpl, url)) {
+      return { version, url };
+    }
+  }
+  throw new Error(`Installer for version ${version} was not found.`);
+}
+
+export async function openManualUpdateDownload(): Promise<ManualUpdateDownloadResult> {
+  try {
+    const { version, url } = await resolveManualUpdateDownload();
+    persistUpdaterLog('Manual download: opening versioned DMG', { version, url });
+    await shell.openExternal(url);
+    return { success: true, version, url };
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
+    persistUpdaterLog('Manual download failed:', error);
+    return { success: false, error };
+  }
+}
+
 /**
  * Start background update checks. No-op except on macOS (packaged, or dev with YORK_IE_APP_DATA_ENV=dev).
  */
@@ -839,7 +922,9 @@ export async function startAutoUpdater(): Promise<void> {
   };
 
   if (!enabled) {
-    persistUpdaterLog('Skipped (requires macOS packaged app, or macOS dev with YORK_IE_APP_DATA_ENV=dev)');
+    persistUpdaterLog(
+      'Skipped (requires macOS packaged app, or macOS dev with YORK_IE_APP_DATA_ENV=dev)'
+    );
     return;
   }
 

@@ -23,7 +23,68 @@ import {
   UPDATE_INSTALL_QUIT_WATCHDOG_MS,
   UPDATE_INSTALL_RELAUNCH_EXIT_MS,
   UPDATE_INSTALL_SHIPIT_SETTLE_MS,
+  buildVersionedMacDmgUrl,
+  macDmgArchCandidates,
+  parseLatestMacYmlVersion,
+  resolveManualUpdateDownload,
 } from '../../main/updater';
+
+describe('manual DMG download', () => {
+  it('builds the versioned DMG URL uploaded by upload-s3', () => {
+    expect(buildVersionedMacDmgUrl('1.4.2', 'arm64')).toBe(
+      'https://york-internal-apps.s3.ap-south-1.amazonaws.com/york-workos/1.4.2/York%20GrowthOS-1.4.2-mac-arm64.dmg'
+    );
+  });
+
+  it('parses version from latest-mac.yml', () => {
+    expect(parseLatestMacYmlVersion('version: 1.4.2\nfiles:\n  - url: x.zip\n')).toBe('1.4.2');
+    expect(parseLatestMacYmlVersion("version: '2.0.0'\n")).toBe('2.0.0');
+    expect(parseLatestMacYmlVersion('files: []\n')).toBeNull();
+  });
+
+  it('tries the running arch then arm64', () => {
+    expect(macDmgArchCandidates('x64')).toEqual(['x64', 'arm64']);
+    expect(macDmgArchCandidates('arm64')).toEqual(['arm64']);
+  });
+
+  const fakeFetch = (routes: Record<string, { ok: boolean; body?: string }>) =>
+    (async (input: string | URL | Request) => {
+      const url = String(input).split('?')[0];
+      const route = routes[url] ?? { ok: false };
+      return { ok: route.ok, text: async () => route.body ?? '' } as Response;
+    }) as typeof fetch;
+
+  it('pins to the feed version and falls back to arm64', async () => {
+    const result = await resolveManualUpdateDownload({
+      arch: 'x64',
+      fetchImpl: fakeFetch({
+        [`${UPDATE_FEED_URL}/latest-mac.yml`]: { ok: true, body: 'version: 1.5.0\n' },
+        [buildVersionedMacDmgUrl('1.5.0', 'arm64')]: { ok: true },
+      }),
+    });
+    expect(result).toEqual({ version: '1.5.0', url: buildVersionedMacDmgUrl('1.5.0', 'arm64') });
+  });
+
+  it('uses the updater status version when the feed is unreachable', async () => {
+    const result = await resolveManualUpdateDownload({
+      arch: 'arm64',
+      statusVersion: '1.4.9',
+      fetchImpl: fakeFetch({ [buildVersionedMacDmgUrl('1.4.9', 'arm64')]: { ok: true } }),
+    });
+    expect(result.version).toBe('1.4.9');
+  });
+
+  it('fails when the pinned DMG is missing', async () => {
+    await expect(
+      resolveManualUpdateDownload({
+        arch: 'arm64',
+        fetchImpl: fakeFetch({
+          [`${UPDATE_FEED_URL}/latest-mac.yml`]: { ok: true, body: 'version: 1.5.0\n' },
+        }),
+      })
+    ).rejects.toThrow('Installer for version 1.5.0 was not found.');
+  });
+});
 
 describe('shouldEnableAutoUpdater', () => {
   it('enables for packaged macOS', () => {
@@ -140,15 +201,15 @@ describe('update check scheduling', () => {
       )
     ).toBe('/Applications/York GrowthOS.app/Contents/MacOS/York GrowthOS');
     expect(
-      resolveMacUpdateRelaunchExecPath('/Applications/York GrowthOS.app/Contents/MacOS/York GrowthOS')
+      resolveMacUpdateRelaunchExecPath(
+        '/Applications/York GrowthOS.app/Contents/MacOS/York GrowthOS'
+      )
     ).toBe('/Applications/York GrowthOS.app/Contents/MacOS/York GrowthOS');
   });
 
   it('resolves the .app bundle for a delayed open(1) relaunch', () => {
     expect(
-      resolveMacAppBundlePath(
-        '/Applications/York GrowthOS.app/Contents/MacOS/York GrowthOS.real'
-      )
+      resolveMacAppBundlePath('/Applications/York GrowthOS.app/Contents/MacOS/York GrowthOS.real')
     ).toBe('/Applications/York GrowthOS.app');
     expect(resolveMacAppBundlePath('/usr/bin/electron')).toBeNull();
   });

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { UpdaterStatus } from '../../shared/updater-types';
+import type { ManualUpdateDownloadResult, UpdaterStatus } from '../../shared/updater-types';
 
 const IDLE: UpdaterStatus = {
   status: 'unsupported',
@@ -14,6 +14,10 @@ export function useUpdaterStatus() {
   const [checking, setChecking] = useState(false);
   const [installing, setInstalling] = useState(false);
   const [installError, setInstallError] = useState<string | null>(null);
+  const [downloadingInstaller, setDownloadingInstaller] = useState(false);
+  const [installerDownload, setInstallerDownload] = useState<ManualUpdateDownloadResult | null>(
+    null
+  );
 
   useEffect(() => {
     const api = window.electronAPI?.updater;
@@ -75,10 +79,27 @@ export function useUpdaterStatus() {
     } catch (error) {
       window.clearTimeout(uiWatchdog);
       setInstalling(false);
-      const message = error instanceof Error ? error.message : 'Could not restart to install the update.';
+      const message =
+        error instanceof Error ? error.message : 'Could not restart to install the update.';
       setInstallError(message);
     }
   }, [installing, status]);
+
+  const downloadInstaller = useCallback(async () => {
+    const api = window.electronAPI?.updater;
+    if (!api?.downloadInstaller || downloadingInstaller) return;
+    setDownloadingInstaller(true);
+    try {
+      setInstallerDownload(await api.downloadInstaller());
+    } catch (error) {
+      setInstallerDownload({
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setDownloadingInstaller(false);
+    }
+  }, [downloadingInstaller]);
 
   return {
     status,
@@ -87,5 +108,8 @@ export function useUpdaterStatus() {
     installError,
     checkForUpdates,
     quitAndInstall,
+    downloadingInstaller,
+    installerDownload,
+    downloadInstaller,
   };
 }

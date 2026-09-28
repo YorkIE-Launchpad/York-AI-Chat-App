@@ -203,6 +203,7 @@ import {
   getUpdaterInternalDiagnostics,
   checkForAppUpdates,
   quitAndInstallUpdate,
+  openManualUpdateDownload,
   killMacUpdateStragglerProcesses,
 } from './updater';
 import { buildUpdaterDiagnosticsSnapshot } from './updater-diagnostics';
@@ -3531,6 +3532,8 @@ ipcMain.handle('updater.check', async () => {
     return getUpdaterStatus();
   }
 });
+
+ipcMain.handle('updater.downloadInstaller', () => openManualUpdateDownload());
 
 ipcMain.handle('updater.quitAndInstall', async () => {
   logWarn('[AutoUpdater] IPC updater.quitAndInstall', {

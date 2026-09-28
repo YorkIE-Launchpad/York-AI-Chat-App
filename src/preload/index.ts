@@ -47,7 +47,7 @@ import type {
   ExternalReferenceSearchResult,
   ExternalReferenceSource,
 } from '../shared/external-reference';
-import type { UpdaterStatus } from '../shared/updater-types';
+import type { ManualUpdateDownloadResult, UpdaterStatus } from '../shared/updater-types';
 import type { WhatsNewPayload } from '../shared/whats-new-types';
 import type {
   McpServerConfig,
@@ -222,7 +222,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('collab.joinSession', inviteToken),
     leaveSession: (sessionId: string): Promise<{ success: boolean; error?: string }> =>
       ipcRenderer.invoke('collab.leaveSession', sessionId),
-    getState: (sessionId: string): Promise<import('../shared/collab/types').CollabRoomState | null> =>
+    getState: (
+      sessionId: string
+    ): Promise<import('../shared/collab/types').CollabRoomState | null> =>
       ipcRenderer.invoke('collab.getState', sessionId),
     acquireTurn: (
       sessionId: string
@@ -283,11 +285,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     push: (input: { sessionId: string; cwd: string; localPath: string }) =>
       ipcRenderer.invoke('sharedDocs.push', input),
     join: (inviteToken: string) => ipcRenderer.invoke('sharedDocs.join', inviteToken),
-    createInvite: (input: {
-      docId: string;
-      permission: 'view' | 'edit';
-      sessionId: string;
-    }) => ipcRenderer.invoke('sharedDocs.createInvite', input),
+    createInvite: (input: { docId: string; permission: 'view' | 'edit'; sessionId: string }) =>
+      ipcRenderer.invoke('sharedDocs.createInvite', input),
     getLink: (input: { sessionId: string; localPath: string }) =>
       ipcRenderer.invoke('sharedDocs.getLink', input),
     onSync: (
@@ -335,6 +334,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     check: (): Promise<UpdaterStatus> => ipcRenderer.invoke('updater.check'),
     quitAndInstall: (): Promise<{ success: boolean; error?: string }> =>
       ipcRenderer.invoke('updater.quitAndInstall'),
+    downloadInstaller: (): Promise<ManualUpdateDownloadResult> =>
+      ipcRenderer.invoke('updater.downloadInstaller'),
     onStatus: (callback: (status: UpdaterStatus) => void): (() => void) => {
       const listener = (_: Electron.IpcRendererEvent, status: UpdaterStatus) => {
         callback(status);
@@ -352,7 +353,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   auth: {
     getStatus: (): Promise<AuthStatusResponse> => ipcRenderer.invoke('auth.getStatus'),
-    getHubOAuthRedirectUrl: (): Promise<string> => ipcRenderer.invoke('auth.getHubOAuthRedirectUrl'),
+    getHubOAuthRedirectUrl: (): Promise<string> =>
+      ipcRenderer.invoke('auth.getHubOAuthRedirectUrl'),
     getOAuthDebug: (rendererRedirectUrl?: string): Promise<AuthOAuthDebugInfo> =>
       ipcRenderer.invoke('auth.getOAuthDebug', rendererRedirectUrl),
     startGoogleLogin: (): Promise<AuthStatusResponse & { success: boolean; error?: string }> =>
@@ -831,8 +833,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('matter.applyAction', input),
     prepMeeting: (meetingId: string): Promise<MatterSnapshot> =>
       ipcRenderer.invoke('matter.prepMeeting', meetingId),
-    refreshMeetings: (): Promise<MatterSnapshot> =>
-      ipcRenderer.invoke('matter.refreshMeetings'),
+    refreshMeetings: (): Promise<MatterSnapshot> => ipcRenderer.invoke('matter.refreshMeetings'),
     clearNowOrbit: (): Promise<MatterSnapshot> => ipcRenderer.invoke('matter.clearNowOrbit'),
     updateSettings: (partial: Partial<MatterRuntimeConfig>): Promise<MatterRuntimeConfig> =>
       ipcRenderer.invoke('matter.updateSettings', partial),
@@ -936,11 +937,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('workflows.listRuns', workflowId, limit),
     listAllRuns: (limit?: number) => ipcRenderer.invoke('workflows.listAllRuns', limit),
     getRun: (runId: string) => ipcRenderer.invoke('workflows.getRun', runId),
-    submitInput: (payload: {
-      runId: string;
-      nodeId: string;
-      answers: Record<string, string>;
-    }) => ipcRenderer.invoke('workflows.submitInput', payload),
+    submitInput: (payload: { runId: string; nodeId: string; answers: Record<string, string> }) =>
+      ipcRenderer.invoke('workflows.submitInput', payload),
     cancelInput: (payload: { runId: string; nodeId: string }) =>
       ipcRenderer.invoke('workflows.cancelInput', payload),
     onRunProgress: (
@@ -977,8 +975,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       enabled: boolean;
       instructions?: string;
       focusChat?: boolean;
-    }): Promise<MeetingLiveAssistStatus> =>
-      ipcRenderer.invoke('meetings.setLiveAssist', payload),
+    }): Promise<MeetingLiveAssistStatus> => ipcRenderer.invoke('meetings.setLiveAssist', payload),
     getLiveAssist: (): Promise<MeetingLiveAssistStatus> =>
       ipcRenderer.invoke('meetings.getLiveAssist'),
     stop: (): Promise<MeetingSession | null> => ipcRenderer.invoke('meetings.stop'),
@@ -1116,7 +1113,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       title?: string;
       url?: string;
       meta?: Record<string, string>;
-    }): Promise<ExternalReferenceResolveResult> => ipcRenderer.invoke('references.resolve', payload),
+    }): Promise<ExternalReferenceResolveResult> =>
+      ipcRenderer.invoke('references.resolve', payload),
     lookupUrl: (url: string): Promise<ExternalReferenceSearchItem | null> =>
       ipcRenderer.invoke('references.lookupUrl', url),
   },
@@ -1157,9 +1155,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   permissions: {
     listSessionAlwaysAllow: (sessionId: string): Promise<string[]> =>
       ipcRenderer.invoke('permissions.listSessionAlwaysAllow', sessionId),
-    clearSessionAlwaysAllow: (
-      sessionId: string
-    ): Promise<{ success: boolean; error?: string }> =>
+    clearSessionAlwaysAllow: (sessionId: string): Promise<{ success: boolean; error?: string }> =>
       ipcRenderer.invoke('permissions.clearSessionAlwaysAllow', sessionId),
     setToolRule: (payload: {
       tool: string;
@@ -1254,7 +1250,10 @@ declare global {
           inviteToken?: string;
           error?: string;
         }>;
-        list: (sessionId: string, cwd?: string) => Promise<{
+        list: (
+          sessionId: string,
+          cwd?: string
+        ) => Promise<{
           success: boolean;
           docs?: import('../shared/shared-docs/types').SharedDocWithAccess[];
           error?: string;
@@ -1360,6 +1359,7 @@ declare global {
         getStatus: () => Promise<UpdaterStatus>;
         check: () => Promise<UpdaterStatus>;
         quitAndInstall: () => Promise<{ success: boolean; error?: string }>;
+        downloadInstaller: () => Promise<ManualUpdateDownloadResult>;
         onStatus: (callback: (status: UpdaterStatus) => void) => () => void;
       };
       whatsNew: {
@@ -1796,18 +1796,13 @@ declare global {
         listAllRuns: (
           limit?: number
         ) => Promise<import('../shared/workflows').WorkflowRunSummary[]>;
-        getRun: (
-          runId: string
-        ) => Promise<import('../shared/orchestration').CheckpointRun | null>;
+        getRun: (runId: string) => Promise<import('../shared/orchestration').CheckpointRun | null>;
         submitInput: (payload: {
           runId: string;
           nodeId: string;
           answers: Record<string, string>;
         }) => Promise<{ success: boolean }>;
-        cancelInput: (payload: {
-          runId: string;
-          nodeId: string;
-        }) => Promise<{ success: boolean }>;
+        cancelInput: (payload: { runId: string; nodeId: string }) => Promise<{ success: boolean }>;
         onRunProgress: (
           callback: (event: import('../shared/workflows').WorkflowRunProgressEvent) => void
         ) => () => void;

@@ -15,6 +15,7 @@ export const PUBLIC_IPC_CHANNELS = new Set([
   'updater.getStatus',
   'updater.check',
   'updater.quitAndInstall',
+  'updater.downloadInstaller',
   'system.getTheme',
   'shell.openExternal',
   'logs.write',

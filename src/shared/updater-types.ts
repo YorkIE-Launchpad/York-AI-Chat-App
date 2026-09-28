@@ -19,6 +19,13 @@ export interface UpdaterStatus {
   installPrepared?: boolean;
 }
 
+export interface ManualUpdateDownloadResult {
+  success: boolean;
+  version?: string;
+  url?: string;
+  error?: string;
+}
+
 /** Show primary "Restart to update" control (prod: ready only; Vite dev: also when download is still available). */
 export function shouldShowRestartToUpdate(
   status: UpdaterStatusKind,
@@ -33,11 +40,7 @@ export function shouldShowRestartToUpdate(
 
 /** Ready text in About/Settings — only after Squirrel staging succeeds. */
 export function shouldShowUpdateReadyMessage(status: UpdaterStatus): boolean {
-  return (
-    status.status === 'ready' &&
-    Boolean(status.version) &&
-    status.installPrepared !== false
-  );
+  return status.status === 'ready' && Boolean(status.version) && status.installPrepared !== false;
 }
 
 /** Squirrel is validating/staging the downloaded zip (restart not available yet). */

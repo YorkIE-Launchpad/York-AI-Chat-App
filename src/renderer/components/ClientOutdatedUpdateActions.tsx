@@ -2,7 +2,12 @@ import { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { RefreshCw } from 'lucide-react';
 import { useUpdaterStatus } from '../hooks/useUpdaterStatus';
-import { shouldShowRestartToUpdate, shouldShowUpdateReadyMessage, isUpdateStagingForInstall } from '../../shared/updater-types';
+import { ManualInstallerDownload } from './ManualInstallerDownload';
+import {
+  shouldShowRestartToUpdate,
+  shouldShowUpdateReadyMessage,
+  isUpdateStagingForInstall,
+} from '../../shared/updater-types';
 
 interface ClientOutdatedUpdateActionsProps {
   className?: string;
@@ -22,8 +27,12 @@ export function ClientOutdatedUpdateActions({
     status: updaterStatus,
     checking,
     installing,
+    installError,
     checkForUpdates,
     quitAndInstall,
+    downloadingInstaller,
+    installerDownload,
+    downloadInstaller,
   } = useUpdaterStatus();
   const didAutoCheck = useRef(false);
 
@@ -60,9 +69,8 @@ export function ClientOutdatedUpdateActions({
     installPrepared: updaterStatus.installPrepared,
   });
   const showCheck =
-    !showRestart &&
-    updaterStatus.status !== 'downloading' &&
-    updaterStatus.status !== 'available';
+    !showRestart && updaterStatus.status !== 'downloading' && updaterStatus.status !== 'available';
+  const showManualInstaller = updaterStatus.status === 'error' || Boolean(installError);
 
   return (
     <div
@@ -95,6 +103,9 @@ export function ClientOutdatedUpdateActions({
       {updaterStatus.status === 'error' && (
         <p className="text-xs text-error">{updaterStatus.message || t('general.updateError')}</p>
       )}
+      {installError && updaterStatus.status !== 'error' && (
+        <p className="text-xs text-error">{installError}</p>
+      )}
 
       {showRestart ? (
         <button
@@ -118,6 +129,15 @@ export function ClientOutdatedUpdateActions({
           <RefreshCw className={`h-4 w-4 ${isChecking ? 'animate-spin' : ''}`} />
           {t('general.checkForUpdates')}
         </button>
+      ) : null}
+
+      {showManualInstaller ? (
+        <ManualInstallerDownload
+          downloading={downloadingInstaller}
+          result={installerDownload}
+          onDownload={() => void downloadInstaller()}
+          className="pt-1"
+        />
       ) : null}
     </div>
   );

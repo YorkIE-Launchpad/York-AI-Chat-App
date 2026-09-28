@@ -26,7 +26,12 @@ import { SettingsMemory } from './settings/SettingsMemory';
 import { SettingsMeetings } from './settings/SettingsMeetings';
 import { SettingsMatter } from './settings/SettingsMatter';
 import { useUpdaterStatus } from '../hooks/useUpdaterStatus';
-import { shouldShowRestartToUpdate, shouldShowUpdateReadyMessage, isUpdateStagingForInstall } from '../../shared/updater-types';
+import { ManualInstallerDownload } from './ManualInstallerDownload';
+import {
+  shouldShowRestartToUpdate,
+  shouldShowUpdateReadyMessage,
+  isUpdateStagingForInstall,
+} from '../../shared/updater-types';
 
 interface SettingsPanelProps {
   onClose: () => void;
@@ -88,6 +93,9 @@ export function SettingsPanel({ onClose, initialTab = 'connectors' }: SettingsPa
     installError: updaterInstallError,
     checkForUpdates,
     quitAndInstall,
+    downloadingInstaller,
+    installerDownload,
+    downloadInstaller,
   } = useUpdaterStatus();
   const showRestartButton = shouldShowRestartToUpdate(updaterStatus.status, {
     isViteDev: import.meta.env.DEV,
@@ -289,7 +297,9 @@ export function SettingsPanel({ onClose, initialTab = 'connectors' }: SettingsPa
                     </p>
                   ) : null}
                   {updaterInstalling && updaterStatus.message ? (
-                    <p className="text-[10px] text-text-muted text-center">{updaterStatus.message}</p>
+                    <p className="text-[10px] text-text-muted text-center">
+                      {updaterStatus.message}
+                    </p>
                   ) : null}
                   {updaterStatus.status === 'error' && (
                     <p className="text-[10px] text-red-500 text-center">
@@ -334,6 +344,16 @@ export function SettingsPanel({ onClose, initialTab = 'connectors' }: SettingsPa
                   </button>
                 )
               )}
+
+              {!compactSidebar &&
+              (updaterStatus.status === 'error' || Boolean(updaterInstallError)) ? (
+                <ManualInstallerDownload
+                  compact
+                  downloading={downloadingInstaller}
+                  result={installerDownload}
+                  onDownload={() => void downloadInstaller()}
+                />
+              ) : null}
             </div>
           )}
 
