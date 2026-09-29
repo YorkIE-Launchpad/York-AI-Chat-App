@@ -37,6 +37,8 @@
     "matterBriefWarnings": "{{count}} items need attention",
     "selectWorkingFolder": "Select working folder",
     "selectWorkingFolderFailed": "Failed to select working folder",
+    "changeWorkingFolder": "Change working folder",
+    "changeWorkingFolderWhileRunning": "Stop the current run to change the folder",
     "actionsMenu": "Add folder, files, skill, meeting, or loop",
     "attachFiles": "Attach Files",
     "letsGo": "Let's go",

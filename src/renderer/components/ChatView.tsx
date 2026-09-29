@@ -35,6 +35,7 @@ import {
   Clock,
   Mic,
   Paperclip,
+  FolderOpen,
   RefreshCw,
   Ghost,
   Package,
@@ -146,6 +147,7 @@ export function ChatView() {
     getSessionMessages,
     listSharedDocs,
     setSessionSkillsDisabled,
+    changeWorkingDir,
     isElectron,
   } = useIPC();
   const skillsDisabled = activeSession?.skillsDisabled === true;
@@ -739,6 +741,29 @@ export function ChatView() {
       updated.splice(index, 1);
       return updated;
     });
+  };
+
+  const handleChangeWorkingDir = async () => {
+    if (!activeSessionId) return;
+    try {
+      const result = await changeWorkingDir(activeSessionId, activeSession?.cwd || undefined);
+      if (!result.success && result.error && result.error !== 'User cancelled') {
+        setGlobalNotice({
+          id: `notice-workdir-select-${Date.now()}`,
+          type: 'warning',
+          message: `${t('welcome.selectWorkingFolderFailed')}: ${result.error}`,
+        });
+      }
+    } catch (error) {
+      setGlobalNotice({
+        id: `notice-workdir-select-${Date.now()}`,
+        type: 'error',
+        message:
+          error instanceof Error && error.message
+            ? `${t('welcome.selectWorkingFolderFailed')}: ${error.message}`
+            : t('welcome.selectWorkingFolderFailed'),
+      });
+    }
   };
 
   const handleFileSelect = async () => {
@@ -2273,6 +2298,30 @@ export function ChatView() {
                         style={{ backgroundColor: 'var(--color-surface)' }}
                       >
                         <div className="space-y-0.5 p-1.5">
+                          {composerMode !== 'image' && isElectron && activeSessionId && (
+                            <button
+                              type="button"
+                              role="menuitem"
+                              disabled={isSessionRunning}
+                              onClick={() => {
+                                setAttachMenuOpen(false);
+                                void handleChangeWorkingDir();
+                              }}
+                              title={
+                                isSessionRunning
+                                  ? t('welcome.changeWorkingFolderWhileRunning')
+                                  : activeSession?.cwd || undefined
+                              }
+                              className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
+                            >
+                              <FolderOpen className="h-4 w-4 text-text-muted" />
+                              <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
+                                {activeSession?.cwd
+                                  ? activeSession.cwd.split(/[/\\]/).pop()
+                                  : t('welcome.changeWorkingFolder')}
+                              </span>
+                            </button>
+                          )}
                           <button
                             type="button"
                             role="menuitem"
@@ -2418,6 +2467,23 @@ export function ChatView() {
                     >
                       <PackageX className="h-3.5 w-3.5 shrink-0" />
                       <span className="truncate">{t('skills.disabledForChatBadge')}</span>
+                    </button>
+                  )}
+
+                  {composerMode !== 'image' && isElectron && activeSession?.cwd && (
+                    <button
+                      type="button"
+                      onClick={() => void handleChangeWorkingDir()}
+                      disabled={isSessionRunning}
+                      className="composer-working-dir flex h-8 min-w-0 max-w-[10rem] shrink items-center gap-1 rounded-xl px-2 text-xs text-text-muted transition-colors hover:bg-surface-hover hover:text-text-primary disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-text-muted"
+                      title={
+                        isSessionRunning
+                          ? t('welcome.changeWorkingFolderWhileRunning')
+                          : `${t('welcome.changeWorkingFolder')}: ${activeSession.cwd}`
+                      }
+                    >
+                      <FolderOpen className="h-3.5 w-3.5 shrink-0" />
+                      <span className="truncate">{activeSession.cwd.split(/[/\\]/).pop()}</span>
                     </button>
                   )}
 

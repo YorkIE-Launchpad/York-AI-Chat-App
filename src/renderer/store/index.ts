@@ -568,10 +568,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   setActiveSession: (sessionId) =>
     set((state) => {
       const switching = sessionId !== state.activeSessionId;
-      // When opening a chat, inherit its workspace path for next "new chat" in this workspace.
+      // Opening a chat mirrors its folder; leaving to a new chat resets to the app default.
       const sessionCwd = sessionId
         ? state.sessions.find((s) => s.id === sessionId)?.cwd
         : undefined;
+      const nextWorkingDir = sessionId ? sessionCwd : state.defaultWorkingDir;
       const base = sessionId
         ? {
             activeSessionId: sessionId,
@@ -579,11 +580,12 @@ export const useAppStore = create<AppState>((set, get) => ({
             showSettings: false,
             showWorkflows: false,
             ...(switching ? { activeHtmlPreview: null } : {}),
-            ...(sessionCwd ? { workingDir: sessionCwd } : {}),
+            ...(nextWorkingDir ? { workingDir: nextWorkingDir } : {}),
           }
         : {
             activeSessionId: sessionId as string | null,
             activeHtmlPreview: null,
+            ...(switching && nextWorkingDir ? { workingDir: nextWorkingDir } : {}),
           };
       if (!sessionId || state.sessionStates[sessionId]) {
         return base;
