@@ -33,6 +33,7 @@ import {
   Layers,
   Users,
   Link2,
+  CircleDashed,
 } from 'lucide-react';
 import type { Session } from '../types';
 import { DivisionSwitcher } from './DivisionSwitcher';
@@ -51,6 +52,47 @@ import { shouldShowRestartToUpdate } from '../../shared/updater-types';
 import sidebarLogoSrc from '../assets/logo.png';
 
 const FOLDER_TREE_COLLAPSE_KEY = 'yorkie.sidebar.collapsedFolders';
+
+function SidebarFeatureTab({
+  icon: Icon,
+  label,
+  hint,
+  active,
+  badge = 0,
+  onClick,
+}: {
+  icon: typeof Radar;
+  label: string;
+  hint: string;
+  active: boolean;
+  badge?: number;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={hint}
+      aria-label={label}
+      aria-pressed={active}
+      className={`min-w-0 flex-1 rounded-lg px-1 py-1.5 flex flex-col items-center gap-0.5 transition-colors ${
+        active
+          ? 'bg-accent/15 text-accent'
+          : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
+      }`}
+    >
+      <span className="relative flex h-4 w-4 items-center justify-center">
+        <Icon className="w-4 h-4 text-accent" />
+        {badge > 0 ? (
+          <span className="absolute -top-1.5 -right-2 min-w-[14px] h-[14px] px-0.5 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center">
+            {badge > 9 ? '9+' : badge}
+          </span>
+        ) : null}
+      </span>
+      <span className="max-w-full truncate text-[10px] font-medium leading-tight">{label}</span>
+    </button>
+  );
+}
 
 function readCollapsedFolderIds(): Set<string> {
   try {
@@ -257,6 +299,9 @@ export function Sidebar() {
   const setShowWorkflows = useAppStore((s) => s.setShowWorkflows);
   const showMatter = useAppStore((s) => s.showMatter);
   const showWorkflows = useAppStore((s) => s.showWorkflows);
+  const setShowLoops = useAppStore((s) => s.setShowLoops);
+  const showLoops = useAppStore((s) => s.showLoops);
+  const loopsBadgeCount = useAppStore((s) => s.loopsBadgeCount);
   const matterBadgeCount = useAppStore((s) => s.matterBadgeCount);
   const matterEnabled =
     useAppStore((s) => s.appConfig?.matterEnabled ?? s.appConfig?.matterRuntime?.enabled) !== false;
@@ -326,9 +371,7 @@ export function Sidebar() {
           setCollapsedFolderIds((prev) => {
             // First visit: collapse every folder except the active one.
             if (prev.size === 0) {
-              const next = new Set(
-                list.map((folder) => folder.id).filter((id) => id !== activeId)
-              );
+              const next = new Set(list.map((folder) => folder.id).filter((id) => id !== activeId));
               writeCollapsedFolderIds(next);
               return next;
             }
@@ -469,7 +512,13 @@ export function Sidebar() {
     } finally {
       setCreatingFolder(false);
     }
-  }, [creatingFolder, newFolderName, refreshPersonalFolders, selectPersonalFolder, setGlobalNotice]);
+  }, [
+    creatingFolder,
+    newFolderName,
+    refreshPersonalFolders,
+    selectPersonalFolder,
+    setGlobalNotice,
+  ]);
 
   useEffect(() => {
     const q = searchQuery.trim();
@@ -703,6 +752,7 @@ export function Sidebar() {
     setShowSettings(false);
     setShowMatter(false);
     setShowWorkflows(false);
+    setShowLoops(false);
   };
 
   const handleNewSession = () => {
@@ -716,6 +766,7 @@ export function Sidebar() {
     setShowSettings(false);
     setShowMatter(false);
     setShowWorkflows(false);
+    setShowLoops(false);
   };
 
   const handleOpenMatter = () => {
@@ -728,6 +779,12 @@ export function Sidebar() {
     discardActiveIncognitoIfLeaving(null);
     setIncognitoDraft(false);
     setShowWorkflows(true);
+  };
+
+  const handleOpenLoops = () => {
+    discardActiveIncognitoIfLeaving(null);
+    setIncognitoDraft(false);
+    setShowLoops(true);
   };
 
   const handleOpenSettings = () => {
@@ -938,214 +995,34 @@ export function Sidebar() {
   if (sidebarCollapsed) {
     return (
       <>
-      <aside className="relative z-20 flex w-[4.5rem] shrink-0 flex-col overflow-hidden border-r border-border-muted bg-surface/96">
-        <div className="px-3 pt-3 pb-2 flex flex-col items-center gap-1.5 border-b border-border-muted">
-          <button
-            type="button"
-            onClick={handleGoHome}
-            className="w-9 h-9 rounded-2xl flex items-center justify-center hover:bg-surface-hover transition-colors overflow-hidden"
-            title={t('sidebar.home')}
-            aria-label={t('sidebar.home')}
-          >
-            <img
-              src={sidebarLogoSrc}
-              alt=""
-              className="w-7 h-7 object-contain"
-            />
-          </button>
-          <button
-            onClick={toggleSidebar}
-            className="w-9 h-9 rounded-2xl flex items-center justify-center hover:bg-surface-hover transition-colors text-text-secondary"
-            title={t('context.expandPanel')}
-          >
-            <ChevronRight className="w-4 h-4" />
-          </button>
-          <button
-            onClick={handleNewSession}
-            className="w-9 h-9 rounded-2xl flex items-center justify-center bg-background hover:bg-surface-hover transition-colors text-text-primary border border-border-subtle"
-            title={t('sidebar.newTask')}
-          >
-            <Plus className="w-4 h-4" />
-          </button>
-          <button
-            onClick={handleIncognitoSession}
-            className="w-9 h-9 rounded-2xl flex items-center justify-center bg-background hover:bg-surface-hover transition-colors text-text-secondary border border-border-subtle border-dashed"
-            title={t('sidebar.incognitoTask')}
-          >
-            <Ghost className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => void handleImportChat()}
-            disabled={!isElectron || importing}
-            className="w-9 h-9 rounded-2xl flex items-center justify-center bg-background hover:bg-surface-hover transition-colors text-text-secondary border border-border-subtle disabled:opacity-50"
-            title={t('sidebar.importChat')}
-          >
-            <FileDown className={`w-4 h-4 ${importing ? 'animate-pulse' : ''}`} />
-          </button>
-          <button
-            onClick={handleJoinSharedChat}
-            disabled={!isElectron}
-            className="w-9 h-9 rounded-2xl flex items-center justify-center bg-background hover:bg-surface-hover transition-colors text-text-secondary border border-border-subtle disabled:opacity-50"
-            title={t('sidebar.joinSharedChat')}
-          >
-            <Link2 className="w-4 h-4" />
-          </button>
-          <button
-            type="button"
-            onClick={toggleSidebar}
-            className={`w-9 h-9 rounded-2xl flex items-center justify-center border transition-colors ${
-              activeDivision
-                ? 'bg-accent/10 text-accent border-accent/30 hover:bg-accent/15'
-                : 'bg-background text-text-muted border-border-subtle border-dashed hover:bg-surface-hover'
-            }`}
-            title={activeDivision ? workspaceName : 'Select workspace'}
-            aria-label={activeDivision ? `Workspace: ${workspaceName}` : 'Select workspace'}
-          >
-            <WorkspaceIcon className="w-4 h-4" />
-          </button>
-        </div>
-
-        <div className="flex-1 flex flex-col items-center justify-center px-3 py-4">
-          <button
-            onClick={toggleSidebar}
-            className="rounded-2xl px-2 py-3 text-[11px] leading-4 text-center text-text-muted hover:bg-surface-hover transition-colors"
-            title={t('sidebar.expandToView')}
-          >
-            {t('sidebar.expandToView')}
-          </button>
-        </div>
-
-        <div className="px-3 py-2 border-t border-border-muted flex flex-col items-center gap-1.5">
-          {matterEnabled ? (
+        <aside className="relative z-20 flex w-[4.5rem] shrink-0 flex-col overflow-hidden border-r border-border-muted bg-surface/96">
+          <div className="px-3 pt-3 pb-2 flex flex-col items-center gap-1.5 border-b border-border-muted">
             <button
               type="button"
-              onClick={handleOpenMatter}
-              className={`relative w-9 h-9 rounded-2xl flex items-center justify-center transition-colors border ${
-                showMatter
-                  ? 'bg-accent/20 text-accent border-accent/50'
-                  : 'bg-background text-accent border-accent/30 hover:bg-accent/10'
-              }`}
-              title={t('sidebar.matter')}
+              onClick={handleGoHome}
+              className="w-9 h-9 rounded-2xl flex items-center justify-center hover:bg-surface-hover transition-colors overflow-hidden"
+              title={t('sidebar.home')}
+              aria-label={t('sidebar.home')}
             >
-              <Radar className="w-4 h-4" />
-              {matterBadgeCount > 0 ? (
-                <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] px-0.5 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center">
-                  {matterBadgeCount > 9 ? '9+' : matterBadgeCount}
-                </span>
-              ) : null}
+              <img src={sidebarLogoSrc} alt="" className="w-7 h-7 object-contain" />
             </button>
-          ) : null}
-          <button
-            type="button"
-            onClick={handleOpenWorkflows}
-            className={`relative w-9 h-9 rounded-2xl flex items-center justify-center transition-colors border ${
-              showWorkflows
-                ? 'bg-accent/20 text-accent border-accent/50'
-                : 'bg-background text-accent border-accent/30 hover:bg-accent/10'
-            }`}
-            title={t('sidebar.workflows')}
-          >
-            <Workflow className="w-4 h-4" />
-          </button>
-          {user ? (
-            <div className="w-9 h-9 flex items-center justify-center" title={user.name}>
-              <SidebarUserAvatar
-                name={user.name}
-                image={user.image}
-                className="w-9 h-9 text-[12px]"
-              />
-            </div>
-          ) : null}
-          <button
-            type="button"
-            onClick={handleOpenSettings}
-            className="w-9 h-9 rounded-2xl flex items-center justify-center hover:bg-surface-hover transition-colors text-text-secondary"
-            title={t('sidebar.settings')}
-          >
-            <Settings className="w-4 h-4" />
-          </button>
-          <SidebarUpdateButton compact />
-          <button
-            type="button"
-            onClick={toggleTheme}
-            className="w-9 h-9 rounded-2xl flex items-center justify-center hover:bg-surface-hover transition-colors text-text-secondary"
-            title={t('sidebar.themeToggle')}
-          >
-            {themeIcon}
-          </button>
-          {user ? (
             <button
-              type="button"
-              onClick={() => void logout()}
+              onClick={toggleSidebar}
               className="w-9 h-9 rounded-2xl flex items-center justify-center hover:bg-surface-hover transition-colors text-text-secondary"
-              title={t('sidebar.signOut')}
+              title={t('context.expandPanel')}
             >
-              <LogOut className="w-4 h-4" />
+              <ChevronRight className="w-4 h-4" />
             </button>
-          ) : null}
-        </div>
-      </aside>
-      {joinSharedModal}
-      </>
-    );
-  }
-
-  return (
-    <>
-    <aside className="relative z-20 flex w-[17.5rem] shrink-0 flex-col overflow-hidden border-r border-border-muted bg-surface/96">
-      <div className="px-3 pt-3 pb-2 border-b border-border-muted">
-        <div className="flex items-start justify-between gap-2">
-          <button
-            type="button"
-            onClick={handleGoHome}
-            className="min-w-0 flex items-center gap-2 rounded-lg text-left hover:opacity-90 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
-            title={t('sidebar.home')}
-            aria-label={t('sidebar.home')}
-          >
-            <img
-              src={sidebarLogoSrc}
-              alt={t('common.appLogoAlt')}
-              className="w-8 h-8 object-contain flex-shrink-0"
-            />
-            <div className="min-w-0">
-              <h1 className="text-[1.125rem] leading-tight font-semibold tracking-[-0.03em] text-text-primary">
-                York GrowthOS
-              </h1>
-            </div>
-          </button>
-          <button
-            onClick={toggleSidebar}
-            className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-surface-hover transition-colors text-text-secondary flex-shrink-0"
-            title={t('context.collapsePanel')}
-          >
-            <ChevronLeft className="w-4 h-4" />
-          </button>
-        </div>
-
-        <div className="mt-2 space-y-2">
-          <NextUpMeeting />
-        </div>
-
-        <div className="mt-2 px-0.5">
-          <DivisionSwitcher variant="header" />
-        </div>
-      </div>
-
-      <div className="flex-1 overflow-y-auto px-2 pb-2 pt-2">
-        <div className="mb-1.5 space-y-1.5">
-          <div className="flex h-8 gap-1">
             <button
               onClick={handleNewSession}
-              className="flex h-full flex-1 items-center justify-center rounded-lg border border-border-subtle bg-background text-text-primary transition-colors hover:bg-surface-hover"
-              aria-label={t('sidebar.newTask')}
+              className="w-9 h-9 rounded-2xl flex items-center justify-center bg-background hover:bg-surface-hover transition-colors text-text-primary border border-border-subtle"
               title={t('sidebar.newTask')}
             >
               <Plus className="w-4 h-4" />
             </button>
             <button
               onClick={handleIncognitoSession}
-              className="flex h-full flex-1 items-center justify-center rounded-lg border border-dashed border-border-subtle bg-background/60 text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
-              aria-label={t('sidebar.incognitoTask')}
+              className="w-9 h-9 rounded-2xl flex items-center justify-center bg-background hover:bg-surface-hover transition-colors text-text-secondary border border-border-subtle border-dashed"
               title={t('sidebar.incognitoTask')}
             >
               <Ghost className="w-4 h-4" />
@@ -1153,8 +1030,7 @@ export function Sidebar() {
             <button
               onClick={() => void handleImportChat()}
               disabled={!isElectron || importing}
-              className="flex h-full flex-1 items-center justify-center rounded-lg border border-border-subtle bg-background/60 text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary disabled:opacity-50"
-              aria-label={t('sidebar.importChat')}
+              className="w-9 h-9 rounded-2xl flex items-center justify-center bg-background hover:bg-surface-hover transition-colors text-text-secondary border border-border-subtle disabled:opacity-50"
               title={t('sidebar.importChat')}
             >
               <FileDown className={`w-4 h-4 ${importing ? 'animate-pulse' : ''}`} />
@@ -1162,632 +1038,107 @@ export function Sidebar() {
             <button
               onClick={handleJoinSharedChat}
               disabled={!isElectron}
-              className="flex h-full flex-1 items-center justify-center rounded-lg border border-border-subtle bg-background/60 text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary disabled:opacity-50"
-              aria-label={t('sidebar.joinSharedChat')}
+              className="w-9 h-9 rounded-2xl flex items-center justify-center bg-background hover:bg-surface-hover transition-colors text-text-secondary border border-border-subtle disabled:opacity-50"
               title={t('sidebar.joinSharedChat')}
             >
               <Link2 className="w-4 h-4" />
             </button>
-          </div>
-
-          <div className="flex items-center gap-1.5">
-            <div className="relative flex-1 min-w-0">
-              <SearchIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-muted" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder={t('sidebar.search')}
-                className="w-full h-8 rounded-lg border border-transparent bg-background pl-8 pr-2.5 text-[12px] text-text-primary placeholder:text-text-muted focus:outline-none focus:border-border transition-colors"
-              />
-            </div>
             <button
-              onClick={() => setSearchAllWorkspaces((prev) => !prev)}
-              className={`h-8 shrink-0 rounded-lg border px-2 text-[10px] font-medium transition-colors ${
-                searchAllWorkspaces
-                  ? 'border-accent/40 bg-accent/10 text-accent'
-                  : 'border-border-subtle text-text-muted hover:bg-surface-hover hover:text-text-secondary'
-              }`}
-              title={searchAllWorkspaces ? 'Searching all workspaces' : 'Searching this workspace only'}
               type="button"
-            >
-              {searchAllWorkspaces ? 'All' : 'Here'}
-            </button>
-            <button
-              onClick={() => {
-                if (isSelectMode) {
-                  exitSelectMode();
-                } else {
-                  setIsSelectMode(true);
-                }
-              }}
-              className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors ${
-                isSelectMode
-                  ? 'bg-accent text-white'
-                  : 'text-text-secondary hover:text-text-primary hover:bg-surface-hover'
+              onClick={toggleSidebar}
+              className={`w-9 h-9 rounded-2xl flex items-center justify-center border transition-colors ${
+                activeDivision
+                  ? 'bg-accent/10 text-accent border-accent/30 hover:bg-accent/15'
+                  : 'bg-background text-text-muted border-border-subtle border-dashed hover:bg-surface-hover'
               }`}
-              title={t('sidebar.manage')}
+              title={activeDivision ? workspaceName : 'Select workspace'}
+              aria-label={activeDivision ? `Workspace: ${workspaceName}` : 'Select workspace'}
             >
-              <ListChecks className="w-3.5 h-3.5" />
+              <WorkspaceIcon className="w-4 h-4" />
             </button>
           </div>
-        </div>
 
-        {isSearching && orderedSessions.length === 0 ? (
-          <div className="relative ml-0 border-l border-border-muted pl-2">
-            <div className="px-1 py-4">
-              <p className="text-sm text-text-secondary">
-                {searchBusy ? t('common.loading') : t('sidebar.searchNoResults')}
-              </p>
-              <p className="mt-1 text-xs leading-5 text-text-muted">{t('sidebar.searchAllHint')}</p>
-            </div>
+          <div className="flex-1 flex flex-col items-center justify-center px-3 py-4">
+            <button
+              onClick={toggleSidebar}
+              className="rounded-2xl px-2 py-3 text-[11px] leading-4 text-center text-text-muted hover:bg-surface-hover transition-colors"
+              title={t('sidebar.expandToView')}
+            >
+              {t('sidebar.expandToView')}
+            </button>
           </div>
-        ) : isFoldersWorkspace && !isSearching ? (
-          <div className="relative ml-0 border-l border-border-muted pl-2">
-            <div className="mb-1.5 flex gap-1 px-0.5">
-              <input
-                type="text"
-                value={newFolderName}
-                onChange={(e) => setNewFolderName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') void createPersonalFolder();
-                }}
-                placeholder="New folder name"
-                disabled={creatingFolder}
-                className="min-w-0 flex-1 rounded-lg border border-border-subtle bg-background px-2 py-1.5 text-[12px] text-text-primary placeholder:text-text-muted focus:outline-none focus:border-border"
-              />
-              <button
-                type="button"
-                onClick={() => void createPersonalFolder()}
-                disabled={creatingFolder || !newFolderName.trim()}
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border-subtle bg-background text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary disabled:opacity-40"
-                title="Create folder"
-                aria-label="Create folder"
-              >
-                <FolderPlus className={`h-3.5 w-3.5 ${creatingFolder ? 'animate-pulse' : ''}`} />
-              </button>
-            </div>
-            {displayFolders.length === 0 ? (
-              <div className="px-1 py-3">
-                <p className="text-sm text-text-secondary">No folders yet</p>
-                <p className="mt-1 text-xs leading-5 text-text-muted">
-                  Create a personal folder above to get started.
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-1">
-                {displayFolders.map((folder) => {
-                  const isActiveFolder = activeDivision?.kind === 'folder' && activeDivision.folderId === folder.id;
-                  const isCollapsed = collapsedFolderIds.has(folder.id);
-                  const folderChats = sessionsByFolderId.get(folder.id) || [];
-                  return (
-                    <div key={folder.id} className="relative">
-                      <span
-                        aria-hidden
-                        className="pointer-events-none absolute -left-[calc(0.5rem+1px)] top-[14px] h-px w-2 bg-border-muted"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => selectPersonalFolder(folder)}
-                        className={`flex w-full items-center gap-1.5 rounded-lg px-1.5 py-1.5 text-left transition-colors ${
-                          isActiveFolder
-                            ? 'bg-accent/10 text-accent'
-                            : 'text-text-primary hover:bg-surface-hover/60'
-                        }`}
-                        title={folder.name}
-                        aria-expanded={!isCollapsed}
-                      >
-                        <span
-                          role="presentation"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            toggleFolderCollapsed(folder.id);
-                          }}
-                          className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-text-muted hover:bg-surface-hover hover:text-text-primary"
-                        >
-                          {isCollapsed ? (
-                            <ChevronRight className="h-3.5 w-3.5" />
-                          ) : (
-                            <ChevronDown className="h-3.5 w-3.5" />
-                          )}
-                        </span>
-                        <Folder className="h-3.5 w-3.5 shrink-0" />
-                        <span className="min-w-0 flex-1 truncate text-[13px] font-semibold tracking-[-0.01em]">
-                          {folder.name}
-                        </span>
-                        <span className="shrink-0 text-[10px] font-medium text-text-muted">
-                          {folderChats.length}
-                        </span>
-                      </button>
-                      {!isCollapsed ? (
-                        <div className="relative ml-2 mt-0.5 border-l border-border-muted/80 pl-2">
-                          {folderChats.length === 0 ? (
-                            <p className="px-2 py-2 text-[11px] text-text-muted">No chats in this folder yet</p>
-                          ) : (
-                            <div className="space-y-0.5">
-                              {folderChats.map((session) => {
-                                const isActive = activeSessionId === session.id;
-                                const isSelected = selectedIds.has(session.id);
-                                const isIncognito = session.incognito === true;
-                                const isRenaming = renamingSessionId === session.id;
-                                const loopStatus = chatLoopBySessionId[session.id];
-                                const isActiveLoop = Boolean(loopStatus && !loopStatus.stopReason);
-                                return (
-                                  <div
-                                    key={session.id}
-                                    onClick={() => {
-                                      if (isRenaming) return;
-                                      if (isSelectMode) {
-                                        toggleSelectSession(session.id);
-                                      } else {
-                                        handleSessionClick(session.id);
-                                      }
-                                    }}
-                                    onMouseEnter={() => setHoveredSession(session.id)}
-                                    onMouseLeave={() => setHoveredSession(null)}
-                                    className={`group relative cursor-pointer rounded-lg px-2 py-1.5 transition-colors ${
-                                      isSelectMode && isSelected
-                                        ? 'bg-accent-muted/20'
-                                        : isActive && !isSelectMode
-                                          ? 'bg-surface-hover/80'
-                                          : 'hover:bg-surface-hover/60'
-                                    } ${isIncognito ? 'border border-dashed border-border-subtle/80' : ''}`}
-                                  >
-                                    <span
-                                      aria-hidden
-                                      className="pointer-events-none absolute -left-[calc(0.5rem+1px)] top-1/2 h-px w-2 -translate-y-1/2 bg-border-muted/80"
-                                    />
-                                    <div
-                                      className={`flex items-center gap-2 ${
-                                        !isSelectMode && !isRenaming ? 'pr-20' : ''
-                                      }`}
-                                    >
-                                      {isSelectMode && (
-                                        <div
-                                          className={`w-4 h-4 rounded flex items-center justify-center flex-shrink-0 transition-colors ${
-                                            isSelected
-                                              ? 'bg-accent text-white'
-                                              : 'border border-border-muted bg-background'
-                                          }`}
-                                        >
-                                          {isSelected && <Check className="w-2.5 h-2.5" />}
-                                        </div>
-                                      )}
-                                      {isIncognito && !isSelectMode && (
-                                        <Ghost className="w-3.5 h-3.5 text-text-muted flex-shrink-0" />
-                                      )}
-                                      {Boolean(session.collabRoomId) && !isSelectMode && (
-                                        <span title={t('chat.collabSharedBadge')} className="flex-shrink-0">
-                                          <Users
-                                            className="w-3.5 h-3.5 text-text-muted"
-                                            aria-hidden
-                                          />
-                                        </span>
-                                      )}
-                                      {isActiveLoop && !isSelectMode && (
-                                        <span className="flex-shrink-0 text-accent">
-                                          {loopStatus?.kind === 'goal' ? (
-                                            <Target className="w-3.5 h-3.5" />
-                                          ) : (
-                                            <RefreshCw
-                                              className="w-3.5 h-3.5 animate-spin"
-                                              style={{ animationDuration: '3s' }}
-                                            />
-                                          )}
-                                        </span>
-                                      )}
-                                      <div className="min-w-0 flex-1">
-                                        {isRenaming ? (
-                                          <input
-                                            autoFocus
-                                            value={renameDraft}
-                                            onChange={(e) => setRenameDraft(e.target.value)}
-                                            onClick={(e) => e.stopPropagation()}
-                                            onBlur={() => handleCommitRename(session)}
-                                            onKeyDown={(e) => {
-                                              if (e.key === 'Enter') {
-                                                e.preventDefault();
-                                                handleCommitRename(session);
-                                              } else if (e.key === 'Escape') {
-                                                e.preventDefault();
-                                                handleCancelRename();
-                                              }
-                                            }}
-                                            className="w-full min-w-0 rounded-md border border-border-muted bg-background px-1.5 py-0.5 text-[13px] font-medium leading-5 text-text-primary outline-none focus:border-accent"
-                                            aria-label={t('sidebar.rename')}
-                                          />
-                                        ) : (
-                                          <div
-                                            className="truncate text-[13px] font-medium leading-5 text-text-primary"
-                                            onDoubleClick={(e) => {
-                                              if (!isSelectMode) handleStartRename(e, session);
-                                            }}
-                                          >
-                                            {session.title}
-                                          </div>
-                                        )}
-                                      </div>
-                                    </div>
-                                    {!isSelectMode && !isRenaming && (
-                                      <>
-                                        {hoveredSession === session.id && (
-                                          <button
-                                            onClick={(e) => handleStartRename(e, session)}
-                                            className="absolute right-[3.625rem] top-1/2 -translate-y-1/2 w-6 h-6 rounded-lg flex items-center justify-center text-text-muted hover:text-text-primary hover:bg-surface-active transition-colors"
-                                            title={t('sidebar.rename')}
-                                          >
-                                            <Pencil className="w-3 h-3" />
-                                          </button>
-                                        )}
-                                        {hoveredSession === session.id && (
-                                          <button
-                                            onClick={(e) => handleDeleteSession(e, session.id)}
-                                            className="absolute right-8 top-1/2 -translate-y-1/2 w-6 h-6 rounded-lg flex items-center justify-center text-text-muted hover:text-error hover:bg-surface-active transition-colors"
-                                            title={t('common.delete')}
-                                          >
-                                            <Trash2 className="w-3 h-3" />
-                                          </button>
-                                        )}
-                                        {!isIncognito &&
-                                          (session.pinned || hoveredSession === session.id) && (
-                                            <button
-                                              onClick={(e) => handleTogglePinSession(e, session)}
-                                              className={`absolute right-1.5 top-1/2 -translate-y-1/2 w-6 h-6 rounded-lg flex items-center justify-center transition-colors ${
-                                                session.pinned
-                                                  ? 'text-accent hover:bg-surface-active'
-                                                  : 'text-text-muted hover:text-text-primary hover:bg-surface-active'
-                                              }`}
-                                              title={
-                                                session.pinned ? t('sidebar.unpin') : t('sidebar.pin')
-                                              }
-                                            >
-                                              <Pin
-                                                className={`w-3 h-3 ${session.pinned ? 'fill-current' : ''}`}
-                                              />
-                                            </button>
-                                          )}
-                                      </>
-                                    )}
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
-                        </div>
-                      ) : null}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        ) : orderedSessions.length === 0 && !isSearching ? (
-          <div className="relative ml-0 border-l border-border-muted pl-2">
-            <div className="px-1 py-4">
-              <p className="text-sm text-text-secondary">
-                {activeDivision?.kind === 'hub'
-                  ? 'No chats in Hub yet'
-                  : activeDivision?.kind === 'project'
-                    ? 'No chats in this project yet'
-                    : activeDivision?.kind === 'client'
-                      ? 'No chats in this client yet'
-                      : activeDivision?.kind === 'general'
-                        ? 'No chats in General yet'
-                        : t('sidebar.noTasks')}
-              </p>
-              <p className="mt-1 text-xs leading-5 text-text-muted">{t('sidebar.noTasksHint')}</p>
-            </div>
-          </div>
-        ) : (
-          <div className="relative ml-0 border-l border-border-muted pl-2">
-            {isSearching ? (
-              <div className="mb-1 px-1.5 text-[10px] font-medium tracking-[0.04em] text-text-muted">
-                {t('sidebar.searchResults')}
-              </div>
-            ) : null}
-            <div className="space-y-0.5">
-              {orderedSessions.map((session) => {
-                const isActive = activeSessionId === session.id;
-                const isSelected = selectedIds.has(session.id);
-                const isIncognito = session.incognito === true;
-                const isRenaming = renamingSessionId === session.id;
-                const loopStatus = chatLoopBySessionId[session.id];
-                const isActiveLoop = Boolean(loopStatus && !loopStatus.stopReason);
-                return (
-                  <div
-                    key={session.id}
-                    onClick={() => {
-                      if (isRenaming) return;
-                      if (isSelectMode) {
-                        toggleSelectSession(session.id);
-                      } else {
-                        handleSessionClick(session.id);
-                      }
-                    }}
-                    onMouseEnter={() => setHoveredSession(session.id)}
-                    onMouseLeave={() => setHoveredSession(null)}
-                    className={`group relative cursor-pointer rounded-lg px-2 py-1.5 transition-colors ${
-                      isSelectMode && isSelected
-                        ? 'bg-accent-muted/20'
-                        : isActive && !isSelectMode
-                          ? 'bg-surface-hover/80'
-                          : 'hover:bg-surface-hover/60'
-                    } ${isIncognito ? 'border border-dashed border-border-subtle/80' : ''}`}
-                  >
-                    {/* Little tab connector into the vertical workspace rail */}
-                    <span
-                      aria-hidden
-                      className="pointer-events-none absolute -left-[calc(0.5rem+1px)] top-1/2 h-px w-2 -translate-y-1/2 bg-border-muted"
-                    />
-                    <div
-                      className={`flex items-center gap-2 ${
-                        !isSelectMode && !isRenaming ? 'pr-20' : ''
-                      }`}
-                    >
-                      {isSelectMode && (
-                        <div
-                          className={`w-4 h-4 rounded flex items-center justify-center flex-shrink-0 transition-colors ${
-                            isSelected
-                              ? 'bg-accent text-white'
-                              : 'border border-border-muted bg-background'
-                          }`}
-                        >
-                          {isSelected && <Check className="w-2.5 h-2.5" />}
-                        </div>
-                      )}
-                      {isIncognito && !isSelectMode && (
-                        <Ghost className="w-3.5 h-3.5 text-text-muted flex-shrink-0" />
-                      )}
-                      {Boolean(session.collabRoomId) && !isSelectMode && (
-                        <span title={t('chat.collabSharedBadge')} className="flex-shrink-0">
-                          <Users className="w-3.5 h-3.5 text-text-muted" aria-hidden />
-                        </span>
-                      )}
-                      {isActiveLoop && !isSelectMode && (
-                        <span
-                          className="flex-shrink-0 text-accent"
-                          title={
-                            loopStatus?.kind === 'goal'
-                              ? t('loop.modeGoal')
-                              : t('loop.modeLoop')
-                          }
-                        >
-                          {loopStatus?.kind === 'goal' ? (
-                            <Target className="w-3.5 h-3.5" />
-                          ) : (
-                            <RefreshCw
-                              className="w-3.5 h-3.5 animate-spin"
-                              style={{ animationDuration: '3s' }}
-                            />
-                          )}
-                        </span>
-                      )}
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          {isRenaming ? (
-                            <input
-                              autoFocus
-                              value={renameDraft}
-                              onChange={(e) => setRenameDraft(e.target.value)}
-                              onClick={(e) => e.stopPropagation()}
-                              onBlur={() => handleCommitRename(session)}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  e.preventDefault();
-                                  handleCommitRename(session);
-                                } else if (e.key === 'Escape') {
-                                  e.preventDefault();
-                                  handleCancelRename();
-                                }
-                              }}
-                              className="w-full min-w-0 rounded-md border border-border-muted bg-background px-1.5 py-0.5 text-[13px] font-medium leading-5 text-text-primary outline-none focus:border-accent"
-                              aria-label={t('sidebar.rename')}
-                            />
-                          ) : (
-                            <div
-                              className="truncate text-[13px] font-medium leading-5 text-text-primary"
-                              onDoubleClick={(e) => {
-                                if (!isSelectMode) handleStartRename(e, session);
-                              }}
-                            >
-                              {session.title}
-                            </div>
-                          )}
-                          {isSearching && !isRenaming && (
-                            <span className="flex-shrink-0 rounded-md bg-background px-1.5 py-0.5 text-[10px] font-medium text-text-muted">
-                              {divisionLabel(activeDivisionFromSession(session))}
-                            </span>
-                          )}
-                        </div>
-                        {isSearching &&
-                          !isRenaming &&
-                          snippetBySessionId.get(session.id)?.snippet &&
-                          snippetBySessionId.get(session.id)?.snippet !== session.title && (
-                            <div className="mt-0.5 line-clamp-2 text-[11px] leading-4 text-text-muted">
-                              {snippetBySessionId.get(session.id)?.snippet}
-                            </div>
-                          )}
-                      </div>
-                    </div>
 
-                    {!isSelectMode && !isRenaming && (
-                      <>
-                        {hoveredSession === session.id && (
-                          <button
-                            onClick={(e) => handleStartRename(e, session)}
-                            className="absolute right-[3.625rem] top-1/2 -translate-y-1/2 w-6 h-6 rounded-lg flex items-center justify-center text-text-muted hover:text-text-primary hover:bg-surface-active transition-colors"
-                            title={t('sidebar.rename')}
-                          >
-                            <Pencil className="w-3 h-3" />
-                          </button>
-                        )}
-                        {hoveredSession === session.id && (
-                          <button
-                            onClick={(e) => handleDeleteSession(e, session.id)}
-                            className="absolute right-8 top-1/2 -translate-y-1/2 w-6 h-6 rounded-lg flex items-center justify-center text-text-muted hover:text-error hover:bg-surface-active transition-colors"
-                            title={t('common.delete')}
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </button>
-                        )}
-                        {!isIncognito && (session.pinned || hoveredSession === session.id) && (
-                          <button
-                            onClick={(e) => handleTogglePinSession(e, session)}
-                            className={`absolute right-1.5 top-1/2 -translate-y-1/2 w-6 h-6 rounded-lg flex items-center justify-center transition-colors ${
-                              session.pinned
-                                ? 'text-accent hover:bg-surface-active'
-                                : 'text-text-muted hover:text-text-primary hover:bg-surface-active'
-                            }`}
-                            title={session.pinned ? t('sidebar.unpin') : t('sidebar.pin')}
-                          >
-                            <Pin
-                              className={`w-3 h-3 ${session.pinned ? 'fill-current' : ''}`}
-                            />
-                          </button>
-                        )}
-                      </>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {isSelectMode ? (
-        <div className="px-2 py-2 border-t border-border-muted">
-          {showDeleteConfirm ? (
-            <div className="border border-error/30 bg-error/10 rounded-lg px-3 py-3">
-              <p className="text-[13px] text-text-primary mb-3">
-                {t('sidebar.batchDeleteConfirm', { count: selectedIds.size })}
-              </p>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setShowDeleteConfirm(false)}
-                  className="flex-1 px-3 py-1.5 rounded-lg text-[13px] font-medium text-text-secondary hover:bg-surface-hover transition-colors"
-                >
-                  {t('sidebar.cancel')}
-                </button>
-                <button
-                  onClick={handleBatchDelete}
-                  className="flex-1 px-3 py-1.5 rounded-lg text-[13px] font-medium bg-error text-white hover:bg-error/90 transition-colors"
-                >
-                  {t('sidebar.confirmDelete')}
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              <div className="flex items-center justify-between px-1">
-                <button
-                  onClick={toggleSelectAll}
-                  className="text-[12px] font-medium text-accent hover:text-accent/80 transition-colors"
-                >
-                  {allVisibleSelected ? t('sidebar.deselectAll') : t('sidebar.selectAll')}
-                </button>
-                <span className="text-[12px] text-text-muted">
-                  {t('sidebar.nSelected', { count: selectedIds.size })}
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={exitSelectMode}
-                  className="flex-1 px-3 py-2 rounded-xl text-[13px] font-medium text-text-secondary hover:bg-surface-hover transition-colors"
-                >
-                  {t('sidebar.cancel')}
-                </button>
-                <button
-                  onClick={() => setShowDeleteConfirm(true)}
-                  disabled={selectedIds.size === 0}
-                  className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-[13px] font-medium bg-error text-white hover:bg-error/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  {t('common.delete')}
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      ) : (
-        <div className="px-2 py-2 border-t border-border-muted space-y-1.5">
-          <div className="flex items-center gap-1.5">
+          <div className="px-3 py-2 border-t border-border-muted flex flex-col items-center gap-1.5">
             {matterEnabled ? (
               <button
                 type="button"
                 onClick={handleOpenMatter}
-                className={`min-w-0 flex-1 rounded-xl px-2 py-1.5 flex items-center gap-1.5 text-left transition-colors border ${
+                className={`relative w-9 h-9 rounded-2xl flex items-center justify-center transition-colors border ${
                   showMatter
-                    ? 'bg-accent/15 text-accent border-accent/40'
-                    : 'bg-background text-text-primary border-border-subtle hover:bg-surface-hover hover:border-accent/30'
+                    ? 'bg-accent/20 text-accent border-accent/50'
+                    : 'bg-background text-accent border-accent/30 hover:bg-accent/10'
                 }`}
-                title={t('sidebar.matterHint')}
+                title={t('sidebar.matter')}
               >
-                <span
-                  className={`relative flex h-6 w-6 shrink-0 items-center justify-center rounded-md ${
-                    showMatter ? 'bg-accent/20' : 'bg-accent/10'
-                  }`}
-                >
-                  <Radar className="w-3.5 h-3.5 text-accent" />
-                  {matterBadgeCount > 0 ? (
-                    <span className="absolute -top-1 -right-1 min-w-[14px] h-[14px] px-0.5 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center">
-                      {matterBadgeCount > 9 ? '9+' : matterBadgeCount}
-                    </span>
-                  ) : null}
-                </span>
-                <span className="min-w-0 flex-1 text-[11px] font-semibold leading-tight truncate">
-                  {t('sidebar.matter')}
-                </span>
+                <Radar className="w-4 h-4" />
+                {matterBadgeCount > 0 ? (
+                  <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] px-0.5 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center">
+                    {matterBadgeCount > 9 ? '9+' : matterBadgeCount}
+                  </span>
+                ) : null}
               </button>
             ) : null}
             <button
               type="button"
               onClick={handleOpenWorkflows}
-              className={`min-w-0 flex-1 rounded-xl px-2 py-1.5 flex items-center gap-1.5 text-left transition-colors border ${
+              className={`relative w-9 h-9 rounded-2xl flex items-center justify-center transition-colors border ${
                 showWorkflows
-                  ? 'bg-accent/15 text-accent border-accent/40'
-                  : 'bg-background text-text-primary border-border-subtle hover:bg-surface-hover hover:border-accent/30'
+                  ? 'bg-accent/20 text-accent border-accent/50'
+                  : 'bg-background text-accent border-accent/30 hover:bg-accent/10'
               }`}
-              title={t('sidebar.workflowsHint')}
+              title={t('sidebar.workflows')}
             >
-              <span
-                className={`relative flex h-6 w-6 shrink-0 items-center justify-center rounded-md ${
-                  showWorkflows ? 'bg-accent/20' : 'bg-accent/10'
-                }`}
-              >
-                <Workflow className="w-3.5 h-3.5 text-accent" />
-              </span>
-              <span className="min-w-0 flex-1 text-[11px] font-semibold leading-tight truncate">
-                {t('sidebar.workflows')}
-              </span>
+              <Workflow className="w-4 h-4" />
             </button>
-          </div>
-          <div className="flex items-center gap-1.5 rounded-xl bg-background/50 px-2 py-1.5">
+            <button
+              type="button"
+              onClick={handleOpenLoops}
+              className={`relative w-9 h-9 rounded-2xl flex items-center justify-center transition-colors border ${
+                showLoops
+                  ? 'bg-accent/20 text-accent border-accent/50'
+                  : 'bg-background text-accent border-accent/30 hover:bg-accent/10'
+              }`}
+              title={t('sidebar.loops')}
+            >
+              <CircleDashed className="w-4 h-4" />
+              {loopsBadgeCount > 0 ? (
+                <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] px-0.5 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center">
+                  {loopsBadgeCount > 9 ? '9+' : loopsBadgeCount}
+                </span>
+              ) : null}
+            </button>
             {user ? (
-              <>
-                <SidebarUserAvatar name={user.name} image={user.image} className="w-7 h-7 text-[10px]" />
-                <div className="min-w-0 flex-1">
-                  <div className="text-[12px] font-medium text-text-primary truncate leading-tight">
-                    {user.name}
-                  </div>
-                  <div className="text-[10px] text-text-muted truncate leading-tight">{user.email}</div>
-                </div>
-              </>
-            ) : (
-              <div className="min-w-0 flex-1" />
-            )}
+              <div className="w-9 h-9 flex items-center justify-center" title={user.name}>
+                <SidebarUserAvatar
+                  name={user.name}
+                  image={user.image}
+                  className="w-9 h-9 text-[12px]"
+                />
+              </div>
+            ) : null}
             <button
               type="button"
               onClick={handleOpenSettings}
-              className="w-7 h-7 rounded-lg flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-surface-hover transition-colors flex-shrink-0"
+              className="w-9 h-9 rounded-2xl flex items-center justify-center hover:bg-surface-hover transition-colors text-text-secondary"
               title={t('sidebar.settings')}
             >
-              <Settings className="w-3.5 h-3.5" />
+              <Settings className="w-4 h-4" />
             </button>
+            <SidebarUpdateButton compact />
             <button
               type="button"
               onClick={toggleTheme}
-              className="w-7 h-7 rounded-lg flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-surface-hover transition-colors flex-shrink-0"
+              className="w-9 h-9 rounded-2xl flex items-center justify-center hover:bg-surface-hover transition-colors text-text-secondary"
               title={t('sidebar.themeToggle')}
             >
               {themeIcon}
@@ -1796,18 +1147,729 @@ export function Sidebar() {
               <button
                 type="button"
                 onClick={() => void logout()}
-                className="w-7 h-7 rounded-lg flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-surface-hover transition-colors flex-shrink-0"
+                className="w-9 h-9 rounded-2xl flex items-center justify-center hover:bg-surface-hover transition-colors text-text-secondary"
                 title={t('sidebar.signOut')}
               >
-                <LogOut className="w-3.5 h-3.5" />
+                <LogOut className="w-4 h-4" />
               </button>
             ) : null}
           </div>
-          <SidebarUpdateButton />
+        </aside>
+        {joinSharedModal}
+      </>
+    );
+  }
+
+  return (
+    <>
+      <aside className="relative z-20 flex w-[17.5rem] shrink-0 flex-col overflow-hidden border-r border-border-muted bg-surface/96">
+        <div className="px-3 pt-3 pb-2 border-b border-border-muted">
+          <div className="flex items-start justify-between gap-2">
+            <button
+              type="button"
+              onClick={handleGoHome}
+              className="min-w-0 flex items-center gap-2 rounded-lg text-left hover:opacity-90 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+              title={t('sidebar.home')}
+              aria-label={t('sidebar.home')}
+            >
+              <img
+                src={sidebarLogoSrc}
+                alt={t('common.appLogoAlt')}
+                className="w-8 h-8 object-contain flex-shrink-0"
+              />
+              <div className="min-w-0">
+                <h1 className="text-[1.125rem] leading-tight font-semibold tracking-[-0.03em] text-text-primary">
+                  York GrowthOS
+                </h1>
+              </div>
+            </button>
+            <button
+              onClick={toggleSidebar}
+              className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-surface-hover transition-colors text-text-secondary flex-shrink-0"
+              title={t('context.collapsePanel')}
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="mt-2 space-y-2">
+            <NextUpMeeting />
+          </div>
+
+          <div className="mt-2 px-0.5">
+            <DivisionSwitcher variant="header" />
+          </div>
         </div>
-      )}
-    </aside>
-    {joinSharedModal}
+
+        <div className="flex-1 overflow-y-auto px-2 pb-2 pt-2">
+          <div className="mb-1.5 space-y-1.5">
+            <div className="flex h-8 gap-1">
+              <button
+                onClick={handleNewSession}
+                className="flex h-full flex-1 items-center justify-center rounded-lg border border-border-subtle bg-background text-text-primary transition-colors hover:bg-surface-hover"
+                aria-label={t('sidebar.newTask')}
+                title={t('sidebar.newTask')}
+              >
+                <Plus className="w-4 h-4" />
+              </button>
+              <button
+                onClick={handleIncognitoSession}
+                className="flex h-full flex-1 items-center justify-center rounded-lg border border-dashed border-border-subtle bg-background/60 text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+                aria-label={t('sidebar.incognitoTask')}
+                title={t('sidebar.incognitoTask')}
+              >
+                <Ghost className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => void handleImportChat()}
+                disabled={!isElectron || importing}
+                className="flex h-full flex-1 items-center justify-center rounded-lg border border-border-subtle bg-background/60 text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary disabled:opacity-50"
+                aria-label={t('sidebar.importChat')}
+                title={t('sidebar.importChat')}
+              >
+                <FileDown className={`w-4 h-4 ${importing ? 'animate-pulse' : ''}`} />
+              </button>
+              <button
+                onClick={handleJoinSharedChat}
+                disabled={!isElectron}
+                className="flex h-full flex-1 items-center justify-center rounded-lg border border-border-subtle bg-background/60 text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary disabled:opacity-50"
+                aria-label={t('sidebar.joinSharedChat')}
+                title={t('sidebar.joinSharedChat')}
+              >
+                <Link2 className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <div className="relative flex-1 min-w-0">
+                <SearchIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-muted" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder={t('sidebar.search')}
+                  className="w-full h-8 rounded-lg border border-transparent bg-background pl-8 pr-2.5 text-[12px] text-text-primary placeholder:text-text-muted focus:outline-none focus:border-border transition-colors"
+                />
+              </div>
+              <button
+                onClick={() => setSearchAllWorkspaces((prev) => !prev)}
+                className={`h-8 shrink-0 rounded-lg border px-2 text-[10px] font-medium transition-colors ${
+                  searchAllWorkspaces
+                    ? 'border-accent/40 bg-accent/10 text-accent'
+                    : 'border-border-subtle text-text-muted hover:bg-surface-hover hover:text-text-secondary'
+                }`}
+                title={
+                  searchAllWorkspaces ? 'Searching all workspaces' : 'Searching this workspace only'
+                }
+                type="button"
+              >
+                {searchAllWorkspaces ? 'All' : 'Here'}
+              </button>
+              <button
+                onClick={() => {
+                  if (isSelectMode) {
+                    exitSelectMode();
+                  } else {
+                    setIsSelectMode(true);
+                  }
+                }}
+                className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors ${
+                  isSelectMode
+                    ? 'bg-accent text-white'
+                    : 'text-text-secondary hover:text-text-primary hover:bg-surface-hover'
+                }`}
+                title={t('sidebar.manage')}
+              >
+                <ListChecks className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+
+          {isSearching && orderedSessions.length === 0 ? (
+            <div className="relative ml-0 border-l border-border-muted pl-2">
+              <div className="px-1 py-4">
+                <p className="text-sm text-text-secondary">
+                  {searchBusy ? t('common.loading') : t('sidebar.searchNoResults')}
+                </p>
+                <p className="mt-1 text-xs leading-5 text-text-muted">
+                  {t('sidebar.searchAllHint')}
+                </p>
+              </div>
+            </div>
+          ) : isFoldersWorkspace && !isSearching ? (
+            <div className="relative ml-0 border-l border-border-muted pl-2">
+              <div className="mb-1.5 flex gap-1 px-0.5">
+                <input
+                  type="text"
+                  value={newFolderName}
+                  onChange={(e) => setNewFolderName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') void createPersonalFolder();
+                  }}
+                  placeholder="New folder name"
+                  disabled={creatingFolder}
+                  className="min-w-0 flex-1 rounded-lg border border-border-subtle bg-background px-2 py-1.5 text-[12px] text-text-primary placeholder:text-text-muted focus:outline-none focus:border-border"
+                />
+                <button
+                  type="button"
+                  onClick={() => void createPersonalFolder()}
+                  disabled={creatingFolder || !newFolderName.trim()}
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border-subtle bg-background text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary disabled:opacity-40"
+                  title="Create folder"
+                  aria-label="Create folder"
+                >
+                  <FolderPlus className={`h-3.5 w-3.5 ${creatingFolder ? 'animate-pulse' : ''}`} />
+                </button>
+              </div>
+              {displayFolders.length === 0 ? (
+                <div className="px-1 py-3">
+                  <p className="text-sm text-text-secondary">No folders yet</p>
+                  <p className="mt-1 text-xs leading-5 text-text-muted">
+                    Create a personal folder above to get started.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  {displayFolders.map((folder) => {
+                    const isActiveFolder =
+                      activeDivision?.kind === 'folder' && activeDivision.folderId === folder.id;
+                    const isCollapsed = collapsedFolderIds.has(folder.id);
+                    const folderChats = sessionsByFolderId.get(folder.id) || [];
+                    return (
+                      <div key={folder.id} className="relative">
+                        <span
+                          aria-hidden
+                          className="pointer-events-none absolute -left-[calc(0.5rem+1px)] top-[14px] h-px w-2 bg-border-muted"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => selectPersonalFolder(folder)}
+                          className={`flex w-full items-center gap-1.5 rounded-lg px-1.5 py-1.5 text-left transition-colors ${
+                            isActiveFolder
+                              ? 'bg-accent/10 text-accent'
+                              : 'text-text-primary hover:bg-surface-hover/60'
+                          }`}
+                          title={folder.name}
+                          aria-expanded={!isCollapsed}
+                        >
+                          <span
+                            role="presentation"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleFolderCollapsed(folder.id);
+                            }}
+                            className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-text-muted hover:bg-surface-hover hover:text-text-primary"
+                          >
+                            {isCollapsed ? (
+                              <ChevronRight className="h-3.5 w-3.5" />
+                            ) : (
+                              <ChevronDown className="h-3.5 w-3.5" />
+                            )}
+                          </span>
+                          <Folder className="h-3.5 w-3.5 shrink-0" />
+                          <span className="min-w-0 flex-1 truncate text-[13px] font-semibold tracking-[-0.01em]">
+                            {folder.name}
+                          </span>
+                          <span className="shrink-0 text-[10px] font-medium text-text-muted">
+                            {folderChats.length}
+                          </span>
+                        </button>
+                        {!isCollapsed ? (
+                          <div className="relative ml-2 mt-0.5 border-l border-border-muted/80 pl-2">
+                            {folderChats.length === 0 ? (
+                              <p className="px-2 py-2 text-[11px] text-text-muted">
+                                No chats in this folder yet
+                              </p>
+                            ) : (
+                              <div className="space-y-0.5">
+                                {folderChats.map((session) => {
+                                  const isActive = activeSessionId === session.id;
+                                  const isSelected = selectedIds.has(session.id);
+                                  const isIncognito = session.incognito === true;
+                                  const isRenaming = renamingSessionId === session.id;
+                                  const loopStatus = chatLoopBySessionId[session.id];
+                                  const isActiveLoop = Boolean(
+                                    loopStatus && !loopStatus.stopReason
+                                  );
+                                  return (
+                                    <div
+                                      key={session.id}
+                                      onClick={() => {
+                                        if (isRenaming) return;
+                                        if (isSelectMode) {
+                                          toggleSelectSession(session.id);
+                                        } else {
+                                          handleSessionClick(session.id);
+                                        }
+                                      }}
+                                      onMouseEnter={() => setHoveredSession(session.id)}
+                                      onMouseLeave={() => setHoveredSession(null)}
+                                      className={`group relative cursor-pointer rounded-lg px-2 py-1.5 transition-colors ${
+                                        isSelectMode && isSelected
+                                          ? 'bg-accent-muted/20'
+                                          : isActive && !isSelectMode
+                                            ? 'bg-surface-hover/80'
+                                            : 'hover:bg-surface-hover/60'
+                                      } ${isIncognito ? 'border border-dashed border-border-subtle/80' : ''}`}
+                                    >
+                                      <span
+                                        aria-hidden
+                                        className="pointer-events-none absolute -left-[calc(0.5rem+1px)] top-1/2 h-px w-2 -translate-y-1/2 bg-border-muted/80"
+                                      />
+                                      <div
+                                        className={`flex items-center gap-2 ${
+                                          !isSelectMode && !isRenaming ? 'pr-20' : ''
+                                        }`}
+                                      >
+                                        {isSelectMode && (
+                                          <div
+                                            className={`w-4 h-4 rounded flex items-center justify-center flex-shrink-0 transition-colors ${
+                                              isSelected
+                                                ? 'bg-accent text-white'
+                                                : 'border border-border-muted bg-background'
+                                            }`}
+                                          >
+                                            {isSelected && <Check className="w-2.5 h-2.5" />}
+                                          </div>
+                                        )}
+                                        {isIncognito && !isSelectMode && (
+                                          <Ghost className="w-3.5 h-3.5 text-text-muted flex-shrink-0" />
+                                        )}
+                                        {Boolean(session.collabRoomId) && !isSelectMode && (
+                                          <span
+                                            title={t('chat.collabSharedBadge')}
+                                            className="flex-shrink-0"
+                                          >
+                                            <Users
+                                              className="w-3.5 h-3.5 text-text-muted"
+                                              aria-hidden
+                                            />
+                                          </span>
+                                        )}
+                                        {isActiveLoop && !isSelectMode && (
+                                          <span className="flex-shrink-0 text-accent">
+                                            {loopStatus?.kind === 'goal' ? (
+                                              <Target className="w-3.5 h-3.5" />
+                                            ) : (
+                                              <RefreshCw
+                                                className="w-3.5 h-3.5 animate-spin"
+                                                style={{ animationDuration: '3s' }}
+                                              />
+                                            )}
+                                          </span>
+                                        )}
+                                        <div className="min-w-0 flex-1">
+                                          {isRenaming ? (
+                                            <input
+                                              autoFocus
+                                              value={renameDraft}
+                                              onChange={(e) => setRenameDraft(e.target.value)}
+                                              onClick={(e) => e.stopPropagation()}
+                                              onBlur={() => handleCommitRename(session)}
+                                              onKeyDown={(e) => {
+                                                if (e.key === 'Enter') {
+                                                  e.preventDefault();
+                                                  handleCommitRename(session);
+                                                } else if (e.key === 'Escape') {
+                                                  e.preventDefault();
+                                                  handleCancelRename();
+                                                }
+                                              }}
+                                              className="w-full min-w-0 rounded-md border border-border-muted bg-background px-1.5 py-0.5 text-[13px] font-medium leading-5 text-text-primary outline-none focus:border-accent"
+                                              aria-label={t('sidebar.rename')}
+                                            />
+                                          ) : (
+                                            <div
+                                              className="truncate text-[13px] font-medium leading-5 text-text-primary"
+                                              onDoubleClick={(e) => {
+                                                if (!isSelectMode) handleStartRename(e, session);
+                                              }}
+                                            >
+                                              {session.title}
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+                                      {!isSelectMode && !isRenaming && (
+                                        <>
+                                          {hoveredSession === session.id && (
+                                            <button
+                                              onClick={(e) => handleStartRename(e, session)}
+                                              className="absolute right-[3.625rem] top-1/2 -translate-y-1/2 w-6 h-6 rounded-lg flex items-center justify-center text-text-muted hover:text-text-primary hover:bg-surface-active transition-colors"
+                                              title={t('sidebar.rename')}
+                                            >
+                                              <Pencil className="w-3 h-3" />
+                                            </button>
+                                          )}
+                                          {hoveredSession === session.id && (
+                                            <button
+                                              onClick={(e) => handleDeleteSession(e, session.id)}
+                                              className="absolute right-8 top-1/2 -translate-y-1/2 w-6 h-6 rounded-lg flex items-center justify-center text-text-muted hover:text-error hover:bg-surface-active transition-colors"
+                                              title={t('common.delete')}
+                                            >
+                                              <Trash2 className="w-3 h-3" />
+                                            </button>
+                                          )}
+                                          {!isIncognito &&
+                                            (session.pinned || hoveredSession === session.id) && (
+                                              <button
+                                                onClick={(e) => handleTogglePinSession(e, session)}
+                                                className={`absolute right-1.5 top-1/2 -translate-y-1/2 w-6 h-6 rounded-lg flex items-center justify-center transition-colors ${
+                                                  session.pinned
+                                                    ? 'text-accent hover:bg-surface-active'
+                                                    : 'text-text-muted hover:text-text-primary hover:bg-surface-active'
+                                                }`}
+                                                title={
+                                                  session.pinned
+                                                    ? t('sidebar.unpin')
+                                                    : t('sidebar.pin')
+                                                }
+                                              >
+                                                <Pin
+                                                  className={`w-3 h-3 ${session.pinned ? 'fill-current' : ''}`}
+                                                />
+                                              </button>
+                                            )}
+                                        </>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          ) : orderedSessions.length === 0 && !isSearching ? (
+            <div className="relative ml-0 border-l border-border-muted pl-2">
+              <div className="px-1 py-4">
+                <p className="text-sm text-text-secondary">
+                  {activeDivision?.kind === 'hub'
+                    ? 'No chats in Hub yet'
+                    : activeDivision?.kind === 'project'
+                      ? 'No chats in this project yet'
+                      : activeDivision?.kind === 'client'
+                        ? 'No chats in this client yet'
+                        : activeDivision?.kind === 'general'
+                          ? 'No chats in General yet'
+                          : t('sidebar.noTasks')}
+                </p>
+                <p className="mt-1 text-xs leading-5 text-text-muted">{t('sidebar.noTasksHint')}</p>
+              </div>
+            </div>
+          ) : (
+            <div className="relative ml-0 border-l border-border-muted pl-2">
+              {isSearching ? (
+                <div className="mb-1 px-1.5 text-[10px] font-medium tracking-[0.04em] text-text-muted">
+                  {t('sidebar.searchResults')}
+                </div>
+              ) : null}
+              <div className="space-y-0.5">
+                {orderedSessions.map((session) => {
+                  const isActive = activeSessionId === session.id;
+                  const isSelected = selectedIds.has(session.id);
+                  const isIncognito = session.incognito === true;
+                  const isRenaming = renamingSessionId === session.id;
+                  const loopStatus = chatLoopBySessionId[session.id];
+                  const isActiveLoop = Boolean(loopStatus && !loopStatus.stopReason);
+                  return (
+                    <div
+                      key={session.id}
+                      onClick={() => {
+                        if (isRenaming) return;
+                        if (isSelectMode) {
+                          toggleSelectSession(session.id);
+                        } else {
+                          handleSessionClick(session.id);
+                        }
+                      }}
+                      onMouseEnter={() => setHoveredSession(session.id)}
+                      onMouseLeave={() => setHoveredSession(null)}
+                      className={`group relative cursor-pointer rounded-lg px-2 py-1.5 transition-colors ${
+                        isSelectMode && isSelected
+                          ? 'bg-accent-muted/20'
+                          : isActive && !isSelectMode
+                            ? 'bg-surface-hover/80'
+                            : 'hover:bg-surface-hover/60'
+                      } ${isIncognito ? 'border border-dashed border-border-subtle/80' : ''}`}
+                    >
+                      {/* Little tab connector into the vertical workspace rail */}
+                      <span
+                        aria-hidden
+                        className="pointer-events-none absolute -left-[calc(0.5rem+1px)] top-1/2 h-px w-2 -translate-y-1/2 bg-border-muted"
+                      />
+                      <div
+                        className={`flex items-center gap-2 ${
+                          !isSelectMode && !isRenaming ? 'pr-20' : ''
+                        }`}
+                      >
+                        {isSelectMode && (
+                          <div
+                            className={`w-4 h-4 rounded flex items-center justify-center flex-shrink-0 transition-colors ${
+                              isSelected
+                                ? 'bg-accent text-white'
+                                : 'border border-border-muted bg-background'
+                            }`}
+                          >
+                            {isSelected && <Check className="w-2.5 h-2.5" />}
+                          </div>
+                        )}
+                        {isIncognito && !isSelectMode && (
+                          <Ghost className="w-3.5 h-3.5 text-text-muted flex-shrink-0" />
+                        )}
+                        {Boolean(session.collabRoomId) && !isSelectMode && (
+                          <span title={t('chat.collabSharedBadge')} className="flex-shrink-0">
+                            <Users className="w-3.5 h-3.5 text-text-muted" aria-hidden />
+                          </span>
+                        )}
+                        {isActiveLoop && !isSelectMode && (
+                          <span
+                            className="flex-shrink-0 text-accent"
+                            title={
+                              loopStatus?.kind === 'goal' ? t('loop.modeGoal') : t('loop.modeLoop')
+                            }
+                          >
+                            {loopStatus?.kind === 'goal' ? (
+                              <Target className="w-3.5 h-3.5" />
+                            ) : (
+                              <RefreshCw
+                                className="w-3.5 h-3.5 animate-spin"
+                                style={{ animationDuration: '3s' }}
+                              />
+                            )}
+                          </span>
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            {isRenaming ? (
+                              <input
+                                autoFocus
+                                value={renameDraft}
+                                onChange={(e) => setRenameDraft(e.target.value)}
+                                onClick={(e) => e.stopPropagation()}
+                                onBlur={() => handleCommitRename(session)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    handleCommitRename(session);
+                                  } else if (e.key === 'Escape') {
+                                    e.preventDefault();
+                                    handleCancelRename();
+                                  }
+                                }}
+                                className="w-full min-w-0 rounded-md border border-border-muted bg-background px-1.5 py-0.5 text-[13px] font-medium leading-5 text-text-primary outline-none focus:border-accent"
+                                aria-label={t('sidebar.rename')}
+                              />
+                            ) : (
+                              <div
+                                className="truncate text-[13px] font-medium leading-5 text-text-primary"
+                                onDoubleClick={(e) => {
+                                  if (!isSelectMode) handleStartRename(e, session);
+                                }}
+                              >
+                                {session.title}
+                              </div>
+                            )}
+                            {isSearching && !isRenaming && (
+                              <span className="flex-shrink-0 rounded-md bg-background px-1.5 py-0.5 text-[10px] font-medium text-text-muted">
+                                {divisionLabel(activeDivisionFromSession(session))}
+                              </span>
+                            )}
+                          </div>
+                          {isSearching &&
+                            !isRenaming &&
+                            snippetBySessionId.get(session.id)?.snippet &&
+                            snippetBySessionId.get(session.id)?.snippet !== session.title && (
+                              <div className="mt-0.5 line-clamp-2 text-[11px] leading-4 text-text-muted">
+                                {snippetBySessionId.get(session.id)?.snippet}
+                              </div>
+                            )}
+                        </div>
+                      </div>
+
+                      {!isSelectMode && !isRenaming && (
+                        <>
+                          {hoveredSession === session.id && (
+                            <button
+                              onClick={(e) => handleStartRename(e, session)}
+                              className="absolute right-[3.625rem] top-1/2 -translate-y-1/2 w-6 h-6 rounded-lg flex items-center justify-center text-text-muted hover:text-text-primary hover:bg-surface-active transition-colors"
+                              title={t('sidebar.rename')}
+                            >
+                              <Pencil className="w-3 h-3" />
+                            </button>
+                          )}
+                          {hoveredSession === session.id && (
+                            <button
+                              onClick={(e) => handleDeleteSession(e, session.id)}
+                              className="absolute right-8 top-1/2 -translate-y-1/2 w-6 h-6 rounded-lg flex items-center justify-center text-text-muted hover:text-error hover:bg-surface-active transition-colors"
+                              title={t('common.delete')}
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          )}
+                          {!isIncognito && (session.pinned || hoveredSession === session.id) && (
+                            <button
+                              onClick={(e) => handleTogglePinSession(e, session)}
+                              className={`absolute right-1.5 top-1/2 -translate-y-1/2 w-6 h-6 rounded-lg flex items-center justify-center transition-colors ${
+                                session.pinned
+                                  ? 'text-accent hover:bg-surface-active'
+                                  : 'text-text-muted hover:text-text-primary hover:bg-surface-active'
+                              }`}
+                              title={session.pinned ? t('sidebar.unpin') : t('sidebar.pin')}
+                            >
+                              <Pin className={`w-3 h-3 ${session.pinned ? 'fill-current' : ''}`} />
+                            </button>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {isSelectMode ? (
+          <div className="px-2 py-2 border-t border-border-muted">
+            {showDeleteConfirm ? (
+              <div className="border border-error/30 bg-error/10 rounded-lg px-3 py-3">
+                <p className="text-[13px] text-text-primary mb-3">
+                  {t('sidebar.batchDeleteConfirm', { count: selectedIds.size })}
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setShowDeleteConfirm(false)}
+                    className="flex-1 px-3 py-1.5 rounded-lg text-[13px] font-medium text-text-secondary hover:bg-surface-hover transition-colors"
+                  >
+                    {t('sidebar.cancel')}
+                  </button>
+                  <button
+                    onClick={handleBatchDelete}
+                    className="flex-1 px-3 py-1.5 rounded-lg text-[13px] font-medium bg-error text-white hover:bg-error/90 transition-colors"
+                  >
+                    {t('sidebar.confirmDelete')}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between px-1">
+                  <button
+                    onClick={toggleSelectAll}
+                    className="text-[12px] font-medium text-accent hover:text-accent/80 transition-colors"
+                  >
+                    {allVisibleSelected ? t('sidebar.deselectAll') : t('sidebar.selectAll')}
+                  </button>
+                  <span className="text-[12px] text-text-muted">
+                    {t('sidebar.nSelected', { count: selectedIds.size })}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={exitSelectMode}
+                    className="flex-1 px-3 py-2 rounded-xl text-[13px] font-medium text-text-secondary hover:bg-surface-hover transition-colors"
+                  >
+                    {t('sidebar.cancel')}
+                  </button>
+                  <button
+                    onClick={() => setShowDeleteConfirm(true)}
+                    disabled={selectedIds.size === 0}
+                    className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-[13px] font-medium bg-error text-white hover:bg-error/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    {t('common.delete')}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="px-2 py-2 border-t border-border-muted space-y-1.5">
+            <div className="flex items-stretch gap-0.5 rounded-xl border border-border-subtle bg-background/50 p-0.5">
+              {matterEnabled ? (
+                <SidebarFeatureTab
+                  icon={Radar}
+                  label={t('sidebar.matter')}
+                  hint={t('sidebar.matterHint')}
+                  active={showMatter}
+                  badge={matterBadgeCount}
+                  onClick={handleOpenMatter}
+                />
+              ) : null}
+              <SidebarFeatureTab
+                icon={Workflow}
+                label={t('sidebar.workflows')}
+                hint={t('sidebar.workflowsHint')}
+                active={showWorkflows}
+                onClick={handleOpenWorkflows}
+              />
+              <SidebarFeatureTab
+                icon={CircleDashed}
+                label={t('sidebar.loops')}
+                hint={t('sidebar.loopsHint')}
+                active={showLoops}
+                badge={loopsBadgeCount}
+                onClick={handleOpenLoops}
+              />
+            </div>
+            <div className="flex items-center gap-1.5 rounded-xl bg-background/50 px-2 py-1.5">
+              {user ? (
+                <>
+                  <SidebarUserAvatar
+                    name={user.name}
+                    image={user.image}
+                    className="w-7 h-7 text-[10px]"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[12px] font-medium text-text-primary truncate leading-tight">
+                      {user.name}
+                    </div>
+                    <div className="text-[10px] text-text-muted truncate leading-tight">
+                      {user.email}
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="min-w-0 flex-1" />
+              )}
+              <button
+                type="button"
+                onClick={handleOpenSettings}
+                className="w-7 h-7 rounded-lg flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-surface-hover transition-colors flex-shrink-0"
+                title={t('sidebar.settings')}
+              >
+                <Settings className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={toggleTheme}
+                className="w-7 h-7 rounded-lg flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-surface-hover transition-colors flex-shrink-0"
+                title={t('sidebar.themeToggle')}
+              >
+                {themeIcon}
+              </button>
+              {user ? (
+                <button
+                  type="button"
+                  onClick={() => void logout()}
+                  className="w-7 h-7 rounded-lg flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-surface-hover transition-colors flex-shrink-0"
+                  title={t('sidebar.signOut')}
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                </button>
+              ) : null}
+            </div>
+            <SidebarUpdateButton />
+          </div>
+        )}
+      </aside>
+      {joinSharedModal}
     </>
   );
 }

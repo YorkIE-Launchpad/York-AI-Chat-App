@@ -306,6 +306,11 @@ function hashKey(input: string): string {
   return Math.abs(h).toString(36);
 }
 
+/** Shared by Matter meeting signals and Loops so both dedupe to one key. */
+export function meetingActionFingerprint(meetingId: string, actionText: string): string {
+  return `meeting:action:${meetingId}:${hashKey(actionText)}`;
+}
+
 /** Prefer a stable Hub request id from free-text or JSON-ish lines. */
 export function extractHubRequestId(line: string): string | null {
   const trimmed = line.trim();
@@ -1740,7 +1745,7 @@ function collectMeetings(meetingService: MeetingService | null): RawMatterSignal
         if (!text) continue;
         signals.push(
           signal({
-            fingerprint: `meeting:action:${meeting.id}:${hashKey(text)}`,
+            fingerprint: meetingActionFingerprint(meeting.id, text),
             source: 'meeting',
             title: text.slice(0, 140),
             summary: `From meeting: ${meeting.title || 'Untitled'}`,

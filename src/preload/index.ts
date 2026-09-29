@@ -69,6 +69,12 @@ import type { AllocatedHubProject, PersonalFolder } from '../shared/workspace-di
 import type { UnifiedCompanyProject } from '../shared/unified-company-projects';
 import type { MatterItemActionInput, MatterRuntimeConfig, MatterSnapshot } from '../shared/matter';
 import type { MatterOpenDeepLink } from '../shared/matter-deeplink';
+import type {
+  LoopCreateInput,
+  LoopUpdateInput,
+  LoopsRuntimeConfig,
+  LoopsSnapshot,
+} from '../shared/loops';
 
 // Track registered callbacks to prevent duplicate listeners
 let registeredCallback: ((event: ServerEvent) => void) | null = null;
@@ -853,6 +859,27 @@ contextBridge.exposeInMainWorld('electronAPI', {
         callback(link);
       ipcRenderer.on('matter:openDeepLink', listener);
       return () => ipcRenderer.removeListener('matter:openDeepLink', listener);
+    },
+  },
+
+  loops: {
+    list: (): Promise<LoopsSnapshot> => ipcRenderer.invoke('loops.list'),
+    create: (input: LoopCreateInput): Promise<LoopsSnapshot> =>
+      ipcRenderer.invoke('loops.create', input),
+    update: (id: string, updates: LoopUpdateInput): Promise<LoopsSnapshot> =>
+      ipcRenderer.invoke('loops.update', id, updates),
+    close: (id: string): Promise<LoopsSnapshot> => ipcRenderer.invoke('loops.close', id),
+    drop: (id: string): Promise<LoopsSnapshot> => ipcRenderer.invoke('loops.drop', id),
+    promoteFromMatter: (matterItemId: string): Promise<LoopsSnapshot> =>
+      ipcRenderer.invoke('loops.promoteFromMatter', matterItemId),
+    research: (id: string): Promise<LoopsSnapshot> => ipcRenderer.invoke('loops.research', id),
+    updateSettings: (partial: Partial<LoopsRuntimeConfig>): Promise<LoopsRuntimeConfig> =>
+      ipcRenderer.invoke('loops.updateSettings', partial),
+    onChanged: (callback: (snapshot: LoopsSnapshot) => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, snapshot: LoopsSnapshot) =>
+        callback(snapshot);
+      ipcRenderer.on('loops:changed', listener);
+      return () => ipcRenderer.removeListener('loops:changed', listener);
     },
   },
 
@@ -1711,6 +1738,17 @@ declare global {
         buildChatPrompt: (prompt: string, itemIds?: string[]) => Promise<{ prompt: string }>;
         onUpdated: (callback: (snapshot: MatterSnapshot) => void) => () => void;
         onOpenDeepLink: (callback: (link: MatterOpenDeepLink) => void) => () => void;
+      };
+      loops: {
+        list: () => Promise<LoopsSnapshot>;
+        create: (input: LoopCreateInput) => Promise<LoopsSnapshot>;
+        update: (id: string, updates: LoopUpdateInput) => Promise<LoopsSnapshot>;
+        close: (id: string) => Promise<LoopsSnapshot>;
+        drop: (id: string) => Promise<LoopsSnapshot>;
+        promoteFromMatter: (matterItemId: string) => Promise<LoopsSnapshot>;
+        research: (id: string) => Promise<LoopsSnapshot>;
+        updateSettings: (partial: Partial<LoopsRuntimeConfig>) => Promise<LoopsRuntimeConfig>;
+        onChanged: (callback: (snapshot: LoopsSnapshot) => void) => () => void;
       };
       loop: {
         start: (payload: ChatLoopStartInput) => Promise<ChatLoopStatus>;

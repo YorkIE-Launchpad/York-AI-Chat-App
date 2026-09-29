@@ -12,6 +12,7 @@ export type PrepSource =
   | 'jira'
   | 'launchpad'
   | 'confluence'
+  | 'chat'
   | 'web';
 
 export interface PrepEvidence {

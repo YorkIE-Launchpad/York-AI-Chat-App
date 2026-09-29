@@ -209,6 +209,7 @@ export function useSettingsState(): {
   showSettings: boolean;
   showMatter: boolean;
   showWorkflows: boolean;
+  showLoops: boolean;
   settingsTab: string | null;
 } {
   return useAppStore(
@@ -216,6 +217,7 @@ export function useSettingsState(): {
       showSettings: s.showSettings,
       showMatter: s.showMatter,
       showWorkflows: s.showWorkflows,
+      showLoops: s.showLoops,
       settingsTab: s.settingsTab,
     }))
   );

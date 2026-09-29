@@ -60,6 +60,9 @@ const WorkflowsPage = lazy(() =>
     default: module.WorkflowsPage,
   }))
 );
+const LoopsPage = lazy(() =>
+  import('./components/loops/LoopsPage').then((module) => ({ default: module.LoopsPage }))
+);
 
 function MainPanelFallback() {
   return (
@@ -110,18 +113,21 @@ function AuthenticatedApp() {
   const activeSessionId = useActiveSessionId();
   const settings = useSettings();
   const systemDarkMode = useSystemDarkMode();
-  const { showSettings, showMatter, showWorkflows } = useSettingsState();
+  const { showSettings, showMatter, showWorkflows, showLoops } = useSettingsState();
+  const showFeaturePage = showSettings || showMatter || showWorkflows || showLoops;
 
   useEffect(() => {
-    if (!activeSessionId && !showSettings && !showMatter && !showWorkflows) {
+    if (!activeSessionId && !showFeaturePage) {
       prefetchChatPanels();
     }
-  }, [activeSessionId, showSettings, showMatter, showWorkflows]);
+  }, [activeSessionId, showFeaturePage]);
   const setShowMatter = useAppStore((s) => s.setShowMatter);
   const openMatterToMeeting = useAppStore((s) => s.openMatterToMeeting);
   const openMatterToItem = useAppStore((s) => s.openMatterToItem);
   const setShowWorkflows = useAppStore((s) => s.setShowWorkflows);
   const setMatterBadgeCount = useAppStore((s) => s.setMatterBadgeCount);
+  const setShowLoops = useAppStore((s) => s.setShowLoops);
+  const setLoopsBadgeCount = useAppStore((s) => s.setLoopsBadgeCount);
   const { sidebarCollapsed } = useLayoutState();
   const globalNotice = useGlobalNotice();
   const activeHtmlPreview = useAppStore((s) => s.activeHtmlPreview);
@@ -198,6 +204,24 @@ function AuthenticatedApp() {
       off();
     };
   }, [isElectron, setMatterBadgeCount, setShowMatter]);
+
+  useEffect(() => {
+    if (!isElectron || !window.electronAPI?.loops) return;
+    let cancelled = false;
+    void window.electronAPI.loops
+      .list()
+      .then((snapshot) => {
+        if (!cancelled) setLoopsBadgeCount(snapshot.dueCount);
+      })
+      .catch(() => undefined);
+    const off = window.electronAPI.loops.onChanged((snapshot) =>
+      setLoopsBadgeCount(snapshot.dueCount)
+    );
+    return () => {
+      cancelled = true;
+      off();
+    };
+  }, [isElectron, setLoopsBadgeCount]);
 
   useEffect(() => {
     if (!isElectron || !window.electronAPI?.matter?.onOpenDeepLink) return;
@@ -408,7 +432,7 @@ function AuthenticatedApp() {
 
         {/* Main Content Area */}
         <main className="flex-1 min-h-0 min-w-0 flex flex-col overflow-hidden bg-background">
-          {!showSettings && !showMatter && !showWorkflows && !activeSessionId && (
+          {!showFeaturePage && !activeSessionId && (
             <ToolsConnectingStatus toolsReadyState={toolsReadyState} />
           )}
           {showSettings ? (
@@ -441,6 +465,12 @@ function AuthenticatedApp() {
                 <WorkflowsPage onClose={() => setShowWorkflows(false)} />
               </Suspense>
             </PanelErrorBoundary>
+          ) : showLoops ? (
+            <PanelErrorBoundary name="LoopsPage" resetKey="loops" fallback={<MainPanelFallback />}>
+              <Suspense fallback={<MainPanelFallback />}>
+                <LoopsPage onClose={() => setShowLoops(false)} />
+              </Suspense>
+            </PanelErrorBoundary>
           ) : activeSessionId ? (
             <PanelErrorBoundary
               name="ChatView"
@@ -457,11 +487,7 @@ function AuthenticatedApp() {
         </main>
 
         {/* Right rail: HTML preview (when active) or Context Panel */}
-        {activeSessionId &&
-          !showSettings &&
-          !showMatter &&
-          !showWorkflows &&
-          activeHtmlPreview && (
+        {activeSessionId && !showFeaturePage && activeHtmlPreview && (
           <PanelErrorBoundary
             name="HtmlPreviewPanel"
             resetKey={`${activeSessionId}:${activeHtmlPreview.path}`}
@@ -472,11 +498,7 @@ function AuthenticatedApp() {
             </Suspense>
           </PanelErrorBoundary>
         )}
-        {activeSessionId &&
-          !showSettings &&
-          !showMatter &&
-          !showWorkflows &&
-          !activeHtmlPreview && (
+        {activeSessionId && !showFeaturePage && !activeHtmlPreview && (
           <PanelErrorBoundary
             name="ContextPanel"
             resetKey={activeSessionId}
@@ -499,6 +521,7 @@ function AuthenticatedApp() {
           setShowSettings(false);
           setShowMatter(false);
           setShowWorkflows(false);
+          setShowLoops(false);
           setIncognitoDraft(false);
           if (!openSessionWithDivision(hit.sessionId)) return;
           if (!isElectron) return;
@@ -513,10 +536,7 @@ function AuthenticatedApp() {
 
       {/* Permission Dialog — above Ask popup */}
       {pendingPermission && (
-        <PermissionDialog
-          key={pendingPermission.toolUseId}
-          permission={pendingPermission}
-        />
+        <PermissionDialog key={pendingPermission.toolUseId} permission={pendingPermission} />
       )}
 
       {/* Sudo Password Dialog */}

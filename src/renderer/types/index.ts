@@ -1213,6 +1213,7 @@ export interface AppConfig {
   meetingsRuntime?: MeetingsRuntimeConfig;
   matterEnabled?: boolean;
   matterRuntime?: import('../../shared/matter').MatterRuntimeConfig;
+  loopsRuntime?: import('../../shared/loops').LoopsRuntimeConfig;
   enableThinking?: boolean;
   /** User profile MUST instructions for chat + subagents. */
   profileDosPrompt?: string;

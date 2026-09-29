@@ -128,8 +128,11 @@ interface AppState {
   showSettings: boolean;
   showMatter: boolean;
   showWorkflows: boolean;
+  showLoops: boolean;
   settingsTab: string | null;
   matterBadgeCount: number;
+  /** Open loops I own that are overdue or due today. */
+  loopsBadgeCount: number;
   /** When opening Matter, switch to Calendar and select this meeting id. */
   matterFocusMeetingId: string | null;
   /** When opening Matter, switch to Signals and select this item id. */
@@ -280,8 +283,10 @@ interface AppState {
   setShowSettings: (show: boolean) => void;
   setShowMatter: (show: boolean) => void;
   setShowWorkflows: (show: boolean) => void;
+  setShowLoops: (show: boolean) => void;
   setSettingsTab: (tab: string | null) => void;
   setMatterBadgeCount: (count: number) => void;
+  setLoopsBadgeCount: (count: number) => void;
   setMatterFocusMeetingId: (meetingId: string | null) => void;
   setMatterFocusItemId: (itemId: string | null) => void;
   openMatterToItem: (itemId: string) => void;
@@ -398,8 +403,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   showSettings: false,
   showMatter: false,
   showWorkflows: false,
+  showLoops: false,
   settingsTab: null,
   matterBadgeCount: 0,
+  loopsBadgeCount: 0,
   matterFocusMeetingId: null,
   matterFocusItemId: null,
   matterFocusPrepFullscreen: false,
@@ -579,6 +586,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             showMatter: false,
             showSettings: false,
             showWorkflows: false,
+            showLoops: false,
             ...(switching ? { activeHtmlPreview: null } : {}),
             ...(nextWorkingDir ? { workingDir: nextWorkingDir } : {}),
           }
@@ -943,7 +951,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   setShowSettings: (show) =>
     set(
       show
-        ? { showSettings: true, showMatter: false, showWorkflows: false }
+        ? { showSettings: true, showMatter: false, showWorkflows: false, showLoops: false }
         : { showSettings: false }
     ),
   setShowMatter: (show) =>
@@ -953,6 +961,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             showMatter: true,
             showSettings: false,
             showWorkflows: false,
+            showLoops: false,
             activeSessionId: null,
           }
         : { showMatter: false }
@@ -964,12 +973,26 @@ export const useAppStore = create<AppState>((set, get) => ({
             showWorkflows: true,
             showSettings: false,
             showMatter: false,
+            showLoops: false,
             activeSessionId: null,
           }
         : { showWorkflows: false }
     ),
+  setShowLoops: (show) =>
+    set(
+      show
+        ? {
+            showLoops: true,
+            showSettings: false,
+            showMatter: false,
+            showWorkflows: false,
+            activeSessionId: null,
+          }
+        : { showLoops: false }
+    ),
   setSettingsTab: (tab) => set({ settingsTab: tab }),
   setMatterBadgeCount: (count) => set({ matterBadgeCount: Math.max(0, count) }),
+  setLoopsBadgeCount: (count) => set({ loopsBadgeCount: Math.max(0, count) }),
   setMatterFocusMeetingId: (meetingId) =>
     set(
       meetingId == null
@@ -986,6 +1009,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       showMatter: true,
       showSettings: false,
       showWorkflows: false,
+      showLoops: false,
       activeSessionId: null,
     }),
   openMatterToMeeting: (meetingId, options) =>
@@ -996,6 +1020,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       showMatter: true,
       showSettings: false,
       showWorkflows: false,
+      showLoops: false,
       activeSessionId: null,
     }),
   setMatterPrepLoadingId: (meetingId) => set({ matterPrepLoadingId: meetingId }),
@@ -1256,6 +1281,7 @@ if (typeof window !== 'undefined') {
       showSettings: !!s.showSettings,
       showMatter: !!s.showMatter,
       showWorkflows: !!s.showWorkflows,
+      showLoops: !!s.showLoops,
       askGrowthOSOpen: !!s.askGrowthOSOpen,
       activeSessionId: s.activeSessionId || null,
       sessionCount: (s.sessions || []).length,
@@ -1268,6 +1294,7 @@ if (typeof window !== 'undefined') {
       store.setShowSettings(false);
       store.setShowMatter(false);
       store.setShowWorkflows(false);
+      store.setShowLoops(false);
       store.setAskGrowthOSOpen(false);
       store.setActiveSession(null);
     } else if (page === 'matter') {
@@ -1277,6 +1304,8 @@ if (typeof window !== 'undefined') {
       store.setShowMatter(true);
     } else if (page === 'workflows') {
       store.setShowWorkflows(true);
+    } else if (page === 'loops') {
+      store.setShowLoops(true);
     } else if (page === 'settings') {
       if (tab === 'workflows') {
         store.setShowWorkflows(true);
@@ -1293,6 +1322,7 @@ if (typeof window !== 'undefined') {
       store.setShowSettings(false);
       store.setShowMatter(false);
       store.setShowWorkflows(false);
+      store.setShowLoops(false);
       store.setAskGrowthOSOpen(false);
       store.openSessionWithDivision(sessionId);
     }

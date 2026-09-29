@@ -12,6 +12,7 @@ import {
   type MatterSnapshot,
 } from '../../../shared/matter';
 import { buildMatterSessionTitle } from '../../../shared/matter-chat';
+import type { LoopsSnapshot } from '../../../shared/loops';
 import { useAppStore } from '../../store';
 import { useIPC } from '../../hooks/useIPC';
 import { MatterRadar } from './MatterRadar';
@@ -21,7 +22,6 @@ import { MatterAskBar } from './MatterAskBar';
 import { MatterItemDetail } from './MatterItemDetail';
 import { MatterMeetingCard } from './MatterMeetingCard';
 import { MatterMeetingDetail } from './MatterMeetingDetail';
-
 type MatterSeverityFilter = Extract<MatterSeverity, 'critical' | 'warning' | 'healthy'>;
 type MatterLeftTab = 'signals' | 'calendar';
 
@@ -127,6 +127,39 @@ export function MatterPage({ onClose }: MatterPageProps) {
   );
 
   const matterEnabled = snapshot.settings.enabled !== false;
+
+  const [trackedLoopKeys, setTrackedLoopKeys] = useState<Set<string>>(new Set());
+  const applyLoopsSnapshot = useCallback((next: LoopsSnapshot) => {
+    const keys = new Set<string>();
+    for (const loop of next.loops) {
+      if (loop.status !== 'open') continue;
+      keys.add(loop.fingerprint);
+      if (loop.sourceRef.matterItemId) keys.add(loop.sourceRef.matterItemId);
+    }
+    setTrackedLoopKeys(keys);
+  }, []);
+
+  useEffect(() => {
+    const api = window.electronAPI?.loops;
+    if (!api) return;
+    void api
+      .list()
+      .then(applyLoopsSnapshot)
+      .catch(() => undefined);
+    return api.onChanged(applyLoopsSnapshot);
+  }, [applyLoopsSnapshot]);
+
+  const isTracked = (item: MatterItem) =>
+    trackedLoopKeys.has(item.id) || trackedLoopKeys.has(item.fingerprint);
+
+  const addToLoops = window.electronAPI?.loops
+    ? (item: MatterItem) => {
+        void window.electronAPI.loops
+          .promoteFromMatter(item.id)
+          .then(applyLoopsSnapshot)
+          .catch((error: unknown) => console.warn('[Loops] Promote failed', error));
+      }
+    : null;
 
   const refresh = useCallback(async () => {
     if (!window.electronAPI?.matter) return;
@@ -563,6 +596,8 @@ export function MatterPage({ onClose }: MatterPageProps) {
                     onPin={() => void runAction(item, item.pinned ? 'unpin' : 'pin')}
                     onOpen={() => void runAction(item, 'open')}
                     onHandleChat={() => void openSignalChat(item)}
+                    tracked={isTracked(item)}
+                    onAddToLoops={addToLoops ? () => addToLoops(item) : undefined}
                   />
                 ))
               )}
@@ -648,6 +683,8 @@ export function MatterPage({ onClose }: MatterPageProps) {
                 onPin={() => void runAction(selectedItem, selectedItem.pinned ? 'unpin' : 'pin')}
                 onOpen={() => void runAction(selectedItem, 'open')}
                 onHandleChat={() => void openSignalChat(selectedItem)}
+                tracked={isTracked(selectedItem)}
+                onAddToLoops={addToLoops ? () => addToLoops(selectedItem) : undefined}
               />
             </div>
           ) : null}

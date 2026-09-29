@@ -831,6 +831,48 @@ function initializeSchema(database: Database.Database): void {
     ON workflows(status, updated_at DESC)
   `);
 
+    // Loops — persistent user-owned commitments (from meetings, Matter, manual)
+    database.exec(`
+    CREATE TABLE IF NOT EXISTS loops (
+      id TEXT PRIMARY KEY,
+      fingerprint TEXT NOT NULL UNIQUE,
+      title TEXT NOT NULL,
+      notes TEXT,
+      origin TEXT NOT NULL DEFAULT 'manual',
+      source_ref TEXT NOT NULL DEFAULT '{}',
+      owner TEXT NOT NULL DEFAULT 'me',
+      counterpart TEXT,
+      due_at INTEGER,
+      priority TEXT NOT NULL DEFAULT 'normal',
+      status TEXT NOT NULL DEFAULT 'open',
+      auto_captured INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      closed_at INTEGER
+    )
+  `);
+
+    ensureColumn(database, 'loops', 'research_note', 'research_note TEXT');
+    ensureColumn(
+      database,
+      'loops',
+      'research_sources',
+      "research_sources TEXT NOT NULL DEFAULT '[]'"
+    );
+    ensureColumn(
+      database,
+      'loops',
+      'research_status',
+      "research_status TEXT NOT NULL DEFAULT 'idle'"
+    );
+    ensureColumn(database, 'loops', 'research_error', 'research_error TEXT');
+    ensureColumn(database, 'loops', 'researched_at', 'researched_at INTEGER');
+
+    database.exec(`
+    CREATE INDEX IF NOT EXISTS idx_loops_status_due
+    ON loops(status, due_at)
+  `);
+
     log('[Database] Schema initialized');
   } catch (error) {
     logError('[Database] Schema initialization failed:', error);

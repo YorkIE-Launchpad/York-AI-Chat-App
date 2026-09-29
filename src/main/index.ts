@@ -103,6 +103,8 @@ import { SuperContextExtension } from './supercontext/supercontext-extension';
 import { CheckpointService } from './orchestration/checkpoint-service';
 import { WorkflowService } from './workflows/workflow-service';
 import { WorkflowExtension } from './workflows/workflow-extension';
+import { LoopService } from './loops/loop-service';
+import { resolveWelcomeProfile } from './welcome/resolve-welcome-profile';
 import {
   createWorkflowScheduleBridge,
   sweepOrphanedWorkflowSchedules,
@@ -185,6 +187,12 @@ import {
   registerMatterDeepLinkProtocol,
 } from './matter/matter-deeplink-handlers';
 import type { MatterItemActionInput, MatterRuntimeConfig, MatterSnapshot } from '../shared/matter';
+import type {
+  LoopCreateInput,
+  LoopUpdateInput,
+  LoopsRuntimeConfig,
+  LoopsSnapshot,
+} from '../shared/loops';
 import {
   ChatLoopManager,
   extractAssistantText,
@@ -369,6 +377,7 @@ let workflowService: WorkflowService | null = null;
 let scheduledTaskManager: ScheduledTaskManager | null = null;
 let chatLoopManager: ChatLoopManager | null = null;
 let matterService: MatterService | null = null;
+let loopService: LoopService | null = null;
 let folderManager: FolderManager | null = null;
 
 function wireCollabSyncService(): void {
@@ -477,6 +486,22 @@ function wireWikiAndOrchestration(db: ReturnType<typeof initDatabase>): void {
   checkpointService = new CheckpointService(db);
   workflowService = new WorkflowService(db, checkpointService);
   bindSubagentCheckpointService(checkpointService);
+  loopService = new LoopService(db);
+  loopService.setMainWindowGetter(() => mainWindow);
+  loopService.setProfileResolver(() =>
+    resolveWelcomeProfile({ mcpManager: sessionManager?.getMCPManager() ?? null })
+  );
+  loopService.setResearchSources({
+    getMcpManager: () => sessionManager?.getMCPManager() ?? null,
+    getMeetingService: () => meetingService,
+    searchChats: (query, limit) => db.chatSearch.search(query, limit),
+  });
+  loopService.setMatterBridge({
+    getItem: (id) => matterService?.getSnapshot().items.find((item) => item.id === id) ?? null,
+    markDone: (itemId) => {
+      matterService?.applyItemAction({ itemId, action: 'done' });
+    },
+  });
 
   bindConnectorWikiIngest((input) => {
     wikiService?.ingestConnectorArtifact(input);
@@ -1117,6 +1142,7 @@ function wireMeetingServiceEvents(service: MeetingService): void {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('meetings:notesReady', meeting);
     }
+    void loopService?.captureFromMeeting(meeting);
   });
   service.onMeetingDetected((payload) => {
     log(`[Meetings] Broadcasting detection to renderer: ${payload.newlyDetected.join(', ')}`);
@@ -2599,6 +2625,7 @@ app
     matterService.setMainWindowGetter(() => mainWindow);
     matterService.setPostScanHandler((snapshot) => {
       wikiService?.ingestMatterItems(snapshot.items);
+      loopService?.captureFromMatter(snapshot.items);
     });
     matterService.start();
 
@@ -5972,6 +5999,50 @@ ipcMain.handle(
     }
     return { prompt: matterService.buildChatPrompt(prompt, itemIds) };
   }
+);
+
+function requireLoopService(): LoopService {
+  if (!loopService) {
+    throw new Error('Loops service not initialized');
+  }
+  return loopService;
+}
+
+ipcMain.handle('loops.list', (): LoopsSnapshot => requireLoopService().getSnapshot());
+
+ipcMain.handle(
+  'loops.create',
+  (_event, input: LoopCreateInput): LoopsSnapshot => requireLoopService().create(input)
+);
+
+ipcMain.handle(
+  'loops.update',
+  (_event, id: string, updates: LoopUpdateInput): LoopsSnapshot =>
+    requireLoopService().update(id, updates)
+);
+
+ipcMain.handle(
+  'loops.close',
+  (_event, id: string): LoopsSnapshot => requireLoopService().close(id)
+);
+
+ipcMain.handle('loops.drop', (_event, id: string): LoopsSnapshot => requireLoopService().drop(id));
+
+ipcMain.handle(
+  'loops.promoteFromMatter',
+  (_event, matterItemId: string): LoopsSnapshot =>
+    requireLoopService().promoteFromMatter(matterItemId)
+);
+
+ipcMain.handle(
+  'loops.research',
+  (_event, id: string): LoopsSnapshot => requireLoopService().research(id)
+);
+
+ipcMain.handle(
+  'loops.updateSettings',
+  (_event, partial: Partial<LoopsRuntimeConfig>): LoopsRuntimeConfig =>
+    requireLoopService().updateRuntime(partial)
 );
 
 ipcMain.handle('loop.start', (_event, payload: ChatLoopStartInput) => {

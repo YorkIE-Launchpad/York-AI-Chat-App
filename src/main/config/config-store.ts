@@ -38,6 +38,11 @@ import {
   type AutoModelPreference,
 } from '../../shared/auto-model';
 import { DEFAULT_MATTER_RUNTIME, type MatterRuntimeConfig } from '../../shared/matter';
+import {
+  DEFAULT_LOOPS_RUNTIME,
+  normalizeLoopsRuntimeConfig,
+  type LoopsRuntimeConfig,
+} from '../../shared/loops';
 import { normalizeMatterRuntimeConfig } from '../matter/matter-config';
 import {
   applyBackendManagedCredentials,
@@ -186,6 +191,9 @@ export interface AppConfig {
 
   /** Matter scan window, sources, sensitivity. */
   matterRuntime: MatterRuntimeConfig;
+
+  /** Loops auto-capture settings (meetings, Matter threshold). */
+  loopsRuntime?: LoopsRuntimeConfig;
 
   // Enable thinking mode (show thinking steps)
   enableThinking: boolean;
@@ -479,6 +487,7 @@ const defaultConfig: AppConfig = {
     sources: { ...DEFAULT_MATTER_RUNTIME.sources },
     sourcePrompts: { ...DEFAULT_MATTER_RUNTIME.sourcePrompts },
   },
+  loopsRuntime: { ...DEFAULT_LOOPS_RUNTIME },
   enableThinking: false,
   profileDosPrompt: '',
   profileDontsPrompt: '',
@@ -1317,6 +1326,7 @@ export class ConfigStore {
         );
         return { ...normalized, enabled };
       })(),
+      loopsRuntime: normalizeLoopsRuntimeConfig(raw.loopsRuntime),
       enableThinking: projected.enableThinking,
       autoModelPreference: normalizeAutoModelPreference(raw.autoModelPreference),
       profileDosPrompt:
@@ -1795,6 +1805,10 @@ export class ConfigStore {
         const enabled = updates.matterEnabled !== undefined ? updates.matterEnabled : base.enabled;
         return { ...base, enabled };
       })(),
+      loopsRuntime:
+        updates.loopsRuntime !== undefined
+          ? normalizeLoopsRuntimeConfig(updates.loopsRuntime)
+          : normalizeLoopsRuntimeConfig(current.loopsRuntime),
       autoModelPreference:
         updates.autoModelPreference !== undefined
           ? normalizeAutoModelPreference(updates.autoModelPreference)

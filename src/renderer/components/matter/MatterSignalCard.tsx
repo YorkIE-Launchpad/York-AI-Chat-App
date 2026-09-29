@@ -9,6 +9,7 @@ import {
   ExternalLink,
   Ban,
   MoreHorizontal,
+  CircleDashed,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { MatterItem } from '../../../shared/matter';
@@ -41,6 +42,9 @@ interface MatterSignalCardProps {
   onPin: () => void;
   onOpen: () => void;
   onHandleChat: () => void;
+  /** An open loop already tracks this signal. */
+  tracked?: boolean;
+  onAddToLoops?: () => void;
 }
 
 export function MatterSignalCard({
@@ -53,6 +57,8 @@ export function MatterSignalCard({
   onPin,
   onOpen,
   onHandleChat,
+  tracked = false,
+  onAddToLoops,
 }: MatterSignalCardProps) {
   const { t } = useTranslation();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -166,6 +172,14 @@ export function MatterSignalCard({
                       hint={t('matter.action.chatHint')}
                       onClick={() => run(onHandleChat)}
                     />
+                    {onAddToLoops && !tracked ? (
+                      <MenuItem
+                        icon={<CircleDashed className="w-3.5 h-3.5" />}
+                        label={t('loops.addToLoops')}
+                        hint={t('loops.addToLoopsHint')}
+                        onClick={() => run(onAddToLoops)}
+                      />
+                    ) : null}
                     {item.sourceRef.url ? (
                       <MenuItem
                         icon={<ExternalLink className="w-3.5 h-3.5" />}
@@ -198,6 +212,12 @@ export function MatterSignalCard({
             <span className="rounded-md bg-surface px-1.5 py-0.5 text-text-muted border border-border-subtle">
               {item.source}
             </span>
+            {tracked ? (
+              <span className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 border border-accent/30 bg-accent/10 text-accent">
+                <CircleDashed className="w-2.5 h-2.5" />
+                {t('loops.tracked')}
+              </span>
+            ) : null}
             {item.dueAt != null ? (
               <span
                 className={`normal-case tracking-normal font-medium ${

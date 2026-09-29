@@ -1,5 +1,17 @@
 import type { ReactNode } from 'react';
-import { Check, Clock3, MessageSquare, Pin, PinOff, X, ExternalLink, Ban, Sparkles, Loader2 } from 'lucide-react';
+import {
+  Check,
+  Clock3,
+  MessageSquare,
+  Pin,
+  PinOff,
+  X,
+  ExternalLink,
+  Ban,
+  Sparkles,
+  Loader2,
+  CircleDashed,
+} from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { MEETING_PREP_MARKER, type MatterItem } from '../../../shared/matter';
 import { formatDueRelative, isDueUrgent } from '../../../shared/matter-time';
@@ -23,6 +35,9 @@ interface MatterItemDetailProps {
   onHandleChat: () => void;
   onPrep?: () => void;
   prepLoading?: boolean;
+  /** An open loop already tracks this signal. */
+  tracked?: boolean;
+  onAddToLoops?: () => void;
 }
 
 export function MatterItemDetail({
@@ -36,6 +51,8 @@ export function MatterItemDetail({
   onHandleChat,
   onPrep,
   prepLoading = false,
+  tracked = false,
+  onAddToLoops,
 }: MatterItemDetailProps) {
   const { t } = useTranslation();
   const sourceLabel = item.sourceRef.label || item.source;
@@ -167,7 +184,10 @@ export function MatterItemDetail({
                 {prettyRaw.rows ? (
                   <dl className="divide-y divide-border-subtle">
                     {prettyRaw.rows.map((row) => (
-                      <div key={row.key} className="grid grid-cols-[minmax(5.5rem,32%)_1fr] gap-2 px-3 py-1.5">
+                      <div
+                        key={row.key}
+                        className="grid grid-cols-[minmax(5.5rem,32%)_1fr] gap-2 px-3 py-1.5"
+                      >
                         <dt className="text-[10px] font-semibold uppercase tracking-wide text-text-muted break-all pt-0.5">
                           {row.key}
                         </dt>
@@ -265,6 +285,14 @@ export function MatterItemDetail({
           label={t('matter.action.chat')}
           onClick={onHandleChat}
         />
+        {onAddToLoops ? (
+          <DetailAction
+            icon={<CircleDashed className="w-3.5 h-3.5" />}
+            label={tracked ? t('loops.tracked') : t('loops.addToLoops')}
+            onClick={onAddToLoops}
+            disabled={tracked}
+          />
+        ) : null}
         {hasSourceUrl ? (
           <DetailAction
             icon={<ExternalLink className="w-3.5 h-3.5" />}

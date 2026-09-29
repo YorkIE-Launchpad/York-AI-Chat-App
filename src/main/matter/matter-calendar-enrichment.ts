@@ -746,7 +746,7 @@ export async function enrichCalendarMeeting(options: {
     prepNote: result.prepNote,
     topicHint: result.brief.purpose || null,
     hits: result.evidence.map((e) => ({
-      source: e.source === 'calendar' ? 'meeting' : e.source,
+      source: e.source === 'calendar' || e.source === 'chat' ? 'meeting' : e.source,
       label: e.title,
       detail: e.excerpt,
       url: e.url,
