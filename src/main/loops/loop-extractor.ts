@@ -1,5 +1,8 @@
 /**
  * Loop extraction — turns meeting action items and Matter signals into loop candidates.
+ *
+ * Capture is deliberately strict: a loop must be a concrete, checkable commitment that
+ * involves the user. Vague intentions ("clarify…", "ensure…", "align with…") are dropped.
  */
 import { MemoryLLMClient, type MemoryLLMClientLike } from '../memory/memory-llm-client';
 import type { MeetingSession } from '../meetings/meeting-types';
@@ -7,13 +10,74 @@ import type { MatterItem } from '../../shared/matter';
 import type { LoopOwner, LoopsRuntimeConfig } from '../../shared/loops';
 import type { WelcomeProfile } from '../../shared/welcome-actions';
 import { meetingActionFingerprint } from '../matter/matter-collector';
+import { runLoopActionJev } from '../jev/loops-jev';
 import { logWarn } from '../utils/logger';
 import type { LoopUpsertInput } from './loop-store';
 
-interface ActionClassification {
+/** Most loops a single meeting may auto-capture. */
+export const MAX_LOOPS_PER_MEETING = 5;
+const MIN_ACTION_WORDS = 3;
+
+/** Leading verbs that signal an intention or process note rather than a deliverable. */
+const VAGUE_LEADS = [
+  'clarify',
+  'ensure',
+  'align',
+  'discuss',
+  'consider',
+  'think',
+  'explore',
+  'understand',
+  'figure out',
+  'look into',
+  'keep',
+  'continue',
+  'monitor',
+  'be mindful',
+  'make sure',
+  'try to',
+  'revisit',
+  'reflect',
+  'brainstorm',
+  'decide whether',
+  'determine',
+  'identify',
+  'evaluate',
+  'assess',
+];
+
+/** Deictic references that only make sense inside the transcript ("which issue", "the tasks mentioned"). */
+const CONTEXT_DEPENDENT =
+  /\b(which|what)\s+(issue|task|item|thing|problem|one)s?\b|\b(mentioned|discussed|raised|offered)\s+(during|in)\s+the\s+(meeting|call)\b|\bwhat\s+is\s+scheduled\b/i;
+
+export type ActionRejectReason = 'too_short' | 'vague_lead' | 'context_dependent';
+
+/** Cheap deterministic screen applied before (and independent of) the LLM judge. */
+export function prescreenAction(text: string): ActionRejectReason | null {
+  const normalized = text
+    .trim()
+    .replace(/^[-*•\d.)\s]+/, '')
+    .toLowerCase();
+  if (normalized.split(/\s+/).filter(Boolean).length < MIN_ACTION_WORDS) return 'too_short';
+  if (VAGUE_LEADS.some((lead) => normalized === lead || normalized.startsWith(`${lead} `))) {
+    return 'vague_lead';
+  }
+  if (CONTEXT_DEPENDENT.test(normalized)) return 'context_dependent';
+  return null;
+}
+
+export interface ActionScreen {
+  keep: boolean;
   owner: LoopOwner;
   counterpart: string | null;
   dueAt: number | null;
+}
+
+export interface MeetingContext {
+  title: string;
+  startedAt: number;
+  attendees?: unknown[];
+  summary?: string | null;
 }
 
 function extractJsonObject(text: string): Record<string, unknown> | null {
@@ -41,30 +105,50 @@ function parseDue(value: unknown): number | null {
 }
 
 /**
- * One LLM call classifies every action item: is it mine or am I waiting on someone,
- * who is the counterpart, and is there an explicit deadline. Falls back to `me`.
+ * One LLM call judges every action item: is it a concrete commitment worth tracking,
+ * is it mine or owed to me, who is the counterpart, and is there an explicit deadline.
+ * Returns null when the judge fails, so callers can decide how to err.
  */
-export async function classifyMeetingActions(
-  meeting: MeetingSession,
+const SCREEN_PROMPT = [
+  "You screen meeting action items for ONE user's personal to-do list. Be strict: most items should be rejected.",
+  'keep=true ONLY when ALL hold:',
+  '(1) it is a concrete deliverable someone can finish and tick off — a specific verb plus a specific object (e.g. "Send the Q4 pricing sheet to Priya", "Grant Git access to Prateek Gwala", "Fix the login redirect bug");',
+  '(2) it makes sense on its own, without reading the transcript (no "which issue", "the tasks mentioned", "what is scheduled");',
+  '(3) the user must do it, or a named person explicitly owes it to the user.',
+  'Reject: intentions and process reminders (clarify, ensure, align, discuss, confirm what…, review in general, follow the process),',
+  'items about other people with no action for the user, restated meeting topics, and anything whose meaning is uncertain because the transcript is garbled.',
+  'owner: "me" if the user must do it, "other" if a named person owes it to the user.',
+  'counterpart: the other named person, or null.',
+  'due: ISO 8601 only if the item states an explicit deadline, resolved against the meeting date; else null.',
+  'Return ONLY JSON: {"items":[{"index":0,"keep":false,"owner":"me","counterpart":null,"due":null}]}.',
+].join(' ');
+
+const FIELDS_PROMPT = [
+  "These meeting action items were already accepted for ONE user's to-do list. For each, extract:",
+  'owner: "me" if the user must do it, "other" if a named person owes it to the user;',
+  'counterpart: the other named person, or null;',
+  'due: ISO 8601 only if the item states an explicit deadline, resolved against the meeting date; else null.',
+  'Return ONLY JSON: {"items":[{"index":0,"owner":"me","counterpart":null,"due":null}]}.',
+].join(' ');
+
+export async function screenMeetingActions(
+  meeting: MeetingContext,
   actions: string[],
   profile: WelcomeProfile | null,
-  llm: MemoryLLMClientLike = new MemoryLLMClient()
-): Promise<ActionClassification[]> {
-  const fallback = actions.map<ActionClassification>(() => ({
+  llm: MemoryLLMClientLike = new MemoryLLMClient(),
+  options: { fieldsOnly?: boolean } = {}
+): Promise<ActionScreen[] | null> {
+  const fieldsOnly = options.fieldsOnly === true;
+  const rejected = actions.map<ActionScreen>(() => ({
+    keep: fieldsOnly,
     owner: 'me',
     counterpart: null,
     dueAt: null,
   }));
-  if (actions.length === 0) return fallback;
+  if (actions.length === 0) return rejected;
   try {
     const response = await llm.complete({
-      systemPrompt: [
-        'You classify meeting action items for one user.',
-        'For each item decide owner: "me" if the user must do it (or it is unassigned), "other" if someone else owes it to the user.',
-        'counterpart: the other person named in the item, or null.',
-        'due: ISO 8601 datetime only if the item states an explicit deadline, else null. Resolve relative dates against the meeting date.',
-        'Return ONLY JSON: {"items":[{"index":0,"owner":"me","counterpart":null,"due":null}]}.',
-      ].join(' '),
+      systemPrompt: fieldsOnly ? FIELDS_PROMPT : SCREEN_PROMPT,
       userPrompt: JSON.stringify({
         user: profile ? { name: profile.name, email: profile.email } : null,
         meetingTitle: meeting.title,
@@ -75,14 +159,19 @@ export async function classifyMeetingActions(
       temperature: 0,
     });
     const parsed = extractJsonObject(response.text);
-    const items = Array.isArray(parsed?.items) ? parsed.items : [];
-    const out = [...fallback];
+    if (!parsed) {
+      logWarn('[Loops] Action screen returned no JSON');
+      return null;
+    }
+    const items = Array.isArray(parsed.items) ? parsed.items : [];
+    const out = [...rejected];
     for (const raw of items) {
       if (!raw || typeof raw !== 'object') continue;
       const item = raw as Record<string, unknown>;
       const index = typeof item.index === 'number' ? item.index : -1;
       if (index < 0 || index >= out.length) continue;
       out[index] = {
+        keep: fieldsOnly || item.keep === true,
         owner: item.owner === 'other' ? 'other' : 'me',
         counterpart:
           typeof item.counterpart === 'string' && item.counterpart.trim()
@@ -93,30 +182,99 @@ export async function classifyMeetingActions(
     }
     return out;
   } catch (error) {
-    logWarn('[Loops] Action classification failed; defaulting owner to me', error);
-    return fallback;
+    logWarn('[Loops] Action screen failed', error);
+    return null;
   }
+}
+
+export interface LoopJudgeDeps {
+  llm?: MemoryLLMClientLike;
+  jev?: typeof runLoopActionJev;
+}
+
+/**
+ * Jev decides keep/owner (specific output, standalone context, involves the user); the
+ * LLM only extracts counterpart + due for survivors. Without Jev the strict LLM screen
+ * decides everything. Returns null when neither could judge.
+ */
+export async function judgeMeetingActions(
+  meeting: MeetingContext,
+  actions: string[],
+  profile: WelcomeProfile | null,
+  deps: LoopJudgeDeps = {}
+): Promise<ActionScreen[] | null> {
+  if (actions.length === 0) return [];
+  const decisions = await (deps.jev ?? runLoopActionJev)({
+    source: {
+      kind: 'meeting',
+      title: meeting.title,
+      date: new Date(meeting.startedAt).toISOString(),
+      summary: meeting.summary ?? null,
+      attendees: meeting.attendees,
+    },
+    candidates: actions.map((text) => ({ text })),
+    profile,
+  });
+  if (!decisions) return screenMeetingActions(meeting, actions, profile, deps.llm);
+
+  const out = decisions.map<ActionScreen>((d) => ({
+    keep: false,
+    owner: d.owner,
+    counterpart: null,
+    dueAt: null,
+  }));
+  const kept = decisions.flatMap((d, i) => (d.keep ? [i] : []));
+  if (kept.length === 0) return out;
+  const fields = await screenMeetingActions(
+    meeting,
+    kept.map((i) => actions[i]),
+    profile,
+    deps.llm,
+    { fieldsOnly: true }
+  );
+  kept.forEach((i, k) => {
+    out[i] = {
+      keep: true,
+      owner: decisions[i].owner,
+      counterpart: fields?.[k]?.counterpart ?? null,
+      dueAt: fields?.[k]?.dueAt ?? null,
+    };
+  });
+  return out;
 }
 
 export async function extractMeetingLoops(
   meeting: MeetingSession,
   profile: WelcomeProfile | null,
-  llm?: MemoryLLMClientLike
+  deps: LoopJudgeDeps = {}
 ): Promise<LoopUpsertInput[]> {
-  const actions = (meeting.notes?.actionItems || []).map((a) => String(a).trim()).filter(Boolean);
+  const actions = (meeting.notes?.actionItems || [])
+    .map((a) => String(a).trim())
+    .filter((text) => text && !prescreenAction(text));
   if (actions.length === 0) return [];
-  const classified = await classifyMeetingActions(meeting, actions, profile, llm);
-  return actions.map((text, i) => ({
-    fingerprint: meetingActionFingerprint(meeting.id, text),
-    title: text,
-    notes: null,
-    origin: 'meeting',
-    sourceRef: { meetingId: meeting.id, label: meeting.title || 'Meeting' },
-    owner: classified[i].owner,
-    counterpart: classified[i].counterpart,
-    dueAt: classified[i].dueAt,
-    autoCaptured: true,
-  }));
+  const screened = await judgeMeetingActions(
+    { ...meeting, summary: meeting.notes?.summary ?? null },
+    actions,
+    profile,
+    deps
+  );
+  // Err toward silence: an unscreened action item is not captured.
+  if (!screened) return [];
+  return actions
+    .map((text, i) => ({ text, screen: screened[i] }))
+    .filter(({ screen }) => screen.keep)
+    .slice(0, MAX_LOOPS_PER_MEETING)
+    .map(({ text, screen }) => ({
+      fingerprint: meetingActionFingerprint(meeting.id, text),
+      title: text,
+      notes: null,
+      origin: 'meeting' as const,
+      sourceRef: { meetingId: meeting.id, label: meeting.title || 'Meeting' },
+      owner: screen.owner,
+      counterpart: screen.counterpart,
+      dueAt: screen.dueAt,
+      autoCaptured: true,
+    }));
 }
 
 /**
@@ -127,12 +285,19 @@ export function matterDeadline(item: MatterItem, now = Date.now()): number | nul
   return item.dueAt != null && item.dueAt > now ? item.dueAt : null;
 }
 
+/** Matter's placeholder advice on meeting signals — not a real next step. */
+const GENERIC_SUGGESTION = /^(complete|review|handle|address),?\s+(delegate|or)\b/i;
+
 export function matterItemToLoop(item: MatterItem, autoCaptured: boolean): LoopUpsertInput {
   const meetingId = item.source === 'meeting' ? item.sourceRef.externalId || null : null;
+  const suggestion = item.suggestedAction?.trim();
   return {
     fingerprint: item.fingerprint,
     title: item.title,
-    notes: item.suggestedAction || item.summary || null,
+    notes:
+      (suggestion && !GENERIC_SUGGESTION.test(suggestion) ? suggestion : null) ||
+      item.summary ||
+      null,
     origin: item.source === 'meeting' ? 'meeting' : 'matter',
     sourceRef: {
       matterItemId: item.id,
@@ -147,16 +312,44 @@ export function matterItemToLoop(item: MatterItem, autoCaptured: boolean): LoopU
   };
 }
 
-/** Matter items worth auto-tracking as loops after a scan. */
+/**
+ * Jev gate for Matter candidates that already passed `selectMatterLoopCandidates`.
+ * Without Jev, the heuristic selection stands.
+ */
+export async function judgeMatterCandidates(
+  items: MatterItem[],
+  profile: WelcomeProfile | null,
+  deps: Pick<LoopJudgeDeps, 'jev'> = {}
+): Promise<MatterItem[]> {
+  if (items.length === 0) return [];
+  const decisions = await (deps.jev ?? runLoopActionJev)({
+    source: { kind: 'matter', title: 'Matter scan', date: new Date().toISOString() },
+    candidates: items.map((item) => ({
+      text: item.title,
+      detail: [item.suggestedAction, item.summary].filter(Boolean).join(' — '),
+    })),
+    profile,
+  });
+  if (!decisions) return items;
+  return items.filter((_, i) => decisions[i]?.keep);
+}
+
+/**
+ * Matter items worth auto-tracking as loops after a scan. Meeting-sourced signals are
+ * skipped: meeting capture screens those same action items (same fingerprint) directly.
+ */
 export function selectMatterLoopCandidates(
   items: MatterItem[],
   runtime: LoopsRuntimeConfig
 ): MatterItem[] {
   return items.filter((item) => {
     if (item.status !== 'active' && item.status !== 'resurfaced') return false;
-    if (item.source === 'meeting') return true;
+    if (item.source === 'meeting') return false;
+    if (item.severity === 'healthy') return false;
+    const suggestion = item.suggestedAction?.trim();
+    if (!suggestion || GENERIC_SUGGESTION.test(suggestion)) return false;
+    if (prescreenAction(item.title)) return false;
     return (
-      Boolean(item.suggestedAction?.trim()) &&
       (item.orbit === 'now' || item.orbit === 'today') &&
       item.confidence >= runtime.matterConfidenceThreshold
     );

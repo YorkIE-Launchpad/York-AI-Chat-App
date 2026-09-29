@@ -73,12 +73,18 @@ export interface LoopsRuntimeConfig {
   captureFromMatter: boolean;
   /** Minimum Matter ranker confidence (0–1) to auto-capture a signal as a loop. */
   matterConfidenceThreshold: number;
+  /** Capture-rules version already applied to existing auto-captured loops. */
+  screenedVersion: number;
 }
+
+/** Bump when capture rules tighten so untouched auto-captured loops are re-screened once. */
+export const LOOPS_SCREEN_VERSION = 2;
 
 export const DEFAULT_LOOPS_RUNTIME: LoopsRuntimeConfig = {
   captureFromMeetings: true,
   captureFromMatter: true,
   matterConfidenceThreshold: 0.7,
+  screenedVersion: 0,
 };
 
 export function normalizeLoopsRuntimeConfig(raw: unknown): LoopsRuntimeConfig {
@@ -92,6 +98,10 @@ export function normalizeLoopsRuntimeConfig(raw: unknown): LoopsRuntimeConfig {
     captureFromMeetings: value.captureFromMeetings !== false,
     captureFromMatter: value.captureFromMatter !== false,
     matterConfidenceThreshold: threshold,
+    screenedVersion:
+      typeof value.screenedVersion === 'number' && Number.isFinite(value.screenedVersion)
+        ? value.screenedVersion
+        : 0,
   };
 }
 

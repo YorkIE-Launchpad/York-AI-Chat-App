@@ -11,6 +11,7 @@ import type { MatterItem } from '../../shared/matter';
 import {
   DEFAULT_LOOPS_RUNTIME,
   isLoopDue,
+  LOOPS_SCREEN_VERSION,
   normalizeLoopsRuntimeConfig,
   type Loop,
   type LoopCreateInput,
@@ -25,6 +26,9 @@ import { LoopStore } from './loop-store';
 import {
   extractMeetingLoops,
   matterItemToLoop,
+  judgeMatterCandidates,
+  judgeMeetingActions,
+  prescreenAction,
   selectMatterLoopCandidates,
 } from './loop-extractor';
 import { researchLoop } from './loop-research';
@@ -204,13 +208,17 @@ export class LoopService {
     }
   }
 
-  captureFromMatter(items: MatterItem[]): void {
+  async captureFromMatter(items: MatterItem[]): Promise<void> {
     const runtime = this.getRuntime();
-    if (!runtime.captureFromMatter && !runtime.captureFromMeetings) return;
+    if (!runtime.captureFromMatter) return;
     try {
-      const candidates = selectMatterLoopCandidates(items, runtime).filter((item) =>
-        item.source === 'meeting' ? runtime.captureFromMeetings : runtime.captureFromMatter
-      );
+      const selected = selectMatterLoopCandidates(items, runtime);
+      // Only judge signals we have never captured, so each scan doesn't re-ask Jev.
+      const known = this.store.knownFingerprints(selected.map((item) => item.fingerprint));
+      const fresh = selected.filter((item) => !known.has(item.fingerprint));
+      if (fresh.length === 0) return;
+      const profile = await this.resolveProfile().catch(() => null);
+      const candidates = await judgeMatterCandidates(fresh, profile);
       let created = 0;
       for (const item of candidates) {
         if (this.store.upsertByFingerprint(matterItemToLoop(item, true)).created) created += 1;
@@ -221,6 +229,80 @@ export class LoopService {
       }
     } catch (error) {
       logError('[Loops] Matter capture failed:', error);
+    }
+  }
+
+  /**
+   * One-time pass when capture rules tighten: drop open auto-captured loops the user
+   * never touched that the current rules would not have captured. Dropped loops stay
+   * in Closed and can be reopened.
+   */
+  async rescreenAutoCaptured(): Promise<void> {
+    const runtime = this.getRuntime();
+    if (runtime.screenedVersion >= LOOPS_SCREEN_VERSION) return;
+    try {
+      const candidates = this.store
+        .list()
+        .filter(
+          (l) =>
+            l.status === 'open' && l.autoCaptured && l.researchStatus === 'idle' && l.dueAt == null
+        );
+      const reject = new Set<string>();
+
+      const byMeeting = new Map<string, Loop[]>();
+      for (const loop of candidates) {
+        if (prescreenAction(loop.title)) {
+          reject.add(loop.id);
+          continue;
+        }
+        if (loop.origin === 'meeting') {
+          const key = loop.sourceRef.meetingId || `label:${loop.sourceRef.label || ''}`;
+          byMeeting.set(key, [...(byMeeting.get(key) || []), loop]);
+        } else {
+          const item = loop.sourceRef.matterItemId
+            ? this.getMatterItem(loop.sourceRef.matterItemId)
+            : null;
+          if (item && selectMatterLoopCandidates([item], runtime).length === 0) {
+            reject.add(loop.id);
+          }
+        }
+      }
+
+      const profile = await this.resolveProfile().catch(() => null);
+      let complete = true;
+      for (const [key, loops] of byMeeting) {
+        const meetingId = key.startsWith('label:') ? null : key;
+        const meeting = meetingId ? this.getMeetingService()?.get(meetingId) : null;
+        const screened = await judgeMeetingActions(
+          {
+            title: meeting?.title || loops[0].sourceRef.label || 'Meeting',
+            startedAt: meeting?.startedAt ?? loops[0].createdAt,
+            attendees: meeting?.attendees,
+            summary: meeting?.notes?.summary ?? null,
+          },
+          loops.map((l) => l.title),
+          profile
+        );
+        if (!screened) {
+          // Never drop on a failed judge; retry on next launch.
+          complete = false;
+          continue;
+        }
+        loops.forEach((loop, i) => {
+          if (!screened[i].keep) reject.add(loop.id);
+        });
+      }
+
+      for (const id of reject) this.store.update(id, { status: 'dropped' });
+      if (complete) {
+        configStore.update({
+          loopsRuntime: { ...this.getRuntime(), screenedVersion: LOOPS_SCREEN_VERSION },
+        });
+      }
+      log(`[Loops] Re-screened ${candidates.length} auto-captured loop(s); dropped ${reject.size}`);
+      if (reject.size > 0) this.changed();
+    } catch (error) {
+      logError('[Loops] Re-screen failed:', error);
     }
   }
 

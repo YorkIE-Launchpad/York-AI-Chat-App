@@ -502,6 +502,7 @@ function wireWikiAndOrchestration(db: ReturnType<typeof initDatabase>): void {
       matterService?.applyItemAction({ itemId, action: 'done' });
     },
   });
+  setTimeout(() => void loopService?.rescreenAutoCaptured(), 30_000).unref?.();
 
   bindConnectorWikiIngest((input) => {
     wikiService?.ingestConnectorArtifact(input);
@@ -2625,7 +2626,7 @@ app
     matterService.setMainWindowGetter(() => mainWindow);
     matterService.setPostScanHandler((snapshot) => {
       wikiService?.ingestMatterItems(snapshot.items);
-      loopService?.captureFromMatter(snapshot.items);
+      void loopService?.captureFromMatter(snapshot.items);
     });
     matterService.start();
 

@@ -48,6 +48,15 @@ export const JEV_ASK_USER_NOUL = 0.55;
 /** Transcript needs English translation when Noul >= this. */
 export const JEV_NEEDS_EN_NOUL = 0.55;
 
+/** Loop capture: action names a specific, checkable output when Noul >= this. */
+export const JEV_LOOP_OUTPUT_NOUL = 0.65;
+
+/** Loop capture: action carries enough context to stand alone when Noul >= this. */
+export const JEV_LOOP_CONTEXT_NOUL = 0.6;
+
+/** Loop capture: the user owns it or is owed it by a named person when Noul >= this. */
+export const JEV_LOOP_INVOLVES_NOUL = 0.55;
+
 export type JevAutoTier = 'fast' | 'balanced' | 'frontier';
 
 export const JEV_MCP_SERVERS = {
