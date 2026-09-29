@@ -172,6 +172,11 @@ export class LoopService {
         note: result.note || null,
         sources: result.sources,
       });
+      const current = this.store.get(loop.id);
+      if (result.dueAt != null && current?.status === 'open' && current.dueAt == null) {
+        this.store.update(loop.id, { dueAt: result.dueAt });
+        log(`[Loops] Deadline found for ${loop.id}: ${new Date(result.dueAt).toISOString()}`);
+      }
       log(`[Loops] Research done for ${loop.id} (${result.sources.length} sources)`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

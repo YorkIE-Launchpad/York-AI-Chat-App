@@ -153,6 +153,40 @@ describe('researchLoop', () => {
     expect(b.sources.map((s) => s.id)).toEqual(['E1']);
   });
 
+  it('returns a stated deadline only when it is backed by real evidence', async () => {
+    const backed = vi.fn().mockResolvedValue({
+      text: JSON.stringify({
+        relevant: true,
+        note: '- Owed Friday [E1]',
+        deadline: '2026-10-02',
+        deadlineEvidence: 'E1',
+      }),
+    });
+    const a = await researchLoop(makeLoop(), {
+      mcp: null,
+      meetingService,
+      matterItem: null,
+      llm: { complete: backed, embed: vi.fn() },
+    });
+    expect(a.dueAt).toBe(new Date(2026, 9, 2, 17, 0, 0, 0).getTime());
+
+    const unbacked = vi.fn().mockResolvedValue({
+      text: JSON.stringify({
+        relevant: true,
+        note: '- Owed Friday [E1]',
+        deadline: '2026-10-02',
+        deadlineEvidence: 'E99',
+      }),
+    });
+    const b = await researchLoop(makeLoop(), {
+      mcp: null,
+      meetingService,
+      matterItem: null,
+      llm: { complete: unbacked, embed: vi.fn() },
+    });
+    expect(b.dueAt).toBeUndefined();
+  });
+
   it('returns an empty note when the model reports nothing relevant', async () => {
     const complete = vi.fn().mockResolvedValue({ text: '{"relevant":false,"note":""}' });
     const result = await researchLoop(makeLoop(), {

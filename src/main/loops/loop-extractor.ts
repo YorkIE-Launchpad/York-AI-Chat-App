@@ -119,6 +119,14 @@ export async function extractMeetingLoops(
   }));
 }
 
+/**
+ * Matter falls back to the signal's timestamp when there is no real deadline, so a
+ * past `dueAt` is indistinguishable from "when it happened" — only trust future ones.
+ */
+export function matterDeadline(item: MatterItem, now = Date.now()): number | null {
+  return item.dueAt != null && item.dueAt > now ? item.dueAt : null;
+}
+
 export function matterItemToLoop(item: MatterItem, autoCaptured: boolean): LoopUpsertInput {
   const meetingId = item.source === 'meeting' ? item.sourceRef.externalId || null : null;
   return {
@@ -133,7 +141,7 @@ export function matterItemToLoop(item: MatterItem, autoCaptured: boolean): LoopU
       label: item.sourceRef.label || null,
     },
     owner: 'me',
-    dueAt: item.dueAt,
+    dueAt: matterDeadline(item),
     priority: item.severity === 'critical' ? 'high' : 'normal',
     autoCaptured,
   };

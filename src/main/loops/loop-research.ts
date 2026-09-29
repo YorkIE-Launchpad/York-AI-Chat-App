@@ -41,6 +41,8 @@ export interface LoopResearchDeps {
 export interface LoopResearchResult {
   note: string;
   sources: LoopResearchSource[];
+  /** Deadline explicitly stated in a cited source, when one was found. */
+  dueAt?: number;
 }
 
 function searchPhrases(loop: Loop): string[] {
@@ -221,20 +223,40 @@ function selectEvidence(evidence: PrepEvidence[]): PrepEvidence[] {
   return [...origin, ...rest].slice(0, MAX_PROMPT_EVIDENCE);
 }
 
+/** `YYYY-MM-DD` resolves to 5pm local (matching quick-add); full ISO datetimes are kept as-is. */
+export function parseStatedDeadline(value: unknown): number | null {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  const day = value.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (day) {
+    const ms = new Date(Number(day[1]), Number(day[2]) - 1, Number(day[3]), 17, 0, 0, 0).getTime();
+    return Number.isFinite(ms) ? ms : null;
+  }
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+interface SynthesizedNote {
+  note: string;
+  dueAt: number | null;
+}
+
 async function synthesizeNote(
   loop: Loop,
   evidence: PrepEvidence[],
   llm: MemoryLLMClientLike
-): Promise<string | null> {
+): Promise<SynthesizedNote | null> {
   const response = await llm.complete({
     systemPrompt: [
       'You write a short working note that helps someone close an open to-do ("loop").',
       'Use ONLY the evidence provided. Cite evidence ids inline like [E2]. Never invent facts, people, dates, or links.',
       'Prefer the most recent evidence. Drop evidence that is not actually about this to-do.',
-      'Return ONLY JSON: {"relevant":true,"note":"markdown"}.',
+      'Return ONLY JSON: {"relevant":true,"note":"markdown","deadline":null,"deadlineEvidence":null}.',
       'The note has up to three short sections, omitting any with nothing to say:',
       '"**Where it stands**" (1-3 bullets on current status), "**Useful context**" (up to 4 bullets),',
       'and "**Next step**" (one concrete suggestion).',
+      'deadline: only if the evidence explicitly states when THIS to-do is due ("by Friday", "due Oct 3", "before the board meeting on the 12th"),',
+      "give it as YYYY-MM-DD (or a full ISO datetime if a time is stated), resolving relative dates against that evidence's date;",
+      'set deadlineEvidence to the id that states it. Otherwise both are null. A message timestamp or meeting date is NOT a deadline.',
       'If nothing in the evidence is relevant, return {"relevant":false,"note":""}.',
     ].join(' '),
     userPrompt: JSON.stringify({
@@ -256,11 +278,19 @@ async function synthesizeNote(
   const text = stripCodeFence(response.text || '');
   const parsed = extractJsonObject(text);
   if (parsed) {
-    if (parsed.relevant === false) return '';
-    if (typeof parsed.note === 'string') return parsed.note.trim();
+    if (parsed.relevant === false) return { note: '', dueAt: null };
+    if (typeof parsed.note === 'string') {
+      const backed =
+        typeof parsed.deadlineEvidence === 'string' &&
+        evidence.some((e) => e.id === parsed.deadlineEvidence);
+      return {
+        note: parsed.note.trim(),
+        dueAt: backed ? parseStatedDeadline(parsed.deadline) : null,
+      };
+    }
   }
   // Some models ignore the JSON contract and answer in plain markdown.
-  if (text && !text.startsWith('{') && /\[E\d+\]/.test(text)) return text;
+  if (text && !text.startsWith('{') && /\[E\d+\]/.test(text)) return { note: text, dueAt: null };
   logWarn('[Loops] Unparseable research response:', text.slice(0, 300) || '(empty)');
   return null;
 }
@@ -299,8 +329,9 @@ export async function researchLoop(
     return { note: '', sources: [] };
   }
 
-  const note = await synthesizeNote(loop, evidence, deps.llm ?? new MemoryLLMClient());
-  if (note == null) throw new Error('Could not summarize what was found');
+  const synthesized = await synthesizeNote(loop, evidence, deps.llm ?? new MemoryLLMClient());
+  if (synthesized == null) throw new Error('Could not summarize what was found');
+  const { note, dueAt } = synthesized;
 
   const cited = new Set(note.match(/\bE\d+\b/g) || []);
   const sources = evidence
@@ -311,5 +342,5 @@ export async function researchLoop(
       title: e.title,
       url: e.url ?? null,
     }));
-  return { note, sources };
+  return dueAt != null ? { note, sources, dueAt } : { note, sources };
 }
