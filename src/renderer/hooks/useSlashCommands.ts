@@ -100,8 +100,17 @@ export function getSlashQuery(value: string): string {
 
 export type { SkillComposerTrigger, SkillTriggerMode };
 
-export function useSlashCommands(prompt: string, cursorIndex: number = prompt.length) {
-  const [skills, setSkills] = useState<Skill[]>([]);
+export function useSlashCommands(
+  prompt: string,
+  cursorIndex: number = prompt.length,
+  options: { catalogSkillsDisabled?: boolean } = {}
+) {
+  const { catalogSkillsDisabled = false } = options;
+  const [catalogSkills, setSkills] = useState<Skill[]>([]);
+  const skills = useMemo(
+    () => (catalogSkillsDisabled ? [] : catalogSkills),
+    [catalogSkillsDisabled, catalogSkills]
+  );
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [dismissed, setDismissed] = useState(false);
   const [manualOpen, setManualOpen] = useState(false);
@@ -115,7 +124,7 @@ export function useSlashCommands(prompt: string, cursorIndex: number = prompt.le
     [prompt, cursorIndex]
   );
 
-  const isOpen = (manualOpen || Boolean(trigger)) && !dismissed;
+  const pickerRequested = (manualOpen || Boolean(trigger)) && !dismissed;
 
   const reloadSkills = useCallback(() => {
     if (!isElectron) {
@@ -170,7 +179,7 @@ export function useSlashCommands(prompt: string, cursorIndex: number = prompt.le
   }, [trigger, manualOpen]);
 
   const filteredSkills = useMemo(() => {
-    if (!isOpen) return [];
+    if (!pickerRequested) return [];
 
     const mode: SkillTriggerMode | 'manual' = trigger?.mode ?? (manualOpen ? 'manual' : 'slash');
     const query = (trigger?.query ?? '').trim().toLowerCase();
@@ -227,7 +236,9 @@ export function useSlashCommands(prompt: string, cursorIndex: number = prompt.le
       if (!seen.has(skill.id)) ordered.push(skill);
     }
     return [...builtinFiltered, ...ordered];
-  }, [isOpen, trigger, manualOpen, skills, meetingsReferenceAllowed, rankedNames]);
+  }, [pickerRequested, trigger, manualOpen, skills, meetingsReferenceAllowed, rankedNames]);
+
+  const isOpen = pickerRequested && !(catalogSkillsDisabled && filteredSkills.length === 0);
 
   // Debounced Jev rank for catalog skills when the query changes.
   useEffect(() => {

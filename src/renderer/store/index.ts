@@ -213,6 +213,9 @@ interface AppState {
   /** Welcome composer is primed for an incognito (ephemeral) chat. */
   incognitoDraft: boolean;
 
+  /** Welcome composer will start the next chat with skills turned off. */
+  skillsOffDraft: boolean;
+
   /** Hub AI budget meter (seeded from GET ai-budget, updated after usage ingest). */
   hubUsage: HubUsageMeterSnapshot | null;
 
@@ -235,6 +238,7 @@ interface AppState {
   removeSessions: (sessionIds: string[]) => void;
   setActiveSession: (sessionId: string | null) => void;
   setIncognitoDraft: (enabled: boolean) => void;
+  setSkillsOffDraft: (enabled: boolean) => void;
   setSessionScrollPosition: (sessionId: string, scrollTop: number) => void;
 
   addMessage: (sessionId: string, message: Message, options?: { remote?: boolean }) => void;
@@ -281,10 +285,7 @@ interface AppState {
   setMatterFocusMeetingId: (meetingId: string | null) => void;
   setMatterFocusItemId: (itemId: string | null) => void;
   openMatterToItem: (itemId: string) => void;
-  openMatterToMeeting: (
-    meetingId: string,
-    options?: { prepFullscreen?: boolean }
-  ) => void;
+  openMatterToMeeting: (meetingId: string, options?: { prepFullscreen?: boolean }) => void;
   setMatterPrepLoadingId: (meetingId: string | null) => void;
   setAskGrowthOSOpen: (open: boolean) => void;
   toggleAskGrowthOS: () => void;
@@ -429,6 +430,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   matterChatDraftBySessionId: {},
   systemDarkMode: false,
   incognitoDraft: false,
+  skillsOffDraft: false,
   hubUsage: null,
   backendModelsCatalog: [],
   composerMode: 'chat',
@@ -457,6 +459,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         [session.id]: { ...DEFAULT_SESSION_STATE },
       },
       incognitoDraft: false,
+      skillsOffDraft: false,
     })),
 
   replacePendingSession: (pendingId, session) =>
@@ -508,8 +511,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           ...restStates,
           [session.id]: mergedState,
         },
-        activeSessionId:
-          state.activeSessionId === pendingId ? session.id : state.activeSessionId,
+        activeSessionId: state.activeSessionId === pendingId ? session.id : state.activeSessionId,
         incognitoDraft: false,
       };
     }),
@@ -596,6 +598,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     }),
 
   setIncognitoDraft: (enabled) => set({ incognitoDraft: enabled }),
+  setSkillsOffDraft: (enabled) => set({ skillsOffDraft: enabled }),
 
   setSessionScrollPosition: (sessionId, scrollTop) =>
     set((state) => ({
@@ -922,8 +925,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const samePath = prev?.path === trimmed;
       const resolvedKind =
         kind || (samePath ? prev?.kind : undefined) || previewKindFromPath(trimmed) || 'html';
-      const resolvedShared =
-        shared !== undefined ? shared : samePath ? prev?.shared : undefined;
+      const resolvedShared = shared !== undefined ? shared : samePath ? prev?.shared : undefined;
       return {
         activeHtmlPreview: {
           path: trimmed,
@@ -1024,9 +1026,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (activeId === permission.toolUseId) {
         return { pendingPermission: permission };
       }
-      if (
-        state.permissionQueue.some((p) => p.toolUseId === permission.toolUseId)
-      ) {
+      if (state.permissionQueue.some((p) => p.toolUseId === permission.toolUseId)) {
         return {
           permissionQueue: state.permissionQueue.map((p) =>
             p.toolUseId === permission.toolUseId ? permission : p
@@ -1054,11 +1054,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   setSessionAlwaysAllow: (sessionId, tools) =>
     set((state) => {
       const prev = state.sessionAlwaysAllowBySession[sessionId];
-      if (
-        prev &&
-        prev.length === tools.length &&
-        prev.every((tool, i) => tool === tools[i])
-      ) {
+      if (prev && prev.length === tools.length && prev.every((tool, i) => tool === tools[i])) {
         return state;
       }
       return {

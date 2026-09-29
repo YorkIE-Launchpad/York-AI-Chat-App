@@ -57,6 +57,11 @@ export interface Session {
    * survives DB reload during the run.
    */
   autoApproveToolPermissions?: boolean;
+  /**
+   * When true, no skills are listed to the model, auto-injected, or expanded
+   * from /skill or @skill mentions for this chat.
+   */
+  skillsDisabled?: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -667,6 +672,7 @@ export type ClientEvent =
         memoryEnabled?: boolean;
         /** When true, session is ephemeral (not persisted) and memory is disabled. */
         incognito?: boolean;
+        skillsDisabled?: boolean;
         division?: WorkspaceDivisionKind;
         hubProjectId?: string | null;
         hubProjectName?: string | null;
@@ -733,6 +739,10 @@ export type ClientEvent =
   | { type: 'session.delete'; payload: { sessionId: string } }
   | { type: 'session.batchDelete'; payload: { sessionIds: string[] } }
   | { type: 'session.setPinned'; payload: { sessionId: string; pinned: boolean } }
+  | {
+      type: 'session.setSkillsDisabled';
+      payload: { sessionId: string; skillsDisabled: boolean };
+    }
   | { type: 'session.setTitle'; payload: { sessionId: string; title: string } }
   | { type: 'session.list'; payload: Record<string, never> }
   | { type: 'session.getMessages'; payload: { sessionId: string } }

@@ -85,6 +85,7 @@ const ALLOWED_CLIENT_EVENTS: ReadonlySet<string> = new Set<ClientEvent['type']>(
   'session.delete',
   'session.batchDelete',
   'session.setPinned',
+  'session.setSkillsDisabled',
   'session.setTitle',
   'session.list',
   'session.getMessages',

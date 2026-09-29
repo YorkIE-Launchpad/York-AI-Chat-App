@@ -6854,6 +6854,7 @@ async function handleClientEvent(event: ClientEvent): Promise<unknown> {
           {
             ...divisionOpts,
             incognito: event.payload.incognito === true,
+            skillsDisabled: event.payload.skillsDisabled === true,
           }
         );
       }
@@ -6970,6 +6971,9 @@ async function handleClientEvent(event: ClientEvent): Promise<unknown> {
 
     case 'session.setPinned':
       return sm.setSessionPinned(event.payload.sessionId, event.payload.pinned);
+
+    case 'session.setSkillsDisabled':
+      return sm.setSessionSkillsDisabled(event.payload.sessionId, event.payload.skillsDisabled);
 
     case 'session.setTitle':
       return sm.setSessionTitle(event.payload.sessionId, event.payload.title);

@@ -2494,8 +2494,9 @@ ${hints.join('\n')}
         profileDontsPrompt: runtimeConfig.profileDontsPrompt,
         profileCustomPrompt: runtimeConfig.profileCustomPrompt,
       });
-      const skillPaths = await this.resolveSkillPaths(session.id);
-      const skillsSignature = JSON.stringify(skillPaths);
+      const skillsDisabled = session.skillsDisabled === true;
+      const skillPaths = skillsDisabled ? [] : await this.resolveSkillPaths(session.id);
+      const skillsSignature = JSON.stringify({ skillsDisabled, skillPaths });
       log('[CoworkAgentRunner] Skill paths for pi ResourceLoader:', skillPaths);
 
       // Build contextual prompt — if reusing an existing SDK session, the SDK
@@ -2624,72 +2625,76 @@ ${hints.join('\n')}
       let expandedUserPrompt = prompt;
       /** Skills injected this turn before the pi session exists (cold start). */
       const pendingInjectedSkills = new Set<string>();
-      try {
-        const expandableSkills = discoverSkillsFromPaths(skillPaths);
-        const alreadyInjected = cachedSession?.injectedSkillBodies;
-        const historyHasSkillBody = (skillName: string): boolean => {
-          if (alreadyInjected?.has(skillName)) return true;
-          if (pendingInjectedSkills.has(skillName)) return true;
-          const needle = `<skill name="${skillName}"`;
-          return existingMessages.some((msg) =>
-            msg.content.some(
-              (c) =>
-                (c as { type?: string; text?: string }).type === 'text' &&
-                String((c as { text?: string }).text || '').includes(needle)
-            )
-          );
-        };
-        const markInjected = (skillName: string) => {
-          alreadyInjected?.add(skillName);
-          pendingInjectedSkills.add(skillName);
-        };
-        const expansion = expandSlashSkillPrompt(prompt, expandableSkills);
-        if (expansion.expanded) {
-          expandedUserPrompt = expansion.text;
-          log(`[CoworkAgentRunner] Expanded slash skill /${expansion.skillName} before preamble`);
-        } else {
-          const atExpansion = expandAtSkillMentions(prompt, expandableSkills);
-          if (atExpansion.expanded) {
-            expandedUserPrompt = atExpansion.text;
-            log(
-              `[CoworkAgentRunner] Expanded @skill mentions (${atExpansion.skillNames.join(', ')}) before preamble`
+      if (skillsDisabled) {
+        log('[CoworkAgentRunner] Skills disabled for this chat; skipping skill expansion');
+      } else {
+        try {
+          const expandableSkills = discoverSkillsFromPaths(skillPaths);
+          const alreadyInjected = cachedSession?.injectedSkillBodies;
+          const historyHasSkillBody = (skillName: string): boolean => {
+            if (alreadyInjected?.has(skillName)) return true;
+            if (pendingInjectedSkills.has(skillName)) return true;
+            const needle = `<skill name="${skillName}"`;
+            return existingMessages.some((msg) =>
+              msg.content.some(
+                (c) =>
+                  (c as { type?: string; text?: string }).type === 'text' &&
+                  String((c as { text?: string }).text || '').includes(needle)
+              )
             );
+          };
+          const markInjected = (skillName: string) => {
+            alreadyInjected?.add(skillName);
+            pendingInjectedSkills.add(skillName);
+          };
+          const expansion = expandSlashSkillPrompt(prompt, expandableSkills);
+          if (expansion.expanded) {
+            expandedUserPrompt = expansion.text;
+            log(`[CoworkAgentRunner] Expanded slash skill /${expansion.skillName} before preamble`);
           } else {
-            // Intent injections are independent (LaunchPad + york-os can both apply).
-            // One-shot per session so history doesn't grow by a full SKILL.md each message.
-            // Jev Choice routes skill/playbook when available; regex remains the fallback.
-            const expansions = await resolveSkillIntentExpansions(prompt, expandableSkills);
-            const labels = [
-              'LaunchPad delivery',
-              'York OS company',
-              'HTML artifact',
-              'goal-runner',
-            ];
-            const names = [
-              LAUNCHPAD_SKILL_NAME,
-              YORK_OS_SKILL_NAME,
-              HTML_ARTIFACT_SKILL_NAME,
-              GOAL_RUNNER_SKILL_NAME,
-            ];
-            for (let i = 0; i < expansions.length; i += 1) {
-              const expansion = expansions[i]!;
-              const name = names[i]!;
-              if (historyHasSkillBody(name)) continue;
-              if (!expansion.expanded || !expansion.block) continue;
-              expandedUserPrompt = `${expansion.block}\n\n${expandedUserPrompt}`;
-              markInjected(name);
+            const atExpansion = expandAtSkillMentions(prompt, expandableSkills);
+            if (atExpansion.expanded) {
+              expandedUserPrompt = atExpansion.text;
               log(
-                `[CoworkAgentRunner] Auto-injected ${labels[i]} skill /${expansion.skillName} (one-shot)`
+                `[CoworkAgentRunner] Expanded @skill mentions (${atExpansion.skillNames.join(', ')}) before preamble`
               );
-            }
-            if (expansions[3]?.goalTurn && !isGoalTickPrompt(prompt)) {
-              expandedUserPrompt = `${expandedUserPrompt}\n\n${GOAL_TURN_MARKER}`;
-              log('[CoworkAgentRunner] Auto-detected goal prompt; goal mode for this turn');
+            } else {
+              // Intent injections are independent (LaunchPad + york-os can both apply).
+              // One-shot per session so history doesn't grow by a full SKILL.md each message.
+              // Jev Choice routes skill/playbook when available; regex remains the fallback.
+              const expansions = await resolveSkillIntentExpansions(prompt, expandableSkills);
+              const labels = [
+                'LaunchPad delivery',
+                'York OS company',
+                'HTML artifact',
+                'goal-runner',
+              ];
+              const names = [
+                LAUNCHPAD_SKILL_NAME,
+                YORK_OS_SKILL_NAME,
+                HTML_ARTIFACT_SKILL_NAME,
+                GOAL_RUNNER_SKILL_NAME,
+              ];
+              for (let i = 0; i < expansions.length; i += 1) {
+                const expansion = expansions[i]!;
+                const name = names[i]!;
+                if (historyHasSkillBody(name)) continue;
+                if (!expansion.expanded || !expansion.block) continue;
+                expandedUserPrompt = `${expansion.block}\n\n${expandedUserPrompt}`;
+                markInjected(name);
+                log(
+                  `[CoworkAgentRunner] Auto-injected ${labels[i]} skill /${expansion.skillName} (one-shot)`
+                );
+              }
+              if (expansions[3]?.goalTurn && !isGoalTickPrompt(prompt)) {
+                expandedUserPrompt = `${expandedUserPrompt}\n\n${GOAL_TURN_MARKER}`;
+                log('[CoworkAgentRunner] Auto-detected goal prompt; goal mode for this turn');
+              }
             }
           }
+        } catch (error) {
+          logWarn('[CoworkAgentRunner] Failed to expand skill prompt:', error);
         }
-      } catch (error) {
-        logWarn('[CoworkAgentRunner] Failed to expand skill prompt:', error);
       }
 
       // Stamp selected Hub/LaunchPad project onto every user turn (after skill
@@ -3206,6 +3211,7 @@ ${
         const resourceLoader = new DefaultResourceLoader({
           cwd: effectiveCwd,
           additionalSkillPaths: skillPaths,
+          noSkills: skillsDisabled,
           appendSystemPrompt: coworkAppendPrompt,
           extensionFactories: [
             createCompactionExtensionFactory({

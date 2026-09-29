@@ -452,6 +452,7 @@ export class SessionManager {
       clientProjectIds?: string | null;
       incognito?: boolean;
       autoApproveToolPermissions?: boolean;
+      skillsDisabled?: boolean;
     }
   ): Promise<Session> {
     const isIncognito = options?.incognito === true;
@@ -503,6 +504,7 @@ export class SessionManager {
       clientProjectIds?: string | null;
       incognito?: boolean;
       autoApproveToolPermissions?: boolean;
+      skillsDisabled?: boolean;
     }
   ): Promise<Session> {
     const isIncognito = options?.incognito === true;
@@ -564,6 +566,7 @@ export class SessionManager {
       clientProjectIds?: string | null;
       incognito?: boolean;
       autoApproveToolPermissions?: boolean;
+      skillsDisabled?: boolean;
     }
   ): Session {
     const now = Date.now();
@@ -630,6 +633,7 @@ export class SessionManager {
       clientProjectIds: divisionFields.clientProjectIds,
       incognito: isIncognito || undefined,
       autoApproveToolPermissions: autoApproveToolPermissions || undefined,
+      skillsDisabled: options?.skillsDisabled === true || undefined,
       createdAt: now,
       updatedAt: now,
     };
@@ -677,6 +681,7 @@ export class SessionManager {
       pinned: session.pinned ? 1 : 0,
       collab_room_id: session.collabRoomId ?? null,
       collab_role: session.collabRole ?? null,
+      skills_disabled: session.skillsDisabled ? 1 : 0,
       created_at: session.createdAt,
       updated_at: session.updatedAt,
     });
@@ -706,6 +711,7 @@ export class SessionManager {
     pinned?: number | null;
     collab_room_id?: string | null;
     collab_role?: string | null;
+    skills_disabled?: number | null;
     created_at: number;
     updated_at: number;
   }): Session {
@@ -764,6 +770,7 @@ export class SessionManager {
       collabRole:
         row.collab_role === 'owner' || row.collab_role === 'member' ? row.collab_role : null,
       autoApproveToolPermissions: sessionAutoApprovesToolPermissions(row.id) || undefined,
+      skillsDisabled: row.skills_disabled === 1 || undefined,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -1079,6 +1086,7 @@ export class SessionManager {
       clientProjectIds?: string | null;
       incognito?: boolean;
       autoApproveToolPermissions?: boolean;
+      skillsDisabled?: boolean;
     }
   ): Promise<Session> {
     const isIncognito = options?.incognito === true;
@@ -2113,6 +2121,25 @@ export class SessionManager {
       payload: { sessionId, updates: { pinned } },
     });
     log('[SessionManager] Session pinned updated:', sessionId, '->', pinned);
+    return true;
+  }
+
+  setSessionSkillsDisabled(sessionId: string, skillsDisabled: boolean): boolean {
+    const ephemeral = this.ephemeralSessions.get(sessionId);
+    if (ephemeral) {
+      this.ephemeralSessions.set(sessionId, { ...ephemeral, skillsDisabled });
+    } else {
+      if (!this.db.sessions.get(sessionId)) {
+        log('[SessionManager] Skip skills toggle for missing session:', sessionId);
+        return false;
+      }
+      this.db.sessions.update(sessionId, { skills_disabled: skillsDisabled ? 1 : 0 });
+    }
+    this.sendToRenderer({
+      type: 'session.update',
+      payload: { sessionId, updates: { skillsDisabled } },
+    });
+    log('[SessionManager] Session skills disabled updated:', sessionId, '->', skillsDisabled);
     return true;
   }
 

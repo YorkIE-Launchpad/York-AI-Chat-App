@@ -737,6 +737,7 @@ export function useIPC() {
 
       const incognito =
         options?.incognito === true || useAppStore.getState().incognitoDraft === true;
+      const skillsDisabled = useAppStore.getState().skillsOffDraft === true;
 
       // Normalize input to ContentBlock array
       const content: ContentBlock[] =
@@ -830,6 +831,7 @@ export function useIPC() {
         ],
         memoryEnabled: !incognito,
         incognito: incognito || undefined,
+        skillsDisabled: skillsDisabled || undefined,
         ...divisionPayload,
       };
 
@@ -857,6 +859,7 @@ export function useIPC() {
             cwd,
             content, // Send full content blocks including images
             incognito: incognito || undefined,
+            skillsDisabled: skillsDisabled || undefined,
             memoryEnabled: incognito ? false : undefined,
             ...divisionPayload,
           },
@@ -1348,6 +1351,16 @@ export function useIPC() {
     [send]
   );
 
+  const setSessionSkillsDisabled = useCallback(
+    (sessionId: string, skillsDisabled: boolean) => {
+      useAppStore.getState().updateSession(sessionId, { skillsDisabled });
+      if (isElectron) {
+        send({ type: 'session.setSkillsDisabled', payload: { sessionId, skillsDisabled } });
+      }
+    },
+    [send]
+  );
+
   const setSessionTitle = useCallback(
     (sessionId: string, title: string) => {
       const trimmed = title.trim();
@@ -1685,6 +1698,7 @@ export function useIPC() {
     deleteSession,
     batchDeleteSessions,
     setSessionPinned,
+    setSessionSkillsDisabled,
     setSessionTitle,
     listSessions,
     getSessionMessages,

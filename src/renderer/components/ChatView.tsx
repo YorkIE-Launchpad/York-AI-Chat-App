@@ -38,6 +38,7 @@ import {
   RefreshCw,
   Ghost,
   Package,
+  PackageX,
   FileUp,
   FileText,
   Hash,
@@ -144,8 +145,10 @@ export function ChatView() {
     acquireCollabTurn,
     getSessionMessages,
     listSharedDocs,
+    setSessionSkillsDisabled,
     isElectron,
   } = useIPC();
+  const skillsDisabled = activeSession?.skillsDisabled === true;
   const [prompt, setPrompt] = useState('');
   const [cursorIndex, setCursorIndex] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -161,7 +164,7 @@ export function ChatView() {
     openSkillPicker,
     meetingsReferenceAllowed,
     trigger: skillTrigger,
-  } = useSlashCommands(prompt, cursorIndex);
+  } = useSlashCommands(prompt, cursorIndex, { catalogSkillsDisabled: skillsDisabled });
   const [activeConnectors, setActiveConnectors] = useState<
     { id: string; name: string; connected: boolean; toolCount: number }[]
   >([]);
@@ -2284,7 +2287,7 @@ export function ChatView() {
                               {t('welcome.attachFiles')}
                             </span>
                           </button>
-                          {composerMode !== 'image' && (
+                          {composerMode !== 'image' && !skillsDisabled && (
                             <button
                               type="button"
                               role="menuitem"
@@ -2377,12 +2380,46 @@ export function ChatView() {
                               </button>
                             </>
                           )}
+                          {composerMode !== 'image' && activeSessionId && (
+                            <button
+                              type="button"
+                              role="menuitem"
+                              onClick={() => {
+                                setAttachMenuOpen(false);
+                                setSessionSkillsDisabled(activeSessionId, !skillsDisabled);
+                              }}
+                              className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
+                            >
+                              {skillsDisabled ? (
+                                <Package className="h-4 w-4 text-accent" />
+                              ) : (
+                                <PackageX className="h-4 w-4 text-text-muted" />
+                              )}
+                              <span className="text-[13px] font-medium">
+                                {skillsDisabled
+                                  ? t('skills.enableForChat')
+                                  : t('skills.disableForChat')}
+                              </span>
+                            </button>
+                          )}
                         </div>
                       </div>
                     )}
                   </div>
 
                   <ComposerModeDropdown disabled={isSubmitting || openRouterKeyRequired} />
+
+                  {composerMode !== 'image' && skillsDisabled && activeSessionId && (
+                    <button
+                      type="button"
+                      onClick={() => setSessionSkillsDisabled(activeSessionId, false)}
+                      className="flex h-8 shrink-0 items-center gap-1 rounded-xl px-2 text-[12px] font-medium text-text-muted transition-colors hover:bg-surface-hover hover:text-text-primary"
+                      title={t('skills.enableForChat')}
+                    >
+                      <PackageX className="h-3.5 w-3.5 shrink-0" />
+                      <span className="truncate">{t('skills.disabledForChatBadge')}</span>
+                    </button>
+                  )}
 
                   {composerMode !== 'image' && isElectron && (
                     <div className="relative" ref={loopMenuRef}>

@@ -133,6 +133,7 @@ export interface SessionRow {
   pinned: number;
   collab_room_id: string | null;
   collab_role: string | null;
+  skills_disabled?: number;
   created_at: number;
   updated_at: number;
 }
@@ -418,6 +419,12 @@ function initializeSchema(database: Database.Database): void {
     ensureColumn(database, 'sessions', 'pinned', 'pinned INTEGER NOT NULL DEFAULT 0');
     ensureColumn(database, 'sessions', 'collab_room_id', 'collab_room_id TEXT');
     ensureColumn(database, 'sessions', 'collab_role', 'collab_role TEXT');
+    ensureColumn(
+      database,
+      'sessions',
+      'skills_disabled',
+      'skills_disabled INTEGER NOT NULL DEFAULT 0'
+    );
 
     database.exec(`
     CREATE TABLE IF NOT EXISTS folders (
@@ -554,7 +561,12 @@ function initializeSchema(database: Database.Database): void {
       'consecutive_unchanged',
       'consecutive_unchanged INTEGER'
     );
-    ensureColumn(database, 'scheduled_tasks', 'division', "division TEXT NOT NULL DEFAULT 'general'");
+    ensureColumn(
+      database,
+      'scheduled_tasks',
+      'division',
+      "division TEXT NOT NULL DEFAULT 'general'"
+    );
     ensureColumn(database, 'scheduled_tasks', 'hub_project_id', 'hub_project_id TEXT');
     ensureColumn(database, 'scheduled_tasks', 'hub_project_name', 'hub_project_name TEXT');
     ensureColumn(
@@ -867,9 +879,11 @@ function backfillChatFts(database: Database.Database): void {
   const insert = database.prepare(
     `INSERT INTO chat_fts (session_id, message_id, title, body, timestamp) VALUES (?, ?, ?, ?, ?)`
   );
-  const sessions = database
-    .prepare(`SELECT id, title, created_at FROM sessions`)
-    .all() as Array<{ id: string; title: string; created_at: number }>;
+  const sessions = database.prepare(`SELECT id, title, created_at FROM sessions`).all() as Array<{
+    id: string;
+    title: string;
+    created_at: number;
+  }>;
   const messages = database
     .prepare(`SELECT id, session_id, content, timestamp FROM messages`)
     .all() as Array<{ id: string; session_id: string; content: string; timestamp: number }>;
@@ -877,13 +891,7 @@ function backfillChatFts(database: Database.Database): void {
 
   const tx = database.transaction(() => {
     for (const session of sessions) {
-      insert.run(
-        session.id,
-        CHAT_FTS_TITLE_STUB_ID,
-        session.title,
-        '',
-        session.created_at
-      );
+      insert.run(session.id, CHAT_FTS_TITLE_STUB_ID, session.title, '', session.created_at);
     }
     for (const message of messages) {
       insert.run(
@@ -1123,8 +1131,8 @@ export function initDatabase(): DatabaseInstance {
   // Prepare statements for better performance
   const insertSession = rawDb.prepare(`
     INSERT OR REPLACE INTO sessions
-    (id, title, claude_session_id, openai_thread_id, status, cwd, mounted_paths, allowed_tools, memory_enabled, model, division, hub_project_id, hub_project_name, launchpad_project_id, launchpad_project_name, folder_id, folder_name, project_canonical_key, client_name, client_project_ids, pinned, collab_room_id, collab_role, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    (id, title, claude_session_id, openai_thread_id, status, cwd, mounted_paths, allowed_tools, memory_enabled, model, division, hub_project_id, hub_project_name, launchpad_project_id, launchpad_project_name, folder_id, folder_name, project_canonical_key, client_name, client_project_ids, pinned, collab_room_id, collab_role, skills_disabled, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   // Note: Dynamic update queries are built in sessions.update() for flexibility
@@ -1311,6 +1319,7 @@ export function initDatabase(): DatabaseInstance {
           session.pinned ?? 0,
           session.collab_room_id ?? null,
           session.collab_role ?? null,
+          session.skills_disabled ?? 0,
           session.created_at,
           session.updated_at
         );
@@ -1425,18 +1434,15 @@ export function initDatabase(): DatabaseInstance {
         });
       },
 
-      update: (
-        id: string,
-        updates: Partial<Pick<MessageRow, 'execution_time_ms' | 'content'>>
-      ) => {
+      update: (id: string, updates: Partial<Pick<MessageRow, 'execution_time_ms' | 'content'>>) => {
         if (updates.execution_time_ms !== undefined) {
           updateMessageStmt.run(updates.execution_time_ms, id);
         }
         if (updates.content !== undefined) {
           updateMessageContentStmt.run(updates.content, id);
-          const row = rawDb.prepare(`SELECT session_id, timestamp FROM messages WHERE id = ?`).get(id) as
-            | { session_id: string; timestamp: number }
-            | undefined;
+          const row = rawDb
+            .prepare(`SELECT session_id, timestamp FROM messages WHERE id = ?`)
+            .get(id) as { session_id: string; timestamp: number } | undefined;
           if (row) {
             const session = getSessionStmt.get(row.session_id) as SessionRow | undefined;
             upsertChatFtsRow(rawDb, {

@@ -11,6 +11,7 @@ export function eventRequiresSessionManager(event: ClientEvent): boolean {
     case 'session.delete':
     case 'session.batchDelete':
     case 'session.setPinned':
+    case 'session.setSkillsDisabled':
     case 'session.setTitle':
     case 'session.list':
     case 'session.getMessages':
