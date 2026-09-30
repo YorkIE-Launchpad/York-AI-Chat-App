@@ -64,7 +64,7 @@ const ACTION_STOP = new Set([
 /** Distinctive words from an action item for connector search (owner stripped). */
 export function actionKeyPhrase(
   item: Pick<PriorActionItem, 'text' | 'owner'>,
-  maxWords = 4
+  maxWords = 3
 ): string {
   let text = item.text;
   if (item.owner) text = text.replace(item.owner, ' ');

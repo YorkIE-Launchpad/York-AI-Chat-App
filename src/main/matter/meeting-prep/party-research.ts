@@ -179,17 +179,20 @@ async function researchDomain(
     })()
   );
 
-  const names = people.map((p) => displayName(p)).filter((n) => n.length >= 3);
+  const fullNames = people
+    .map((p) => (p.name && !p.name.includes('@') ? p.name.trim() : ''))
+    .filter((n) => n.includes(' '));
+  // Slack search has no OR: one query per company / person name.
+  const slackQueries = [...new Set([company, ...fullNames.slice(0, 2)])]
+    .filter((t) => t.length >= 3)
+    .map((t) => (t.includes(' ') ? `"${t}"` : t))
+    .map((t) => `${t} after:${after}`);
   jobs.push(
     (async () => {
-      const terms = [...new Set([company, ...names.slice(0, 2)])].map((t) => `"${t}"`).join(' OR ');
-      const found = await searchSlack(deps, `(${terms}) after:${after}`, {
-        maxHits: 3,
-        limit: 8,
-        tags,
-        deepenThreads: 1,
-      });
-      ids.push(...found);
+      const found = await mapWithConcurrency(slackQueries, 3, (q) =>
+        searchSlack(deps, q, { maxHits: 3, limit: 8, tags, deepenThreads: 1 })
+      );
+      ids.push(...found.flat());
     })()
   );
 

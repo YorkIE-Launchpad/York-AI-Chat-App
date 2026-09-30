@@ -64,12 +64,25 @@ B1 Parties (parallel):
      Hub list_clients / projects matching the company name
      WebFetch https://<domain> → one line on who they are
      Gmail search_emails("newer_than:180d (from:@domain OR to:@domain)") → get_email top threads
-     Slack search_messages(("Company" OR "Person") after:<180d ago>) → get_thread on best hit
+     Slack search_messages("Company after:<180d ago>") and one query per person name
+       → get_thread on best hit
 B2 Context (parallel, last 30d):
    Slack DMs with attendees; Gmail with attendees; Drive docs named in invite/threads;
    meeting_search(attendee names) for any earlier conversation;
    Jira/Launchpad/Confluence only if the title implies delivery work
 ```
+
+## Slack search syntax
+
+Slack search has **no boolean OR** and no `is:im`; spaces mean AND. Run one
+query per intent:
+
+- Resolve attendees first: `get_user(user_id=<email>)` returns the Slack id `U…`.
+- DMs with a person: `in:<@U…> after:YYYY-MM-DD`
+- Messages from a person: `from:<@U…> after:YYYY-MM-DD`
+- Topic: 2–3 distinctive words, e.g. `acme pricing after:YYYY-MM-DD`
+- Exact phrase / full name: `"Ada Lovelace" after:YYYY-MM-DD`
+- Channel: `in:#acme-delivery after:YYYY-MM-DD`, or `get_channel_history`
 
 ## Synthesis rules (both playbooks)
 

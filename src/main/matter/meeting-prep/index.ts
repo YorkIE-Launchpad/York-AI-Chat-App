@@ -7,6 +7,7 @@
 import type { AppConfig } from '../../config/config-store';
 import type { MCPManager } from '../../mcp/mcp-manager';
 import type { MeetingService } from '../../meetings/meeting-service';
+import { log } from '../../utils/logger';
 import { displayName } from '../matter-calendar-enrichment';
 import { classifyMeeting, detectRecurrence } from './classify';
 import { envelopeBody } from './connectors';
@@ -180,6 +181,15 @@ export async function runMeetingPrep(input: RunMeetingPrepInput): Promise<Meetin
 
   const evidence = pool.list();
   const connectorList = connectors.snapshot();
+  const perSource = evidence.reduce<Record<string, number>>((acc, e) => {
+    acc[e.source] = (acc[e.source] || 0) + 1;
+    return acc;
+  }, {});
+  log(
+    `[Matter] Prep "${ctx.title}" (${classification.kind}): evidence ${JSON.stringify(perSource)}; connectors ${connectorList
+      .map((c) => `${c.id}=${c.status}${c.reason ? `(${c.reason})` : ''}`)
+      .join(' ')}`
+  );
   const synthesized = input.config
     ? await synthesizePrepBrief({
         config: input.config,

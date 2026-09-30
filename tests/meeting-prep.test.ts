@@ -45,6 +45,8 @@ import {
   type SeriesHistory,
 } from '../src/main/matter/meeting-prep/types';
 import { runMeetingPrep, inviteDescription } from '../src/main/matter/meeting-prep';
+import { slackPersonQueries, slackTopicQuery } from '../src/main/matter/meeting-prep/gather';
+import { DEFAULT_SLACK_MCP_SERVER_ID } from '../src/shared/mcp-defaults';
 
 describe('classifyMeeting', () => {
   it('treats RRULE invites as recurring with cadence', () => {
@@ -377,6 +379,27 @@ function fakeMcp(): MCPManager {
   } as unknown as MCPManager;
 }
 
+describe('Slack query building', () => {
+  it('uses user-id modifiers when the attendee resolves, never boolean OR', () => {
+    const queries = slackPersonQueries(
+      { name: 'Ada Lovelace', email: 'ada@york.ie' },
+      { id: 'U0123ABCD', name: 'Ada Lovelace' },
+      '2026-09-21'
+    );
+    expect(queries).toEqual([
+      'in:<@U0123ABCD> after:2026-09-21',
+      'from:<@U0123ABCD> after:2026-09-21',
+    ]);
+    expect(
+      slackPersonQueries({ name: 'Ada Lovelace', email: 'ada@york.ie' }, null, '2026-09-21')
+    ).toEqual(['"Ada Lovelace" after:2026-09-21']);
+    expect(slackTopicQuery('Acme Launchpad QA sync', '2026-09-21')).toBe(
+      'acme launchpad after:2026-09-21'
+    );
+    expect(slackTopicQuery('Sync', '2026-09-21')).toBeNull();
+  });
+});
+
 describe('runMeetingPrep', () => {
   beforeEach(() => {
     runPiAiOneShotMock.mockReset();
@@ -407,6 +430,62 @@ describe('runMeetingPrep', () => {
     expect(result.prepNote).toContain('One-off');
     expect(result.prepNote).toContain('### Agenda');
     expect(result.prepNote).toContain('Calendar invite: Globex kickoff');
+  });
+
+  it('searches Slack by resolved user and feeds hits into the brief', async () => {
+    const queries: string[] = [];
+    const tools = [
+      'search_messages',
+      'get_user',
+      'get_thread',
+      'list_channels',
+      'get_channel_history',
+    ].map((name) => ({
+      name: `slack__${name}`,
+      originalName: name,
+      serverId: DEFAULT_SLACK_MCP_SERVER_ID,
+    }));
+    const mcp = {
+      getTools: () => tools,
+      getServerStatus: () => [{ id: DEFAULT_SLACK_MCP_SERVER_ID, name: 'Slack', connected: true }],
+      callTool: async (tool: string, args: Record<string, unknown>) => {
+        if (tool === 'slack__get_user') {
+          return JSON.stringify({
+            body: JSON.stringify({ id: 'U0ADA1234', name: 'ada', real_name: 'Ada Lovelace' }),
+          });
+        }
+        if (tool === 'slack__search_messages') {
+          queries.push(String(args.query));
+          if (String(args.query).startsWith('in:<@U0ADA1234>')) {
+            return JSON.stringify({
+              body: 'D0DM12345|Ada Lovelace [1790000000.000100] Ada Lovelace: Can we lock the Globex SOW before kickoff?\nLink: https://slack.com/archives/D0DM12345/p1',
+            });
+          }
+        }
+        return JSON.stringify({ body: '' });
+      },
+    } as unknown as MCPManager;
+    runPiAiOneShotMock.mockResolvedValue({ text: 'bad' });
+    const result = await runMeetingPrep({
+      mcpManager: mcp,
+      meetingService: null,
+      config: {} as AppConfig,
+      selfEmail: 'me@york.ie',
+      originalTitle: 'Globex kickoff',
+      when: '2026-09-29T10:00:00Z → 2026-09-29T11:00:00Z',
+      attendees: [
+        { name: 'Me', email: 'me@york.ie' },
+        { name: 'Ada Lovelace', email: 'ada@york.ie' },
+      ],
+    });
+    expect(queries.some((q) => q.startsWith('in:<@U0ADA1234> after:'))).toBe(true);
+    expect(queries.some((q) => q.startsWith('from:<@U0ADA1234> after:'))).toBe(true);
+    expect(queries.every((q) => !/\bOR\b/.test(q) && !q.includes('is:im'))).toBe(true);
+    expect(result.evidence.some((e) => e.source === 'slack' && /Globex SOW/.test(e.excerpt))).toBe(
+      true
+    );
+    expect(result.connectors.find((c) => c.id === 'slack')?.status).toBe('checked');
+    expect(result.prepNote).toContain('Slack DM with Ada Lovelace');
   });
 
   it('renders the synthesized brief when the model returns valid JSON', async () => {

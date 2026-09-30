@@ -67,11 +67,16 @@ function formatChannelLabel(channel: {
   return channel.id;
 }
 
-function pickUserDisplayName(user: {
-  real_name?: string | null;
-  name?: string | null;
-  profile?: { display_name?: string | null; real_name?: string | null } | null;
-} | null | undefined): string {
+function pickUserDisplayName(
+  user:
+    | {
+        real_name?: string | null;
+        name?: string | null;
+        profile?: { display_name?: string | null; real_name?: string | null } | null;
+      }
+    | null
+    | undefined
+): string {
   const display = user?.profile?.display_name?.trim() || '';
   const real = user?.real_name?.trim() || user?.profile?.real_name?.trim() || '';
   const name = user?.name?.trim() || '';
@@ -260,9 +265,7 @@ function formatSearchMatchLine(message: {
   const namePart = safeName ? (isIm ? safeName : `#${safeName}`) : '';
   const channelToken = namePart ? `${id}|${namePart}` : id;
   const username =
-    message.username && !SLACK_OPAQUE_ID_RE.test(message.username)
-      ? message.username
-      : 'unknown';
+    message.username && !SLACK_OPAQUE_ID_RE.test(message.username) ? message.username : 'unknown';
   const base = `${channelToken} [${message.ts || ''}] ${username}: ${message.text || ''}`;
   return message.channelLink ? `${base}\nLink: ${message.channelLink}` : base;
 }
@@ -359,11 +362,11 @@ async function main() {
       },
       {
         name: 'get_user',
-        description: 'Read Slack user profile details.',
+        description: 'Read Slack user profile details by user id (U…) or email address.',
         inputSchema: {
           type: 'object',
           properties: {
-            user_id: { type: 'string' },
+            user_id: { type: 'string', description: 'Slack user id (U…) or email address.' },
           },
           required: ['user_id'],
         },
@@ -483,7 +486,8 @@ async function main() {
         });
         const idsToResolve = new Set<string>();
         for (const match of rawMatches) {
-          if (SLACK_USER_ID_RE.test(match.channelName.trim())) idsToResolve.add(match.channelName.trim());
+          if (SLACK_USER_ID_RE.test(match.channelName.trim()))
+            idsToResolve.add(match.channelName.trim());
           if (SLACK_USER_ID_RE.test(match.username.trim())) idsToResolve.add(match.username.trim());
         }
         await Promise.all([...idsToResolve].map((id) => resolveUserLabel(id)));
@@ -534,10 +538,12 @@ async function main() {
         });
       },
       get_user: async (args) => {
-        const userId = String(args.user_id || '');
+        const userId = String(args.user_id || args.email || '').trim();
         let response;
         try {
-          response = await client.users.info({ user: userId });
+          response = userId.includes('@')
+            ? await client.users.lookupByEmail({ email: userId })
+            : await client.users.info({ user: userId });
         } catch (error) {
           throw formatSlackError(error, `Reading Slack user ${userId}`);
         }

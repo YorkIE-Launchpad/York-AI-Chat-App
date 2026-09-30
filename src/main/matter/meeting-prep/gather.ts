@@ -34,6 +34,7 @@ import {
   findToolName,
   htmlToPlainSnippet,
   isServerConnected,
+  mapWithConcurrency,
   parseJsonLoose,
   resolveHubServerId,
   safeCallTool,
@@ -433,28 +434,55 @@ function daysSince(iso: string): number {
   return Math.max(1, Math.ceil(ms / 864e5));
 }
 
-/** Resolve Slack display handles for attendee emails (improves person queries). */
-async function slackHandles(
+export interface SlackUserRef {
+  id: string;
+  name: string;
+}
+
+/** Resolve an attendee email to a Slack user id via `get_user` (users.lookupByEmail). */
+export async function resolveSlackUser(
   deps: GatherDeps,
-  people: CalendarAttendee[]
-): Promise<Map<string, string>> {
-  const out = new Map<string, string>();
-  const userTool = isServerConnected(deps.mcp, DEFAULT_SLACK_MCP_SERVER_ID)
-    ? findToolName(deps.mcp, DEFAULT_SLACK_MCP_SERVER_ID, TOOL_HINTS.slackUser)
-    : null;
-  if (!userTool) return out;
-  for (const a of people) {
-    if (!a.email) continue;
-    const profile = await safeCallTool(deps.mcp, userTool, { user_id: a.email, email: a.email });
-    const raw = profile ? (parseJsonLoose(envelopeBody(profile)) ?? parseJsonLoose(profile)) : null;
-    const rec = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : null;
-    const handle =
-      (typeof rec?.name === 'string' && rec.name) ||
-      (typeof rec?.real_name === 'string' && rec.real_name) ||
-      '';
-    if (handle) out.set(a.email.toLowerCase(), handle);
+  email: string
+): Promise<SlackUserRef | null> {
+  if (!email || !isServerConnected(deps.mcp, DEFAULT_SLACK_MCP_SERVER_ID)) return null;
+  const userTool = findToolName(deps.mcp, DEFAULT_SLACK_MCP_SERVER_ID, TOOL_HINTS.slackUser);
+  if (!userTool) return null;
+  const profile = await safeCallTool(deps.mcp, userTool, { user_id: email });
+  const raw = profile ? (parseJsonLoose(envelopeBody(profile)) ?? parseJsonLoose(profile)) : null;
+  const rec = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : null;
+  const id = typeof rec?.id === 'string' ? rec.id : '';
+  if (!/^[UW][A-Z0-9]{6,}$/i.test(id)) return null;
+  const name =
+    (typeof rec?.real_name === 'string' && rec.real_name) ||
+    (typeof rec?.name === 'string' && rec.name) ||
+    email;
+  return { id, name };
+}
+
+/**
+ * Slack search queries for one attendee. Slack search has no boolean OR, so
+ * each query is a single intent: DM with them, messages from them, or name.
+ */
+export function slackPersonQueries(
+  person: CalendarAttendee,
+  slackUser: SlackUserRef | null,
+  afterDate: string
+): string[] {
+  if (slackUser) {
+    return [
+      `in:<@${slackUser.id}> after:${afterDate}`,
+      `from:<@${slackUser.id}> after:${afterDate}`,
+    ];
   }
-  return out;
+  const fullName = person.name && !person.name.includes('@') ? person.name.trim() : '';
+  if (fullName.includes(' ')) return [`"${fullName}" after:${afterDate}`];
+  return [];
+}
+
+/** Topic query from distinctive title words (space = AND in Slack search). */
+export function slackTopicQuery(title: string, afterDate: string): string | null {
+  const tokens = titleSearchTokens(title).slice(0, 3);
+  return tokens.length ? `${tokens.join(' ')} after:${afterDate}` : null;
 }
 
 /** Pick the most relevant shared Slack channel and pull its recent history. */
@@ -554,17 +582,24 @@ export async function gatherMeetingContext(input: {
 
   tasks.push(
     (async () => {
-      const handles = await slackHandles(deps, focus.slice(0, 2));
       const queries: string[] = [];
-      for (const a of focus.slice(0, 2)) {
-        const handle = a.email ? handles.get(a.email.toLowerCase()) : '';
-        const names = [...new Set([handle, displayName(a), a.email].filter(Boolean))].slice(0, 3);
-        if (names.length) queries.push(`is:im (${names.join(' OR ')}) after:${after}`);
+      for (const a of focus) {
+        const slackUser = a.email ? await resolveSlackUser(deps, a.email) : null;
+        queries.push(...slackPersonQueries(a, slackUser, after));
       }
-      if (specificTitle) queries.push(`"${title.slice(0, 40)}" after:${after}`);
-      for (const q of queries.slice(0, 4)) {
-        await searchSlack(deps, q, { maxHits: 3, deepenThreads: 1 });
+      const topic = slackTopicQuery(title, after);
+      if (topic) queries.push(topic);
+      if (!queries.length) {
+        if (isServerConnected(deps.mcp, DEFAULT_SLACK_MCP_SERVER_ID)) {
+          deps.connectors.mark('slack', 'Slack', 'empty', 'no attendees or topic to search');
+        } else {
+          deps.connectors.mark('slack', 'Slack', 'skipped', 'disconnected');
+        }
+        return;
       }
+      await mapWithConcurrency(queries.slice(0, 7), 3, (q) =>
+        searchSlack(deps, q, { maxHits: 3, limit: 10, deepenThreads: 1 })
+      );
     })()
   );
 
