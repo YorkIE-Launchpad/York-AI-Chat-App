@@ -294,6 +294,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     join: (inviteToken: string) => ipcRenderer.invoke('sharedDocs.join', inviteToken),
     createInvite: (input: { docId: string; permission: 'view' | 'edit'; sessionId: string }) =>
       ipcRenderer.invoke('sharedDocs.createInvite', input),
+    createS3Link: (input: {
+      sessionId: string;
+      cwd: string;
+      localPath: string;
+      docId?: string;
+      title?: string;
+      expiresInSec?: number;
+    }) => ipcRenderer.invoke('sharedDocs.createS3Link', input),
     getLink: (input: { sessionId: string; localPath: string }) =>
       ipcRenderer.invoke('sharedDocs.getLink', input),
     onSync: (
@@ -1330,6 +1338,20 @@ declare global {
           docId?: string;
           permission?: import('../shared/shared-docs/types').SharedDocPermission;
           inviteToken?: string;
+          error?: string;
+        }>;
+        createS3Link: (input: {
+          sessionId: string;
+          cwd: string;
+          localPath: string;
+          docId?: string;
+          title?: string;
+          expiresInSec?: number;
+        }) => Promise<{
+          success: boolean;
+          url?: string;
+          expiresAt?: string;
+          doc?: import('../shared/shared-docs/types').SharedDocWithAccess;
           error?: string;
         }>;
         getLink: (input: { sessionId: string; localPath: string }) => Promise<{

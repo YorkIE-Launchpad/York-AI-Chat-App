@@ -20,6 +20,8 @@ import { ensureAuthenticatedSession } from '../auth/session';
 import {
   downloadHubObjectToBuffer,
   fetchHubObjectLastModified,
+  fetchHubPresignedGetUrl,
+  HUB_PRESIGNED_MAX_EXPIRES_SEC,
   isRemoteS3Newer,
   sharedDocHubFolder,
   uploadBufferToHubStorage,
@@ -154,7 +156,9 @@ export function setSharedDocsSyncNotifier(
 }
 
 export class SharedDocsService {
-  private async downloadHubObject(keys: string[]): Promise<{ buffer: Buffer; lastModified: string }> {
+  private async downloadHubObject(
+    keys: string[]
+  ): Promise<{ buffer: Buffer; lastModified: string }> {
     const unique = [...new Set(keys.map((key) => key.trim()).filter(Boolean))];
     let lastError: Error | null = null;
     for (const key of unique) {
@@ -539,6 +543,43 @@ export class SharedDocsService {
       updatedAt: link.s3_updated_at || new Date().toISOString(),
     });
     return { docId: link.doc_id, permission: input.permission, inviteToken };
+  }
+
+  /**
+   * Return a presigned S3 GET URL for the document. Uploads the local file first
+   * when it has not been shared yet.
+   */
+  async createS3Link(input: {
+    sessionId: string;
+    cwd: string;
+    localPath: string;
+    docId?: string;
+    title?: string;
+    expiresInSec?: number;
+  }): Promise<{ url: string; expiresAt: string; doc?: SharedDocWithAccess }> {
+    const expiresInSec = Math.min(
+      HUB_PRESIGNED_MAX_EXPIRES_SEC,
+      Math.max(60, Math.floor(input.expiresInSec ?? 24 * 60 * 60))
+    );
+    const link = input.docId ? getSharedDocLink(input.docId, input.sessionId) : undefined;
+
+    let s3Key = link?.s3_key;
+    let doc: SharedDocWithAccess | undefined;
+    if (!s3Key) {
+      const shared = await this.shareLocalArtifact({
+        sessionId: input.sessionId,
+        cwd: input.cwd,
+        localPath: input.localPath,
+        title: input.title,
+        permission: 'view',
+      });
+      doc = shared.doc;
+      s3Key = shared.doc.s3Key;
+    }
+
+    const url = await fetchHubPresignedGetUrl(s3Key, expiresInSec);
+    const expiresAt = new Date(Date.now() + expiresInSec * 1000).toISOString();
+    return { url, expiresAt, doc };
   }
 
   getLinkForPath(sessionId: string, localPath: string) {

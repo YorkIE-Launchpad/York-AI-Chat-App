@@ -3261,7 +3261,9 @@ ${
           authStorage,
           modelRegistry,
           tools: wrappedTools as unknown as ReturnType<typeof createCodingTools>,
-          customTools,
+          // The SDK only reads names from `tools` and rebuilds the built-ins internally;
+          // same-named custom tools replace them, so the wrappers above actually run.
+          customTools: [...(wrappedTools as unknown as typeof customTools), ...customTools],
           sessionManager: PiSessionManager.inMemory(),
           settingsManager: PiSettingsManager.inMemory({
             compaction: compactionSettings,

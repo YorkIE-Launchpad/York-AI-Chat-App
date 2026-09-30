@@ -70,10 +70,10 @@ export async function fetchHubObjectLastModified(s3Key: string): Promise<string>
   const tokens = await getHubBearerTokens();
   const authAttempts: (string | undefined)[] = [undefined, ...tokens];
   for (const token of authAttempts) {
-    const headers: Record<string, string> = { Accept: '*/*' };
+    // Presigned URLs are signed for GET, so HEAD is rejected by S3; fetch one byte instead.
+    const headers: Record<string, string> = { Accept: '*/*', Range: 'bytes=0-0' };
     if (token) headers.Authorization = `Bearer ${token}`;
     const res = await hubHttpRequest(signedUrl, {
-      method: 'HEAD',
       headers,
       timeoutMs: 12_000,
     });
@@ -118,11 +118,7 @@ async function uploadHubStorageBuffer(input: {
   const contentType = contentTypeForFileName(fileName, input.contentType);
 
   chunks.push(Buffer.from(`--${boundary}\r\n`));
-  chunks.push(
-    Buffer.from(
-      `Content-Disposition: form-data; name="folder"\r\n\r\n${folder}\r\n`
-    )
-  );
+  chunks.push(Buffer.from(`Content-Disposition: form-data; name="folder"\r\n\r\n${folder}\r\n`));
   chunks.push(Buffer.from(`--${boundary}\r\n`));
   chunks.push(
     Buffer.from(
@@ -177,12 +173,16 @@ export async function uploadFileToHubStorage(input: {
   return uploadHubStorageBuffer({ buffer, folder: input.folder, fileName });
 }
 
-export async function fetchHubPresignedGetUrl(s3Key: string): Promise<string> {
+/** S3 SigV4 presigned URLs cannot outlive 7 days. */
+export const HUB_PRESIGNED_MAX_EXPIRES_SEC = 7 * 24 * 60 * 60;
+
+export async function fetchHubPresignedGetUrl(s3Key: string, expiresInSec = 3600): Promise<string> {
   const tokens = await getHubBearerTokens();
   const base = authConfig.hubApiUrl.replace(/\/$/, '');
   const url = new URL(`${base}/api/storage/presigned-url`);
+  const expiresIn = Math.min(HUB_PRESIGNED_MAX_EXPIRES_SEC, Math.max(60, Math.floor(expiresInSec)));
   url.searchParams.set('key', s3Key);
-  url.searchParams.set('expiresIn', '3600');
+  url.searchParams.set('expiresIn', String(expiresIn));
 
   for (const token of tokens) {
     const res = await hubHttpRequest(url.toString(), {

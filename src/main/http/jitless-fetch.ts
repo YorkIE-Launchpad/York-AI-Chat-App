@@ -162,7 +162,9 @@ async function encodeRequestBody(
         );
         chunks.push(Buffer.from(await value.arrayBuffer()));
       } else {
-        chunks.push(Buffer.from(`Content-Disposition: form-data; name="${name}"\r\n\r\n${String(value)}\r\n`));
+        chunks.push(
+          Buffer.from(`Content-Disposition: form-data; name="${name}"\r\n\r\n${String(value)}`)
+        );
       }
       chunks.push(Buffer.from('\r\n'));
     }
@@ -367,7 +369,10 @@ function toHubHttpResponse(result: NodeHttpResult): HubHttpResponse {
  * HTTP(S) via Node core — safe when V8 runs without WebAssembly (jitless on macOS 26+).
  * Defaults to a 30s socket timeout when callers omit `timeoutMs`.
  */
-export function hubHttpRequest(urlString: string, init: HubHttpInit = {}): Promise<HubHttpResponse> {
+export function hubHttpRequest(
+  urlString: string,
+  init: HubHttpInit = {}
+): Promise<HubHttpResponse> {
   return performNodeHttpRequest(urlString, {
     ...init,
     timeoutMs: init.timeoutMs ?? 30_000,

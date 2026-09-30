@@ -33,6 +33,11 @@ const MIN_PREVIEW_WIDTH = 280;
 const MAX_PREVIEW_WIDTH_RATIO = 0.75;
 const DEFAULT_PREVIEW_WIDTH = 520;
 const PREVIEW_WIDTH_STORAGE_KEY = 'yorkie.htmlPreviewWidth';
+const S3_LINK_EXPIRY_OPTIONS = [
+  { seconds: 60 * 60, labelKey: 'context.htmlPreviewS3LinkExpiry1h' },
+  { seconds: 24 * 60 * 60, labelKey: 'context.htmlPreviewS3LinkExpiry1d' },
+  { seconds: 7 * 24 * 60 * 60, labelKey: 'context.htmlPreviewS3LinkExpiry7d' },
+] as const;
 
 function clampPreviewWidth(width: number, viewportWidth = window.innerWidth): number {
   const maxWidth = Math.max(MIN_PREVIEW_WIDTH, Math.floor(viewportWidth * MAX_PREVIEW_WIDTH_RATIO));
@@ -74,6 +79,9 @@ export function HtmlPreviewPanel() {
   const [sharePermission, setSharePermission] = useState<SharedDocPermission>('view');
   const [shareInviteToken, setShareInviteToken] = useState('');
   const [sharing, setSharing] = useState(false);
+  const [s3LinkExpirySec, setS3LinkExpirySec] = useState<number>(S3_LINK_EXPIRY_OPTIONS[1].seconds);
+  const [s3Link, setS3Link] = useState<{ url: string; expiresAt: string } | null>(null);
+  const [creatingS3Link, setCreatingS3Link] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const [docLock, setDocLock] = useState<SharedDocLockState | null>(null);
   const dragStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
@@ -87,10 +95,7 @@ export function HtmlPreviewPanel() {
 
   const activeSession = activeSessionId ? sessions.find((s) => s.id === activeSessionId) : null;
   const cwd = activeSession?.cwd || workingDir;
-  const previewTabs = useMemo(
-    () => findHtmlPreviewCandidates(traceSteps, cwd),
-    [traceSteps, cwd]
-  );
+  const previewTabs = useMemo(() => findHtmlPreviewCandidates(traceSteps, cwd), [traceSteps, cwd]);
   const isMarkdown = activeHtmlPreview?.kind === 'markdown';
   const sharedDocId = activeHtmlPreview?.shared?.docId;
   const sharedCanEdit =
@@ -428,7 +433,54 @@ export function HtmlPreviewPanel() {
   const handleShare = () => {
     setSharePermission('view');
     setShareInviteToken('');
+    setS3Link(null);
     setShareOpen(true);
+  };
+
+  const handleCreateS3Link = async () => {
+    if (!activeHtmlPreview || !activeSessionId || !cwd || !window.electronAPI?.sharedDocs) {
+      return;
+    }
+    setCreatingS3Link(true);
+    try {
+      const result = await window.electronAPI.sharedDocs.createS3Link({
+        sessionId: activeSessionId,
+        cwd,
+        localPath: activeHtmlPreview.path,
+        docId: activeHtmlPreview.shared?.docId,
+        title: activeHtmlPreview.title,
+        expiresInSec: s3LinkExpirySec,
+      });
+      if (!result.success || !result.url) {
+        throw new Error(result.error || t('context.htmlPreviewS3LinkFailed'));
+      }
+      if (result.doc) {
+        openHtmlPreview(activeHtmlPreview.path, result.doc.title, result.doc.kind, {
+          docId: result.doc.id,
+          permission: 'owner',
+          s3UpdatedAt: result.doc.s3UpdatedAt,
+        });
+      }
+      setS3Link({ url: result.url, expiresAt: result.expiresAt ?? '' });
+      try {
+        await navigator.clipboard.writeText(result.url);
+      } catch {
+        // ignore clipboard failures
+      }
+      setGlobalNotice({
+        id: `share-doc-s3-${Date.now()}`,
+        type: 'success',
+        message: t('context.htmlPreviewS3LinkCopied'),
+      });
+    } catch (error) {
+      setGlobalNotice({
+        id: `share-doc-s3-fail-${Date.now()}`,
+        type: 'error',
+        message: error instanceof Error ? error.message : t('context.htmlPreviewS3LinkFailed'),
+      });
+    } finally {
+      setCreatingS3Link(false);
+    }
   };
 
   const handleSubmitShare = async () => {
@@ -740,12 +792,66 @@ export function HtmlPreviewPanel() {
                 {t('context.htmlPreviewShareInvite')}: {shareInviteToken}
               </p>
             )}
+
+            <div className="mt-4 border-t border-border-subtle pt-3">
+              <p className="text-xs font-medium text-text-primary">
+                {t('context.htmlPreviewS3LinkTitle')}
+              </p>
+              <p className="mt-1 text-xs text-text-muted">{t('context.htmlPreviewS3LinkHint')}</p>
+              <div className="mt-2 flex items-center gap-2">
+                <select
+                  value={s3LinkExpirySec}
+                  onChange={(e) => {
+                    setS3LinkExpirySec(Number(e.target.value));
+                    setS3Link(null);
+                  }}
+                  disabled={creatingS3Link}
+                  aria-label={t('context.htmlPreviewS3LinkExpiry')}
+                  className="flex-1 rounded-lg border border-border-subtle bg-surface px-3 py-2 text-sm"
+                >
+                  {S3_LINK_EXPIRY_OPTIONS.map((option) => (
+                    <option key={option.seconds} value={option.seconds}>
+                      {t(option.labelKey)}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  className="shrink-0 rounded-lg border border-border-subtle px-3 py-2 text-sm text-text-primary hover:bg-surface-hover disabled:opacity-50"
+                  onClick={() => void handleCreateS3Link()}
+                  disabled={creatingS3Link || sharing}
+                >
+                  {creatingS3Link
+                    ? t('common.loading', { defaultValue: 'Working…' })
+                    : t('context.htmlPreviewS3LinkCopy')}
+                </button>
+              </div>
+              {s3Link && (
+                <div className="mt-2">
+                  <input
+                    type="text"
+                    readOnly
+                    value={s3Link.url}
+                    onFocus={(e) => e.currentTarget.select()}
+                    className="w-full rounded-lg border border-border-subtle bg-surface px-2 py-1.5 text-[10px] text-text-secondary"
+                  />
+                  {s3Link.expiresAt && (
+                    <p className="mt-1 text-[10px] text-text-muted">
+                      {t('context.htmlPreviewS3LinkExpiresAt', {
+                        time: new Date(s3Link.expiresAt).toLocaleString(),
+                      })}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+
             <div className="mt-4 flex justify-end gap-2">
               <button
                 type="button"
                 className="rounded-lg px-3 py-1.5 text-sm text-text-secondary hover:bg-surface-hover"
                 onClick={() => setShareOpen(false)}
-                disabled={sharing}
+                disabled={sharing || creatingS3Link}
               >
                 {t('common.cancel', { defaultValue: 'Cancel' })}
               </button>
@@ -753,7 +859,7 @@ export function HtmlPreviewPanel() {
                 type="button"
                 className="rounded-lg bg-accent px-3 py-1.5 text-sm text-white disabled:opacity-50"
                 onClick={() => void handleSubmitShare()}
-                disabled={sharing}
+                disabled={sharing || creatingS3Link}
               >
                 {sharing
                   ? t('common.loading', { defaultValue: 'Working…' })

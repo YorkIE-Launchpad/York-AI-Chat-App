@@ -5413,6 +5413,29 @@ ipcMain.handle(
 );
 
 ipcMain.handle(
+  'sharedDocs.createS3Link',
+  async (
+    _event,
+    input: {
+      sessionId: string;
+      cwd: string;
+      localPath: string;
+      docId?: string;
+      title?: string;
+      expiresInSec?: number;
+    }
+  ) => {
+    try {
+      const result = await sharedDocsService.createS3Link(input);
+      return { success: true, ...result };
+    } catch (error) {
+      logError('[SharedDocs] createS3Link failed:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  }
+);
+
+ipcMain.handle(
   'sharedDocs.getLink',
   async (_event, input: { sessionId: string; localPath: string }) => {
     try {

@@ -1,6 +1,11 @@
 import { createServer, type Server } from 'node:http';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { hubHttpRequest, installJitlessSafeFetch, jitlessFetch, __resetJitlessFetchInstallForTests } from '../../main/http/jitless-fetch';
+import {
+  hubHttpRequest,
+  installJitlessSafeFetch,
+  jitlessFetch,
+  __resetJitlessFetchInstallForTests,
+} from '../../main/http/jitless-fetch';
 
 describe('jitless-fetch', () => {
   let server: Server | null = null;
@@ -190,6 +195,50 @@ describe('jitless-fetch', () => {
     const response = await jitlessFetch(`${baseUrl}/start`);
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({ landed: true });
+  });
+
+  it('jitlessFetch encodes FormData text fields without trailing CRLF', async () => {
+    let received: { body: Buffer; contentType: string } | null = null;
+    server = createServer((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on('data', (chunk: Buffer) => chunks.push(chunk));
+      req.on('end', () => {
+        received = {
+          body: Buffer.concat(chunks),
+          contentType: String(req.headers['content-type']),
+        };
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end('{}');
+      });
+    });
+    await new Promise<void>((resolve) => {
+      server!.listen(0, '127.0.0.1', () => {
+        const addr = server!.address();
+        const port = typeof addr === 'object' && addr ? addr.port : 0;
+        baseUrl = `http://127.0.0.1:${port}`;
+        resolve();
+      });
+    });
+
+    const form = new FormData();
+    form.append('model', 'gpt-image-2.5-flare');
+    form.append(
+      'image',
+      new File([Buffer.from('png-bytes')], 'input-0.png', { type: 'image/png' })
+    );
+    form.append('prompt', 'hello');
+
+    const response = await jitlessFetch(`${baseUrl}/edits`, { method: 'POST', body: form });
+    expect(response.status).toBe(200);
+
+    const parsed = await new Response(new Uint8Array(received!.body), {
+      headers: { 'Content-Type': received!.contentType },
+    }).formData();
+    expect(parsed.get('model')).toBe('gpt-image-2.5-flare');
+    expect(parsed.get('prompt')).toBe('hello');
+    const image = parsed.get('image') as File;
+    expect(image.name).toBe('input-0.png');
+    expect(Buffer.from(await image.arrayBuffer()).toString()).toBe('png-bytes');
   });
 
   it('installJitlessSafeFetch patches global fetch when WebAssembly is missing', () => {
