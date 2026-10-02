@@ -121,6 +121,11 @@ export const MessageCard = memo(function MessageCard({
     <div className="min-w-0 max-w-full animate-fade-in">
       {isUser && isMeetingTranscriptMessage ? (
         <div className="flex min-w-0 max-w-full flex-col items-start gap-1.5">
+          {message.authorName ? (
+            <span className="px-1 text-[11px] font-medium text-text-secondary">
+              {message.authorName}
+            </span>
+          ) : null}
           {contentBlocks.map((block, index) => (
             <ContentBlockView
               key={`block-${block.type}-${index}`}
@@ -133,6 +138,11 @@ export const MessageCard = memo(function MessageCard({
       ) : isUser ? (
         // User message - compact styling with smaller padding and radius
         <div className="flex min-w-0 max-w-full flex-col items-end gap-1.5">
+          {message.authorName ? (
+            <span className="px-1 text-[11px] font-medium text-text-secondary">
+              {message.authorName}
+            </span>
+          ) : null}
           {isCancelled && (
             <div className="inline-flex items-center gap-1.5 rounded-full bg-surface-muted px-2.5 py-1 text-[11px] font-medium text-text-muted">
               <Ban className="w-3 h-3 shrink-0" aria-hidden />

@@ -13,6 +13,7 @@ import {
   getCollabMaps,
   listOrderedMessages,
   messageToCollabPortable,
+  portableForCollabSeed,
   readCollabMeta,
   readMembers,
   readTurnLease,
@@ -197,9 +198,7 @@ export class CollabSyncService {
     return names;
   }
 
-  private readAwarenessPartial(
-    rt: RoomRuntime
-  ): { text: string; fromName: string } | null {
+  private readAwarenessPartial(rt: RoomRuntime): { text: string; fromName: string } | null {
     const states = rt.awareness.getStates();
     for (const [clientId, state] of states) {
       if (clientId === rt.doc.clientID) continue;
@@ -258,10 +257,15 @@ export class CollabSyncService {
     }
     const sub = getCognitoSubFromSession();
     if (!sub) throw new Error('Authentication required');
-    const displayName = getCurrentSession()?.user?.name || getCurrentSession()?.user?.email || 'User';
+    const displayName =
+      getCurrentSession()?.user?.name || getCurrentSession()?.user?.email || 'User';
 
     // The lease marks an active agent run; an idle lease left by a teammate is taken over.
-    const result = tryAcquireLease(rt.doc, { sub, displayName }, { runId: randomUUID(), takeIdle: true });
+    const result = tryAcquireLease(
+      rt.doc,
+      { sub, displayName },
+      { runId: randomUUID(), takeIdle: true }
+    );
     if (!result.ok) {
       throw new Error(
         `${result.holder?.holderName || 'A teammate'} is running the agent in this shared chat. Wait until it finishes.`
@@ -285,7 +289,8 @@ export class CollabSyncService {
 
     const sub = getCognitoSubFromSession();
     if (!sub) throw new Error('Cognito identity required');
-    const displayName = getCurrentSession()?.user?.name || getCurrentSession()?.user?.email || 'User';
+    const displayName =
+      getCurrentSession()?.user?.name || getCurrentSession()?.user?.email || 'User';
 
     const roomId = existing?.roomId || session.collabRoomId || createCollabRoomId();
 
@@ -322,7 +327,8 @@ export class CollabSyncService {
 
     const sub = getCognitoSubFromSession();
     if (!sub) throw new Error('Cognito identity required');
-    const displayName = getCurrentSession()?.user?.name || getCurrentSession()?.user?.email || 'User';
+    const displayName =
+      getCurrentSession()?.user?.name || getCurrentSession()?.user?.email || 'User';
 
     const created = this.deps.createJoinedSession({
       title: 'Shared chat',
@@ -409,6 +415,9 @@ export class CollabSyncService {
 
     const session = this.deps.getSession(input.sessionId);
     const existingTitle = readCollabMeta(doc).title;
+    // First share only: local history was written by the owner. Later reconnects
+    // must not relabel teammates' older messages that have no stored author.
+    const attributeLocalAuthors = input.role === 'owner' && !existingTitle;
     if (input.seedFromLocal && input.role === 'owner' && session && !existingTitle) {
       seedCollabMeta(
         doc,
@@ -438,7 +447,15 @@ export class CollabSyncService {
         // Copies exist only so this session can display a peer row whose id is
         // already stored for another local chat. Seeding them would duplicate the transcript.
         if (isCollabProjectionCopy(input.sessionId, message.id)) continue;
-        upsertCollabMessage(doc, messageToCollabPortable(message));
+        const existing = getCollabMaps(doc).messages.get(message.id);
+        upsertCollabMessage(
+          doc,
+          portableForCollabSeed(message, existing, {
+            role: attributeLocalAuthors ? 'owner' : 'member',
+            displayName: input.displayName,
+            sub: input.sub,
+          })
+        );
       }
     }
 
@@ -544,10 +561,7 @@ export class CollabSyncService {
     log(`[Collab] connected session=${input.sessionId} room=${input.roomId} role=${input.role}`);
   }
 
-  private projectRemoteMessages(
-    rt: RoomRuntime,
-    options?: { notifyRenderer?: boolean }
-  ): void {
+  private projectRemoteMessages(rt: RoomRuntime, options?: { notifyRenderer?: boolean }): void {
     const notifyRenderer = options?.notifyRenderer !== false;
     const ordered = listOrderedMessages(rt.doc);
     for (const portable of ordered) {
@@ -650,7 +664,8 @@ export class CollabSyncService {
   onStreamPartial(sessionId: string, delta: string): void {
     const rt = this.roomsBySession.get(sessionId);
     if (!rt) return;
-    const prev = (rt.awareness.getLocalState()?.partial as { text?: string } | undefined)?.text || '';
+    const prev =
+      (rt.awareness.getLocalState()?.partial as { text?: string } | undefined)?.text || '';
     this.setStreamingPartial(sessionId, prev + delta);
   }
 
@@ -698,11 +713,16 @@ export class CollabSyncService {
     if (!rt) return;
     const sub = getCognitoSubFromSession();
     if (!sub) return;
-    const displayName = getCurrentSession()?.user?.name || getCurrentSession()?.user?.email || 'User';
+    const displayName =
+      getCurrentSession()?.user?.name || getCurrentSession()?.user?.email || 'User';
     const current = readTurnLease(rt.doc);
-    const result = tryAcquireLease(rt.doc, { sub, displayName }, {
-      runId: current?.holderSub === sub && current.runId ? current.runId : randomUUID(),
-    });
+    const result = tryAcquireLease(
+      rt.doc,
+      { sub, displayName },
+      {
+        runId: current?.holderSub === sub && current.runId ? current.runId : randomUUID(),
+      }
+    );
     if (result.ok) this.startLeaseRefresh(rt, sub);
   }
 
@@ -773,10 +793,7 @@ export class CollabSyncService {
 }
 
 /** Exported for projecting portable messages in tests. */
-export function portableToMessage(
-  portable: CollabPortableMessage,
-  sessionId: string
-): Message {
+export function portableToMessage(portable: CollabPortableMessage, sessionId: string): Message {
   return {
     id: portable.id,
     sessionId,
@@ -788,5 +805,7 @@ export function portableToMessage(
     model: portable.model,
     tokenUsage: portable.tokenUsage,
     executionTimeMs: portable.executionTimeMs,
+    authorName: portable.authorName,
+    authorSub: portable.authorSub,
   };
 }

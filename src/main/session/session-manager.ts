@@ -80,7 +80,12 @@ import { filterChatSearchHitsByDivision, type ChatSearchScope } from '../../shar
 import { runGptImageGeneration } from '../images/image-generation-service';
 import type { ActiveDivision } from '../../shared/workspace-division';
 import { resolveExternalReference } from '../references/reference-service';
-import { collabProjectionMessageId } from '../../shared/collab/shared-session-doc';
+import {
+  attachSharedChatAuthor,
+  collabProjectionMessageId,
+} from '../../shared/collab/shared-session-doc';
+import { getCurrentSession } from '../auth/session';
+import { getCognitoSubFromSession } from '../collab/collab-sync-service';
 
 interface AgentRunner {
   run(session: Session, prompt: string, existingMessages: Message[]): Promise<void>;
@@ -2224,22 +2229,25 @@ export class SessionManager {
   }
 
   // Save message to database (or in-memory cache only for incognito)
-  saveMessage(message: Message): void {
-    const isIncognito = this.ephemeralSessions.has(message.sessionId);
+  saveMessage(message: Message, options?: { skipSharedAuthor?: boolean }): void {
+    const stored = options?.skipSharedAuthor ? message : this.stampSharedChatAuthor(message);
+    const isIncognito = this.ephemeralSessions.has(stored.sessionId);
     if (!isIncognito) {
       this.db.messages.create({
-        id: message.id,
-        session_id: message.sessionId,
-        role: message.role,
-        content: JSON.stringify(message.content),
-        timestamp: message.timestamp,
-        token_usage: message.tokenUsage ? JSON.stringify(message.tokenUsage) : null,
-        execution_time_ms: message.executionTimeMs ?? null,
+        id: stored.id,
+        session_id: stored.sessionId,
+        role: stored.role,
+        content: JSON.stringify(stored.content),
+        timestamp: stored.timestamp,
+        token_usage: stored.tokenUsage ? JSON.stringify(stored.tokenUsage) : null,
+        execution_time_ms: stored.executionTimeMs ?? null,
+        author_name: stored.authorName ?? null,
+        author_sub: stored.authorSub ?? null,
       });
     }
-    const cached = this.messageCache.get(message.sessionId);
+    const cached = this.messageCache.get(stored.sessionId);
     if (cached) {
-      cached.push(message);
+      cached.push(stored);
     } else {
       // Only evict when the cache could actually grow (i.e. the session is
       // not cached yet). Evicting on every saveMessage call is wrong because
@@ -2250,21 +2258,34 @@ export class SessionManager {
         if (firstKey) this.messageCache.delete(firstKey);
       }
       if (isIncognito) {
-        this.messageCache.set(message.sessionId, [message]);
+        this.messageCache.set(stored.sessionId, [stored]);
       } else {
         // Hydrate from DB instead of seeding with only this message. After cache
         // eviction, a lone seed would make getMessages() return truncated history
         // and history clicks look like the chat failed to load.
-        const messages = this.readMessagesFromDb(message.sessionId);
-        if (!messages.some((m) => m.id === message.id)) {
-          messages.push(message);
+        const messages = this.readMessagesFromDb(stored.sessionId);
+        if (!messages.some((m) => m.id === stored.id)) {
+          messages.push(stored);
         }
-        this.messageCache.set(message.sessionId, messages);
+        this.messageCache.set(stored.sessionId, messages);
       }
     }
 
-    log('[SessionManager] Message saved:', message.id, 'role:', message.role);
-    this.collabHooks?.onLocalMessageSaved?.(message.sessionId, message);
+    log('[SessionManager] Message saved:', stored.id, 'role:', stored.role);
+    this.collabHooks?.onLocalMessageSaved?.(stored.sessionId, stored);
+  }
+
+  /** Attribute a locally sent user turn in a shared chat to the signed-in person. */
+  private stampSharedChatAuthor(message: Message): Message {
+    if (message.authorName) return message;
+    if (message.role !== 'user') return message;
+    const session = this.loadSession(message.sessionId);
+    if (!session?.collabRoomId) return message;
+    const authUser = getCurrentSession()?.user;
+    return attachSharedChatAuthor(message, {
+      authorName: authUser?.name || authUser?.email,
+      authorSub: getCognitoSubFromSession(),
+    });
   }
 
   /** Post a completed assistant message to a session (e.g. Live Assist answer). */
@@ -2446,7 +2467,7 @@ export class SessionManager {
     const existing = this.db.messages.getById?.(message.id);
     if (!existing) {
       try {
-        this.saveMessage(message);
+        this.saveMessage(message, { skipSharedAuthor: true });
         return { message, inserted: true };
       } catch (error) {
         if (!isSqliteUniqueConstraint(error)) throw error;
@@ -2461,7 +2482,7 @@ export class SessionManager {
         };
         const copyRow = this.db.messages.getById?.(copy.id);
         if (!copyRow) {
-          this.saveMessage(copy);
+          this.saveMessage(copy, { skipSharedAuthor: true });
           return { message: copy, inserted: true };
         }
         if (copyRow.session_id !== message.sessionId) {
@@ -2483,7 +2504,7 @@ export class SessionManager {
     };
     const copyRow = this.db.messages.getById?.(copy.id);
     if (!copyRow) {
-      this.saveMessage(copy);
+      this.saveMessage(copy, { skipSharedAuthor: true });
       return { message: copy, inserted: true };
     }
     if (copyRow.session_id !== message.sessionId) {
@@ -2502,6 +2523,7 @@ export class SessionManager {
       if (cached && !cached.some((item) => item.id === message.id)) {
         cached.push(message);
       }
+      this.syncProjectedAuthor(message);
       return;
     }
     const cached = this.messageCache.get(message.sessionId);
@@ -2509,6 +2531,39 @@ export class SessionManager {
       cached.push(message);
     }
     this.updatePublishedMessage(message.sessionId, message.id, message.content);
+    this.syncProjectedAuthor(message);
+  }
+
+  /** Persist a shared-chat author onto a row that already exists in this session. */
+  private syncProjectedAuthor(message: Message): void {
+    if (!message.authorName && !message.authorSub) return;
+    const row = this.db.messages.getById?.(message.id);
+    if (!row || row.session_id !== message.sessionId) return;
+    const nextName = message.authorName ?? null;
+    const nextSub = message.authorSub ?? null;
+    const authorChanged =
+      (row.author_name ?? null) !== nextName || (row.author_sub ?? null) !== nextSub;
+    if (authorChanged) {
+      this.db.messages.update(message.id, {
+        author_name: nextName,
+        author_sub: nextSub,
+      });
+    }
+    const cached = this.messageCache.get(message.sessionId);
+    const idx = cached?.findIndex((item) => item.id === message.id) ?? -1;
+    if (cached && idx >= 0) {
+      cached[idx] = {
+        ...cached[idx],
+        authorName: message.authorName,
+        authorSub: message.authorSub,
+      };
+    }
+    if (!authorChanged) return;
+    const stored = cached && idx >= 0 ? cached[idx] : message;
+    this.sendToRenderer({
+      type: 'stream.messageUpdate',
+      payload: { sessionId: message.sessionId, message: stored },
+    });
   }
 
   private readMessagesFromDb(sessionId: string): Message[] {
@@ -2521,6 +2576,8 @@ export class SessionManager {
       timestamp: row.timestamp,
       tokenUsage: row.token_usage ? JSON.parse(row.token_usage) : undefined,
       executionTimeMs: row.execution_time_ms ?? undefined,
+      authorName: row.author_name || undefined,
+      authorSub: row.author_sub || undefined,
     }));
   }
 

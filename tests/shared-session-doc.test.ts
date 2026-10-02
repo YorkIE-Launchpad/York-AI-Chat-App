@@ -7,7 +7,9 @@ import {
   isLeaseHeldByOther,
   isLeaseHolder,
   listOrderedMessages,
+  attachSharedChatAuthor,
   messageToCollabPortable,
+  portableForCollabSeed,
   readTurnLease,
   refreshLease,
   releaseLeaseIfHolder,
@@ -48,6 +50,41 @@ describe('shared-session-doc', () => {
     expect(listOrderedMessages(doc).map((m) => m.id)).toEqual(['m1', 'm2']);
   });
 
+  it('keeps the sender name on shared messages and does not overwrite a peer', () => {
+    const message = sampleMessage('m1', 'hi');
+    const stamped = attachSharedChatAuthor(message, {
+      authorName: 'Ada Lovelace',
+      authorSub: 'sub-a',
+    });
+    expect(messageToCollabPortable(stamped)).toMatchObject({
+      authorName: 'Ada Lovelace',
+      authorSub: 'sub-a',
+    });
+
+    const owned = portableForCollabSeed(message, undefined, {
+      role: 'owner',
+      displayName: 'Ada',
+      sub: 'sub-a',
+    });
+    expect(owned.authorName).toBe('Ada');
+    expect(owned.authorSub).toBe('sub-a');
+
+    const kept = portableForCollabSeed(message, owned, {
+      role: 'member',
+      displayName: 'Grace',
+      sub: 'sub-b',
+    });
+    expect(kept.authorName).toBe('Ada');
+    expect(kept.authorSub).toBe('sub-a');
+
+    const unlabeled = portableForCollabSeed(sampleMessage('m2', 'yo'), undefined, {
+      role: 'member',
+      displayName: 'Grace',
+      sub: 'sub-b',
+    });
+    expect(unlabeled.authorName).toBeUndefined();
+  });
+
   it('strips image and attachment binaries', () => {
     const stripped = stripAttachmentBinaries([
       {
@@ -75,14 +112,22 @@ describe('shared-session-doc', () => {
     expect(a.ok).toBe(true);
     expect(isLeaseHolder(doc, 'a', now)).toBe(true);
 
-    const b = tryAcquireLease(doc, { sub: 'b', displayName: 'Bob' }, { now: now + 100, ttlMs: 1000 });
+    const b = tryAcquireLease(
+      doc,
+      { sub: 'b', displayName: 'Bob' },
+      { now: now + 100, ttlMs: 1000 }
+    );
     expect(b.ok).toBe(false);
 
     expect(refreshLease(doc, 'a', { now: now + 200, ttlMs: 1000 })).toBe(true);
     expect(readTurnLease(doc, now + 200)?.expiresAt).toBe(now + 200 + 1000);
 
     // Expired — Bob can take over
-    const b2 = tryAcquireLease(doc, { sub: 'b', displayName: 'Bob' }, { now: now + 5000, ttlMs: 1000 });
+    const b2 = tryAcquireLease(
+      doc,
+      { sub: 'b', displayName: 'Bob' },
+      { now: now + 5000, ttlMs: 1000 }
+    );
     expect(b2.ok).toBe(true);
     expect(releaseLeaseIfHolder(doc, 'b', now + 5000)).toBe(true);
     expect(readTurnLease(doc, now + 5000)).toBeNull();

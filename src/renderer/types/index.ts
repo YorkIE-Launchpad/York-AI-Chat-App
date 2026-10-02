@@ -86,6 +86,10 @@ export interface Message {
   tokenUsage?: TokenUsage;
   localStatus?: 'queued' | 'cancelled';
   executionTimeMs?: number;
+  /** Display name of the person who sent this message in a shared chat. */
+  authorName?: string;
+  /** Cognito sub of the person who sent this message in a shared chat. */
+  authorSub?: string;
 }
 
 export type MessageRole = 'user' | 'assistant' | 'system';

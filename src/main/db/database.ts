@@ -41,7 +41,9 @@ export interface DatabaseInstance {
     create: (message: MessageRow) => void;
     update: (
       id: string,
-      updates: Partial<Pick<MessageRow, 'execution_time_ms' | 'content'>>
+      updates: Partial<
+        Pick<MessageRow, 'execution_time_ms' | 'content' | 'author_name' | 'author_sub'>
+      >
     ) => void;
     getBySessionId: (sessionId: string) => MessageRow[];
     getById?: (id: string) => MessageRow | undefined;
@@ -154,6 +156,8 @@ export interface MessageRow {
   timestamp: number;
   token_usage: string | null; // JSON string
   execution_time_ms: number | null;
+  author_name?: string | null;
+  author_sub?: string | null;
 }
 
 export interface TraceStepRow {
@@ -455,6 +459,8 @@ function initializeSchema(database: Database.Database): void {
   `);
 
     ensureColumn(database, 'messages', 'execution_time_ms', 'execution_time_ms INTEGER');
+    ensureColumn(database, 'messages', 'author_name', 'author_name TEXT');
+    ensureColumn(database, 'messages', 'author_sub', 'author_sub TEXT');
 
     // Create trace steps table
     database.exec(`
@@ -1195,8 +1201,8 @@ export function initDatabase(): DatabaseInstance {
   `);
 
   const insertMessage = rawDb.prepare(`
-    INSERT INTO messages (id, session_id, role, content, timestamp, token_usage, execution_time_ms)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO messages (id, session_id, role, content, timestamp, token_usage, execution_time_ms, author_name, author_sub)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const getMessagesBySessionStmt = rawDb.prepare(`
@@ -1464,7 +1470,9 @@ export function initDatabase(): DatabaseInstance {
           message.content,
           message.timestamp,
           message.token_usage,
-          message.execution_time_ms ?? null
+          message.execution_time_ms ?? null,
+          message.author_name ?? null,
+          message.author_sub ?? null
         );
         const session = getSessionStmt.get(message.session_id) as SessionRow | undefined;
         upsertChatFtsRow(rawDb, {
@@ -1476,9 +1484,28 @@ export function initDatabase(): DatabaseInstance {
         });
       },
 
-      update: (id: string, updates: Partial<Pick<MessageRow, 'execution_time_ms' | 'content'>>) => {
+      update: (
+        id: string,
+        updates: Partial<
+          Pick<MessageRow, 'execution_time_ms' | 'content' | 'author_name' | 'author_sub'>
+        >
+      ) => {
         if (updates.execution_time_ms !== undefined) {
           updateMessageStmt.run(updates.execution_time_ms, id);
+        }
+        if (updates.author_name !== undefined || updates.author_sub !== undefined) {
+          const sets: string[] = [];
+          const values: unknown[] = [];
+          if (updates.author_name !== undefined) {
+            sets.push('author_name = ?');
+            values.push(updates.author_name);
+          }
+          if (updates.author_sub !== undefined) {
+            sets.push('author_sub = ?');
+            values.push(updates.author_sub);
+          }
+          values.push(id);
+          rawDb.prepare(`UPDATE messages SET ${sets.join(', ')} WHERE id = ?`).run(...values);
         }
         if (updates.content !== undefined) {
           updateMessageContentStmt.run(updates.content, id);

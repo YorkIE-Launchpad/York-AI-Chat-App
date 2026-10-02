@@ -26,6 +26,16 @@ import {
 } from '../utils/stale-turn-watchdog';
 import i18n from '../i18n/config';
 import { divisionPayloadFromActiveDivision } from '../../shared/workspace-division';
+import { readStoredUser } from '../auth/auth-storage';
+
+function sharedChatAuthor(sessionId: string): { authorName: string } | undefined {
+  const session = useAppStore.getState().sessions.find((item) => item.id === sessionId);
+  if (!session?.collabRoomId) return undefined;
+  const user = readStoredUser();
+  const authorName = user?.name?.trim() || user?.email?.trim();
+  if (!authorName) return undefined;
+  return { authorName };
+}
 
 function sessionIdFromServerEvent(event: ServerEvent): string | undefined {
   if (!('payload' in event) || event.payload == null || typeof event.payload !== 'object') {
@@ -225,6 +235,12 @@ export function useIPC() {
           case 'stream.messageUpdate':
             store.updateMessage(event.payload.sessionId, event.payload.message.id, {
               content: event.payload.message.content,
+              ...(event.payload.message.authorName
+                ? { authorName: event.payload.message.authorName }
+                : {}),
+              ...(event.payload.message.authorSub
+                ? { authorSub: event.payload.message.authorSub }
+                : {}),
             });
             break;
 
@@ -1025,6 +1041,7 @@ export function useIPC() {
         content,
         timestamp: Date.now(),
         localStatus: shouldQueue ? 'queued' : undefined,
+        ...sharedChatAuthor(sessionId),
       };
       addMessage(sessionId, userMessage);
       startExecutionClock(sessionId, userMessage.timestamp);
@@ -1138,6 +1155,7 @@ export function useIPC() {
           content,
           timestamp: Date.now(),
           localStatus: shouldQueue ? 'queued' : undefined,
+          ...sharedChatAuthor(sessionId),
         };
         addMessage(sessionId, userMessage);
         startExecutionClock(sessionId, userMessage.timestamp);

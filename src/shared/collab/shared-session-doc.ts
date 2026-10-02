@@ -47,6 +47,8 @@ export interface CollabPortableMessage {
   model?: string;
   tokenUsage?: Message['tokenUsage'];
   executionTimeMs?: number;
+  authorName?: string;
+  authorSub?: string;
 }
 
 export function getCollabMaps(doc: Y.Doc) {
@@ -99,7 +101,47 @@ export function messageToCollabPortable(message: Message): CollabPortableMessage
     model: message.model,
     tokenUsage: message.tokenUsage,
     executionTimeMs: message.executionTimeMs,
+    authorName: message.authorName,
+    authorSub: message.authorSub,
   };
+}
+
+/** Stamp the sender on a shared-chat user message that does not already have one. */
+export function attachSharedChatAuthor<
+  T extends { role: string; authorName?: string; authorSub?: string },
+>(message: T, author: { authorName?: string | null; authorSub?: string | null } | null): T {
+  if (message.authorName || message.role !== 'user') return message;
+  const authorName = author?.authorName?.trim();
+  if (!authorName) return message;
+  const authorSub = author?.authorSub?.trim();
+  return { ...message, authorName, authorSub: authorSub || undefined };
+}
+
+/**
+ * Portable form used when seeding a room from local history.
+ * Keeps an author already stored in the doc, and attributes older owner
+ * messages that were written before the chat was shared.
+ */
+export function portableForCollabSeed(
+  message: Message,
+  existing: CollabPortableMessage | undefined,
+  sender: { role: 'owner' | 'member'; displayName: string; sub: string }
+): CollabPortableMessage {
+  let portable = messageToCollabPortable(message);
+  if (!portable.authorName && existing?.authorName) {
+    portable = {
+      ...portable,
+      authorName: existing.authorName,
+      authorSub: existing.authorSub,
+    };
+  }
+  if (!portable.authorName && sender.role === 'owner') {
+    portable = attachSharedChatAuthor(portable, {
+      authorName: sender.displayName,
+      authorSub: sender.sub,
+    });
+  }
+  return portable;
 }
 
 export function seedCollabMeta(
@@ -125,11 +167,7 @@ export function seedCollabMeta(
   });
 }
 
-export function upsertCollabMember(
-  doc: Y.Doc,
-  sub: string,
-  member: CollabMember
-): void {
+export function upsertCollabMember(doc: Y.Doc, sub: string, member: CollabMember): void {
   getCollabMaps(doc).members.set(sub, member);
 }
 
@@ -146,7 +184,8 @@ export function readCollabMeta(doc: Y.Doc): Partial<CollabSessionMeta> {
       typeof meta.get('createdBySub') === 'string'
         ? (meta.get('createdBySub') as string)
         : undefined,
-    createdAt: typeof meta.get('createdAt') === 'number' ? (meta.get('createdAt') as number) : undefined,
+    createdAt:
+      typeof meta.get('createdAt') === 'number' ? (meta.get('createdAt') as number) : undefined,
   };
 }
 
@@ -215,9 +254,11 @@ export function readTurnLease(doc: Y.Doc, now = Date.now()): CollabTurnLease | n
   if (typeof expiresAt !== 'number' || expiresAt < now) return null;
   return {
     holderSub,
-    holderName: typeof lease.get('holderName') === 'string' ? (lease.get('holderName') as string) : '',
+    holderName:
+      typeof lease.get('holderName') === 'string' ? (lease.get('holderName') as string) : '',
     runId: typeof lease.get('runId') === 'string' ? (lease.get('runId') as string) : null,
-    acquiredAt: typeof lease.get('acquiredAt') === 'number' ? (lease.get('acquiredAt') as number) : now,
+    acquiredAt:
+      typeof lease.get('acquiredAt') === 'number' ? (lease.get('acquiredAt') as number) : now,
     expiresAt,
   };
 }
