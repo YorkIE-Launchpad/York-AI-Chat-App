@@ -28,9 +28,10 @@ import {
 } from './matter-collector';
 import { isJevEnabled } from '../jev/jev-client';
 import { runMatterJevDecisions, type MatterJevSignalDecision } from '../jev/matter-jev';
+import { applySameAskGroups, collapseSameAskItems, omitSameAskAs } from './matter-same-ask';
 
-/** Fixed model for Matter ranking (OpenAI via backend proxy). */
-const MATTER_RANKER_MODEL = 'gpt-5.6-luna';
+/** Cluster + narrative model. Jev still owns keep / severity / orbit / rank. */
+const MATTER_RANKER_MODEL = 'gpt-5.6-terra';
 
 /** Max Slack items on the Matter radar so calendar/jira/gmail/hub stay visible. */
 export const MATTER_RADAR_SLACK_CAP = 8;
@@ -124,14 +125,15 @@ Return ONLY valid JSON (no markdown):
 
 Rules:
 - KEEP only action-needed items: reply/approve/unblock/prep-for-imminent-meeting/complete assigned work.
-- KEEP Slack unread DMs and channel messages as individual comms items (open or mark handled).
+- KEEP distinct Slack unread DMs and channel messages as individual comms items (open or mark handled).
 - KEEP Hub kudos, timesheet drafts, and Hub inbox items (leave/WFH/timesheet approvals, requests, announcements) as individual items.
 - DROP awareness-only for other sources: unread counts, FYI, OOO lists, "on your calendar this week", generic triage.
 - DROP personal calendar holds: Break, block, focus/OOO/lunch/PTO and similar solo holds — Matter is not a calendar reminder for free time.
 - DROP daily recurring series (daily standup/sync, RRULE FREQ=DAILY) — not one-off action items.
 - DROP anything the person can casually discover in the native app with no ask on them — except Slack unreads, which Matter should surface.
 - Prefer role relevance (title/squad/department): if an item is not for them, omit it.
-- ONE input signal = ONE output item. Never merge into counts.
+- Same underlying ask, decision, or event — different wording or source — is ONE item. Keep one input fingerprint (prefer jira, then meeting, then gmail, then slack, then hub). You may note the other sources in one short summary clause.
+- Never merge unrelated messages into counts.
 - FORBIDDEN titles: unread rollups, "threads that may need a reply", calendar count titles. Still KEEP individual Slack message titles.
 - fingerprint MUST be copied exactly from an input signal.
 - Prefer fewer high-action items. Max items is provided.
@@ -427,7 +429,7 @@ export function heuristicRank(
   const items = capRankedItemsBySource(
     actionable
       .map((s) => {
-        const dueAt = s.dueAt ?? s.occurredAt ?? null;
+        const dueAt = actionDueAt(s);
         const times = deriveMatterTimeFields({
           dueAt,
           expiresAt: s.expiresAt ?? null,
@@ -521,6 +523,103 @@ export function heuristicRank(
   };
 }
 
+const SAME_ASK_CLUSTER_PROMPT = `Group Matter signals that are the same underlying ask, decision, or event even when the wording and source differ.
+Return JSON only: {"groups":[{"fingerprints":["..."]}]}
+Rules:
+- Use only fingerprints from the input.
+- Each fingerprint appears in at most one group.
+- A unique ask is a group of one, or may be omitted.
+- Do not merge unrelated messages.
+- Do not invent count rollups or new fingerprints.`;
+
+function matterOneShotConfig(config: AppConfig): AppConfig {
+  const creds = applyBackendManagedCredentials({
+    provider: 'openai',
+    apiKey: '',
+    baseUrl: '',
+  });
+  return {
+    ...config,
+    model: MATTER_RANKER_MODEL,
+    provider: 'openai',
+    customProtocol: 'openai',
+    baseUrl: creds.baseUrl || config.baseUrl,
+    apiKey: creds.apiKey || config.apiKey,
+  };
+}
+
+/** Slack message time is not a deadline — only an explicit dueAt is. */
+function actionDueAt(signal: RawMatterSignal): number | null {
+  if (signal.source === 'slack') return signal.dueAt ?? null;
+  return signal.dueAt ?? signal.occurredAt ?? null;
+}
+
+function parseSameAskGroups(parsed: unknown, known: Set<string>): string[][] {
+  if (!parsed || typeof parsed !== 'object') return [];
+  const groups = (parsed as { groups?: unknown }).groups;
+  if (!Array.isArray(groups)) return [];
+  const seen = new Set<string>();
+  const out: string[][] = [];
+  for (const group of groups) {
+    const rawFingerprints =
+      group && typeof group === 'object' && !Array.isArray(group)
+        ? (group as { fingerprints?: unknown }).fingerprints
+        : group;
+    const fingerprints = Array.isArray(rawFingerprints) ? rawFingerprints : [];
+    const clean: string[] = [];
+    for (const fingerprint of fingerprints) {
+      if (typeof fingerprint !== 'string' || !known.has(fingerprint) || seen.has(fingerprint))
+        continue;
+      seen.add(fingerprint);
+      clean.push(fingerprint);
+    }
+    if (clean.length) out.push(clean);
+  }
+  return out;
+}
+
+async function clusterSameAskPool(
+  signals: RawMatterSignal[],
+  config: AppConfig
+): Promise<{ pool: RawMatterSignal[]; alsoSeenIn: Map<string, string[]> }> {
+  if (signals.length < 2) return { pool: signals, alsoSeenIn: new Map() };
+  try {
+    const result = await runPiAiOneShot(
+      JSON.stringify({
+        signals: signals.map((signal) => ({
+          fingerprint: signal.fingerprint,
+          source: signal.source,
+          title: signal.title,
+          summary: signal.summary,
+        })),
+      }),
+      SAME_ASK_CLUSTER_PROMPT,
+      matterOneShotConfig(config),
+      { usageFeature: 'matter_scan', usageSessionId: 'matter_scan' }
+    );
+    const groups = parseSameAskGroups(
+      extractJsonObject(result.text),
+      new Set(signals.map((signal) => signal.fingerprint))
+    );
+    if (!groups.length) return { pool: signals, alsoSeenIn: new Map() };
+    const applied = applySameAskGroups(signals, groups);
+    return { pool: applied.kept, alsoSeenIn: applied.alsoSeenIn };
+  } catch (error) {
+    logWarn('[Matter] Same-ask cluster failed:', error);
+    return { pool: signals, alsoSeenIn: new Map() };
+  }
+}
+
+function finishRanked(
+  ranked: RankedMatterResult,
+  suppressedAsks: Array<{ title: string; summary?: string | null }>
+): RankedMatterResult {
+  return {
+    ...ranked,
+    items: omitSameAskAs(collapseSameAskItems(ranked.items), suppressedAsks),
+  };
+}
+
 export async function rankMatterSignals(options: {
   config: AppConfig;
   profile: WelcomeProfile | null;
@@ -528,8 +627,10 @@ export async function rankMatterSignals(options: {
   maxItems: number;
   sensitivity: MatterSensitivity;
   sourcePrompts?: MatterSourcePrompts | null;
+  suppressedAsks?: Array<{ title: string; summary?: string | null }>;
 }): Promise<RankedMatterResult> {
-  const { config, profile, signals, maxItems, sensitivity, sourcePrompts } = options;
+  const { config, profile, signals, maxItems, sensitivity, sourcePrompts, suppressedAsks } =
+    options;
   if (signals.length === 0) {
     return heuristicRank([], profile, maxItems);
   }
@@ -541,7 +642,9 @@ export async function rankMatterSignals(options: {
         ? maxItems
         : Math.min(maxItems, 32);
 
-  const rankerPool = selectSignalsForRanker(signals, MATTER_RANKER_POOL_SIZE);
+  const selectedPool = selectSignalsForRanker(signals, MATTER_RANKER_POOL_SIZE);
+  const { pool: rankerPool, alsoSeenIn } = await clusterSameAskPool(selectedPool, config);
+  const suppressed = suppressedAsks || [];
 
   if (isJevEnabled()) {
     try {
@@ -551,17 +654,18 @@ export async function rankMatterSignals(options: {
         rankerPool,
         allSignals: signals,
         softMax,
+        alsoSeenIn,
       });
       if (jevRanked) {
         log('[Matter] Ranked via Jev decisions + narrative LLM');
-        return jevRanked;
+        return finishRanked(jevRanked, suppressed);
       }
     } catch (error) {
       logWarn('[Matter] Jev rank path failed, falling back to LLM:', error);
     }
   }
 
-  return rankMatterSignalsViaLlm({
+  const llmRanked = await rankMatterSignalsViaLlm({
     config,
     profile,
     signals,
@@ -570,6 +674,7 @@ export async function rankMatterSignals(options: {
     sensitivity,
     sourcePrompts,
   });
+  return finishRanked(llmRanked, suppressed);
 }
 
 async function rankMatterSignalsViaJev(options: {
@@ -578,8 +683,9 @@ async function rankMatterSignalsViaJev(options: {
   rankerPool: RawMatterSignal[];
   allSignals: RawMatterSignal[];
   softMax: number;
+  alsoSeenIn: Map<string, string[]>;
 }): Promise<RankedMatterResult | null> {
-  const { config, profile, rankerPool, allSignals, softMax } = options;
+  const { config, profile, rankerPool, allSignals, softMax, alsoSeenIn } = options;
   const decisions = await runMatterJevDecisions({ signals: rankerPool, profile });
   if (!decisions) return null;
 
@@ -605,27 +711,16 @@ async function rankMatterSignalsViaJev(options: {
   }
 
   // Narrative-only LLM for survivors (pulse/brief/summary/why/suggestedAction).
-  let narrativeByFp = new Map<string, Record<string, unknown>>();
+  const narrativeByFp = new Map<string, Record<string, unknown>>();
   let pulse: string | null = null;
   let brief: string | null = null;
   try {
-    const creds = applyBackendManagedCredentials({
-      provider: 'openai',
-      apiKey: '',
-      baseUrl: '',
-    });
-    const oneShotConfig: AppConfig = {
-      ...config,
-      model: MATTER_RANKER_MODEL,
-      provider: 'openai',
-      customProtocol: 'openai',
-      baseUrl: creds.baseUrl || config.baseUrl,
-      apiKey: creds.apiKey || config.apiKey,
-    };
+    const oneShotConfig = matterOneShotConfig(config);
     const narrativePrompt = [
       'You write short Matter copy for items ALREADY selected for this person.',
       'Return JSON only: {"pulse":string,"brief":string|null,"items":[{"fingerprint":string,"summary":string,"whyItMatters":string,"suggestedAction":string|null,"title":string}]}',
       'Do not drop or add fingerprints. Prefer existing titles unless junk.',
+      'If alsoSeenIn is non-empty, mention those other sources in the summary in one short clause.',
       '',
       JSON.stringify(
         {
@@ -643,6 +738,7 @@ async function rankMatterSignalsViaJev(options: {
             severity: item.severity,
             category: item.category,
             summaryHint: item.summary,
+            alsoSeenIn: alsoSeenIn.get(item.fingerprint) || [],
           })),
         },
         null,
@@ -740,7 +836,7 @@ function buildItemsFromJevDecisions(
 ): RankedMatterResult['items'] {
   const mapped = keptSignals.map((s) => {
     const d = decisionByFp.get(s.fingerprint)!;
-    const dueAt = s.dueAt ?? s.occurredAt ?? null;
+    const dueAt = actionDueAt(s);
     const times = deriveMatterTimeFields({
       dueAt,
       expiresAt: s.expiresAt ?? null,
@@ -791,19 +887,7 @@ async function rankMatterSignalsViaLlm(options: {
 }): Promise<RankedMatterResult> {
   const { config, profile, signals, rankerPool, softMax, sensitivity, sourcePrompts } = options;
   try {
-    const creds = applyBackendManagedCredentials({
-      provider: 'openai',
-      apiKey: '',
-      baseUrl: '',
-    });
-    const oneShotConfig: AppConfig = {
-      ...config,
-      model: MATTER_RANKER_MODEL,
-      provider: 'openai',
-      customProtocol: 'openai',
-      baseUrl: creds.baseUrl || config.baseUrl,
-      apiKey: creds.apiKey || config.apiKey,
-    };
+    const oneShotConfig = matterOneShotConfig(config);
     const userPrompt = JSON.stringify(
       {
         maxItems: softMax,
@@ -828,7 +912,7 @@ async function rankMatterSignalsViaLlm(options: {
           orbitHint: s.orbitHint,
           categoryHint: s.categoryHint,
           sourceRef: s.sourceRef,
-          dueAt: s.dueAt ?? s.occurredAt ?? null,
+          dueAt: actionDueAt(s),
           expiresAt: s.expiresAt ?? null,
         })),
       },

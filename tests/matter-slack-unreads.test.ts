@@ -2,10 +2,17 @@ import { describe, expect, it } from 'vitest';
 import {
   collectMatterSignals,
   isSlackOpaqueId,
+  matterSlackSearchAfterDate,
   parseSlackSearchBody,
+  slackMessageTimestampMs,
+  slackMessageWithinLookback,
   type RawMatterSignal,
 } from '../src/main/matter/matter-collector';
-import { heuristicRank, capRankedItemsBySource, selectSignalsForRanker } from '../src/main/matter/matter-ranker';
+import {
+  heuristicRank,
+  capRankedItemsBySource,
+  selectSignalsForRanker,
+} from '../src/main/matter/matter-ranker';
 import type { MCPManager } from '../src/main/mcp/mcp-manager';
 import { DEFAULT_SLACK_MCP_SERVER_ID } from '../src/shared/mcp-defaults';
 import type { MatterSourcesConfig } from '../src/shared/matter';
@@ -27,8 +34,6 @@ const SLACK_ONLY: MatterSourcesConfig = {
 
 const DM_LINE =
   'D0123ABC|Jay Smith [1700000000.000100] Ada: looping you in on the deck\nLink: https://app.slack.com/archives/D0123ABC/p1700000000000100';
-const CHANNEL_LINE =
-  'C0123XYZ|#eng [1700000001.000200] Sam: standup notes from this morning\nLink: https://app.slack.com/archives/C0123XYZ/p1700000001000200';
 
 function envelopeResult(body: string) {
   return {
@@ -121,12 +126,18 @@ describe('parseSlackSearchBody', () => {
 });
 
 describe('collectMatterSignals Slack unreads', () => {
+  const recentDmTs = ((Date.now() - 2 * 86_400_000) / 1000).toFixed(6);
+  const recentChannelTs = ((Date.now() - 86_400_000) / 1000).toFixed(6);
+  const recentDmLine = `D0123ABC|Jay Smith [${recentDmTs}] Ada: looping you in on the deck\nLink: https://app.slack.com/archives/D0123ABC/p1`;
+  const recentChannelLine = `C0123XYZ|#eng [${recentChannelTs}] Sam: standup notes from this morning\nLink: https://app.slack.com/archives/C0123XYZ/p1`;
+  const afterDate = matterSlackSearchAfterDate();
+
   it('searches unread DMs then channels and keeps messages without action language', async () => {
     const { mcp, calls } = mockSlackMcp({
       onCall: (args) => {
         const query = String(args.query || '');
-        if (query.includes('-is:dm')) return envelopeResult(CHANNEL_LINE);
-        if (query.includes('is:dm')) return envelopeResult(DM_LINE);
+        if (query.includes('-is:dm')) return envelopeResult(recentChannelLine);
+        if (query.includes('is:dm')) return envelopeResult(recentDmLine);
         return envelopeResult('');
       },
     });
@@ -140,31 +151,53 @@ describe('collectMatterSignals Slack unreads', () => {
 
     expect(calls).toHaveLength(2);
     expect(calls[0]).toMatchObject({
-      query: 'is:unread is:dm',
+      query: `is:unread is:dm after:${afterDate}`,
       limit: 20,
       sort: 'timestamp',
     });
     expect(calls[1]).toMatchObject({
-      query: 'is:unread -is:dm',
+      query: `is:unread -is:dm after:${afterDate}`,
       limit: 20,
       sort: 'timestamp',
     });
 
     expect(result.sourcesChecked).toContain('slack');
     expect(result.signals.map((s) => s.fingerprint)).toEqual([
-      'slack:msg:D0123ABC:1700000000.000100',
-      'slack:msg:C0123XYZ:1700000001.000200',
+      `slack:msg:D0123ABC:${recentDmTs}`,
+      `slack:msg:C0123XYZ:${recentChannelTs}`,
     ]);
     expect(result.signals[0]?.title).toMatch(/DM/);
     expect(result.signals[0]?.dueAt).toBeUndefined();
-    expect(result.signals[0]?.occurredAt).toBeUndefined();
+    expect(result.signals[0]?.occurredAt).toBe(slackMessageTimestampMs(recentDmTs));
     expect(result.signals[0]?.expiresAt).toBeUndefined();
     expect(result.signals[0]?.summary).toMatch(/looping you in/i);
   });
 
+  it('drops unreads older than the 30-day lookback', async () => {
+    const oldTs = '1737331200.000100';
+    const oldLine = `D0123ABC|Jay Smith [${oldTs}] Ada: this is from January 2025\nLink: https://app.slack.com/archives/D0123ABC/p1`;
+    const { mcp } = mockSlackMcp({
+      onCall: (args) => {
+        const query = String(args.query || '');
+        if (query.includes('is:dm') && !query.includes('-is:dm')) {
+          return envelopeResult(`${oldLine}\n${recentDmLine}`);
+        }
+        return envelopeResult('');
+      },
+    });
+    const result = await collectMatterSignals({
+      mcpManager: mcp,
+      meetingService: null,
+      profile: null,
+      sources: SLACK_ONLY,
+    });
+    expect(result.signals.map((s) => s.fingerprint)).toEqual([`slack:msg:D0123ABC:${recentDmTs}`]);
+    expect(slackMessageWithinLookback(oldTs)).toBe(false);
+    expect(slackMessageWithinLookback(recentDmTs)).toBe(true);
+  });
+
   it('never puts Slack user IDs in titles and decodes :clipboard:', async () => {
-    const idLine =
-      'D0123ABC|U01JJCQ9SUW [1700000000.000100] U01SENDER9: :clipboard: Daily Briefing — Sunday\nLink: https://app.slack.com/archives/D0123ABC/p1';
+    const idLine = `D0123ABC|U01JJCQ9SUW [${recentDmTs}] U01SENDER9: :clipboard: Daily Briefing — Sunday\nLink: https://app.slack.com/archives/D0123ABC/p1`;
     const { mcp } = mockSlackMcp({
       onCall: (args) => {
         if (typeof args.user_id === 'string') return envelopeResult('');
@@ -188,8 +221,7 @@ describe('collectMatterSignals Slack unreads', () => {
   });
 
   it('resolves leftover Slack user IDs via get_user', async () => {
-    const idLine =
-      'D0123ABC|U01JJCQ9SUW [1700000000.000100] kalrav: hello\nLink: https://app.slack.com/archives/D0123ABC/p1';
+    const idLine = `D0123ABC|U01JJCQ9SUW [${recentDmTs}] kalrav: hello\nLink: https://app.slack.com/archives/D0123ABC/p1`;
     const { mcp } = mockSlackMcp({
       onCall: (args) => {
         if (args.user_id === 'U01JJCQ9SUW') {
@@ -214,7 +246,7 @@ describe('collectMatterSignals Slack unreads', () => {
     const { mcp } = mockSlackMcp({
       onCall: (args) => {
         const query = String(args.query || '');
-        if (query.includes('-is:dm')) return envelopeResult(CHANNEL_LINE);
+        if (query.includes('-is:dm')) return envelopeResult(recentChannelLine);
         return envelopeResult('');
       },
     });

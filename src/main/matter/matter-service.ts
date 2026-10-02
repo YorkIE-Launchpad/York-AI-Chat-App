@@ -33,6 +33,7 @@ import {
 } from './matter-calendar-enrichment';
 import { DEFAULT_GOOGLE_CALENDAR_MCP_SERVER_ID } from '../../shared/mcp-defaults';
 import { rankMatterSignals } from './matter-ranker';
+import { omitSameAskAs } from './matter-same-ask';
 import { MatterScheduler } from './matter-scheduler';
 import { notifyMatterBrief, notifyMatterItem } from './matter-notifications';
 import { selectMatterScanNotifyItems } from '../os-notifications';
@@ -409,28 +410,35 @@ export class MatterService {
 
       const muteRules = this.store.listMuteRules();
       const mutedKeys = new Set(muteRules.map((r) => r.key));
-      const filteredSignals = collected.signals.filter((signal) => {
-        const keys = [
-          signal.fingerprint,
-          ...(signal.muteKeys || []),
-          `source:${signal.source}`,
-          signal.categoryHint ? `category:${signal.categoryHint}` : null,
-        ].filter((k): k is string => !!k);
-        if (keys.some((k) => mutedKeys.has(k))) return false;
-        const existing = this.store.getByFingerprint(signal.fingerprint);
-        if (
-          !shouldKeepMatterScanSignal({
-            existingStatus: existing?.status,
-            existingSummary: existing?.summary,
-            existingRawDetails: existing?.rawDetails,
-            signalSummary: signal.summary,
-            signalRawDetails: signal.rawDetails,
-          })
-        ) {
-          return false;
-        }
-        return true;
-      });
+      const suppressedAsks = this.store.listResolvedItems().map((item) => ({
+        title: item.title,
+        summary: item.summary,
+      }));
+      const filteredSignals = omitSameAskAs(
+        collected.signals.filter((signal) => {
+          const keys = [
+            signal.fingerprint,
+            ...(signal.muteKeys || []),
+            `source:${signal.source}`,
+            signal.categoryHint ? `category:${signal.categoryHint}` : null,
+          ].filter((k): k is string => !!k);
+          if (keys.some((k) => mutedKeys.has(k))) return false;
+          const existing = this.store.getByFingerprint(signal.fingerprint);
+          if (
+            !shouldKeepMatterScanSignal({
+              existingStatus: existing?.status,
+              existingSummary: existing?.summary,
+              existingRawDetails: existing?.rawDetails,
+              signalSummary: signal.summary,
+              signalRawDetails: signal.rawDetails,
+            })
+          ) {
+            return false;
+          }
+          return true;
+        }),
+        suppressedAsks
+      );
 
       const ranked = await rankMatterSignals({
         config,
@@ -439,6 +447,7 @@ export class MatterService {
         maxItems: runtime.maxActiveItems,
         sensitivity: runtime.sensitivity,
         sourcePrompts: runtime.sourcePrompts,
+        suppressedAsks,
       });
 
       // Hard boosts for pinned

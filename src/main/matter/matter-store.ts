@@ -20,7 +20,7 @@ import { isMeetingPrepNote, preserveMeetingPrepRawDetails } from './matter-calen
 
 /**
  * Status when re-upserting a ranked signal onto an existing row.
- * Done never auto-resurfaces; dismissed may resurface when scan content changed.
+ * Done and dismissed never auto-resurface.
  */
 export function nextMatterUpsertStatus(input: {
   existingStatus: MatterItemStatus;
@@ -30,13 +30,10 @@ export function nextMatterUpsertStatus(input: {
 }): MatterItemStatus {
   const now = input.now ?? Date.now();
   const stillSnoozed =
-    input.existingStatus === 'snoozed' &&
-    (input.snoozeUntil ? input.snoozeUntil > now : true);
+    input.existingStatus === 'snoozed' && (input.snoozeUntil ? input.snoozeUntil > now : true);
   if (stillSnoozed) return 'snoozed';
   if (input.existingStatus === 'done') return 'done';
-  if (input.existingStatus === 'dismissed' && input.incomingStatus !== 'dismissed') {
-    return 'resurfaced';
-  }
+  if (input.existingStatus === 'dismissed') return 'dismissed';
   return input.incomingStatus || 'active';
 }
 
@@ -138,6 +135,8 @@ export function mapMatterMeetingRow(row: MatterMeetingRow): MatterMeeting {
 export interface MatterStore {
   listVisibleItems: (now?: number) => MatterItem[];
   listActiveItems: () => MatterItem[];
+  /** Done and dismissed rows, newest first, for same-ask suppression. */
+  listResolvedItems: () => MatterItem[];
   getItem: (id: string) => MatterItem | null;
   getByFingerprint: (fingerprint: string) => MatterItem | null;
   upsertRankedItems: (
@@ -288,6 +287,12 @@ export function createMatterStore(db: DatabaseInstance): MatterStore {
     },
 
     listActiveItems: () => db.matterItems.listActive().map(mapMatterItemRow),
+
+    listResolvedItems: () =>
+      db.matterItems
+        .listAll(500)
+        .filter((row) => row.status === 'done' || row.status === 'dismissed')
+        .map(mapMatterItemRow),
 
     getItem: (id) => {
       const row = db.matterItems.get(id);
@@ -496,10 +501,7 @@ export function createMatterStore(db: DatabaseInstance): MatterStore {
         keep.push(incoming.fingerprint);
         const existing = db.matterMeetings.getByFingerprint(incoming.fingerprint);
         if (existing) {
-          const nextRaw = preserveMeetingPrepRawDetails(
-            existing.raw_details,
-            incoming.rawDetails
-          );
+          const nextRaw = preserveMeetingPrepRawDetails(existing.raw_details, incoming.rawDetails);
           const nextSuggested =
             isMeetingPrepNote(nextRaw) &&
             !isMeetingPrepNote(incoming.rawDetails) &&

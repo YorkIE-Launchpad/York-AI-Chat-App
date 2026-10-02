@@ -38,19 +38,7 @@ describe('shouldKeepMatterScanSignal', () => {
     ).toBe(false);
   });
 
-  it('suppresses dismissed when summary+rawDetails are unchanged', () => {
-    expect(
-      shouldKeepMatterScanSignal({
-        existingStatus: 'dismissed',
-        existingSummary: 'Pending review',
-        existingRawDetails: 'details here',
-        signalSummary: 'Pending review',
-        signalRawDetails: 'details here',
-      })
-    ).toBe(false);
-  });
-
-  it('allows dismissed to resurface when raw details change', () => {
+  it('suppresses dismissed even when the wording changes', () => {
     expect(
       shouldKeepMatterScanSignal({
         existingStatus: 'dismissed',
@@ -59,10 +47,8 @@ describe('shouldKeepMatterScanSignal', () => {
         signalSummary: 'Pending review',
         signalRawDetails: 'details here — escalated',
       })
-    ).toBe(true);
-  });
+    ).toBe(false);
 
-  it('allows dismissed to resurface when summary changes', () => {
     expect(
       shouldKeepMatterScanSignal({
         existingStatus: 'dismissed',
@@ -71,7 +57,7 @@ describe('shouldKeepMatterScanSignal', () => {
         signalSummary: 'Urgent review',
         signalRawDetails: 'details',
       })
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it('keeps active / missing existing signals', () => {
@@ -102,7 +88,7 @@ describe('nextMatterUpsertStatus', () => {
     ).toBe('done');
   });
 
-  it('promotes dismissed to resurfaced when content re-enters ranking', () => {
+  it('never promotes dismissed to resurfaced', () => {
     expect(
       nextMatterUpsertStatus({
         existingStatus: 'dismissed',
@@ -110,7 +96,7 @@ describe('nextMatterUpsertStatus', () => {
         snoozeUntil: null,
         now,
       })
-    ).toBe('resurfaced');
+    ).toBe('dismissed');
   });
 
   it('keeps snoozed while window is open', () => {
@@ -128,12 +114,12 @@ describe('nextMatterUpsertStatus', () => {
 describe('hubRequestFingerprint', () => {
   it('prefers request id / uuid / #number over line hash', () => {
     expect(hubRequestFingerprint('Approve leave request #4821 for Ada')).toBe('hub:request:4821');
-    expect(
-      hubRequestFingerprint('Pending request id: abc-req-99 needs approval today')
-    ).toBe('hub:request:abc-req-99');
-    expect(
-      hubRequestFingerprint('Follow up on 550e8400-e29b-41d4-a716-446655440000 please')
-    ).toBe('hub:request:550e8400-e29b-41d4-a716-446655440000');
+    expect(hubRequestFingerprint('Pending request id: abc-req-99 needs approval today')).toBe(
+      'hub:request:abc-req-99'
+    );
+    expect(hubRequestFingerprint('Follow up on 550e8400-e29b-41d4-a716-446655440000 please')).toBe(
+      'hub:request:550e8400-e29b-41d4-a716-446655440000'
+    );
   });
 
   it('hashes normalized line when no id is present', () => {

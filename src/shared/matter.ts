@@ -281,8 +281,8 @@ export function normalizeMatterContentText(text: string | null | undefined): str
 }
 
 /**
- * Stable key for dismiss “until it changes” — summary + raw details.
- * Done items are never auto-resurfaced; this key only gates dismissed signals.
+ * Stable key for Matter content equality.
+ * Done and dismissed items never auto-resurface from this key.
  */
 export function matterContentKey(
   summary: string | null | undefined,
@@ -293,7 +293,7 @@ export function matterContentKey(
 
 /**
  * Whether a collected signal should proceed past done/dismiss gates on a scan.
- * Done stays suppressed; dismissed resurfaces only when content meaningfully changes.
+ * Done and dismissed stay suppressed, including when the wording changes.
  */
 export function shouldKeepMatterScanSignal(input: {
   existingStatus?: MatterItemStatus | null;
@@ -302,12 +302,7 @@ export function shouldKeepMatterScanSignal(input: {
   signalSummary?: string | null;
   signalRawDetails?: string | null;
 }): boolean {
-  if (input.existingStatus === 'done') return false;
-  if (input.existingStatus === 'dismissed') {
-    const prev = matterContentKey(input.existingSummary, input.existingRawDetails);
-    const next = matterContentKey(input.signalSummary, input.signalRawDetails);
-    if (prev === next) return false;
-  }
+  if (input.existingStatus === 'done' || input.existingStatus === 'dismissed') return false;
   return true;
 }
 

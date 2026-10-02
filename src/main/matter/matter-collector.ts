@@ -57,6 +57,9 @@ const MAX_CALENDAR_PER_SCAN = 25;
 const MAX_SLACK_DMS_PER_SCAN = 8;
 const MAX_SLACK_CHANNELS_PER_SCAN = 6;
 const SLACK_SEARCH_LIMIT = 20;
+/** Unread Slack messages older than this are not Matter signals. */
+export const MATTER_SLACK_LOOKBACK_DAYS = 30;
+const MATTER_SLACK_LOOKBACK_MS = MATTER_SLACK_LOOKBACK_DAYS * 24 * 60 * 60 * 1000;
 /** Hub inboxes (kudos, drafts, approvals, announcements) share this cap. */
 const MAX_HUB_PER_SCAN = 16;
 /** Drop Hub awareness items (kudos / announcements) older than this. */
@@ -1011,7 +1014,7 @@ function slackMessageToSignal(msg: ParsedSlackSearchMessage): RawMatterSignal {
   const userLabel = !msg.user || isSlackOpaqueId(msg.user) ? 'Someone' : msg.user;
   const preview = cleanDisplayText(msg.text).slice(0, 100) || '(no text)';
   const title = humanTitle(`${userLabel} in ${place}: ${preview}`, 'Slack unread');
-  return signal({
+  const built = signal({
     fingerprint: `slack:msg:${msg.channel}:${msg.ts}`,
     source: 'slack',
     title,
@@ -1030,6 +1033,26 @@ function slackMessageToSignal(msg: ParsedSlackSearchMessage): RawMatterSignal {
     },
     muteKeys: [`slack:channel:${msg.channel}`, 'source:slack'],
   });
+  const occurredAt = slackMessageTimestampMs(msg.ts);
+  return occurredAt == null ? built : { ...built, occurredAt };
+}
+
+/** Slack search `after:YYYY-MM-DD` for the Matter unread lookback. */
+export function matterSlackSearchAfterDate(now = Date.now()): string {
+  return new Date(now - MATTER_SLACK_LOOKBACK_MS).toISOString().slice(0, 10);
+}
+
+/** Slack `ts` is unix seconds, optionally with a fractional part. */
+export function slackMessageTimestampMs(ts: string): number | null {
+  const seconds = Number.parseFloat(ts);
+  if (!Number.isFinite(seconds) || seconds <= 0) return null;
+  return Math.round(seconds * 1000);
+}
+
+export function slackMessageWithinLookback(ts: string, now = Date.now()): boolean {
+  const occurredAt = slackMessageTimestampMs(ts);
+  if (occurredAt == null) return false;
+  return now - occurredAt <= MATTER_SLACK_LOOKBACK_MS && occurredAt <= now + 86_400_000;
 }
 
 function parseSlackUserDisplayName(text: string): string | null {
@@ -1087,7 +1110,8 @@ async function collectSlack(mcpManager: MCPManager): Promise<RawMatterSignal[]> 
   ]);
   if (!tool) return [];
 
-  const queries = ['is:unread is:dm', 'is:unread -is:dm'] as const;
+  const after = matterSlackSearchAfterDate();
+  const queries = [`is:unread is:dm after:${after}`, `is:unread -is:dm after:${after}`] as const;
   const seen = new Set<string>();
   const dms: ParsedSlackSearchMessage[] = [];
   const channels: ParsedSlackSearchMessage[] = [];
@@ -1103,6 +1127,7 @@ async function collectSlack(mcpManager: MCPManager): Promise<RawMatterSignal[]> 
     for (const msg of parseSlackSearchBody(envelopeBody(text))) {
       const key = `${msg.channel}:${msg.ts}`;
       if (seen.has(key)) continue;
+      if (!slackMessageWithinLookback(msg.ts)) continue;
       seen.add(key);
       bucket.push(msg);
     }
