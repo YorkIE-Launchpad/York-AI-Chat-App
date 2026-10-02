@@ -5,7 +5,6 @@ import { log, logWarn } from '../utils/logger';
 import type { WelcomeProfile } from '../../shared/welcome-actions';
 import type {
   MatterCategory,
-  MatterConfigurableSource,
   MatterItem,
   MatterOrbit,
   MatterSensitivity,
@@ -13,7 +12,6 @@ import type {
   MatterSource,
   MatterSourcePrompts,
 } from '../../shared/matter';
-import { MATTER_SOURCE_IDS } from '../../shared/matter';
 import {
   deriveMatterTimeFields,
   orbitFromRankScore,
@@ -29,6 +27,7 @@ import {
 import { isJevEnabled } from '../jev/jev-client';
 import { runMatterJevDecisions, type MatterJevSignalDecision } from '../jev/matter-jev';
 import { applySameAskGroups, collapseSameAskItems, omitSameAskAs } from './matter-same-ask';
+import { formatMatterSourceOverrides } from './matter-source-prompts';
 
 /** Cluster + narrative model. Jev still owns keep / severity / orbit / rank. */
 const MATTER_RANKER_MODEL = 'gpt-5.6-terra';
@@ -145,16 +144,6 @@ Rules:
 - Never use JSON keys, schema fragments, or path arrays as titles.
 - If nothing needs action, return empty items and a calm pulse.`;
 
-const SOURCE_PROMPT_LABELS: Record<MatterConfigurableSource, string> = {
-  calendar: 'Google Calendar',
-  slack: 'Slack',
-  gmail: 'Gmail',
-  jira: 'Jira',
-  hub: 'York Hub',
-  meeting: 'Meetings',
-  launchpad: 'R&D Launchpad',
-};
-
 /**
  * Built-in ranker prompt plus optional per-source overrides from Matter settings.
  * Empty prompts are omitted. Overrides apply only for sources present in the pool.
@@ -163,19 +152,12 @@ export function buildMatterRankerSystemPrompt(
   sourcePrompts?: MatterSourcePrompts | null,
   sourcesInPool?: Iterable<MatterSource>
 ): string {
-  const present = sourcesInPool ? new Set(sourcesInPool) : null;
-  const lines: string[] = [];
-  for (const key of MATTER_SOURCE_IDS) {
-    const text = sourcePrompts?.[key]?.trim();
-    if (!text) continue;
-    if (present && !present.has(key)) continue;
-    lines.push(`- ${SOURCE_PROMPT_LABELS[key]}: ${text}`);
-  }
-  if (!lines.length) return SYSTEM_PROMPT;
+  const lines = formatMatterSourceOverrides(sourcePrompts, sourcesInPool);
+  if (!lines) return SYSTEM_PROMPT;
   return `${SYSTEM_PROMPT}
 
 Source overrides from the employee (apply on top of the rules above; never invent rollup titles):
-${lines.join('\n')}`;
+${lines}`;
 }
 
 const WORD_NUMBERS: Record<string, number> = {
@@ -655,6 +637,7 @@ export async function rankMatterSignals(options: {
         allSignals: signals,
         softMax,
         alsoSeenIn,
+        sourcePrompts,
       });
       if (jevRanked) {
         log('[Matter] Ranked via Jev decisions + narrative LLM');
@@ -684,9 +667,21 @@ async function rankMatterSignalsViaJev(options: {
   allSignals: RawMatterSignal[];
   softMax: number;
   alsoSeenIn: Map<string, string[]>;
+  sourcePrompts?: MatterSourcePrompts | null;
 }): Promise<RankedMatterResult | null> {
-  const { config, profile, rankerPool, allSignals, softMax, alsoSeenIn } = options;
-  const decisions = await runMatterJevDecisions({ signals: rankerPool, profile });
+  const { config, profile, rankerPool, allSignals, softMax, alsoSeenIn, sourcePrompts } = options;
+  const sourceRules = formatMatterSourceOverrides(
+    sourcePrompts,
+    rankerPool.map((signal) => signal.source)
+  );
+  if (sourceRules) {
+    log('[Matter] Applying source prompt overrides on the Jev rank path');
+  }
+  const decisions = await runMatterJevDecisions({
+    signals: rankerPool,
+    profile,
+    sourceRules: sourceRules || null,
+  });
   if (!decisions) return null;
 
   const decisionByFp = new Map(decisions.signals.map((d) => [d.fingerprint, d]));
@@ -721,6 +716,7 @@ async function rankMatterSignalsViaJev(options: {
       'Return JSON only: {"pulse":string,"brief":string|null,"items":[{"fingerprint":string,"summary":string,"whyItMatters":string,"suggestedAction":string|null,"title":string}]}',
       'Do not drop or add fingerprints. Prefer existing titles unless junk.',
       'If alsoSeenIn is non-empty, mention those other sources in the summary in one short clause.',
+      sourceRules ? `Follow these employee source rules when writing copy:\n${sourceRules}` : '',
       '',
       JSON.stringify(
         {

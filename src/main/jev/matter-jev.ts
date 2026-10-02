@@ -3,10 +3,7 @@
  * Narrative fields stay on the LLM for survivors only.
  */
 import type { WelcomeProfile } from '../../shared/welcome-actions';
-import {
-  JEV_MATTER_KEEP_CONFIDENCE,
-  JEV_MATTER_NOTIFY_NOUL,
-} from '../../shared/jev';
+import { JEV_MATTER_KEEP_CONFIDENCE, JEV_MATTER_NOTIFY_NOUL } from '../../shared/jev';
 import type {
   MatterCategory,
   MatterLensId,
@@ -150,21 +147,31 @@ function signalStateSlice(signal: RawMatterSignal, profile: WelcomeProfile | nul
   };
 }
 
+function sourceRuleClause(sourceRules: string | null): string {
+  if (!sourceRules) return '';
+  return " When employeeSourceRules apply to this signal's source, follow them even if they conflict with the default.";
+}
+
 async function decideSignalBatch(
   batch: RawMatterSignal[],
   profile: WelcomeProfile | null,
-  batchIndex: number
+  batchIndex: number,
+  sourceRules: string | null
 ): Promise<MatterJevSignalDecision[] | null> {
+  const ruleClause = sourceRuleClause(sourceRules);
   const questions: Questions = {};
   for (let i = 0; i < batch.length; i += 1) {
     const prefix = `s${i}`;
     questions[`${prefix}_keep`] = noul(
-      `Signal ${i}: Does THIS person need to act on this now (reply/approve/unblock/prep/complete)? Keep Slack unreads and Hub kudos/timesheet/approvals.`
+      `Signal ${i}: Does THIS person need to act on this now (reply/approve/unblock/prep/complete)? Keep Slack unreads and Hub kudos/timesheet/approvals.${ruleClause}`
     );
     questions[`${prefix}_severity`] = choice(`Signal ${i}: severity`, SEVERITY_CRITERIA);
     questions[`${prefix}_orbit`] = choice(`Signal ${i}: radar orbit`, ORBIT_CRITERIA);
     questions[`${prefix}_category`] = choice(`Signal ${i}: category`, CATEGORY_CRITERIA);
-    questions[`${prefix}_rank`] = score(`Signal ${i}: action priority`, RANK_CRITERIA);
+    questions[`${prefix}_rank`] = score(
+      `Signal ${i}: action priority.${ruleClause}`,
+      RANK_CRITERIA
+    );
     questions[`${prefix}_title_ok`] = noul(
       `Signal ${i}: Is the existing title good enough to keep (not junk/rollup)?`
     );
@@ -175,6 +182,7 @@ async function decideSignalBatch(
 
   const state = {
     role: 'Matter personal action radar for York employee',
+    employeeSourceRules: sourceRules,
     signals: batch.map((s) => signalStateSlice(s, profile)),
   };
 
@@ -215,8 +223,7 @@ async function decideSignalBatch(
         catAns?.type === 'choice' ? catAns.choice : undefined,
         signal.categoryHint || 'comms'
       ),
-      rankScore:
-        rankAns?.type === 'score' ? rankScoreFromJev(rankAns.score) : keep ? 50 : 0,
+      rankScore: rankAns?.type === 'score' ? rankScoreFromJev(rankAns.score) : keep ? 50 : 0,
       confidence: rankAns?.type === 'score' ? rankAns.confidence : keepConf,
       titleOk: titleAns?.type === 'noul' ? titleAns.noul >= 0.5 : true,
       notify: notifyAns?.type === 'noul' ? notifyAns.noul >= JEV_MATTER_NOTIFY_NOUL : false,
@@ -262,8 +269,10 @@ async function decideLenses(
 export async function runMatterJevDecisions(options: {
   signals: RawMatterSignal[];
   profile: WelcomeProfile | null;
+  /** Non-empty Matter settings overrides for sources in this pool. */
+  sourceRules?: string | null;
 }): Promise<MatterJevRankDecisions | null> {
-  const { signals, profile } = options;
+  const { signals, profile, sourceRules = null } = options;
   if (signals.length === 0) {
     return { signals: [], lenses: MATTER_LENS_IDS.map((id) => ({ id, status: 'CLEAR' })) };
   }
@@ -271,7 +280,12 @@ export async function runMatterJevDecisions(options: {
   const all: MatterJevSignalDecision[] = [];
   for (let i = 0; i < signals.length; i += BATCH_SIZE) {
     const batch = signals.slice(i, i + BATCH_SIZE);
-    const decided = await decideSignalBatch(batch, profile, Math.floor(i / BATCH_SIZE));
+    const decided = await decideSignalBatch(
+      batch,
+      profile,
+      Math.floor(i / BATCH_SIZE),
+      sourceRules
+    );
     if (!decided) {
       log('[Jev/Matter] batch failed; aborting Jev Matter path');
       return null;

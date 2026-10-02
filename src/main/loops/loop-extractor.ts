@@ -14,6 +14,7 @@ import { collapseSameAskItems, omitSameAskAs } from '../matter/matter-same-ask';
 import { runLoopActionJev } from '../jev/loops-jev';
 import { logWarn } from '../utils/logger';
 import type { LoopUpsertInput } from './loop-store';
+import { withLoopCaptureOverride } from './loop-capture-prompt';
 
 /** Most loops a single meeting may auto-capture. */
 export const MAX_LOOPS_PER_MEETING = 5;
@@ -149,7 +150,7 @@ export async function screenMeetingActions(
   if (actions.length === 0) return rejected;
   try {
     const response = await llm.complete({
-      systemPrompt: withCaptureOverride(
+      systemPrompt: withLoopCaptureOverride(
         fieldsOnly ? FIELDS_PROMPT : SCREEN_PROMPT,
         options.capturePrompt
       ),
@@ -196,12 +197,6 @@ export interface LoopJudgeDeps {
   jev?: typeof runLoopActionJev;
   /** Optional settings prompt. Empty leaves the built-in rules unchanged. */
   capturePrompt?: string | null;
-}
-
-function withCaptureOverride(prompt: string, capturePrompt?: string | null): string {
-  const extra = capturePrompt?.trim();
-  if (!extra) return prompt;
-  return `${prompt} Employee override (apply on top of these rules; still reject vague items): ${extra}`;
 }
 
 /**

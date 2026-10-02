@@ -8,6 +8,10 @@ import {
   selectMatterLoopCandidates,
 } from '../../main/loops/loop-extractor';
 import type { MeetingSession } from '../../main/meetings/meeting-types';
+import {
+  loopCaptureRuleClause,
+  withLoopCaptureOverride,
+} from '../../main/loops/loop-capture-prompt';
 import { DEFAULT_LOOPS_RUNTIME } from '../../shared/loops';
 import type { MatterItem } from '../../shared/matter';
 
@@ -228,5 +232,21 @@ describe('matterDeadline', () => {
 
   it('handles missing dueAt', () => {
     expect(matterDeadline({ dueAt: null } as MatterItem, now)).toBeNull();
+  });
+});
+
+describe('loop capture prompt', () => {
+  it('leaves the screen unchanged when the prompt is empty', () => {
+    expect(withLoopCaptureOverride('Be strict.', '  ')).toBe('Be strict.');
+    expect(loopCaptureRuleClause(null)).toBe('');
+  });
+
+  it('tells the keep decision to follow the employee prompt when it conflicts', () => {
+    const prompt = withLoopCaptureOverride('Be strict.', 'Only commitments I personally owe.');
+    expect(prompt).toContain('Employee capture rules');
+    expect(prompt).toContain('when they conflict, follow the employee rules');
+    expect(prompt).toContain('Only commitments I personally owe.');
+    expect(prompt).not.toContain('still reject vague items');
+    expect(loopCaptureRuleClause('Only my commitments')).toContain('employeeCaptureRules');
   });
 });

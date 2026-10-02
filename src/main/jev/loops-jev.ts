@@ -11,6 +11,7 @@ import {
 import type { LoopOwner } from '../../shared/loops';
 import type { WelcomeProfile } from '../../shared/welcome-actions';
 import { choice, noul, runJevDecision, type EntryType, type Questions } from './jev-client';
+import { loopCaptureRuleClause } from '../loops/loop-capture-prompt';
 import { log } from '../utils/logger';
 
 export interface LoopJevCandidate {
@@ -49,26 +50,26 @@ async function decideBatch(
   batchIndex: number,
   capturePrompt?: string | null
 ): Promise<LoopJevDecision[] | null> {
+  const override = capturePrompt?.trim() || null;
+  const ruleClause = loopCaptureRuleClause(override);
   const questions: Questions = {};
   for (let i = 0; i < batch.length; i += 1) {
     const p = `a${i}`;
     questions[`${p}_output`] = noul(
-      `Item ${i}: Does it name a SPECIFIC output that will exist once done — e.g. an email sent to a named person, access granted to a named account, a named doc shared, a named bug fixed? Vague intentions (clarify, ensure, align, discuss, confirm what, review generally, follow the process) are NO.`
+      `Item ${i}: Does it name a SPECIFIC output that will exist once done — e.g. an email sent to a named person, access granted to a named account, a named doc shared, a named bug fixed? Vague intentions (clarify, ensure, align, discuss, confirm what, review generally, follow the process) are NO.${ruleClause}`
     );
     questions[`${p}_context`] = noul(
-      `Item ${i}: Could someone understand exactly what to do from the item alone (what, for whom, about which thing), without reading the meeting transcript or source? References like "which issue", "the tasks mentioned", "what is scheduled" are NO.`
+      `Item ${i}: Could someone understand exactly what to do from the item alone (what, for whom, about which thing), without reading the meeting transcript or source? References like "which issue", "the tasks mentioned", "what is scheduled" are NO.${ruleClause}`
     );
     questions[`${p}_involves`] = noul(
-      `Item ${i}: Does THIS user personally have to do it, or does a named person explicitly owe it to this user? Actions purely between other people are NO.`
+      `Item ${i}: Does THIS user personally have to do it, or does a named person explicitly owe it to this user? Actions purely between other people are NO.${ruleClause}`
     );
-    questions[`${p}_owner`] = choice(`Item ${i}: who owes it`, OWNER_CRITERIA);
+    questions[`${p}_owner`] = choice(`Item ${i}: who owes it.${ruleClause}`, OWNER_CRITERIA);
   }
 
-  const override = capturePrompt?.trim() || null;
   const state = {
-    role: override
-      ? `Loops — personal commitments tracker for a York employee. Be strict: most candidate action items are NOT worth tracking. Employee override (apply on top of the rules; still reject vague items): ${override}`
-      : 'Loops — personal commitments tracker for a York employee. Be strict: most candidate action items are NOT worth tracking.',
+    role: 'Loops — personal commitments tracker for a York employee. Be strict: most candidate action items are NOT worth tracking.',
+    employeeCaptureRules: override,
     user: profile
       ? {
           name: profile.name ?? null,
@@ -131,6 +132,9 @@ export async function runLoopActionJev(options: {
 }): Promise<LoopJevDecision[] | null> {
   const { source, candidates, profile, capturePrompt } = options;
   if (candidates.length === 0) return [];
+  if (capturePrompt?.trim()) {
+    log('[Jev/Loops] Applying capture prompt override');
+  }
   const all: LoopJevDecision[] = [];
   for (let i = 0; i < candidates.length; i += BATCH_SIZE) {
     const decided = await decideBatch(

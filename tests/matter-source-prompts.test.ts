@@ -4,6 +4,7 @@ import {
   normalizeMatterSourcePrompts,
 } from '../src/main/matter/matter-config';
 import { buildMatterRankerSystemPrompt } from '../src/main/matter/matter-ranker';
+import { formatMatterSourceOverrides } from '../src/main/matter/matter-source-prompts';
 import {
   DEFAULT_MATTER_SOURCE_PROMPTS,
   MATTER_SOURCE_PROMPT_MAX_CHARS,
@@ -55,6 +56,14 @@ describe('buildMatterRankerSystemPrompt', () => {
     expect(prompt).toContain('Source overrides from the employee');
     expect(prompt).toContain('Slack: Only keep DMs from my squad');
     expect(prompt).not.toContain('York Hub:');
+  });
+
+  it('formats the same override text the Jev rank path reads', () => {
+    const rules = formatMatterSourceOverrides(
+      { ...DEFAULT_MATTER_SOURCE_PROMPTS, gmail: 'Drop newsletters' },
+      ['gmail', 'slack']
+    );
+    expect(rules).toBe('- Gmail: Drop newsletters');
   });
 
   it('omits Slack override when Slack is not in the pool', () => {
