@@ -331,6 +331,27 @@ describe('permission-rules-store', () => {
       expect(decidePermission(SESSION_A, 'wiki_get', { id: 'p1' })).toBe('allow');
     });
 
+    it('returns allow for Matter and Loop reads by default', () => {
+      expect(decidePermission(SESSION_A, 'matter_list', {})).toBe('allow');
+      expect(decidePermission(SESSION_A, 'matter_read', { id: 's1' })).toBe('allow');
+      expect(decidePermission(SESSION_A, 'matter_meetings', {})).toBe('allow');
+      expect(decidePermission(SESSION_A, 'matter_meeting', { id: 'm1' })).toBe('allow');
+      expect(decidePermission(SESSION_A, 'loop_list', {})).toBe('allow');
+      expect(decidePermission(SESSION_A, 'loop_read', { id: 'l1' })).toBe('allow');
+      expect(decidePermission(SESSION_A, 'loop_research', { id: 'l1' })).toBe('allow');
+    });
+
+    it('asks before Matter and Loop writes', () => {
+      expect(decidePermission(SESSION_A, 'matter_act', { itemId: 's1', action: 'done' })).toBe(
+        'ask'
+      );
+      expect(decidePermission(SESSION_A, 'matter_prep', { meetingId: 'm1' })).toBe('ask');
+      expect(decidePermission(SESSION_A, 'matter_scan', {})).toBe('ask');
+      expect(decidePermission(SESSION_A, 'loop_create', { title: 'Send deck' })).toBe('ask');
+      expect(decidePermission(SESSION_A, 'loop_close', { id: 'l1' })).toBe('ask');
+      expect(decidePermission(SESSION_A, 'loop_drop', { id: 'l1' })).toBe('ask');
+    });
+
     it('asks for mutating wiki tools by default', () => {
       expect(decidePermission(SESSION_A, 'wiki_write', { path: 'clients/acme', body: 'x' })).toBe(
         'ask'
@@ -552,7 +573,10 @@ describe('permission-rules-store', () => {
     });
 
     it('clearSessionAlwaysAllow clears remembered tools without touching other sessions', () => {
-      setPermissionRules([{ tool: 'write', action: 'ask' }, { tool: 'bash', action: 'ask' }]);
+      setPermissionRules([
+        { tool: 'write', action: 'ask' },
+        { tool: 'bash', action: 'ask' },
+      ]);
       rememberAlwaysAllow(SESSION_A, 'write');
       rememberAlwaysAllow(SESSION_B, 'bash');
       expect(listSessionAlwaysAllow(SESSION_A)).toEqual(['write']);
@@ -713,6 +737,9 @@ describe('permission-rules-store', () => {
       expect(tools).toContain('wiki_search');
       expect(tools).toContain('wiki_read');
       expect(tools).toContain('wiki_list');
+      expect(tools).toContain('matter_list');
+      expect(tools).toContain('loop_list');
+      expect(tools).toContain('loop_research');
     });
 
     it('returns shallow copies so callers cannot mutate the internal cache', () => {

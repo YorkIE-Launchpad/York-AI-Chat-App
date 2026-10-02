@@ -40,13 +40,13 @@ Load `gtm-launchpad-mcp` for client workflows, pieces, content calendar, brand
 profile, users, skill library, and audit logs. MCP namespace is
 `Gtm-Launchpad` (not the product-platform `Launchpad` server used by R&D).
 
-| Tools (primary)                                                          | Join keys out                         | Typical next                                      |
-| ------------------------------------------------------------------------ | ------------------------------------- | ------------------------------------------------- |
-| `list_accessible_clients`, `resolve_workspace`                           | **clientId**, **projectId**           | pass on every later workspace call                |
-| `list_workflows`, `describe_workflow`, `list_flow_steps`, `get_step_config` | **flowId**, stepName               | configure / update / enable                       |
-| `get_piece_schema`, `get_piece_property_options`, `list_connections`     | piece schema, `authConnectionExternalId` | `configure_*` / `create_step`                  |
-| `set_workflow_status`, `run_workflow`, `get_last_run`                    | run status                            | confirm enable only when status is `ENABLED`      |
-| Calendar / brand / prompts / users / audit tools                         | workspace ids                         | see skill `references/tools-catalog.md`           |
+| Tools (primary)                                                             | Join keys out                            | Typical next                                 |
+| --------------------------------------------------------------------------- | ---------------------------------------- | -------------------------------------------- |
+| `list_accessible_clients`, `resolve_workspace`                              | **clientId**, **projectId**              | pass on every later workspace call           |
+| `list_workflows`, `describe_workflow`, `list_flow_steps`, `get_step_config` | **flowId**, stepName                     | configure / update / enable                  |
+| `get_piece_schema`, `get_piece_property_options`, `list_connections`        | piece schema, `authConnectionExternalId` | `configure_*` / `create_step`                |
+| `set_workflow_status`, `run_workflow`, `get_last_run`                       | run status                               | confirm enable only when status is `ENABLED` |
+| Calendar / brand / prompts / users / audit tools                            | workspace ids                            | see skill `references/tools-catalog.md`      |
 
 Protocol: mutations preview first, then retry with `confirm: true`. Discover
 live tools via `GetDynamicTools` — RBAC may hide some.
@@ -98,6 +98,28 @@ Prefer `create_spreadsheet` / `update_spreadsheet_values` / `append_spreadsheet_
 
 Pass `calendar_id` on event tools when not using the primary calendar (from `list_calendars`).
 
+## Matter (first-party)
+
+Current radar and calendar meetings already collected in the app. No MCP prefix.
+
+| Tools                                      | Join keys out                          | Typical next                     |
+| ------------------------------------------ | -------------------------------------- | -------------------------------- |
+| `matter_list`                              | signal **id**, severity, orbit, source | `matter_read`                    |
+| `matter_read`                              | summary, why, raw details, url         | connector follow-up only if thin |
+| `matter_meetings` / `matter_meeting`       | meeting **id**, when, prep note        | `matter_prep` when the user asks |
+| `matter_prep`, `matter_scan`, `matter_act` | (write — ask)                          | confirm, then re-read            |
+
+## Loops (first-party)
+
+Persistent commitments. Distinct from Matter signals, which re-rank every scan.
+
+| Tools                                    | Join keys out                            | Typical next            |
+| ---------------------------------------- | ---------------------------------------- | ----------------------- |
+| `loop_list`                              | loop **id**, due, owner, status          | `loop_read`             |
+| `loop_read`                              | notes, research note, matter/meeting ids | deepen via those ids    |
+| `loop_research`                          | cited research note                      | answer from the note    |
+| `loop_create`, `loop_close`, `loop_drop` | (write — ask)                            | only when the user asks |
+
 ## Meetings (first-party)
 
 | Tools            | Join keys out                                      | Typical next                        |
@@ -120,6 +142,7 @@ every **connected** system that can hold signal:
 
 `[ ] Hub  [ ] Launchpad (if delivery)  [ ] Slack  [ ] Gmail  [ ] Meetings`
 `[ ] Drive  [ ] Calendar  [ ] Jira  [ ] Confluence  [ ] Pulse (if metrics)`
+`[ ] Matter (radar)  [ ] Loops (commitments)`
 
 Mark skipped (disconnected/error) in the reply. Never pretend you searched a
 skipped connector.

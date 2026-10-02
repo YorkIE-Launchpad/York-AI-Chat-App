@@ -27,6 +27,13 @@ const DEFAULT_RULES: PermissionRule[] = [
   { tool: 'wiki_search', action: 'allow' },
   { tool: 'wiki_read', action: 'allow' },
   { tool: 'wiki_list', action: 'allow' },
+  { tool: 'matter_list', action: 'allow' },
+  { tool: 'matter_read', action: 'allow' },
+  { tool: 'matter_meetings', action: 'allow' },
+  { tool: 'matter_meeting', action: 'allow' },
+  { tool: 'loop_list', action: 'allow' },
+  { tool: 'loop_read', action: 'allow' },
+  { tool: 'loop_research', action: 'allow' },
   { tool: 'write', action: 'ask' },
   { tool: 'edit', action: 'ask' },
   { tool: 'bash', action: 'ask' },
@@ -48,6 +55,23 @@ export function isAutoAllowedWikiTool(toolName: string): boolean {
   const lowered = toolName.toLowerCase();
   if (!lowered.startsWith('wiki_')) return false;
   return !WIKI_MUTATION_TOOLS.has(lowered);
+}
+
+const MATTER_READ_TOOLS = new Set([
+  'matter_list',
+  'matter_read',
+  'matter_meetings',
+  'matter_meeting',
+]);
+
+const LOOP_READ_TOOLS = new Set(['loop_list', 'loop_read', 'loop_research']);
+
+export function isAutoAllowedMatterTool(toolName: string): boolean {
+  return MATTER_READ_TOOLS.has(toolName.toLowerCase());
+}
+
+export function isAutoAllowedLoopTool(toolName: string): boolean {
+  return LOOP_READ_TOOLS.has(toolName.toLowerCase());
 }
 
 const VALID_ACTIONS: ReadonlySet<PermissionRule['action']> = new Set(['allow', 'deny', 'ask']);
@@ -118,6 +142,8 @@ export function getPermissionRules(): PermissionRule[] {
  *      OpenAI budget meta-tools (`mcp_run`, and child-only `mcp_search_tools` / `mcp_call_tool`),
  *      first-party meeting tools (`meeting_search`, `meeting_read`),
  *      first-party wiki tools (`wiki_*` except mutations like `wiki_write`),
+ *      first-party Matter reads (`matter_list`, `matter_read`, `matter_meetings`, `matter_meeting`),
+ *      first-party Loop reads (`loop_list`, `loop_read`, `loop_research`),
  *      and the first-party `webfetch` / `websearch` tools
  *   5. Default: 'ask' for unknown tools (conservative)
  *
@@ -163,7 +189,7 @@ export function decidePermission(
 
   // Built-in default: Chrome / R&D Launchpad / GTM Launchpad / R&D Pulse / York IE HUB / GTM Pulse /
   // Slack / Gmail / Drive / Calendar / Jira / Confluence read tools,
-  // first-party meeting / wiki tools, and webfetch run without a permission prompt.
+  // first-party meeting / wiki / Matter / Loop reads, and webfetch run without a permission prompt.
   // Slack / Gmail / Drive / Calendar / Jira / Confluence write tools fall through to 'ask'.
   // Explicit rules for a specific tool still win above.
   // Legacy Launchpad/Hub prefixes are kept so older connector names keep working.
@@ -179,6 +205,8 @@ export function decidePermission(
   if (lowered === 'meeting_search') return 'allow';
   if (lowered === 'meeting_read') return 'allow';
   if (isAutoAllowedWikiTool(toolName)) return 'allow';
+  if (isAutoAllowedMatterTool(toolName)) return 'allow';
+  if (isAutoAllowedLoopTool(toolName)) return 'allow';
   if (lowered === 'webfetch') return 'allow';
   if (lowered === 'websearch') return 'allow';
   if (lowered === 'mcp_run') return 'allow';

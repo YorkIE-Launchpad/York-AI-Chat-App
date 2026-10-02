@@ -104,6 +104,8 @@ import { CheckpointService } from './orchestration/checkpoint-service';
 import { WorkflowService } from './workflows/workflow-service';
 import { WorkflowExtension } from './workflows/workflow-extension';
 import { LoopService } from './loops/loop-service';
+import { LoopExtension } from './loops/loop-extension';
+import { MatterExtension } from './matter/matter-extension';
 import { resolveWelcomeProfile } from './welcome/resolve-welcome-profile';
 import {
   createWorkflowScheduleBridge,
@@ -550,6 +552,8 @@ function buildExtensionList(
       summaryTreeService,
     })),
     new MeetingExtension(meetingService),
+    new MatterExtension(() => matterService),
+    new LoopExtension(() => loopService),
     new WorkflowExtension(workflowService),
     new ConfigExtension(configStore),
     new WebFetchExtension(),
@@ -582,7 +586,15 @@ function getFolderManager(): FolderManager {
  * interactive dialog in the top-level session, never through a background
  * subagent.
  */
-const SUBAGENT_ALWAYS_DENIED_TOOLS = new Set<string>(['config_write']);
+const SUBAGENT_ALWAYS_DENIED_TOOLS = new Set<string>([
+  'config_write',
+  'matter_act',
+  'matter_prep',
+  'matter_scan',
+  'loop_create',
+  'loop_close',
+  'loop_drop',
+]);
 
 /**
  * Resolve the allow/deny decision for a tool call made by a spawned

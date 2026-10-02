@@ -46,6 +46,8 @@ Deep Hub or Launchpad workflows: load `hub-mcp`, `rnd-launchpad-mcp-sdlc`, or
 | **Jira**            | Issues, projects, JQL                                                     | MCP: `getJiraIssue`, `searchJiraIssuesUsingJql`, …; write: `createJiraIssue`, `editJiraIssue`, `transitionJiraIssue`, `addCommentToJiraIssue`, `addWorklogToJiraIssue` (ask)                                                                                                                                          |
 | **Confluence**      | Pages, spaces, CQL                                                        | MCP: `getConfluencePage`, `searchConfluenceUsingCql`, …; write: `createConfluencePage`, `updateConfluencePage`, `createConfluenceFooterComment`, `createConfluenceInlineComment` (ask)                                                                                                                                |
 | **Meetings**        | Captured Zoom/meeting notes & transcripts                                 | First-party: `meeting_search`, `meeting_read` (not MCP)                                                                                                                                                                                                                                                               |
+| **Matter**          | Personal radar: signals that need attention, upcoming calendar meetings   | First-party: `matter_list`, `matter_read`, `matter_meetings`, `matter_meeting`; writes `matter_prep`, `matter_scan`, `matter_act` (ask)                                                                                                                                                                               |
+| **Loops**           | Persistent commitments (open until closed)                                | First-party: `loop_list`, `loop_read`, `loop_research`; writes `loop_create`, `loop_close`, `loop_drop` (ask)                                                                                                                                                                                                         |
 
 **Three calendars (do not conflate):**
 
@@ -110,6 +112,8 @@ Full map: [connectors.md](references/connectors.md).
 | **Prep / prepare agendas / prep for meetings**    | Calendar `get_event` → classify recurring vs one-off | [meeting-prep.md](references/meeting-prep.md) Playbook A or B                     |
 | Schedule / invite / “set up a meeting with …”     | Hub resolve → Calendar                               | **Schedule with a person**                                                        |
 | Meeting notes / “what did we discuss”             | `meeting_search` → `meeting_read`                    | Slack/Gmail if needed                                                             |
+| What’s on my radar / what matters now             | `matter_list` → `matter_read`                        | `matter_meetings` for upcoming; `matter_scan` only if a fresh sweep is asked      |
+| Open loops / commitments I own                    | `loop_list` → `loop_read`                            | `loop_research` to enrich one loop; close/drop only when asked                    |
 | Jira tickets / Confluence wiki                    | Jira / Confluence                                    | Hub/Launchpad if delivery context                                                 |
 
 **List vs prep:** listing the calendar is Calendar-only. Preparing agendas,
