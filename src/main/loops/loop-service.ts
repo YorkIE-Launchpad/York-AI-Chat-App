@@ -25,9 +25,10 @@ import { log, logError, logWarn } from '../utils/logger';
 import { LoopStore } from './loop-store';
 import {
   extractMeetingLoops,
-  matterItemToLoop,
   judgeMatterCandidates,
   judgeMeetingActions,
+  matterItemToLoop,
+  omitDuplicateLoopCandidates,
   prescreenAction,
   selectMatterLoopCandidates,
 } from './loop-extractor';
@@ -191,10 +192,14 @@ export class LoopService {
   }
 
   async captureFromMeeting(meeting: MeetingSession): Promise<void> {
-    if (!this.getRuntime().captureFromMeetings) return;
+    const runtime = this.getRuntime();
+    if (!runtime.captureFromMeetings) return;
     try {
       const profile = await this.resolveProfile().catch(() => null);
-      const candidates = await extractMeetingLoops(meeting, profile);
+      const candidates = omitDuplicateLoopCandidates(
+        await extractMeetingLoops(meeting, profile, { capturePrompt: runtime.capturePrompt }),
+        this.store.list()
+      );
       let created = 0;
       for (const candidate of candidates) {
         if (this.store.upsertByFingerprint(candidate).created) created += 1;
@@ -218,10 +223,15 @@ export class LoopService {
       const fresh = selected.filter((item) => !known.has(item.fingerprint));
       if (fresh.length === 0) return;
       const profile = await this.resolveProfile().catch(() => null);
-      const candidates = await judgeMatterCandidates(fresh, profile);
+      const candidates = omitDuplicateLoopCandidates(
+        (await judgeMatterCandidates(fresh, profile, { capturePrompt: runtime.capturePrompt })).map(
+          (item) => ({ ...matterItemToLoop(item, true), item })
+        ),
+        this.store.list()
+      );
       let created = 0;
-      for (const item of candidates) {
-        if (this.store.upsertByFingerprint(matterItemToLoop(item, true)).created) created += 1;
+      for (const candidate of candidates) {
+        if (this.store.upsertByFingerprint(candidate).created) created += 1;
       }
       if (created > 0) {
         log(`[Loops] Captured ${created} loop(s) from Matter scan`);
@@ -281,7 +291,8 @@ export class LoopService {
             summary: meeting?.notes?.summary ?? null,
           },
           loops.map((l) => l.title),
-          profile
+          profile,
+          { capturePrompt: runtime.capturePrompt }
         );
         if (!screened) {
           // Never drop on a failed judge; retry on next launch.

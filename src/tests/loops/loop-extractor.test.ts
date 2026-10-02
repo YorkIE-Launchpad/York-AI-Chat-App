@@ -3,6 +3,7 @@ import {
   extractMeetingLoops,
   judgeMatterCandidates,
   matterDeadline,
+  omitDuplicateLoopCandidates,
   prescreenAction,
   selectMatterLoopCandidates,
 } from '../../main/loops/loop-extractor';
@@ -157,9 +158,62 @@ describe('judgeMatterCandidates', () => {
     expect(await judgeMatterCandidates([item], null, { jev })).toEqual([]);
   });
 
-  it('keeps heuristic selection when Jev is unavailable', async () => {
+  it('falls back to the strict LLM screen when Jev is unavailable', async () => {
     const jev = vi.fn().mockResolvedValue(null);
-    expect(await judgeMatterCandidates([item], null, { jev })).toEqual([item]);
+    const complete = vi.fn().mockResolvedValue({
+      text: JSON.stringify({
+        items: [{ index: 0, keep: true, owner: 'me', counterpart: null, due: null }],
+      }),
+    });
+    expect(
+      await judgeMatterCandidates([item], null, { jev, llm: { complete, embed: vi.fn() } })
+    ).toEqual([item]);
+  });
+
+  it('captures nothing when Jev is unavailable and the LLM screen fails', async () => {
+    const jev = vi.fn().mockResolvedValue(null);
+    const complete = vi.fn().mockRejectedValue(new Error('offline'));
+    expect(
+      await judgeMatterCandidates([item], null, { jev, llm: { complete, embed: vi.fn() } })
+    ).toEqual([]);
+  });
+});
+
+describe('omitDuplicateLoopCandidates', () => {
+  it('keeps one loop when the same ask is worded differently', () => {
+    const kept = omitDuplicateLoopCandidates([
+      {
+        title: 'Please review the Q3 deck before Friday',
+        notes: 'Q3 deck review needed by Friday',
+      },
+      {
+        title: 'Q3 deck needs your review by Friday',
+        notes: 'Please review the Q3 deck before Friday',
+      },
+      { title: 'Send standup notes from this morning', notes: 'standup notes from this morning' },
+    ]);
+    expect(kept.map((item) => item.title)).toEqual([
+      'Please review the Q3 deck before Friday',
+      'Send standup notes from this morning',
+    ]);
+  });
+
+  it('drops a new loop that paraphrases one already captured', () => {
+    const kept = omitDuplicateLoopCandidates(
+      [
+        {
+          title: 'Q3 deck needs your review by Friday',
+          notes: 'Please review the Q3 deck before Friday',
+        },
+      ],
+      [
+        {
+          title: 'Please review the Q3 deck before Friday',
+          notes: 'Q3 deck review needed by Friday',
+        },
+      ]
+    );
+    expect(kept).toEqual([]);
   });
 });
 

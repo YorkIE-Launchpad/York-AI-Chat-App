@@ -68,6 +68,8 @@ export type LoopUpdateInput = Partial<
   Pick<Loop, 'title' | 'notes' | 'owner' | 'counterpart' | 'dueAt' | 'priority' | 'status'>
 >;
 
+export const LOOP_CAPTURE_PROMPT_MAX_CHARS = 2000;
+
 export interface LoopsRuntimeConfig {
   captureFromMeetings: boolean;
   captureFromMatter: boolean;
@@ -75,6 +77,11 @@ export interface LoopsRuntimeConfig {
   matterConfidenceThreshold: number;
   /** Capture-rules version already applied to existing auto-captured loops. */
   screenedVersion: number;
+  /**
+   * Optional employee override for what becomes a loop.
+   * Empty means the built-in Jev / screen rules apply alone.
+   */
+  capturePrompt: string;
 }
 
 /** Bump when capture rules tighten so untouched auto-captured loops are re-screened once. */
@@ -85,6 +92,7 @@ export const DEFAULT_LOOPS_RUNTIME: LoopsRuntimeConfig = {
   captureFromMatter: true,
   matterConfidenceThreshold: 0.7,
   screenedVersion: 0,
+  capturePrompt: '',
 };
 
 export function normalizeLoopsRuntimeConfig(raw: unknown): LoopsRuntimeConfig {
@@ -102,6 +110,10 @@ export function normalizeLoopsRuntimeConfig(raw: unknown): LoopsRuntimeConfig {
       typeof value.screenedVersion === 'number' && Number.isFinite(value.screenedVersion)
         ? value.screenedVersion
         : 0,
+    capturePrompt:
+      typeof value.capturePrompt === 'string'
+        ? value.capturePrompt.trim().slice(0, LOOP_CAPTURE_PROMPT_MAX_CHARS)
+        : '',
   };
 }
 

@@ -40,6 +40,7 @@ export function LoopsPage({ onClose }: LoopsPageProps) {
   const [researchDraft, setResearchDraft] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [capturePromptDraft, setCapturePromptDraft] = useState('');
   const setLoopsBadgeCount = useAppStore((s) => s.setLoopsBadgeCount);
   const openMatterToItem = useAppStore((s) => s.openMatterToItem);
   const setSettingsTab = useAppStore((s) => s.setSettingsTab);
@@ -111,6 +112,10 @@ export function LoopsPage({ onClose }: LoopsPageProps) {
       setShowSettings(true);
     }
   };
+
+  useEffect(() => {
+    setCapturePromptDraft(snapshot.settings.capturePrompt || '');
+  }, [snapshot.settings.capturePrompt]);
 
   const saveSettings = async (partial: Partial<LoopsRuntimeConfig>) => {
     if (!api) return;
@@ -194,7 +199,7 @@ export function LoopsPage({ onClose }: LoopsPageProps) {
         </button>
 
         {settingsOpen ? (
-          <div className="absolute right-4 top-full z-20 mt-2 w-80 rounded-xl border border-border-muted bg-surface p-3 shadow-lg space-y-3">
+          <div className="absolute right-4 top-full z-20 mt-2 w-96 rounded-xl border border-border-muted bg-surface p-3 shadow-lg space-y-3">
             <div className="text-[12px] font-semibold text-text-primary">
               {t('loops.settingsTitle')}
             </div>
@@ -234,6 +239,24 @@ export function LoopsPage({ onClose }: LoopsPageProps) {
                 }
                 className="mt-1 w-full accent-accent disabled:opacity-50"
               />
+            </label>
+            <label className="block text-[12px] text-text-secondary">
+              <span>{t('loops.capturePrompt')}</span>
+              <textarea
+                value={capturePromptDraft}
+                onChange={(e) => setCapturePromptDraft(e.target.value)}
+                onBlur={() => {
+                  const next = capturePromptDraft.trim();
+                  if (next === (snapshot.settings.capturePrompt || '')) return;
+                  void saveSettings({ capturePrompt: next });
+                }}
+                rows={3}
+                placeholder={t('loops.capturePromptPlaceholder')}
+                className="mt-1 w-full resize-y rounded-lg border border-border-muted bg-transparent px-2 py-1.5 text-[12px] text-text-primary outline-none placeholder:text-text-muted"
+              />
+              <span className="mt-1 block text-[11px] text-text-muted">
+                {t('loops.capturePromptHint')}
+              </span>
             </label>
           </div>
         ) : null}

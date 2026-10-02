@@ -46,7 +46,8 @@ async function decideBatch(
   source: LoopJevSource,
   batch: LoopJevCandidate[],
   profile: WelcomeProfile | null,
-  batchIndex: number
+  batchIndex: number,
+  capturePrompt?: string | null
 ): Promise<LoopJevDecision[] | null> {
   const questions: Questions = {};
   for (let i = 0; i < batch.length; i += 1) {
@@ -63,8 +64,11 @@ async function decideBatch(
     questions[`${p}_owner`] = choice(`Item ${i}: who owes it`, OWNER_CRITERIA);
   }
 
+  const override = capturePrompt?.trim() || null;
   const state = {
-    role: 'Loops — personal commitments tracker for a York employee. Be strict: most candidate action items are NOT worth tracking.',
+    role: override
+      ? `Loops — personal commitments tracker for a York employee. Be strict: most candidate action items are NOT worth tracking. Employee override (apply on top of the rules; still reject vague items): ${override}`
+      : 'Loops — personal commitments tracker for a York employee. Be strict: most candidate action items are NOT worth tracking.',
     user: profile
       ? {
           name: profile.name ?? null,
@@ -122,8 +126,10 @@ export async function runLoopActionJev(options: {
   source: LoopJevSource;
   candidates: LoopJevCandidate[];
   profile: WelcomeProfile | null;
+  /** Optional settings override. Empty leaves the built-in rules unchanged. */
+  capturePrompt?: string | null;
 }): Promise<LoopJevDecision[] | null> {
-  const { source, candidates, profile } = options;
+  const { source, candidates, profile, capturePrompt } = options;
   if (candidates.length === 0) return [];
   const all: LoopJevDecision[] = [];
   for (let i = 0; i < candidates.length; i += BATCH_SIZE) {
@@ -131,7 +137,8 @@ export async function runLoopActionJev(options: {
       source,
       candidates.slice(i, i + BATCH_SIZE),
       profile,
-      Math.floor(i / BATCH_SIZE)
+      Math.floor(i / BATCH_SIZE),
+      capturePrompt
     );
     if (!decided) {
       log('[Jev/Loops] batch failed; falling back to LLM screen');

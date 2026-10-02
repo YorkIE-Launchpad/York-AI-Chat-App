@@ -56,6 +56,7 @@ describe('normalizeLoopsRuntimeConfig', () => {
       captureFromMatter: true,
       matterConfidenceThreshold: 0.7,
       screenedVersion: 0,
+      capturePrompt: '',
     });
     expect(
       normalizeLoopsRuntimeConfig({ captureFromMatter: false, matterConfidenceThreshold: 4 })
@@ -64,6 +65,10 @@ describe('normalizeLoopsRuntimeConfig', () => {
       captureFromMatter: false,
       matterConfidenceThreshold: 1,
       screenedVersion: 0,
+      capturePrompt: '',
     });
+    expect(
+      normalizeLoopsRuntimeConfig({ capturePrompt: '  only my commitments  ' }).capturePrompt
+    ).toBe('only my commitments');
   });
 });

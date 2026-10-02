@@ -10,6 +10,7 @@ import type { MatterItem } from '../../shared/matter';
 import type { LoopOwner, LoopsRuntimeConfig } from '../../shared/loops';
 import type { WelcomeProfile } from '../../shared/welcome-actions';
 import { meetingActionFingerprint } from '../matter/matter-collector';
+import { collapseSameAskItems, omitSameAskAs } from '../matter/matter-same-ask';
 import { runLoopActionJev } from '../jev/loops-jev';
 import { logWarn } from '../utils/logger';
 import type { LoopUpsertInput } from './loop-store';
@@ -136,7 +137,7 @@ export async function screenMeetingActions(
   actions: string[],
   profile: WelcomeProfile | null,
   llm: MemoryLLMClientLike = new MemoryLLMClient(),
-  options: { fieldsOnly?: boolean } = {}
+  options: { fieldsOnly?: boolean; capturePrompt?: string | null } = {}
 ): Promise<ActionScreen[] | null> {
   const fieldsOnly = options.fieldsOnly === true;
   const rejected = actions.map<ActionScreen>(() => ({
@@ -148,7 +149,10 @@ export async function screenMeetingActions(
   if (actions.length === 0) return rejected;
   try {
     const response = await llm.complete({
-      systemPrompt: fieldsOnly ? FIELDS_PROMPT : SCREEN_PROMPT,
+      systemPrompt: withCaptureOverride(
+        fieldsOnly ? FIELDS_PROMPT : SCREEN_PROMPT,
+        options.capturePrompt
+      ),
       userPrompt: JSON.stringify({
         user: profile ? { name: profile.name, email: profile.email } : null,
         meetingTitle: meeting.title,
@@ -190,6 +194,14 @@ export async function screenMeetingActions(
 export interface LoopJudgeDeps {
   llm?: MemoryLLMClientLike;
   jev?: typeof runLoopActionJev;
+  /** Optional settings prompt. Empty leaves the built-in rules unchanged. */
+  capturePrompt?: string | null;
+}
+
+function withCaptureOverride(prompt: string, capturePrompt?: string | null): string {
+  const extra = capturePrompt?.trim();
+  if (!extra) return prompt;
+  return `${prompt} Employee override (apply on top of these rules; still reject vague items): ${extra}`;
 }
 
 /**
@@ -214,8 +226,13 @@ export async function judgeMeetingActions(
     },
     candidates: actions.map((text) => ({ text })),
     profile,
+    capturePrompt: deps.capturePrompt,
   });
-  if (!decisions) return screenMeetingActions(meeting, actions, profile, deps.llm);
+  if (!decisions) {
+    return screenMeetingActions(meeting, actions, profile, deps.llm, {
+      capturePrompt: deps.capturePrompt,
+    });
+  }
 
   const out = decisions.map<ActionScreen>((d) => ({
     keep: false,
@@ -230,7 +247,7 @@ export async function judgeMeetingActions(
     kept.map((i) => actions[i]),
     profile,
     deps.llm,
-    { fieldsOnly: true }
+    { fieldsOnly: true, capturePrompt: deps.capturePrompt }
   );
   kept.forEach((i, k) => {
     out[i] = {
@@ -243,14 +260,40 @@ export async function judgeMeetingActions(
   return out;
 }
 
+/**
+ * Collapse paraphrases of one commitment, then drop any that match a loop we already have.
+ * First occurrence wins inside the batch.
+ */
+export function omitDuplicateLoopCandidates<T extends { title: string; notes?: string | null }>(
+  candidates: T[],
+  existing: Array<{ title: string; notes?: string | null }> = []
+): T[] {
+  const wrapped = candidates.map((candidate, index) => ({
+    candidate,
+    fingerprint: `loop-candidate:${index}`,
+    title: candidate.title,
+    summary: candidate.notes || '',
+    source: 'meeting',
+    rankScore: candidates.length - index,
+  }));
+  const collapsed = collapseSameAskItems(wrapped);
+  return omitSameAskAs(
+    collapsed,
+    existing.map((item) => ({ title: item.title, summary: item.notes || '' }))
+  ).map((item) => item.candidate);
+}
+
 export async function extractMeetingLoops(
   meeting: MeetingSession,
   profile: WelcomeProfile | null,
   deps: LoopJudgeDeps = {}
 ): Promise<LoopUpsertInput[]> {
-  const actions = (meeting.notes?.actionItems || [])
-    .map((a) => String(a).trim())
-    .filter((text) => text && !prescreenAction(text));
+  const actions = omitDuplicateLoopCandidates(
+    (meeting.notes?.actionItems || [])
+      .map((a) => String(a).trim())
+      .filter((text) => text && !prescreenAction(text))
+      .map((title) => ({ title, notes: null }))
+  ).map((item) => item.title);
   if (actions.length === 0) return [];
   const screened = await judgeMeetingActions(
     { ...meeting, summary: meeting.notes?.summary ?? null },
@@ -314,12 +357,13 @@ export function matterItemToLoop(item: MatterItem, autoCaptured: boolean): LoopU
 
 /**
  * Jev gate for Matter candidates that already passed `selectMatterLoopCandidates`.
- * Without Jev, the heuristic selection stands.
+ * Without Jev, the strict LLM screen decides. If neither can judge, capture nothing —
+ * a non-empty signal is not automatically a loop.
  */
 export async function judgeMatterCandidates(
   items: MatterItem[],
   profile: WelcomeProfile | null,
-  deps: Pick<LoopJudgeDeps, 'jev'> = {}
+  deps: LoopJudgeDeps = {}
 ): Promise<MatterItem[]> {
   if (items.length === 0) return [];
   const decisions = await (deps.jev ?? runLoopActionJev)({
@@ -329,9 +373,32 @@ export async function judgeMatterCandidates(
       detail: [item.suggestedAction, item.summary].filter(Boolean).join(' — '),
     })),
     profile,
+    capturePrompt: deps.capturePrompt,
   });
-  if (!decisions) return items;
-  return items.filter((_, i) => decisions[i]?.keep);
+  const kept = !decisions
+    ? await screenMatterWithLlm(items, profile, deps)
+    : items.filter((_, i) => decisions[i]?.keep);
+  return omitDuplicateLoopCandidates(
+    kept.map((item) => ({ title: item.title, notes: item.summary, item }))
+  ).map((entry) => entry.item);
+}
+
+async function screenMatterWithLlm(
+  items: MatterItem[],
+  profile: WelcomeProfile | null,
+  deps: LoopJudgeDeps
+): Promise<MatterItem[]> {
+  const screened = await screenMeetingActions(
+    { title: 'Matter scan', startedAt: Date.now() },
+    items.map((item) =>
+      [item.title, item.suggestedAction, item.summary].filter(Boolean).join(' — ')
+    ),
+    profile,
+    deps.llm,
+    { capturePrompt: deps.capturePrompt }
+  );
+  if (!screened) return [];
+  return items.filter((_, i) => screened[i]?.keep);
 }
 
 /**
