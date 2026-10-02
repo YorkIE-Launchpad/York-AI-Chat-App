@@ -152,6 +152,8 @@ export function LoopsPage({ onClose }: LoopsPageProps) {
   const rowProps = {
     onClose: (id: string) => api && void run(() => api.close(id)),
     onDrop: (id: string) => api && void run(() => api.drop(id)),
+    onIgnore: (id: string) => update(id, { status: 'ignored' }),
+    onSetOwner: (id: string, owner: 'me' | 'other') => update(id, { owner }),
     onReopen: (id: string) => update(id, { status: 'open' }),
     onRename: (id: string, title: string) => update(id, { title }),
     onSetDue: (id: string, dueAt: number | null) => update(id, { dueAt }),

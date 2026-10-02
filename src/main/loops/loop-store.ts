@@ -166,8 +166,8 @@ export class LoopStore {
   }
 
   /**
-   * Insert a new loop, or refresh an existing open one. Closed or dropped loops are
-   * never reopened, and user edits to title/owner/due are never overwritten by capture.
+   * Insert a new loop, or refresh an existing open one. Closed, dismissed, or ignored
+   * loops are never reopened, and user edits to title/owner/due are never overwritten by capture.
    */
   upsertByFingerprint(input: LoopUpsertInput): { loop: Loop; created: boolean } {
     const existing = this.getByFingerprint(input.fingerprint);

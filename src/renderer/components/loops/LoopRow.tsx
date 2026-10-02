@@ -6,15 +6,18 @@ import {
   ChevronDown,
   ChevronRight,
   ExternalLink,
+  EyeOff,
+  Hourglass,
   Loader2,
   Radar,
   RotateCcw,
   Sparkles,
+  UserRound,
   Users,
   Video,
   X,
 } from 'lucide-react';
-import type { Loop } from '../../../shared/loops';
+import type { Loop, LoopOwner } from '../../../shared/loops';
 import { loopDueBucket } from '../../../shared/loops';
 import { MessageMarkdown } from '../MessageMarkdown';
 import { LoopDuePicker } from './LoopDuePicker';
@@ -23,6 +26,8 @@ interface LoopRowProps {
   loop: Loop;
   onClose: (id: string) => void;
   onDrop: (id: string) => void;
+  onIgnore: (id: string) => void;
+  onSetOwner: (id: string, owner: LoopOwner) => void;
   onReopen: (id: string) => void;
   onRename: (id: string, title: string) => void;
   onSetDue: (id: string, dueAt: number | null) => void;
@@ -34,6 +39,8 @@ export function LoopRow({
   loop,
   onClose,
   onDrop,
+  onIgnore,
+  onSetOwner,
   onReopen,
   onRename,
   onSetDue,
@@ -190,8 +197,47 @@ export function LoopRow({
               </span>
             </button>
           ) : null}
+          {loop.status === 'dropped' ? (
+            <span className="text-text-muted opacity-70">{t('loops.dismissed')}</span>
+          ) : null}
+          {loop.status === 'ignored' ? (
+            <span className="text-text-muted opacity-70">{t('loops.ignored')}</span>
+          ) : null}
           {loop.autoCaptured ? (
             <span className="text-text-muted opacity-70">{t('loops.autoCaptured')}</span>
+          ) : null}
+          {open && loop.owner === 'me' ? (
+            <button
+              type="button"
+              onClick={() => onSetOwner(loop.id, 'other')}
+              className="inline-flex items-center gap-1 rounded-md border border-border-subtle px-1.5 py-0.5 text-text-muted hover:border-accent/40 hover:text-accent"
+              title={t('loops.moveToWaitingHint')}
+            >
+              <Hourglass className="w-3 h-3" />
+              {t('loops.moveToWaiting')}
+            </button>
+          ) : null}
+          {open && loop.owner === 'other' ? (
+            <button
+              type="button"
+              onClick={() => onSetOwner(loop.id, 'me')}
+              className="inline-flex items-center gap-1 rounded-md border border-border-subtle px-1.5 py-0.5 text-text-muted hover:border-accent/40 hover:text-accent"
+              title={t('loops.moveToMineHint')}
+            >
+              <UserRound className="w-3 h-3" />
+              {t('loops.moveToMine')}
+            </button>
+          ) : null}
+          {open ? (
+            <button
+              type="button"
+              onClick={() => onIgnore(loop.id)}
+              className="inline-flex items-center gap-1 rounded-md border border-border-subtle px-1.5 py-0.5 text-text-muted hover:border-accent/40 hover:text-text-primary"
+              title={t('loops.ignoreHint')}
+            >
+              <EyeOff className="w-3 h-3" />
+              {t('loops.ignore')}
+            </button>
           ) : null}
           {researching ? (
             <span className="inline-flex items-center gap-1 text-accent">
@@ -277,11 +323,11 @@ export function LoopRow({
         <button
           type="button"
           onClick={() => onDrop(loop.id)}
-          className="mt-0.5 rounded-md p-1 text-text-muted opacity-0 group-hover:opacity-100 hover:bg-surface-hover hover:text-text-primary transition-opacity"
-          title={t('loops.drop')}
-          aria-label={t('loops.drop')}
+          className="mt-0.5 inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-medium text-text-muted hover:bg-surface-hover hover:text-text-primary"
+          title={t('loops.dismissHint')}
         >
           <X className="w-3.5 h-3.5" />
+          {t('loops.dismiss')}
         </button>
       ) : (
         <button

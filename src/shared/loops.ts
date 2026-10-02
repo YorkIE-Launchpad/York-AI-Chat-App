@@ -2,10 +2,10 @@
  * Shared Loops types — persistent, user-owned commitments ("open loops").
  *
  * Matter signals are re-ranked every scan and can expire; a loop stays until
- * the user closes or drops it.
+ * the user closes, dismisses, or ignores it.
  */
 
-export type LoopStatus = 'open' | 'done' | 'dropped';
+export type LoopStatus = 'open' | 'done' | 'dropped' | 'ignored';
 export type LoopOrigin = 'meeting' | 'matter' | 'manual' | 'chat';
 export type LoopOwner = 'me' | 'other';
 export type LoopPriority = 'high' | 'normal' | 'low';
