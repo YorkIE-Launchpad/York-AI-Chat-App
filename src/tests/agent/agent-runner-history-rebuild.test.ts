@@ -30,7 +30,10 @@ vi.mock('../../main/agent/shared-auth', () => ({
 }));
 
 import type { ContentBlock } from '../../renderer/types';
-import { serializeMessageContentForHistory } from '../../main/agent/agent-runner';
+import {
+  serializeMessageContentForHistory,
+  userTurnImagesForPiPrompt,
+} from '../../main/agent/agent-runner';
 
 describe('serializeMessageContentForHistory', () => {
   it('serializes a single text block as raw text (legacy compatible)', () => {
@@ -274,5 +277,33 @@ describe('serializeMessageContentForHistory', () => {
     expect(serializeMessageContentForHistory(blocks)).toBe(
       '<tool_result tool_use_id="call-3"></tool_result>'
     );
+  });
+});
+
+describe('userTurnImagesForPiPrompt', () => {
+  it('maps image blocks to pi-ai image parts', () => {
+    expect(
+      userTurnImagesForPiPrompt([
+        {
+          type: 'image',
+          source: { type: 'base64', media_type: 'image/png', data: 'abc123' },
+        },
+      ])
+    ).toEqual([{ type: 'image', data: 'abc123', mimeType: 'image/png' }]);
+  });
+
+  it('returns nothing for a text-only turn', () => {
+    expect(userTurnImagesForPiPrompt([{ type: 'text', text: 'hello' }])).toEqual([]);
+  });
+
+  it('skips image blocks that have no bytes', () => {
+    expect(
+      userTurnImagesForPiPrompt([
+        {
+          type: 'image',
+          source: { type: 'base64', media_type: 'image/png', data: '   ' },
+        },
+      ])
+    ).toEqual([]);
   });
 });

@@ -37,9 +37,8 @@ describe('CoworkAgentRunner York IE SDK integration', () => {
     // Image-containing messages are filtered out individually (not skipping entire history)
     expect(agentRunnerContent).toContain('const textOnlyMessages = conversationMessages');
     expect(agentRunnerContent).toContain('textOnlyMessages.slice(0, -1)');
-    expect(agentRunnerContent).toContain(
-      "textOnlyMessages[textOnlyMessages.length - 1]?.role === 'user'"
-    );
+    expect(agentRunnerContent).toContain("lastTextOnly?.role === 'user'");
+    expect(agentRunnerContent).toContain('lastTextOnly.id === currentTurnId');
   });
 
   it('keeps MCP server logging compact unless full debug logging is enabled', () => {

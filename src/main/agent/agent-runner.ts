@@ -362,6 +362,32 @@ export function serializeMessageContentForHistory(content: ContentBlock[]): stri
   return parts.join('\n');
 }
 
+/** Image part passed to pi-coding-agent via `prompt(text, { images })`. */
+export interface PiPromptImage {
+  type: 'image';
+  data: string;
+  mimeType: string;
+}
+
+/**
+ * Current-turn image blocks for the model. The chat UI stores them on the
+ * user message; `prompt()` only forwards them when they are passed as
+ * `PromptOptions.images`. Image-only sends have no text block, so without
+ * this the model reports that no image arrived.
+ */
+export function userTurnImagesForPiPrompt(content: ContentBlock[] | undefined): PiPromptImage[] {
+  if (!content?.length) return [];
+  const images: PiPromptImage[] = [];
+  for (const block of content) {
+    if (block.type !== 'image') continue;
+    const data = block.source?.data?.trim();
+    const mimeType = block.source?.media_type;
+    if (!data || !mimeType) continue;
+    images.push({ type: 'image', data, mimeType });
+  }
+  return images;
+}
+
 // Bundled node/npx paths never change at runtime — resolve once.
 let cachedBundledNodePaths: { node: string; npx: string } | null | undefined = undefined;
 
@@ -2060,10 +2086,10 @@ ${hints.join('\n')}
 
       logCtx('[CoworkAgentRunner] Total messages:', existingMessages.length);
 
-      const hasImages =
-        lastUserMessage?.content.some((c) => (c as { type?: string }).type === 'image') || false;
+      const turnImages = userTurnImagesForPiPrompt(lastUserMessage?.content);
+      const hasImages = turnImages.length > 0;
       if (hasImages) {
-        log('[CoworkAgentRunner] User message contains images');
+        log('[CoworkAgentRunner] User message contains images:', turnImages.length);
       }
 
       logTiming('before pi-ai model resolution', runStartTime);
@@ -2715,9 +2741,16 @@ ${hints.join('\n')}
         const textOnlyMessages = conversationMessages.filter(
           (msg) => !msg.content.some((c) => (c as { type?: string }).type === 'image')
         );
+        // Drop the current turn from the preamble only when that turn itself
+        // is the last text-only user message. An image-only (or image+text)
+        // turn is excluded above, so slicing the previous user message would
+        // delete the last captioned request.
+        const currentTurnId = lastUserMessage?.id;
+        const lastTextOnly = textOnlyMessages[textOnlyMessages.length - 1];
         const historyMessages =
           textOnlyMessages.length > 0 &&
-          textOnlyMessages[textOnlyMessages.length - 1]?.role === 'user'
+          lastTextOnly?.role === 'user' &&
+          lastTextOnly.id === currentTurnId
             ? textOnlyMessages.slice(0, -1)
             : textOnlyMessages;
 
@@ -2989,6 +3022,12 @@ This folder is for local files only. LaunchPad implement/preview and other remot
 
       // Per-turn dynamism stays out of the cached system prefix.
       contextualPrompt = `${turnRuntimeContext}\n\n${contextualPrompt}`;
+
+      const promptOptions = turnImages.length > 0 ? { images: turnImages } : undefined;
+      if (turnImages.length > 0 && !prompt.trim()) {
+        const imageLabel = turnImages.length === 1 ? 'an image' : `${turnImages.length} images`;
+        contextualPrompt = `${contextualPrompt}\n\nThe user attached ${imageLabel} and no caption. Look at the attached image(s) and respond to what they show.`;
+      }
 
       const divisionKind =
         session.division === 'hub' ||
@@ -4164,7 +4203,7 @@ ${
           );
         }
         try {
-          const promptResult = await piSession.prompt(contextualPrompt);
+          const promptResult = await piSession.prompt(contextualPrompt, promptOptions);
           log(
             '[CoworkAgentRunner] prompt() returned:',
             JSON.stringify(promptResult ?? 'void').substring(0, 1000)
@@ -4304,7 +4343,7 @@ ${
                 this.activeControllers.set(session.id, controller);
 
                 resetActivityTimeout();
-                const retryResult = await piSession.prompt(contextualPrompt);
+                const retryResult = await piSession.prompt(contextualPrompt, promptOptions);
                 log(
                   '[CoworkAgentRunner] York eco fallback prompt() returned:',
                   JSON.stringify(retryResult ?? 'void').substring(0, 1000)
