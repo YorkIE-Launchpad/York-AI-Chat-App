@@ -77,6 +77,7 @@ import type { ChatExportPayload } from './session-transfer';
 import { isUnusableSessionCwd, resolveWritableSessionCwd } from './resolve-session-cwd';
 import type { ChatSearchHit } from '../../shared/chat-search';
 import { filterChatSearchHitsByDivision, type ChatSearchScope } from '../../shared/chat-search';
+import { prepareImageFollowUp } from '../images/image-follow-up';
 import { runGptImageGeneration } from '../images/image-generation-service';
 import type { ActiveDivision } from '../../shared/workspace-division';
 import { resolveExternalReference } from '../references/reference-service';
@@ -1162,10 +1163,16 @@ export class SessionManager {
       };
       this.saveMessage(userMessage);
 
-      const result = await runGptImageGeneration({
-        modelId: modelId.trim(),
+      const followUp = prepareImageFollowUp({
         prompt: normalizedPrompt,
         content: messageContent,
+        priorMessages: existingMessages,
+      });
+
+      const result = await runGptImageGeneration({
+        modelId: modelId.trim(),
+        prompt: followUp.prompt,
+        content: followUp.content,
         sessionId: session.id,
         signal: controller.signal,
       });
