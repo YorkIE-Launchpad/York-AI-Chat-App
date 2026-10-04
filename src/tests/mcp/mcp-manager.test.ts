@@ -25,7 +25,8 @@ import {
   isReconnectableErrorText,
   isTransientMcpRemoteStderr,
 } from '../../main/mcp/mcp-manager';
-import type { MCPServerConfig } from '../../main/mcp/mcp-manager';
+import type { MCPServerConfig, MCPTool } from '../../main/mcp/mcp-manager';
+import { mcpServerCatalogFingerprint, mcpToolCatalogCache } from '../../main/mcp/mcp-tool-cache';
 
 type TestMCPClient = {
   listTools?: () => Promise<{
@@ -218,6 +219,88 @@ describe('MCPManager', () => {
     it('returns empty array when no servers configured', () => {
       const statuses = manager.getServerStatus();
       expect(statuses).toEqual([]);
+    });
+
+    it('restores a cached tool catalog immediately when the live connect fails', async () => {
+      const config: MCPServerConfig = {
+        id: 'cached-mcp',
+        name: 'Cached',
+        type: 'sse',
+        url: 'http://127.0.0.1:1/cached',
+        enabled: true,
+      };
+      const cachedTool: MCPTool = {
+        name: 'mcp__Cached__ping',
+        originalName: 'ping',
+        description: 'cached ping',
+        inputSchema: { type: 'object', properties: {} },
+        toolDefinition: {
+          name: 'ping',
+          description: 'cached ping',
+          inputSchema: { type: 'object', properties: {} },
+        },
+        serverId: config.id,
+        serverName: config.name,
+      };
+      mcpToolCatalogCache.save(config.id, mcpServerCatalogFingerprint(config), [cachedTool]);
+
+      try {
+        await manager.initializeServers([config]);
+
+        expect(manager.getTools()).toEqual([cachedTool]);
+        expect(manager.getServerStatus()[0]).toMatchObject({
+          id: config.id,
+          status: 'connected',
+          connected: true,
+          toolCount: 1,
+        });
+        expect(manager.getToolsReadyState()).toEqual({
+          ready: true,
+          connectingCount: 0,
+          bootstrapComplete: true,
+        });
+      } finally {
+        await manager.disconnectServer(config.id);
+        mcpToolCatalogCache.clear(config.id);
+      }
+    });
+
+    it('ignores a cached catalog when the server config changed', async () => {
+      const cachedConfig: MCPServerConfig = {
+        id: 'stale-cache',
+        name: 'Stale',
+        type: 'sse',
+        url: 'http://127.0.0.1:1/old',
+        enabled: true,
+      };
+      const nextConfig: MCPServerConfig = {
+        ...cachedConfig,
+        url: 'http://127.0.0.1:1/new',
+      };
+      mcpToolCatalogCache.save(cachedConfig.id, mcpServerCatalogFingerprint(cachedConfig), [
+        {
+          name: 'mcp__Stale__ping',
+          originalName: 'ping',
+          description: 'stale',
+          inputSchema: { type: 'object', properties: {} },
+          toolDefinition: {
+            name: 'ping',
+            inputSchema: { type: 'object', properties: {} },
+          },
+          serverId: cachedConfig.id,
+          serverName: cachedConfig.name,
+        },
+      ]);
+
+      try {
+        await manager.initializeServers([nextConfig]);
+        expect(manager.getTools()).toEqual([]);
+        expect(manager.getServerStatus()[0].status).toBe('connecting');
+        expect(mcpToolCatalogCache.load(nextConfig.id)).toBeNull();
+      } finally {
+        await manager.disconnectServer(nextConfig.id);
+        mcpToolCatalogCache.clear(nextConfig.id);
+      }
     });
   });
 

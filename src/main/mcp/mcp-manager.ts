@@ -30,6 +30,7 @@ import {
   OpenCoworkMcpOAuthProvider,
 } from './mcp-oauth';
 import { mcpOAuthStore } from './mcp-oauth-store';
+import { mcpServerCatalogFingerprint, mcpToolCatalogCache } from './mcp-tool-cache';
 import {
   filterAtlassianToolsByProduct,
   isShareableAtlassianRemoteMcpServer,
@@ -130,9 +131,7 @@ function isLaunchpadMcpServerConfig(
   }
   const args = server.args ?? [];
   const hasMcpRemote = args.some((arg) => arg.includes('mcp-remote'));
-  const hasLaunchpadUrl = args.some((arg) =>
-    /(?:^|\/\/)launchpad\.yorkdevs\.link/i.test(arg)
-  );
+  const hasLaunchpadUrl = args.some((arg) => /(?:^|\/\/)launchpad\.yorkdevs\.link/i.test(arg));
   return hasMcpRemote && hasLaunchpadUrl;
 }
 
@@ -410,6 +409,13 @@ export class MCPManager {
   private pendingInteractiveOAuth = new Set<string>();
   // Tracks per-server connection status for UI display
   private connectionStatus = new Map<string, 'connecting' | 'connected' | 'failed'>();
+  /**
+   * Servers whose tool list was restored from disk (or saved after a live listTools).
+   * These stay "connected" for the UI while the real transport connects in the background.
+   */
+  private serversReadyFromCache = new Set<string>();
+  /** In-flight connect promises so tool calls can wait instead of failing immediately. */
+  private connectInFlight = new Map<string, Promise<void>>();
   // False until the first initializeServers pass finishes (and any queued replay)
   private bootstrapComplete = false;
   // Chrome debug browser is started lazily on first Chrome tool call (not on MCP connect)
@@ -723,6 +729,9 @@ export class MCPManager {
 
       // Close existing connections
       await this.disconnectAll();
+      this.tools.clear();
+      this.serversReadyFromCache.clear();
+      this.connectionStatus.clear();
 
       // Store configurations
       this.serverConfigs.clear();
@@ -730,12 +739,21 @@ export class MCPManager {
         this.serverConfigs.set(config.id, config);
       }
 
-      // Connect to enabled servers in parallel
+      // Connect to enabled servers in parallel.
+      // A warm tool-catalog cache marks those servers ready before the handshake,
+      // so the UI does not sit on "connecting" for remote MCP startup.
       const enabledConfigs = configs.filter((c) => c.enabled);
+      const cachedIds = this.restoreCachedCatalog(enabledConfigs);
+      if (enabledConfigs.every((config) => cachedIds.has(config.id))) {
+        this.bootstrapComplete = true;
+      }
       await Promise.allSettled(
         enabledConfigs.map(async (config) => {
           try {
-            await this.connectServer(config, { interactiveOAuth: false });
+            await this.trackConnect(config, {
+              interactiveOAuth: false,
+              quietStatus: cachedIds.has(config.id),
+            });
           } catch (error) {
             logMcpConnectFailure(`Failed to connect to server ${config.name}`, error);
             // Do not spam OAuth browser / retries when the user has not signed in yet
@@ -828,6 +846,7 @@ export class MCPManager {
   async removeServer(serverId: string): Promise<void> {
     log(`[MCPManager] Removing server: ${serverId}`);
     this.lastConfigFingerprint = null;
+    this.discardCachedCatalog(serverId);
     await this.disconnectServer(serverId);
     this.serverConfigs.delete(serverId);
     this.oauthProviders.delete(serverId);
@@ -978,7 +997,9 @@ export class MCPManager {
 
     const controller = new AbortController();
     this.connectRetryControllers.set(serverId, controller);
-    this.connectionStatus.set(serverId, 'connecting');
+    if (!this.serversReadyFromCache.has(serverId)) {
+      this.connectionStatus.set(serverId, 'connecting');
+    }
 
     log(
       `[MCPManager] Starting connect retry loop for ${config.name} (every ${CONNECT_RETRY_INTERVAL_MS}ms for ${CONNECT_RETRY_MAX_MS}ms, then every ${CONNECT_RETRY_SLOW_INTERVAL_MS}ms)`
@@ -995,6 +1016,9 @@ export class MCPManager {
       while (!controller.signal.aborted) {
         const inAggressiveWindow = Date.now() < aggressiveDeadline;
         if (!inAggressiveWindow && !this.clients.has(serverId)) {
+          if (this.serversReadyFromCache.has(serverId)) {
+            this.discardCachedCatalog(serverId);
+          }
           this.connectionStatus.set(serverId, 'failed');
           if (!loggedSlowRetry) {
             loggedSlowRetry = true;
@@ -1032,7 +1056,7 @@ export class MCPManager {
         }
 
         const quietStatus = Date.now() >= aggressiveDeadline;
-        if (!quietStatus) {
+        if (!quietStatus && !this.serversReadyFromCache.has(serverId)) {
           this.connectionStatus.set(serverId, 'connecting');
         }
         const reconnected = await this.reconnectServer(serverId, {
@@ -1046,7 +1070,14 @@ export class MCPManager {
           return;
         }
 
-        this.connectionStatus.set(serverId, quietStatus ? 'failed' : 'connecting');
+        if (this.serversReadyFromCache.has(serverId)) {
+          if (quietStatus) {
+            this.connectionStatus.set(serverId, 'failed');
+            this.discardCachedCatalog(serverId);
+          }
+        } else {
+          this.connectionStatus.set(serverId, quietStatus ? 'failed' : 'connecting');
+        }
       }
     } finally {
       const ownsController = this.connectRetryControllers.get(serverId) === controller;
@@ -1061,11 +1092,69 @@ export class MCPManager {
         ownsController &&
         currentConfig?.enabled &&
         !this.clients.has(serverId) &&
+        !this.serversReadyFromCache.has(serverId) &&
         this.connectionStatus.get(serverId) !== 'failed'
       ) {
         this.connectionStatus.set(serverId, 'failed');
       }
     }
+  }
+
+  /**
+   * Put the last saved tool list back in memory so enabled servers look ready
+   * before their transport finishes connecting.
+   */
+  private restoreCachedCatalog(configs: MCPServerConfig[]): Set<string> {
+    const restored = new Set<string>();
+    for (const config of configs) {
+      if (!config.enabled) continue;
+      const fingerprint = mcpServerCatalogFingerprint(config);
+      const cached = mcpToolCatalogCache.load(config.id);
+      if (!cached || cached.fingerprint !== fingerprint || cached.tools.length === 0) {
+        if (cached && cached.fingerprint !== fingerprint) {
+          mcpToolCatalogCache.clear(config.id);
+        }
+        continue;
+      }
+
+      for (const tool of cached.tools) {
+        this.tools.set(tool.name, {
+          ...tool,
+          serverId: config.id,
+          serverName: config.name,
+        });
+      }
+      this.connectionStatus.set(config.id, 'connected');
+      this.serversReadyFromCache.add(config.id);
+      restored.add(config.id);
+      log(`[MCPManager] Restored ${cached.tools.length} cached tools for ${config.name}`);
+    }
+    return restored;
+  }
+
+  /** Drop a server's cached catalog from memory and disk. */
+  private discardCachedCatalog(serverId: string): void {
+    this.serversReadyFromCache.delete(serverId);
+    mcpToolCatalogCache.clear(serverId);
+    for (const [toolName, tool] of this.tools.entries()) {
+      if (tool.serverId === serverId) {
+        this.tools.delete(toolName);
+      }
+    }
+  }
+
+  /** Connect while recording the promise so tool calls can await the handshake. */
+  private trackConnect(
+    config: MCPServerConfig,
+    options?: { interactiveOAuth?: boolean; quietStatus?: boolean }
+  ): Promise<void> {
+    const task = this.connectServer(config, options).finally(() => {
+      if (this.connectInFlight.get(config.id) === task) {
+        this.connectInFlight.delete(config.id);
+      }
+    });
+    this.connectInFlight.set(config.id, task);
+    return task;
   }
 
   /**
@@ -1102,6 +1191,7 @@ export class MCPManager {
       this.cancelConnectRetry(config.id);
     } catch (error) {
       if (isMcpOAuthNonRetryableError(error)) {
+        this.discardCachedCatalog(config.id);
         this.connectionStatus.set(config.id, 'failed');
       } else if (!this.connectRetryControllers.has(config.id)) {
         this.startConnectRetryLoop(config);
@@ -2367,11 +2457,22 @@ export class MCPManager {
 
     const newTools = new Map<string, MCPTool>();
     const failedServerIds: string[] = [];
+    const refreshedServerIds = new Set<string>();
 
     for (const result of toolResults) {
       if (result.kind === 'success') {
         for (const tool of result.tools) {
           newTools.set(tool.name, tool);
+        }
+        refreshedServerIds.add(result.serverId);
+        const config = this.serverConfigs.get(result.serverId);
+        if (config) {
+          mcpToolCatalogCache.save(
+            result.serverId,
+            mcpServerCatalogFingerprint(config),
+            result.tools
+          );
+          this.serversReadyFromCache.add(result.serverId);
         }
         this.connectionStatus.set(result.serverId, 'connected');
         continue;
@@ -2411,11 +2512,30 @@ export class MCPManager {
       failedServerIds.push(result.serverId);
     }
 
+    // Keep catalogs for servers that are still connecting, or whose live listTools failed,
+    // so a warm cache is not wiped by a partial refresh.
+    for (const [toolName, tool] of this.tools.entries()) {
+      if (this.serversReadyFromCache.has(tool.serverId) && !refreshedServerIds.has(tool.serverId)) {
+        newTools.set(toolName, tool);
+      }
+    }
+
     this.tools = newTools; // atomic swap
 
     for (const serverId of failedServerIds) {
-      await this.disconnectServer(serverId);
       const config = this.serverConfigs.get(serverId);
+      if (config?.enabled && this.serversReadyFromCache.has(serverId)) {
+        const kept = [...this.tools.values()].filter((tool) => tool.serverId === serverId);
+        await this.disconnectServer(serverId, { preserveStatus: true });
+        for (const tool of kept) {
+          this.tools.set(tool.name, tool);
+        }
+        this.connectionStatus.set(serverId, 'connected');
+        this.startConnectRetryLoop(config);
+        continue;
+      }
+
+      await this.disconnectServer(serverId);
       if (config?.enabled) {
         this.startConnectRetryLoop(config);
       } else {
@@ -2447,6 +2567,16 @@ export class MCPManager {
     const tool = this.tools.get(toolName);
     if (!tool) {
       throw new Error(`MCP tool not found: ${toolName}`);
+    }
+
+    const inflightConnect = this.connectInFlight.get(tool.serverId);
+    if (inflightConnect && !this.clients.has(tool.serverId)) {
+      log(`[MCPManager] Waiting for in-flight connect before calling ${toolName}`);
+      try {
+        await inflightConnect;
+      } catch {
+        // Connect already logged the failure; the retry loop below reconnects.
+      }
     }
 
     // Prefer the original MCP tool name when present so sanitized model-facing
@@ -2842,10 +2972,12 @@ export class MCPManager {
     }> = [];
 
     for (const [serverId, config] of this.serverConfigs.entries()) {
-      let connected = this.clients.has(serverId);
+      const liveConnected = this.clients.has(serverId);
+      let connected = liveConnected;
       const toolCount = Array.from(this.tools.values()).filter(
         (tool) => tool.serverId === serverId
       ).length;
+      const catalogReady = this.serversReadyFromCache.has(serverId) && toolCount > 0;
 
       // Derive status: use connectionStatus map if available, otherwise infer from enabled/connected
       let serverStatus: 'connecting' | 'connected' | 'failed' | 'disabled';
@@ -2862,9 +2994,8 @@ export class MCPManager {
         serverStatus = 'connecting';
       }
 
-      // Connected with 0 tools is not a valid healthy state — report as failure.
-      // Skip while still connecting (tools not discovered yet).
-      if (config.enabled && connected && toolCount === 0 && serverStatus === 'connected') {
+      // A live client with 0 tools is not healthy. A disk catalog with tools is.
+      if (config.enabled && liveConnected && toolCount === 0 && serverStatus === 'connected') {
         logError(
           `[MCPManager] Server ${config.name} reports connected with 0 tools — treating as failure`
         );
@@ -2875,7 +3006,7 @@ export class MCPManager {
       status.push({
         id: serverId,
         name: config.name,
-        connected: serverStatus === 'connected' && connected && toolCount > 0,
+        connected: serverStatus === 'connected' && toolCount > 0 && (connected || catalogReady),
         status: serverStatus,
         toolCount,
       });
