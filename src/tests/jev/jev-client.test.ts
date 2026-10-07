@@ -4,9 +4,7 @@ import { lexicalRankSkills, lexicalSkillScore } from '../../main/jev/skill-selec
 
 describe('getTypesafeProxyBaseUrl', () => {
   it('points at /typesafe without /v1 suffix', () => {
-    expect(getTypesafeProxyBaseUrl('http://127.0.0.1:3001')).toBe(
-      'http://127.0.0.1:3001/typesafe'
-    );
+    expect(getTypesafeProxyBaseUrl('http://127.0.0.1:3001')).toBe('http://127.0.0.1:3001/typesafe');
     expect(getTypesafeProxyBaseUrl('http://127.0.0.1:3001/')).toBe(
       'http://127.0.0.1:3001/typesafe'
     );
@@ -53,10 +51,10 @@ describe('isJevEnabled via Cognito auth', () => {
     }));
     vi.doMock('../../main/auth/session', () => ({
       isAuthenticated: () => false,
+      noteAuthenticationRejected: vi.fn(),
     }));
-    const { isJevEnabled, runJevDecision, noul, resetJevClient } = await import(
-      '../../main/jev/jev-client'
-    );
+    const { isJevEnabled, runJevDecision, noul, resetJevClient } =
+      await import('../../main/jev/jev-client');
     resetJevClient();
     expect(isJevEnabled()).toBe(false);
     const result = await runJevDecision('hello', { q: noul('greeting?') });
@@ -71,6 +69,7 @@ describe('isJevEnabled via Cognito auth', () => {
     }));
     vi.doMock('../../main/auth/session', () => ({
       isAuthenticated: () => true,
+      noteAuthenticationRejected: vi.fn(),
     }));
     const { isJevEnabled, resetJevClient } = await import('../../main/jev/jev-client');
     resetJevClient();

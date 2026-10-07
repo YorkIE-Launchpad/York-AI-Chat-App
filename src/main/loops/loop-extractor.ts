@@ -350,6 +350,76 @@ export function matterItemToLoop(item: MatterItem, autoCaptured: boolean): LoopU
   };
 }
 
+const MATTER_LOOP_CLEANUP_PROMPT = [
+  'Rewrite Matter signals into personal loop titles for ONE user.',
+  'title: a concrete commitment they can tick off, at most 90 characters.',
+  'Remove RE:/FW:, channel names, email subjects, and stack-trace noise. Keep the actual ask.',
+  'notes: one sentence of useful context, or null.',
+  'Return one item per input, with the same index. Do not drop items.',
+  'Return ONLY JSON: {"items":[{"index":0,"title":"...","notes":null}]}.',
+].join(' ');
+
+export interface MatterLoopDraft {
+  title: string;
+  notes: string | null;
+}
+
+/**
+ * AI cleanup used while turning Matter signals into loops. A failed call keeps
+ * the original signal wording so capture still proceeds.
+ */
+export async function cleanupMatterLoopDrafts(
+  items: MatterItem[],
+  llm: MemoryLLMClientLike = new MemoryLLMClient(),
+  options: { capturePrompt?: string | null } = {}
+): Promise<MatterLoopDraft[]> {
+  const fallback = items.map((item) => {
+    const suggestion = item.suggestedAction?.trim();
+    const notes =
+      (suggestion && !GENERIC_SUGGESTION.test(suggestion) ? suggestion : null) ||
+      item.summary?.trim() ||
+      null;
+    return { title: item.title, notes };
+  });
+  if (items.length === 0) return [];
+  try {
+    const response = await llm.complete({
+      systemPrompt: withLoopCaptureOverride(MATTER_LOOP_CLEANUP_PROMPT, options.capturePrompt),
+      userPrompt: JSON.stringify({
+        items: items.map((item, index) => ({
+          index,
+          title: item.title,
+          summary: item.summary || null,
+          suggestedAction: item.suggestedAction || null,
+        })),
+      }),
+      temperature: 0,
+    });
+    const parsed = extractJsonObject(response.text);
+    const rows = parsed && Array.isArray(parsed.items) ? parsed.items : null;
+    if (!rows) {
+      logWarn('[Loops] Matter loop cleanup returned no JSON');
+      return fallback;
+    }
+    const out = [...fallback];
+    for (const raw of rows) {
+      if (!raw || typeof raw !== 'object') continue;
+      const row = raw as Record<string, unknown>;
+      const index = typeof row.index === 'number' ? row.index : -1;
+      if (index < 0 || index >= out.length) continue;
+      const title = typeof row.title === 'string' ? row.title.trim() : '';
+      if (!title) continue;
+      const notes =
+        typeof row.notes === 'string' && row.notes.trim() ? row.notes.trim() : out[index].notes;
+      out[index] = { title: title.slice(0, 90), notes };
+    }
+    return out;
+  } catch (error) {
+    logWarn('[Loops] Matter loop cleanup failed', error);
+    return fallback;
+  }
+}
+
 /**
  * Jev gate for Matter candidates that already passed `selectMatterLoopCandidates`.
  * Without Jev, the strict LLM screen decides. If neither can judge, capture nothing —

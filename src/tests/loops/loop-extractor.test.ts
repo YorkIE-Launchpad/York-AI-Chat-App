@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  cleanupMatterLoopDrafts,
   extractMeetingLoops,
   judgeMatterCandidates,
   matterDeadline,
@@ -218,6 +219,42 @@ describe('omitDuplicateLoopCandidates', () => {
       ]
     );
     expect(kept).toEqual([]);
+  });
+});
+
+describe('cleanupMatterLoopDrafts', () => {
+  const item = {
+    title: 'RE: Warranty – MacBook Pro/Air and Accessories',
+    summary: 'Apple wants a reply about the warranty claim.',
+    suggestedAction: 'Reply to Apple support with the serial number',
+  } as MatterItem;
+
+  it('rewrites a Matter signal into a loop title', async () => {
+    const complete = vi.fn().mockResolvedValue({
+      text: JSON.stringify({
+        items: [
+          {
+            index: 0,
+            title: 'Send the MacBook serial number to Apple support',
+            notes: 'Warranty claim is waiting on the serial.',
+          },
+        ],
+      }),
+    });
+    const drafts = await cleanupMatterLoopDrafts([item], { complete, embed: vi.fn() });
+    expect(drafts).toEqual([
+      {
+        title: 'Send the MacBook serial number to Apple support',
+        notes: 'Warranty claim is waiting on the serial.',
+      },
+    ]);
+  });
+
+  it('keeps the original wording when the AI call fails', async () => {
+    const complete = vi.fn().mockRejectedValue(new Error('offline'));
+    const drafts = await cleanupMatterLoopDrafts([item], { complete, embed: vi.fn() });
+    expect(drafts[0]?.title).toBe(item.title);
+    expect(drafts[0]?.notes).toContain('Reply to Apple support');
   });
 });
 

@@ -253,4 +253,33 @@ describe('ensureAuthenticatedSession', () => {
     expect(authStore.clear).toHaveBeenCalled();
     expect(sessionMod.getCurrentSession()).toBeNull();
   });
+
+  it('logs out when the token is expired and refresh fails transiently', async () => {
+    const sessionMod = await loadSession();
+    sessionMod.__resetAuthSessionForTests();
+    const idToken = makeJwt(-120);
+    sessionMod.__setAuthSessionForTests({
+      user: {
+        id: 1,
+        email: 'user@york.ie',
+        name: 'User',
+        role: 'manager',
+        image: null,
+      },
+      idToken,
+      accessToken: idToken,
+      refreshToken: 'rt-1',
+    });
+
+    expect(sessionMod.getAuthStatus()).toEqual({ user: null, tokens: null });
+
+    hubRefreshTokens.mockResolvedValue({ ok: false, reason: 'transient' });
+
+    await expect(sessionMod.ensureAuthenticatedSession()).rejects.toMatchObject({
+      name: 'AuthRequiredError',
+    });
+    expect(authStore.clear).toHaveBeenCalled();
+    expect(sessionMod.getCurrentSession()).toBeNull();
+    expect(sessionMod.getAuthStatus()).toEqual({ user: null, tokens: null });
+  });
 });

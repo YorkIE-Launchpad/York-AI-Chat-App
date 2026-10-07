@@ -17,7 +17,7 @@ import {
 import { getTypesafeProxyBaseUrl } from '../../shared/backend-config';
 import { YORK_APP_VERSION_HEADER } from '../../shared/client-version';
 import { JEV_MODEL } from '../../shared/jev';
-import { isAuthenticated } from '../auth/session';
+import { isAuthenticated, noteAuthenticationRejected } from '../auth/session';
 import { getClientAppVersion, resolveBackendClientApiKey } from '../config/backend-auth';
 import { configStore } from '../config/config-store';
 import { log, logWarn } from '../utils/logger';
@@ -125,8 +125,26 @@ export async function runJevDecision<const Q extends Questions>(
     return result;
   } catch (error) {
     logWarn(`[Jev] ${label} failed:`, error);
+    if (isCognitoAuthRejection(error)) {
+      resetJevClient();
+      void noteAuthenticationRejected();
+    }
     return null;
   }
+}
+
+function isCognitoAuthRejection(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  const meta =
+    error && typeof error === 'object' && 'meta' in error
+      ? JSON.stringify((error as { meta?: unknown }).meta ?? '')
+      : '';
+  const text = `${message} ${meta}`.toLowerCase();
+  return (
+    text.includes('token expired') ||
+    text.includes('jwt verification failed') ||
+    text.includes('authentication failed')
+  );
 }
 
 /** Convenience: Noul probability or null. */
@@ -152,11 +170,7 @@ export async function runJevChoice<T extends ChoiceCriteria>(
   options: RunJevDecisionOptions & { questionId?: string } = {}
 ): Promise<(keyof T & string) | null> {
   const id = options.questionId ?? 'q';
-  const result = await runJevDecision(
-    state,
-    { [id]: choice(instructions, criteria) },
-    options
-  );
+  const result = await runJevDecision(state, { [id]: choice(instructions, criteria) }, options);
   const answer = result?.answers[id];
   if (answer && answer.type === 'choice') {
     return answer.choice as keyof T & string;
@@ -172,11 +186,7 @@ export async function runJevScore(
   options: RunJevDecisionOptions & { questionId?: string } = {}
 ): Promise<{ score: number; confidence: number } | null> {
   const id = options.questionId ?? 'q';
-  const result = await runJevDecision(
-    state,
-    { [id]: score(instructions, criteria) },
-    options
-  );
+  const result = await runJevDecision(state, { [id]: score(instructions, criteria) }, options);
   const answer = result?.answers[id];
   if (answer && answer.type === 'score') {
     return { score: answer.score, confidence: answer.confidence };

@@ -115,10 +115,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const unsubscribe = authApi.onChanged((status) => {
       const nextUser = applyStatusToState(status);
       setUser(nextUser);
+      if (!nextUser) return;
       void authApi.me().then((me) => {
         if (me.success && me.user) {
           const synced = sanitizeUserForStorage(me.user);
           if (synced) setUser(synced);
+        } else {
+          clearAuthLocalStorage();
+          setUser(null);
         }
       });
     });

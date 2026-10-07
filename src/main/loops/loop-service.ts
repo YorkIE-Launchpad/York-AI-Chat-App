@@ -27,6 +27,7 @@ import {
   extractMeetingLoops,
   judgeMatterCandidates,
   judgeMeetingActions,
+  cleanupMatterLoopDrafts,
   matterItemToLoop,
   omitDuplicateLoopCandidates,
   prescreenAction,
@@ -134,10 +135,18 @@ export class LoopService {
   }
 
   /** Explicit promotion from a Matter signal — reopens a previously closed loop. */
-  promoteFromMatter(matterItemId: string): LoopsSnapshot {
+  async promoteFromMatter(matterItemId: string): Promise<LoopsSnapshot> {
     const item = this.getMatterItem(matterItemId);
     if (!item) throw new Error('Matter item not found');
-    const { loop } = this.store.upsertByFingerprint(matterItemToLoop(item, false));
+    const input = matterItemToLoop(item, false);
+    const [cleaned] = await cleanupMatterLoopDrafts([item], undefined, {
+      capturePrompt: this.getRuntime().capturePrompt,
+    });
+    if (cleaned?.title.trim()) {
+      input.title = cleaned.title;
+      if (cleaned.notes) input.notes = cleaned.notes;
+    }
+    const { loop } = this.store.upsertByFingerprint(input);
     if (loop.status !== 'open') this.store.update(loop.id, { status: 'open' });
     const snapshot = this.startResearch(loop.id);
     return snapshot ?? this.changed();
@@ -229,6 +238,17 @@ export class LoopService {
         ),
         this.store.list()
       );
+      const cleaned = await cleanupMatterLoopDrafts(
+        candidates.map((candidate) => candidate.item),
+        undefined,
+        { capturePrompt: runtime.capturePrompt }
+      );
+      candidates.forEach((candidate, index) => {
+        const draft = cleaned[index];
+        if (!draft?.title.trim()) return;
+        candidate.title = draft.title;
+        if (draft.notes) candidate.notes = draft.notes;
+      });
       let created = 0;
       for (const candidate of candidates) {
         if (this.store.upsertByFingerprint(candidate).created) created += 1;

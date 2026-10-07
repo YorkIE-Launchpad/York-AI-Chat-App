@@ -198,15 +198,10 @@ export async function restoreSessionFromStore(): Promise<AuthSessionPayload | nu
     };
     if (isTokenExpired(stored.idToken)) {
       const refreshed = await tryRefreshSession();
-      if (!refreshed.ok) {
-        if (isDefinitiveRefreshFailure(refreshed.reason)) {
-          session = null;
-          clearPersistedSession();
-          return null;
-        }
-        // Transient Hub/network failure: keep persisted tokens for a later retry.
-        logWarn('[Auth] Session restore refresh failed transiently:', refreshed.reason);
-        return session;
+      if (!refreshed.ok || !session || isTokenExpired(session.idToken)) {
+        // An expired token that we cannot replace is not a signed-in session.
+        dropExpiredSession();
+        return null;
       }
     } else {
       const synced = await syncMeFromToken();
@@ -233,7 +228,9 @@ export async function syncMeFromToken(): Promise<AuthSessionPayload | null> {
 }
 
 export function getAuthStatus(): AuthStatusResponse {
-  if (!session) {
+  // Expired credentials must not look signed-in. Refresh restores the user
+  // only after a new token is stored.
+  if (!session || isTokenExpired(session.idToken)) {
     return { user: null, tokens: null };
   }
   return {
@@ -312,6 +309,44 @@ function wipeSession(win?: BrowserWindow | null): void {
   emitAuthChanged(target);
 }
 
+/** Log out when the stored Cognito token is already unusable. */
+function dropExpiredSession(win?: BrowserWindow | null): void {
+  if (!session || !isTokenExpired(session.idToken)) return;
+  logWarn('[Auth] Cognito token expired and refresh did not restore a session; logging out');
+  wipeSession(win);
+}
+
+/**
+ * Backend rejected the Cognito credential (expired JWT). Try one refresh;
+ * if that does not yield a usable token, log the user out so the UI matches.
+ */
+let authRejectionInFlight: Promise<void> | null = null;
+
+export function noteAuthenticationRejected(): Promise<void> {
+  if (authRejectionInFlight) return authRejectionInFlight;
+  const run = (async () => {
+    if (!session) return;
+    const result = session.refreshToken
+      ? await tryRefreshSession()
+      : ({ ok: false, reason: 'no_session' } as const);
+    if (result.ok && session && !isTokenExpired(session.idToken)) {
+      emitAuthChanged(getAuthWindow?.() ?? null);
+      return;
+    }
+    if (session && isTokenExpired(session.idToken)) {
+      dropExpiredSession();
+      return;
+    }
+    if (!result.ok && isDefinitiveRefreshFailure(result.reason)) {
+      wipeSession();
+    }
+  })();
+  authRejectionInFlight = run;
+  return run.finally(() => {
+    if (authRejectionInFlight === run) authRejectionInFlight = null;
+  });
+}
+
 export async function ensureAuthenticatedSession(): Promise<AuthSessionPayload> {
   if (session && !isTokenExpired(session.idToken)) {
     if (isTokenExpiringSoon(session.idToken)) {
@@ -341,11 +376,12 @@ export async function ensureAuthenticatedSession(): Promise<AuthSessionPayload> 
       wipeSession();
       throw new AuthRequiredError();
     }
-    // Transient: keep persisted session for retry, but cannot satisfy this call.
+    // Still-valid token: a transient refresh miss can retry. An already-expired
+    // token cannot — leave the user logged out instead of a dead session.
     if (session && !isTokenExpired(session.idToken)) {
       return session;
     }
-    logWarn('[Auth] ensureAuthenticatedSession: refresh unavailable, keeping session for retry');
+    dropExpiredSession();
     throw new AuthRequiredError();
   }
   wipeSession();
@@ -399,16 +435,19 @@ export async function logout(win: BrowserWindow | null): Promise<void> {
 
 export async function refreshAuth(win: BrowserWindow | null): Promise<AuthStatusResponse> {
   const result = await tryRefreshSession();
-  if (result.ok) {
+  if (result.ok && session && !isTokenExpired(session.idToken)) {
     emitAuthChanged(win);
     return getAuthStatus();
   }
-  if (isDefinitiveRefreshFailure(result.reason)) {
+  if (session && isTokenExpired(session.idToken)) {
+    dropExpiredSession(win);
+    throw new AuthRequiredError();
+  }
+  if (!result.ok && isDefinitiveRefreshFailure(result.reason)) {
     wipeSession(win);
     throw new AuthRequiredError();
   }
   logWarn('[Auth] refreshAuth failed transiently:', result.reason);
-  // Keep session; return current status if tokens are still usable.
   if (session && !isTokenExpired(session.idToken)) {
     return getAuthStatus();
   }
@@ -433,12 +472,16 @@ export function startAuthRefreshTimer(getWindow: () => BrowserWindow | null): vo
         isTokenExpiringSoon(session.idToken, PROACTIVE_REFRESH_BUFFER_SEC)
       ) {
         const result = await tryRefreshSession();
-        if (result.ok) {
+        if (result.ok && session && !isTokenExpired(session.idToken)) {
           emitAuthChanged(getWindow());
           return;
         }
-        // Only wipe when the token is already unusable; keep a still-valid token.
-        if (isDefinitiveRefreshFailure(result.reason) && isTokenExpired(session.idToken)) {
+        // Expired and not replaced: log out. A still-valid token may retry.
+        if (session && isTokenExpired(session.idToken)) {
+          dropExpiredSession(getWindow());
+          return;
+        }
+        if (!result.ok && isDefinitiveRefreshFailure(result.reason)) {
           wipeSession(getWindow());
           return;
         }
@@ -452,6 +495,7 @@ export function startAuthRefreshTimer(getWindow: () => BrowserWindow | null): vo
 export function __resetAuthSessionForTests(): void {
   session = null;
   refreshInFlight = null;
+  authRejectionInFlight = null;
   getAuthWindow = null;
 }
 
