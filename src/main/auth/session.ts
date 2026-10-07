@@ -443,13 +443,15 @@ export async function refreshAuth(win: BrowserWindow | null): Promise<AuthStatus
     dropExpiredSession(win);
     throw new AuthRequiredError();
   }
-  if (!result.ok && isDefinitiveRefreshFailure(result.reason)) {
-    wipeSession(win);
-    throw new AuthRequiredError();
-  }
-  logWarn('[Auth] refreshAuth failed transiently:', result.reason);
-  if (session && !isTokenExpired(session.idToken)) {
-    return getAuthStatus();
+  if (!result.ok) {
+    if (isDefinitiveRefreshFailure(result.reason)) {
+      wipeSession(win);
+      throw new AuthRequiredError();
+    }
+    logWarn('[Auth] refreshAuth failed transiently:', result.reason);
+    if (session && !isTokenExpired(session.idToken)) {
+      return getAuthStatus();
+    }
   }
   throw new AuthRequiredError();
 }
@@ -481,11 +483,13 @@ export function startAuthRefreshTimer(getWindow: () => BrowserWindow | null): vo
           dropExpiredSession(getWindow());
           return;
         }
-        if (!result.ok && isDefinitiveRefreshFailure(result.reason)) {
-          wipeSession(getWindow());
-          return;
+        if (!result.ok) {
+          if (isDefinitiveRefreshFailure(result.reason)) {
+            wipeSession(getWindow());
+            return;
+          }
+          logWarn('[Auth] Proactive refresh failed transiently, will retry:', result.reason);
         }
-        logWarn('[Auth] Proactive refresh failed transiently, will retry:', result.reason);
       }
     })();
   }, 60_000);
