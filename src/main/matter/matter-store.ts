@@ -4,6 +4,7 @@ import type {
   MatterActionRow,
   MatterItemRow,
   MatterMeetingRow,
+  MatterOpportunityRow,
   MatterScanRow,
 } from '../db/database';
 import type {
@@ -12,8 +13,10 @@ import type {
   MatterItemStatus,
   MatterMeeting,
   MatterMuteRule,
+  MatterOpportunity,
   MatterScan,
   MatterSourceRef,
+  OpportunityStatus,
 } from '../../shared/matter';
 import { MATTER_DEFAULT_SNOOZE_MS } from '../../shared/matter';
 import { isMeetingPrepNote, preserveMeetingPrepRawDetails } from './matter-calendar-enrichment';
@@ -132,6 +135,55 @@ export function mapMatterMeetingRow(row: MatterMeetingRow): MatterMeeting {
   };
 }
 
+function mapSourceRef(raw: string | null | undefined): MatterSourceRef {
+  const ref = parseJsonObject(raw);
+  return {
+    connectorId: typeof ref.connectorId === 'string' ? ref.connectorId : null,
+    toolName: typeof ref.toolName === 'string' ? ref.toolName : null,
+    externalId: typeof ref.externalId === 'string' ? ref.externalId : null,
+    url: typeof ref.url === 'string' ? ref.url : null,
+    label: typeof ref.label === 'string' ? ref.label : null,
+  };
+}
+
+export function mapMatterOpportunityRow(row: MatterOpportunityRow): MatterOpportunity {
+  return {
+    id: row.id,
+    fingerprint: row.fingerprint,
+    kind: row.kind as MatterOpportunity['kind'],
+    target: row.target as MatterOpportunity['target'],
+    title: row.title,
+    summary: row.summary,
+    evidence: row.evidence,
+    source: row.source as MatterOpportunity['source'],
+    sourceRef: mapSourceRef(row.source_ref),
+    clientName: row.client_name,
+    suggestedPitch: row.suggested_pitch,
+    confidence: row.confidence,
+    status: row.status as OpportunityStatus,
+    snoozeUntil: row.snooze_until,
+    reportedAt: row.reported_at,
+    reportedTo: row.reported_to,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export type OpportunityDraft = Pick<
+  MatterOpportunity,
+  | 'fingerprint'
+  | 'kind'
+  | 'target'
+  | 'title'
+  | 'summary'
+  | 'evidence'
+  | 'source'
+  | 'sourceRef'
+  | 'clientName'
+  | 'suggestedPitch'
+  | 'confidence'
+>;
+
 export interface MatterStore {
   listVisibleItems: (now?: number) => MatterItem[];
   listActiveItems: () => MatterItem[];
@@ -212,6 +264,24 @@ export interface MatterStore {
   ) => MatterScan | null;
   getLatestScan: () => MatterScan | null;
   countClearedToday: (now?: number) => number;
+  /**
+   * Insert new opportunities and refresh still-open ones. Reported / dismissed fingerprints
+   * are left untouched so they never resurface. Returns only newly created rows.
+   */
+  upsertOpportunities: (drafts: OpportunityDraft[]) => MatterOpportunity[];
+  /** Open opportunities (new, or snoozed past their deadline), newest first. */
+  listOpenOpportunities: (now?: number) => MatterOpportunity[];
+  listOpportunities: (limit?: number) => MatterOpportunity[];
+  getOpportunity: (id: string) => MatterOpportunity | null;
+  updateOpportunityStatus: (
+    id: string,
+    updates: {
+      status: OpportunityStatus;
+      snoozeUntil?: number | null;
+      reportedAt?: number | null;
+      reportedTo?: string | null;
+    }
+  ) => MatterOpportunity | null;
 }
 
 function loadMuteRules(db: DatabaseInstance): MatterMuteRule[] {
@@ -645,6 +715,78 @@ export function createMatterStore(db: DatabaseInstance): MatterStore {
             row.resolved_at !== null &&
             row.resolved_at >= startMs
         ).length;
+    },
+
+    upsertOpportunities: (drafts) => {
+      const now = Date.now();
+      const created: MatterOpportunity[] = [];
+      for (const draft of drafts) {
+        const existing = db.matterOpportunities.getByFingerprint(draft.fingerprint);
+        if (existing) {
+          if (existing.status !== 'new' && existing.status !== 'snoozed') continue;
+          db.matterOpportunities.update(existing.id, {
+            title: draft.title,
+            summary: draft.summary,
+            evidence: draft.evidence,
+            client_name: draft.clientName,
+            suggested_pitch: draft.suggestedPitch,
+            confidence: draft.confidence,
+            source_ref: JSON.stringify(draft.sourceRef || {}),
+          });
+          continue;
+        }
+        const row: MatterOpportunityRow = {
+          id: uuidv4(),
+          fingerprint: draft.fingerprint,
+          kind: draft.kind,
+          target: draft.target,
+          title: draft.title,
+          summary: draft.summary,
+          evidence: draft.evidence,
+          source: draft.source,
+          source_ref: JSON.stringify(draft.sourceRef || {}),
+          client_name: draft.clientName,
+          suggested_pitch: draft.suggestedPitch,
+          confidence: draft.confidence,
+          status: 'new',
+          snooze_until: null,
+          reported_at: null,
+          reported_to: null,
+          created_at: now,
+          updated_at: now,
+        };
+        db.matterOpportunities.create(row);
+        created.push(mapMatterOpportunityRow(row));
+      }
+      return created;
+    },
+
+    listOpenOpportunities: (now = Date.now()) =>
+      db.matterOpportunities
+        .listAll(200)
+        .map(mapMatterOpportunityRow)
+        .filter(
+          (o) =>
+            o.status === 'new' ||
+            (o.status === 'snoozed' && (o.snoozeUntil == null || o.snoozeUntil <= now))
+        ),
+
+    listOpportunities: (limit = 200) =>
+      db.matterOpportunities.listAll(limit).map(mapMatterOpportunityRow),
+
+    getOpportunity: (id) => {
+      const row = db.matterOpportunities.get(id);
+      return row ? mapMatterOpportunityRow(row) : null;
+    },
+
+    updateOpportunityStatus: (id, updates) => {
+      const mapped: Partial<MatterOpportunityRow> = { status: updates.status };
+      if (updates.snoozeUntil !== undefined) mapped.snooze_until = updates.snoozeUntil;
+      if (updates.reportedAt !== undefined) mapped.reported_at = updates.reportedAt;
+      if (updates.reportedTo !== undefined) mapped.reported_to = updates.reportedTo;
+      db.matterOpportunities.update(id, mapped);
+      const row = db.matterOpportunities.get(id);
+      return row ? mapMatterOpportunityRow(row) : null;
     },
   };
 }

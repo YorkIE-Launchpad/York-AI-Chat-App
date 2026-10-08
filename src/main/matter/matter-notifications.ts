@@ -18,21 +18,23 @@ export function notifyMatterBrief(options: {
 }
 
 export function notifyMatterItem(options: {
-  kind: 'reminder' | 'expired' | 'snooze_wake' | 'scan_critical' | 'scan_warning';
+  kind: 'reminder' | 'expired' | 'snooze_wake' | 'scan_critical' | 'scan_warning' | 'opportunity';
   title: string;
   body: string;
   itemId?: string;
 }): void {
   const prefix =
-    options.kind === 'reminder'
-      ? 'Matter — reminder'
-      : options.kind === 'expired'
-        ? 'Matter — expired'
-        : options.kind === 'snooze_wake'
-          ? 'Matter — back on radar'
-          : options.kind === 'scan_critical'
-            ? 'Matter — urgent'
-            : 'Matter — warning';
+    options.kind === 'opportunity'
+      ? 'Matter — opportunity'
+      : options.kind === 'reminder'
+        ? 'Matter — reminder'
+        : options.kind === 'expired'
+          ? 'Matter — expired'
+          : options.kind === 'snooze_wake'
+            ? 'Matter — back on radar'
+            : options.kind === 'scan_critical'
+              ? 'Matter — urgent'
+              : 'Matter — warning';
   showOsNotification({
     tag: 'Matter',
     title: options.title ? `${prefix}: ${options.title}` : prefix,

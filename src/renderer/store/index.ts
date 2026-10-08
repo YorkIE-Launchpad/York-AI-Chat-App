@@ -385,6 +385,7 @@ const defaultSettings: Settings = {
     { tool: 'matter_read', action: 'allow' },
     { tool: 'matter_meetings', action: 'allow' },
     { tool: 'matter_meeting', action: 'allow' },
+    { tool: 'matter_opportunities', action: 'allow' },
     { tool: 'loop_list', action: 'allow' },
     { tool: 'loop_read', action: 'allow' },
     { tool: 'loop_research', action: 'allow' },

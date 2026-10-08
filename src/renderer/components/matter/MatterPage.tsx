@@ -8,6 +8,7 @@ import {
   type MatterItem,
   type MatterLensId,
   type MatterMeeting,
+  type MatterOpportunity,
   type MatterSeverity,
   type MatterSnapshot,
 } from '../../../shared/matter';
@@ -22,8 +23,10 @@ import { MatterAskBar } from './MatterAskBar';
 import { MatterItemDetail } from './MatterItemDetail';
 import { MatterMeetingCard } from './MatterMeetingCard';
 import { MatterMeetingDetail } from './MatterMeetingDetail';
+import { MatterOpportunityList } from './MatterOpportunityList';
+import { MatterOpportunityDetail } from './MatterOpportunityDetail';
 type MatterSeverityFilter = Extract<MatterSeverity, 'critical' | 'warning' | 'healthy'>;
-type MatterLeftTab = 'signals' | 'calendar';
+type MatterLeftTab = 'signals' | 'calendar' | 'opportunities';
 
 function briefLabelKey(
   hour: number
@@ -83,6 +86,7 @@ const EMPTY_SNAPSHOT: MatterSnapshot = {
   morningBrief: null,
   settings: DEFAULT_MATTER_RUNTIME,
   profileSummary: null,
+  opportunities: [],
 };
 
 interface MatterPageProps {
@@ -107,6 +111,7 @@ export function MatterPage({ onClose }: MatterPageProps) {
   const [leftTab, setLeftTab] = useState<MatterLeftTab>('signals');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedMeetingId, setSelectedMeetingId] = useState<string | null>(null);
+  const [selectedOpportunityId, setSelectedOpportunityId] = useState<string | null>(null);
   const [openPrepFullscreen, setOpenPrepFullscreen] = useState(false);
   const clearOpenPrepFullscreen = useCallback(() => setOpenPrepFullscreen(false), []);
   const [activeLens, setActiveLens] = useState<MatterLensId | null>(null);
@@ -240,6 +245,11 @@ export function MatterPage({ onClose }: MatterPageProps) {
     [snapshot.meetings, selectedMeetingId]
   );
 
+  const selectedOpportunity = useMemo(
+    () => snapshot.opportunities.find((o) => o.id === selectedOpportunityId) ?? null,
+    [snapshot.opportunities, selectedOpportunityId]
+  );
+
   const relatedLensId = useMemo(
     () => relatedMatterLensId(selectedItem, snapshot.lenses),
     [selectedItem, snapshot.lenses]
@@ -258,6 +268,54 @@ export function MatterPage({ onClose }: MatterPageProps) {
       setSelectedMeetingId(null);
     }
   }, [selectedMeetingId, selectedMeeting]);
+
+  useEffect(() => {
+    if (selectedOpportunityId && !selectedOpportunity) {
+      setSelectedOpportunityId(null);
+    }
+  }, [selectedOpportunityId, selectedOpportunity]);
+
+  useEffect(() => {
+    if (leftTab !== 'opportunities') setSelectedOpportunityId(null);
+  }, [leftTab]);
+
+  const runOpportunityAction = async (opp: MatterOpportunity, action: 'dismiss' | 'snooze') => {
+    if (!window.electronAPI?.matter) return;
+    const next = await window.electronAPI.matter.opportunityAction({
+      opportunityId: opp.id,
+      action,
+      snoozeUntil: action === 'snooze' ? Date.now() + MATTER_DEFAULT_SNOOZE_MS : undefined,
+    });
+    applySnapshot(next);
+    setSelectedOpportunityId(null);
+  };
+
+  const openOpportunitySource = async (opp: MatterOpportunity) => {
+    const url = opp.sourceRef.url?.trim();
+    if (!url || !window.electronAPI?.openExternal) return;
+    await window.electronAPI.openExternal(url);
+  };
+
+  const openOpportunityChat = async (opp: MatterOpportunity) => {
+    if (!window.electronAPI?.matter) return;
+    setBusy(true);
+    try {
+      const built = await window.electronAPI.matter.buildOpportunityChatPrompt(
+        t('matter.opportunities.chatPrefill'),
+        opp.id
+      );
+      await startSession(
+        buildMatterSessionTitle(opp.title),
+        built.prompt,
+        workingDir || undefined,
+        {
+          division: 'hub',
+        }
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const runAction = async (
     item: MatterItem,
@@ -520,9 +578,35 @@ export function MatterPage({ onClose }: MatterPageProps) {
               {t('matter.calendarTab')}
               <span className="ml-1 text-[10px] opacity-70">{snapshot.meetings.length}</span>
             </button>
+            <button
+              type="button"
+              onClick={() => setLeftTab('opportunities')}
+              title={t('matter.opportunities.title')}
+              className={`flex-1 rounded-md px-2 py-1.5 text-[11px] font-semibold uppercase tracking-wide transition-colors ${
+                leftTab === 'opportunities'
+                  ? 'bg-surface text-text-primary'
+                  : 'text-text-muted hover:text-text-secondary'
+              }`}
+            >
+              {t('matter.opportunitiesTab')}
+              <span className="ml-1 text-[10px] opacity-70">{snapshot.opportunities.length}</span>
+            </button>
           </div>
 
-          {leftTab === 'calendar' ? (
+          {leftTab === 'opportunities' ? (
+            <div className="flex-1 min-h-0 overflow-y-auto pr-1">
+              <MatterOpportunityList
+                opportunities={snapshot.opportunities}
+                enabled={snapshot.settings.opportunities.enabled}
+                selectedId={selectedOpportunityId}
+                onSelect={(id) => {
+                  setSelectedOpportunityId(id);
+                  setSelectedId(null);
+                  setSelectedMeetingId(null);
+                }}
+              />
+            </div>
+          ) : leftTab === 'calendar' ? (
             <>
               <div className="flex items-center justify-between px-1 mb-2">
                 <p className="text-[10px] text-text-muted">
@@ -608,12 +692,16 @@ export function MatterPage({ onClose }: MatterPageProps) {
         <section className="min-h-0 flex flex-col items-center px-4 py-4 relative overflow-y-auto">
           <div
             className={`w-full flex flex-col items-center ${
-              selectedItem || selectedMeeting ? 'shrink-0' : 'flex-1 justify-center'
+              selectedItem || selectedMeeting || selectedOpportunity
+                ? 'shrink-0'
+                : 'flex-1 justify-center'
             }`}
           >
             <div
               className={
-                selectedItem || selectedMeeting ? 'w-full max-w-[280px]' : 'w-full max-w-[420px]'
+                selectedItem || selectedMeeting || selectedOpportunity
+                  ? 'w-full max-w-[280px]'
+                  : 'w-full max-w-[420px]'
               }
             >
               <MatterRadar
@@ -624,6 +712,7 @@ export function MatterPage({ onClose }: MatterPageProps) {
                 onSelect={(id) => {
                   setSelectedId(id);
                   setSelectedMeetingId(null);
+                  setSelectedOpportunityId(null);
                   setLeftTab('signals');
                 }}
               />
@@ -657,7 +746,22 @@ export function MatterPage({ onClose }: MatterPageProps) {
             </div>
           </div>
 
-          {selectedMeeting ? (
+          {selectedOpportunity ? (
+            <div className="mt-4 w-full flex justify-center pb-2">
+              <MatterOpportunityDetail
+                opportunity={selectedOpportunity}
+                onClose={() => setSelectedOpportunityId(null)}
+                onDismiss={() => void runOpportunityAction(selectedOpportunity, 'dismiss')}
+                onSnooze={() => void runOpportunityAction(selectedOpportunity, 'snooze')}
+                onOpen={() => void openOpportunitySource(selectedOpportunity)}
+                onChat={() => void openOpportunityChat(selectedOpportunity)}
+                onReported={(next) => {
+                  applySnapshot(next);
+                  setSelectedOpportunityId(null);
+                }}
+              />
+            </div>
+          ) : selectedMeeting ? (
             <div className="mt-4 w-full flex justify-center pb-2">
               <MatterMeetingDetail
                 meeting={selectedMeeting}

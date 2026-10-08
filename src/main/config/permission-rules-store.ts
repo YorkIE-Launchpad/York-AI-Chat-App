@@ -31,6 +31,7 @@ const DEFAULT_RULES: PermissionRule[] = [
   { tool: 'matter_read', action: 'allow' },
   { tool: 'matter_meetings', action: 'allow' },
   { tool: 'matter_meeting', action: 'allow' },
+  { tool: 'matter_opportunities', action: 'allow' },
   { tool: 'loop_list', action: 'allow' },
   { tool: 'loop_read', action: 'allow' },
   { tool: 'loop_research', action: 'allow' },
@@ -62,6 +63,7 @@ const MATTER_READ_TOOLS = new Set([
   'matter_read',
   'matter_meetings',
   'matter_meeting',
+  'matter_opportunities',
 ]);
 
 const LOOP_READ_TOOLS = new Set(['loop_list', 'loop_read', 'loop_research']);

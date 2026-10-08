@@ -120,6 +120,17 @@ export function MatterSignalCard({
               >
                 <Check className="w-4 h-4" />
               </button>
+              {onAddToLoops && !tracked ? (
+                <button
+                  type="button"
+                  aria-label={t('loops.addToLoops')}
+                  title={t('loops.addToLoopsHint')}
+                  onClick={onAddToLoops}
+                  className="h-7 w-7 rounded-lg flex items-center justify-center text-accent hover:bg-accent/10 transition-colors"
+                >
+                  <CircleDashed className="w-4 h-4" />
+                </button>
+              ) : null}
               <button
                 type="button"
                 aria-label={t('matter.action.dismiss')}
@@ -172,14 +183,6 @@ export function MatterSignalCard({
                       hint={t('matter.action.chatHint')}
                       onClick={() => run(onHandleChat)}
                     />
-                    {onAddToLoops && !tracked ? (
-                      <MenuItem
-                        icon={<CircleDashed className="w-3.5 h-3.5" />}
-                        label={t('loops.addToLoops')}
-                        hint={t('loops.addToLoopsHint')}
-                        onClick={() => run(onAddToLoops)}
-                      />
-                    ) : null}
                     {item.sourceRef.url ? (
                       <MenuItem
                         icon={<ExternalLink className="w-3.5 h-3.5" />}

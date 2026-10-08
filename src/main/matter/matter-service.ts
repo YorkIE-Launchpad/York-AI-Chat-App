@@ -11,13 +11,28 @@ import {
   MATTER_LENS_CATEGORIES,
   MATTER_LENS_IDS,
   MATTER_MIN_SNOOZE_MS,
+  meetsMatterConfidence,
+  opportunityDestination,
   shouldKeepMatterScanSignal,
   type MatterItem,
   type MatterItemActionInput,
   type MatterLens,
+  type MatterOpportunity,
   type MatterRuntimeConfig,
   type MatterSnapshot,
+  type OpportunityActionInput,
+  type OpportunityReportInput,
+  type OpportunityReportPreview,
 } from '../../shared/matter';
+import type { WelcomeProfile } from '../../shared/welcome-actions';
+import { DEFAULT_SLACK_MCP_SERVER_ID } from '../../shared/mcp-defaults';
+import {
+  buildOpportunityReport,
+  collectOpportunityContext,
+  detectOpportunities,
+} from './matter-opportunities';
+import type { RawMatterSignal } from './matter-collector';
+import { findToolName } from './matter-collector';
 import { normalizeMatterRuntimeConfig } from './matter-config';
 import { log, logError, logWarn } from '../utils/logger';
 import { createMatterStore, type MatterStore } from './matter-store';
@@ -46,6 +61,7 @@ import {
 } from '../../shared/matter-time';
 
 const STARTUP_CONNECTOR_WAIT_MS = 120_000;
+const MAX_OPPORTUNITY_NOTIFICATIONS_PER_SCAN = 2;
 const STARTUP_CONNECTOR_POLL_MS = 750;
 
 function delay(ms: number): Promise<void> {
@@ -105,6 +121,8 @@ export class MatterService {
   private lastBrief: string | null = null;
   private lastLenses: MatterSnapshot['lenses'] = [];
   private lastProfileSummary: string | null = null;
+  private lastProfileName: string | null = null;
+  private detectingOpportunities = false;
   private morningBriefSentDay: string | null = null;
   private eodSentDay: string | null = null;
   private getMainWindow: (() => BrowserWindow | null) | null = null;
@@ -255,6 +273,14 @@ export class MatterService {
         ...current.sourcePrompts,
         ...(partial.sourcePrompts || {}),
       },
+      opportunities: {
+        ...current.opportunities,
+        ...(partial.opportunities || {}),
+        routing: {
+          ...current.opportunities.routing,
+          ...(partial.opportunities?.routing || {}),
+        },
+      },
     };
     configStore.update({ matterRuntime: next, matterEnabled: next.enabled });
     this.scheduler.reschedule();
@@ -269,7 +295,10 @@ export class MatterService {
   getSnapshot(): MatterSnapshot {
     const runtime = this.getRuntime();
     const now = Date.now();
-    const items = this.store.listVisibleItems(now).slice(0, runtime.maxActiveItems);
+    const items = this.store
+      .listVisibleItems(now)
+      .filter((item) => meetsMatterConfidence(item, runtime.minConfidence))
+      .slice(0, runtime.maxActiveItems);
     // Keep pinned in now orbit
     const normalized = items.map((item) =>
       item.pinned && item.orbit !== 'now' ? { ...item, orbit: 'now' as const } : item
@@ -306,7 +335,15 @@ export class MatterService {
       morningBrief: this.lastBrief,
       settings: runtime,
       profileSummary: this.lastProfileSummary,
+      opportunities: this.listVisibleOpportunities(runtime, now),
     };
+  }
+
+  private listVisibleOpportunities(runtime: MatterRuntimeConfig, now: number): MatterOpportunity[] {
+    if (!runtime.opportunities.enabled) return [];
+    return this.store
+      .listOpenOpportunities(now)
+      .filter((o) => o.confidence >= runtime.opportunities.minConfidence);
   }
 
   /** Push current Matter state to the macOS WidgetKit extension. */
@@ -400,6 +437,7 @@ export class MatterService {
       const config = configStore.getAll();
       const profile = await resolveWelcomeProfile({ mcpManager: this.mcpManager });
       this.lastProfileSummary = profile ? formatWelcomeProfileSummary(profile) : null;
+      this.lastProfileName = profile?.name || null;
 
       const collected = await collectMatterSignals({
         mcpManager: this.mcpManager,
@@ -516,14 +554,16 @@ export class MatterService {
       if (options?.notify && this.scheduler.isInScanWindow()) {
         const { items: notifyItems, overflow } = selectMatterScanNotifyItems(
           previousForNotify,
-          upserted.map((i) => ({
-            fingerprint: i.fingerprint,
-            severity: i.severity,
-            status: i.status,
-            title: i.title,
-            summary: i.summary,
-            whyItMatters: i.whyItMatters,
-          }))
+          upserted
+            .filter((i) => meetsMatterConfidence(i, runtime.minConfidence))
+            .map((i) => ({
+              fingerprint: i.fingerprint,
+              severity: i.severity,
+              status: i.status,
+              title: i.title,
+              summary: i.summary,
+              whyItMatters: i.whyItMatters,
+            }))
         );
         for (const item of notifyItems) {
           notifyMatterItem({
@@ -547,6 +587,8 @@ export class MatterService {
       } catch (hookError) {
         logError('[Matter] post-scan handler failed:', hookError);
       }
+
+      void this.runOpportunityPass({ config, profile, scanSignals: collected.signals });
 
       log(
         `[Matter] Scan complete (${options?.reason || 'manual'}): ${snapshot.items.length} items, score=${snapshot.focusScore}`
@@ -799,6 +841,126 @@ export class MatterService {
     return this.getSnapshot();
   }
 
+  /** Opportunity detection after a scan. Runs detached so it never slows or fails the scan. */
+  private async runOpportunityPass(input: {
+    config: ReturnType<typeof configStore.getAll>;
+    profile: WelcomeProfile | null;
+    scanSignals: RawMatterSignal[];
+  }): Promise<void> {
+    const runtime = this.getRuntime();
+    if (!runtime.opportunities.enabled || this.detectingOpportunities || this.stopped) return;
+    this.detectingOpportunities = true;
+    try {
+      const context = await collectOpportunityContext({
+        mcpManager: this.mcpManager,
+        meetingService: this.meetingService,
+        profile: input.profile,
+        scanSignals: input.scanSignals,
+      });
+      const drafts = await detectOpportunities({
+        config: input.config,
+        profile: input.profile,
+        context,
+      });
+      const created = this.store.upsertOpportunities(drafts);
+      const settings = this.getRuntime().opportunities;
+      if (settings.notify && this.scheduler.isInScanWindow()) {
+        const notable = created.filter((o) => o.confidence >= settings.minConfidence);
+        for (const opp of notable.slice(0, MAX_OPPORTUNITY_NOTIFICATIONS_PER_SCAN)) {
+          notifyMatterItem({
+            kind: 'opportunity',
+            title: opp.title,
+            body: opp.summary || opp.evidence,
+          });
+        }
+        const overflow = notable.length - MAX_OPPORTUNITY_NOTIFICATIONS_PER_SCAN;
+        if (overflow > 0) {
+          notifyMatterBrief({
+            title: 'Matter — opportunities',
+            body: `+${overflow} more opportunities found. Open Matter → Opportunities.`,
+          });
+        }
+      }
+    } catch (error) {
+      logError('[Matter] Opportunity pass failed:', error);
+    } finally {
+      this.detectingOpportunities = false;
+      this.pushSnapshot();
+    }
+  }
+
+  previewOpportunityReport(opportunityId: string): OpportunityReportPreview {
+    const opp = this.store.getOpportunity(opportunityId);
+    if (!opp) throw new Error('Opportunity not found');
+    const runtime = this.getRuntime();
+    return {
+      opportunityId,
+      channel: opportunityDestination(runtime.opportunities.routing, opp.target),
+      text: buildOpportunityReport(opp, this.lastProfileName),
+    };
+  }
+
+  /** Posts the user-confirmed report to Slack. Only ever called from an explicit UI action. */
+  async reportOpportunity(input: OpportunityReportInput): Promise<MatterSnapshot> {
+    const opp = this.store.getOpportunity(input.opportunityId);
+    if (!opp) throw new Error('Opportunity not found');
+    const channel = input.channel?.trim();
+    const text = input.text?.trim();
+    if (!channel) throw new Error('Choose a Slack channel or person to report to');
+    if (!text) throw new Error('Report message is empty');
+    if (!this.mcpManager) throw new Error('Connectors are not ready yet');
+    const tool = findToolName(this.mcpManager, DEFAULT_SLACK_MCP_SERVER_ID, ['post_message']);
+    if (!tool) throw new Error('Slack is not connected');
+    await this.mcpManager.callTool(tool, { channel, text });
+    this.store.updateOpportunityStatus(opp.id, {
+      status: 'reported',
+      reportedAt: Date.now(),
+      reportedTo: channel,
+    });
+    log(`[Matter] Opportunity ${opp.fingerprint} reported to ${channel}`);
+    this.pushSnapshot();
+    return this.getSnapshot();
+  }
+
+  applyOpportunityAction(input: OpportunityActionInput): MatterSnapshot {
+    const opp = this.store.getOpportunity(input.opportunityId);
+    if (!opp) return this.getSnapshot();
+    if (input.action === 'dismiss') {
+      this.store.updateOpportunityStatus(opp.id, { status: 'dismissed' });
+    } else if (input.action === 'snooze') {
+      const now = Date.now();
+      const requested =
+        typeof input.snoozeUntil === 'number' && Number.isFinite(input.snoozeUntil)
+          ? input.snoozeUntil
+          : now + MATTER_DEFAULT_SNOOZE_MS;
+      this.store.updateOpportunityStatus(opp.id, {
+        status: 'snoozed',
+        snoozeUntil: Math.max(requested, now + MATTER_MIN_SNOOZE_MS),
+      });
+    }
+    this.pushSnapshot();
+    return this.getSnapshot();
+  }
+
+  buildOpportunityChatPrompt(prompt: string, opportunityId: string): string {
+    const opp = this.store.getOpportunity(opportunityId);
+    if (!opp) return prompt.trim();
+    return [
+      prompt.trim(),
+      '',
+      '---',
+      'Matter opportunity context (use york-os / connected tools as needed; wait for my guidance — do not take action unless I ask; do not invent sources):',
+      `Kind: ${opp.kind} · Target: ${opp.target}${opp.clientName ? ` · Client: ${opp.clientName}` : ''}`,
+      `Title: ${opp.title}`,
+      `Summary: ${opp.summary}`,
+      `Evidence: ${opp.evidence}`,
+      opp.suggestedPitch ? `Suggested opener: ${opp.suggestedPitch}` : '',
+      `Ref: ${JSON.stringify(opp.sourceRef)}`,
+    ]
+      .filter(Boolean)
+      .join('\n');
+  }
+
   buildChatPrompt(prompt: string, itemIds?: string[]): string {
     const snapshot = this.getSnapshot();
     const selected =
@@ -881,12 +1043,14 @@ export class MatterService {
         }
         if (item.snoozeUntil <= now) {
           this.store.updateItem(item.id, { status: 'active', snoozeUntil: null });
-          notifyMatterItem({
-            kind: 'snooze_wake',
-            title: item.title,
-            body: item.summary || item.whyItMatters || 'Back on your radar.',
-            itemId: item.id,
-          });
+          if (meetsMatterConfidence(item, runtime.minConfidence)) {
+            notifyMatterItem({
+              kind: 'snooze_wake',
+              title: item.title,
+              body: item.summary || item.whyItMatters || 'Back on your radar.',
+              itemId: item.id,
+            });
+          }
           changed = true;
         }
         continue;
@@ -894,9 +1058,11 @@ export class MatterService {
 
       if (item.status !== 'active' && item.status !== 'resurfaced') continue;
       if (item.snoozeUntil && item.snoozeUntil > now) continue;
+      const aboveThreshold = meetsMatterConfidence(item, runtime.minConfidence);
 
       // Reminder (before expiry check so a due-ish item can still remind once)
       if (
+        aboveThreshold &&
         shouldFireReminder(
           {
             remindAt: item.remindAt,
@@ -935,12 +1101,14 @@ export class MatterService {
           resolvedAt: now,
           expiredNotifiedAt: now,
         });
-        notifyMatterItem({
-          kind: 'expired',
-          title: item.title,
-          body: item.summary || 'This item passed its deadline.',
-          itemId: item.id,
-        });
+        if (aboveThreshold) {
+          notifyMatterItem({
+            kind: 'expired',
+            title: item.title,
+            body: item.summary || 'This item passed its deadline.',
+            itemId: item.id,
+          });
+        }
         changed = true;
         continue;
       }

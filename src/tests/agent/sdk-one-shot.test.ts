@@ -1,3 +1,4 @@
+import { DEFAULT_MATTER_OPPORTUNITIES } from '../../shared/matter';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const completeSimpleMock = vi.hoisted(() => vi.fn());
@@ -82,6 +83,7 @@ function makeConfig(): AppConfig {
       intervalMinutes: 60,
       meetingsIntervalMinutes: 15,
       sensitivity: 'balanced' as const,
+      minConfidence: 0,
       maxActiveItems: 25,
       morningBriefEnabled: true,
       endOfDayWrapEnabled: false,
@@ -104,6 +106,7 @@ function makeConfig(): AppConfig {
         meeting: '',
         launchpad: '',
       },
+      opportunities: DEFAULT_MATTER_OPPORTUNITIES,
     },
     enableThinking: false,
     profileDosPrompt: '',

@@ -67,7 +67,14 @@ import type {
 import type { AuthStatusResponse, AuthUser, AuthOAuthDebugInfo } from '../shared/auth-types';
 import type { AllocatedHubProject, PersonalFolder } from '../shared/workspace-division';
 import type { UnifiedCompanyProject } from '../shared/unified-company-projects';
-import type { MatterItemActionInput, MatterRuntimeConfig, MatterSnapshot } from '../shared/matter';
+import type {
+  MatterItemActionInput,
+  MatterRuntimeConfig,
+  MatterSnapshot,
+  OpportunityActionInput,
+  OpportunityReportInput,
+  OpportunityReportPreview,
+} from '../shared/matter';
 import type { MatterOpenDeepLink } from '../shared/matter-deeplink';
 import type {
   LoopCreateInput,
@@ -856,6 +863,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('matter.clearMute', key),
     buildChatPrompt: (prompt: string, itemIds?: string[]): Promise<{ prompt: string }> =>
       ipcRenderer.invoke('matter.buildChatPrompt', prompt, itemIds),
+    previewOpportunityReport: (opportunityId: string): Promise<OpportunityReportPreview> =>
+      ipcRenderer.invoke('matter.previewOpportunityReport', opportunityId),
+    reportOpportunity: (input: OpportunityReportInput): Promise<MatterSnapshot> =>
+      ipcRenderer.invoke('matter.reportOpportunity', input),
+    opportunityAction: (input: OpportunityActionInput): Promise<MatterSnapshot> =>
+      ipcRenderer.invoke('matter.opportunityAction', input),
+    buildOpportunityChatPrompt: (
+      prompt: string,
+      opportunityId: string
+    ): Promise<{ prompt: string }> =>
+      ipcRenderer.invoke('matter.buildOpportunityChatPrompt', prompt, opportunityId),
     onUpdated: (callback: (snapshot: MatterSnapshot) => void): (() => void) => {
       const listener = (_event: Electron.IpcRendererEvent, snapshot: MatterSnapshot) =>
         callback(snapshot);
@@ -1758,6 +1776,13 @@ declare global {
         updateSettings: (partial: Partial<MatterRuntimeConfig>) => Promise<MatterRuntimeConfig>;
         clearMute: (key: string) => Promise<MatterSnapshot>;
         buildChatPrompt: (prompt: string, itemIds?: string[]) => Promise<{ prompt: string }>;
+        previewOpportunityReport: (opportunityId: string) => Promise<OpportunityReportPreview>;
+        reportOpportunity: (input: OpportunityReportInput) => Promise<MatterSnapshot>;
+        opportunityAction: (input: OpportunityActionInput) => Promise<MatterSnapshot>;
+        buildOpportunityChatPrompt: (
+          prompt: string,
+          opportunityId: string
+        ) => Promise<{ prompt: string }>;
         onUpdated: (callback: (snapshot: MatterSnapshot) => void) => () => void;
         onOpenDeepLink: (callback: (link: MatterOpenDeepLink) => void) => () => void;
       };

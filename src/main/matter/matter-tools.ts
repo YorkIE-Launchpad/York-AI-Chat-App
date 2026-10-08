@@ -253,5 +253,49 @@ export function createMatterTools(matterService: MatterService): AgentRuntimeCus
     },
   };
 
-  return [listTool, readTool, meetingsTool, meetingTool, prepTool, scanTool, actTool];
+  const opportunitiesTool: AgentRuntimeCustomTool = {
+    name: 'matter_opportunities',
+    label: 'matter_opportunities',
+    description:
+      'List open Matter opportunities: internal platform issues (Hub, Launchpad, Pulse) to report to the owning team, and cross-sell / upsell openings for York IE services. Read-only.',
+    parameters: Type.Object({
+      limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 30 })),
+    }),
+    async execute(_toolCallId, params) {
+      const limit = (params as { limit?: number }).limit ?? 15;
+      const opportunities = matterService.getSnapshot().opportunities.slice(0, limit);
+      if (!opportunities.length) return textResult('No open Matter opportunities.');
+      return textResult(
+        opportunities
+          .map((o) =>
+            [
+              `- id: ${o.id}`,
+              `  kind: ${o.kind}`,
+              `  target: ${o.target}`,
+              `  title: ${o.title}`,
+              o.clientName ? `  client: ${o.clientName}` : '',
+              `  summary: ${clip(o.summary, 400)}`,
+              `  evidence: ${clip(o.evidence, 300)}`,
+              o.suggestedPitch ? `  suggestedPitch: ${clip(o.suggestedPitch, 300)}` : '',
+              `  confidence: ${o.confidence}`,
+              o.sourceRef.url ? `  url: ${o.sourceRef.url}` : '',
+            ]
+              .filter(Boolean)
+              .join('\n')
+          )
+          .join('\n\n')
+      );
+    },
+  };
+
+  return [
+    listTool,
+    readTool,
+    meetingsTool,
+    meetingTool,
+    prepTool,
+    scanTool,
+    actTool,
+    opportunitiesTool,
+  ];
 }

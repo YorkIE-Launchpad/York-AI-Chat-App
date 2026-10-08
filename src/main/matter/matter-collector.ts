@@ -654,7 +654,7 @@ function looksLikeActionNeeded(text: string): boolean {
   );
 }
 
-function toolResultText(result: unknown): string {
+export function toolResultText(result: unknown): string {
   if (result == null) return '';
   if (typeof result === 'string') return result;
   if (typeof result === 'object') {
@@ -669,7 +669,7 @@ function toolResultText(result: unknown): string {
   return truncate(result);
 }
 
-function parseJsonLoose(text: string): unknown | null {
+export function parseJsonLoose(text: string): unknown | null {
   const trimmed = text.trim();
   if (!trimmed) return null;
   try {
@@ -688,7 +688,7 @@ function parseJsonLoose(text: string): unknown | null {
   }
 }
 
-function envelopeBody(text: string): string {
+export function envelopeBody(text: string): string {
   const parsed = parseJsonLoose(text);
   if (parsed && typeof parsed === 'object' && parsed !== null && 'body' in parsed) {
     const body = (parsed as { body?: unknown }).body;
@@ -748,7 +748,7 @@ function signal(input: {
   };
 }
 
-function isServerConnected(mcpManager: MCPManager, serverId: string): boolean {
+export function isServerConnected(mcpManager: MCPManager, serverId: string): boolean {
   try {
     return mcpManager.getServerStatus().some((s) => s.id === serverId && s.connected);
   } catch {
@@ -756,7 +756,7 @@ function isServerConnected(mcpManager: MCPManager, serverId: string): boolean {
   }
 }
 
-function findToolName(
+export function findToolName(
   mcpManager: MCPManager,
   serverId: string,
   candidates: string[]
@@ -778,7 +778,7 @@ function findToolName(
   return null;
 }
 
-async function safeCallTool(
+export async function safeCallTool(
   mcpManager: MCPManager,
   toolName: string,
   args: Record<string, unknown>

@@ -1,3 +1,4 @@
+import { DEFAULT_MATTER_OPPORTUNITIES } from '../../shared/matter';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const runPiAiOneShotMock = vi.hoisted(() => vi.fn());
@@ -74,6 +75,7 @@ function makeConfig(timeoutMs: number): AppConfig {
       intervalMinutes: 60,
       meetingsIntervalMinutes: 15,
       sensitivity: 'balanced' as const,
+      minConfidence: 0,
       maxActiveItems: 25,
       morningBriefEnabled: true,
       endOfDayWrapEnabled: false,
@@ -96,6 +98,7 @@ function makeConfig(timeoutMs: number): AppConfig {
         meeting: '',
         launchpad: '',
       },
+      opportunities: DEFAULT_MATTER_OPPORTUNITIES,
     },
     enableThinking: false,
     profileDosPrompt: '',

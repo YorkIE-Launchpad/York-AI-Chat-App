@@ -188,7 +188,14 @@ import {
   installMatterDeepLinkListeners,
   registerMatterDeepLinkProtocol,
 } from './matter/matter-deeplink-handlers';
-import type { MatterItemActionInput, MatterRuntimeConfig, MatterSnapshot } from '../shared/matter';
+import type {
+  MatterItemActionInput,
+  MatterRuntimeConfig,
+  MatterSnapshot,
+  OpportunityActionInput,
+  OpportunityReportInput,
+  OpportunityReportPreview,
+} from '../shared/matter';
 import type {
   LoopCreateInput,
   LoopUpdateInput,
@@ -6034,6 +6041,47 @@ ipcMain.handle(
       throw new Error('Matter service not initialized');
     }
     return { prompt: matterService.buildChatPrompt(prompt, itemIds) };
+  }
+);
+
+ipcMain.handle(
+  'matter.previewOpportunityReport',
+  (_event, opportunityId: string): OpportunityReportPreview => {
+    if (!matterService) {
+      throw new Error('Matter service not initialized');
+    }
+    return matterService.previewOpportunityReport(opportunityId);
+  }
+);
+
+ipcMain.handle(
+  'matter.reportOpportunity',
+  async (_event, input: OpportunityReportInput): Promise<MatterSnapshot> => {
+    if (!matterService) {
+      throw new Error('Matter service not initialized');
+    }
+    matterService.setMcpManager(sessionManager?.getMCPManager() ?? null);
+    return matterService.reportOpportunity(input);
+  }
+);
+
+ipcMain.handle(
+  'matter.opportunityAction',
+  (_event, input: OpportunityActionInput): MatterSnapshot => {
+    if (!matterService) {
+      throw new Error('Matter service not initialized');
+    }
+    return matterService.applyOpportunityAction(input);
+  }
+);
+
+ipcMain.handle(
+  'matter.buildOpportunityChatPrompt',
+  (_event, prompt: string, opportunityId: string): { prompt: string } => {
+    if (!matterService) {
+      throw new Error('Matter service not initialized');
+    }
+    return { prompt: matterService.buildOpportunityChatPrompt(prompt, opportunityId) };
   }
 );
 

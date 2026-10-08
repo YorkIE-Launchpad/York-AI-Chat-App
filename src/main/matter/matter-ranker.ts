@@ -222,7 +222,7 @@ export function repairMatterRankerJson(text: string): string {
   return out;
 }
 
-function extractJsonObject(text: string): unknown {
+export function extractJsonObject(text: string): unknown {
   const trimmed = text.trim();
   const candidates = [trimmed, repairMatterRankerJson(trimmed)];
   // Also try substring object extraction on repaired text
@@ -514,7 +514,7 @@ Rules:
 - Do not merge unrelated messages.
 - Do not invent count rollups or new fingerprints.`;
 
-function matterOneShotConfig(config: AppConfig): AppConfig {
+export function matterOneShotConfig(config: AppConfig): AppConfig {
   const creds = applyBackendManagedCredentials({
     provider: 'openai',
     apiKey: '',

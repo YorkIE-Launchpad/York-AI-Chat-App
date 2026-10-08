@@ -75,6 +75,7 @@ function snapshot(partial: Partial<MatterSnapshot> = {}): MatterSnapshot {
     morningBrief: null,
     settings: {} as MatterSnapshot['settings'],
     profileSummary: null,
+    opportunities: [],
     ...partial,
   };
 }
@@ -103,6 +104,7 @@ describe('matter tools', () => {
       'matter_prep',
       'matter_scan',
       'matter_act',
+      'matter_opportunities',
     ]);
 
     const listed = await run(tools[0], { orbit: 'now' });

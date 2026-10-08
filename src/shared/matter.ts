@@ -210,6 +210,204 @@ export const DEFAULT_MATTER_SOURCE_PROMPTS: MatterSourcePrompts = {
   launchpad: '',
 };
 
+/**
+ * Opportunities — things the user can do for the company, detected from Matter scans.
+ * Platform issues are reported to the owning team; sales openings to the service-line owner.
+ */
+export type OpportunityKind = 'platform_issue' | 'cross_sell' | 'upsell';
+export type OpportunityStatus = 'new' | 'reported' | 'dismissed' | 'snoozed';
+
+export const OPPORTUNITY_PLATFORM_TARGETS = [
+  'hub',
+  'rd_launchpad',
+  'gtm_launchpad',
+  'rd_pulse',
+  'gtm_pulse',
+] as const;
+
+export const OPPORTUNITY_SERVICE_TARGETS = [
+  'rnd_services',
+  'gtm_services',
+  'marketing',
+  'finops',
+  'investment',
+] as const;
+
+export type OpportunityPlatformTarget = (typeof OPPORTUNITY_PLATFORM_TARGETS)[number];
+export type OpportunityServiceTarget = (typeof OPPORTUNITY_SERVICE_TARGETS)[number];
+export type OpportunityTarget = OpportunityPlatformTarget | OpportunityServiceTarget;
+
+export const OPPORTUNITY_TARGETS: readonly OpportunityTarget[] = [
+  ...OPPORTUNITY_PLATFORM_TARGETS,
+  ...OPPORTUNITY_SERVICE_TARGETS,
+];
+
+export const OPPORTUNITY_TARGET_LABELS: Record<OpportunityTarget, string> = {
+  hub: 'Hub',
+  rd_launchpad: 'R&D Launchpad',
+  gtm_launchpad: 'GTM Launchpad',
+  rd_pulse: 'R&D Pulse',
+  gtm_pulse: 'GTM Pulse',
+  rnd_services: 'R&D / Software Development',
+  gtm_services: 'GTM / Revenue Operations',
+  marketing: 'Digital Marketing',
+  finops: 'Financial Operations',
+  investment: 'Investment / Advisory',
+};
+
+export interface YorkServiceLine {
+  id: OpportunityServiceTarget;
+  label: string;
+  description: string;
+  buyingSignals: string[];
+}
+
+/** York IE service lines (york.ie) — used by the detector prompt and the UI. */
+export const YORK_SERVICE_CATALOG: readonly YorkServiceLine[] = [
+  {
+    id: 'rnd_services',
+    label: OPPORTUNITY_TARGET_LABELS.rnd_services,
+    description:
+      'Product R&D and software development: MVPs, platform builds, AI features, QA, DevOps, dedicated engineering pods.',
+    buyingSignals: [
+      'hiring engineers or struggling to hire',
+      'missed launch or slipping roadmap',
+      'tech debt, outages, scaling or performance pain',
+      'wants to build an AI / data feature',
+      'needs a new app, integration or rebuild',
+    ],
+  },
+  {
+    id: 'gtm_services',
+    label: OPPORTUNITY_TARGET_LABELS.gtm_services,
+    description:
+      'Go-to-market and revenue operations: GTM strategy, sales process, CRM / HubSpot / Salesforce ops, pipeline and outbound.',
+    buyingSignals: [
+      'pipeline dropping or missing revenue targets',
+      'launching into a new market or segment',
+      'CRM mess, bad forecasting or reporting',
+      'needs SDRs, outbound or sales playbooks',
+    ],
+  },
+  {
+    id: 'marketing',
+    label: OPPORTUNITY_TARGET_LABELS.marketing,
+    description:
+      'Digital marketing: content, SEO, paid media, brand, website, demand generation and campaigns.',
+    buyingSignals: [
+      'low inbound or website traffic',
+      'rebrand, new website or product launch campaign',
+      'needs content, social or paid ads help',
+    ],
+  },
+  {
+    id: 'finops',
+    label: OPPORTUNITY_TARGET_LABELS.finops,
+    description:
+      'Financial operations: bookkeeping, monthly close, FP&A, budgeting, investor reporting, fundraising readiness.',
+    buyingSignals: [
+      'books or monthly close behind',
+      'needs a financial model, budget or board pack',
+      'preparing for fundraise or due diligence',
+      'cash-flow or burn concerns',
+    ],
+  },
+  {
+    id: 'investment',
+    label: OPPORTUNITY_TARGET_LABELS.investment,
+    description:
+      'Investment and tech-enabled advisory for startups: capital, strategic advisory, fractional leadership.',
+    buyingSignals: [
+      'raising a round or looking for investors',
+      'needs fractional CTO / CRO / CFO or strategic advice',
+      'considering M&A, partnership or expansion',
+    ],
+  },
+];
+
+export function isOpportunityPlatformTarget(
+  target: OpportunityTarget
+): target is OpportunityPlatformTarget {
+  return (OPPORTUNITY_PLATFORM_TARGETS as readonly string[]).includes(target);
+}
+
+export interface MatterOpportunity {
+  id: string;
+  fingerprint: string;
+  kind: OpportunityKind;
+  target: OpportunityTarget;
+  title: string;
+  summary: string;
+  /** Quoted excerpt from the source that supports this opportunity. */
+  evidence: string;
+  source: MatterSource;
+  sourceRef: MatterSourceRef;
+  clientName: string | null;
+  /** Sales only — how to open the conversation. */
+  suggestedPitch: string | null;
+  confidence: number;
+  status: OpportunityStatus;
+  snoozeUntil: number | null;
+  reportedAt: number | null;
+  /** Slack channel / user the report was posted to. */
+  reportedTo: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface OpportunityRoute {
+  slackChannel?: string;
+  slackUserId?: string;
+}
+
+export interface MatterOpportunitiesConfig {
+  enabled: boolean;
+  /** Opportunities below this confidence (0–1) are hidden and never notify. */
+  minConfidence: number;
+  notify: boolean;
+  routing: Record<OpportunityTarget, OpportunityRoute>;
+}
+
+export const DEFAULT_OPPORTUNITY_ROUTING: Record<OpportunityTarget, OpportunityRoute> =
+  Object.fromEntries(OPPORTUNITY_TARGETS.map((t) => [t, {}])) as Record<
+    OpportunityTarget,
+    OpportunityRoute
+  >;
+
+export const DEFAULT_MATTER_OPPORTUNITIES: MatterOpportunitiesConfig = {
+  enabled: true,
+  minConfidence: 0.6,
+  notify: true,
+  routing: { ...DEFAULT_OPPORTUNITY_ROUTING },
+};
+
+/** Slack destination for an opportunity target (channel wins over user DM). */
+export function opportunityDestination(
+  routing: Record<OpportunityTarget, OpportunityRoute>,
+  target: OpportunityTarget
+): string | null {
+  const route = routing[target] || {};
+  return route.slackChannel?.trim() || route.slackUserId?.trim() || null;
+}
+
+export interface OpportunityReportPreview {
+  opportunityId: string;
+  channel: string | null;
+  text: string;
+}
+
+export interface OpportunityReportInput {
+  opportunityId: string;
+  channel: string;
+  text: string;
+}
+
+export interface OpportunityActionInput {
+  opportunityId: string;
+  action: 'dismiss' | 'snooze';
+  snoozeUntil?: number | null;
+}
+
 export interface MatterRuntimeConfig {
   enabled: boolean;
   windowStartHour: number;
@@ -222,12 +420,15 @@ export interface MatterRuntimeConfig {
    */
   meetingsIntervalMinutes: number;
   sensitivity: MatterSensitivity;
+  /** Signals with confidence below this (0–1) are hidden and never notify. Pinned are exempt. */
+  minConfidence: number;
   maxActiveItems: number;
   morningBriefEnabled: boolean;
   endOfDayWrapEnabled: boolean;
   autoOpenOnLaunch: boolean;
   sources: MatterSourcesConfig;
   sourcePrompts: MatterSourcePrompts;
+  opportunities: MatterOpportunitiesConfig;
 }
 
 export const DEFAULT_MATTER_SOURCES: MatterSourcesConfig = {
@@ -247,12 +448,14 @@ export const DEFAULT_MATTER_RUNTIME: MatterRuntimeConfig = {
   intervalMinutes: 60,
   meetingsIntervalMinutes: DEFAULT_MATTER_MEETINGS_INTERVAL_MINUTES,
   sensitivity: 'balanced',
+  minConfidence: 0,
   maxActiveItems: 50,
   morningBriefEnabled: true,
   endOfDayWrapEnabled: false,
   autoOpenOnLaunch: false,
   sources: { ...DEFAULT_MATTER_SOURCES },
   sourcePrompts: { ...DEFAULT_MATTER_SOURCE_PROMPTS },
+  opportunities: { ...DEFAULT_MATTER_OPPORTUNITIES, routing: { ...DEFAULT_OPPORTUNITY_ROUTING } },
 };
 
 /**
@@ -306,6 +509,15 @@ export function shouldKeepMatterScanSignal(input: {
   return true;
 }
 
+/** Whether a signal clears the user's confidence threshold. Pinned signals always pass. */
+export function meetsMatterConfidence(
+  item: Pick<MatterItem, 'confidence' | 'pinned'>,
+  minConfidence: number
+): boolean {
+  if (item.pinned || minConfidence <= 0) return true;
+  return item.confidence >= minConfidence;
+}
+
 export interface MatterLens {
   id: MatterLensId;
   label: string;
@@ -354,6 +566,8 @@ export interface MatterSnapshot {
   morningBrief: string | null;
   settings: MatterRuntimeConfig;
   profileSummary: string | null;
+  /** Open opportunities (new status, above threshold), newest first. */
+  opportunities: MatterOpportunity[];
 }
 
 export interface MatterItemActionInput {

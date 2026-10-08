@@ -1,3 +1,4 @@
+import { DEFAULT_MATTER_OPPORTUNITIES } from '../../shared/matter';
 /**
  * Tests for src/main/config/config-extension.
  *
@@ -92,6 +93,7 @@ function createMockConfigStore(overrides: Partial<AppConfig> = {}) {
       intervalMinutes: 60,
       meetingsIntervalMinutes: 15,
       sensitivity: 'balanced' as const,
+      minConfidence: 0,
       maxActiveItems: 25,
       morningBriefEnabled: true,
       endOfDayWrapEnabled: false,
@@ -114,6 +116,7 @@ function createMockConfigStore(overrides: Partial<AppConfig> = {}) {
         meeting: '',
         launchpad: '',
       },
+      opportunities: DEFAULT_MATTER_OPPORTUNITIES,
     },
     enableThinking: true,
     profileDosPrompt: '',

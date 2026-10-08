@@ -100,6 +100,14 @@ export interface DatabaseInstance {
     deleteAbsent: (keepFingerprints: string[]) => number;
   };
 
+  matterOpportunities: {
+    create: (row: MatterOpportunityRow) => void;
+    update: (id: string, updates: Partial<MatterOpportunityRow>) => void;
+    get: (id: string) => MatterOpportunityRow | undefined;
+    getByFingerprint: (fingerprint: string) => MatterOpportunityRow | undefined;
+    listAll: (limit?: number) => MatterOpportunityRow[];
+  };
+
   chatSearch: {
     search: (query: string, limit?: number) => ChatSearchHit[];
   };
@@ -279,6 +287,27 @@ export interface MatterMeetingRow {
   suggested_action: string | null;
   updated_at: number;
   last_seen_at: number;
+}
+
+export interface MatterOpportunityRow {
+  id: string;
+  fingerprint: string;
+  kind: string;
+  target: string;
+  title: string;
+  summary: string;
+  evidence: string;
+  source: string;
+  source_ref: string;
+  client_name: string | null;
+  suggested_pitch: string | null;
+  confidence: number;
+  status: string;
+  snooze_until: number | null;
+  reported_at: number | null;
+  reported_to: string | null;
+  created_at: number;
+  updated_at: number;
 }
 
 let db: DatabaseInstance | null = null;
@@ -718,6 +747,34 @@ function initializeSchema(database: Database.Database): void {
     database.exec(`
     CREATE INDEX IF NOT EXISTS idx_matter_meetings_start
     ON matter_meetings(start_ms ASC)
+  `);
+
+    database.exec(`
+    CREATE TABLE IF NOT EXISTS matter_opportunities (
+      id TEXT PRIMARY KEY,
+      fingerprint TEXT NOT NULL UNIQUE,
+      kind TEXT NOT NULL,
+      target TEXT NOT NULL,
+      title TEXT NOT NULL,
+      summary TEXT NOT NULL DEFAULT '',
+      evidence TEXT NOT NULL DEFAULT '',
+      source TEXT NOT NULL,
+      source_ref TEXT NOT NULL DEFAULT '{}',
+      client_name TEXT,
+      suggested_pitch TEXT,
+      confidence REAL NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'new',
+      snooze_until INTEGER,
+      reported_at INTEGER,
+      reported_to TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
+
+    database.exec(`
+    CREATE INDEX IF NOT EXISTS idx_matter_opportunities_status
+    ON matter_opportunities(status, updated_at DESC)
   `);
 
     // Memory Wiki pages (M1) — SQLite primary; Markdown vault is mirrored on disk
@@ -1330,6 +1387,21 @@ export function initDatabase(): DatabaseInstance {
   `);
   const deleteMatterMeetingStmt = rawDb.prepare(`DELETE FROM matter_meetings WHERE id = ?`);
 
+  const insertMatterOpportunity = rawDb.prepare(`
+    INSERT OR REPLACE INTO matter_opportunities (
+      id, fingerprint, kind, target, title, summary, evidence, source, source_ref,
+      client_name, suggested_pitch, confidence, status, snooze_until, reported_at,
+      reported_to, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const getMatterOpportunityStmt = rawDb.prepare(`SELECT * FROM matter_opportunities WHERE id = ?`);
+  const getMatterOpportunityByFingerprintStmt = rawDb.prepare(
+    `SELECT * FROM matter_opportunities WHERE fingerprint = ?`
+  );
+  const listMatterOpportunitiesStmt = rawDb.prepare(`
+    SELECT * FROM matter_opportunities ORDER BY updated_at DESC LIMIT ?
+  `);
+
   const insertFolder = rawDb.prepare(`
     INSERT OR REPLACE INTO folders (id, name, instructions, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?)
@@ -1879,6 +1951,64 @@ export function initDatabase(): DatabaseInstance {
           removed += 1;
         }
         return removed;
+      },
+    },
+
+    matterOpportunities: {
+      create: (row: MatterOpportunityRow) => {
+        insertMatterOpportunity.run(
+          row.id,
+          row.fingerprint,
+          row.kind,
+          row.target,
+          row.title,
+          row.summary,
+          row.evidence,
+          row.source,
+          row.source_ref,
+          row.client_name,
+          row.suggested_pitch,
+          row.confidence,
+          row.status,
+          row.snooze_until,
+          row.reported_at,
+          row.reported_to,
+          row.created_at,
+          row.updated_at
+        );
+      },
+
+      update: (id: string, updates: Partial<MatterOpportunityRow>) => {
+        const setClauses: string[] = [];
+        const values: unknown[] = [];
+        for (const [key, value] of Object.entries(updates)) {
+          if (value !== undefined) {
+            validateIdentifier(key);
+            setClauses.push(`${key} = ?`);
+            values.push(value);
+          }
+        }
+        if (setClauses.length === 0) return;
+        setClauses.push('updated_at = ?');
+        values.push(Date.now());
+        values.push(id);
+        rawDb
+          .prepare(`UPDATE matter_opportunities SET ${setClauses.join(', ')} WHERE id = ?`)
+          .run(...values);
+      },
+
+      get: (id: string): MatterOpportunityRow | undefined => {
+        return getMatterOpportunityStmt.get(id) as MatterOpportunityRow | undefined;
+      },
+
+      getByFingerprint: (fingerprint: string): MatterOpportunityRow | undefined => {
+        return getMatterOpportunityByFingerprintStmt.get(fingerprint) as
+          | MatterOpportunityRow
+          | undefined;
+      },
+
+      listAll: (limit = 200): MatterOpportunityRow[] => {
+        return listMatterOpportunitiesStmt.all(limit) as MatterOpportunityRow[];
       },
     },
 
