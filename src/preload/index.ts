@@ -107,6 +107,7 @@ const ALLOWED_CLIENT_EVENTS: ReadonlySet<string> = new Set<ClientEvent['type']>(
   'session.getContextUsage',
   'session.searchChats',
   'permission.response',
+  'question.response',
   'sudo.password.response',
   'settings.update',
   'folder.select',
