@@ -54,13 +54,32 @@ const PRICING_SNAPSHOT: Record<string, ModelPricing> = {
   'anthropic/claude-opus-4.5': { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
   'anthropic/claude-sonnet-5': { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 },
   'anthropic/claude-sonnet-4.6': { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
+  'anthropic/claude-haiku-5.5': {
+    input: 0.1,
+    output: 0.5,
+    cacheRead: 0.01,
+    cacheWrite: 0.125,
+    longContext: {
+      minPromptTokens: 100000,
+      input: 0.5,
+      output: 2.5,
+      cacheRead: 0.05,
+      cacheWrite: 0.625,
+    },
+  },
   'anthropic/claude-haiku-4.5': { input: 1, output: 5, cacheRead: 0.1, cacheWrite: 1.25 },
   'openai/gpt-5.6-luna': {
     input: 0.2,
     output: 1.2,
     cacheRead: 0.02,
     cacheWrite: 0.25,
-    longContext: { minPromptTokens: 272000, input: 0.4, output: 1.8, cacheRead: 0.04, cacheWrite: 0.5 },
+    longContext: {
+      minPromptTokens: 272000,
+      input: 0.4,
+      output: 1.8,
+      cacheRead: 0.04,
+      cacheWrite: 0.5,
+    },
   },
   'openai/gpt-5.6-terra': {
     input: 2,

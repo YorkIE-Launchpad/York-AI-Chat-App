@@ -9,7 +9,9 @@ import {
 
 describe('pricingKeysForModel', () => {
   it('maps direct provider ids to OpenRouter ids', () => {
-    expect(pricingKeysForModel('anthropic', 'claude-opus-4-8')[0]).toBe('anthropic/claude-opus-4.8');
+    expect(pricingKeysForModel('anthropic', 'claude-opus-4-8')[0]).toBe(
+      'anthropic/claude-opus-4.8'
+    );
     expect(pricingKeysForModel('anthropic', 'claude-haiku-4-5-20251001')[0]).toBe(
       'anthropic/claude-haiku-4.5'
     );
@@ -24,6 +26,7 @@ describe('pricingKeysForModel', () => {
     const pairs: Array<[string, string, string]> = [
       ['anthropic', 'claude-fable-5', 'anthropic/claude-fable-5'],
       ['anthropic', 'claude-haiku-4-5', 'anthropic/claude-haiku-4.5'],
+      ['anthropic', 'claude-haiku-5-5', 'anthropic/claude-haiku-5.5'],
       ['anthropic', 'claude-opus-5-5', 'anthropic/claude-opus-5-5'],
       ['openai', 'gpt-5.6-luna', 'openai/gpt-5.6-luna'],
       ['openai', 'gpt-image-2.5-flare-2026-09-08', 'openai/gpt-image-2.5-flare'],
@@ -72,7 +75,9 @@ describe('ensureModelPricingFresh', () => {
     const fetchFn = vi.fn(async () => ({
       ok: true,
       json: async () => ({
-        data: [{ id: 'anthropic/claude-opus-4.8', pricing: { prompt: '0.00001', completion: '0.0001' } }],
+        data: [
+          { id: 'anthropic/claude-opus-4.8', pricing: { prompt: '0.00001', completion: '0.0001' } },
+        ],
       }),
     })) as unknown as typeof fetch;
     await ensureModelPricingFresh({ fetchFn });
@@ -81,12 +86,19 @@ describe('ensureModelPricingFresh', () => {
     const failing = vi.fn(async () => {
       throw new Error('offline');
     }) as unknown as typeof fetch;
-    await expect(ensureModelPricingFresh({ fetchFn: failing, force: true })).resolves.toBeUndefined();
+    await expect(
+      ensureModelPricingFresh({ fetchFn: failing, force: true })
+    ).resolves.toBeUndefined();
     expect(resolveModelPricing('anthropic', 'claude-opus-4-8')?.input).toBe(10);
   });
 
   it('falls back to the bundled snapshot', () => {
     expect(resolveModelPricing('anthropic', 'claude-opus-4-8')?.input).toBe(5);
+    expect(resolveModelPricing('anthropic', 'claude-haiku-5-5')).toMatchObject({
+      input: 0.1,
+      output: 0.5,
+      longContext: { minPromptTokens: 100000, input: 0.5, output: 2.5 },
+    });
     expect(resolveModelPricing('openai', 'gpt-image-2.5-flare')).toMatchObject({
       input: 5,
       imageInput: 8,
