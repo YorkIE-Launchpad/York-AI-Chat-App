@@ -27,6 +27,7 @@ describe('pricingKeysForModel', () => {
       ['anthropic', 'claude-fable-5', 'anthropic/claude-fable-5'],
       ['anthropic', 'claude-haiku-4-5', 'anthropic/claude-haiku-4.5'],
       ['anthropic', 'claude-haiku-5-5', 'anthropic/claude-haiku-5.5'],
+      ['anthropic', 'claude-sonnet-5-5', 'anthropic/claude-sonnet-5.5'],
       ['anthropic', 'claude-opus-5-5', 'anthropic/claude-opus-5-5'],
       ['openai', 'gpt-5.6-luna', 'openai/gpt-5.6-luna'],
       ['openai', 'gpt-image-2.5-flare-2026-09-08', 'openai/gpt-image-2.5-flare'],
