@@ -17,6 +17,9 @@ import { useDictation } from '../hooks/useDictation';
 import { useSnapChat } from '../hooks/useSnapChat';
 import { DictationButton } from './DictationButton';
 import { SnapChatView } from './snap/SnapChatView';
+import { SnapModelErrorCard } from './snap/SnapModelErrorCard';
+import { ModelSelector } from './ModelSelector';
+import { useAppStore } from '../store';
 import logoSrc from '../assets/logo.png';
 import { ClientOutdatedUpdateActions } from './ClientOutdatedUpdateActions';
 import { formatAccelerator } from '../utils/shortcut-accelerator';
@@ -64,6 +67,7 @@ export function SnapComposer() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const promptRef = useRef(prompt);
   promptRef.current = prompt;
+  const chatPromptRef = useRef('');
 
   const isWrite = mode === 'write';
   const isGenerating = generateStatus === 'generating';
@@ -82,6 +86,7 @@ export function SnapComposer() {
     void (async () => {
       try {
         const [config, system] = await Promise.all([api.config.get(), api.getSystemTheme()]);
+        useAppStore.getState().setAppConfig(config);
         const theme = config.theme ?? 'light';
         const effective =
           theme === 'system' ? (system.shouldUseDarkColors ? 'dark' : 'light') : theme;
@@ -108,6 +113,11 @@ export function SnapComposer() {
       setSubmitFailed(false);
       setChatSessionId(null);
       resetChat();
+      // Pick up model changes made in the main window since the last snap.
+      void api.config
+        .get()
+        .then((config) => useAppStore.getState().setAppConfig(config))
+        .catch(() => undefined);
       window.setTimeout(() => textareaRef.current?.focus(), 30);
     };
     void api.snap.getPendingState().then(acceptState);
@@ -143,6 +153,7 @@ export function SnapComposer() {
     markStarting();
     try {
       const text = promptRef.current.trim() || t('snap.defaultPrompt');
+      chatPromptRef.current = text;
       const result = await api.snap.startChat({ text, image });
       if (result.success) {
         setChatSessionId(result.sessionId);
@@ -157,6 +168,26 @@ export function SnapComposer() {
       setIsSubmitting(false);
     }
   }, [api, dictation, image, isSubmitting, markStarting, resetChat, t]);
+
+  const retryChat = useCallback(async () => {
+    const text = chatPromptRef.current;
+    if (!api?.snap || !image || !text || isSubmitting) return;
+    setIsSubmitting(true);
+    resetChat();
+    markStarting();
+    try {
+      const result = await api.snap.startChat({ text, image }, { restart: true });
+      if (result.success) {
+        setChatSessionId(result.sessionId);
+      } else {
+        markFailed(result.error || t('snap.submitFailed'));
+      }
+    } catch (error) {
+      markFailed(error instanceof Error ? error.message : t('snap.submitFailed'));
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [api, image, isSubmitting, markFailed, markStarting, resetChat, t]);
 
   const followUp = useCallback(
     async (text: string) => {
@@ -260,6 +291,15 @@ export function SnapComposer() {
     }
   };
 
+  // The write-mode panel opens without keyboard focus so the snapped app keeps
+  // its focused field; claim the keyboard only when the user starts typing here.
+  const claimKeyboardOnTextClick = (event: React.MouseEvent) => {
+    const el = event.target as HTMLElement;
+    if (el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement) {
+      void api?.snap.requestKeyboard().then(() => el.focus());
+    }
+  };
+
   const isListening = dictation.status === 'recording';
   const shortcutLabel = formatAccelerator(shortcut);
   const chatActive = !isWrite && snapChat.state.status !== null;
@@ -273,12 +313,17 @@ export function SnapComposer() {
         ? t('snap.targetUnavailable', { app: targetAppName ?? '' })
         : insertFailure === 'no_target'
           ? t('snap.noTarget')
-          : insertFailure === 'failed'
-            ? t('snap.insertFailed')
-            : null;
+          : insertFailure === 'no_field'
+            ? t('snap.noField', { app: targetAppName ?? '' })
+            : insertFailure === 'failed'
+              ? t('snap.insertFailed')
+              : null;
 
   return (
-    <div className="flex h-full w-full items-center justify-center p-4">
+    <div
+      className="flex h-full w-full items-center justify-center p-4"
+      onMouseDownCapture={claimKeyboardOnTextClick}
+    >
       <div className="snap-card flex h-full w-full flex-col overflow-hidden rounded-3xl border border-border shadow-elevated">
         <div className="snap-drag flex items-center gap-3 px-5 pb-2 pt-4">
           <img
@@ -325,6 +370,8 @@ export function SnapComposer() {
             sessionId={chatSessionId}
             onFollowUp={followUp}
             onOpenInGrowthOS={openInGrowthOS}
+            onRetry={() => void retryChat()}
+            retrying={isSubmitting}
           />
         ) : (
           <>
@@ -393,7 +440,9 @@ export function SnapComposer() {
 
               {showPreview ? (
                 <div className="snap-no-drag flex flex-col gap-2">
-                  <div className="relative">
+                  <div
+                    className={`relative ${generateStatus === 'error' && !draft ? 'hidden' : ''}`}
+                  >
                     <textarea
                       value={draft}
                       onChange={(e) => {
@@ -412,9 +461,11 @@ export function SnapComposer() {
                     ) : null}
                   </div>
                   {generateStatus === 'error' && generateError ? (
-                    <p className="px-1 text-[11px] text-error">
-                      {t('snap.writeFailed')} {generateError}
-                    </p>
+                    <SnapModelErrorCard
+                      message={generateError}
+                      onRetry={() => void generate()}
+                      retrying={isGenerating}
+                    />
                   ) : null}
                   <div className="flex items-center gap-2">
                     {isGenerating ? (
@@ -500,6 +551,7 @@ export function SnapComposer() {
                   autoFocus
                 />
                 <div className="flex flex-shrink-0 items-center gap-1 pb-0.5">
+                  <ModelSelector />
                   <DictationButton
                     status={dictation.status}
                     errorKind={dictation.errorKind}

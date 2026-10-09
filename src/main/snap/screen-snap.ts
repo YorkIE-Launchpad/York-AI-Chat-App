@@ -26,6 +26,7 @@ import {
   SNAP_FORWARDED_EVENT_TYPES,
   validateScreenSnapAccelerator,
   type ScreenSnapChatResult,
+  type ScreenSnapStartChatOptions,
   type ScreenSnapComposerState,
   type ScreenSnapLayout,
   type ScreenSnapGenerateRequest,
@@ -39,6 +40,7 @@ import {
 } from '../../shared/screen-snap';
 import {
   activateTarget as defaultActivateTarget,
+  ensureFieldFocused as defaultEnsureFieldFocused,
   getFrontmostTarget as defaultGetFrontmostTarget,
 } from './front-app';
 import { pasteText as defaultPasteText, type PasteResult } from './paste-into-app';
@@ -195,6 +197,7 @@ export interface ScreenSnapControllerOptions {
   generate?: SnapGenerateFn;
   getFrontmostTarget?: () => Promise<ScreenSnapTarget | null>;
   activateTarget?: (bundleId: string) => Promise<boolean>;
+  ensureFieldFocused?: (field: NonNullable<ScreenSnapTarget['focusedField']>) => Promise<boolean>;
   pasteText?: (text: string) => Promise<PasteResult>;
   isAccessibilityTrusted?: (prompt: boolean) => boolean;
   writeClipboard?: (text: string) => void;
@@ -321,9 +324,16 @@ export class ScreenSnapController {
   }
 
   /** Start the in-place chat: a real GrowthOS session mirrored into the panel. */
-  async startChat(payload: ScreenSnapSubmitPayload): Promise<ScreenSnapChatResult> {
+  async startChat(
+    payload: ScreenSnapSubmitPayload,
+    options: ScreenSnapStartChatOptions = {}
+  ): Promise<ScreenSnapChatResult> {
     if (!this.options.startChat) return { success: false, error: 'Chat unavailable' };
     if (!payload?.image?.base64) return { success: false, error: 'Missing image' };
+    if (options.restart) {
+      this.chatSessionId = null;
+      this.forwardedPermissions.clear();
+    }
     if (this.chatSessionId) return { success: true, sessionId: this.chatSessionId };
     const composer = this.composer;
     try {
@@ -476,6 +486,18 @@ export class ScreenSnapController {
       return { success: false, reason: 'target_unavailable' };
     }
 
+    if (target.focusedField) {
+      const ensureField =
+        this.options.ensureFieldFocused ??
+        ((field: NonNullable<ScreenSnapTarget['focusedField']>) =>
+          defaultEnsureFieldFocused(field));
+      if (!(await ensureField(target.focusedField))) {
+        writeClipboard(text);
+        this.showComposer();
+        return { success: false, reason: 'no_field' };
+      }
+    }
+
     const paste = this.options.pasteText ?? ((value: string) => defaultPasteText(value));
     const result = await paste(text);
     if (!result.success) {
@@ -490,14 +512,20 @@ export class ScreenSnapController {
 
   registerIpc(): void {
     ipcMain.handle('snap.getPendingState', () => this.pendingState);
-    ipcMain.handle('snap.startChat', (_event, payload: ScreenSnapSubmitPayload) =>
-      this.startChat(payload)
+    ipcMain.handle(
+      'snap.startChat',
+      (_event, payload: ScreenSnapSubmitPayload, options?: ScreenSnapStartChatOptions) =>
+        this.startChat(payload, { restart: options?.restart === true })
     );
     ipcMain.handle('snap.continueChat', (_event, text: string) =>
       this.continueChat(typeof text === 'string' ? text : '')
     );
     ipcMain.handle('snap.openInGrowthOS', () => ({ success: this.openInGrowthOS() }));
     ipcMain.handle('snap.takePendingOpen', () => this.takePendingOpen());
+    ipcMain.handle('snap.requestKeyboard', () => {
+      this.grantKeyboard();
+      return { success: true };
+    });
     ipcMain.handle('snap.setLayout', (_event, layout: ScreenSnapLayout) => {
       this.setLayout(layout);
       return { success: true };
@@ -519,6 +547,7 @@ export class ScreenSnapController {
     });
     ipcMain.handle('snap.setMode', (_event, mode: ScreenSnapMode) => {
       this.setMode(mode);
+      if (mode === 'chat') this.grantKeyboard();
       return { success: true };
     });
     ipcMain.handle('snap.generate', (event, request: ScreenSnapGenerateRequest) => {
@@ -579,9 +608,28 @@ export class ScreenSnapController {
     }
   }
 
-  /** Show and key the panel only; never `app.focus()`, which would switch Spaces. */
+  /**
+   * Show the panel; never `app.focus()`, which would switch Spaces. In write
+   * mode the panel stays non-key so the snapped app keeps its focused field
+   * (many web editors close on blur); it takes the keyboard only once the user
+   * clicks into one of its text boxes (`snap.requestKeyboard`).
+   */
   private revealComposer(win: BrowserWindow): void {
+    if (this.platform === 'darwin' && this.pendingState?.mode === 'write') {
+      win.setFocusable(false);
+      win.showInactive();
+      return;
+    }
+    win.setFocusable(true);
     win.show();
+    win.focus();
+    win.webContents.focus();
+  }
+
+  private grantKeyboard(): void {
+    const win = this.composer;
+    if (!win || win.isDestroyed()) return;
+    win.setFocusable(true);
     win.focus();
     win.webContents.focus();
   }
@@ -655,6 +703,8 @@ export class ScreenSnapController {
       minHeight: 360,
       skipTaskbar: true,
       alwaysOnTop: true,
+      // Buttons must work on the first click while the write-mode panel is not key.
+      acceptFirstMouse: true,
       show: false,
       backgroundColor: '#00000000',
       webPreferences: {

@@ -3,15 +3,21 @@ import { useTranslation } from 'react-i18next';
 import { ArrowUp, ExternalLink, Loader2, ShieldQuestion, Square, Wrench } from 'lucide-react';
 import { MessageMarkdown } from '../MessageMarkdown';
 import { DictationButton } from '../DictationButton';
+import { ModelSelector } from '../ModelSelector';
+import { SnapModelErrorCard } from './SnapModelErrorCard';
 import { useDictation } from '../../hooks/useDictation';
 import type { SnapChatState } from '../../hooks/useSnapChat';
 import type { ContentBlock, Message, PermissionResult } from '../../types';
+import { SESSION_ERROR_PREFIX } from '../../../shared/screen-snap';
 
 interface SnapChatViewProps {
   state: SnapChatState;
   sessionId: string | null;
   onFollowUp: (text: string) => Promise<void>;
   onOpenInGrowthOS: () => void;
+  /** Re-run the snap prompt in a fresh session (e.g. after switching model). */
+  onRetry?: () => void;
+  retrying?: boolean;
 }
 
 function textOf(content: ContentBlock[]): string {
@@ -37,7 +43,17 @@ function toolNamesOf(content: ContentBlock[]): string[] {
     .map((block) => block.displayName || block.name);
 }
 
-function ChatMessage({ message, glow }: { message: Message; glow: boolean }) {
+function ChatMessage({
+  message,
+  glow,
+  onRetry,
+  retrying,
+}: {
+  message: Message;
+  glow: boolean;
+  onRetry?: () => void;
+  retrying?: boolean;
+}) {
   const { t } = useTranslation();
   const text = textOf(message.content);
 
@@ -66,6 +82,9 @@ function ChatMessage({ message, glow }: { message: Message; glow: boolean }) {
   }
 
   if (message.role !== 'assistant') return null;
+  if (text.startsWith(SESSION_ERROR_PREFIX)) {
+    return <SnapModelErrorCard message={text} onRetry={onRetry} retrying={retrying} />;
+  }
   const tools = toolNamesOf(message.content);
   return (
     <div className="flex flex-col gap-1.5">
@@ -92,6 +111,8 @@ export function SnapChatView({
   sessionId,
   onFollowUp,
   onOpenInGrowthOS,
+  onRetry,
+  retrying,
 }: SnapChatViewProps) {
   const { t } = useTranslation();
   const api = window.electronAPI;
@@ -102,6 +123,17 @@ export function SnapChatView({
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const isRunning = state.status === 'running' || state.status === 'starting';
+  const lastMessageIndex = state.messages.length - 1;
+  const lastMessage = state.messages[lastMessageIndex];
+  const lastMessageIsError =
+    lastMessage?.role === 'assistant' &&
+    textOf(lastMessage.content).startsWith(SESSION_ERROR_PREFIX);
+  // Restarting only makes sense while the chat is still just the snap prompt.
+  const hasFollowUps =
+    state.messages.filter(
+      (message) =>
+        message.role === 'user' && !message.content.every((block) => block.type === 'tool_result')
+    ).length > 1;
 
   const dictation = useDictation({
     enabled: Boolean(api?.snap),
@@ -161,8 +193,16 @@ export function SnapChatView({
         ref={scrollRef}
         className="snap-no-drag min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-3"
       >
-        {state.messages.map((message) => (
-          <ChatMessage key={message.id} message={message} glow={isRunning} />
+        {state.messages.map((message, index) => (
+          <ChatMessage
+            key={message.id}
+            message={message}
+            glow={isRunning}
+            onRetry={
+              index === lastMessageIndex && !isRunning && !hasFollowUps ? onRetry : undefined
+            }
+            retrying={retrying}
+          />
         ))}
 
         {state.partial ? (
@@ -255,8 +295,12 @@ export function SnapChatView({
           </div>
         ) : null}
 
-        {state.status === 'error' && state.error ? (
-          <p className="text-[11px] text-error">{state.error}</p>
+        {state.status === 'error' && state.error && !lastMessageIsError ? (
+          <SnapModelErrorCard
+            message={state.error}
+            onRetry={hasFollowUps ? undefined : onRetry}
+            retrying={retrying}
+          />
         ) : null}
       </div>
 
@@ -279,6 +323,7 @@ export function SnapChatView({
             className="max-h-28 min-h-[2.25rem] flex-1 resize-none bg-transparent px-2 py-1.5 text-sm text-text-primary outline-none placeholder:text-text-muted"
           />
           <div className="flex flex-shrink-0 items-center gap-1 pb-0.5">
+            <ModelSelector />
             <DictationButton
               status={dictation.status}
               errorKind={dictation.errorKind}

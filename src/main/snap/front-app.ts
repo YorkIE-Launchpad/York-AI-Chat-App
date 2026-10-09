@@ -21,22 +21,81 @@ export const defaultRunOsascript: RunOsascript = (args) =>
     );
   });
 
-/** Tab-separated: bundleId, name, pid[, x, y, width, height]. Window bounds need Accessibility. */
+/** AppleScript handler: true when an AX element is a text input (incl. contenteditable in browsers). */
+const IS_EDITABLE_HANDLER = [
+  'on isEditable(e)',
+  '  tell application "System Events"',
+  '    try',
+  '      set r to value of attribute "AXRole" of e',
+  '      if {"AXTextField", "AXTextArea", "AXComboBox", "AXSearchField"} contains r then return true',
+  '    end try',
+  '    try',
+  '      if (value of attribute "AXEditableAncestor" of e) is not missing value then return true',
+  '    end try',
+  '  end tell',
+  '  return false',
+  'end isEditable',
+];
+
+/**
+ * Tab-separated: bundleId, name, pid, then window x/y/w/h and focused text
+ * field x/y/w/h (empty when unknown). Both frames need Accessibility.
+ * AXManualAccessibility asks Chromium-based apps to expose web content to AX.
+ */
 const FRONTMOST_SCRIPT = [
+  ...IS_EDITABLE_HANDLER,
   'tell application "System Events"',
   '  set p to first application process whose frontmost is true',
   '  set bid to bundle identifier of p',
   '  set pname to name of p',
   '  set ppid to unix id of p',
+  '  set winPart to tab & tab & tab',
   '  try',
   '    set w to window 1 of p',
   '    set {x, y} to position of w',
   '    set {wd, ht} to size of w',
-  '    return bid & tab & pname & tab & ppid & tab & x & tab & y & tab & wd & tab & ht',
-  '  on error',
-  '    return bid & tab & pname & tab & ppid',
+  '    set winPart to ((x as integer) as text) & tab & (y as integer) & tab & (wd as integer) & tab & (ht as integer)',
   '  end try',
+  '  set fieldPart to tab & tab & tab',
+  '  try',
+  '    set value of attribute "AXManualAccessibility" of p to true',
+  '  end try',
+  '  repeat 3 times',
+  '    try',
+  '      set e to value of attribute "AXFocusedUIElement" of p',
+  '      if my isEditable(e) then',
+  '        set {fx, fy} to value of attribute "AXPosition" of e',
+  '        set {fw, fh} to value of attribute "AXSize" of e',
+  '        set fieldPart to ((fx as integer) as text) & tab & (fy as integer) & tab & (fw as integer) & tab & (fh as integer)',
+  '        exit repeat',
+  '      end if',
+  '    end try',
+  '    delay 0.1',
+  '  end repeat',
+  '  return bid & tab & pname & tab & ppid & tab & winPart & tab & fieldPart',
   'end tell',
+];
+
+/** "editable" when the frontmost app's focused element is a text input, "other" when not, "unknown" without AX. */
+const FOCUSED_FIELD_SCRIPT = [
+  ...IS_EDITABLE_HANDLER,
+  'tell application "System Events"',
+  '  set p to first application process whose frontmost is true',
+  '  try',
+  '    set e to value of attribute "AXFocusedUIElement" of p',
+  '  on error',
+  '    return "unknown"',
+  '  end try',
+  '  if e is missing value then return "other"',
+  '  if my isEditable(e) then return "editable"',
+  '  return "other"',
+  'end tell',
+];
+
+const CLICK_SCRIPT = [
+  'on run argv',
+  '  tell application "System Events" to click at {(item 1 of argv) as integer, (item 2 of argv) as integer}',
+  'end run',
 ];
 
 /**
@@ -81,13 +140,18 @@ export function parseFrontmostOutput(stdout: string, selfPid: number): ScreenSna
   if (pid === selfPid) return null;
 
   const target: ScreenSnapTarget = { bundleId, name: name || bundleId, pid };
-  if (rest.length === 4) {
-    const [x, y, width, height] = rest.map(Number);
-    if ([x, y, width, height].every(Number.isFinite) && width > 0 && height > 0) {
-      target.bounds = { x, y, width, height };
-    }
-  }
+  const bounds = parseFrame(rest.slice(0, 4));
+  if (bounds) target.bounds = bounds;
+  const focusedField = parseFrame(rest.slice(4, 8));
+  if (focusedField) target.focusedField = focusedField;
   return target;
+}
+
+function parseFrame(parts: string[]): ScreenSnapTarget['bounds'] | null {
+  if (parts.length !== 4 || parts.some((part) => part.trim() === '')) return null;
+  const [x, y, width, height] = parts.map(Number);
+  if (![x, y, width, height].every(Number.isFinite) || width <= 0 || height <= 0) return null;
+  return { x, y, width, height };
 }
 
 /** Must run before any GrowthOS window takes focus. */
@@ -144,4 +208,56 @@ export async function activateTarget(
   }
   logWarn('[ScreenSnap] Target never became frontmost', bundleId);
   return false;
+}
+
+export type FocusedFieldState = 'editable' | 'other' | 'unknown';
+
+async function focusedFieldState(run: RunOsascript): Promise<FocusedFieldState> {
+  try {
+    const state = (await run(toOsascriptArgs(FOCUSED_FIELD_SCRIPT))).trim();
+    return state === 'editable' || state === 'other' ? state : 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
+async function waitForEditable(run: RunOsascript, timeoutMs: number): Promise<FocusedFieldState> {
+  const deadline = Date.now() + timeoutMs;
+  let state = await focusedFieldState(run);
+  while (state === 'other' && Date.now() < deadline) {
+    await sleep(ACTIVATE_POLL_MS);
+    state = await focusedFieldState(run);
+  }
+  return state;
+}
+
+const FIELD_RESTORE_WAIT_MS = 300;
+const FIELD_AFTER_CLICK_WAIT_MS = 900;
+
+/**
+ * Make sure a text field has keyboard focus in the (already frontmost) target
+ * before pasting. Web apps often close inline editors on blur (when the snap
+ * panel took focus); clicking where the field was reopens/refocuses it.
+ * Returns false only when AX positively reports no text field afterwards.
+ */
+export async function ensureFieldFocused(
+  field: NonNullable<ScreenSnapTarget['focusedField']>,
+  run: RunOsascript = defaultRunOsascript,
+  timeouts: { restoreMs?: number; afterClickMs?: number } = {}
+): Promise<boolean> {
+  const before = await waitForEditable(run, timeouts.restoreMs ?? FIELD_RESTORE_WAIT_MS);
+  if (before !== 'other') return true;
+
+  const x = Math.round(field.x + field.width / 2);
+  const y = Math.round(field.y + Math.min(field.height / 2, 20));
+  logWarn('[ScreenSnap] Focused field was lost; clicking to restore it at', x, y);
+  try {
+    await run(toOsascriptArgs(CLICK_SCRIPT, [String(x), String(y)]));
+  } catch (error) {
+    logWarn('[ScreenSnap] Restore click failed', error);
+    return false;
+  }
+  const after = await waitForEditable(run, timeouts.afterClickMs ?? FIELD_AFTER_CLICK_WAIT_MS);
+  if (after === 'other') logWarn('[ScreenSnap] No text field focused after restore click');
+  return after !== 'other';
 }

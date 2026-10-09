@@ -24,6 +24,8 @@ export interface ScreenSnapTarget {
   pid: number;
   /** Front window bounds in global screen points (needs Accessibility). */
   bounds?: { x: number; y: number; width: number; height: number };
+  /** Frame of the text field that had focus at snap time (global points; needs Accessibility). */
+  focusedField?: { x: number; y: number; width: number; height: number };
 }
 
 /** Sent to the composer on `snap:image`. */
@@ -45,11 +47,37 @@ export type ScreenSnapGenerateResult =
 
 export type ScreenSnapInsertResult =
   | { success: true }
-  | { success: false; reason: 'accessibility' | 'target_unavailable' | 'no_target' | 'failed' };
+  | {
+      success: false;
+      reason: 'accessibility' | 'target_unavailable' | 'no_target' | 'no_field' | 'failed';
+    };
 
 export interface ScreenSnapSubmitPayload {
   text: string;
   image: ScreenSnapImage;
+}
+
+const IMAGE_UNSUPPORTED_PATTERNS = [
+  /image input is not supported/i,
+  /\bmmproj\b/i,
+  /does not support (image|vision)/i,
+  /(image|vision)( input)?s? (are|is) not supported/i,
+  /no endpoints found that support image input/i,
+  /model (does not|doesn't) support images?/i,
+];
+
+/** True when a provider error means the active model cannot read images (e.g. text-only local LLMs). */
+export function isImageInputUnsupportedError(message: string | null | undefined): boolean {
+  if (!message) return false;
+  return IMAGE_UNSUPPORTED_PATTERNS.some((pattern) => pattern.test(message));
+}
+
+/** Session errors are posted as assistant messages starting with this marker. */
+export const SESSION_ERROR_PREFIX = '**Error**:';
+
+export interface ScreenSnapStartChatOptions {
+  /** Drop the current panel session and start a new one (e.g. retry after switching model). */
+  restart?: boolean;
 }
 
 export type ScreenSnapChatResult =

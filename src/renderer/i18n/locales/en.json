@@ -1812,6 +1812,13 @@
     "permissionDeny": "Deny",
     "questionInGrowthOS": "GrowthOS has a question for you.",
     "answerInGrowthOS": "Answer in GrowthOS",
+    "modelNoImagesTitle": "This model can't read screenshots",
+    "modelNoImagesBody": "{{model}} doesn't support image input. Pick a model that can see images, then try again.",
+    "modelNoImagesBodyGeneric": "The selected model doesn't support image input. Pick a model that can see images, then try again.",
+    "errorTitle": "Something went wrong",
+    "errorDetails": "Details",
+    "changeModel": "Model",
+    "tryAgain": "Try again",
     "subtitle": "Type or tap the mic — {{shortcut}} to snap again",
     "subtitleNoShortcut": "Type or tap the mic to describe what you need",
     "placeholder": "Ask about this snap…",
@@ -1840,6 +1847,7 @@
     "accessibilityOpenSettings": "Open Accessibility settings",
     "targetUnavailable": "Couldn't switch back to {{app}}. The text is on your clipboard.",
     "noTarget": "No app to write into. The text is on your clipboard.",
+    "noField": "Couldn't find the text field in {{app}} — it may have closed. The text is on your clipboard: click the field and press ⌘V.",
     "insertFailed": "Couldn't paste automatically. The text is on your clipboard."
   },
   "sudo": {

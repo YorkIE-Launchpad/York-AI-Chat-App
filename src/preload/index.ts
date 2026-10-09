@@ -51,6 +51,7 @@ import type { ManualUpdateDownloadResult, UpdaterStatus } from '../shared/update
 import type { WhatsNewPayload } from '../shared/whats-new-types';
 import type {
   ScreenSnapChatResult,
+  ScreenSnapStartChatOptions,
   ScreenSnapComposerState,
   ScreenSnapGenerateRequest,
   ScreenSnapGenerateResult,
@@ -1242,8 +1243,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('snap.insert', text),
     openAccessibilitySettings: (): Promise<{ success: boolean }> =>
       ipcRenderer.invoke('snap.openAccessibilitySettings'),
-    startChat: (payload: ScreenSnapSubmitPayload): Promise<ScreenSnapChatResult> =>
-      ipcRenderer.invoke('snap.startChat', payload),
+    requestKeyboard: (): Promise<{ success: boolean }> =>
+      ipcRenderer.invoke('snap.requestKeyboard'),
+    startChat: (
+      payload: ScreenSnapSubmitPayload,
+      options?: ScreenSnapStartChatOptions
+    ): Promise<ScreenSnapChatResult> => ipcRenderer.invoke('snap.startChat', payload, options),
     continueChat: (text: string): Promise<{ success: boolean; error?: string }> =>
       ipcRenderer.invoke('snap.continueChat', text),
     openInGrowthOS: (): Promise<{ success: boolean }> => ipcRenderer.invoke('snap.openInGrowthOS'),
@@ -2069,7 +2074,11 @@ declare global {
         onGenerateDelta: (callback: (text: string) => void) => () => void;
         insert: (text: string) => Promise<ScreenSnapInsertResult>;
         openAccessibilitySettings: () => Promise<{ success: boolean }>;
-        startChat: (payload: ScreenSnapSubmitPayload) => Promise<ScreenSnapChatResult>;
+        requestKeyboard: () => Promise<{ success: boolean }>;
+        startChat: (
+          payload: ScreenSnapSubmitPayload,
+          options?: ScreenSnapStartChatOptions
+        ) => Promise<ScreenSnapChatResult>;
         continueChat: (text: string) => Promise<{ success: boolean; error?: string }>;
         openInGrowthOS: () => Promise<{ success: boolean }>;
         takePendingOpen: () => Promise<string | null>;

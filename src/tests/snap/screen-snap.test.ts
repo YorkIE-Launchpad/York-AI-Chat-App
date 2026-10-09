@@ -38,6 +38,8 @@ vi.mock('electron', () => {
     focus = vi.fn();
     isDestroyed = () => this.destroyed;
     show = vi.fn(() => windowEvents.push('show'));
+    showInactive = vi.fn(() => windowEvents.push('showInactive'));
+    setFocusable = vi.fn();
     hide = vi.fn(() => windowEvents.push('hide'));
     close = vi.fn(() => {
       windowEvents.push('close');
@@ -311,6 +313,28 @@ describe('ScreenSnapController in-place chat', () => {
     expect(controller.getChatSessionId()).toBeNull();
   });
 
+  it('reuses the panel session unless asked to restart', async () => {
+    let count = 0;
+    const { controller } = await openPanel({
+      startChat: async (_payload, bind) => {
+        count += 1;
+        const id = `session-${count}`;
+        bind(id);
+        return id;
+      },
+    });
+    await controller.startChat({ text: 'hi', image });
+    await expect(controller.startChat({ text: 'hi', image })).resolves.toEqual({
+      success: true,
+      sessionId: 'session-1',
+    });
+    await expect(controller.startChat({ text: 'hi', image }, { restart: true })).resolves.toEqual({
+      success: true,
+      sessionId: 'session-2',
+    });
+    expect(controller.getChatSessionId()).toBe('session-2');
+  });
+
   it('forwards only events for the panel session', async () => {
     const { controller, panel } = await openPanel();
     await controller.startChat({ text: 'hi', image });
@@ -482,6 +506,51 @@ describe('ScreenSnapController write into field', () => {
     expect(windowEvents).toEqual(['hide', 'close']);
   });
 
+  it('restores the focused field before pasting when one was recorded', async () => {
+    const field = { x: 100, y: 300, width: 400, height: 40 };
+    const order: string[] = [];
+    const { controller } = makeController({
+      getFrontmostTarget: async () => ({ ...chrome, focusedField: field }),
+      isAccessibilityTrusted: () => true,
+      activateTarget: async () => {
+        order.push('activate');
+        return true;
+      },
+      ensureFieldFocused: async (value) => {
+        order.push(`ensure:${value.x},${value.y}`);
+        return true;
+      },
+      pasteText: async () => {
+        order.push('paste');
+        return { success: true };
+      },
+    });
+    await controller.trigger();
+    await expect(controller.insert('Hi')).resolves.toEqual({ success: true });
+    expect(order).toEqual(['activate', 'ensure:100,300', 'paste']);
+  });
+
+  it('does not paste blind when the recorded field cannot be restored', async () => {
+    const writeClipboard = vi.fn();
+    const pasteText = vi.fn(async () => ({ success: true as const }));
+    const { controller } = makeController({
+      getFrontmostTarget: async () => ({
+        ...chrome,
+        focusedField: { x: 1, y: 2, width: 3, height: 4 },
+      }),
+      isAccessibilityTrusted: () => true,
+      writeClipboard,
+      activateTarget: async () => true,
+      ensureFieldFocused: async () => false,
+      pasteText,
+    });
+    await controller.trigger();
+    await expect(controller.insert('Hi')).resolves.toEqual({ success: false, reason: 'no_field' });
+    expect(pasteText).not.toHaveBeenCalled();
+    expect(writeClipboard).toHaveBeenCalledWith('Hi');
+    expect(windowEvents).not.toContain('close');
+  });
+
   it('keeps the composer open and copies when Accessibility is missing', async () => {
     const writeClipboard = vi.fn();
     const activateTarget = vi.fn(async () => true);
@@ -517,7 +586,8 @@ describe('ScreenSnapController write into field', () => {
       reason: 'target_unavailable',
     });
     expect(writeClipboard).toHaveBeenCalledWith('Summary');
-    expect(windowEvents).toEqual(['hide', 'show']);
+    // Write mode re-shows without taking focus so the target keeps its field.
+    expect(windowEvents).toEqual(['hide', 'showInactive']);
   });
 
   it('copies and reports no_target when nothing was frontmost', async () => {
