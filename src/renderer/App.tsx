@@ -28,7 +28,7 @@ import { ChatSearchModal, useChatSearchHotkey } from './components/ChatSearchMod
 import { ToolsConnectingStatus } from './components/ToolsConnectingStatus';
 import { useWhatsNew } from './hooks/useWhatsNew';
 import { useAskGrowthOSHotkey } from './hooks/useAskGrowthOSHotkey';
-import { useSnapSubmit } from './hooks/useSnapSubmit';
+import { useSnapOpenSession } from './hooks/useSnapOpenSession';
 import {
   isMeetingAudioActive,
   startMeetingCapture,
@@ -155,7 +155,7 @@ function AuthenticatedApp() {
   const { width } = useWindowSize();
   const { payload: whatsNewPayload, dismiss: dismissWhatsNew } = useWhatsNew();
   useAskGrowthOSHotkey(true);
-  useSnapSubmit();
+  useSnapOpenSession();
   useWorkspaceBudgetCheck();
   const initialized = useRef(false);
   const sidebarBeforeSettings = useRef(false);

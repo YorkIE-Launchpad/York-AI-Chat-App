@@ -1854,6 +1854,12 @@ export class ConfigStore {
             ? updates.profileCustomPrompt
             : current.profileCustomPrompt
           : current.profileCustomPrompt,
+      screenSnapShortcut:
+        updates.screenSnapShortcut !== undefined
+          ? updates.screenSnapShortcut
+          : current.screenSnapShortcut,
+      screenSnapMode:
+        updates.screenSnapMode !== undefined ? updates.screenSnapMode : current.screenSnapMode,
       isConfigured:
         updates.isConfigured !== undefined ? updates.isConfigured : current.isConfigured,
     });

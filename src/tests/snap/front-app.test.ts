@@ -1,4 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
+
+vi.mock('../../main/utils/logger', () => ({
+  log: vi.fn(),
+  logWarn: vi.fn(),
+  logError: vi.fn(),
+}));
+
 import {
   activateTarget,
   getFrontmostTarget,
@@ -54,23 +61,36 @@ describe('activateTarget', () => {
     const calls: string[][] = [];
     const run = vi.fn(async (args: string[]) => {
       calls.push(args);
-      return calls.length > 1 ? malicious : '';
+      return calls.length > 1 ? 'focused' : '';
     });
-    await expect(activateTarget(malicious, run, 200)).resolves.toBe(true);
+    await expect(activateTarget(malicious, run, 200, 0)).resolves.toBe(true);
 
-    const activateCall = calls[0];
-    const scriptLines = activateCall.filter((_, i) => activateCall[i - 1] === '-e');
-    expect(scriptLines.join('\n')).not.toContain(malicious);
-    expect(activateCall[activateCall.length - 1]).toBe(malicious);
+    for (const call of calls) {
+      const scriptLines = call.filter((_, i) => call[i - 1] === '-e');
+      expect(scriptLines.join('\n')).not.toContain(malicious);
+      expect(call[call.length - 1]).toBe(malicious);
+    }
   });
 
-  it('resolves true once the target becomes frontmost', async () => {
+  it('waits until the target window is focused, not just frontmost', async () => {
     const run = vi
       .fn<(args: string[]) => Promise<string>>()
       .mockResolvedValueOnce('')
-      .mockResolvedValueOnce('com.other\n')
-      .mockResolvedValueOnce('com.apple.Notes\n');
-    await expect(activateTarget('com.apple.Notes', run, 1000)).resolves.toBe(true);
+      .mockResolvedValueOnce('back\n')
+      .mockResolvedValueOnce('front\n')
+      .mockResolvedValueOnce('focused\n');
+    await expect(activateTarget('com.google.Chrome', run, 1000, 0)).resolves.toBe(true);
+    expect(run).toHaveBeenCalledTimes(4);
+  });
+
+  it('still pastes when the app is frontmost but never reports a focused window', async () => {
+    const run = vi.fn(async () => 'front');
+    await expect(activateTarget('com.apple.finder', run, 150, 0)).resolves.toBe(true);
+  });
+
+  it('resolves false when the target never comes to the front', async () => {
+    const run = vi.fn(async () => 'back');
+    await expect(activateTarget('com.google.Chrome', run, 150, 0)).resolves.toBe(false);
   });
 
   it('resolves false when activation fails', async () => {

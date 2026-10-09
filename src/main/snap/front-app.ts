@@ -4,10 +4,13 @@
  */
 import { execFile } from 'child_process';
 import type { ScreenSnapTarget } from '../../shared/screen-snap';
+import { log, logWarn } from '../utils/logger';
 
 const OSASCRIPT_PATH = '/usr/bin/osascript';
-const ACTIVATE_TIMEOUT_MS = 1000;
+const ACTIVATE_TIMEOUT_MS = 1500;
 const ACTIVATE_POLL_MS = 60;
+/** Browsers restore DOM focus a beat after their window becomes key. */
+const FOCUS_SETTLE_MS = 180;
 
 export type RunOsascript = (args: string[]) => Promise<string>;
 
@@ -36,8 +39,23 @@ const FRONTMOST_SCRIPT = [
   'end tell',
 ];
 
-const FRONTMOST_BUNDLE_SCRIPT = [
-  'tell application "System Events" to get bundle identifier of first application process whose frontmost is true',
+/**
+ * "focused" once the app is frontmost and has a focused window (key window),
+ * "front" when frontmost without one yet, "back" otherwise. Web content only
+ * restores focus to the previously focused input after its window is key.
+ */
+const FOCUS_STATE_SCRIPT = [
+  'on run argv',
+  '  tell application "System Events"',
+  '    set p to first application process whose frontmost is true',
+  '    if bundle identifier of p is not (item 1 of argv) then return "back"',
+  '    try',
+  '      set w to value of attribute "AXFocusedWindow" of p',
+  '      if w is not missing value then return "focused"',
+  '    end try',
+  '    return "front"',
+  '  end tell',
+  'end run',
 ];
 
 const ACTIVATE_SCRIPT = [
@@ -84,26 +102,46 @@ export async function getFrontmostTarget(
   }
 }
 
-/** Re-activate the target app and wait until it is frontmost (so Cmd+V lands there). */
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Re-activate the target app and wait until its window is key and has had a
+ * moment to restore focus to the previously focused field (so Cmd+V lands there).
+ */
 export async function activateTarget(
   bundleId: string,
   run: RunOsascript = defaultRunOsascript,
-  timeoutMs: number = ACTIVATE_TIMEOUT_MS
+  timeoutMs: number = ACTIVATE_TIMEOUT_MS,
+  settleMs: number = FOCUS_SETTLE_MS
 ): Promise<boolean> {
   try {
     await run(toOsascriptArgs(ACTIVATE_SCRIPT, [bundleId]));
-  } catch {
+  } catch (error) {
+    logWarn('[ScreenSnap] Activate failed', bundleId, error);
     return false;
   }
   const deadline = Date.now() + timeoutMs;
+  let sawFront = false;
   while (Date.now() < deadline) {
+    let state: string;
     try {
-      const front = (await run(toOsascriptArgs(FRONTMOST_BUNDLE_SCRIPT))).trim();
-      if (front === bundleId) return true;
-    } catch {
+      state = (await run(toOsascriptArgs(FOCUS_STATE_SCRIPT, [bundleId]))).trim();
+    } catch (error) {
+      logWarn('[ScreenSnap] Focus check failed', bundleId, error);
       return false;
     }
-    await new Promise((resolve) => setTimeout(resolve, ACTIVATE_POLL_MS));
+    if (state === 'focused') {
+      await sleep(settleMs);
+      return true;
+    }
+    if (state === 'front') sawFront = true;
+    await sleep(ACTIVATE_POLL_MS);
   }
+  if (sawFront) {
+    log('[ScreenSnap] Target frontmost without a focused window; pasting anyway', bundleId);
+    await sleep(settleMs);
+    return true;
+  }
+  logWarn('[ScreenSnap] Target never became frontmost', bundleId);
   return false;
 }

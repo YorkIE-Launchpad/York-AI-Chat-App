@@ -84,6 +84,8 @@ import {
 } from './dictation/dictation-apple-sink';
 import { createRealtimeTranslationSession } from './dictation/dictation-service';
 import { ScreenSnapController, SNAP_WRITE_SYSTEM_PROMPT } from './snap/screen-snap';
+import { SCREEN_PERMISSION_RELAUNCH_FLAG } from './snap/screen-permission';
+import { getInitialSessionTitle } from '../shared/session-title';
 import {
   appleMeetingTranscriptionService,
   getMeetingSttProviderConfig,
@@ -859,7 +861,7 @@ const screenSnap = new ScreenSnapController({
       await win.loadFile(join(__dirname, '../../dist/index.html'), { hash: 'snap' });
     }
   },
-  onSubmitQueued: () => {
+  onOpenQueued: () => {
     if (!mainWindow || mainWindow.isDestroyed()) {
       createWindow();
     }
@@ -871,7 +873,45 @@ const screenSnap = new ScreenSnapController({
     }
     mainWindow.show();
     mainWindow.focus();
-    mainWindow.webContents.send('server-event', { type: 'snap-submit' });
+    mainWindow.webContents.send('server-event', { type: 'snap-open-session' });
+  },
+  startChat: async ({ text, image }, bind) => {
+    if (!configStore.hasUsableCredentialsForActiveSet()) {
+      throw new Error('No model is configured. Open GrowthOS and choose a model first.');
+    }
+    const prompt = text.trim() || 'What is in this screenshot?';
+    const session = (await handleClientEvent({
+      type: 'session.create',
+      payload: {
+        title: getInitialSessionTitle(prompt),
+        cwd: configStore.get('defaultWorkdir') || undefined,
+      },
+    })) as { id: string } | null;
+    if (!session?.id || !sessionManager) {
+      throw new Error('Could not start a GrowthOS chat');
+    }
+    sendToRenderer({ type: 'session.list', payload: { sessions: sessionManager.listSessions() } });
+    bind(session.id);
+    // Broadcast so both the panel and the main window render the user turn.
+    await sessionManager.continueSession(
+      session.id,
+      prompt,
+      [
+        {
+          type: 'image',
+          source: { type: 'base64', media_type: image.mediaType, data: image.base64 },
+        },
+        { type: 'text', text: prompt },
+      ],
+      { broadcastUserMessage: true }
+    );
+    return session.id;
+  },
+  continueChat: async (sessionId, text) => {
+    if (!sessionManager) throw new Error('Session manager not initialized');
+    await sessionManager.continueSession(sessionId, text, [{ type: 'text', text }], {
+      broadcastUserMessage: true,
+    });
   },
   notify: (title, body) => showOsNotification({ title, body, tag: 'ScreenSnap' }),
   getMode: () => configStore.get('screenSnapMode') ?? 'chat',
@@ -1838,6 +1878,7 @@ function sendToRenderer(event: ServerEvent) {
   } else if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('server-event', event);
   }
+  screenSnap.forwardSessionEvent(event);
 }
 
 // Initialize app
@@ -2505,6 +2546,16 @@ app
     // macOS: application menu, dock menu, tray icon
     screenSnap.registerIpc();
     screenSnap.registerShortcut(configStore.get('screenSnapShortcut'));
+    if (process.argv.includes(SCREEN_PERMISSION_RELAUNCH_FLAG)) {
+      const shortcut = screenSnap.getShortcut();
+      showOsNotification({
+        title: 'Screen Snap is ready',
+        body: shortcut
+          ? `Screen Recording is enabled. Press ${shortcut.replace('CommandOrControl', 'Cmd')} to snap.`
+          : 'Screen Recording is enabled.',
+        tag: 'ScreenSnap',
+      });
+    }
     buildMacMenu();
     setupTray();
     registerAskGrowthOSShortcut();

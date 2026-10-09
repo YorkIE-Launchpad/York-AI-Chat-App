@@ -3,18 +3,36 @@ import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 
 const resizeMock = vi.fn();
 const windowEvents: string[] = [];
+const createdWindows = vi.hoisted(
+  () =>
+    [] as Array<{
+      options: Record<string, unknown>;
+      webContents: { send: ReturnType<typeof vi.fn> };
+      setVisibleOnAllWorkspaces: ReturnType<typeof vi.fn>;
+      setResizable: ReturnType<typeof vi.fn>;
+    }>
+);
 
 vi.mock('electron', () => {
   class FakeWindow {
     private destroyed = false;
+    private bounds = { x: 100, y: 100, width: 560, height: 500 };
     webContents = {
       setWindowOpenHandler: vi.fn(),
       on: vi.fn(),
       send: vi.fn(),
+      focus: vi.fn(),
     };
+    constructor(public options: Record<string, unknown>) {
+      createdWindows.push(this as never);
+    }
     setAlwaysOnTop = vi.fn();
     setVisibleOnAllWorkspaces = vi.fn();
-    setBounds = vi.fn();
+    setResizable = vi.fn();
+    getBounds = () => this.bounds;
+    setBounds = vi.fn((next: { x: number; y: number; width: number; height: number }) => {
+      this.bounds = next;
+    });
     once = vi.fn();
     on = vi.fn();
     focus = vi.fn();
@@ -48,6 +66,7 @@ vi.mock('electron', () => {
     screen: {
       getCursorScreenPoint: () => ({ x: 0, y: 0 }),
       getDisplayNearestPoint: () => ({ workArea: { x: 0, y: 0, width: 1440, height: 900 } }),
+      getDisplayMatching: () => ({ workArea: { x: 0, y: 0, width: 1440, height: 900 } }),
     },
     shell: { openExternal: vi.fn() },
     systemPreferences: {
@@ -222,7 +241,7 @@ describe('ScreenSnapController shortcuts', () => {
   });
 });
 
-describe('ScreenSnapController submit queue', () => {
+describe('ScreenSnapController in-place chat', () => {
   const image: ScreenSnapImage = {
     base64: 'abc',
     mediaType: 'image/png',
@@ -230,23 +249,146 @@ describe('ScreenSnapController submit queue', () => {
     height: 10,
   };
 
-  it('queues a submit until the main window takes it', () => {
-    const onSubmitQueued = vi.fn();
+  beforeEach(() => {
+    createdWindows.length = 0;
+    windowEvents.length = 0;
+  });
+
+  const openPanel = async (overrides: Partial<ScreenSnapControllerOptions> = {}) => {
     const controller = new ScreenSnapController({
       platform: 'darwin',
       persistShortcut: vi.fn(),
-      onSubmitQueued,
+      capture: async () => image,
+      getMode: () => 'chat',
+      getFrontmostTarget: async () => null,
+      startChat: async (_payload, bind) => {
+        bind('session-1');
+        return 'session-1';
+      },
+      ...overrides,
     });
-    expect(controller.submit({ text: 'what is this?', image })).toBe(true);
-    expect(onSubmitQueued).toHaveBeenCalledTimes(1);
-    expect(controller.takePendingSubmit()).toEqual({ text: 'what is this?', image });
-    expect(controller.takePendingSubmit()).toBeNull();
+    await controller.trigger();
+    return { controller, panel: createdWindows[createdWindows.length - 1] };
+  };
+
+  it('opens the composer as a non-activating panel that does not switch Spaces', async () => {
+    const { panel } = await openPanel();
+    expect(panel.options.type).toBe('panel');
+    expect(panel.setVisibleOnAllWorkspaces).toHaveBeenCalledWith(true, {
+      visibleOnFullScreen: true,
+      skipTransformProcessType: true,
+    });
   });
 
-  it('rejects a submit without image data', () => {
-    const controller = new ScreenSnapController({ platform: 'darwin', persistShortcut: vi.fn() });
-    expect(controller.submit({ text: 'hi', image: { ...image, base64: '' } })).toBe(false);
-    expect(controller.takePendingSubmit()).toBeNull();
+  it('starts a chat, binds the session before prompting, and grows the panel', async () => {
+    const order: string[] = [];
+    const { controller, panel } = await openPanel({
+      startChat: async (payload, bind) => {
+        order.push(`start:${payload.text}`);
+        bind('session-1');
+        order.push(`bound:${controller.getChatSessionId()}`);
+        return 'session-1';
+      },
+    });
+    await expect(controller.startChat({ text: 'what is this?', image })).resolves.toEqual({
+      success: true,
+      sessionId: 'session-1',
+    });
+    expect(order).toEqual(['start:what is this?', 'bound:session-1']);
+    expect(panel.setResizable).toHaveBeenLastCalledWith(true);
+  });
+
+  it('reports a failed start and keeps the panel in compose layout', async () => {
+    const { controller } = await openPanel({
+      startChat: async () => {
+        throw new Error('No model is configured');
+      },
+    });
+    await expect(controller.startChat({ text: 'hi', image })).resolves.toEqual({
+      success: false,
+      error: 'No model is configured',
+    });
+    expect(controller.getChatSessionId()).toBeNull();
+  });
+
+  it('forwards only events for the panel session', async () => {
+    const { controller, panel } = await openPanel();
+    await controller.startChat({ text: 'hi', image });
+
+    controller.forwardSessionEvent({
+      type: 'stream.partial',
+      payload: { sessionId: 'session-1', delta: 'He' },
+    });
+    controller.forwardSessionEvent({
+      type: 'stream.partial',
+      payload: { sessionId: 'other', delta: 'x' },
+    });
+    controller.forwardSessionEvent({ type: 'session.list', payload: { sessions: [] } });
+
+    const sent = panel.webContents.send.mock.calls.filter(
+      ([channel]) => channel === 'snap:sessionEvent'
+    );
+    expect(sent).toHaveLength(1);
+    expect(sent[0][1]).toEqual({
+      type: 'stream.partial',
+      payload: { sessionId: 'session-1', delta: 'He' },
+    });
+  });
+
+  it('forwards permission dismissals for requests it forwarded', async () => {
+    const { controller, panel } = await openPanel();
+    await controller.startChat({ text: 'hi', image });
+
+    controller.forwardSessionEvent({
+      type: 'permission.request',
+      payload: { sessionId: 'session-1', toolUseId: 'tool-1', toolName: 'bash', input: {} },
+    });
+    controller.forwardSessionEvent({
+      type: 'permission.dismiss',
+      payload: { toolUseId: 'tool-1' },
+    });
+    controller.forwardSessionEvent({
+      type: 'permission.dismiss',
+      payload: { toolUseId: 'tool-9' },
+    });
+
+    const sent = panel.webContents.send.mock.calls
+      .filter(([channel]) => channel === 'snap:sessionEvent')
+      .map(([, event]) => (event as { type: string }).type);
+    expect(sent).toEqual(['permission.request', 'permission.dismiss']);
+  });
+
+  it('stops forwarding after the panel closes', async () => {
+    const { controller, panel } = await openPanel();
+    await controller.startChat({ text: 'hi', image });
+    expect(controller.openInGrowthOS()).toBe(true);
+    panel.webContents.send.mockClear();
+    controller.forwardSessionEvent({
+      type: 'stream.partial',
+      payload: { sessionId: 'session-1', delta: 'x' },
+    });
+    expect(panel.webContents.send).not.toHaveBeenCalled();
+  });
+
+  it('continues the chat on the bound session', async () => {
+    const continueChat = vi.fn(async () => undefined);
+    const { controller } = await openPanel({ continueChat });
+    await controller.startChat({ text: 'hi', image });
+    await expect(controller.continueChat('  and then?  ')).resolves.toEqual({ success: true });
+    expect(continueChat).toHaveBeenCalledWith('session-1', 'and then?');
+  });
+
+  it('queues Open in GrowthOS for the main window and closes the panel', async () => {
+    const onOpenQueued = vi.fn();
+    const { controller } = await openPanel({ onOpenQueued });
+    expect(controller.openInGrowthOS()).toBe(false);
+
+    await controller.startChat({ text: 'hi', image });
+    expect(controller.openInGrowthOS()).toBe(true);
+    expect(onOpenQueued).toHaveBeenCalledTimes(1);
+    expect(windowEvents).toContain('close');
+    expect(controller.takePendingOpen()).toBe('session-1');
+    expect(controller.takePendingOpen()).toBeNull();
   });
 });
 

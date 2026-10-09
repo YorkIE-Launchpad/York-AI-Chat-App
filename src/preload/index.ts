@@ -50,11 +50,14 @@ import type {
 import type { ManualUpdateDownloadResult, UpdaterStatus } from '../shared/updater-types';
 import type { WhatsNewPayload } from '../shared/whats-new-types';
 import type {
+  ScreenSnapChatResult,
   ScreenSnapComposerState,
   ScreenSnapGenerateRequest,
   ScreenSnapGenerateResult,
   ScreenSnapInsertResult,
+  ScreenSnapLayout,
   ScreenSnapMode,
+  ScreenSnapSessionEvent,
   ScreenSnapShortcutResult,
   ScreenSnapSubmitPayload,
 } from '../shared/screen-snap';
@@ -1239,11 +1242,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('snap.insert', text),
     openAccessibilitySettings: (): Promise<{ success: boolean }> =>
       ipcRenderer.invoke('snap.openAccessibilitySettings'),
-    submit: (payload: ScreenSnapSubmitPayload): Promise<{ success: boolean }> =>
-      ipcRenderer.invoke('snap.submit', payload),
+    startChat: (payload: ScreenSnapSubmitPayload): Promise<ScreenSnapChatResult> =>
+      ipcRenderer.invoke('snap.startChat', payload),
+    continueChat: (text: string): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('snap.continueChat', text),
+    openInGrowthOS: (): Promise<{ success: boolean }> => ipcRenderer.invoke('snap.openInGrowthOS'),
+    takePendingOpen: (): Promise<string | null> => ipcRenderer.invoke('snap.takePendingOpen'),
+    setLayout: (layout: ScreenSnapLayout): Promise<{ success: boolean }> =>
+      ipcRenderer.invoke('snap.setLayout', layout),
+    onSessionEvent: (callback: (event: ScreenSnapSessionEvent) => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, event: ScreenSnapSessionEvent) =>
+        callback(event);
+      ipcRenderer.on('snap:sessionEvent', listener);
+      return () => ipcRenderer.removeListener('snap:sessionEvent', listener);
+    },
     cancel: (): Promise<{ success: boolean }> => ipcRenderer.invoke('snap.cancel'),
-    takePendingSubmit: (): Promise<ScreenSnapSubmitPayload | null> =>
-      ipcRenderer.invoke('snap.takePendingSubmit'),
     getShortcut: (): Promise<{ shortcut: string | null; supported: boolean }> =>
       ipcRenderer.invoke('snap.getShortcut'),
     setShortcut: (shortcut: string | null): Promise<ScreenSnapShortcutResult> =>
@@ -2056,9 +2069,13 @@ declare global {
         onGenerateDelta: (callback: (text: string) => void) => () => void;
         insert: (text: string) => Promise<ScreenSnapInsertResult>;
         openAccessibilitySettings: () => Promise<{ success: boolean }>;
-        submit: (payload: ScreenSnapSubmitPayload) => Promise<{ success: boolean }>;
+        startChat: (payload: ScreenSnapSubmitPayload) => Promise<ScreenSnapChatResult>;
+        continueChat: (text: string) => Promise<{ success: boolean; error?: string }>;
+        openInGrowthOS: () => Promise<{ success: boolean }>;
+        takePendingOpen: () => Promise<string | null>;
+        setLayout: (layout: ScreenSnapLayout) => Promise<{ success: boolean }>;
+        onSessionEvent: (callback: (event: ScreenSnapSessionEvent) => void) => () => void;
         cancel: () => Promise<{ success: boolean }>;
-        takePendingSubmit: () => Promise<ScreenSnapSubmitPayload | null>;
         getShortcut: () => Promise<{ shortcut: string | null; supported: boolean }>;
         setShortcut: (shortcut: string | null) => Promise<ScreenSnapShortcutResult>;
         trigger: () => Promise<{ success: boolean }>;

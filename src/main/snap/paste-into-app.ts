@@ -7,7 +7,8 @@ import { defaultRunOsascript, type RunOsascript } from './front-app';
 import { logWarn } from '../utils/logger';
 
 const PASTE_SCRIPT = ['-e', 'tell application "System Events" to keystroke "v" using command down'];
-export const CLIPBOARD_RESTORE_DELAY_MS = 600;
+/** Long enough for slow apps (e.g. busy browser tabs) to read the clipboard on paste. */
+export const CLIPBOARD_RESTORE_DELAY_MS = 1500;
 
 export interface ClipboardLike {
   readText: () => string;

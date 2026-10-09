@@ -52,6 +52,33 @@ export interface ScreenSnapSubmitPayload {
   image: ScreenSnapImage;
 }
 
+export type ScreenSnapChatResult =
+  | { success: true; sessionId: string }
+  | { success: false; error: string };
+
+export type ScreenSnapLayout = 'compose' | 'chat-active';
+
+/** Session events mirrored to the panel for its in-place chat (subset of ServerEvent). */
+export const SNAP_FORWARDED_EVENT_TYPES = [
+  'stream.message',
+  'stream.messageUpdate',
+  'stream.partial',
+  'session.status',
+  'trace.step',
+  'trace.update',
+  'permission.request',
+  'permission.dismiss',
+  'question.request',
+  'question.dismiss',
+] as const;
+
+export type ScreenSnapForwardedEventType = (typeof SNAP_FORWARDED_EVENT_TYPES)[number];
+
+export interface ScreenSnapSessionEvent {
+  type: ScreenSnapForwardedEventType;
+  payload: { sessionId: string; [key: string]: unknown };
+}
+
 export type ScreenSnapShortcutResult =
   | { success: true; shortcut: string | null }
   | { success: false; reason: 'invalid' | 'conflict' | 'reserved'; shortcut: string | null };

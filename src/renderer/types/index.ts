@@ -906,8 +906,8 @@ export type ServerEvent =
   | { type: 'new-session' }
   | { type: 'open-ask-growthos' }
   | { type: 'open-ask-growthos-toggle' }
-  /** A Screen Snap is queued in main; pull it via `snap.takePendingSubmit`. */
-  | { type: 'snap-submit' }
+  /** A Screen Snap chat should open here; pull its session id via `snap.takePendingOpen`. */
+  | { type: 'snap-open-session' }
   | { type: 'navigate'; payload: string }
   | { type: 'scheduled-task.error'; payload: { taskId: string; error: string } }
   | {

@@ -1,6 +1,7 @@
 /**
  * Screen Snap (macOS): global shortcut -> capture -> floating composer window.
- * - "chat" mode: native region selector, then a new GrowthOS chat with the image.
+ * - "chat" mode: native region selector, then an in-place chat in the panel,
+ *   backed by a real GrowthOS session (so the chat is also saved in GrowthOS).
  * - "write" mode: front-window capture, quick vision answer, then paste the
  *   text into the field that was focused in the original app.
  */
@@ -22,8 +23,11 @@ import {
 import { log, logError, logWarn } from '../utils/logger';
 import {
   DEFAULT_SCREEN_SNAP_SHORTCUT,
+  SNAP_FORWARDED_EVENT_TYPES,
   validateScreenSnapAccelerator,
+  type ScreenSnapChatResult,
   type ScreenSnapComposerState,
+  type ScreenSnapLayout,
   type ScreenSnapGenerateRequest,
   type ScreenSnapGenerateResult,
   type ScreenSnapImage,
@@ -38,14 +42,13 @@ import {
   getFrontmostTarget as defaultGetFrontmostTarget,
 } from './front-app';
 import { pasteText as defaultPasteText, type PasteResult } from './paste-into-app';
+import { ScreenRecordingPermission } from './screen-permission';
 
 /** Claude rejects base64 images over 5MB; base64 adds ~33%. */
 export const MAX_SNAP_IMAGE_BYTES = 3.75 * 1024 * 1024;
 export const SNAP_DOWNSCALE_MAX_EDGE = 2048;
 const SNAP_JPEG_QUALITY = 85;
 const SCREENCAPTURE_PATH = '/usr/sbin/screencapture';
-const SCREEN_RECORDING_SETTINGS_URL =
-  'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture';
 const ACCESSIBILITY_SETTINGS_URL =
   'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility';
 
@@ -57,6 +60,7 @@ export const SNAP_WRITE_SYSTEM_PROMPT =
 
 const COMPOSER_WIDTH = 560;
 const COMPOSER_HEIGHT: Record<ScreenSnapMode, number> = { chat: 500, write: 660 };
+const CHAT_ACTIVE_HEIGHT = 720;
 
 export type ExecFileFn = (file: string, args: string[]) => Promise<void>;
 
@@ -160,11 +164,21 @@ export interface ScreenSnapControllerOptions {
   /** Called after the active shortcut changes so menus can relabel. */
   onShortcutChanged?: (shortcut: string | null) => void;
   /**
-   * Called after a snap is queued: focus the main window and tell its renderer
-   * to pull it via `snap.takePendingSubmit` (queued so a cold-starting window
-   * does not miss it).
+   * Called after "Open in GrowthOS": focus the main window and tell its renderer
+   * to pull the session via `snap.takePendingOpen` (queued so a cold-starting
+   * window does not miss it).
    */
-  onSubmitQueued?: () => void;
+  onOpenQueued?: () => void;
+  /**
+   * Start a real GrowthOS session for the in-place chat; resolves its id.
+   * Must call `bind(sessionId)` before enqueueing the prompt so no early
+   * stream events are dropped.
+   */
+  startChat?: (
+    payload: ScreenSnapSubmitPayload,
+    bind: (sessionId: string) => void
+  ) => Promise<string>;
+  continueChat?: (sessionId: string, text: string) => Promise<void>;
   /** Loads the renderer (dev URL or dist) into the composer window with `#snap`. */
   loadComposer?: (win: BrowserWindow) => Promise<void>;
   preloadPath?: string;
@@ -184,6 +198,8 @@ export interface ScreenSnapControllerOptions {
   pasteText?: (text: string) => Promise<PasteResult>;
   isAccessibilityTrusted?: (prompt: boolean) => boolean;
   writeClipboard?: (text: string) => void;
+  /** Resolves true when Screen Recording is granted; otherwise runs the permission flow. */
+  ensureScreenPermission?: () => Promise<boolean>;
 }
 
 export class ScreenSnapController {
@@ -191,9 +207,13 @@ export class ScreenSnapController {
   private capturing = false;
   private composer: BrowserWindow | null = null;
   private pendingState: ScreenSnapComposerState | null = null;
-  private pendingSubmit: ScreenSnapSubmitPayload | null = null;
+  private pendingOpenSessionId: string | null = null;
+  private chatSessionId: string | null = null;
+  private readonly forwardedPermissions = new Set<string>();
+  private layout: ScreenSnapLayout = 'compose';
   private target: ScreenSnapTarget | null = null;
   private generateAbort: AbortController | null = null;
+  private screenPermission: ScreenRecordingPermission | null = null;
   private readonly platform: NodeJS.Platform;
   private readonly globalShortcut: GlobalShortcutLike;
   private readonly capture: () => Promise<ScreenSnapImage | null>;
@@ -268,10 +288,11 @@ export class ScreenSnapController {
   /** Start a capture (shortcut, menu, or tray). No-op while one is running. */
   async trigger(): Promise<void> {
     if (!this.isSupported || this.capturing) return;
-    if (!this.ensureScreenPermission()) return;
 
     this.capturing = true;
     try {
+      if (!(await this.ensureScreenPermission())) return;
+
       // Record the app the user is in before any GrowthOS window takes focus.
       const getFront = this.options.getFrontmostTarget ?? (() => defaultGetFrontmostTarget());
       this.target = await getFront().catch(() => null);
@@ -295,30 +316,101 @@ export class ScreenSnapController {
     }
   }
 
-  submit(payload: ScreenSnapSubmitPayload): boolean {
-    if (!payload?.image?.base64) return false;
+  getChatSessionId(): string | null {
+    return this.chatSessionId;
+  }
+
+  /** Start the in-place chat: a real GrowthOS session mirrored into the panel. */
+  async startChat(payload: ScreenSnapSubmitPayload): Promise<ScreenSnapChatResult> {
+    if (!this.options.startChat) return { success: false, error: 'Chat unavailable' };
+    if (!payload?.image?.base64) return { success: false, error: 'Missing image' };
+    if (this.chatSessionId) return { success: true, sessionId: this.chatSessionId };
+    const composer = this.composer;
+    try {
+      const sessionId = await this.options.startChat(
+        { text: typeof payload.text === 'string' ? payload.text : '', image: payload.image },
+        (id) => {
+          if (this.composer === composer) {
+            this.chatSessionId = id;
+            this.setLayout('chat-active');
+          }
+        }
+      );
+      return { success: true, sessionId };
+    } catch (error) {
+      if (this.composer === composer) {
+        this.resetChat();
+        this.resizeComposer();
+      }
+      logError('[ScreenSnap] Failed to start chat:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  async continueChat(text: string): Promise<{ success: boolean; error?: string }> {
+    const sessionId = this.chatSessionId;
+    if (!sessionId || !this.options.continueChat) {
+      return { success: false, error: 'No active chat' };
+    }
+    if (!text?.trim()) return { success: false, error: 'Empty message' };
+    try {
+      await this.options.continueChat(sessionId, text.trim());
+      return { success: true };
+    } catch (error) {
+      logError('[ScreenSnap] Failed to continue chat:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  /** Hand the in-place chat over to the main window and close the panel. */
+  openInGrowthOS(): boolean {
+    const sessionId = this.chatSessionId;
+    if (!sessionId) return false;
+    this.pendingOpenSessionId = sessionId;
     this.closeComposer();
-    this.pendingSubmit = {
-      text: typeof payload.text === 'string' ? payload.text : '',
-      image: payload.image,
-    };
-    this.options.onSubmitQueued?.();
+    this.options.onOpenQueued?.();
     return true;
   }
 
-  takePendingSubmit(): ScreenSnapSubmitPayload | null {
-    const pending = this.pendingSubmit;
-    this.pendingSubmit = null;
+  takePendingOpen(): string | null {
+    const pending = this.pendingOpenSessionId;
+    this.pendingOpenSessionId = null;
     return pending;
+  }
+
+  /** Mirror events for the panel's chat session into the panel. */
+  forwardSessionEvent(event: { type: string; payload?: unknown }): void {
+    const sessionId = this.chatSessionId;
+    if (!sessionId || !this.composer || this.composer.isDestroyed()) return;
+    if (!(SNAP_FORWARDED_EVENT_TYPES as readonly string[]).includes(event.type)) return;
+    const payload = event.payload as { sessionId?: string; toolUseId?: string } | undefined;
+    if (event.type === 'permission.dismiss') {
+      // Dismissals carry no sessionId; match the requests we forwarded.
+      if (!payload?.toolUseId || !this.forwardedPermissions.delete(payload.toolUseId)) return;
+      this.composer.webContents.send('snap:sessionEvent', {
+        ...event,
+        payload: { ...payload, sessionId },
+      });
+      return;
+    }
+    if (payload?.sessionId !== sessionId) return;
+    if (event.type === 'permission.request' && payload.toolUseId) {
+      this.forwardedPermissions.add(payload.toolUseId);
+    }
+    this.composer.webContents.send('snap:sessionEvent', event);
+  }
+
+  setLayout(layout: ScreenSnapLayout): void {
+    if (layout !== 'compose' && layout !== 'chat-active') return;
+    this.layout = layout;
+    this.resizeComposer();
   }
 
   setMode(mode: ScreenSnapMode): void {
     if (mode !== 'chat' && mode !== 'write') return;
     this.options.persistMode?.(mode);
     if (this.pendingState) this.pendingState = { ...this.pendingState, mode };
-    if (this.composer && !this.composer.isDestroyed()) {
-      this.composer.setBounds(this.composerBounds(mode));
-    }
+    this.resizeComposer();
   }
 
   /** Stream a vision answer for "write" mode. Cancels any generation in flight. */
@@ -378,6 +470,7 @@ export class ScreenSnapController {
     const activate =
       this.options.activateTarget ?? ((bundleId: string) => defaultActivateTarget(bundleId));
     if (!(await activate(target.bundleId))) {
+      logWarn('[ScreenSnap] Could not re-activate target', target.bundleId);
       writeClipboard(text);
       this.showComposer();
       return { success: false, reason: 'target_unavailable' };
@@ -386,19 +479,29 @@ export class ScreenSnapController {
     const paste = this.options.pasteText ?? ((value: string) => defaultPasteText(value));
     const result = await paste(text);
     if (!result.success) {
+      logWarn('[ScreenSnap] Paste failed', target.bundleId, result.reason);
       this.showComposer();
       return { success: false, reason: result.reason };
     }
+    log('[ScreenSnap] Pasted into', target.bundleId, `${text.length} chars`);
     this.closeComposer();
     return { success: true };
   }
 
   registerIpc(): void {
     ipcMain.handle('snap.getPendingState', () => this.pendingState);
-    ipcMain.handle('snap.submit', (_event, payload: ScreenSnapSubmitPayload) => ({
-      success: this.submit(payload),
-    }));
-    ipcMain.handle('snap.takePendingSubmit', () => this.takePendingSubmit());
+    ipcMain.handle('snap.startChat', (_event, payload: ScreenSnapSubmitPayload) =>
+      this.startChat(payload)
+    );
+    ipcMain.handle('snap.continueChat', (_event, text: string) =>
+      this.continueChat(typeof text === 'string' ? text : '')
+    );
+    ipcMain.handle('snap.openInGrowthOS', () => ({ success: this.openInGrowthOS() }));
+    ipcMain.handle('snap.takePendingOpen', () => this.takePendingOpen());
+    ipcMain.handle('snap.setLayout', (_event, layout: ScreenSnapLayout) => {
+      this.setLayout(layout);
+      return { success: true };
+    });
     ipcMain.handle('snap.cancel', () => {
       this.closeComposer();
       return { success: true };
@@ -440,6 +543,7 @@ export class ScreenSnapController {
   dispose(): void {
     this.unregisterActive();
     this.closeComposer();
+    this.screenPermission?.dispose();
   }
 
   private tryRegister(accelerator: string): boolean {
@@ -463,30 +567,40 @@ export class ScreenSnapController {
     this.activeShortcut = null;
   }
 
-  private ensureScreenPermission(): boolean {
-    const status = systemPreferences.getMediaAccessStatus('screen');
-    if (status !== 'denied' && status !== 'restricted') return true;
-    logWarn('[ScreenSnap] Screen Recording permission is', status);
-    this.options.notify?.(
-      'Screen Recording permission needed',
-      'Allow York GrowthOS in System Settings > Privacy & Security > Screen Recording to use Screen Snap.'
-    );
-    void shell.openExternal(SCREEN_RECORDING_SETTINGS_URL);
-    return false;
+  private ensureScreenPermission(): Promise<boolean> {
+    if (this.options.ensureScreenPermission) return this.options.ensureScreenPermission();
+    this.screenPermission ??= new ScreenRecordingPermission();
+    return this.screenPermission.ensure();
   }
 
   private showComposer(): void {
     if (this.composer && !this.composer.isDestroyed()) {
-      this.composer.show();
-      this.composer.focus();
+      this.revealComposer(this.composer);
     }
+  }
+
+  /** Show and key the panel only; never `app.focus()`, which would switch Spaces. */
+  private revealComposer(win: BrowserWindow): void {
+    win.show();
+    win.focus();
+    win.webContents.focus();
+  }
+
+  private resetChat(): void {
+    this.chatSessionId = null;
+    this.forwardedPermissions.clear();
+    this.layout = 'compose';
+  }
+
+  private composerHeight(mode: ScreenSnapMode): number {
+    return this.layout === 'chat-active' ? CHAT_ACTIVE_HEIGHT : COMPOSER_HEIGHT[mode];
   }
 
   /** Centered on the display under the cursor. */
   private composerBounds(mode: ScreenSnapMode): Electron.Rectangle {
     const cursor = screen.getCursorScreenPoint();
     const { workArea } = screen.getDisplayNearestPoint(cursor);
-    const height = Math.min(COMPOSER_HEIGHT[mode], workArea.height);
+    const height = Math.min(this.composerHeight(mode), workArea.height);
     return {
       x: Math.round(workArea.x + (workArea.width - COMPOSER_WIDTH) / 2),
       y: Math.round(workArea.y + (workArea.height - height) / 2),
@@ -495,12 +609,30 @@ export class ScreenSnapController {
     };
   }
 
+  /** Resize in place (keeps the panel where the user dragged it), clamped to its display. */
+  private resizeComposer(): void {
+    const win = this.composer;
+    if (!win || win.isDestroyed()) return;
+    const mode = this.pendingState?.mode ?? 'chat';
+    const current = win.getBounds();
+    const { workArea } = screen.getDisplayMatching(current);
+    const height = Math.min(this.composerHeight(mode), workArea.height);
+    const centerY = current.y + current.height / 2;
+    const y = Math.round(
+      Math.min(Math.max(centerY - height / 2, workArea.y), workArea.y + workArea.height - height)
+    );
+    win.setResizable(this.layout === 'chat-active');
+    win.setBounds({ x: current.x, y, width: current.width, height });
+  }
+
   private openComposer(state: ScreenSnapComposerState): void {
     this.cancelGenerate();
+    this.resetChat();
     this.pendingState = state;
     const bounds = this.composerBounds(state.mode);
 
     if (this.composer && !this.composer.isDestroyed()) {
+      this.composer.setResizable(false);
       this.composer.setBounds(bounds);
       this.composer.webContents.send('snap:image', state);
       this.showComposer();
@@ -509,6 +641,9 @@ export class ScreenSnapController {
 
     const win = new BrowserWindow({
       ...bounds,
+      // Non-activating NSPanel: takes keyboard focus without activating GrowthOS,
+      // so macOS does not switch Spaces and the snapped app stays frontmost.
+      type: this.platform === 'darwin' ? 'panel' : undefined,
       frame: false,
       transparent: true,
       hasShadow: false,
@@ -516,6 +651,8 @@ export class ScreenSnapController {
       minimizable: false,
       maximizable: false,
       fullscreenable: false,
+      minWidth: 420,
+      minHeight: 360,
       skipTaskbar: true,
       alwaysOnTop: true,
       show: false,
@@ -531,11 +668,12 @@ export class ScreenSnapController {
     win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     win.webContents.on('will-navigate', (event) => event.preventDefault());
     win.setAlwaysOnTop(true, 'floating');
-    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-    win.once('ready-to-show', () => {
-      win.show();
-      win.focus();
+    // Without skipTransformProcessType Electron flips the process type, which makes macOS switch Spaces.
+    win.setVisibleOnAllWorkspaces(true, {
+      visibleOnFullScreen: true,
+      skipTransformProcessType: true,
     });
+    win.once('ready-to-show', () => this.revealComposer(win));
     win.webContents.on('did-finish-load', () => {
       if (this.pendingState) {
         win.webContents.send('snap:image', this.pendingState);
@@ -545,6 +683,7 @@ export class ScreenSnapController {
       if (this.composer === win) {
         this.composer = null;
         this.pendingState = null;
+        this.resetChat();
         this.cancelGenerate();
       }
     });
@@ -560,6 +699,7 @@ export class ScreenSnapController {
     const win = this.composer;
     this.composer = null;
     this.pendingState = null;
+    this.resetChat();
     this.cancelGenerate();
     if (win && !win.isDestroyed()) {
       win.close();

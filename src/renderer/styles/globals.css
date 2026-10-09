@@ -475,8 +475,9 @@
   inherits: false;
 }
 
+/* Solid: CSS backdrop blur cannot see through a transparent Electron window. */
 .snap-card {
-  background: color-mix(in srgb, var(--color-background) 88%, transparent);
+  background: var(--color-background);
 }
 
 .snap-drag {

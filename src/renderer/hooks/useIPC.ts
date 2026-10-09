@@ -28,8 +28,8 @@ import i18n from '../i18n/config';
 import { divisionPayloadFromActiveDivision } from '../../shared/workspace-division';
 import { readStoredUser } from '../auth/auth-storage';
 
-/** Kept in sync with `SNAP_SUBMIT_WINDOW_EVENT` in useSnapSubmit (avoids a circular import). */
-const SNAP_SUBMIT_WINDOW_EVENT = 'growthos:snap-submit';
+/** Kept in sync with `SNAP_OPEN_SESSION_WINDOW_EVENT` in useSnapOpenSession (avoids a circular import). */
+const SNAP_OPEN_SESSION_WINDOW_EVENT = 'growthos:snap-open-session';
 
 function sharedChatAuthor(sessionId: string): { authorName: string } | undefined {
   const session = useAppStore.getState().sessions.find((item) => item.id === sessionId);
@@ -528,8 +528,8 @@ export function useIPC() {
             store.toggleAskGrowthOS();
             break;
 
-          case 'snap-submit':
-            window.dispatchEvent(new Event(SNAP_SUBMIT_WINDOW_EVENT));
+          case 'snap-open-session':
+            window.dispatchEvent(new Event(SNAP_OPEN_SESSION_WINDOW_EVENT));
             break;
 
           case 'navigate':
