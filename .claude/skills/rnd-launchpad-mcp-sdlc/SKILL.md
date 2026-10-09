@@ -74,15 +74,19 @@ Pair with **`goal-runner`** when the host uses `/goal` ticks.
 
 Run in order; **never invent ids**.
 
-| # | Tool | Stop if |
-| - | ---- | ------- |
-| 1 | `get_me` | 401/403 — halt; refresh MCP key / token |
-| 2 | `list_projects` / `list_project_names` | Cannot resolve project |
-| 3 | `get_project` | Missing projectId after user/goal named it |
-| 4 | `get_integrations_status` / `get_cursor_status` | Cursor/Git required for goal and not ready → fix or `blocked` |
-| 5 | `list_releases` | Zero releases and Plan goal needs ship → create/activate (with rules) |
-| 6 | `list_versions` | (informational; drives seed) |
-| 7 | Optional: `get_project_memory` (check `knowledgeRefresh`), `get_project_rag_status` | Soft context only — memory = learned prefs + delivery/conventions/architecture/IA; RAG status = index health. Do not block the tick if either fails |
+| #   | Tool                                                                                | Stop if                                                                                                                                             |
+| --- | ----------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `get_me`                                                                            | 401/403 — halt; refresh MCP key / token                                                                                                             |
+| 2   | `list_projects` / `list_project_names`                                              | Cannot resolve project                                                                                                                              |
+| 3   | `get_project` / `get_project_settings`                                              | Missing projectId after user/goal named it                                                                                                          |
+| 4   | `get_integrations_status` / `get_cursor_status` / `get_cursor_github_readiness`     | Cursor/Git required for goal and not ready → fix or `blocked`                                                                                       |
+| 5   | `list_releases`                                                                     | Zero releases and Plan goal needs ship → create/activate (with rules)                                                                               |
+| 6   | `list_versions`                                                                     | (informational; drives seed vs first revision)                                                                                                      |
+| 7   | Optional: `get_project_memory` (check `knowledgeRefresh`), `get_project_rag_status` | Soft context only — memory = learned prefs + delivery/conventions/architecture/IA; RAG status = index health. Do not block the tick if either fails |
+| 8   | Development goals only: `get_project_conventions`, `get_project_schema_inventory`   | Soft context — extend existing tables/folders; never create parallel models                                                                         |
+
+If a tool in this skill is missing from the client, the host may run a narrower
+`MCP_TOOL_PROFILE` (`core` / `qa` / `deploy`) — report the gap, don't fall back to REST.
 
 Then run the **controller** in [continuous-loop.md](references/continuous-loop.md) § Decide.
 
@@ -90,11 +94,13 @@ Then run the **controller** in [continuous-loop.md](references/continuous-loop.m
 
 If the goal mentions **preview**, **LaunchPad UI**, **Client Link**, **visual**, **cards**, **logo**:
 
-| Do | Don't |
-| -- | ----- |
-| `start_scope_implement` with `target: "platform"` | `target: "development"` unless user named Backend Code / dev repo |
-| Poll implement → `start_preview` | Backend Code chat for UI polish |
-| Poll preview until ready | Stop after start |
+| Do                                                                                            | Don't                                                             |
+| --------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `start_scope_implement` with `target: "platform"`                                             | `target: "development"` unless user named Backend Code / dev repo |
+| Poll implement → `start_preview`                                                              | Backend Code chat for UI polish                                   |
+| Poll preview until ready                                                                      | Stop after start                                                  |
+| Share with client: `share_client_link_preview` or `create_preview_direct_link` (ECS only)     | Hand out preview host:port                                        |
+| Preview won't boot: `get_preview_manifest` → `update_preview_manifest` / `update_preview_env` | Guess dev commands in chat                                        |
 
 ---
 
@@ -108,13 +114,13 @@ If the goal mentions **preview**, **LaunchPad UI**, **Client Link**, **visual**,
 └─────────────────────────────────────────────────────────────┘
 ```
 
-| Phase | Done when (soft indicators) | Advance to | Default first tools |
-| ----- | --------------------------- | ---------- | ------------------- |
-| **Discover** | Capture/notes or questionnaire progressed; profiles partial; brief or docs if goal needs | Plan | `add_discovery_note`, `discovery_chat`, `enrich_client_details`, `generate_discovery_summary`, `generate_prd` / docs |
-| **Plan** | Epics/stories exist; **one active** release; scope set | Build | `get_backlog_suggestions` → apply; `create_epic`/`create_story`; `create_release`/`activate_release`; `set_release_scope` |
-| **Build** | Revisions advancing; preview healthy; scope items implemented or residual documented | Validate | seed → implement(platform) → preview → (migrate / agents) → (backend/cloud if in goal) |
-| **Validate** | QA run / feedback triaged / open bugs fixed or filed | Ship **or** Build (fixes) | `send_qa_chat_message`, reports → feedback AI fix |
-| **Ship** | Active locked + agent settled; new active seeded | Build (next cycle) | `lock_release` → `get_release_lock_status` → `list_releases` → `seed_release_from_prior` |
+| Phase        | Done when (soft indicators)                                                              | Advance to                | Default first tools                                                                                                         |
+| ------------ | ---------------------------------------------------------------------------------------- | ------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| **Discover** | Capture/notes or questionnaire progressed; profiles partial; brief or docs if goal needs | Plan                      | `add_discovery_note`, `discovery_chat`, `enrich_client_details`, `generate_discovery_summary`, `generate_prd` / docs        |
+| **Plan**     | Epics/stories exist; **one active** release; scope set                                   | Build                     | `get_backlog_suggestions` → apply; `create_epic`/`create_story`; `create_release`/`activate_release`; `set_release_scope`   |
+| **Build**    | Revisions advancing; preview healthy; scope items implemented or residual documented     | Validate                  | seed (or first revision) → implement(platform) → preview → (migrate / agents) → (backend/cloud/CI/CD if in goal)            |
+| **Validate** | QA run / feedback triaged / open bugs fixed or filed                                     | Ship **or** Build (fixes) | `send_qa_chat_message`, `run_client_link_verify`, visual compare runs, Sentry feedback, security findings → feedback AI fix |
+| **Ship**     | Active locked + agent settled; new active seeded                                         | Build (next cycle)        | `lock_release` → `get_release_lock_status` → `list_releases` → `seed_release_from_prior`                                    |
 
 ### Phase selector (priority)
 
@@ -145,6 +151,8 @@ Details: [continuous-loop.md](references/continuous-loop.md).
 list_releases → exactly one active (others draft | locked | skip)
        ↓
 list_versions on active → zero Rn? → seed_release_from_prior(mode=baseline_copy)
+       │   (no prior tagged revision anywhere → start_first_revision_from_prompt
+       │    or create_empty_react_revision)
        ↓
 WORK on that active only (scope / implement platform / preview / QA / feedback)
        ↓
@@ -157,33 +165,38 @@ list_releases → NEW active (often empty patch)
 seed NEW active → WORK → … forever
 ```
 
-| Rule | Detail |
-| ---- | ------ |
-| One active | Never juggle two actives for normal shipping |
-| Empty active | Seed `baseline_copy` before Build/Validate |
-| Write target | Default `platform` (frontend/preview) |
-| Poll after start | Mandatory in-turn; minutes–hours OK |
-| Post-lock | Only work on **new** active id |
-| Development implement | Lock with `skipLockAgentOperations: true` |
+| Rule                  | Detail                                                                                       |
+| --------------------- | -------------------------------------------------------------------------------------------- |
+| One active            | Never juggle two actives for normal shipping                                                 |
+| Empty active          | Seed `baseline_copy` before Build/Validate; greenfield (no prior tag) → first-revision tools |
+| Write target          | Default `platform` (frontend/preview)                                                        |
+| Poll after start      | Mandatory in-turn; minutes–hours OK                                                          |
+| Post-lock             | Only work on **new** active id                                                               |
+| Development implement | Lock with `skipLockAgentOperations: true`                                                    |
 
 ---
 
 ## Monitor matrix (start → poll → next)
 
-| Started | Poll tools | Terminal success | Terminal failure → |
-| ------- | ---------- | ---------------- | ------------------ |
-| `seed_release_from_prior` | `list_versions` | New `Rn` on active | Retry seed once; else blocked |
-| `start_scope_implement` | `get_scope_implement_active`, `get_scope_implement_run`, `list_versions` | completed + new Rn | Read errors; `clarify_scope_implement` / re-run remaining; or move bugs to feedback |
-| `migrate_frontend` | `get_cursor_agent` (+ list_versions). Prefer **only** `migrate_frontend` (same as Release UI). Tool preflights GitHub readiness. `start_migrate_frontend_agent` is not the UI path. | New Rn / agent FINISHED; pipeline completed | Fix GitHub access / invite if preflight fails; retry once with `migrate_frontend`; residual + continue |
-| `start_preview` / `restart_preview` | `get_preview_status` | ready / live URL | Restart; read logs if tools allow |
-| `lock_release` (platform) | `get_release_lock_status` | locked && !agentActive or readyForNextCycle | Don't unlock; report; don't implement on locked id |
-| `start_feedback_ai_fix` | `get_feedback_ai_fix_status` | success | Retry / clarify / manual residual |
-| `send_qa_chat_message` | `get_qa_message`, `retry_qa_generation` | report ready | retry_qa_generation |
-| `create_cursor_agent` / `spawn_dev_agent` | `get_cursor_agent` / `get_agent_status` | terminal success | stop + rethink prompt |
-| `backend_code_chat_send_message` | `backend_code_chat_get_session` | assistant terminal | Fix `prompt` field; never spawn_dev_agent as workaround |
-| `start_backend_cloud_deploy` | `get_backend_cloud_deploy_latest` / `_run` | succeeded | cancel / re-preflight / residual |
-| `run_infra_analysis` | `get_infra_analysis_latest` | completed | retry once |
-| `generate_understand_graph` | `get_understand_status` | ready | retry / residual |
+| Started                                                     | Poll tools                                                                                                                                                                          | Terminal success                            | Terminal failure →                                                                                                                                 |
+| ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `seed_release_from_prior`                                   | `list_versions`                                                                                                                                                                     | New `Rn` on active                          | No prior tag → `start_first_revision_from_prompt`; else retry once; else blocked                                                                   |
+| `start_first_revision_from_prompt`                          | `get_cursor_agent`, `list_versions`                                                                                                                                                 | R1 on active                                | Retry once with sharper prompt, or `create_empty_react_revision`                                                                                   |
+| `start_scope_implement`                                     | `get_scope_implement_active`, `get_scope_implement_run`, `list_versions`                                                                                                            | completed + new Rn                          | Read errors; `clarify_scope_implement` / re-run remaining; or move bugs to feedback. Development target: check `get_scope_schema_alignment_report` |
+| `migrate_frontend`                                          | `get_cursor_agent` (+ list_versions). Prefer **only** `migrate_frontend` (same as Release UI). Tool preflights GitHub readiness. `start_migrate_frontend_agent` is not the UI path. | New Rn / agent FINISHED; pipeline completed | Fix GitHub access / invite if preflight fails; retry once with `migrate_frontend`; residual + continue                                             |
+| `start_preview` / `restart_preview`                         | `get_preview_status`                                                                                                                                                                | ready / live URL                            | Restart; read logs if tools allow                                                                                                                  |
+| `lock_release` (platform)                                   | `get_release_lock_status`                                                                                                                                                           | locked && !agentActive or readyForNextCycle | Don't unlock; report; don't implement on locked id                                                                                                 |
+| `start_feedback_ai_fix`                                     | `get_feedback_ai_fix_status`                                                                                                                                                        | success                                     | Retry / clarify / manual residual                                                                                                                  |
+| `start_visual_fix_with_ai`                                  | `get_visual_run_fix_status`                                                                                                                                                         | PR result                                   | Retry with `issueDescription` / residual                                                                                                           |
+| `send_qa_chat_message` / `fix_qa_failed_tests`              | `get_qa_message`, `retry_qa_generation`                                                                                                                                             | report ready                                | retry_qa_generation                                                                                                                                |
+| `run_client_link_verify`                                    | `get_client_link_verify_status`                                                                                                                                                     | `passed`                                    | Read `failedCommand` + log tail → fix in Build                                                                                                     |
+| `create_cursor_agent` / `spawn_dev_agent`                   | `get_cursor_agent` / `get_agent_status`                                                                                                                                             | terminal success                            | stop + rethink prompt                                                                                                                              |
+| `backend_code_chat_send_message`                            | `backend_code_chat_get_session`                                                                                                                                                     | assistant terminal                          | Fix `prompt` field; never spawn_dev_agent as workaround                                                                                            |
+| `infra_chat_send_message` / `cloud_debug_chat_send_message` | `infra_chat_get_session` / `cloud_debug_chat_get_session`                                                                                                                           | assistant terminal                          | `infra_chat_stop` then resend (cloud debug has no stop — use queue tools); IaC proposals → `infra_chat_confirm_change` / `_reject_change`          |
+| `start_backend_cloud_deploy` / `run_project_cicd`           | `get_backend_cloud_deploy_latest` / `_run`                                                                                                                                          | succeeded                                   | cancel / re-preflight / residual; then `list_deploy_monitors`                                                                                      |
+| `create_project_cicd`                                       | `get_project_cicd`                                                                                                                                                                  | `active` / `awaiting_deploy`                | `error` → residual; never auto-create without user confirm                                                                                         |
+| `run_infra_analysis`                                        | `get_infra_analysis_latest`                                                                                                                                                         | completed                                   | retry once                                                                                                                                         |
+| `generate_understand_graph`                                 | `get_understand_status`                                                                                                                                                             | ready                                       | retry / residual                                                                                                                                   |
 
 **In-tick rule:** after any start → poll every few–tens of seconds → on success immediately next SDLC step. Do **not** end with “started, wait N minutes” without `RESUME:`.
 
@@ -195,16 +208,21 @@ Full sequences: [workflows.md](references/workflows.md).
 
 ## Playbook quick index
 
-| Intent | Path |
-| ------ | ---- |
-| Continuous 24×7 | This file + [continuous-loop.md](references/continuous-loop.md) |
-| New feature | Plan scope → seed → implement platform → preview → QA → lock → seed next |
-| Bug / feedback | active+Rn → AI fix → poll → preview → optional lock |
-| QA | Validate tools → failures to feedback → Build |
-| Visual parity | Build frontend compare loop ([workflows.md](references/workflows.md) §7) |
-| Backend Code | explicit only → `backend_code_chat_*` with **`prompt`** |
-| Ship / next release | lock → poll → list → seed new active |
-| Discover-only goal | Capture → profiles → docs/PRD → hand off Plan |
+| Intent                    | Path                                                                                               |
+| ------------------------- | -------------------------------------------------------------------------------------------------- |
+| Continuous 24×7           | This file + [continuous-loop.md](references/continuous-loop.md)                                    |
+| New feature               | Plan scope → seed → implement platform → preview → QA → lock → seed next                           |
+| Greenfield (no prior tag) | active → `start_first_revision_from_prompt` (or `create_empty_react_revision`) → scope → implement |
+| Bug / feedback            | active+Rn → AI fix → poll → preview → optional lock                                                |
+| Production errors         | `set_sentry_integration` / `import_sentry_issues` → `SENTRY` feedback → AI fix                     |
+| QA                        | Validate tools → failures to feedback → Build                                                      |
+| Visual vs Figma           | `list_qa_visual_compare_runs` → `move_visual_run_to_feedback` / `start_visual_fix_with_ai`         |
+| CI/CD + post-deploy       | `enable_project_cicd` → (user-confirmed) create → `run_project_cicd` → `list_deploy_monitors`      |
+| PR security               | `run_security_review` → `list_security_review_findings` → fix or dismiss                           |
+| Visual parity             | Build frontend compare loop ([workflows.md](references/workflows.md) §7)                           |
+| Backend Code              | explicit only → `backend_code_chat_*` with **`prompt`**                                            |
+| Ship / next release       | lock → poll → list → seed new active                                                               |
+| Discover-only goal        | Capture → profiles → docs/PRD → hand off Plan                                                      |
 
 Tools: [tool-map.md](references/tool-map.md). Model: [platform-model.md](references/platform-model.md). Failures: [pitfalls.md](references/pitfalls.md).
 
@@ -213,7 +231,7 @@ Tools: [tool-map.md](references/tool-map.md). Model: [platform-model.md](referen
 1. Preflight.
 2. Optional Discover if product unknowns block scope.
 3. Epics/stories; ensure **one active** (`create_release` needs `startDate`+`releaseDate`; activate needs **`reason`**).
-4. Empty revisions → `seed_release_from_prior` `{ "mode": "baseline_copy" }`.
+4. Empty revisions → `seed_release_from_prior` `{ "mode": "baseline_copy" }` (no prior tag → `start_first_revision_from_prompt` with `promptText`).
 5. `set_release_scope` → `start_scope_implement` `{ "execution": "sequential", "target": "platform", "items":[{...,"sortOrder":1}] }` → **poll hours if needed**.
 6. `start_preview` → poll → Validate as needed.
 7. `lock_release` `{ "confirm": true }` → poll lock → seed **new** active → continue goal or next scope.
@@ -245,26 +263,29 @@ Tools: [tool-map.md](references/tool-map.md). Model: [platform-model.md](referen
 - `seed_release_from_prior`: **`mode` required**
 - `start_scope_implement`: prefer **`execution: "sequential"`**, default **`target: "platform"`**, always **`items[].sortOrder`**
 - Feedback ids are **UUIDs**
-- Backend Code / infra / cloud-debug send: field is **`prompt`**, not `message`
+- Backend Code / infra / cloud-debug send: field is **`prompt`**, not `message`. Prefixes are `backend_code_chat_*`, **`infra_chat_*`** (not `infra_analysis_chat_*`), `cloud_debug_chat_*`
 - Cursor agent `model` is server-resolved — do not pass `model`
+- OAuth `get_*_connect_url` returns a URL for the **human**; never treat it as connected
+- `create_project_cicd`, `disconnect_*`, `delete_*`, `spawn_deploy_regression_fix_agent`: only with explicit user intent
 - Ask humans only for real forks (platform vs development when ambiguous **and** no preview cue; product secrets; repeated auth failure)
 - Auto-continue every other step
 
-Exclusions (no MCP): AWS debug MCP, webhooks, OAuth callbacks, multipart ZIP, SSE, internal deploy secrets, stakeholder-email-only chat mutations.
+Exclusions (no MCP): AWS debug MCP, webhooks, OAuth callbacks, multipart ZIP / S3 presign uploads, SSE, internal deploy secrets, stakeholder-email-only chat mutations.
 
 ---
 
 ## Autonomy boundaries
 
-| Auto (do without asking) | Stop / ask / block |
-| ------------------------ | ------------------ |
-| Seed empty active (baseline_copy) | Destructive delete project / disconnect integrations |
-| Implement, preview, poll, re-preview | Choosing `mode: agent` seed without user prompt intent |
-| Feedback AI fix + approve when goal is fix | Spending / budget uncertainty when budget tools fail and goal is large |
-| Lock + seed next when goal is ship cycle | Switching to `development` target without clear user signal |
-| Create epic/story/scope from goal text | 401/403 auth |
-| Discover enrich when data empty and feature needs it | Repeated lock/seed failures after 2 retries |
-| Retry failed jobs once with adjusted prompt | Confirm-required deletes without goal saying so |
+| Auto (do without asking)                               | Stop / ask / block                                                     |
+| ------------------------------------------------------ | ---------------------------------------------------------------------- |
+| Seed empty active (baseline_copy)                      | Destructive delete project / disconnect integrations                   |
+| Run Client Link verify, security review, Sentry import | Create/disable CI/CD pipelines; spawn deploy regression fix agent      |
+| Implement, preview, poll, re-preview                   | Choosing `mode: agent` seed without user prompt intent                 |
+| Feedback AI fix + approve when goal is fix             | Spending / budget uncertainty when budget tools fail and goal is large |
+| Lock + seed next when goal is ship cycle               | Switching to `development` target without clear user signal            |
+| Create epic/story/scope from goal text                 | 401/403 auth                                                           |
+| Discover enrich when data empty and feature needs it   | Repeated lock/seed failures after 2 retries                            |
+| Retry failed jobs once with adjusted prompt            | Confirm-required deletes without goal saying so                        |
 
 Max auto-retries per job type per tick: **2** (then park with residual evidence + `in_progress`, or block).
 
@@ -272,10 +293,10 @@ Max auto-retries per job type per tick: **2** (then park with residual evidence 
 
 ## References
 
-| Topic | File |
-| ----- | ---- |
+| Topic                              | File                                                |
+| ---------------------------------- | --------------------------------------------------- |
 | **Continuous automaton (primary)** | [continuous-loop.md](references/continuous-loop.md) |
-| Release / revision / phases | [platform-model.md](references/platform-model.md) |
-| Phase → tools + monitor map | [tool-map.md](references/tool-map.md) |
-| Numbered sequences | [workflows.md](references/workflows.md) |
-| Required fields / anti-patterns | [pitfalls.md](references/pitfalls.md) |
+| Release / revision / phases        | [platform-model.md](references/platform-model.md)   |
+| Phase → tools + monitor map        | [tool-map.md](references/tool-map.md)               |
+| Numbered sequences                 | [workflows.md](references/workflows.md)             |
+| Required fields / anti-patterns    | [pitfalls.md](references/pitfalls.md)               |

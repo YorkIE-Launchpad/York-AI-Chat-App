@@ -22,8 +22,11 @@ scope_items               ← get_release_scope
 implement_run             ← get_scope_implement_active
 preview_status            ← get_preview_status
 lock_status               ← get_release_lock_status (if recently locked)
-feedback_open             ← list_feedback (open/unfixed)
+feedback_open             ← list_feedback (open/unfixed; includes SENTRY / VISUAL_TEST sources)
 qa_reports_recent         ← list_qa_reports
+client_link_build         ← get_client_link_verify_status (optional)
+cicd                      ← get_project_cicd (only if cloud/CI in goal)
+deploy_health             ← list_deploy_monitors (only after deploys)
 integrations              ← get_integrations_status / get_cursor_status
 memory_hint               ← get_project_memory (optional; poll knowledgeRefresh if busy)
 RESUME_*                  ← last durable line from thread
@@ -73,11 +76,11 @@ NEXT_ACTION: start_scope_implement
 
 Phases are **soft** for navigation and **hard** for product gates:
 
-| Soft | Hard |
-| ---- | ---- |
-| Progress badges, tour order | No Client Link chat / implement without **active + ≥1 revision** |
-| May jump stages | Locked release accepts **no** new revisions |
-| May skip Discover if facts known | Destructive tools need `confirm: true` |
+| Soft                             | Hard                                                             |
+| -------------------------------- | ---------------------------------------------------------------- |
+| Progress badges, tour order      | No Client Link chat / implement without **active + ≥1 revision** |
+| May jump stages                  | Locked release accepts **no** new revisions                      |
+| May skip Discover if facts known | Destructive tools need `confirm: true`                           |
 
 ---
 
@@ -100,28 +103,28 @@ If no projectId, auth failed, or releases never listed this session → prefligh
 
 Evaluate in order; take the **first true** rule.
 
-| Prio | Condition | NEXT_ACTION | Primary tools |
-| ---- | --------- | ----------- | ------------- |
-| 0 | Auth failure | `blocked_auth` | stop |
-| 1 | RESUME poll unfinished | `poll_job` | status tools from matrix |
-| 2 | Zero projects / wrong project | `resolve_project` | `list_project_names` |
-| 3 | Goal needs discovery AND capture/profiles empty | `discover_intake` | discovery tools |
-| 4 | Feature goal AND no epics/stories covering it | `plan_backlog` | backlog + suggestions |
-| 5 | No release **active** | `ensure_active_release` | create/activate (reason) |
-| 6 | Active has **0** revisions | `seed_baseline` | `seed_release_from_prior` |
-| 7 | Active scope items pending implement | `implement_scope` | `start_scope_implement` |
-| 8 | Implement running | `poll_implement` | implement status |
-| 9 | New Rn but preview not ready | `start_or_fix_preview` | preview tools |
-| 10 | Goal is visual parity / fidelity residual | `fidelity_loop` | migrate / platform implement + screenshots |
-| 11 | Open feedback bugs and goal is quality | `fix_feedback` | feedback AI fix |
-| 12 | Goal includes QA and no recent green run | `run_qa` | QA chat/reports |
-| 13 | QA failed items open | `qa_to_feedback_or_fix` | move / fix |
-| 14 | Backend architecture in goal + code ready | `backend_or_architecture` | backend chat / understand / infra |
-| 15 | Cloud deploy in goal + env ready | `cloud_deploy` | deploy map + cloud deploy |
-| 16 | Ship criteria met (or goal says lock when ready) | `ship_lock` | lock + poll |
-| 17 | Just locked / next active empty | `seed_next_cycle` | list + seed |
-| 18 | Idle with remaining goal work | `expand_scope_or_plan` | suggestions / new stories |
-| 19 | Goal fully evidenced | `complete` | GOAL_STATUS complete |
+| Prio | Condition                                                      | NEXT_ACTION               | Primary tools                                                                                                |
+| ---- | -------------------------------------------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| 0    | Auth failure                                                   | `blocked_auth`            | stop                                                                                                         |
+| 1    | RESUME poll unfinished                                         | `poll_job`                | status tools from matrix                                                                                     |
+| 2    | Zero projects / wrong project                                  | `resolve_project`         | `list_project_names`                                                                                         |
+| 3    | Goal needs discovery AND capture/profiles empty                | `discover_intake`         | discovery tools                                                                                              |
+| 4    | Feature goal AND no epics/stories covering it                  | `plan_backlog`            | backlog + suggestions                                                                                        |
+| 5    | No release **active**                                          | `ensure_active_release`   | create/activate (reason)                                                                                     |
+| 6    | Active has **0** revisions                                     | `seed_baseline`           | `seed_release_from_prior`; no prior tag → `start_first_revision_from_prompt` / `create_empty_react_revision` |
+| 7    | Active scope items pending implement                           | `implement_scope`         | `start_scope_implement`                                                                                      |
+| 8    | Implement running                                              | `poll_implement`          | implement status                                                                                             |
+| 9    | New Rn but preview not ready                                   | `start_or_fix_preview`    | preview tools                                                                                                |
+| 10   | Goal is visual parity / fidelity residual                      | `fidelity_loop`           | migrate / platform implement + screenshots                                                                   |
+| 11   | Open feedback bugs (incl. Sentry / visual) and goal is quality | `fix_feedback`            | feedback AI fix / `start_visual_fix_with_ai`                                                                 |
+| 12   | Goal includes QA and no recent green run                       | `run_qa`                  | QA chat/reports, `run_client_link_verify`                                                                    |
+| 13   | QA failed items open                                           | `qa_to_feedback_or_fix`   | move / `fix_qa_failed_tests` / fix                                                                           |
+| 14   | Backend architecture in goal + code ready                      | `backend_or_architecture` | schema inventory + backend chat / understand / infra                                                         |
+| 15   | Cloud deploy in goal + env ready                               | `cloud_deploy`            | deploy map + cloud deploy or CI/CD run → deploy monitors                                                     |
+| 16   | Ship criteria met (or goal says lock when ready)               | `ship_lock`               | lock + poll                                                                                                  |
+| 17   | Just locked / next active empty                                | `seed_next_cycle`         | list + seed                                                                                                  |
+| 18   | Idle with remaining goal work                                  | `expand_scope_or_plan`    | suggestions / new stories                                                                                    |
+| 19   | Goal fully evidenced                                           | `complete`                | GOAL_STATUS complete                                                                                         |
 
 ### Step D — Act + poll
 
@@ -177,21 +180,25 @@ get_client_details → enrich/scrape if empty → add_discovery_note (goal paste
 #### Frontend path (default)
 
 ```
-seed_baseline (if needed)
+seed_baseline (if needed; greenfield → start_first_revision_from_prompt → POLL get_cursor_agent)
 → set_release_scope (if needed)
 → start_scope_implement(target=platform, execution=sequential, sortOrder set)
 → POLL get_scope_implement_* / list_versions  (can be HOURS)
 → start_preview → POLL get_preview_status
+   (won't boot → get_preview_manifest / update_preview_manifest / update_preview_env)
 → optional fidelity_loop / migrate_frontend
+→ optional client share: share_client_link_preview | create_preview_direct_link (ECS)
 → optional client feedback path
 ```
 
 #### Backend path (only if goal/user names Backend Code / development)
 
 ```
-backend_code_chat_get_session
+get_project_conventions / get_project_schema_inventory   (extend existing models)
+→ backend_code_chat_get_session
 → backend_code_chat_send_message(prompt=…, mode=agent)
-→ POLL get_session
+→ POLL backend_code_chat_get_session
+→ development scope implement: get_scope_schema_alignment_report per run
 → optional generate_understand_graph / run_infra_analysis
 ```
 
@@ -203,8 +210,11 @@ Lock after development implement uses `skipLockAgentOperations: true`.
 get_deploy_map / prepare_deploy_map / patch_deploy_map
 → run_environment_scan (optional)
 → backend_cloud_deploy_preflight → start_backend_cloud_deploy
-→ POLL deploy run
-→ optional cloud_debug_chat_* / infra_analysis_chat_*
+   (or CI/CD: get_project_cicd → enable_project_cicd → [user-confirmed] create_project_cicd
+    → sync_project_cicd_secrets → run_project_cicd)
+→ POLL get_backend_cloud_deploy_run
+→ list_deploy_monitors → regression? get_deploy_monitor → [confirm] spawn_deploy_regression_fix_agent
+→ optional cloud_debug_chat_* / infra_chat_*
 ```
 
 ### 4.4 Validate — QA + feedback + rewind
@@ -213,8 +223,12 @@ get_deploy_map / prepare_deploy_map / patch_deploy_map
 get_qa_config / resolve_qa_config
 → create_qa_topic / create_qa_chat if needed
 → send_qa_chat_message → poll get_qa_message / retry_qa_generation
-→ list_qa_reports → move_qa_report_to_feedback on fails
+→ list_qa_reports → move_qa_report_to_feedback on fails (or fix_qa_failed_tests to heal tests)
+→ optional visual: list_qa_visual_compare_runs → move_visual_run_to_feedback / start_visual_fix_with_ai
+→ optional build check: run_client_link_verify → POLL get_client_link_verify_status
+→ optional Sentry: get_sentry_integration → import_sentry_issues (SENTRY feedback)
 → list_feedback → start_feedback_ai_fix → poll → approve_feedback
+→ optional PR: run_security_review → list_security_review_findings
 → start_preview / re-QA
 ```
 
@@ -261,20 +275,24 @@ For goals like “keep shipping improvements”:
 
 ## 6. Recovery matrix
 
-| Symptom | Action |
-| ------- | ------ |
-| Agent / conversion not found | Poll `list_versions`, implement active, preview — continue if Rn advanced |
-| Implement failed mid-queue | Inspect run; re-run remaining items with sortOrder; don't re-seed |
-| Preview stuck / login load | Mock creds; restart_preview; hard retry; capture evidence |
-| Seed failed | Retry once; check prior locked baseline exists |
-| Lock agent stuck | Keep poll lock status; RESUME poll_lock; do not work locked id |
-| Double active (anomaly) | Prefer locking/clarifying; don't create third |
-| 401/403 | blocked_auth |
-| Budget exceeded | Report spend tools; stop expensive agents |
-| Scope empty after lock | Expand plan / suggestions before implementing blank |
-| QA timeout | retry_qa_generation |
-| Feedback AI fix failed | clarify_feedback_ai_fix or residual note + continue other work |
-| Cursor not ready | get_cursor_status / sync; blocked if required |
+| Symptom                                 | Action                                                                                                    |
+| --------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Agent / conversion not found            | Poll `list_versions`, implement active, preview — continue if Rn advanced                                 |
+| Implement failed mid-queue              | Inspect run; re-run remaining items with sortOrder; don't re-seed                                         |
+| Preview stuck / login load              | Mock creds; restart_preview; hard retry; capture evidence                                                 |
+| Seed failed                             | Retry once; no prior tagged baseline → `start_first_revision_from_prompt` / `create_empty_react_revision` |
+| Preview won't boot (wrong command/port) | `get_preview_manifest` → `update_preview_manifest`; last resort `redetect_preview_manifest` (`confirm`)   |
+| Client Link build check failed          | Read `failedCommand` + log tail → fix in Build → re-run verify                                            |
+| Development implement off-schema        | `get_scope_schema_alignment_report` → fix duplicates/missing FKs before lock                              |
+| Deploy monitor `regression`             | `get_deploy_monitor`; with user intent `spawn_deploy_regression_fix_agent` (`confirm`)                    |
+| Lock agent stuck                        | Keep poll lock status; RESUME poll_lock; do not work locked id                                            |
+| Double active (anomaly)                 | Prefer locking/clarifying; don't create third                                                             |
+| 401/403                                 | blocked_auth                                                                                              |
+| Budget exceeded                         | Report spend tools; stop expensive agents                                                                 |
+| Scope empty after lock                  | Expand plan / suggestions before implementing blank                                                       |
+| QA timeout                              | retry_qa_generation                                                                                       |
+| Feedback AI fix failed                  | clarify_feedback_ai_fix or residual note + continue other work                                            |
+| Cursor not ready                        | get_cursor_status / sync; blocked if required                                                             |
 
 Retries: **max 2** automatic per action family per cycle, then residual + different tactic or ask.
 
@@ -282,15 +300,17 @@ Retries: **max 2** automatic per action family per cycle, then residual + differ
 
 ## 7. Poll budgets
 
-| Job class | In-tick preference | Cross-tick park |
-| --------- | ------------------ | --------------- |
-| Preview start | Always poll to ready | Rare |
-| Feedback AI fix | Always poll | Rare |
-| Seed | Poll versions until Rn | Rare |
-| Lock agent | Poll up to tens of minutes | RESUME poll_lock if needed |
-| Scope implement multi-item | Poll long; park if hours + budget | RESUME poll_implement |
-| Cloud deploy | Poll to terminal | RESUME poll_deploy |
-| Migrate/fidelity | Poll then re-compare in-tick | RESUME poll_migrate |
+| Job class                  | In-tick preference                | Cross-tick park            |
+| -------------------------- | --------------------------------- | -------------------------- |
+| Preview start              | Always poll to ready              | Rare                       |
+| Feedback AI fix            | Always poll                       | Rare                       |
+| Seed                       | Poll versions until Rn            | Rare                       |
+| Lock agent                 | Poll up to tens of minutes        | RESUME poll_lock if needed |
+| Scope implement multi-item | Poll long; park if hours + budget | RESUME poll_implement      |
+| Cloud deploy / CI/CD run   | Poll to terminal                  | RESUME poll_deploy         |
+| Client Link verify         | Poll 1–10 min                     | Rare                       |
+| QA import / export         | Poll job status                   | RESUME poll_qa             |
+| Migrate/fidelity           | Poll then re-compare in-tick      | RESUME poll_migrate        |
 
 Poll interval: **5–30s** depending on job; exponential backoff after first minute for long jobs (still keep going).
 
@@ -308,11 +328,11 @@ Next tick: parse → call `next` → continue state machine (do **not** reset Di
 
 ## 9. Example full night loop (agent narration strip)
 
-1. Sense: active=1.0.4, Rn none → seed baseline → R1  
-2. Scope 3 stories → sequential implement → poll 90m → R2 R3  
-3. Preview ready → QA chat → 2 fails → feedback AI fix → poll → re-preview  
-4. Green → lock → poll 25m → active 1.0.5 empty → seed  
-5. New stories from suggestions → implement…  
+1. Sense: active=1.0.4, Rn none → seed baseline → R1
+2. Scope 3 stories → sequential implement → poll 90m → R2 R3
+3. Preview ready → QA chat → 2 fails → feedback AI fix → poll → re-preview
+4. Green → lock → poll 25m → active 1.0.5 empty → seed
+5. New stories from suggestions → implement…
 
 Status ends each tick with `GOAL_STATUS: in_progress` until goal says stop.
 
@@ -320,9 +340,9 @@ Status ends each tick with `GOAL_STATUS: in_progress` until goal says stop.
 
 ## 10. Relationship to other references
 
-| Need | File |
-| ---- | ---- |
-| Tool names by phase | tool-map.md |
-| Exact sequences + JSON samples | workflows.md |
-| Release/revision theory | platform-model.md |
-| Validation gotchas | pitfalls.md |
+| Need                           | File              |
+| ------------------------------ | ----------------- |
+| Tool names by phase            | tool-map.md       |
+| Exact sequences + JSON samples | workflows.md      |
+| Release/revision theory        | platform-model.md |
+| Validation gotchas             | pitfalls.md       |

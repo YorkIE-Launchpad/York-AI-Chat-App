@@ -3,7 +3,7 @@
 Spine for continuous agents: **sense → act → poll → next → (rewind) → next release**.
 
 Canonical math of the platform is the **release loop**. Journey phases tell you
-*what kind of work* to do next; the release loop is *where* Build/Validate write.
+_what kind of work_ to do next; the release loop is _where_ Build/Validate write.
 
 Never implement or seed on a **locked** id. Never promise preview without
 **active + ≥1 revision**.
@@ -103,7 +103,7 @@ while goal_not_complete:
    }
    ```
 3. Poll `get_scope_implement_active` / `get_scope_implement_run` + `list_versions` (hours OK)
-4. `start_preview` → `get_preview_status`
+4. `start_preview` → `get_preview_status` (boot failure → `get_preview_manifest` / `update_preview_manifest` / `update_preview_env`)
 5. Optional fidelity: §7
 6. Optional Backend Code (user asked) §6
 
@@ -123,6 +123,23 @@ Identical to release loop steps 5–7.
 ## 0. Empty active release only
 
 Loop steps 3–4. Signals: active with zero versions / “awaiting first revision”.
+
+### 0a. Greenfield — no prior tagged revision anywhere
+
+`seed_release_from_prior` needs a prior tag. When none exists:
+
+```json
+start_first_revision_from_prompt({
+  "projectId": <id>,
+  "releaseId": <activeReleaseId>,
+  "promptText": "Build the first revision: <product summary from discovery/PRD>"
+})
+```
+
+Poll `get_cursor_agent` until terminal, then `list_versions` → R1 → preview.
+
+For a blank scaffold instead (no agent), `create_empty_react_revision({ projectId, releaseId })`
+publishes a minimal Vite React app as R1 synchronously.
 
 ---
 
@@ -190,10 +207,10 @@ Seed/list only on the **new** active. Do not implement on the locked release.
 
 ## 5. Temporary vs live revision
 
-| Goal | Tool |
-| ---- | ---- |
-| Peek without changing live | `switch_version` |
-| Make live | `activate_version` (on **active** release only) |
+| Goal                       | Tool                                            |
+| -------------------------- | ----------------------------------------------- |
+| Peek without changing live | `switch_version`                                |
+| Make live                  | `activate_version` (on **active** release only) |
 
 ---
 
@@ -214,7 +231,17 @@ Use **backend code chat** only — do **not** use `spawn_dev_agent` for Backend 
 }
 ```
 
-Same `prompt` field for `infra_analysis_chat_send_message` and `cloud_debug_chat_send_message`.
+Same `prompt` field for `infra_chat_send_message` and `cloud_debug_chat_send_message`
+(poll `infra_chat_get_session` / `cloud_debug_chat_get_session`). Infra chat IaC
+proposals are resolved with `infra_chat_confirm_change` / `infra_chat_reject_change`
+(`messageId`). In-flight turn: `backend_code_chat_stop` / `infra_chat_stop` (cloud debug has no stop); queued follow-ups:
+`<prefix>_list_queue` / `_steer_queued_message` / `_reorder_queue` / `_cancel_queued_message`.
+
+Before development-repo work, read `get_project_conventions` and
+`get_project_schema_inventory` and tell the agent to extend existing tables and
+folders. After a development scope implement, check
+`get_scope_schema_alignment_report({ releaseId, runId })`; after lock,
+`get_release_lock_schema_alignment_report({ releaseId })`.
 
 ---
 
@@ -254,13 +281,61 @@ Next tick: poll first — do not re-seed or restart whole compare unless job con
 2. `backend_cloud_deploy_preflight`
 3. `start_backend_cloud_deploy` → poll latest/run
 4. Failures → preflight again or cloud_debug chat; do not invent AWS MCP tools
+5. If deploy monitoring is on: `list_deploy_monitors` → `get_deploy_monitor` on the new run
+
+---
+
+## 9. CI/CD pipeline (optional)
+
+1. `get_project_cicd` — if already `active`, skip to step 5
+2. `enable_project_cicd` — adopts an existing pipeline, or returns `needsChoice` / `needsCreate`
+3. `needsChoice` → `attach_project_cicd({ provider })`
+4. `needsCreate` → **ask the user** → `create_project_cicd({ provider, branch? })` → poll `get_project_cicd` until `awaiting_deploy` / `pending_connection` / `active` / `error`
+5. `sync_project_cicd_secrets({ environmentId })` (LaunchPad-created pipelines only)
+6. `run_project_cicd` → poll `get_backend_cloud_deploy_run` with returned `runId`
+7. Post-deploy: §11
+
+---
+
+## 10. Production errors via Sentry
+
+1. `get_sentry_integration` — linked?
+2. Not linked: `list_sentry_projects` → pick slugs with `linkedToOtherProject=false` → `set_sentry_integration({ sentryProjectSlugs: [...] })` (full list; omitted slugs unlink). Saving imports up to 50 unresolved issues per project.
+3. Linked: `import_sentry_issues` (idempotent)
+4. `list_feedback` → `SENTRY` items → §3 (AI fix). Auto-fix PRs never merge on their own.
+
+---
+
+## 11. Post-deploy health + PR security
+
+1. `list_deploy_monitors` → verdict `healthy` | `regression` | `inconclusive`
+2. `regression` → `get_deploy_monitor` → with user intent `spawn_deploy_regression_fix_agent({ runId, confirm: true })` → poll `get_cursor_agent`
+3. PR review: `run_security_review({ repoFullName, prNumber })` → `list_security_review_findings({ prNumber })` → fix via Build or `dismiss_security_review_finding({ findingId, reason })`
+
+---
+
+## 12. Visual compare vs Figma (QA)
+
+1. `get_qa_visual_testing_readiness` — Figma token ready?
+2. `list_qa_visual_compare_runs` → `get_qa_visual_compare_run` (artifacts)
+3. Failed run → `move_visual_run_to_feedback` (then §3) **or** `start_visual_fix_with_ai({ runId, repoPath, sourceBranch })` → poll `get_visual_run_fix_status`
+4. Re-run compare (desktop app captures; MCP reads results)
+
+---
+
+## 13. Client Link share + build check
+
+1. Preview ready (§B)
+2. `run_client_link_verify` → poll `get_client_link_verify_status` (1–10 min) → `failed`: fix `failedCommand` in Build
+3. Share: `share_client_link_preview` (24h keep-alive) or `create_preview_direct_link` (signed 30-day URL; ECS only — check `get_preview_status.directLinkAvailable`)
+4. Stakeholder page itself: `get_client_link` (`{origin}/projects/{slug}`)
 
 ---
 
 ## Decision checklist
 
 - [ ] One active release; others draft/locked/skip
-- [ ] Empty active seeded with `mode: "baseline_copy"` before work
+- [ ] Empty active seeded with `mode: "baseline_copy"` before work (greenfield → first-revision tools)
 - [ ] Build writes only on active
 - [ ] Implement defaulted to `target: "platform"` unless user asked for development
 - [ ] After any start tool, polled to terminal **in-turn** (or RESUME park)
