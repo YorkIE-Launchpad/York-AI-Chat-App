@@ -100,7 +100,6 @@ import {
   MAX_SNAP_IMAGE_BYTES,
   SNAP_DOWNSCALE_MAX_EDGE,
   ScreenSnapController,
-  captureRect,
   captureRegion,
   type GlobalShortcutLike,
   type ScreenSnapControllerOptions,
@@ -500,19 +499,7 @@ describe('ScreenSnapController in-place chat', () => {
   });
 });
 
-describe('captureRect', () => {
-  it('captures a fixed rectangle without interactive selection', async () => {
-    const exec = vi.fn(async () => undefined);
-    await captureRect({ x: 10.4, y: 20.6, width: 800, height: 600 }, exec);
-    const args = (exec.mock.calls[0] as unknown as [string, string[]])[1];
-    expect(args).toContain('-R');
-    expect(args).toContain('10,21,800,600');
-    expect(args).not.toContain('-i');
-  });
-});
-
 describe('ScreenSnapController write into field', () => {
-  // Same aspect as the Chrome window bounds below (1200x800).
   const image: ScreenSnapImage = { base64: 'abc', mediaType: 'image/png', width: 600, height: 400 };
   const chrome: ScreenSnapTarget = {
     bundleId: 'com.google.Chrome',
@@ -527,64 +514,29 @@ describe('ScreenSnapController write into field', () => {
 
   const makeController = (overrides: Partial<ScreenSnapControllerOptions> = {}) => {
     const capture = vi.fn(async () => image);
-    const captureRectFn = vi.fn(async () => image);
     const controller = new ScreenSnapController({
       platform: 'darwin',
       persistShortcut: vi.fn(),
       capture,
-      captureRect: captureRectFn,
       getMode: () => 'write',
       getFrontmostTarget: async () => chrome,
       ...overrides,
     });
-    return { controller, capture, captureRectFn };
+    return { controller, capture };
   };
 
   const pendingState = (controller: ScreenSnapController) =>
     (controller as unknown as { pendingState: unknown }).pendingState;
 
-  it('captures the front window in write mode when bounds are known', async () => {
-    const { controller, capture, captureRectFn } = makeController();
+  it('lets the user select the area in write mode, even when window bounds are known', async () => {
+    const { controller, capture } = makeController();
     await controller.trigger();
-    expect(captureRectFn).toHaveBeenCalledWith(chrome.bounds);
-    expect(capture).not.toHaveBeenCalled();
+    expect(capture).toHaveBeenCalledTimes(1);
     expect(pendingState(controller)).toEqual({
       image,
       mode: 'write',
       targetAppName: 'Google Chrome',
     });
-  });
-
-  it('falls back to region capture when the window capture does not match the window', async () => {
-    const strip: ScreenSnapImage = { ...image, width: 1512, height: 38 };
-    const { controller, capture, captureRectFn } = makeController();
-    captureRectFn.mockResolvedValueOnce(strip);
-    await controller.trigger();
-    expect(captureRectFn).toHaveBeenCalled();
-    expect(capture).toHaveBeenCalled();
-    expect(pendingState(controller)).toMatchObject({ image, mode: 'write' });
-  });
-
-  it('falls back to region capture when the window is mostly off screen', async () => {
-    const { controller, capture, captureRectFn } = makeController({
-      getFrontmostTarget: async () => ({
-        ...chrome,
-        bounds: { x: 1300, y: 100, width: 1200, height: 800 },
-      }),
-    });
-    await controller.trigger();
-    expect(captureRectFn).not.toHaveBeenCalled();
-    expect(capture).toHaveBeenCalled();
-  });
-
-  it('falls back to region capture when the target has no window bounds', async () => {
-    const { controller, capture, captureRectFn } = makeController({
-      getFrontmostTarget: async () => ({ bundleId: 'com.apple.Notes', name: 'Notes', pid: 7 }),
-    });
-    await controller.trigger();
-    expect(capture).toHaveBeenCalled();
-    expect(captureRectFn).not.toHaveBeenCalled();
-    expect(pendingState(controller)).toMatchObject({ mode: 'write', targetAppName: 'Notes' });
   });
 
   it('falls back to region capture and chat mode when there is no target app', async () => {
