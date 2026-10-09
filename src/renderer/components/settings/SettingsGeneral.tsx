@@ -4,6 +4,7 @@ import { ExternalLink, RefreshCw } from 'lucide-react';
 import { useAppStore } from '../../store';
 import { hasOpenRouterUserApiKey } from '../../../shared/openrouter-user-key';
 import { HubBudgetUsageCard } from './HubBudgetUsageCard';
+import { ScreenSnapShortcutSetting } from './ScreenSnapShortcutSetting';
 import {
   notifyBackendModelsCatalogRefreshed,
   refreshBackendModelsCatalog,
@@ -116,6 +117,8 @@ export function SettingsGeneral() {
         </div>
       </div>
 
+      <ScreenSnapShortcutSetting />
+
       {/* Thinking mode */}
       <div className="space-y-3 pt-2 border-t border-border">
         <h4 className="text-sm font-medium text-text-primary">{t('general.thinkingMode')}</h4>
@@ -149,9 +152,7 @@ export function SettingsGeneral() {
             {refreshingModels ? t('general.refreshingModels') : t('general.refreshModels')}
           </button>
         </div>
-        {modelsRefreshMessage && (
-          <p className="text-xs text-text-muted">{modelsRefreshMessage}</p>
-        )}
+        {modelsRefreshMessage && <p className="text-xs text-text-muted">{modelsRefreshMessage}</p>}
       </div>
 
       {/* OpenRouter key for General / Folders (user-owned, not York billing) */}

@@ -50,6 +50,15 @@ import type {
 import type { ManualUpdateDownloadResult, UpdaterStatus } from '../shared/updater-types';
 import type { WhatsNewPayload } from '../shared/whats-new-types';
 import type {
+  ScreenSnapComposerState,
+  ScreenSnapGenerateRequest,
+  ScreenSnapGenerateResult,
+  ScreenSnapInsertResult,
+  ScreenSnapMode,
+  ScreenSnapShortcutResult,
+  ScreenSnapSubmitPayload,
+} from '../shared/screen-snap';
+import type {
   McpServerConfig,
   McpTool,
   McpServerStatus,
@@ -1207,6 +1216,41 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
   },
 
+  snap: {
+    getPendingState: (): Promise<ScreenSnapComposerState | null> =>
+      ipcRenderer.invoke('snap.getPendingState'),
+    onImage: (callback: (state: ScreenSnapComposerState) => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, state: ScreenSnapComposerState) =>
+        callback(state);
+      ipcRenderer.on('snap:image', listener);
+      return () => ipcRenderer.removeListener('snap:image', listener);
+    },
+    setMode: (mode: ScreenSnapMode): Promise<{ success: boolean }> =>
+      ipcRenderer.invoke('snap.setMode', mode),
+    generate: (request: ScreenSnapGenerateRequest): Promise<ScreenSnapGenerateResult> =>
+      ipcRenderer.invoke('snap.generate', request),
+    cancelGenerate: (): Promise<{ success: boolean }> => ipcRenderer.invoke('snap.cancelGenerate'),
+    onGenerateDelta: (callback: (text: string) => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, text: string) => callback(text);
+      ipcRenderer.on('snap:generateDelta', listener);
+      return () => ipcRenderer.removeListener('snap:generateDelta', listener);
+    },
+    insert: (text: string): Promise<ScreenSnapInsertResult> =>
+      ipcRenderer.invoke('snap.insert', text),
+    openAccessibilitySettings: (): Promise<{ success: boolean }> =>
+      ipcRenderer.invoke('snap.openAccessibilitySettings'),
+    submit: (payload: ScreenSnapSubmitPayload): Promise<{ success: boolean }> =>
+      ipcRenderer.invoke('snap.submit', payload),
+    cancel: (): Promise<{ success: boolean }> => ipcRenderer.invoke('snap.cancel'),
+    takePendingSubmit: (): Promise<ScreenSnapSubmitPayload | null> =>
+      ipcRenderer.invoke('snap.takePendingSubmit'),
+    getShortcut: (): Promise<{ shortcut: string | null; supported: boolean }> =>
+      ipcRenderer.invoke('snap.getShortcut'),
+    setShortcut: (shortcut: string | null): Promise<ScreenSnapShortcutResult> =>
+      ipcRenderer.invoke('snap.setShortcut', shortcut),
+    trigger: (): Promise<{ success: boolean }> => ipcRenderer.invoke('snap.trigger'),
+  },
+
   permissions: {
     listSessionAlwaysAllow: (sessionId: string): Promise<string[]> =>
       ipcRenderer.invoke('permissions.listSessionAlwaysAllow', sessionId),
@@ -2002,6 +2046,22 @@ declare global {
         onApplePartial: (callback: (payload: { text: string }) => void) => () => void;
         onAppleFinal: (callback: (payload: { text: string }) => void) => () => void;
         onAppleError: (callback: (payload: { message: string }) => void) => () => void;
+      };
+      snap: {
+        getPendingState: () => Promise<ScreenSnapComposerState | null>;
+        onImage: (callback: (state: ScreenSnapComposerState) => void) => () => void;
+        setMode: (mode: ScreenSnapMode) => Promise<{ success: boolean }>;
+        generate: (request: ScreenSnapGenerateRequest) => Promise<ScreenSnapGenerateResult>;
+        cancelGenerate: () => Promise<{ success: boolean }>;
+        onGenerateDelta: (callback: (text: string) => void) => () => void;
+        insert: (text: string) => Promise<ScreenSnapInsertResult>;
+        openAccessibilitySettings: () => Promise<{ success: boolean }>;
+        submit: (payload: ScreenSnapSubmitPayload) => Promise<{ success: boolean }>;
+        cancel: () => Promise<{ success: boolean }>;
+        takePendingSubmit: () => Promise<ScreenSnapSubmitPayload | null>;
+        getShortcut: () => Promise<{ shortcut: string | null; supported: boolean }>;
+        setShortcut: (shortcut: string | null) => Promise<ScreenSnapShortcutResult>;
+        trigger: () => Promise<{ success: boolean }>;
       };
       permissions: {
         listSessionAlwaysAllow: (sessionId: string) => Promise<string[]>;

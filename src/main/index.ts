@@ -83,6 +83,7 @@ import {
   DICTATION_APPLE_SESSION_ID,
 } from './dictation/dictation-apple-sink';
 import { createRealtimeTranslationSession } from './dictation/dictation-service';
+import { ScreenSnapController, SNAP_WRITE_SYSTEM_PROMPT } from './snap/screen-snap';
 import {
   appleMeetingTranscriptionService,
   getMeetingSttProviderConfig,
@@ -207,7 +208,7 @@ import {
   extractAssistantText,
   type ChatLoopStartInput,
 } from './loop/chat-loop-manager';
-import { runPiAiOneShot } from './agent/sdk-one-shot';
+import { runPiAiOneShot, runPiAiStream } from './agent/sdk-one-shot';
 import { installIpcAuthGuard } from './auth/ipc-auth-guard';
 import { APP_DATA_ENV_VAR } from '../shared/app-data-env';
 import {
@@ -792,6 +793,8 @@ let tray: Tray | null = null;
 const DARK_BG = '#171614';
 const LIGHT_BG = '#f5f3ee';
 const ASK_GROWTHOS_SHORTCUT = 'CommandOrControl+Shift+Space';
+/** Renderer that started Apple dictation (main window or Screen Snap composer). */
+let dictationTarget: Electron.WebContents | null = null;
 
 /** Focus the main window and open the Ask Growth OS popup in the renderer. */
 function openAskGrowthOSFromMain() {
@@ -841,6 +844,68 @@ function registerAskGrowthOSShortcut() {
   }
 }
 
+const screenSnap = new ScreenSnapController({
+  preloadPath: join(__dirname, '../preload/index.js'),
+  persistShortcut: (shortcut) => configStore.update({ screenSnapShortcut: shortcut }),
+  onShortcutChanged: () => {
+    buildMacMenu();
+    refreshTrayMenu();
+  },
+  loadComposer: async (win) => {
+    const devServerUrl = process.env.VITE_DEV_SERVER_URL;
+    if (devServerUrl) {
+      await win.loadURL(`${devServerUrl.replace(/#.*$/, '')}#snap`);
+    } else {
+      await win.loadFile(join(__dirname, '../../dist/index.html'), { hash: 'snap' });
+    }
+  },
+  onSubmitQueued: () => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      createWindow();
+    }
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      return;
+    }
+    if (mainWindow.isMinimized()) {
+      mainWindow.restore();
+    }
+    mainWindow.show();
+    mainWindow.focus();
+    mainWindow.webContents.send('server-event', { type: 'snap-submit' });
+  },
+  notify: (title, body) => showOsNotification({ title, body, tag: 'ScreenSnap' }),
+  getMode: () => configStore.get('screenSnapMode') ?? 'chat',
+  persistMode: (mode) => configStore.update({ screenSnapMode: mode }),
+  generate: async ({ instruction, image }, onDelta, signal) => {
+    const result = await runPiAiStream(
+      instruction,
+      SNAP_WRITE_SYSTEM_PROMPT,
+      configStore.getAll(),
+      {
+        images: [{ data: image.base64, mimeType: image.mediaType }],
+        onDelta,
+        signal,
+        maxTokens: 2048,
+        usageFeature: 'screen_snap_write',
+        usageSessionId: 'screen_snap',
+      }
+    );
+    return result.text;
+  },
+});
+
+function screenSnapMenuItem(): Electron.MenuItemConstructorOptions[] {
+  if (!screenSnap.isSupported) return [];
+  return [
+    {
+      label: 'Snap Screen to GrowthOS',
+      accelerator: screenSnap.getShortcut() ?? undefined,
+      registerAccelerator: false,
+      click: () => void screenSnap.trigger(),
+    },
+  ];
+}
+
 function buildMacMenu() {
   if (process.platform !== 'darwin') return;
 
@@ -861,6 +926,7 @@ function buildMacMenu() {
           accelerator: 'CmdOrCtrl+Shift+Space',
           click: () => openAskGrowthOSFromMain(),
         },
+        ...screenSnapMenuItem(),
         { type: 'separator' },
         { role: 'services' },
         { type: 'separator' },
@@ -955,7 +1021,22 @@ function setupTray() {
 
   tray = new Tray(trayImage);
   tray.setToolTip(PRODUCT_NAME);
+  refreshTrayMenu();
 
+  tray.on('click', () => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      createWindow();
+    } else if (mainWindow.isVisible()) {
+      mainWindow.hide();
+    } else {
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  });
+}
+
+function refreshTrayMenu() {
+  if (!tray) return;
   const contextMenu = Menu.buildFromTemplate([
     {
       label: 'Show / Hide Window',
@@ -975,6 +1056,7 @@ function setupTray() {
       accelerator: 'CmdOrCtrl+Shift+Space',
       click: () => openAskGrowthOSFromMain(),
     },
+    ...screenSnapMenuItem(),
     {
       label: 'New Session',
       click: () => {
@@ -1005,17 +1087,6 @@ function setupTray() {
     },
   ]);
   tray.setContextMenu(contextMenu);
-
-  tray.on('click', () => {
-    if (!mainWindow || mainWindow.isDestroyed()) {
-      createWindow();
-    } else if (mainWindow.isVisible()) {
-      mainWindow.hide();
-    } else {
-      mainWindow.show();
-      mainWindow.focus();
-    }
-  });
 }
 
 function getSavedThemePreference(): AppTheme {
@@ -2391,9 +2462,13 @@ app
     meetingService.setWikiIngest((m) => wikiService?.ingestMeeting(m));
     wireMeetingServiceEvents(meetingService);
     setDictationAppleErrorListener((message) => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('dictation:appleError', { message });
-      }
+      const target =
+        dictationTarget && !dictationTarget.isDestroyed()
+          ? dictationTarget
+          : mainWindow && !mainWindow.isDestroyed()
+            ? mainWindow.webContents
+            : null;
+      target?.send('dictation:appleError', { message });
     });
     const askUserQuestionExtension = new AskUserQuestionExtension(sendToRenderer);
     const extensionManager = new AgentRuntimeExtensionManager(
@@ -2428,6 +2503,8 @@ app
     // pi-ai handles model routing natively — no proxy warmup needed
 
     // macOS: application menu, dock menu, tray icon
+    screenSnap.registerIpc();
+    screenSnap.registerShortcut(configStore.get('screenSnapShortcut'));
     buildMacMenu();
     setupTray();
     registerAskGrowthOSShortcut();
@@ -2442,6 +2519,10 @@ app
         {
           label: 'Ask Growth OS',
           click: () => openAskGrowthOSFromMain(),
+        },
+        {
+          label: 'Snap Screen to GrowthOS',
+          click: () => void screenSnap.trigger(),
         },
         {
           label: 'New Session',
@@ -6733,13 +6814,15 @@ ipcMain.handle(
   }
 );
 
-ipcMain.handle('dictation.appleTranscription.start', async () => {
+ipcMain.handle('dictation.appleTranscription.start', async (event) => {
   if (process.platform !== 'darwin') {
     throw new Error('Apple transcription is only available on macOS');
   }
+  const target = event.sender;
+  dictationTarget = target;
   const sink = createDictationAppleSink((channel, payload) => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send(channel, payload);
+    if (!target.isDestroyed()) {
+      target.send(channel, payload);
     }
   });
   await appleMeetingTranscriptionService.start(DICTATION_APPLE_SESSION_ID, sink);

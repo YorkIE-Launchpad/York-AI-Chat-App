@@ -16,7 +16,22 @@ vi.mock('../../main/agent/shared-auth', () => ({
 }));
 
 import type { AppConfig } from '../../main/config/config-store';
-import { runPiAiOneShot } from '../../main/agent/sdk-one-shot';
+import { buildOneShotUserMessage, runPiAiOneShot } from '../../main/agent/sdk-one-shot';
+
+describe('buildOneShotUserMessage', () => {
+  it('keeps a plain string prompt when there are no images', () => {
+    expect(buildOneShotUserMessage('hi').content).toBe('hi');
+    expect(buildOneShotUserMessage('hi', []).content).toBe('hi');
+  });
+
+  it('puts images before the text part', () => {
+    const message = buildOneShotUserMessage('summarize', [{ data: 'AAA', mimeType: 'image/png' }]);
+    expect(message.content).toEqual([
+      { type: 'image', data: 'AAA', mimeType: 'image/png' },
+      { type: 'text', text: 'summarize' },
+    ]);
+  });
+});
 
 function makeConfig(): AppConfig {
   return {

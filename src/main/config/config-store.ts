@@ -15,6 +15,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import Store, { type Options as StoreOptions } from 'electron-store';
 import { log, logWarn } from '../utils/logger';
+import { DEFAULT_SCREEN_SNAP_SHORTCUT, type ScreenSnapMode } from '../../shared/screen-snap';
 import {
   createEncryptedStoreWithKeyRotation,
   getLegacyDerivedKeyHexes,
@@ -141,6 +142,12 @@ export interface AppConfig {
   // UI theme preference
   theme: AppTheme;
 
+  /** Global accelerator for Screen Snap (macOS). `null` disables the shortcut. */
+  screenSnapShortcut?: string | null;
+
+  /** Last-used Screen Snap composer mode; drives what the shortcut captures. */
+  screenSnapMode?: ScreenSnapMode;
+
   // Sandbox mode (WSL/Lima isolation)
   sandboxEnabled: boolean;
 
@@ -262,6 +269,8 @@ const DIRECT_READ_KEYS = new Set<keyof AppConfig>([
   'globalSkillsPath',
   'enableDevLogs',
   'theme',
+  'screenSnapShortcut',
+  'screenSnapMode',
   'sandboxEnabled',
   'memoryEnabled',
   'superContextMode',
@@ -285,6 +294,8 @@ export const EXPORTABLE_FIELDS: (keyof AppConfig)[] = [
   'defaultWorkdir',
   'globalSkillsPath',
   'theme',
+  'screenSnapShortcut',
+  'screenSnapMode',
   'enableDevLogs',
   'sandboxEnabled',
   'enableThinking',
@@ -337,6 +348,8 @@ export const FIELD_VALIDATORS: Record<string, (v: unknown) => boolean> = {
   defaultWorkdir: (v) => typeof v === 'string',
   globalSkillsPath: (v) => typeof v === 'string',
   theme: (v) => v === 'dark' || v === 'light' || v === 'system',
+  screenSnapShortcut: (v) => v === null || typeof v === 'string',
+  screenSnapMode: (v) => v === 'chat' || v === 'write',
   enableDevLogs: (v) => typeof v === 'boolean',
   sandboxEnabled: (v) => typeof v === 'boolean',
   enableThinking: (v) => typeof v === 'boolean',
@@ -434,6 +447,8 @@ const defaultConfig: AppConfig = {
   globalSkillsPath: '',
   enableDevLogs: false,
   theme: 'light',
+  screenSnapShortcut: DEFAULT_SCREEN_SNAP_SHORTCUT,
+  screenSnapMode: 'chat',
   sandboxEnabled: false,
   memoryEnabled: true,
   superContextMode: 'cold_intent',
@@ -1287,6 +1302,14 @@ export class ConfigStore {
           : defaultConfig.globalSkillsPath,
       enableDevLogs: toBoolean(raw.enableDevLogs, defaultConfig.enableDevLogs),
       theme: isAppTheme(raw.theme) ? raw.theme : defaultConfig.theme,
+      screenSnapShortcut:
+        raw.screenSnapShortcut === null || typeof raw.screenSnapShortcut === 'string'
+          ? raw.screenSnapShortcut
+          : defaultConfig.screenSnapShortcut,
+      screenSnapMode:
+        raw.screenSnapMode === 'chat' || raw.screenSnapMode === 'write'
+          ? raw.screenSnapMode
+          : defaultConfig.screenSnapMode,
       sandboxEnabled: toBoolean(raw.sandboxEnabled, defaultConfig.sandboxEnabled),
       memoryEnabled: toBoolean(raw.memoryEnabled, defaultConfig.memoryEnabled),
       superContextMode:

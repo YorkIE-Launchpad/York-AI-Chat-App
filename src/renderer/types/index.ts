@@ -906,6 +906,8 @@ export type ServerEvent =
   | { type: 'new-session' }
   | { type: 'open-ask-growthos' }
   | { type: 'open-ask-growthos-toggle' }
+  /** A Screen Snap is queued in main; pull it via `snap.takePendingSubmit`. */
+  | { type: 'snap-submit' }
   | { type: 'navigate'; payload: string }
   | { type: 'scheduled-task.error'; payload: { taskId: string; error: string } }
   | {
@@ -1195,6 +1197,10 @@ export interface AppConfig {
   defaultWorkdir?: string;
   globalSkillsPath?: string;
   theme?: AppTheme;
+  /** Global accelerator for Screen Snap (macOS). `null` disables the shortcut. */
+  screenSnapShortcut?: string | null;
+  /** Last-used Screen Snap composer mode. */
+  screenSnapMode?: 'chat' | 'write';
   sandboxEnabled?: boolean;
   memoryEnabled?: boolean;
   /**

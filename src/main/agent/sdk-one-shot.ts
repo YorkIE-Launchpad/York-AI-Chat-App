@@ -1,4 +1,8 @@
-import { completeSimple, streamSimple, type UserMessage as PiUserMessage } from '@mariozechner/pi-ai';
+import {
+  completeSimple,
+  streamSimple,
+  type UserMessage as PiUserMessage,
+} from '@mariozechner/pi-ai';
 import type { ApiTestInput, ApiTestResult } from '../../renderer/types';
 import { PROVIDER_PRESETS, type AppConfig, type CustomProtocolType } from '../config/config-store';
 import {
@@ -47,7 +51,11 @@ import {
   type SessionDivisionFields,
 } from '../../shared/workspace-division';
 import { reportHubGovernanceUsageFromCompletion } from '../hub/hub-ai-governance';
-import { isYorkLlmBaseUrl, resolveYorkLlmApiKey, YORK_LLM_ZERO_COST } from '../../shared/york-llm-config';
+import {
+  isYorkLlmBaseUrl,
+  resolveYorkLlmApiKey,
+  YORK_LLM_ZERO_COST,
+} from '../../shared/york-llm-config';
 import { acquireYorkLlmSlot } from '../york-llm/york-llm-gate';
 
 const NETWORK_ERROR_RE =
@@ -453,7 +461,9 @@ export async function runPiAiOneShot(
       if (!fallback) {
         throw new Error(openRouterLimitUserMessage(true));
       }
-      logWarn(`[OneShot] ${OPENROUTER_LIMIT_FALLBACK_NOTE} ${fallback.provider}/${fallback.modelId}`);
+      logWarn(
+        `[OneShot] ${OPENROUTER_LIMIT_FALLBACK_NOTE} ${fallback.provider}/${fallback.modelId}`
+      );
       effectiveConfig = {
         ...effectiveConfig,
         model: fallback.modelId,
@@ -586,7 +596,6 @@ export async function runPiAiOneShot(
   }
 }
 
-
 export type PiAiOneShotOptions = {
   temperature?: number;
   maxTokens?: number;
@@ -599,7 +608,31 @@ export type PiAiOneShotOptions = {
   usageSessionId?: string;
   /** Invoked with accumulated text as tokens arrive (stream path only). */
   onDelta?: (text: string) => void;
+  /** Base64 images sent ahead of the prompt (stream path only; model must support vision). */
+  images?: Array<{ data: string; mimeType: string }>;
 };
+
+/** Build the single user message for a one-shot call, with optional leading images. */
+export function buildOneShotUserMessage(
+  prompt: string,
+  images?: PiAiOneShotOptions['images']
+): PiUserMessage {
+  if (!images || images.length === 0) {
+    return { role: 'user', content: prompt, timestamp: Date.now() };
+  }
+  return {
+    role: 'user',
+    content: [
+      ...images.map((image) => ({
+        type: 'image' as const,
+        data: image.data,
+        mimeType: image.mimeType,
+      })),
+      { type: 'text' as const, text: prompt },
+    ],
+    timestamp: Date.now(),
+  };
+}
 
 /**
  * Stream a one-shot prompt via pi-ai streamSimple (same model/auth path as runPiAiOneShot).
@@ -697,7 +730,7 @@ async function runPiAiStreamInner(
   }
 
   let resolvedModel = piModel!;
-  let activeProvider = effectiveConfig.provider || provider;
+  const activeProvider = effectiveConfig.provider || provider;
 
   if (activeProvider === 'openrouter') {
     const userKey = config.openRouterUserApiKey?.trim();
@@ -713,7 +746,7 @@ async function runPiAiStreamInner(
 
   const yorkLlmActiveForAuth = isYorkLlmBaseUrl(effectiveBaseUrl || resolvedModel.baseUrl);
   const yorkLlmApiKey = yorkLlmActiveForAuth ? resolveYorkLlmApiKey() : '';
-  let apiKey = (
+  const apiKey = (
     await resolveBackendClientApiKey({
       provider: effectiveConfig.provider,
       apiKey: yorkLlmApiKey || effectiveConfig.apiKey,
@@ -728,7 +761,7 @@ async function runPiAiStreamInner(
   }
 
   const start = Date.now();
-  const userMsg: PiUserMessage = { role: 'user', content: prompt, timestamp: Date.now() };
+  const userMsg = buildOneShotUserMessage(prompt, options?.images);
   const temperature =
     shouldOmitTemperature(resolvedModel.id) || typeof options?.temperature !== 'number'
       ? undefined
@@ -771,10 +804,7 @@ async function runPiAiStreamInner(
   );
 
   try {
-    const consumeStream = async (
-      model: typeof resolvedModel,
-      opts: typeof baseOptions
-    ) => {
+    const consumeStream = async (model: typeof resolvedModel, opts: typeof baseOptions) => {
       let accumulated = '';
       const eventStream = streamSimple(
         model,
@@ -853,7 +883,10 @@ async function runPiAiStreamInner(
     const textBlocks = response.content.filter((b) => b.type === 'text');
     const thinkingBlocks = response.content.filter((b) => b.type === 'thinking');
     const text =
-      textBlocks.map((b) => (b as { text: string }).text).join('').trim() || accumulated.trim();
+      textBlocks
+        .map((b) => (b as { text: string }).text)
+        .join('')
+        .trim() || accumulated.trim();
     const hasThinking = thinkingBlocks.some(
       (b) => (b as { thinking: string }).thinking?.trim().length > 0
     );
