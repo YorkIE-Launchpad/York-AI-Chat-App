@@ -1199,6 +1199,7 @@ export interface AppConfig {
   theme?: AppTheme;
   /** Global accelerator for Screen Snap (macOS). `null` disables the shortcut. */
   screenSnapShortcut?: string | null;
+  screenSnapWiggle?: boolean;
   /** Last-used Screen Snap composer mode. */
   screenSnapMode?: 'chat' | 'write';
   sandboxEnabled?: boolean;

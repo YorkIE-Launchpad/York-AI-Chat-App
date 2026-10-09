@@ -15,7 +15,11 @@ import * as fs from 'fs';
 import * as path from 'path';
 import Store, { type Options as StoreOptions } from 'electron-store';
 import { log, logWarn } from '../utils/logger';
-import { DEFAULT_SCREEN_SNAP_SHORTCUT, type ScreenSnapMode } from '../../shared/screen-snap';
+import {
+  DEFAULT_SCREEN_SNAP_SHORTCUT,
+  DEFAULT_SCREEN_SNAP_WIGGLE,
+  type ScreenSnapMode,
+} from '../../shared/screen-snap';
 import {
   createEncryptedStoreWithKeyRotation,
   getLegacyDerivedKeyHexes,
@@ -145,6 +149,9 @@ export interface AppConfig {
   /** Global accelerator for Screen Snap (macOS). `null` disables the shortcut. */
   screenSnapShortcut?: string | null;
 
+  /** Start Screen Snap by quickly shaking the mouse pointer (macOS). */
+  screenSnapWiggle?: boolean;
+
   /** Last-used Screen Snap composer mode; drives what the shortcut captures. */
   screenSnapMode?: ScreenSnapMode;
 
@@ -270,6 +277,7 @@ const DIRECT_READ_KEYS = new Set<keyof AppConfig>([
   'enableDevLogs',
   'theme',
   'screenSnapShortcut',
+  'screenSnapWiggle',
   'screenSnapMode',
   'sandboxEnabled',
   'memoryEnabled',
@@ -295,6 +303,7 @@ export const EXPORTABLE_FIELDS: (keyof AppConfig)[] = [
   'globalSkillsPath',
   'theme',
   'screenSnapShortcut',
+  'screenSnapWiggle',
   'screenSnapMode',
   'enableDevLogs',
   'sandboxEnabled',
@@ -349,6 +358,7 @@ export const FIELD_VALIDATORS: Record<string, (v: unknown) => boolean> = {
   globalSkillsPath: (v) => typeof v === 'string',
   theme: (v) => v === 'dark' || v === 'light' || v === 'system',
   screenSnapShortcut: (v) => v === null || typeof v === 'string',
+  screenSnapWiggle: (v) => typeof v === 'boolean',
   screenSnapMode: (v) => v === 'chat' || v === 'write',
   enableDevLogs: (v) => typeof v === 'boolean',
   sandboxEnabled: (v) => typeof v === 'boolean',
@@ -448,6 +458,7 @@ const defaultConfig: AppConfig = {
   enableDevLogs: false,
   theme: 'light',
   screenSnapShortcut: DEFAULT_SCREEN_SNAP_SHORTCUT,
+  screenSnapWiggle: DEFAULT_SCREEN_SNAP_WIGGLE,
   screenSnapMode: 'chat',
   sandboxEnabled: false,
   memoryEnabled: true,
@@ -1306,6 +1317,10 @@ export class ConfigStore {
         raw.screenSnapShortcut === null || typeof raw.screenSnapShortcut === 'string'
           ? raw.screenSnapShortcut
           : defaultConfig.screenSnapShortcut,
+      screenSnapWiggle:
+        typeof raw.screenSnapWiggle === 'boolean'
+          ? raw.screenSnapWiggle
+          : defaultConfig.screenSnapWiggle,
       screenSnapMode:
         raw.screenSnapMode === 'chat' || raw.screenSnapMode === 'write'
           ? raw.screenSnapMode
@@ -1858,6 +1873,10 @@ export class ConfigStore {
         updates.screenSnapShortcut !== undefined
           ? updates.screenSnapShortcut
           : current.screenSnapShortcut,
+      screenSnapWiggle:
+        updates.screenSnapWiggle !== undefined
+          ? updates.screenSnapWiggle
+          : current.screenSnapWiggle,
       screenSnapMode:
         updates.screenSnapMode !== undefined ? updates.screenSnapMode : current.screenSnapMode,
       isConfigured:

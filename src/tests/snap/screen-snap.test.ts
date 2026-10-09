@@ -10,6 +10,7 @@ const createdWindows = vi.hoisted(
       webContents: { send: ReturnType<typeof vi.fn> };
       setVisibleOnAllWorkspaces: ReturnType<typeof vi.fn>;
       setResizable: ReturnType<typeof vi.fn>;
+      show: () => void;
     }>
 );
 
@@ -37,8 +38,16 @@ vi.mock('electron', () => {
     on = vi.fn();
     focus = vi.fn();
     isDestroyed = () => this.destroyed;
-    show = vi.fn(() => windowEvents.push('show'));
-    showInactive = vi.fn(() => windowEvents.push('showInactive'));
+    private visible = false;
+    isVisible = () => this.visible;
+    show = vi.fn(() => {
+      this.visible = true;
+      windowEvents.push('show');
+    });
+    showInactive = vi.fn(() => {
+      this.visible = true;
+      windowEvents.push('showInactive');
+    });
     setFocusable = vi.fn();
     hide = vi.fn(() => windowEvents.push('hide'));
     close = vi.fn(() => {
@@ -240,6 +249,78 @@ describe('ScreenSnapController shortcuts', () => {
     expect(controller.setShortcut(null)).toEqual({ success: true, shortcut: null });
     expect(registered.size).toBe(0);
     expect(persistShortcut).toHaveBeenCalledWith(null);
+  });
+});
+
+describe('ScreenSnapController wiggle to snap', () => {
+  const image: ScreenSnapImage = { base64: 'abc', mediaType: 'image/png', width: 10, height: 10 };
+
+  const setup = (overrides: Partial<ScreenSnapControllerOptions> = {}) => {
+    let fire: () => void = () => undefined;
+    const detector = { start: vi.fn(), stop: vi.fn() };
+    const capture = vi.fn(async () => image);
+    const persistWiggle = vi.fn();
+    const controller = new ScreenSnapController({
+      platform: 'darwin',
+      persistShortcut: vi.fn(),
+      persistWiggle,
+      capture,
+      getMode: () => 'chat',
+      getFrontmostTarget: async () => null,
+      ensureScreenPermission: async () => true,
+      isScreenPermissionGranted: () => true,
+      createWiggleDetector: (onWiggle) => {
+        fire = onWiggle;
+        return detector;
+      },
+      ...overrides,
+    });
+    return { controller, detector, capture, persistWiggle, fire: () => fire() };
+  };
+
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  it('starts/stops the detector and persists only when asked', () => {
+    const { controller, detector, persistWiggle } = setup();
+    controller.setWiggleEnabled(true);
+    expect(detector.start).toHaveBeenCalled();
+    expect(persistWiggle).not.toHaveBeenCalled();
+    controller.setWiggleEnabled(false, true);
+    expect(detector.stop).toHaveBeenCalled();
+    expect(persistWiggle).toHaveBeenCalledWith(false);
+    expect(controller.isWiggleEnabled).toBe(false);
+  });
+
+  it('starts a snap on wiggle', async () => {
+    const { controller, capture, fire } = setup();
+    controller.setWiggleEnabled(true);
+    fire();
+    await flush();
+    expect(capture).toHaveBeenCalledTimes(1);
+  });
+
+  it('never prompts for permission on a wiggle', async () => {
+    const ensureScreenPermission = vi.fn(async () => true);
+    const { controller, capture, fire } = setup({
+      isScreenPermissionGranted: () => false,
+      ensureScreenPermission,
+    });
+    controller.setWiggleEnabled(true);
+    fire();
+    await flush();
+    expect(ensureScreenPermission).not.toHaveBeenCalled();
+    expect(capture).not.toHaveBeenCalled();
+  });
+
+  it('ignores wiggles while the panel is open', async () => {
+    const { controller, capture, fire } = setup();
+    controller.setWiggleEnabled(true);
+    await controller.trigger();
+    const panel = createdWindows[createdWindows.length - 1];
+    panel.show();
+    fire();
+    await flush();
+    expect(capture).toHaveBeenCalledTimes(1);
   });
 });
 

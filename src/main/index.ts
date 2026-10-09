@@ -85,6 +85,7 @@ import {
 import { createRealtimeTranslationSession } from './dictation/dictation-service';
 import { ScreenSnapController, SNAP_WRITE_SYSTEM_PROMPT } from './snap/screen-snap';
 import { SCREEN_PERMISSION_RELAUNCH_FLAG } from './snap/screen-permission';
+import { DEFAULT_SCREEN_SNAP_WIGGLE } from '../shared/screen-snap';
 import { getInitialSessionTitle } from '../shared/session-title';
 import {
   appleMeetingTranscriptionService,
@@ -849,6 +850,7 @@ function registerAskGrowthOSShortcut() {
 const screenSnap = new ScreenSnapController({
   preloadPath: join(__dirname, '../preload/index.js'),
   persistShortcut: (shortcut) => configStore.update({ screenSnapShortcut: shortcut }),
+  persistWiggle: (enabled) => configStore.update({ screenSnapWiggle: enabled }),
   onShortcutChanged: () => {
     buildMacMenu();
     refreshTrayMenu();
@@ -2546,6 +2548,7 @@ app
     // macOS: application menu, dock menu, tray icon
     screenSnap.registerIpc();
     screenSnap.registerShortcut(configStore.get('screenSnapShortcut'));
+    screenSnap.setWiggleEnabled(configStore.get('screenSnapWiggle') ?? DEFAULT_SCREEN_SNAP_WIGGLE);
     if (process.argv.includes(SCREEN_PERMISSION_RELAUNCH_FLAG)) {
       const shortcut = screenSnap.getShortcut();
       showOsNotification({

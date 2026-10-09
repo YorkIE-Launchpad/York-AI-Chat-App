@@ -99,6 +99,8 @@
   "general": {
     "snapShortcut": "Screen Snap shortcut",
     "snapShortcutHelp": "Press this anywhere on your Mac to select part of the screen and start a new chat with it.",
+    "snapWiggle": "Shake the pointer to snap",
+    "snapWiggleHelp": "Quickly wiggle the mouse left and right to start a snap, no keys needed.",
     "snapShortcutChange": "Change",
     "snapShortcutRecording": "Press new shortcut…",
     "snapShortcutRecordingHint": "Hold at least one of ⌘, ⌃ or ⌥ plus a key. Press Esc to cancel.",

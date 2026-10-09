@@ -1266,6 +1266,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('snap.getShortcut'),
     setShortcut: (shortcut: string | null): Promise<ScreenSnapShortcutResult> =>
       ipcRenderer.invoke('snap.setShortcut', shortcut),
+    getWiggle: (): Promise<{ enabled: boolean }> => ipcRenderer.invoke('snap.getWiggle'),
+    setWiggle: (enabled: boolean): Promise<{ enabled: boolean }> =>
+      ipcRenderer.invoke('snap.setWiggle', enabled),
     trigger: (): Promise<{ success: boolean }> => ipcRenderer.invoke('snap.trigger'),
   },
 
@@ -2087,6 +2090,8 @@ declare global {
         cancel: () => Promise<{ success: boolean }>;
         getShortcut: () => Promise<{ shortcut: string | null; supported: boolean }>;
         setShortcut: (shortcut: string | null) => Promise<ScreenSnapShortcutResult>;
+        getWiggle: () => Promise<{ enabled: boolean }>;
+        setWiggle: (enabled: boolean) => Promise<{ enabled: boolean }>;
         trigger: () => Promise<{ success: boolean }>;
       };
       permissions: {

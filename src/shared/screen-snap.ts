@@ -4,6 +4,8 @@
  */
 
 export const DEFAULT_SCREEN_SNAP_SHORTCUT = 'CommandOrControl+Shift+G';
+/** Shaking the mouse pointer quickly starts a snap (on by default, alongside the shortcut). */
+export const DEFAULT_SCREEN_SNAP_WIGGLE = true;
 export const ASK_GROWTHOS_SHORTCUT = 'CommandOrControl+Shift+Space';
 
 export type ScreenSnapMediaType = 'image/png' | 'image/jpeg';

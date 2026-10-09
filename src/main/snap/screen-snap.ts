@@ -44,6 +44,7 @@ import {
   getFrontmostTarget as defaultGetFrontmostTarget,
 } from './front-app';
 import { pasteText as defaultPasteText, type PasteResult } from './paste-into-app';
+import { WiggleDetector } from './wiggle-detector';
 import { ScreenRecordingPermission } from './screen-permission';
 
 /** Claude rejects base64 images over 5MB; base64 adds ~33%. */
@@ -163,6 +164,9 @@ export type SnapGenerateFn = (
 export interface ScreenSnapControllerOptions {
   /** Persist the new shortcut (null = disabled). */
   persistShortcut: (shortcut: string | null) => void;
+  persistWiggle?: (enabled: boolean) => void;
+  /** Test seam; defaults to polling `screen.getCursorScreenPoint()`. */
+  createWiggleDetector?: (onWiggle: () => void) => { start: () => void; stop: () => void };
   /** Called after the active shortcut changes so menus can relabel. */
   onShortcutChanged?: (shortcut: string | null) => void;
   /**
@@ -203,10 +207,13 @@ export interface ScreenSnapControllerOptions {
   writeClipboard?: (text: string) => void;
   /** Resolves true when Screen Recording is granted; otherwise runs the permission flow. */
   ensureScreenPermission?: () => Promise<boolean>;
+  isScreenPermissionGranted?: () => boolean;
 }
 
 export class ScreenSnapController {
   private activeShortcut: string | null = null;
+  private wiggle: { start: () => void; stop: () => void } | null = null;
+  private wiggleEnabled = false;
   private capturing = false;
   private composer: BrowserWindow | null = null;
   private pendingState: ScreenSnapComposerState | null = null;
@@ -286,6 +293,41 @@ export class ScreenSnapController {
     this.options.persistShortcut(shortcut);
     this.options.onShortcutChanged?.(shortcut);
     return { success: true, shortcut };
+  }
+
+  get isWiggleEnabled(): boolean {
+    return this.wiggleEnabled;
+  }
+
+  /** Start/stop "shake the pointer to snap". `persist` saves the choice (Settings toggle). */
+  setWiggleEnabled(enabled: boolean, persist = false): boolean {
+    if (!this.isSupported) return false;
+    this.wiggleEnabled = enabled;
+    if (enabled) {
+      this.wiggle ??= this.options.createWiggleDetector
+        ? this.options.createWiggleDetector(() => this.onWiggle())
+        : new WiggleDetector({
+            getCursor: () => screen.getCursorScreenPoint(),
+            onWiggle: () => this.onWiggle(),
+          });
+      this.wiggle.start();
+    } else {
+      this.wiggle?.stop();
+    }
+    if (persist) this.options.persistWiggle?.(enabled);
+    return this.wiggleEnabled;
+  }
+
+  private onWiggle(): void {
+    // Shaking while dragging/using the open panel should not re-snap.
+    if (this.composer && !this.composer.isDestroyed() && this.composer.isVisible()) return;
+    // An accidental shake must never pop the permission dialog; the shortcut/menu handle setup.
+    const granted =
+      this.options.isScreenPermissionGranted?.() ??
+      (this.screenPermission ??= new ScreenRecordingPermission()).isGranted();
+    if (!granted) return;
+    log('[ScreenSnap] Pointer wiggle detected');
+    void this.trigger();
   }
 
   /** Start a capture (shortcut, menu, or tray). No-op while one is running. */
@@ -541,6 +583,10 @@ export class ScreenSnapController {
     ipcMain.handle('snap.setShortcut', (_event, shortcut: string | null) =>
       this.setShortcut(typeof shortcut === 'string' ? shortcut : null)
     );
+    ipcMain.handle('snap.getWiggle', () => ({ enabled: this.wiggleEnabled }));
+    ipcMain.handle('snap.setWiggle', (_event, enabled: boolean) => ({
+      enabled: this.setWiggleEnabled(enabled === true, true),
+    }));
     ipcMain.handle('snap.trigger', () => {
       void this.trigger();
       return { success: true };
@@ -571,6 +617,7 @@ export class ScreenSnapController {
 
   dispose(): void {
     this.unregisterActive();
+    this.wiggle?.stop();
     this.closeComposer();
     this.screenPermission?.dispose();
   }

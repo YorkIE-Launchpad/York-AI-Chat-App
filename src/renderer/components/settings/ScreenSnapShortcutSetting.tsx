@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Keyboard } from 'lucide-react';
+import { Keyboard, MousePointer2 } from 'lucide-react';
 import { useAppStore } from '../../store';
 import { formatAccelerator, keyEventToAccelerator } from '../../utils/shortcut-accelerator';
 import {
   DEFAULT_SCREEN_SNAP_SHORTCUT,
+  DEFAULT_SCREEN_SNAP_WIGGLE,
   type ScreenSnapShortcutResult,
 } from '../../../shared/screen-snap';
 
@@ -22,6 +23,7 @@ export function ScreenSnapShortcutSetting() {
   const [recording, setRecording] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<ErrorReason | null>(null);
+  const [wiggle, setWiggle] = useState(DEFAULT_SCREEN_SNAP_WIGGLE);
 
   const savedShortcut =
     appConfig?.screenSnapShortcut === undefined
@@ -34,7 +36,16 @@ export function ScreenSnapShortcutSetting() {
       setSupported(result.supported);
       setActiveShortcut(result.shortcut);
     });
+    void snapApi.getWiggle().then((result) => setWiggle(result.enabled));
   }, [snapApi]);
+
+  const toggleWiggle = async () => {
+    if (!snapApi) return;
+    const result = await snapApi.setWiggle(!wiggle);
+    setWiggle(result.enabled);
+    const current = useAppStore.getState().appConfig;
+    if (current) setAppConfig({ ...current, screenSnapWiggle: result.enabled });
+  };
 
   const applyShortcut = useCallback(
     async (shortcut: string | null) => {
@@ -162,6 +173,31 @@ export function ScreenSnapShortcutSetting() {
           {t('general.snapShortcutNotRegistered')}
         </p>
       )}
+      <label className="flex cursor-pointer items-start justify-between gap-4 pt-1">
+        <span className="flex items-start gap-2">
+          <MousePointer2 className="mt-0.5 h-4 w-4 text-text-secondary" />
+          <span>
+            <span className="block text-sm text-text-primary">{t('general.snapWiggle')}</span>
+            <span className="block text-xs text-text-muted">{t('general.snapWiggleHelp')}</span>
+          </span>
+        </span>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={wiggle}
+          aria-label={t('general.snapWiggle')}
+          onClick={() => void toggleWiggle()}
+          className={`relative h-5 w-9 flex-shrink-0 rounded-full transition-colors ${
+            wiggle ? 'bg-accent' : 'bg-border'
+          }`}
+        >
+          <span
+            className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${
+              wiggle ? 'translate-x-[18px]' : 'translate-x-0.5'
+            }`}
+          />
+        </button>
+      </label>
     </div>
   );
 }
