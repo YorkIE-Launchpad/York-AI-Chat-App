@@ -46,6 +46,12 @@ describe('parseFrontmostOutput', () => {
     expect(parseFrontmostOutput('a.b\tA\t3\t0\t0\t0\t0', 1)?.bounds).toBeUndefined();
   });
 
+  it('ignores strip-sized windows (e.g. a full-screen toolbar) so region capture is used', () => {
+    expect(
+      parseFrontmostOutput('com.google.Chrome\tChrome\t9\t0\t0\t1512\t200', 1)?.bounds
+    ).toBeUndefined();
+  });
+
   it('parses the focused text field frame', () => {
     expect(
       parseFrontmostOutput('com.google.Chrome\tChrome\t9\t0\t25\t1200\t800\t300\t410\t500\t36', 1)

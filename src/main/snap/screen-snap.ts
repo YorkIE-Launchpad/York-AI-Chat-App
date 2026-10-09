@@ -65,6 +65,31 @@ const COMPOSER_WIDTH = 560;
 const COMPOSER_HEIGHT: Record<ScreenSnapMode, number> = { chat: 500, write: 660 };
 const CHAT_ACTIVE_HEIGHT = 720;
 
+/** At least this share of the window must be on a display to auto-capture it. */
+const MIN_VISIBLE_WINDOW_FRACTION = 0.6;
+/** Captured image aspect may differ from the window's by at most this ratio. */
+const MAX_ASPECT_DRIFT = 0.15;
+
+type Rect = { x: number; y: number; width: number; height: number };
+
+function isMostlyOnScreen(rect: Rect): boolean {
+  const display = screen.getDisplayMatching(rect).bounds;
+  const overlapW =
+    Math.min(rect.x + rect.width, display.x + display.width) - Math.max(rect.x, display.x);
+  const overlapH =
+    Math.min(rect.y + rect.height, display.y + display.height) - Math.max(rect.y, display.y);
+  if (overlapW <= 0 || overlapH <= 0) return false;
+  return (overlapW * overlapH) / (rect.width * rect.height) >= MIN_VISIBLE_WINDOW_FRACTION;
+}
+
+/** Guards against capturing something other than the window (e.g. a thin strip). */
+function matchesBounds(image: ScreenSnapImage, rect: Rect): boolean {
+  if (!image.width || !image.height) return true;
+  const expected = rect.width / rect.height;
+  const actual = image.width / image.height;
+  return Math.abs(actual - expected) / expected <= MAX_ASPECT_DRIFT;
+}
+
 export type ExecFileFn = (file: string, args: string[]) => Promise<void>;
 
 const defaultExecFile: ExecFileFn = (file, args) =>
@@ -344,10 +369,15 @@ export class ScreenSnapController {
 
       const preferredMode = this.options.getMode?.() ?? 'chat';
       const bounds = this.target?.bounds;
-      const image =
-        preferredMode === 'write' && bounds
-          ? await this.captureRectFn(bounds)
-          : await this.capture();
+      let image: ScreenSnapImage | null = null;
+      if (preferredMode === 'write' && bounds && isMostlyOnScreen(bounds)) {
+        image = await this.captureRectFn(bounds).catch(() => null);
+        if (image && !matchesBounds(image, bounds)) {
+          logWarn('[ScreenSnap] Window capture looked wrong; falling back to region selection');
+          image = null;
+        }
+      }
+      image ??= await this.capture();
       if (!image) {
         log('[ScreenSnap] Capture cancelled');
         return;

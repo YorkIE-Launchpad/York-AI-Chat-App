@@ -11,6 +11,7 @@ const ACTIVATE_TIMEOUT_MS = 1500;
 const ACTIVATE_POLL_MS = 60;
 /** Browsers restore DOM focus a beat after their window becomes key. */
 const FOCUS_SETTLE_MS = 180;
+const MIN_CAPTURE_WINDOW = { width: 320, height: 240 };
 
 export type RunOsascript = (args: string[]) => Promise<string>;
 
@@ -44,6 +45,19 @@ const IS_EDITABLE_HANDLER = [
  */
 const FRONTMOST_SCRIPT = [
   ...IS_EDITABLE_HANDLER,
+  'on isCapturable(w)',
+  '  tell application "System Events"',
+  '    try',
+  '      if w is missing value then return false',
+  '      if (value of attribute "AXSubrole" of w) is not "AXStandardWindow" then return false',
+  '      try',
+  '        if (value of attribute "AXMinimized" of w) is true then return false',
+  '      end try',
+  '      return true',
+  '    end try',
+  '  end tell',
+  '  return false',
+  'end isCapturable',
   'tell application "System Events"',
   '  set p to first application process whose frontmost is true',
   '  set bid to bundle identifier of p',
@@ -51,9 +65,30 @@ const FRONTMOST_SCRIPT = [
   '  set ppid to unix id of p',
   '  set winPart to tab & tab & tab',
   '  try',
-  '    set w to window 1 of p',
-  '    set {x, y} to position of w',
-  '    set {wd, ht} to size of w',
+  // Only a real document window is auto-captured; toolbar strips, popovers, sheets
+  // and panels are skipped (no bounds => the user selects a region instead).
+  '    set w to missing value',
+  '    try',
+  '      set cand to value of attribute "AXFocusedWindow" of p',
+  '      if my isCapturable(cand) then set w to cand',
+  '    end try',
+  '    if w is missing value then',
+  '      try',
+  '        set cand to value of attribute "AXMainWindow" of p',
+  '        if my isCapturable(cand) then set w to cand',
+  '      end try',
+  '    end if',
+  '    if w is missing value then',
+  '      repeat with cand in (windows of p)',
+  '        if my isCapturable(cand) then',
+  '          set w to contents of cand',
+  '          exit repeat',
+  '        end if',
+  '      end repeat',
+  '    end if',
+  '    if w is missing value then error "no capturable window"',
+  '    set {x, y} to value of attribute "AXPosition" of w',
+  '    set {wd, ht} to value of attribute "AXSize" of w',
   '    set winPart to ((x as integer) as text) & tab & (y as integer) & tab & (wd as integer) & tab & (ht as integer)',
   '  end try',
   '  set fieldPart to tab & tab & tab',
@@ -141,7 +176,14 @@ export function parseFrontmostOutput(stdout: string, selfPid: number): ScreenSna
 
   const target: ScreenSnapTarget = { bundleId, name: name || bundleId, pid };
   const bounds = parseFrame(rest.slice(0, 4));
-  if (bounds) target.bounds = bounds;
+  // A toolbar/strip-sized "window" is not worth capturing; region selection is used instead.
+  if (
+    bounds &&
+    bounds.width >= MIN_CAPTURE_WINDOW.width &&
+    bounds.height >= MIN_CAPTURE_WINDOW.height
+  ) {
+    target.bounds = bounds;
+  }
   const focusedField = parseFrame(rest.slice(4, 8));
   if (focusedField) target.focusedField = focusedField;
   return target;

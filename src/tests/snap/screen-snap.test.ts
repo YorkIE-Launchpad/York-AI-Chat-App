@@ -77,7 +77,10 @@ vi.mock('electron', () => {
     screen: {
       getCursorScreenPoint: () => ({ x: 0, y: 0 }),
       getDisplayNearestPoint: () => ({ workArea: { x: 0, y: 0, width: 1440, height: 900 } }),
-      getDisplayMatching: () => ({ workArea: { x: 0, y: 0, width: 1440, height: 900 } }),
+      getDisplayMatching: () => ({
+        workArea: { x: 0, y: 25, width: 1440, height: 875 },
+        bounds: { x: 0, y: 0, width: 1440, height: 900 },
+      }),
     },
     shell: { openExternal: vi.fn() },
     systemPreferences: {
@@ -509,7 +512,8 @@ describe('captureRect', () => {
 });
 
 describe('ScreenSnapController write into field', () => {
-  const image: ScreenSnapImage = { base64: 'abc', mediaType: 'image/png', width: 10, height: 10 };
+  // Same aspect as the Chrome window bounds below (1200x800).
+  const image: ScreenSnapImage = { base64: 'abc', mediaType: 'image/png', width: 600, height: 400 };
   const chrome: ScreenSnapTarget = {
     bundleId: 'com.google.Chrome',
     name: 'Google Chrome',
@@ -549,6 +553,28 @@ describe('ScreenSnapController write into field', () => {
       mode: 'write',
       targetAppName: 'Google Chrome',
     });
+  });
+
+  it('falls back to region capture when the window capture does not match the window', async () => {
+    const strip: ScreenSnapImage = { ...image, width: 1512, height: 38 };
+    const { controller, capture, captureRectFn } = makeController();
+    captureRectFn.mockResolvedValueOnce(strip);
+    await controller.trigger();
+    expect(captureRectFn).toHaveBeenCalled();
+    expect(capture).toHaveBeenCalled();
+    expect(pendingState(controller)).toMatchObject({ image, mode: 'write' });
+  });
+
+  it('falls back to region capture when the window is mostly off screen', async () => {
+    const { controller, capture, captureRectFn } = makeController({
+      getFrontmostTarget: async () => ({
+        ...chrome,
+        bounds: { x: 1300, y: 100, width: 1200, height: 800 },
+      }),
+    });
+    await controller.trigger();
+    expect(captureRectFn).not.toHaveBeenCalled();
+    expect(capture).toHaveBeenCalled();
   });
 
   it('falls back to region capture when the target has no window bounds', async () => {
