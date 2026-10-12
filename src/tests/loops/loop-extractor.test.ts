@@ -14,7 +14,7 @@ import {
   withLoopCaptureOverride,
 } from '../../main/loops/loop-capture-prompt';
 import { DEFAULT_LOOPS_RUNTIME } from '../../shared/loops';
-import type { MatterItem } from '../../shared/matter';
+import { MATTER_UNSCORED_CONFIDENCE, type MatterItem } from '../../shared/matter';
 
 const now = Date.UTC(2026, 8, 29, 10);
 
@@ -146,6 +146,14 @@ describe('selectMatterLoopCandidates', () => {
       suggestedAction: 'Complete, delegate, or dismiss this action.',
     } as MatterItem;
     expect(selectMatterLoopCandidates([meetingItem, generic], DEFAULT_LOOPS_RUNTIME)).toEqual([]);
+  });
+
+  it('lets unscored heuristic signals through but gates scored ones on the threshold', () => {
+    const unscored = { ...base, confidence: MATTER_UNSCORED_CONFIDENCE } as MatterItem;
+    const lowScored = { ...base, confidence: 0.5 } as MatterItem;
+    expect(selectMatterLoopCandidates([unscored, lowScored], DEFAULT_LOOPS_RUNTIME)).toEqual([
+      unscored,
+    ]);
   });
 });
 

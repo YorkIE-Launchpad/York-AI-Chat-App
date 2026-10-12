@@ -62,7 +62,7 @@ async function decideBatch(
       `Item ${i}: Could someone understand exactly what to do from the item alone (what, for whom, about which thing), without reading the meeting transcript or source? References like "which issue", "the tasks mentioned", "what is scheduled" are NO.${ruleClause}`
     );
     questions[`${p}_involves`] = noul(
-      `Item ${i}: Does THIS user personally have to do it, or does a named person explicitly owe it to this user? Actions purely between other people are NO.${ruleClause}`
+      `Item ${i}: Does THIS user personally have to do it, or does a named person explicitly owe it to this user? Items with no named owner come from this user's own meeting or feed, so they count as YES. Items assigned to someone else, or actions purely between other people, are NO.${ruleClause}`
     );
     questions[`${p}_owner`] = choice(`Item ${i}: who owes it.${ruleClause}`, OWNER_CRITERIA);
   }

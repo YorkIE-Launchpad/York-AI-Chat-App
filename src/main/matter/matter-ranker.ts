@@ -12,6 +12,7 @@ import type {
   MatterSource,
   MatterSourcePrompts,
 } from '../../shared/matter';
+import { MATTER_UNSCORED_CONFIDENCE } from '../../shared/matter';
 import {
   deriveMatterTimeFields,
   orbitFromRankScore,
@@ -439,7 +440,7 @@ export function heuristicRank(
           }),
           category: s.categoryHint || 'comms',
           source: s.source,
-          confidence: 0.55,
+          confidence: MATTER_UNSCORED_CONFIDENCE,
           suggestedAction: s.suggestedAction || null,
           rankScore,
           sourceRef: enrichSourceRef(s.sourceRef || {}, s.rawDetails || s.rawExcerpt),

@@ -6,7 +6,7 @@
  */
 import { MemoryLLMClient, type MemoryLLMClientLike } from '../memory/memory-llm-client';
 import type { MeetingSession } from '../meetings/meeting-types';
-import type { MatterItem } from '../../shared/matter';
+import { MATTER_UNSCORED_CONFIDENCE, type MatterItem } from '../../shared/matter';
 import type { LoopOwner, LoopsRuntimeConfig } from '../../shared/loops';
 import type { WelcomeProfile } from '../../shared/welcome-actions';
 import { meetingActionFingerprint } from '../matter/matter-collector';
@@ -116,7 +116,7 @@ const SCREEN_PROMPT = [
   'keep=true ONLY when ALL hold:',
   '(1) it is a concrete deliverable someone can finish and tick off — a specific verb plus a specific object (e.g. "Send the Q4 pricing sheet to Priya", "Grant Git access to Prateek Gwala", "Fix the login redirect bug");',
   '(2) it makes sense on its own, without reading the transcript (no "which issue", "the tasks mentioned", "what is scheduled");',
-  '(3) the user must do it, or a named person explicitly owes it to the user.',
+  "(3) the user must do it, or a named person explicitly owes it to the user. An item with no named owner comes from the user's own meeting, so treat it as the user's.",
   'Reject: intentions and process reminders (clarify, ensure, align, discuss, confirm what…, review in general, follow the process),',
   'items about other people with no action for the user, restated meeting topics, and anything whose meaning is uncertain because the transcript is garbled.',
   'owner: "me" if the user must do it, "other" if a named person owes it to the user.',
@@ -469,6 +469,7 @@ async function screenMatterWithLlm(
 /**
  * Matter items worth auto-tracking as loops after a scan. Meeting-sourced signals are
  * skipped: meeting capture screens those same action items (same fingerprint) directly.
+ * Unscored (heuristic-ranked) signals skip the confidence gate; the loop judge still decides.
  */
 export function selectMatterLoopCandidates(
   items: MatterItem[],
@@ -483,7 +484,8 @@ export function selectMatterLoopCandidates(
     if (prescreenAction(item.title)) return false;
     return (
       (item.orbit === 'now' || item.orbit === 'today') &&
-      item.confidence >= runtime.matterConfidenceThreshold
+      (item.confidence === MATTER_UNSCORED_CONFIDENCE ||
+        item.confidence >= runtime.matterConfidenceThreshold)
     );
   });
 }

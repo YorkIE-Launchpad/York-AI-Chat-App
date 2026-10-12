@@ -509,6 +509,9 @@ export function shouldKeepMatterScanSignal(input: {
   return true;
 }
 
+/** Confidence the heuristic ranker assigns when neither Jev nor the LLM scored the signal. */
+export const MATTER_UNSCORED_CONFIDENCE = 0.55;
+
 /** Whether a signal clears the user's confidence threshold. Pinned signals always pass. */
 export function meetsMatterConfidence(
   item: Pick<MatterItem, 'confidence' | 'pinned'>,

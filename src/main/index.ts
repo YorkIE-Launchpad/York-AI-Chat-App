@@ -6249,7 +6249,7 @@ ipcMain.handle('loops.drop', (_event, id: string): LoopsSnapshot => requireLoopS
 
 ipcMain.handle(
   'loops.promoteFromMatter',
-  (_event, matterItemId: string): Promise<LoopsSnapshot> =>
+  (_event, matterItemId: string): LoopsSnapshot =>
     requireLoopService().promoteFromMatter(matterItemId)
 );
 

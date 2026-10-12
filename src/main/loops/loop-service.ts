@@ -134,22 +134,38 @@ export class LoopService {
     return this.update(id, { status: 'dropped' });
   }
 
-  /** Explicit promotion from a Matter signal — reopens a previously closed loop. */
-  async promoteFromMatter(matterItemId: string): Promise<LoopsSnapshot> {
+  /**
+   * Explicit promotion from a Matter signal — reopens a previously closed loop. Returns
+   * immediately with the raw signal title; title cleanup and research run in the background.
+   */
+  promoteFromMatter(matterItemId: string): LoopsSnapshot {
     const item = this.getMatterItem(matterItemId);
     if (!item) throw new Error('Matter item not found');
-    const input = matterItemToLoop(item, false);
-    const [cleaned] = await cleanupMatterLoopDrafts([item], undefined, {
-      capturePrompt: this.getRuntime().capturePrompt,
-    });
-    if (cleaned?.title.trim()) {
-      input.title = cleaned.title;
-      if (cleaned.notes) input.notes = cleaned.notes;
-    }
-    const { loop } = this.store.upsertByFingerprint(input);
+    const { loop, created } = this.store.upsertByFingerprint(matterItemToLoop(item, false));
     if (loop.status !== 'open') this.store.update(loop.id, { status: 'open' });
-    const snapshot = this.startResearch(loop.id);
+    const prepare = created ? () => this.cleanupPromotedTitle(loop.id, item) : undefined;
+    const snapshot = this.startResearch(loop.id, prepare);
     return snapshot ?? this.changed();
+  }
+
+  private async cleanupPromotedTitle(id: string, item: MatterItem): Promise<void> {
+    try {
+      const [cleaned] = await cleanupMatterLoopDrafts([item], undefined, {
+        capturePrompt: this.getRuntime().capturePrompt,
+      });
+      const current = this.store.get(id);
+      // Skip if the user edited the loop while cleanup was in flight.
+      if (!cleaned?.title.trim() || !current || current.title !== item.title.trim().slice(0, 500)) {
+        return;
+      }
+      this.store.update(id, {
+        title: cleaned.title,
+        ...(cleaned.notes ? { notes: cleaned.notes } : {}),
+      });
+      this.changed();
+    } catch (error) {
+      logWarn('[Loops] Title cleanup failed:', error);
+    }
   }
 
   /**
@@ -161,12 +177,15 @@ export class LoopService {
     return this.startResearch(id) ?? this.getSnapshot();
   }
 
-  private startResearch(id: string): LoopsSnapshot | null {
+  private startResearch(id: string, prepare?: () => Promise<void>): LoopsSnapshot | null {
     if (this.researching.has(id)) return null;
     const loop = this.store.setResearch(id, { status: 'running' });
     if (!loop) return null;
     this.researching.add(id);
-    void this.runResearch(loop).finally(() => this.researching.delete(id));
+    void (async () => {
+      if (prepare) await prepare();
+      await this.runResearch(this.store.get(id) ?? loop);
+    })().finally(() => this.researching.delete(id));
     return this.changed();
   }
 
