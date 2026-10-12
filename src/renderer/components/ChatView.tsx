@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from 'react';
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   useActiveSessionId,
@@ -25,42 +25,30 @@ import { OpenRouterKeyGateBanner } from './OpenRouterKeyGateBanner';
 import { SlashCommandMenu } from './SlashCommandMenu';
 import { SubagentTracker } from './SubagentTracker';
 import type { Message, ContentBlock, Skill, ChatLoopStatus } from '../types';
-import {
-  Send,
-  Square,
-  Plus,
-  Loader2,
-  Plug,
-  X,
-  Clock,
-  Mic,
-  Paperclip,
-  FolderOpen,
-  RefreshCw,
-  Ghost,
-  Package,
-  PackageX,
-  FileUp,
-  FileText,
-  Hash,
-  MessageSquare,
-  BookOpen,
-  Share2,
-  Users,
-} from 'lucide-react';
-import type { CollabRoomState } from '../../shared/collab/types';
-import type { SharedDocLockState } from '../../shared/shared-docs/lock-types';
-import { isScrollNearBottom, resolveSessionScrollTop } from '../utils/chat-scroll-position';
+import { ArrowUp, Square, FolderOpen, RefreshCw, PackageX } from 'lucide-react';
 import {
   useSlashCommands,
   isMeetingSlashSkill,
   isLoopStopBuiltinSkill,
 } from '../hooks/useSlashCommands';
+import { ToolsHealthNote } from './health/ToolsHealthNote';
+import { ChatHeader } from './chat/ChatHeader';
+import { ChatBanners } from './chat/ChatBanners';
+import { ChatEmptyState } from './chat/ChatEmptyState';
+import { ChatActivity } from './chat/ChatActivity';
+import { ComposerAttachments } from './chat/ComposerAttachments';
+import { ComposerAttachMenu } from './chat/ComposerAttachMenu';
+import { useComposerAttachments } from './chat/useComposerAttachments';
+import { useChatAutoScroll } from './chat/useChatAutoScroll';
+import { useChatCollab } from './chat/useChatCollab';
+import { useExecutionTimer } from './chat/useExecutionTimer';
+import { useHeaderConnectors } from './chat/useHeaderConnectors';
+import { useSharedDocLocks } from './chat/useSharedDocLocks';
+import { resizeImageIfNeeded } from '../utils/resize-image';
 import { applySkillTriggerSelection } from '../../shared/skill-composer-trigger';
-import { MeetingPicker, type AttachedMeeting } from './MeetingPicker';
+import { MeetingPicker } from './MeetingPicker';
 import { ConnectorReferencePicker } from './ConnectorReferencePicker';
 import type { ExternalReferenceContent } from '../../shared/external-reference';
-import { parseExternalReferenceUrl } from '../../shared/external-reference-urls';
 import { ChatLoopPanel } from './ChatLoopPanel';
 import {
   formatInterval,
@@ -76,28 +64,14 @@ import {
   isPendingStepId,
   resolveActiveTurnStatusLabel,
 } from '../utils/active-turn';
-import { AttachmentImageThumb, FileAttachmentChip, ExternalReferenceChip } from './attachments';
 import { isImageExtension } from '../utils/attachment-preview';
-import {
-  isBrowserFileImage,
-  loadComposerImageFromPath,
-  mimeForAttachedFile,
-  normalizeSelectedFiles,
-} from '../utils/load-composer-image';
+import { loadComposerImageFromPath } from '../utils/load-composer-image';
 import { useDictation } from '../hooks/useDictation';
 import { DictationButton } from './DictationButton';
 import { ClientOutdatedUpdateActions } from './ClientOutdatedUpdateActions';
 import { needsOpenRouterUserKey } from '../../shared/openrouter-user-key';
 import { divisionBudgetCheckKey } from '../../shared/fe-budget-gate';
 import { divisionLabel } from '../../shared/workspace-division';
-
-type AttachedFile = {
-  name: string;
-  path: string;
-  size: number;
-  type: string;
-  inlineDataBase64?: string;
-};
 
 export function ChatView() {
   const { t } = useTranslation();
@@ -140,12 +114,6 @@ export function ChatView() {
     sendImageTurn,
     stopSession,
     removeQueuedMessage,
-    exportSession,
-    shareCollabSession,
-    getCollabState,
-    acquireCollabTurn,
-    getSessionMessages,
-    listSharedDocs,
     setSessionSkillsDisabled,
     changeWorkingDir,
     isElectron,
@@ -167,47 +135,62 @@ export function ChatView() {
     meetingsReferenceAllowed,
     trigger: skillTrigger,
   } = useSlashCommands(prompt, cursorIndex, { catalogSkillsDisabled: skillsDisabled });
-  const [activeConnectors, setActiveConnectors] = useState<
-    { id: string; name: string; connected: boolean; toolCount: number }[]
-  >([]);
-  const [showConnectorLabel, setShowConnectorLabel] = useState(true);
-  const headerRef = useRef<HTMLDivElement>(null);
-  const rightActionsRef = useRef<HTMLDivElement>(null);
-  const connectorMeasureRef = useRef<HTMLDivElement>(null);
-  const connectorBadgeRef = useRef<HTMLDivElement>(null);
-  const [pastedImages, setPastedImages] = useState<
-    Array<{ url: string; base64: string; mediaType: string }>
-  >([]);
-  const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
-  const [attachedMeetings, setAttachedMeetings] = useState<AttachedMeeting[]>([]);
-  const [attachedReferences, setAttachedReferences] = useState<ExternalReferenceContent[]>([]);
+  const {
+    pastedImages,
+    setPastedImages,
+    attachedFiles,
+    setAttachedFiles,
+    attachedMeetings,
+    setAttachedMeetings,
+    attachedReferences,
+    setAttachedReferences,
+    isDragging,
+    blobToBase64,
+    handlePaste,
+    handleFileSelect,
+    handleDragOver,
+    handleDragLeave,
+    handleDrop,
+    removeImage,
+    removeFile,
+  } = useComposerAttachments(isElectron);
   const [referencePickerSource, setReferencePickerSource] = useState<
     ExternalReferenceContent['source'] | null
   >(null);
   const [meetingPickerOpen, setMeetingPickerOpen] = useState(false);
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
   const [loopMenuOpen, setLoopMenuOpen] = useState(false);
-  const [isDragging, setIsDragging] = useState(false);
   const [loopNotice, setLoopNotice] = useState<string | null>(null);
-  const [collabState, setCollabState] = useState<CollabRoomState | null>(null);
-  const [collabInviteShown, setCollabInviteShown] = useState<string | null>(null);
-  const [sharedDocLocks, setSharedDocLocks] = useState<Record<string, SharedDocLockState>>({});
-  const activeHtmlPreview = useAppStore((s) => s.activeHtmlPreview);
   const attachMenuRef = useRef<HTMLDivElement>(null);
   const loopMenuRef = useRef<HTMLDivElement>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const messagesContainerRef = useRef<HTMLDivElement>(null);
-  const isUserAtBottomRef = useRef(true);
   const isComposingRef = useRef(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const prevMessageCountRef = useRef(0);
-  const prevPartialLengthRef = useRef(0);
-  const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const scrollRequestRef = useRef<number | null>(null);
-  const scrollStateRequestRef = useRef<number | null>(null);
-  const pendingScrollStateRef = useRef<{ sessionId: string; scrollTop: number } | null>(null);
-  const isScrollingRef = useRef(false);
+
+  const {
+    activeConnectors,
+    showConnectorLabel,
+    headerRef,
+    rightActionsRef,
+    connectorMeasureRef,
+    connectorBadgeRef,
+  } = useHeaderConnectors(isElectron, chatLoopStatus);
+  const {
+    collabState,
+    isSharedChat,
+    collabBlocksComposer,
+    showCollabWaitingPeer,
+    collabPeerNames,
+    collabRoomIdLabel,
+    collabPresenceLabel,
+    handleExportChat,
+    handleShareChat,
+    handleTakeTurn,
+  } = useChatCollab(activeSessionId, activeSession, messages.length);
+  const { sharedDocBlocksComposer, sharedDocViewOnlyOpen, sharedDocBlockName } = useSharedDocLocks(
+    activeSessionId,
+    isElectron
+  );
+  const { liveElapsed, timerActive, formatExecutionTime } = useExecutionTimer(executionClock);
 
   const hasActiveTurn = Boolean(activeTurn);
   const pendingCount = pendingTurns.length;
@@ -308,199 +291,12 @@ export function ChatView() {
     [displayedMessages]
   );
 
-  // Format execution time for display
-  const formatExecutionTime = useCallback((ms: number): string => {
-    if (ms < 1000) return `${ms}ms`;
-    if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
-    const minutes = Math.floor(ms / 60000);
-    const seconds = ((ms % 60000) / 1000).toFixed(0);
-    return `${minutes}m ${seconds}s`;
-  }, []);
-
-  // --- Real-time execution timer ---
-  const [clockNow, setClockNow] = useState(() => Date.now());
-
-  useEffect(() => {
-    const isActive = Boolean(executionClock?.startAt && executionClock.endAt === null);
-    if (!isActive) {
-      return;
-    }
-    setClockNow(Date.now());
-    const interval = setInterval(() => {
-      setClockNow(Date.now());
-    }, 100);
-    return () => clearInterval(interval);
-  }, [executionClock?.startAt, executionClock?.endAt]);
-
-  const liveElapsed =
-    executionClock?.startAt == null
-      ? 0
-      : Math.max(0, (executionClock.endAt ?? clockNow) - executionClock.startAt);
-  const timerActive = Boolean(executionClock?.startAt && executionClock.endAt === null);
-
-  useLayoutEffect(() => {
-    const container = scrollContainerRef.current;
-    if (!container || !activeSessionId) return;
-
-    const savedScrollTop = useAppStore.getState().sessionScrollPositions[activeSessionId];
-    const restoredScrollTop = resolveSessionScrollTop(
-      savedScrollTop,
-      container.scrollHeight,
-      container.clientHeight
+  const { messagesEndRef, scrollContainerRef, messagesContainerRef, isUserAtBottomRef } =
+    useChatAutoScroll(
+      activeSessionId,
+      messages.length,
+      partialMessage.length + partialThinking.length
     );
-    container.scrollTop = restoredScrollTop;
-    isUserAtBottomRef.current = isScrollNearBottom(
-      restoredScrollTop,
-      container.scrollHeight,
-      container.clientHeight
-    );
-
-    // Prevent the generic new-message effect from overriding the session restore.
-    const sessionState = useAppStore.getState().sessionStates[activeSessionId];
-    prevMessageCountRef.current = sessionState?.messages.length ?? 0;
-    prevPartialLengthRef.current =
-      (sessionState?.partialMessage.length ?? 0) + (sessionState?.partialThinking.length ?? 0);
-  }, [activeSessionId]);
-
-  // Debounced scroll function to prevent scroll conflicts
-  const scrollToBottom = useRef((behavior: ScrollBehavior = 'auto', immediate: boolean = false) => {
-    // Cancel any pending scroll requests
-    if (scrollTimeoutRef.current) {
-      clearTimeout(scrollTimeoutRef.current);
-      scrollTimeoutRef.current = null;
-    }
-    if (scrollRequestRef.current) {
-      cancelAnimationFrame(scrollRequestRef.current);
-      scrollRequestRef.current = null;
-    }
-
-    const performScroll = () => {
-      if (!isUserAtBottomRef.current) return;
-
-      // Mark as scrolling to prevent concurrent scrolls
-      isScrollingRef.current = true;
-
-      messagesEndRef.current?.scrollIntoView({ behavior });
-
-      // Reset scrolling flag after a short delay
-      setTimeout(
-        () => {
-          isScrollingRef.current = false;
-        },
-        behavior === 'smooth' ? 300 : 50
-      );
-    };
-
-    if (immediate) {
-      performScroll();
-    } else {
-      // Use RAF + timeout for debouncing
-      scrollRequestRef.current = requestAnimationFrame(() => {
-        scrollTimeoutRef.current = setTimeout(performScroll, 16); // ~1 frame delay
-      });
-    }
-  }).current;
-
-  useEffect(() => {
-    const container = scrollContainerRef.current;
-    if (!container) return;
-
-    const flushScrollPosition = () => {
-      scrollStateRequestRef.current = null;
-      const pending = pendingScrollStateRef.current;
-      pendingScrollStateRef.current = null;
-      if (pending) {
-        useAppStore.getState().setSessionScrollPosition(pending.sessionId, pending.scrollTop);
-      }
-    };
-
-    const updateScrollState = () => {
-      const distanceToBottom =
-        container.scrollHeight - container.scrollTop - container.clientHeight;
-      isUserAtBottomRef.current = distanceToBottom <= 80;
-      if (activeSessionId) {
-        pendingScrollStateRef.current = {
-          sessionId: activeSessionId,
-          scrollTop: container.scrollTop,
-        };
-        if (scrollStateRequestRef.current === null) {
-          scrollStateRequestRef.current = requestAnimationFrame(flushScrollPosition);
-        }
-      }
-    };
-    updateScrollState();
-    // Keep new messages from interrupting the user while they read older content.
-    const onScroll = () => updateScrollState();
-    container.addEventListener('scroll', onScroll, { passive: true });
-    return () => {
-      container.removeEventListener('scroll', onScroll);
-      if (scrollStateRequestRef.current !== null) {
-        cancelAnimationFrame(scrollStateRequestRef.current);
-      }
-      flushScrollPosition();
-    };
-  }, [activeSessionId]);
-
-  useEffect(() => {
-    const messageCount = messages.length;
-    const partialLength = partialMessage.length + partialThinking.length;
-    const hasNewMessage = messageCount !== prevMessageCountRef.current;
-    const isStreamingTick = partialLength !== prevPartialLengthRef.current && !hasNewMessage;
-
-    // Skip scroll if already scrolling (prevent conflicts)
-    if (isScrollingRef.current) {
-      prevMessageCountRef.current = messageCount;
-      prevPartialLengthRef.current = partialLength;
-      return;
-    }
-
-    if (isUserAtBottomRef.current) {
-      if (!isStreamingTick) {
-        // New message - use smooth scroll but with debounce
-        const behavior: ScrollBehavior = hasNewMessage ? 'smooth' : 'auto';
-        scrollToBottom(behavior, false);
-      } else {
-        // Streaming tick - use instant scroll with debounce
-        scrollToBottom('auto', false);
-      }
-    }
-
-    prevMessageCountRef.current = messageCount;
-    prevPartialLengthRef.current = partialLength;
-  }, [messages.length, partialMessage.length, partialThinking.length, scrollToBottom]);
-
-  // Additional scroll trigger for content height changes (e.g., TodoWrite expand/collapse)
-  useEffect(() => {
-    const container = scrollContainerRef.current;
-    const messagesContainer = messagesContainerRef.current;
-    if (!container || !messagesContainer) return;
-
-    const resizeObserver = new ResizeObserver(() => {
-      // Don't interfere with ongoing scrolls
-      if (!isScrollingRef.current && isUserAtBottomRef.current) {
-        // Scroll to bottom when content height changes
-        scrollToBottom('auto', false);
-      }
-    });
-
-    resizeObserver.observe(messagesContainer);
-
-    return () => {
-      resizeObserver.disconnect();
-    };
-  }, [scrollToBottom]); // scrollToBottom is stable (useRef); ResizeObserver only needs that binding
-
-  // Cleanup scroll timeouts on unmount
-  useEffect(() => {
-    return () => {
-      if (scrollTimeoutRef.current) {
-        clearTimeout(scrollTimeoutRef.current);
-      }
-      if (scrollRequestRef.current) {
-        cancelAnimationFrame(scrollRequestRef.current);
-      }
-    };
-  }, []);
 
   useEffect(() => {
     textareaRef.current?.focus();
@@ -536,213 +332,6 @@ export function ChatView() {
     setCursorIndex(prefill.length);
   }, [activeSessionId, matterChatDraft, messages.length]);
 
-  // Handle paste event for images
-  const handlePaste = async (e: React.ClipboardEvent) => {
-    const items = e.clipboardData?.items;
-    const pastedText = e.clipboardData?.getData('text/plain')?.trim() ?? '';
-    const parsedRef = pastedText ? parseExternalReferenceUrl(pastedText) : null;
-    const imageItems = items
-      ? Array.from(items).filter((item) => item.type.startsWith('image/'))
-      : [];
-
-    if (parsedRef && imageItems.length === 0) {
-      e.preventDefault();
-      try {
-        const lookedUp = window.electronAPI?.references?.lookupUrl
-          ? await window.electronAPI.references.lookupUrl(pastedText)
-          : null;
-        const next: ExternalReferenceContent = lookedUp
-          ? {
-              type: 'external_reference',
-              source: lookedUp.source,
-              externalId: lookedUp.externalId,
-              title: lookedUp.title,
-              url: lookedUp.url,
-              subtitle: lookedUp.subtitle,
-              meta: lookedUp.meta,
-            }
-          : {
-              type: 'external_reference',
-              source: parsedRef.source,
-              externalId: parsedRef.externalId,
-              title: parsedRef.title || parsedRef.externalId,
-              url: parsedRef.url,
-              subtitle: parsedRef.subtitle,
-              meta: parsedRef.meta,
-            };
-        setAttachedReferences((prev) =>
-          prev.some((item) => item.source === next.source && item.externalId === next.externalId)
-            ? prev
-            : [...prev, next]
-        );
-      } catch {
-        setAttachedReferences((prev) =>
-          prev.some(
-            (item) => item.source === parsedRef.source && item.externalId === parsedRef.externalId
-          )
-            ? prev
-            : [
-                ...prev,
-                {
-                  type: 'external_reference',
-                  source: parsedRef.source,
-                  externalId: parsedRef.externalId,
-                  title: parsedRef.title || parsedRef.externalId,
-                  url: parsedRef.url,
-                  subtitle: parsedRef.subtitle,
-                  meta: parsedRef.meta,
-                },
-              ]
-        );
-      }
-      return;
-    }
-
-    if (!items) return;
-
-    if (imageItems.length === 0) return;
-
-    e.preventDefault();
-
-    const newImages: Array<{ url: string; base64: string; mediaType: string }> = [];
-
-    for (const item of imageItems) {
-      const blob = item.getAsFile();
-      if (!blob) continue;
-
-      try {
-        // Resize if needed to stay under API limit
-        const resizedBlob = await resizeImageIfNeeded(blob);
-        const base64 = await blobToBase64(resizedBlob);
-        const url = URL.createObjectURL(resizedBlob);
-        newImages.push({
-          url,
-          base64,
-          mediaType: resizedBlob.type as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
-        });
-      } catch (err) {
-        // Notify the user instead of silently dropping the error
-        setGlobalNotice({
-          id: `image-paste-failed-${Date.now()}`,
-          type: 'warning',
-          message: t('chat.imageProcessFailed'),
-        });
-      }
-    }
-
-    setPastedImages((prev) => [...prev, ...newImages]);
-  };
-
-  const blobToBase64 = (blob: Blob): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const result = reader.result;
-        if (typeof result !== 'string') {
-          reject(new Error('FileReader result is not a string'));
-          return;
-        }
-        // Remove data URL prefix (e.g., "data:image/png;base64,")
-        const parts = result.split(',');
-        resolve(parts[1] || '');
-      };
-      reader.onerror = reject;
-      reader.readAsDataURL(blob);
-    });
-  };
-
-  // Resize and compress image if needed to stay under 5MB base64 limit
-  const resizeImageIfNeeded = async (blob: Blob): Promise<Blob> => {
-    // Claude API limit is 5MB for base64 encoded images
-    // Base64 encoding increases size by ~33%, so we target 3.75MB for the blob
-    const MAX_BLOB_SIZE = 3.75 * 1024 * 1024; // 3.75MB
-
-    if (blob.size <= MAX_BLOB_SIZE) {
-      return blob; // No need to resize
-    }
-
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      const url = URL.createObjectURL(blob);
-
-      img.onload = () => {
-        URL.revokeObjectURL(url);
-
-        // Calculate scaling factor to reduce file size
-        // We use a more aggressive approach: scale down until size is acceptable
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-          reject(new Error('Failed to get canvas context'));
-          return;
-        }
-
-        // Start with a scale factor based on size ratio
-        const scale = Math.sqrt(MAX_BLOB_SIZE / blob.size);
-        const quality = 0.9;
-
-        const attemptCompress = (currentScale: number, currentQuality: number): Promise<Blob> => {
-          canvas.width = Math.floor(img.width * currentScale);
-          canvas.height = Math.floor(img.height * currentScale);
-
-          ctx.clearRect(0, 0, canvas.width, canvas.height);
-          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
-          return new Promise((resolveBlob) => {
-            canvas.toBlob(
-              (compressedBlob) => {
-                if (!compressedBlob) {
-                  reject(new Error('Failed to compress image'));
-                  return;
-                }
-
-                // If still too large, try again with lower quality or scale
-                if (
-                  compressedBlob.size > MAX_BLOB_SIZE &&
-                  (currentQuality > 0.5 || currentScale > 0.3)
-                ) {
-                  const newQuality = Math.max(0.5, currentQuality - 0.1);
-                  const newScale = currentQuality <= 0.5 ? currentScale * 0.9 : currentScale;
-                  attemptCompress(newScale, newQuality).then(resolveBlob);
-                } else {
-                  resolveBlob(compressedBlob);
-                }
-              },
-              blob.type || 'image/jpeg',
-              currentQuality
-            );
-          });
-        };
-
-        attemptCompress(scale, quality).then(resolve).catch(reject);
-      };
-
-      img.onerror = () => {
-        URL.revokeObjectURL(url);
-        reject(new Error('Failed to load image'));
-      };
-
-      img.src = url;
-    });
-  };
-
-  const removeImage = (index: number) => {
-    setPastedImages((prev) => {
-      const updated = [...prev];
-      URL.revokeObjectURL(updated[index].url);
-      updated.splice(index, 1);
-      return updated;
-    });
-  };
-
-  const removeFile = (index: number) => {
-    setAttachedFiles((prev) => {
-      const updated = [...prev];
-      updated.splice(index, 1);
-      return updated;
-    });
-  };
-
   const handleChangeWorkingDir = async () => {
     if (!activeSessionId) return;
     try {
@@ -763,53 +352,6 @@ export function ChatView() {
             ? `${t('welcome.selectWorkingFolderFailed')}: ${error.message}`
             : t('welcome.selectWorkingFolderFailed'),
       });
-    }
-  };
-
-  const handleFileSelect = async () => {
-    if (!isElectron || !window.electronAPI) {
-      console.log('[ChatView] Not in Electron, file selection not available');
-      return;
-    }
-
-    try {
-      const selected = normalizeSelectedFiles(await window.electronAPI.selectFiles());
-      if (selected.length === 0) return;
-
-      const newFiles: AttachedFile[] = [];
-      const newImages: Array<{ url: string; base64: string; mediaType: string }> = [];
-
-      for (const file of selected) {
-        if (isImageExtension(file.name)) {
-          const image = await loadComposerImageFromPath(
-            file.path,
-            file.name,
-            resizeImageIfNeeded,
-            blobToBase64,
-            file.dataUrl
-          );
-          if (image) {
-            newImages.push(image);
-            continue;
-          }
-        }
-
-        newFiles.push({
-          name: file.name,
-          path: file.path,
-          size: file.size,
-          type: mimeForAttachedFile(file.name, file.mimeType),
-        });
-      }
-
-      if (newImages.length > 0) {
-        setPastedImages((prev) => [...prev, ...newImages]);
-      }
-      if (newFiles.length > 0) {
-        setAttachedFiles((prev) => [...prev, ...newFiles]);
-      }
-    } catch (error) {
-      console.error('[ChatView] Error selecting files:', error);
     }
   };
 
@@ -852,147 +394,6 @@ export function ChatView() {
       document.removeEventListener('keydown', onKeyDown);
     };
   }, [loopMenuOpen]);
-
-  // Handle drag and drop for images
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(true);
-  };
-
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(false);
-  };
-
-  const handleDrop = async (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(false);
-
-    const files = Array.from(e.dataTransfer.files);
-    const imageFiles = files.filter((file) => isBrowserFileImage(file));
-    const otherFiles = files.filter((file) => !isBrowserFileImage(file));
-
-    // Process images
-    if (imageFiles.length > 0) {
-      const newImages: Array<{ url: string; base64: string; mediaType: string }> = [];
-
-      for (const file of imageFiles) {
-        try {
-          // Resize if needed to stay under API limit
-          const resizedBlob = await resizeImageIfNeeded(file);
-          const base64 = await blobToBase64(resizedBlob);
-          const url = URL.createObjectURL(resizedBlob);
-          newImages.push({
-            url,
-            base64,
-            mediaType: resizedBlob.type || mimeForAttachedFile(file.name, file.type),
-          });
-        } catch (err) {
-          // Notify the user instead of silently dropping the error
-          setGlobalNotice({
-            id: `image-drop-failed-${Date.now()}`,
-            type: 'warning',
-            message: t('chat.imageProcessFailed'),
-          });
-        }
-      }
-
-      setPastedImages((prev) => [...prev, ...newImages]);
-    }
-
-    // Process other files
-    if (otherFiles.length > 0) {
-      const newFiles = await Promise.all(
-        otherFiles.map(async (file) => {
-          const droppedPath = 'path' in file && typeof file.path === 'string' ? file.path : '';
-          const inlineDataBase64 = droppedPath ? undefined : await blobToBase64(file);
-
-          return {
-            name: file.name,
-            path: droppedPath,
-            size: file.size,
-            type: mimeForAttachedFile(file.name, file.type),
-            inlineDataBase64,
-          };
-        })
-      );
-
-      setAttachedFiles((prev) => [...prev, ...newFiles]);
-    }
-  };
-
-  // Load active MCP connectors
-  useEffect(() => {
-    if (isElectron && typeof window !== 'undefined' && window.electronAPI) {
-      const loadConnectors = async () => {
-        try {
-          const statuses = await window.electronAPI.mcp.getServerStatus();
-          const active =
-            (
-              statuses as Array<{ id: string; name: string; connected: boolean; toolCount: number }>
-            )?.filter((s) => s.connected && s.toolCount > 0) || [];
-          setActiveConnectors(active);
-        } catch (err) {
-          console.error('Failed to load MCP connectors:', err);
-        }
-      };
-      loadConnectors();
-      // Refresh every 5 seconds
-      const interval = setInterval(loadConnectors, 5000);
-      return () => clearInterval(interval);
-    }
-  }, [isElectron]);
-
-  useEffect(() => {
-    const headerEl = headerRef.current;
-    const rightEl = rightActionsRef.current;
-    const measureEl = connectorMeasureRef.current;
-    const badgeEl = connectorBadgeRef.current;
-    if (!headerEl || !rightEl || !measureEl || !badgeEl) {
-      setShowConnectorLabel(true);
-      return;
-    }
-    const updateLabelVisibility = () => {
-      const headerStyles = window.getComputedStyle(headerEl);
-      const rightStyles = window.getComputedStyle(rightEl);
-      const headerGap = Number.parseFloat(headerStyles.columnGap || headerStyles.gap) || 0;
-      const rightGap = Number.parseFloat(rightStyles.columnGap || rightStyles.gap) || 0;
-      const padLeft = Number.parseFloat(headerStyles.paddingLeft) || 0;
-      const padRight = Number.parseFloat(headerStyles.paddingRight) || 0;
-
-      // Brand is the first header child; leave a modest min width for the title.
-      const brandEl = headerEl.firstElementChild;
-      const brandWidth = brandEl instanceof HTMLElement ? brandEl.getBoundingClientRect().width : 0;
-      const minTitleWidth = 72;
-
-      let usedByActionSiblings = 0;
-      let actionSiblingCount = 0;
-      for (const child of Array.from(rightEl.children)) {
-        if (child === measureEl || child === badgeEl) continue;
-        if (!(child instanceof HTMLElement)) continue;
-        if (child.getAttribute('aria-hidden') === 'true') continue;
-        usedByActionSiblings += child.getBoundingClientRect().width;
-        actionSiblingCount += 1;
-      }
-      // Gaps: brand–title, title–actions, plus between action siblings and the badge.
-      const layoutGaps = headerGap * 2 + rightGap * actionSiblingCount;
-      const reserved =
-        padLeft + padRight + brandWidth + minTitleWidth + usedByActionSiblings + layoutGaps;
-      const availableForBadge = Math.max(0, headerEl.clientWidth - reserved);
-      const connectorFullWidth = measureEl.getBoundingClientRect().width;
-      setShowConnectorLabel(availableForBadge >= connectorFullWidth);
-    };
-    updateLabelVisibility();
-    const observer = new ResizeObserver(() => {
-      updateLabelVisibility();
-    });
-    observer.observe(headerEl);
-    observer.observe(rightEl);
-    return () => observer.disconnect();
-  }, [activeConnectors.length, chatLoopStatus]);
 
   const handleSelectSlashSkill = useCallback(
     (skill: Skill) => {
@@ -1422,238 +823,6 @@ export function ChatView() {
     }
   }, [activeSessionId, queuedMessages, removeQueuedMessage]);
 
-  const handleExportChat = async () => {
-    if (!activeSessionId || !isElectron) return;
-    if (activeSession?.incognito) {
-      setGlobalNotice({
-        id: `notice-export-${Date.now()}`,
-        type: 'warning',
-        message: '',
-        messageKey: 'chat.exportIncognitoBlocked',
-      });
-      return;
-    }
-    try {
-      const result = await exportSession(activeSessionId);
-      if (result.cancelled) return;
-      if (result.success && result.path) {
-        setGlobalNotice({
-          id: `notice-export-${Date.now()}`,
-          type: 'success',
-          message: '',
-          messageKey: 'chat.exportSuccess',
-          messageValues: { path: result.path },
-        });
-      } else {
-        setGlobalNotice({
-          id: `notice-export-${Date.now()}`,
-          type: 'error',
-          message: result.error || t('chat.exportFailed'),
-        });
-      }
-    } catch (error) {
-      setGlobalNotice({
-        id: `notice-export-${Date.now()}`,
-        type: 'error',
-        message: error instanceof Error ? error.message : t('chat.exportFailed'),
-      });
-    }
-  };
-
-  const handleShareChat = async () => {
-    if (!activeSessionId || !isElectron) return;
-    if (activeSession?.incognito) {
-      setGlobalNotice({
-        id: `notice-share-${Date.now()}`,
-        type: 'warning',
-        message: '',
-        messageKey: 'chat.shareIncognitoBlocked',
-      });
-      return;
-    }
-    try {
-      const result = await shareCollabSession(activeSessionId);
-      if (!result.success || !result.roomId) {
-        setGlobalNotice({
-          id: `notice-share-${Date.now()}`,
-          type: 'error',
-          message: result.error || t('chat.shareFailed'),
-        });
-        return;
-      }
-      const roomId = result.roomId;
-      setCollabInviteShown(roomId);
-      try {
-        await navigator.clipboard.writeText(roomId);
-        setGlobalNotice({
-          id: `notice-share-${Date.now()}`,
-          type: 'success',
-          message: '',
-          messageKey: 'chat.shareSuccess',
-          messageValues: { roomId },
-        });
-      } catch {
-        setGlobalNotice({
-          id: `notice-share-${Date.now()}`,
-          type: 'success',
-          message: roomId,
-        });
-      }
-      const state = await getCollabState(activeSessionId);
-      setCollabState(state);
-    } catch (error) {
-      setGlobalNotice({
-        id: `notice-share-${Date.now()}`,
-        type: 'error',
-        message: error instanceof Error ? error.message : t('chat.shareFailed'),
-      });
-    }
-  };
-
-  const handleTakeTurn = async () => {
-    if (!activeSessionId) return;
-    const result = await acquireCollabTurn(activeSessionId);
-    if (!result.success) {
-      setGlobalNotice({
-        id: `notice-turn-${Date.now()}`,
-        type: 'error',
-        message: result.error || t('chat.collabTakeTurn'),
-      });
-      return;
-    }
-    if (result.state) setCollabState(result.state);
-  };
-
-  useEffect(() => {
-    if (!activeSessionId || !isElectron) {
-      setCollabState(null);
-      return;
-    }
-    let cancelled = false;
-    void getCollabState(activeSessionId).then((state) => {
-      if (!cancelled) setCollabState(state);
-    });
-    const unsubState = window.electronAPI.collab.onState((state) => {
-      if (state.sessionId === activeSessionId) setCollabState(state);
-    });
-    const unsubAwareness = window.electronAPI.collab.onAwareness((payload) => {
-      if (payload.sessionId !== activeSessionId) return;
-      setCollabState((prev) => {
-        if (!prev) return prev;
-        const lease = payload.lease;
-        const localSub = prev.localSub;
-        const canPrompt = Boolean(localSub) && (!lease || lease.holderSub === localSub);
-        return {
-          ...prev,
-          awarenessPartial: payload.partial,
-          peersOnline: payload.peersOnline,
-          lease,
-          canPrompt,
-        };
-      });
-    });
-    return () => {
-      cancelled = true;
-      unsubState();
-      unsubAwareness();
-    };
-  }, [activeSessionId, getCollabState, isElectron]);
-
-  useEffect(() => {
-    const lockApi = window.electronAPI?.sharedDocs?.lock;
-    if (!activeSessionId || !isElectron || !lockApi) {
-      setSharedDocLocks({});
-      return undefined;
-    }
-    let cancelled = false;
-    const watchedRef: { current: Array<{ docId: string; canEdit: boolean }> } = { current: [] };
-
-    void listSharedDocs(activeSessionId).then(async (result) => {
-      if (cancelled || !result.success || !result.docs) return;
-      const editDocs = result.docs.filter(
-        (doc) => doc.permission === 'edit' || doc.permission === 'owner'
-      );
-      for (const doc of editDocs) {
-        const entry = { docId: doc.id, canEdit: false };
-        watchedRef.current.push(entry);
-        const watchResult = await lockApi.watch(entry);
-        if (cancelled) {
-          void lockApi.unwatch(entry);
-          return;
-        }
-        if (watchResult.success && watchResult.state) {
-          setSharedDocLocks((prev) => ({ ...prev, [doc.id]: watchResult.state! }));
-        }
-      }
-    });
-
-    const unsub = lockApi.onState((state) => {
-      setSharedDocLocks((prev) => ({ ...prev, [state.docId]: state }));
-    });
-
-    return () => {
-      cancelled = true;
-      unsub();
-      for (const entry of watchedRef.current) {
-        void lockApi.unwatch(entry);
-      }
-      watchedRef.current = [];
-      setSharedDocLocks({});
-    };
-  }, [activeSessionId, isElectron, listSharedDocs]);
-
-  const isSharedChat = Boolean(activeSession?.collabRoomId || collabState?.roomId);
-  const leaseHeldByOther = Boolean(
-    collabState?.lease &&
-    collabState.localSub &&
-    collabState.lease.holderSub !== collabState.localSub
-  );
-  const collabBlocksComposer = isSharedChat && collabState != null && leaseHeldByOther;
-
-  const sharedDocBlockingLock = useMemo(() => {
-    const previewId = activeHtmlPreview?.shared?.docId;
-    if (previewId && sharedDocLocks[previewId]?.holderIsOther) {
-      return sharedDocLocks[previewId];
-    }
-    return Object.values(sharedDocLocks).find((lock) => lock.holderIsOther) ?? null;
-  }, [activeHtmlPreview?.shared?.docId, sharedDocLocks]);
-  const sharedDocViewOnlyOpen = activeHtmlPreview?.shared?.permission === 'view';
-  const sharedDocBlocksComposer = Boolean(sharedDocBlockingLock) || sharedDocViewOnlyOpen;
-  const sharedDocBlockName =
-    sharedDocBlockingLock?.holderName || sharedDocBlockingLock?.lease?.holderName || 'Someone';
-  const showCollabWaitingPeer =
-    Boolean(collabState) &&
-    collabState?.role === 'member' &&
-    collabState.connection === 'connected' &&
-    !collabState.peersOnline &&
-    messages.length === 0;
-  const collabPeerNames = collabState?.peerNames ?? [];
-  const collabRoomIdLabel = collabInviteShown || collabState?.roomId || '';
-  const collabPresenceLabel =
-    collabState?.connection === 'connected'
-      ? collabPeerNames.length > 0
-        ? t('chat.collabWithPeers', { names: collabPeerNames.join(', ') })
-        : t('chat.collabWaitingForPeerShort')
-      : collabState?.connection || '';
-
-  // When a peer comes online, reload transcript in case sync projected messages
-  const prevPeersOnlineRef = useRef(false);
-  useEffect(() => {
-    if (!activeSessionId || !isElectron || !isSharedChat) {
-      prevPeersOnlineRef.current = false;
-      return;
-    }
-    const peersOnline = Boolean(collabState?.peersOnline);
-    if (peersOnline && !prevPeersOnlineRef.current) {
-      void getSessionMessages(activeSessionId).then((msgs) => {
-        if (msgs?.length) {
-          useAppStore.getState().setMessages(activeSessionId, msgs);
-        }
-      });
-    }
-    prevPeersOnlineRef.current = peersOnline;
-  }, [activeSessionId, collabState?.peersOnline, getSessionMessages, isElectron, isSharedChat]);
-
   // Auto-adjust textarea height based on content / available width
   const adjustTextareaHeight = useCallback(() => {
     const textarea = textareaRef.current;
@@ -1705,258 +874,101 @@ export function ChatView() {
     );
   }
 
+  const loopIntervalLabel = chatLoopStatus
+    ? formatInterval(msToLoopInterval(chatLoopStatus.intervalMs))
+    : '';
+  const loopLabel = chatLoopStatus
+    ? t(chatLoopStatus.kind === 'goal' ? 'loop.badgeGoal' : 'loop.badge', {
+        interval: loopIntervalLabel,
+        tick: chatLoopStatus.tickCount,
+      })
+    : null;
+  const queueLabel =
+    yorkLlmQueue?.status === 'waiting'
+      ? t('yorkLlm.queue.waiting', {
+          position: yorkLlmQueue.position,
+          activeCount: yorkLlmQueue.activeCount,
+          maxConcurrent: yorkLlmQueue.maxConcurrent,
+          defaultValue:
+            'Waiting for York LLM ({{position}} in queue, {{activeCount}}/{{maxConcurrent}} slots in use)',
+        })
+      : null;
+  const sharedDocLockLabel = sharedDocBlocksComposer
+    ? sharedDocViewOnlyOpen
+      ? t('chat.sharedDocViewOnlyComposerLocked')
+      : t('chat.sharedDocComposerLocked', { name: sharedDocBlockName })
+    : null;
+  const collabRoomSuffix = collabRoomIdLabel ? ` · ID ${collabRoomIdLabel}` : '';
+  const collabStatusLine =
+    !collabBlocksComposer && collabState?.connection === 'connected'
+      ? `${t('chat.collabSharedBadge')} · ${collabPresenceLabel}${collabRoomSuffix}`
+      : collabState && collabState.connection !== 'connected'
+        ? `${t(collabState.connection === 'connecting' ? 'chat.collabConnecting' : 'chat.collabOffline')}${collabRoomSuffix}`
+        : null;
+  const collabWatchingName =
+    collabBlocksComposer && collabState?.lease ? collabState.lease.holderName || 'Teammate' : null;
+  const collabBanner =
+    isSharedChat && (showCollabWaitingPeer || collabWatchingName || collabStatusLine)
+      ? {
+          waitingForPeer: showCollabWaitingPeer,
+          watchingName: collabWatchingName,
+          onTakeTurn: () => void handleTakeTurn(),
+          statusLine: collabStatusLine,
+        }
+      : null;
+  const textOnly = composerMode === 'image';
+  const hasDraftContent =
+    Boolean(prompt.trim() || textareaRef.current?.value.trim()) ||
+    pastedImages.length > 0 ||
+    attachedFiles.length > 0 ||
+    attachedMeetings.length > 0 ||
+    attachedReferences.length > 0;
+
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
-      {/* Header — single flex row: brand | truncated title | actions (never overlap) */}
-      <div
-        ref={headerRef}
-        className="relative flex h-12 shrink-0 items-center gap-2 border-b border-border-muted px-4 lg:px-8 bg-background/88 backdrop-blur-md"
-      >
-        <div
-          className="min-w-0 max-w-[40%] shrink-0 truncate text-[11px] font-medium tracking-[0.08em] uppercase text-text-muted"
-          title={activeDivision ? divisionLabel(activeDivision) : 'York GrowthOS'}
-        >
-          {activeDivision ? divisionLabel(activeDivision) : 'York GrowthOS'}
-        </div>
-        <h2 className="min-w-0 flex-1 truncate text-[15px] font-medium text-text-primary">
-          {activeSession.title}
-          {isSharedChat ? (
-            <span className="ml-2 inline-flex align-middle items-center gap-1 rounded-md bg-surface-hover px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-text-muted">
-              <Users className="w-3 h-3" />
-              {t('chat.collabSharedBadge')}
-              {collabState?.connection === 'connected' && collabPeerNames.length > 0
-                ? ` · ${collabPeerNames.length}`
-                : null}
-            </span>
-          ) : null}
-        </h2>
-        <div ref={rightActionsRef} className="relative flex shrink-0 items-center gap-2">
-          <button
-            type="button"
-            onClick={() => void handleShareChat()}
-            disabled={!isElectron || Boolean(activeSession?.incognito)}
-            className="w-8 h-8 shrink-0 rounded-xl flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-surface-hover transition-colors disabled:opacity-40 disabled:pointer-events-none"
-            title={t('chat.shareChat')}
-          >
-            <Share2 className="w-4 h-4" />
-          </button>
-          <button
-            type="button"
-            onClick={() => void handleExportChat()}
-            disabled={!isElectron || Boolean(activeSession?.incognito)}
-            className="w-8 h-8 shrink-0 rounded-xl flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-surface-hover transition-colors disabled:opacity-40 disabled:pointer-events-none"
-            title={t('chat.exportChat')}
-          >
-            <FileUp className="w-4 h-4" />
-          </button>
-          {chatLoopStatus && (
-            <button
-              type="button"
-              onClick={() => void handleStopChatLoop()}
-              className="flex shrink-0 max-w-[9.5rem] items-center gap-1.5 px-2.5 py-1 rounded-full bg-accent/10 border border-accent/20 text-accent text-xs font-medium"
-              title={t('loop.stopButton')}
-            >
-              <RefreshCw
-                className="w-3.5 h-3.5 shrink-0 animate-spin"
-                style={{ animationDuration: '3s' }}
-              />
-              <span className="truncate">
-                {chatLoopStatus.kind === 'goal'
-                  ? t('loop.badgeGoal', {
-                      interval: formatInterval(msToLoopInterval(chatLoopStatus.intervalMs)),
-                      tick: chatLoopStatus.tickCount,
-                    })
-                  : t('loop.badge', {
-                      interval: formatInterval(msToLoopInterval(chatLoopStatus.intervalMs)),
-                      tick: chatLoopStatus.tickCount,
-                    })}
-              </span>
-              <X className="w-3 h-3 shrink-0" />
-            </button>
-          )}
-          {activeConnectors.length > 0 && (
-            <>
-              <div
-                ref={connectorMeasureRef}
-                aria-hidden="true"
-                className="absolute left-0 top-0 -z-10 opacity-0 pointer-events-none"
-              >
-                <div className="flex items-center gap-2 px-2 py-1 rounded-lg border border-mcp/20">
-                  <Plug className="w-3.5 h-3.5" />
-                  <span className="text-xs font-medium whitespace-nowrap">
-                    {t('chat.connectorCount', { count: activeConnectors.length })}
-                  </span>
-                </div>
-              </div>
-              <div
-                ref={connectorBadgeRef}
-                className="flex shrink-0 items-center gap-1.5 px-2.5 py-1 rounded-full bg-mcp/8 border border-mcp/15"
-              >
-                <Plug className="w-3.5 h-3.5 text-mcp shrink-0" />
-                <span className="text-xs text-mcp font-medium whitespace-nowrap">
-                  {showConnectorLabel
-                    ? t('chat.connectorCount', { count: activeConnectors.length })
-                    : activeConnectors.length}
-                </span>
-              </div>
-            </>
-          )}
-        </div>
-      </div>
+      <ChatHeader
+        title={activeSession.title}
+        workspaceLabel={activeDivision ? divisionLabel(activeDivision) : 'York GrowthOS'}
+        shared={
+          isSharedChat
+            ? {
+                peerCount: collabState?.connection === 'connected' ? collabPeerNames.length : 0,
+              }
+            : null
+        }
+        canShare={isElectron && !activeSession.incognito}
+        onShare={() => void handleShareChat()}
+        onExport={() => void handleExportChat()}
+        loopLabel={loopLabel}
+        onStopLoop={() => void handleStopChatLoop()}
+        connectorCount={activeConnectors.length}
+        showConnectorLabel={showConnectorLabel}
+        headerRef={headerRef}
+        rightActionsRef={rightActionsRef}
+        connectorMeasureRef={connectorMeasureRef}
+        connectorBadgeRef={connectorBadgeRef}
+      />
 
-      {activeSession.incognito && (
-        <div className="px-4 py-2 text-xs text-text-secondary border-b border-border-muted bg-surface/60 flex items-center gap-2">
-          <Ghost className="w-3.5 h-3.5 text-text-muted flex-shrink-0" />
-          <span>{t('chat.incognitoBanner')}</span>
-        </div>
-      )}
-      {loopNotice && (
-        <div className="px-4 py-2 text-xs text-text-secondary border-b border-border-muted bg-surface/60 flex items-center justify-between gap-2">
-          <span>{loopNotice}</span>
-          <button
-            type="button"
-            className="text-text-muted hover:text-text-primary"
-            onClick={() => setLoopNotice(null)}
-            title={t('loop.dismissNotice')}
-            aria-label={t('loop.dismissNotice')}
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      )}
-
-      {yorkLlmQueue?.status === 'waiting' && (
-        <div className="px-4 py-2 text-xs text-text-secondary border-b border-border-muted bg-surface/60">
-          {t('yorkLlm.queue.waiting', {
-            position: yorkLlmQueue.position,
-            activeCount: yorkLlmQueue.activeCount,
-            maxConcurrent: yorkLlmQueue.maxConcurrent,
-            defaultValue:
-              'Waiting for York LLM ({{position}} in queue, {{activeCount}}/{{maxConcurrent}} slots in use)',
-          })}
-        </div>
-      )}
+      <ChatBanners
+        incognito={Boolean(activeSession.incognito)}
+        loopNotice={loopNotice}
+        onDismissLoopNotice={() => setLoopNotice(null)}
+        queueLabel={queueLabel}
+        sharedDocLockLabel={sharedDocLockLabel}
+        collab={collabBanner}
+      />
 
       {/* Messages */}
-      {sharedDocBlocksComposer ? (
-        <div className="shrink-0 border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-sm text-amber-900 dark:text-amber-100 lg:px-8">
-          <p>
-            {sharedDocViewOnlyOpen
-              ? t('chat.sharedDocViewOnlyComposerLocked')
-              : t('chat.sharedDocComposerLocked', { name: sharedDocBlockName })}
-          </p>
-        </div>
-      ) : null}
-      {isSharedChat ? (
-        <div className="shrink-0 border-b border-border-muted bg-surface/80 px-4 py-2 text-sm text-text-secondary lg:px-8">
-          {showCollabWaitingPeer ? <p>{t('chat.collabWaitingPeer')}</p> : null}
-          {collabBlocksComposer && collabState?.lease ? (
-            <div className="flex flex-wrap items-center gap-2">
-              <span>
-                {t('chat.collabWatching', {
-                  name: collabState.lease.holderName || 'Teammate',
-                })}
-              </span>
-              <button
-                type="button"
-                onClick={() => void handleTakeTurn()}
-                className="rounded-lg bg-accent/15 px-2.5 py-1 text-xs font-medium text-accent hover:bg-accent/25"
-              >
-                {t('chat.collabTakeTurn')}
-              </button>
-            </div>
-          ) : null}
-          {!collabBlocksComposer && collabState?.connection === 'connected' ? (
-            <p className="text-xs text-text-muted">
-              {t('chat.collabSharedBadge')} · {collabPresenceLabel}
-              {collabRoomIdLabel ? ` · ID ${collabRoomIdLabel}` : ''}
-            </p>
-          ) : null}
-          {collabState && collabState.connection !== 'connected' ? (
-            <p className="text-xs text-text-muted">
-              {t(
-                collabState.connection === 'connecting'
-                  ? 'chat.collabConnecting'
-                  : 'chat.collabOffline'
-              )}
-              {collabRoomIdLabel ? ` · ID ${collabRoomIdLabel}` : ''}
-            </p>
-          ) : null}
-        </div>
-      ) : null}
       <div className="relative min-w-0 flex-1 overflow-hidden">
         <div ref={scrollContainerRef} className="h-full min-w-0 overflow-x-hidden overflow-y-auto">
           <div
             ref={messagesContainerRef}
-            className={`mx-auto w-full min-w-0 max-w-[920px] space-y-5 py-8 ${
+            className={`mx-auto w-full min-w-0 max-w-[820px] space-y-6 pb-10 pt-8 ${
               showMessagePointers ? MESSAGE_POINTERS_GUTTER_CLASS : 'px-5 lg:px-8'
             }`}
           >
             {displayedMessages.length === 0 ? (
-              matterChatDraft ? (
-                <div className="rounded-2xl border border-border-muted bg-surface/50 px-4 py-4 space-y-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-[11px] uppercase tracking-[0.14em] text-text-muted">
-                        {t('matter.chatContextTitle')}
-                        {matterChatDraft.contextSummary.sourceLabel
-                          ? ` · ${matterChatDraft.contextSummary.sourceLabel}`
-                          : ''}
-                      </p>
-                      <h3 className="mt-1 text-[15px] font-medium text-text-primary">
-                        {matterChatDraft.contextSummary.title}
-                      </h3>
-                      {matterChatDraft.contextSummary.summary ? (
-                        <p className="mt-1.5 text-sm text-text-secondary">
-                          {matterChatDraft.contextSummary.summary}
-                        </p>
-                      ) : null}
-                    </div>
-                    {matterChatDraft.contextSummary.url ? (
-                      <button
-                        type="button"
-                        className="shrink-0 text-[12px] font-medium text-accent hover:underline"
-                        onClick={() => {
-                          const url = matterChatDraft.contextSummary.url;
-                          if (url && window.electronAPI?.openExternal) {
-                            void window.electronAPI.openExternal(url);
-                          }
-                        }}
-                      >
-                        {t('matter.chatContextOpenSource')}
-                      </button>
-                    ) : null}
-                  </div>
-                  {matterChatDraft.contextSummary.whyItMatters ? (
-                    <div>
-                      <p className="text-[11px] font-medium text-text-muted">
-                        {t('matter.chatContextWhy')}
-                      </p>
-                      <p className="mt-0.5 text-sm text-text-secondary">
-                        {matterChatDraft.contextSummary.whyItMatters}
-                      </p>
-                    </div>
-                  ) : null}
-                  {matterChatDraft.contextSummary.suggestedAction ? (
-                    <div>
-                      <p className="text-[11px] font-medium text-text-muted">
-                        {t('matter.chatContextSuggested')}
-                      </p>
-                      <p className="mt-0.5 text-sm text-text-secondary">
-                        {matterChatDraft.contextSummary.suggestedAction}
-                      </p>
-                    </div>
-                  ) : null}
-                  <p className="text-[12px] text-text-muted">{t('matter.chatContextWaiting')}</p>
-                </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center py-28 text-text-muted space-y-3 text-center">
-                  <p className="text-[11px] uppercase tracking-[0.16em] text-text-muted/80">
-                    York GrowthOS
-                  </p>
-                  <p className="text-base text-text-secondary">{t('chat.startConversation')}</p>
-                </div>
-              )
+              <ChatEmptyState matterContext={matterChatDraft?.contextSummary} />
             ) : (
               displayedMessages.map((message, index) => {
                 const isStreaming =
@@ -1989,30 +1001,13 @@ export function ChatView() {
               })
             )}
 
-            {/* Subagent progress indicators */}
             <SubagentTracker sessionId={activeSessionId} />
 
-            {/* Processing indicator - show when we have an active turn but no streaming content yet */}
-            {showProcessingIndicator && (
-              <div className="flex items-center gap-3 px-4 py-3 rounded-full bg-background/80 border border-border-subtle max-w-md min-w-0">
-                <Loader2 className="w-4 h-4 text-accent animate-spin flex-shrink-0" />
-                <span className="text-sm text-text-secondary truncate">
-                  {processingStatusLabel}
-                </span>
-              </div>
-            )}
-
-            {/* Real-time execution timer */}
-            {liveElapsed > 0 && (
-              <div className="flex items-center gap-1.5 text-[11px] text-text-muted mt-1 ml-0.5">
-                <Clock className="w-3 h-3" />
-                <span>
-                  {timerActive
-                    ? formatExecutionTime(liveElapsed)
-                    : t('messageCard.executionTime', { time: formatExecutionTime(liveElapsed) })}
-                </span>
-              </div>
-            )}
+            <ChatActivity
+              processingLabel={showProcessingIndicator ? processingStatusLabel : null}
+              elapsedLabel={liveElapsed > 0 ? formatExecutionTime(liveElapsed) : null}
+              running={timerActive}
+            />
 
             <div ref={messagesEndRef} />
           </div>
@@ -2024,11 +1019,12 @@ export function ChatView() {
             isUserAtBottomRef.current = false;
           }}
         />
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-background to-transparent" />
       </div>
 
-      {/* Input */}
-      <div className="min-w-0 shrink-0 border-t border-border-muted bg-background/92 backdrop-blur-md">
-        <div className="mx-auto w-full min-w-0 max-w-[920px] space-y-3 px-3 pb-4 pt-3 sm:px-5 sm:pb-5 sm:pt-4 lg:px-8">
+      {/* Composer */}
+      <div className="min-w-0 shrink-0 bg-background">
+        <div className="mx-auto w-full min-w-0 max-w-[820px] space-y-2 px-3 pb-3 pt-1 sm:px-5 lg:px-8">
           {queuedCount > 0 && (
             <MessageQueueList
               messages={queuedMessages}
@@ -2044,141 +1040,40 @@ export function ChatView() {
             className="relative w-full"
           >
             <OpenRouterKeyGateBanner compact className="mb-2.5" />
-            {/* Image previews */}
-            {pastedImages.length > 0 && (
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2 mb-3">
-                {pastedImages.map((img, index) => (
-                  <AttachmentImageThumb
-                    key={img.url || `pasted-image-${index}`}
-                    src={img.url}
-                    alt={t('common.pastedImageAlt', { index: index + 1 })}
-                    variant="grid"
-                    removeButton={
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          removeImage(index);
-                        }}
-                        title={t('common.removeImage')}
-                        aria-label={t('common.removeImage')}
-                        className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-error text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
-                    }
-                  />
-                ))}
-              </div>
-            )}
+            <ComposerAttachments
+              images={pastedImages}
+              files={attachedFiles}
+              meetings={attachedMeetings}
+              references={attachedReferences}
+              onRemoveImage={removeImage}
+              onRemoveFile={removeFile}
+              onRemoveMeeting={(meetingId) =>
+                setAttachedMeetings((prev) => prev.filter((item) => item.meetingId !== meetingId))
+              }
+              onToggleMeetingTranscript={(meetingId, include) =>
+                setAttachedMeetings((prev) =>
+                  prev.map((item) =>
+                    item.meetingId === meetingId ? { ...item, includeTranscript: include } : item
+                  )
+                )
+              }
+              onRemoveReference={(reference) =>
+                setAttachedReferences((prev) =>
+                  prev.filter(
+                    (item) =>
+                      !(
+                        item.source === reference.source && item.externalId === reference.externalId
+                      )
+                  )
+                )
+              }
+            />
 
-            {/* File attachments */}
-            {attachedFiles.length > 0 && (
-              <div className="space-y-2 mb-3">
-                {attachedFiles.map((file, index) => (
-                  <FileAttachmentChip
-                    key={file.path || `attached-file-${index}`}
-                    filename={file.name}
-                    className="group"
-                    removeButton={
-                      <button
-                        type="button"
-                        onClick={() => removeFile(index)}
-                        title={t('common.removeFile')}
-                        aria-label={t('common.removeFile')}
-                        className="w-6 h-6 rounded-full bg-error/10 hover:bg-error/20 text-error flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    }
-                  />
-                ))}
-              </div>
-            )}
-
-            {/* Meeting attachments */}
-            {attachedMeetings.length > 0 && (
-              <div className="space-y-2 mb-3">
-                {attachedMeetings.map((meeting) => (
-                  <div
-                    key={meeting.meetingId}
-                    className="flex items-center gap-2 px-3 py-2 rounded-lg bg-surface-muted border border-border group"
-                  >
-                    <Mic className="h-4 w-4 flex-shrink-0 text-accent" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-text-primary truncate">{meeting.title}</p>
-                      <label className="mt-1 flex items-center gap-1.5 text-[11px] text-text-muted">
-                        <input
-                          type="checkbox"
-                          checked={Boolean(meeting.includeTranscript)}
-                          onChange={(e) =>
-                            setAttachedMeetings((prev) =>
-                              prev.map((item) =>
-                                item.meetingId === meeting.meetingId
-                                  ? { ...item, includeTranscript: e.target.checked }
-                                  : item
-                              )
-                            )
-                          }
-                          className="h-3.5 w-3.5 accent-accent"
-                        />
-                        {t('meetings.includeTranscript')}
-                      </label>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setAttachedMeetings((prev) =>
-                          prev.filter((item) => item.meetingId !== meeting.meetingId)
-                        )
-                      }
-                      title={t('common.removeMeeting')}
-                      aria-label={t('common.removeMeeting')}
-                      className="w-6 h-6 rounded-full bg-error/10 hover:bg-error/20 text-error flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {attachedReferences.length > 0 && (
-              <div className="space-y-2 mb-3">
-                {attachedReferences.map((reference) => (
-                  <ExternalReferenceChip
-                    key={`${reference.source}:${reference.externalId}`}
-                    reference={reference}
-                    className="group"
-                    removeButton={
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setAttachedReferences((prev) =>
-                            prev.filter(
-                              (item) =>
-                                !(
-                                  item.source === reference.source &&
-                                  item.externalId === reference.externalId
-                                )
-                            )
-                          )
-                        }
-                        title={t('references.remove')}
-                        aria-label={t('references.remove')}
-                        className="w-6 h-6 rounded-full bg-error/10 hover:bg-error/20 text-error flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    }
-                  />
-                ))}
-              </div>
-            )}
+            <ToolsHealthNote variant="chat" />
 
             <div
-              className={`composer-shell relative flex min-w-0 flex-col gap-2 p-2.5 rounded-[1.5rem] bg-background/88 border border-border-muted shadow-soft transition-colors ${
-                isDragging ? 'ring-2 ring-accent bg-accent/5' : ''
+              className={`composer-shell relative flex min-w-0 flex-col gap-2 rounded-[14px] border border-border bg-surface px-3 pb-2 pt-3 shadow-soft transition-[border-color,box-shadow] focus-within:border-accent focus-within:ring-[3px] focus-within:ring-accent/15 ${
+                isDragging ? 'border-accent bg-accent/5 ring-[3px] ring-accent/15' : ''
               }`}
             >
               <SlashCommandMenu
@@ -2272,197 +1167,65 @@ export function ChatView() {
                   sharedDocBlocksComposer
                 }
                 rows={1}
-                className="w-full min-w-0 resize-none bg-transparent border-none outline-none text-text-primary placeholder:text-text-muted text-[15px] leading-5 py-1 overflow-hidden"
+                className="w-full min-w-0 resize-none overflow-hidden border-none bg-transparent px-0.5 py-0.5 text-[14.5px] leading-6 text-text-primary outline-none placeholder:text-text-muted"
               />
 
               <div className="composer-toolbar">
                 <div className="flex min-w-0 items-center gap-1">
-                  <div className="relative" ref={attachMenuRef}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setLoopMenuOpen(false);
-                        setAttachMenuOpen((open) => !open);
-                      }}
-                      className="w-8 h-8 rounded-xl flex items-center justify-center text-text-muted hover:text-text-primary hover:bg-surface-hover transition-colors"
-                      title={t('meetings.attachMenu')}
-                      aria-expanded={attachMenuOpen}
-                      aria-haspopup="menu"
-                    >
-                      <Plus className="w-4 h-4" />
-                    </button>
-                    {attachMenuOpen && (
-                      <div
-                        role="menu"
-                        className="absolute bottom-[calc(100%+8px)] left-0 z-30 min-w-[12.5rem] overflow-hidden rounded-[1.25rem] border border-border-subtle bg-surface shadow-elevated"
-                        style={{ backgroundColor: 'var(--color-surface)' }}
-                      >
-                        <div className="space-y-0.5 p-1.5">
-                          {composerMode !== 'image' && isElectron && activeSessionId && (
-                            <button
-                              type="button"
-                              role="menuitem"
-                              disabled={isSessionRunning}
-                              onClick={() => {
-                                setAttachMenuOpen(false);
-                                void handleChangeWorkingDir();
-                              }}
-                              title={
-                                isSessionRunning
-                                  ? t('welcome.changeWorkingFolderWhileRunning')
-                                  : activeSession?.cwd || undefined
-                              }
-                              className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
-                            >
-                              <FolderOpen className="h-4 w-4 text-text-muted" />
-                              <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
-                                {activeSession?.cwd
-                                  ? activeSession.cwd.split(/[/\\]/).pop()
-                                  : t('welcome.changeWorkingFolder')}
-                              </span>
-                            </button>
-                          )}
-                          <button
-                            type="button"
-                            role="menuitem"
-                            onClick={() => {
-                              setAttachMenuOpen(false);
-                              void handleFileSelect();
-                            }}
-                            className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
-                          >
-                            <Paperclip className="h-4 w-4 text-text-muted" />
-                            <span className="text-[13px] font-medium">
-                              {t('welcome.attachFiles')}
-                            </span>
-                          </button>
-                          {composerMode !== 'image' && !skillsDisabled && (
-                            <button
-                              type="button"
-                              role="menuitem"
-                              onClick={() => {
-                                setAttachMenuOpen(false);
-                                openSkillPicker();
-                                requestAnimationFrame(() => textareaRef.current?.focus());
-                              }}
-                              className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
-                            >
-                              <Package className="h-4 w-4 text-accent" />
-                              <span className="text-[13px] font-medium">
-                                {t('skills.mentionFromMenu')}
-                              </span>
-                            </button>
-                          )}
-                          {composerMode !== 'image' && meetingsReferenceAllowed && (
-                            <button
-                              type="button"
-                              role="menuitem"
-                              onClick={() => {
-                                setAttachMenuOpen(false);
-                                setMeetingPickerOpen(true);
-                              }}
-                              className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
-                            >
-                              <Mic className="h-4 w-4 text-accent" />
-                              <span className="text-[13px] font-medium">
-                                {t('meetings.attachMeeting')}
-                              </span>
-                            </button>
-                          )}
-                          {composerMode !== 'image' && isElectron && (
-                            <>
-                              <button
-                                type="button"
-                                role="menuitem"
-                                onClick={() => {
-                                  setAttachMenuOpen(false);
-                                  setReferencePickerSource('drive');
-                                }}
-                                className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
-                              >
-                                <FileText className="h-4 w-4 text-accent" />
-                                <span className="text-[13px] font-medium">
-                                  {t('references.drive')}
-                                </span>
-                              </button>
-                              <button
-                                type="button"
-                                role="menuitem"
-                                onClick={() => {
-                                  setAttachMenuOpen(false);
-                                  setReferencePickerSource('slack');
-                                }}
-                                className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
-                              >
-                                <MessageSquare className="h-4 w-4 text-accent" />
-                                <span className="text-[13px] font-medium">
-                                  {t('references.slack')}
-                                </span>
-                              </button>
-                              <button
-                                type="button"
-                                role="menuitem"
-                                onClick={() => {
-                                  setAttachMenuOpen(false);
-                                  setReferencePickerSource('jira');
-                                }}
-                                className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
-                              >
-                                <Hash className="h-4 w-4 text-accent" />
-                                <span className="text-[13px] font-medium">
-                                  {t('references.jira')}
-                                </span>
-                              </button>
-                              <button
-                                type="button"
-                                role="menuitem"
-                                onClick={() => {
-                                  setAttachMenuOpen(false);
-                                  setReferencePickerSource('confluence');
-                                }}
-                                className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
-                              >
-                                <BookOpen className="h-4 w-4 text-accent" />
-                                <span className="text-[13px] font-medium">
-                                  {t('references.confluence')}
-                                </span>
-                              </button>
-                            </>
-                          )}
-                          {composerMode !== 'image' && activeSessionId && (
-                            <button
-                              type="button"
-                              role="menuitem"
-                              onClick={() => {
-                                setAttachMenuOpen(false);
-                                setSessionSkillsDisabled(activeSessionId, !skillsDisabled);
-                              }}
-                              className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
-                            >
-                              {skillsDisabled ? (
-                                <Package className="h-4 w-4 text-accent" />
-                              ) : (
-                                <PackageX className="h-4 w-4 text-text-muted" />
-                              )}
-                              <span className="text-[13px] font-medium">
-                                {skillsDisabled
-                                  ? t('skills.enableForChat')
-                                  : t('skills.disableForChat')}
-                              </span>
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </div>
+                  <ComposerAttachMenu
+                    menuRef={attachMenuRef}
+                    open={attachMenuOpen}
+                    onToggle={() => {
+                      setLoopMenuOpen(false);
+                      setAttachMenuOpen((open) => !open);
+                    }}
+                    onClose={() => setAttachMenuOpen(false)}
+                    filesOnly={textOnly}
+                    workingDir={
+                      isElectron && activeSessionId
+                        ? {
+                            label: activeSession.cwd
+                              ? activeSession.cwd.split(/[/\\]/).pop() || activeSession.cwd
+                              : t('welcome.changeWorkingFolder'),
+                            title: isSessionRunning
+                              ? t('welcome.changeWorkingFolderWhileRunning')
+                              : activeSession.cwd || undefined,
+                            disabled: isSessionRunning,
+                            onChange: () => void handleChangeWorkingDir(),
+                          }
+                        : null
+                    }
+                    onAttachFiles={() => void handleFileSelect()}
+                    onMentionSkill={
+                      skillsDisabled
+                        ? null
+                        : () => {
+                            openSkillPicker();
+                            requestAnimationFrame(() => textareaRef.current?.focus());
+                          }
+                    }
+                    onAttachMeeting={
+                      meetingsReferenceAllowed ? () => setMeetingPickerOpen(true) : null
+                    }
+                    onPickReference={isElectron ? setReferencePickerSource : null}
+                    skillsToggle={
+                      activeSessionId
+                        ? {
+                            disabled: skillsDisabled,
+                            onToggle: () =>
+                              setSessionSkillsDisabled(activeSessionId, !skillsDisabled),
+                          }
+                        : null
+                    }
+                  />
 
                   <ComposerModeDropdown disabled={isSubmitting || openRouterKeyRequired} />
 
-                  {composerMode !== 'image' && skillsDisabled && activeSessionId && (
+                  {!textOnly && skillsDisabled && activeSessionId && (
                     <button
                       type="button"
                       onClick={() => setSessionSkillsDisabled(activeSessionId, false)}
-                      className="flex h-8 shrink-0 items-center gap-1 rounded-xl px-2 text-[12px] font-medium text-text-muted transition-colors hover:bg-surface-hover hover:text-text-primary"
+                      className="flex h-8 shrink-0 items-center gap-1 rounded-lg px-2 text-[12px] font-medium text-text-muted transition-colors hover:bg-surface-hover hover:text-text-primary"
                       title={t('skills.enableForChat')}
                     >
                       <PackageX className="h-3.5 w-3.5 shrink-0" />
@@ -2470,12 +1233,12 @@ export function ChatView() {
                     </button>
                   )}
 
-                  {composerMode !== 'image' && isElectron && activeSession?.cwd && (
+                  {!textOnly && isElectron && activeSession.cwd && (
                     <button
                       type="button"
                       onClick={() => void handleChangeWorkingDir()}
                       disabled={isSessionRunning}
-                      className="composer-working-dir flex h-8 min-w-0 max-w-[10rem] shrink items-center gap-1 rounded-xl px-2 text-xs text-text-muted transition-colors hover:bg-surface-hover hover:text-text-primary disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-text-muted"
+                      className="composer-working-dir flex h-8 min-w-0 max-w-[10rem] shrink items-center gap-1 rounded-lg px-2 text-xs text-text-muted transition-colors hover:bg-surface-hover hover:text-text-primary disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-text-muted"
                       title={
                         isSessionRunning
                           ? t('welcome.changeWorkingFolderWhileRunning')
@@ -2487,7 +1250,7 @@ export function ChatView() {
                     </button>
                   )}
 
-                  {composerMode !== 'image' && isElectron && (
+                  {!textOnly && isElectron && (
                     <div className="relative" ref={loopMenuRef}>
                       <button
                         type="button"
@@ -2495,16 +1258,17 @@ export function ChatView() {
                           setAttachMenuOpen(false);
                           setLoopMenuOpen((open) => !open);
                         }}
-                        className={`w-8 h-8 rounded-xl flex items-center justify-center transition-colors ${
+                        className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors ${
                           chatLoopStatus || loopMenuOpen
-                            ? 'text-accent bg-accent/10 hover:bg-accent/15'
-                            : 'text-text-muted hover:text-text-primary hover:bg-surface-hover'
+                            ? 'bg-accent/10 text-accent hover:bg-accent/15'
+                            : 'text-text-muted hover:bg-surface-hover hover:text-text-primary'
                         }`}
                         title={t('loop.menuButton')}
+                        aria-label={t('loop.menuButton')}
                         aria-expanded={loopMenuOpen}
                         aria-haspopup="dialog"
                       >
-                        <RefreshCw className="w-4 h-4" />
+                        <RefreshCw className="h-4 w-4" />
                       </button>
                       <ChatLoopPanel
                         open={loopMenuOpen}
@@ -2535,8 +1299,8 @@ export function ChatView() {
                 </div>
 
                 <div className="composer-toolbar-end">
-                  {composerMode !== 'image' && <ThinkingModeToggle />}
-                  {composerMode !== 'image' && <ModelSelector />}
+                  {!textOnly && <ThinkingModeToggle />}
+                  {!textOnly && <ModelSelector />}
                   <HubBudgetMeter />
 
                   {dictationAvailable && (
@@ -2552,28 +1316,21 @@ export function ChatView() {
                     <button
                       type="button"
                       onClick={handleStop}
-                      className="w-8 h-8 rounded-xl flex items-center justify-center bg-error/10 text-error hover:bg-error/20 transition-colors"
+                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-background text-text-primary transition-colors hover:border-error/40 hover:bg-error/10 hover:text-error"
                       title={t('chat.stop')}
+                      aria-label={t('chat.stop')}
                     >
-                      <Square className="w-3.5 h-3.5" />
+                      <Square className="h-3 w-3 fill-current" />
                     </button>
                   )}
                   <button
                     type="submit"
-                    disabled={
-                      openRouterKeyRequired ||
-                      (!prompt.trim() &&
-                        !textareaRef.current?.value.trim() &&
-                        pastedImages.length === 0 &&
-                        attachedFiles.length === 0 &&
-                        attachedMeetings.length === 0 &&
-                        attachedReferences.length === 0) ||
-                      isSubmitting
-                    }
-                    className="w-8 h-8 shrink-0 rounded-xl flex items-center justify-center bg-accent text-background disabled:opacity-50 disabled:cursor-not-allowed hover:bg-accent-hover transition-colors"
+                    disabled={openRouterKeyRequired || !hasDraftContent || isSubmitting}
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-40"
                     title={t('chat.sendMessage')}
+                    aria-label={t('chat.sendMessage')}
                   >
-                    <Send className="w-3.5 h-3.5" />
+                    <ArrowUp className="h-4 w-4" />
                   </button>
                 </div>
               </div>
@@ -2585,7 +1342,7 @@ export function ChatView() {
 
             <YorkLlmRoutineTip prompt={prompt} />
 
-            <p className="text-[11px] text-text-muted/60 text-center mt-2.5">
+            <p className="mt-2 text-center text-[11px] text-text-muted/70">
               {t('chat.disclaimer')}
             </p>
           </form>

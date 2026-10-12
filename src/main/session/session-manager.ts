@@ -49,7 +49,7 @@ import {
   rememberAutoApproveToolPermissions,
   sessionAutoApprovesToolPermissions,
 } from '../config/permission-rules-store';
-import { PERMISSION_AUTO_APPROVE_MS } from '../../shared/permission-policy';
+import { applyPermissionEdits, PERMISSION_AUTO_APPROVE_MS } from '../../shared/permission-policy';
 import {
   log,
   logError,
@@ -127,7 +127,11 @@ export class SessionManager {
     string,
     Array<{ prompt: string; content?: ContentBlock[]; broadcastUserMessage?: boolean }>
   > = new Map();
-  private pendingPermissions: Map<string, (result: PermissionResult) => void> = new Map();
+  private pendingPermissionTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
+  private pendingPermissions: Map<
+    string,
+    (result: PermissionResult, editedInput?: Record<string, unknown>) => void
+  > = new Map();
   /** Serialize permission UI prompts so a second ask cannot orphan the first in the renderer. */
   private permissionAskChain: Promise<void> = Promise.resolve();
   private pendingSudoPasswords: Map<
@@ -2654,14 +2658,30 @@ export class SessionManager {
   }
 
   // Handle permission response. Returns false if the ask already expired / was dismissed.
-  handlePermissionResponse(toolUseId: string, result: PermissionResult): boolean {
+  handlePermissionResponse(
+    toolUseId: string,
+    result: PermissionResult,
+    editedInput?: Record<string, unknown>
+  ): boolean {
     const resolver = this.pendingPermissions.get(toolUseId);
     if (resolver) {
-      resolver(result);
+      resolver(result, editedInput);
       this.pendingPermissions.delete(toolUseId);
       return true;
     }
     return false;
+  }
+
+  /**
+   * Stops the auto-approve countdown once the user starts editing a draft, so an
+   * unfinished edit can never be sent in its original form.
+   */
+  holdPermission(toolUseId: string): boolean {
+    const timer = this.pendingPermissionTimers.get(toolUseId);
+    if (!timer) return false;
+    clearTimeout(timer);
+    this.pendingPermissionTimers.delete(toolUseId);
+    return true;
   }
 
   // Request permission for a tool
@@ -2686,6 +2706,7 @@ export class SessionManager {
         const expiresAt = Date.now() + PERMISSION_AUTO_APPROVE_MS;
         const timeoutId = setTimeout(() => {
           this.pendingPermissions.delete(toolUseId);
+          this.pendingPermissionTimers.delete(toolUseId);
           log(`[SessionManager] Permission for '${toolName}' auto-approved after no response`);
           resolve('allow');
           this.sendToRenderer({
@@ -2693,8 +2714,13 @@ export class SessionManager {
             payload: { toolUseId, reason: 'auto_approved' },
           });
         }, PERMISSION_AUTO_APPROVE_MS);
-        this.pendingPermissions.set(toolUseId, (result: PermissionResult) => {
+        this.pendingPermissionTimers.set(toolUseId, timeoutId);
+        this.pendingPermissions.set(toolUseId, (result, editedInput) => {
           clearTimeout(timeoutId);
+          this.pendingPermissionTimers.delete(toolUseId);
+          if (result !== 'deny' && editedInput) {
+            applyPermissionEdits(input, editedInput);
+          }
           resolve(result);
         });
         this.sendToRenderer({

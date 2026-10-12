@@ -1,0 +1,1407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>York GrowthOS — Redesign Proposal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,500;8..60,600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg: #111b23;
+    --bg-2: #15212b;
+    --surface: #1a2834;
+    --surface-2: #213240;
+    --surface-hover: #253949;
+    --line: rgba(255, 255, 255, 0.07);
+    --line-strong: rgba(255, 255, 255, 0.12);
+    --text: #eef3f6;
+    --text-2: #a9b8c3;
+    --text-3: #7c8d99;
+    --accent: #00b48a;
+    --accent-hover: #00c99a;
+    --accent-soft: rgba(0, 180, 138, 0.12);
+    --accent-text: #3fd6ae;
+    --urgent: #f26d5b;
+    --urgent-soft: rgba(242, 109, 91, 0.12);
+    --warn: #e8b13c;
+    --warn-soft: rgba(232, 177, 60, 0.12);
+    --info: #6fb3d2;
+    --info-soft: rgba(111, 179, 210, 0.12);
+    --shadow: 0 20px 60px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.05);
+    --r-sm: 6px;
+    --r: 10px;
+    --r-lg: 14px;
+  }
+  .light {
+    --bg: #f5f7f9;
+    --bg-2: #eef2f5;
+    --surface: #ffffff;
+    --surface-2: #f3f6f8;
+    --surface-hover: #edf1f4;
+    --line: rgba(25, 37, 48, 0.08);
+    --line-strong: rgba(25, 37, 48, 0.14);
+    --text: #16222c;
+    --text-2: #4a5d6b;
+    --text-3: #7a8b97;
+    --accent-soft: rgba(0, 180, 138, 0.1);
+    --accent-text: #00876a;
+    --urgent-soft: rgba(220, 70, 50, 0.09);
+    --warn-soft: rgba(202, 138, 4, 0.1);
+    --info-soft: rgba(60, 130, 170, 0.1);
+    --shadow: 0 20px 60px rgba(25, 37, 48, 0.16), 0 0 0 1px rgba(25, 37, 48, 0.06);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+    background: radial-gradient(1200px 600px at 80% -10%, rgba(0, 180, 138, 0.10), transparent 60%), #0c141a;
+    color: #eef3f6;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+  }
+  .serif { font-family: 'Source Serif 4', Georgia, serif; }
+  .mono { font-family: 'JetBrains Mono', monospace; }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  svg.i { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+
+  /* ---------- Proposal chrome ---------- */
+  .topbar {
+    position: sticky; top: 0; z-index: 50;
+    display: flex; align-items: center; gap: 16px;
+    padding: 14px 28px;
+    background: rgba(12, 20, 26, 0.82); backdrop-filter: blur(14px);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; letter-spacing: -0.01em; }
+  .mark { width: 26px; height: 26px; border-radius: 7px; background: linear-gradient(135deg, #00b48a, #0a7d66); display: grid; place-items: center; font-size: 13px; font-weight: 800; color: #04140f; }
+  .brand small { font-weight: 500; color: #7c8d99; margin-left: 6px; }
+  .seg { margin-left: auto; display: flex; background: rgba(255, 255, 255, 0.05); border-radius: 999px; padding: 3px; }
+  .seg button { border: 0; background: none; padding: 7px 16px; border-radius: 999px; font-size: 13px; font-weight: 600; color: #a9b8c3; }
+  .seg button.on { background: #eef3f6; color: #0c141a; }
+  .view { display: none; }
+  .view.on { display: block; }
+
+  /* ---------- Prototype window ---------- */
+  .stage { padding: 28px; display: flex; flex-direction: column; align-items: center; gap: 14px; }
+  .stage-hint { font-size: 13px; color: #7c8d99; display: flex; gap: 18px; flex-wrap: wrap; justify-content: center; }
+  .stage-hint b { color: #a9b8c3; font-weight: 600; }
+  kbd { font-family: 'JetBrains Mono', monospace; font-size: 11px; padding: 1px 6px; border-radius: 5px; border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.05); color: inherit; }
+  .app {
+    width: min(1360px, 100%); height: 820px;
+    background: var(--bg); color: var(--text);
+    border-radius: 14px; overflow: hidden; box-shadow: var(--shadow);
+    display: grid; grid-template-rows: 38px 1fr; position: relative;
+  }
+  .titlebar { display: flex; align-items: center; gap: 8px; padding: 0 14px; border-bottom: 1px solid var(--line); background: var(--bg); }
+  .dots { display: flex; gap: 7px; }
+  .dots span { width: 12px; height: 12px; border-radius: 50%; background: #ff5f57; }
+  .dots span:nth-child(2) { background: #febc2e; } .dots span:nth-child(3) { background: #28c840; }
+  .cmd-trigger {
+    margin: 0 auto; width: 380px; height: 26px; border-radius: 7px;
+    border: 1px solid var(--line); background: var(--surface);
+    display: flex; align-items: center; gap: 8px; padding: 0 10px; font-size: 12px; color: var(--text-3);
+  }
+  .cmd-trigger kbd { margin-left: auto; border-color: var(--line-strong); }
+  .tb-right { display: flex; gap: 4px; }
+  .icon-btn { width: 28px; height: 28px; border-radius: 7px; border: 0; background: none; display: grid; place-items: center; color: var(--text-2); }
+  .icon-btn:hover { background: var(--surface-hover); color: var(--text); }
+
+  .body { display: grid; grid-template-columns: 232px 1fr; min-height: 0; }
+  .body.with-inspector { grid-template-columns: 232px 1fr 300px; }
+
+  /* Sidebar */
+  .side { border-right: 1px solid var(--line); background: var(--bg-2); display: flex; flex-direction: column; min-height: 0; }
+  .side-top { padding: 12px 10px 6px; }
+  .ws {
+    width: 100%; display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+    border-radius: var(--r); border: 0; background: none; text-align: left;
+  }
+  .ws:hover { background: var(--surface-hover); }
+  .ws-ic { width: 26px; height: 26px; border-radius: 7px; background: var(--accent-soft); color: var(--accent-text); display: grid; place-items: center; }
+  .ws b { font-size: 13px; display: block; }
+  .ws small { font-size: 11px; color: var(--text-3); }
+  .new-chat {
+    margin: 6px 10px 10px; height: 34px; border-radius: var(--r); border: 1px solid var(--line-strong);
+    background: var(--surface); display: flex; align-items: center; gap: 8px; padding: 0 12px; font-size: 13px; font-weight: 600;
+  }
+  .new-chat:hover { border-color: var(--accent); }
+  .new-chat kbd { margin-left: auto; color: var(--text-3); border-color: var(--line); }
+  .nav { padding: 0 10px; display: flex; flex-direction: column; gap: 1px; }
+  .nav button {
+    display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 10px;
+    border: 0; background: none; border-radius: var(--r-sm); font-size: 13px; font-weight: 500; color: var(--text-2); text-align: left;
+  }
+  .nav button:hover { background: var(--surface-hover); color: var(--text); }
+  .nav button.on { background: var(--surface-2); color: var(--text); font-weight: 600; }
+  .nav button.on svg { color: var(--accent-text); }
+  .badge { margin-left: auto; min-width: 20px; height: 18px; padding: 0 6px; border-radius: 999px; font-size: 11px; font-weight: 700; display: grid; place-items: center; background: var(--urgent-soft); color: var(--urgent); }
+  .badge.neutral { background: var(--surface-2); color: var(--text-2); }
+  .side-label { padding: 16px 20px 6px; font-size: 11px; font-weight: 600; color: var(--text-3); letter-spacing: .04em; text-transform: uppercase; display: flex; justify-content: space-between; }
+  .recents { flex: 1; overflow: auto; padding: 0 10px; }
+  .recents button { width: 100%; display: block; text-align: left; border: 0; background: none; padding: 7px 10px; border-radius: var(--r-sm); font-size: 13px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .recents button:hover { background: var(--surface-hover); color: var(--text); }
+  .recents button.on { background: var(--surface-2); color: var(--text); }
+  .recents .live::before { content: ''; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); margin-right: 8px; vertical-align: middle; animation: pulse 1.6s infinite; }
+  @keyframes pulse { 50% { opacity: .3; } }
+  .side-foot { border-top: 1px solid var(--line); padding: 10px; display: flex; align-items: center; gap: 8px; }
+  .avatar { width: 28px; height: 28px; border-radius: 50%; background: linear-gradient(135deg, #3b6a86, #22465c); color: #fff; font-size: 11px; font-weight: 700; display: grid; place-items: center; }
+  .side-foot .who { font-size: 12.5px; font-weight: 600; line-height: 1.2; }
+  .side-foot .who small { display: block; font-weight: 500; color: var(--text-3); font-size: 11px; }
+  .side-foot .icon-btn:first-of-type { margin-left: auto; }
+
+  /* Main */
+  .main { min-height: 0; overflow: auto; position: relative; }
+  .screen { display: none; }
+  .screen.on { display: block; animation: fade .18s ease-out; }
+  @keyframes fade { from { opacity: 0; transform: translateY(4px); } }
+  .page { max-width: 1040px; margin: 0 auto; padding: 32px 40px 48px; }
+  .page-head { display: flex; align-items: flex-end; gap: 16px; margin-bottom: 22px; }
+  .page-head h1 { margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -0.015em; }
+  .page-head p { margin: 4px 0 0; color: var(--text-2); font-size: 14px; }
+  .page-head .actions { margin-left: auto; display: flex; gap: 8px; }
+  .btn { height: 32px; padding: 0 12px; border-radius: var(--r-sm); border: 1px solid var(--line-strong); background: var(--surface); font-size: 13px; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; }
+  .btn:hover { background: var(--surface-hover); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #03140f; }
+  .btn.primary:hover { background: var(--accent-hover); }
+  .btn.ghost { border-color: transparent; background: none; color: var(--text-2); }
+  .btn.ghost:hover { background: var(--surface-hover); color: var(--text); }
+  .btn.sm { height: 26px; padding: 0 9px; font-size: 12px; }
+
+  /* Composer */
+  .composer { border: 1px solid var(--line-strong); background: var(--surface); border-radius: var(--r-lg); padding: 14px 14px 10px; transition: border-color .15s, box-shadow .15s; }
+  .composer:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .composer textarea { width: 100%; border: 0; outline: 0; resize: none; background: none; color: var(--text); font: inherit; font-size: 15px; line-height: 1.5; min-height: 48px; }
+  .composer textarea::placeholder { color: var(--text-3); }
+  .composer-row { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+  .chip { height: 26px; padding: 0 9px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface-2); font-size: 12px; font-weight: 500; color: var(--text-2); display: inline-flex; align-items: center; gap: 6px; }
+  .chip:hover { color: var(--text); border-color: var(--line-strong); }
+  .chip .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+  .send { margin-left: auto; width: 32px; height: 32px; border-radius: 9px; border: 0; background: var(--accent); color: #03140f; display: grid; place-items: center; }
+  .send svg { stroke-width: 2.2; }
+  .suggest { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .suggest button { border: 1px solid var(--line); background: none; border-radius: 999px; padding: 6px 12px; font-size: 12.5px; color: var(--text-2); }
+  .suggest button:hover { border-color: var(--accent); color: var(--text); }
+
+  /* Today */
+  .greet { font-size: 30px; font-weight: 600; letter-spacing: -0.02em; margin: 0; }
+  .brief { color: var(--text-2); font-size: 15px; line-height: 1.6; margin: 8px 0 22px; max-width: 760px; }
+  .brief b { color: var(--text); font-weight: 600; }
+  .hero { display: grid; grid-template-columns: minmax(340px, 1fr) 300px; gap: 28px; align-items: center; position: relative; }
+  .radar { margin: 0; display: flex; flex-direction: column; align-items: center; position: relative; }
+  .radar svg { width: 300px; height: 300px; overflow: visible; }
+  .radar figcaption { text-align: center; font-size: 12px; color: var(--text-3); line-height: 1.5; margin-top: 4px; min-height: 36px; max-width: 300px; }
+  .radar figcaption b { display: block; color: var(--text-2); font-weight: 600; }
+  .radar figcaption.tip b { color: var(--text); }
+  .r-ring { fill: none; stroke: var(--text-3); stroke-opacity: .28; stroke-dasharray: 2 6; }
+  .r-ring.now { stroke: var(--urgent); stroke-opacity: .45; }
+  .r-band.now { fill: var(--urgent); fill-opacity: .045; }
+  .r-sector { stroke: var(--line-strong); stroke-width: 1; }
+  .r-label { fill: var(--text-3); font-size: 9px; font-weight: 700; letter-spacing: 1.2px; }
+  .r-src { font-size: 10px; font-weight: 800; fill: var(--text-3); }
+  .r-core-n { fill: #fff; font-size: 24px; font-weight: 700; }
+  .r-core-t { fill: #fff; font-size: 8px; font-weight: 700; letter-spacing: 1.4px; opacity: .85; }
+  .blip { cursor: pointer; transition: opacity .15s; }
+  .blip circle.b { transition: r .12s; }
+  .blip text { font-size: 9px; font-weight: 800; fill: #fff; pointer-events: none; }
+  .blip.crit circle.halo { animation: halo 2.4s ease-out infinite; transform-box: fill-box; transform-origin: center; }
+  @keyframes halo { 0% { opacity: .6; transform: scale(1); } 100% { opacity: 0; transform: scale(2.2); } }
+  .radar.dim .blip:not(.hl) { opacity: .25; }
+  .r-sweep { transform-box: view-box; transform-origin: 200px 200px; animation: spin 4.5s linear infinite; opacity: 0; transition: opacity .4s; }
+  .radar.scanning .r-sweep { opacity: 1; }
+  @media (prefers-reduced-motion: reduce) { .r-sweep, .blip.crit circle.halo { animation: none; } }
+  .item.hl { background: var(--surface); box-shadow: inset 3px 0 0 var(--accent); }
+  .item.flash { animation: flash 1.2s ease-out; }
+  @keyframes flash { 0%, 30% { background: var(--accent-soft); } 100% { background: transparent; } }
+  .today-grid { display: grid; grid-template-columns: 1fr 300px; gap: 28px; margin-top: 30px; }
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 6px; }
+  .tabs button { border: 0; background: none; padding: 9px 4px; margin-right: 14px; font-size: 13px; font-weight: 600; color: var(--text-3); border-bottom: 2px solid transparent; margin-bottom: -1px; display: flex; gap: 6px; align-items: center; }
+  .tabs button.on { color: var(--text); border-color: var(--accent); }
+  .tabs .count { font-size: 11px; color: var(--text-3); font-weight: 600; }
+  .group-label { font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--text-3); margin: 18px 0 6px; display: flex; align-items: center; gap: 8px; }
+  .group-label.urgent { color: var(--urgent); }
+  .item { display: grid; grid-template-columns: 28px 1fr auto; gap: 12px; align-items: start; padding: 12px; margin: 0 -12px; border-radius: var(--r); position: relative; }
+  .item:hover { background: var(--surface); }
+  .item .src { width: 28px; height: 28px; border-radius: 7px; display: grid; place-items: center; font-size: 11px; font-weight: 800; color: #fff; }
+  .src.slack { background: #4a154b; } .src.gmail { background: #c5221f; } .src.jira { background: #0c66e4; } .src.cal { background: #1a73e8; } .src.zoom { background: #0b5cff; } .src.hub { background: #00876a; } .src.loop { background: var(--surface-2); color: var(--accent-text); }
+  .item h4 { margin: 1px 0 3px; font-size: 14px; font-weight: 600; }
+  .item p { margin: 0; font-size: 13px; color: var(--text-2); line-height: 1.5; }
+  .meta { display: flex; gap: 10px; margin-top: 6px; font-size: 12px; color: var(--text-3); align-items: center; }
+  .tag { font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 5px; }
+  .tag.urgent { background: var(--urgent-soft); color: var(--urgent); }
+  .tag.warn { background: var(--warn-soft); color: var(--warn); }
+  .tag.info { background: var(--info-soft); color: var(--info); }
+  .tag.ok { background: var(--accent-soft); color: var(--accent-text); }
+  .item-actions { display: flex; gap: 6px; opacity: .55; transition: opacity .12s; }
+  .item:hover .item-actions { opacity: 1; }
+  .item.done { opacity: .35; text-decoration: line-through; }
+
+  .card { border: 1px solid var(--line); background: var(--surface); border-radius: var(--r-lg); padding: 16px; }
+  .card + .card { margin-top: 14px; }
+  .card-label { font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--text-3); display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+  .card-label .btn { margin-left: auto; }
+  .next-title { font-size: 16px; font-weight: 600; margin: 0 0 2px; }
+  .next-when { font-size: 13px; color: var(--accent-text); font-weight: 600; }
+  .people { display: flex; margin: 12px 0; }
+  .people span { width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--surface); margin-right: -6px; display: grid; place-items: center; font-size: 9px; font-weight: 700; color: #fff; }
+  .prep { font-size: 12.5px; color: var(--text-2); line-height: 1.55; border-left: 2px solid var(--accent); padding-left: 10px; margin: 10px 0 12px; }
+  .sched { list-style: none; margin: 0; padding: 0; }
+  .sched li { display: grid; grid-template-columns: 52px 1fr; gap: 8px; padding: 7px 0; font-size: 13px; border-top: 1px solid var(--line); }
+  .sched li:first-child { border-top: 0; }
+  .sched time { color: var(--text-3); font-variant-numeric: tabular-nums; }
+  .sched li.past { opacity: .45; }
+  .sched li.now time { color: var(--accent-text); font-weight: 700; }
+
+  /* Chat */
+  .chat-wrap { display: flex; flex-direction: column; height: 100%; }
+  .chat-head { display: flex; align-items: center; gap: 10px; padding: 12px 24px; border-bottom: 1px solid var(--line); }
+  .chat-head h2 { font-size: 14px; margin: 0; font-weight: 600; }
+  .chat-head .chip { margin-left: 4px; }
+  .chat-head .right { margin-left: auto; display: flex; gap: 4px; }
+  .thread { flex: 1; overflow: auto; padding: 24px; }
+  .thread-inner { max-width: 740px; margin: 0 auto; display: flex; flex-direction: column; gap: 22px; }
+  .msg-user { align-self: flex-end; max-width: 80%; background: var(--surface-2); padding: 10px 14px; border-radius: 14px 14px 4px 14px; font-size: 14px; line-height: 1.55; }
+  .context-pin { align-self: flex-end; max-width: 80%; font-size: 12px; color: var(--text-2); border: 1px dashed var(--line-strong); border-radius: 10px; padding: 8px 10px; display: flex; gap: 8px; align-items: center; }
+  .msg-ai { font-size: 14.5px; line-height: 1.65; }
+  .msg-ai p { margin: 0 0 10px; }
+  .steps { border: 1px solid var(--line); border-radius: var(--r); margin-bottom: 14px; overflow: hidden; }
+  .steps summary { list-style: none; display: flex; align-items: center; gap: 8px; padding: 9px 12px; font-size: 12.5px; color: var(--text-2); cursor: pointer; }
+  .steps summary::-webkit-details-marker { display: none; }
+  .steps summary .srcs { display: flex; gap: 3px; margin-left: 4px; }
+  .steps summary .srcs span { width: 16px; height: 16px; border-radius: 4px; font-size: 8px; display: grid; place-items: center; color: #fff; font-weight: 800; }
+  .steps summary .chev { margin-left: auto; transition: transform .15s; }
+  .steps[open] summary .chev { transform: rotate(90deg); }
+  .steps ol { margin: 0; padding: 4px 12px 10px 34px; font-size: 12.5px; color: var(--text-3); line-height: 1.9; }
+  .steps ol b { color: var(--text-2); font-weight: 600; }
+  .draft { border: 1px solid var(--line-strong); background: var(--surface); border-radius: var(--r-lg); overflow: hidden; margin: 10px 0; }
+  .draft-head { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-bottom: 1px solid var(--line); font-size: 12px; color: var(--text-2); }
+  .draft-head .btn { margin-left: auto; }
+  .draft-body { padding: 12px 14px; font-size: 13.5px; line-height: 1.6; }
+  .cite { font-size: 10px; vertical-align: super; color: var(--accent-text); font-weight: 700; margin-left: 1px; }
+  .chat-compose { padding: 12px 24px 18px; }
+  .chat-compose .composer { max-width: 740px; margin: 0 auto; }
+
+  .inspector { border-left: 1px solid var(--line); background: var(--bg-2); display: none; flex-direction: column; min-height: 0; }
+  .body.with-inspector .inspector { display: flex; }
+  .inspector .tabs { padding: 0 16px; margin: 0; }
+  .ins-body { padding: 14px 16px; overflow: auto; font-size: 13px; }
+  .ins-pane { display: none; } .ins-pane.on { display: block; }
+  .prog { list-style: none; padding: 0; margin: 0; }
+  .prog li { display: flex; gap: 10px; padding: 7px 0; color: var(--text-2); align-items: center; }
+  .prog li .ck { width: 16px; height: 16px; border-radius: 50%; background: var(--accent-soft); color: var(--accent-text); display: grid; place-items: center; }
+  .prog li .ck svg { width: 10px; height: 10px; stroke-width: 3; }
+  .prog li.doing .ck { background: none; border: 2px solid var(--accent); border-right-color: transparent; animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .srcrow { display: flex; gap: 10px; padding: 9px 0; border-top: 1px solid var(--line); align-items: flex-start; }
+  .srcrow:first-child { border-top: 0; }
+  .srcrow .n { font-size: 10px; font-weight: 800; color: var(--accent-text); width: 16px; padding-top: 2px; }
+  .srcrow b { display: block; font-size: 12.5px; font-weight: 600; }
+  .srcrow small { color: var(--text-3); font-size: 11.5px; }
+
+  /* Follow-ups */
+  .quick { display: flex; align-items: center; gap: 10px; border: 1px solid var(--line-strong); background: var(--surface); border-radius: var(--r); padding: 0 12px; height: 44px; margin-bottom: 8px; }
+  .quick input { flex: 1; border: 0; outline: 0; background: none; color: var(--text); font: inherit; font-size: 14px; }
+  .quick input::placeholder { color: var(--text-3); }
+  .quick:focus-within { border-color: var(--accent); }
+  .parsed { font-size: 12px; color: var(--text-3); margin: 0 0 6px 2px; min-height: 18px; }
+  .parsed .tag { margin-right: 4px; }
+  .fu { display: grid; grid-template-columns: 22px 1fr auto; gap: 12px; align-items: center; padding: 10px 12px; margin: 0 -12px; border-radius: var(--r); }
+  .fu:hover { background: var(--surface); }
+  .check { width: 18px; height: 18px; border-radius: 50%; border: 1.75px solid var(--line-strong); background: none; padding: 0; display: grid; place-items: center; }
+  .check:hover { border-color: var(--accent); }
+  .fu.done .check { background: var(--accent); border-color: var(--accent); color: #03140f; }
+  .fu.done .fu-t { text-decoration: line-through; color: var(--text-3); }
+  .fu-t { font-size: 14px; font-weight: 500; }
+  .fu-s { font-size: 12px; color: var(--text-3); margin-top: 2px; display: flex; gap: 8px; align-items: center; }
+  .due { font-size: 12px; font-weight: 600; color: var(--text-3); }
+  .due.over { color: var(--urgent); }
+  .due.today { color: var(--warn); }
+
+  /* Automations */
+  .table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .table th { text-align: left; font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--text-3); padding: 8px 12px; border-bottom: 1px solid var(--line); }
+  .table td { padding: 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  .table tr:hover td { background: var(--surface); }
+  .table td b { font-weight: 600; display: block; }
+  .table td small { color: var(--text-3); }
+  .switch { width: 30px; height: 18px; border-radius: 999px; background: var(--accent); position: relative; border: 0; }
+  .switch::after { content: ''; position: absolute; top: 2px; left: 14px; width: 14px; height: 14px; border-radius: 50%; background: #fff; transition: left .15s; }
+  .switch.off { background: var(--line-strong); }
+  .switch.off::after { left: 2px; }
+  .status { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; }
+  .status::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+  .status.fail::before { background: var(--urgent); }
+  .status.run::before { background: var(--info); animation: pulse 1.2s infinite; }
+  .templates { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 26px; }
+  .tpl { border: 1px solid var(--line); background: var(--surface); border-radius: var(--r-lg); padding: 14px; text-align: left; }
+  .tpl:hover { border-color: var(--accent); }
+  .tpl b { display: block; font-size: 13.5px; margin: 8px 0 4px; }
+  .tpl small { color: var(--text-3); font-size: 12px; line-height: 1.5; display: block; }
+  .tpl .ws-ic { width: 28px; height: 28px; }
+
+  /* Settings */
+  .settings { display: grid; grid-template-columns: 210px 1fr; min-height: 100%; }
+  .set-nav { border-right: 1px solid var(--line); padding: 26px 12px; }
+  .set-nav h5 { margin: 16px 10px 6px; font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--text-3); }
+  .set-nav h5:first-child { margin-top: 0; }
+  .set-nav button { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 7px 10px; border-radius: var(--r-sm); font-size: 13px; color: var(--text-2); }
+  .set-nav button:hover { background: var(--surface-hover); }
+  .set-nav button.on { background: var(--surface-2); color: var(--text); font-weight: 600; }
+  .set-body { padding: 30px 40px; max-width: 760px; }
+  .conn { display: grid; grid-template-columns: 34px 1fr auto; gap: 12px; align-items: center; padding: 14px 0; border-top: 1px solid var(--line); }
+  .conn .src { width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center; font-weight: 800; color: #fff; font-size: 12px; }
+  .conn b { font-size: 14px; font-weight: 600; }
+  .conn small { display: block; color: var(--text-3); font-size: 12.5px; margin-top: 2px; }
+  .conn small.err { color: var(--urgent); }
+
+  /* Tools status */
+  .tb-right { align-items: center; position: relative; }
+  .health { height: 26px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; color: var(--text-2); }
+  .health:hover { border-color: var(--line-strong); color: var(--text); }
+  .health.fail { border-color: rgba(242,109,91,.4); color: var(--urgent); background: var(--urgent-soft); }
+  .sdot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
+  .sdot.connecting { background: none; width: 10px; height: 10px; border: 2px solid var(--warn); border-right-color: transparent; animation: spin .9s linear infinite; }
+  .sdot.failed { background: var(--urgent); }
+  .sdot.disabled { background: var(--text-3); opacity: .5; }
+  .pop { position: absolute; top: 34px; right: 0; width: 360px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 12px; box-shadow: var(--shadow); z-index: 12; display: none; }
+  .pop.on { display: block; animation: fade .12s; }
+  .pop-head { padding: 12px 14px 10px; border-bottom: 1px solid var(--line); }
+  .pop-head b { font-size: 13.5px; display: block; }
+  .pop-head small { font-size: 12px; color: var(--text-3); }
+  .pop-list { padding: 6px; max-height: 380px; overflow: auto; }
+  .pop-list h6 { margin: 8px 8px 4px; font-size: 10.5px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--text-3); }
+  .srv { display: grid; grid-template-columns: 26px 1fr auto; gap: 10px; align-items: center; padding: 7px 8px; border-radius: 8px; }
+  .srv:hover { background: var(--surface-2); }
+  .srv .src { width: 26px; height: 26px; border-radius: 7px; display: grid; place-items: center; font-size: 10px; font-weight: 800; color: #fff; }
+  .srv b { font-size: 13px; font-weight: 600; display: block; }
+  .srv small { font-size: 11.5px; color: var(--text-3); display: flex; align-items: center; gap: 6px; }
+  .srv small.err { color: var(--urgent); }
+  .srv small.wait { color: var(--warn); }
+  .pop-foot { border-top: 1px solid var(--line); padding: 8px 14px; display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--text-3); }
+  .pop-foot button { border: 0; background: none; color: var(--accent-text); font-weight: 600; font-size: 12px; padding: 0; }
+  .health-note { display: flex; align-items: center; gap: 10px; font-size: 13px; padding: 9px 12px; border-radius: var(--r); margin: -8px 0 18px; }
+  .health-note.connecting { background: var(--warn-soft); color: var(--text-2); }
+  .health-note.failed { background: var(--urgent-soft); color: var(--text); }
+  .health-note .btn { margin-left: auto; }
+  .health-note:empty { display: none; }
+  .chat-tools { max-width: 740px; margin: 0 auto 8px; font-size: 12px; color: var(--text-3); display: flex; align-items: center; gap: 8px; min-height: 18px; }
+  .chat-tools button { border: 0; background: none; color: var(--accent-text); font-weight: 600; font-size: 12px; padding: 0; }
+
+  /* Command palette */
+  .scrim { position: absolute; inset: 0; background: rgba(5, 10, 14, 0.45); display: none; align-items: flex-start; justify-content: center; padding-top: 110px; z-index: 10; }
+  .light .scrim { background: rgba(25, 37, 48, 0.22); }
+  .scrim.on { display: flex; animation: fade .12s; }
+  .palette { width: 580px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 14px; box-shadow: var(--shadow); overflow: hidden; }
+  .palette-in { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+  .palette-in input { flex: 1; border: 0; outline: 0; background: none; color: var(--text); font: inherit; font-size: 15px; }
+  .palette-list { padding: 6px; max-height: 360px; overflow: auto; }
+  .palette-list h6 { margin: 8px 10px 4px; font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--text-3); }
+  .pal-item { display: flex; align-items: center; gap: 10px; width: 100%; border: 0; background: none; padding: 9px 10px; border-radius: 8px; font-size: 13.5px; text-align: left; color: var(--text-2); }
+  .pal-item.sel, .pal-item:hover { background: var(--surface-2); color: var(--text); }
+  .pal-item kbd { margin-left: auto; color: var(--text-3); border-color: var(--line); }
+  .palette-foot { display: flex; gap: 14px; padding: 9px 16px; border-top: 1px solid var(--line); font-size: 11.5px; color: var(--text-3); }
+
+  .toast { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%) translateY(20px); background: var(--text); color: var(--bg); padding: 9px 14px; border-radius: 9px; font-size: 13px; font-weight: 600; opacity: 0; transition: .2s; pointer-events: none; display: flex; gap: 12px; z-index: 20; }
+  .toast.on { opacity: 1; transform: translateX(-50%) translateY(0); }
+  .toast u { color: var(--accent); text-decoration: none; }
+
+  .note-pin { position: absolute; z-index: 5; width: 22px; height: 22px; border-radius: 50%; background: #e8b13c; color: #1a1205; font-size: 11px; font-weight: 800; display: grid; place-items: center; box-shadow: 0 0 0 4px rgba(232,177,60,.25); cursor: help; }
+  .note-pin:hover + .note-pop, .note-pop:hover { display: block; }
+  .note-pop { display: none; position: absolute; z-index: 6; width: 260px; background: #fff8e6; color: #2b2210; border-radius: 10px; padding: 10px 12px; font-size: 12.5px; line-height: 1.5; box-shadow: 0 10px 30px rgba(0,0,0,.3); }
+  .notes-off .note-pin, .notes-off .note-pop { display: none !important; }
+
+  /* ---------- Rationale doc ---------- */
+  .doc { max-width: 980px; margin: 0 auto; padding: 56px 28px 120px; color: #d6e0e6; }
+  .doc .eyebrow { font-size: 12px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: #3fd6ae; }
+  .doc h1 { font-family: 'Source Serif 4', serif; font-size: 50px; line-height: 1.06; letter-spacing: -0.02em; font-weight: 600; margin: 12px 0 18px; color: #fff; }
+  .doc .lede { font-size: 19px; line-height: 1.6; color: #a9b8c3; max-width: 760px; }
+  .doc h2 { font-family: 'Source Serif 4', serif; font-size: 30px; font-weight: 600; color: #fff; margin: 72px 0 8px; letter-spacing: -0.01em; }
+  .doc h2 .num { color: #3fd6ae; font-family: 'JetBrains Mono', monospace; font-size: 14px; display: block; margin-bottom: 8px; letter-spacing: 0; }
+  .doc h3 { font-size: 16px; color: #fff; margin: 0 0 6px; }
+  .doc p, .doc li { font-size: 15.5px; line-height: 1.7; }
+  .doc .sub { color: #8c9ca8; margin: 0 0 24px; }
+  .doc code { font-family: 'JetBrains Mono', monospace; font-size: 13px; background: rgba(255,255,255,.06); padding: 1px 6px; border-radius: 5px; color: #cfe9e1; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .panel { background: rgba(255,255,255,.035); border: 1px solid rgba(255,255,255,.07); border-radius: 14px; padding: 20px; }
+  .panel p { margin: 0; color: #a9b8c3; font-size: 14.5px; }
+  .panel .k { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #3fd6ae; margin-bottom: 10px; display: block; }
+  .problem { border-left: 3px solid #f26d5b; }
+  .jtbd { font-family: 'Source Serif 4', serif; font-size: 24px; line-height: 1.45; color: #fff; border-left: 3px solid #00b48a; padding: 6px 0 6px 22px; margin: 22px 0; }
+  .map { display: grid; grid-template-columns: 1fr 60px 1fr; gap: 10px; align-items: stretch; }
+  .map .col { background: rgba(255,255,255,.035); border: 1px solid rgba(255,255,255,.07); border-radius: 14px; padding: 18px; }
+  .map .col h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: #8c9ca8; margin-bottom: 14px; }
+  .map .arrow { display: grid; place-items: center; color: #3fd6ae; font-size: 26px; }
+  .map ul { list-style: none; padding: 0; margin: 0; }
+  .map li { font-size: 14px; padding: 7px 0; border-top: 1px solid rgba(255,255,255,.06); display: flex; justify-content: space-between; gap: 10px; }
+  .map li:first-child { border-top: 0; }
+  .map li span { color: #7c8d99; font-size: 12.5px; text-align: right; }
+  .map li.new b { color: #3fd6ae; }
+  .decision { display: grid; grid-template-columns: 1fr auto; gap: 16px; align-items: start; padding: 18px 0; border-top: 1px solid rgba(255,255,255,.07); }
+  .decision:first-of-type { border-top: 0; }
+  .decision h3 { margin-bottom: 4px; }
+  .decision p { margin: 0; color: #a9b8c3; font-size: 14.5px; }
+  .pill { font-size: 11px; font-weight: 700; padding: 4px 9px; border-radius: 999px; white-space: nowrap; }
+  .pill.call { background: rgba(232,177,60,.14); color: #e8b13c; }
+  .pill.rec { background: rgba(0,180,138,.14); color: #3fd6ae; }
+  .swatches { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
+  .sw { border-radius: 12px; overflow: hidden; border: 1px solid rgba(255,255,255,.08); }
+  .sw div { height: 64px; }
+  .sw small { display: block; padding: 8px 10px; font-size: 11.5px; color: #a9b8c3; background: rgba(255,255,255,.03); }
+  .sw small b { display: block; color: #fff; font-weight: 600; font-size: 12px; }
+  .type-scale div { display: flex; align-items: baseline; gap: 20px; padding: 10px 0; border-top: 1px solid rgba(255,255,255,.06); }
+  .type-scale span { width: 120px; flex-shrink: 0; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #7c8d99; }
+  .phases { position: relative; }
+  .phase { display: grid; grid-template-columns: 120px 1fr; gap: 24px; padding: 20px 0; border-top: 1px solid rgba(255,255,255,.07); }
+  .phase .when { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #3fd6ae; padding-top: 3px; }
+  .phase p { margin: 4px 0 0; color: #a9b8c3; font-size: 14.5px; }
+  .phase ul { margin: 8px 0 0; padding-left: 18px; color: #a9b8c3; font-size: 14px; }
+  .phase ul li { font-size: 14px; line-height: 1.6; }
+  .metrics td, .metrics th { padding: 10px 12px; border-top: 1px solid rgba(255,255,255,.07); font-size: 14px; text-align: left; vertical-align: top; }
+  .metrics th { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: #7c8d99; border-top: 0; }
+  .metrics { width: 100%; border-collapse: collapse; }
+  .metrics td:first-child { color: #fff; font-weight: 600; }
+  .metrics td { color: #a9b8c3; }
+  .cta { margin-top: 28px; display: inline-flex; gap: 10px; }
+  .cta button { border: 0; border-radius: 10px; padding: 12px 18px; font-weight: 700; font-size: 14px; background: #00b48a; color: #03140f; }
+  @media (max-width: 900px) { .grid2, .grid3, .map, .swatches { grid-template-columns: 1fr; } .map .arrow { transform: rotate(90deg); } }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12Z"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="i-circle-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8.5 12 2.5 2.5 4.5-5"/></symbol>
+  <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></symbol>
+  <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></symbol>
+  <symbol id="i-clip" viewBox="0 0 24 24"><path d="m21 11-8.5 8.5a5 5 0 0 1-7-7L14 4a3.5 3.5 0 0 1 5 5l-8.5 8.5a2 2 0 0 1-3-3L15 7"/></symbol>
+  <symbol id="i-building" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M9 7h1M14 7h1M9 11h1M14 11h1M9 15h1M14 15h1"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5Z"/></symbol>
+  <symbol id="i-panel" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></symbol>
+  <symbol id="i-share" viewBox="0 0 24 24"><path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7M16 6l-4-4-4 4M12 2v13"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8l-5-5Z"/><path d="M14 3v5h5"/></symbol>
+  <symbol id="i-cal" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></symbol>
+  <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M6 18l2.5-2.5M15.5 8.5 18 6"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></symbol>
+</svg>
+
+<header class="topbar">
+  <div class="brand"><div class="mark">Y</div>York GrowthOS <small>Redesign proposal · v1 · Oct 2026</small></div>
+  <div class="seg" role="tablist">
+    <button class="on" data-view="proto">Prototype</button>
+    <button data-view="doc">Rationale &amp; plan</button>
+  </div>
+</header>
+
+<!-- =================== PROTOTYPE =================== -->
+<section class="view on" id="view-proto">
+  <div class="stage">
+    <div class="stage-hint">
+      <span><b>Click around</b> — it's interactive</span>
+      <span><kbd>⌘</kbd> <kbd>K</kbd> command bar</span>
+      <span><b>Yellow pins</b> explain design decisions — <a href="#" id="toggleNotes" style="color:#3fd6ae">hide pins</a></span>
+      <span><a href="#" id="toggleTheme" style="color:#3fd6ae">Switch to light theme</a></span>
+      <span><a href="#" id="replayBoot" style="color:#3fd6ae">Replay app startup</a> to see tools connect</span>
+    </div>
+
+    <div class="app" id="app">
+      <div class="titlebar">
+        <div class="dots"><span></span><span></span><span></span></div>
+        <button class="cmd-trigger" id="openPalette"><svg class="i"><use href="#i-search"/></svg>Search, ask, or jump to…<kbd>⌘K</kbd></button>
+        <div class="tb-right">
+          <button class="health" id="healthPill" aria-haspopup="dialog" aria-expanded="false"></button>
+          <button class="icon-btn" title="Inspector" id="toggleInspector"><svg class="i"><use href="#i-panel"/></svg></button>
+          <div class="pop" id="healthPop" role="dialog" aria-label="Tools status">
+            <div class="pop-head"><b id="popTitle">Tools</b><small id="popSub"></small></div>
+            <div class="pop-list" id="popList"></div>
+            <div class="pop-foot"><span id="popChecked">Checked just now</span><button data-go="settings">Manage connections →</button></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="body" id="appBody">
+        <!-- Sidebar -->
+        <aside class="side">
+          <div class="side-top">
+            <button class="ws" title="Switch workspace">
+              <div class="ws-ic"><svg class="i"><use href="#i-building"/></svg></div>
+              <div><b>York Hub</b><small>Company models · included</small></div>
+              <svg class="i" style="margin-left:auto;color:var(--text-3)"><use href="#i-down"/></svg>
+            </button>
+          </div>
+          <button class="new-chat" data-go="chat-new"><svg class="i"><use href="#i-plus"/></svg>New chat<kbd>⌘N</kbd></button>
+          <nav class="nav">
+            <button class="on" data-go="today"><svg class="i"><use href="#i-sun"/></svg>Today<span class="badge">3</span></button>
+            <button data-go="followups"><svg class="i"><use href="#i-circle-check"/></svg>Follow-ups<span class="badge neutral">7</span></button>
+            <button data-go="automations"><svg class="i"><use href="#i-bolt"/></svg>Automations</button>
+          </nav>
+          <div class="side-label">Chats <span style="text-transform:none;letter-spacing:0;font-weight:500">⌘K to search</span></div>
+          <div class="recents">
+            <button class="live" data-go="chat">Reply to Acme on Q4 renewal</button>
+            <button data-go="chat">Prep: Northwind weekly sync</button>
+            <button data-go="chat">Timesheet — week 41</button>
+            <button data-go="chat">Brightline proposal deck</button>
+            <button data-go="chat">Who's out Thursday?</button>
+            <button data-go="chat">Summarize #delivery-ops</button>
+            <button data-go="chat">Jira backlog cleanup — Helio</button>
+            <button data-go="chat">Draft MBO self-review</button>
+          </div>
+          <div class="side-foot">
+            <div class="avatar">KP</div>
+            <div class="who">Kalrav P.<small>Delivery · York IE</small></div>
+            <button class="icon-btn" data-go="settings" title="Settings"><svg class="i"><use href="#i-gear"/></svg></button>
+          </div>
+        </aside>
+
+        <!-- Main -->
+        <main class="main" id="main">
+
+          <!-- TODAY -->
+          <section class="screen on" id="s-today">
+            <div class="page" style="position:relative">
+              <div class="hero">
+              <div>
+              <p class="meta" style="margin:0 0 6px">Monday, 12 October · last checked 4 min ago</p>
+              <h1 class="greet">Good afternoon, Kalrav</h1>
+              <p class="brief"><b>3 things need you</b> before your 3:30 with Northwind. Acme is waiting on renewal pricing, and two follow-ups are overdue. Everything else can wait until tomorrow.</p>
+              <div class="health-note" id="todayHealth" role="status" aria-live="polite"></div>
+
+              <div class="composer">
+                <textarea placeholder="Ask anything, or tell GrowthOS what to do…  (try “prep my 3:30”)"></textarea>
+                <div class="composer-row">
+                  <button class="chip"><svg class="i"><use href="#i-clip"/></svg>Add</button>
+                  <button class="chip"><span class="dot"></span>Auto model</button>
+                  <button class="chip"><svg class="i"><use href="#i-mic"/></svg></button>
+                  <button class="send" data-go="chat"><svg class="i"><use href="#i-up"/></svg></button>
+                </div>
+              </div>
+              <div class="suggest">
+                <button data-go="chat">Prep my 3:30 with Northwind</button>
+                <button data-go="chat">Fill my timesheet for this week</button>
+                <button data-go="chat">What did I miss in Slack?</button>
+                <button data-go="chat">Who's out this week?</button>
+              </div>
+              </div>
+              <figure class="radar" id="radar" aria-label="Matter radar">
+                <svg viewBox="0 0 400 400" id="radarSvg" role="img" aria-label="Signals placed by urgency: closer to the core needs you sooner"></svg>
+                <figcaption id="radarCap"><b>Closer to the core = needs you sooner.</b><span>Each slice is a source. Hover a dot to see it, click to jump to it.</span></figcaption>
+              </figure>
+              <div class="note-pin" style="right:-6px;top:0">7</div>
+              <div class="note-pop" style="right:20px;top:-6px"><b>The Matter radar stays, and gets a job.</b> The rings are the same groups as the list below (Now, Today, This week, Watching), so the radar and the list are two views of the same items. Hovering a dot highlights its row and the other way round. The angle now means something: each slice is a source. The sweep only runs while GrowthOS is actually scanning.</div>
+              </div>
+
+              <div class="note-pin" style="left:8px;top:150px">1</div>
+              <div class="note-pop" style="left:38px;top:140px"><b>Today is the home screen.</b> The old Home briefing, Matter, Next-up meeting and due Loops are now one page that answers “what needs me?” in a sentence, then lets you act on it right away.</div>
+
+              <div class="today-grid">
+                <div>
+                  <div class="tabs" data-tabs="today">
+                    <button class="on" data-tab="needs">Needs you <span class="count">9</span></button>
+                    <button data-tab="meetings">Meetings <span class="count">4</span></button>
+                    <button data-tab="opps">Opportunities <span class="count">2</span></button>
+                  </div>
+
+                  <div data-pane="needs">
+                    <div class="group-label urgent">Now</div>
+                    <div class="item" data-id="acme">
+                      <div class="src gmail">M</div>
+                      <div>
+                        <h4>Acme is waiting on Q4 renewal pricing</h4>
+                        <p>Dana asked twice since Thursday. Contract ends Oct 31.</p>
+                        <div class="meta"><span class="tag urgent">Reply overdue 2d</span><span>Gmail · Dana Ruiz</span></div>
+                      </div>
+                      <div class="item-actions"><button class="btn sm primary" data-go="chat">Draft reply</button><button class="btn sm ghost" data-snooze>Later</button></div>
+                    </div>
+                    <div class="item" data-id="sow">
+                      <div class="src loop"><svg class="i" style="width:14px;height:14px"><use href="#i-circle-check"/></svg></div>
+                      <div>
+                        <h4>Send revised SOW to Raj</h4>
+                        <p>You promised this in the Brightline call last Tuesday.</p>
+                        <div class="meta"><span class="tag urgent">Overdue 3d</span><span>Follow-up · from meeting</span></div>
+                      </div>
+                      <div class="item-actions"><button class="btn sm" data-done>Done</button><button class="btn sm ghost" data-go="chat">Help me</button></div>
+                    </div>
+                    <div class="item" data-id="hel">
+                      <div class="src jira">J</div>
+                      <div>
+                        <h4>HEL-412 is blocking the Helio release</h4>
+                        <p>Assigned to you, flagged by QA this morning. Release is Wednesday.</p>
+                        <div class="meta"><span class="tag warn">Blocker</span><span>Jira · Helio</span></div>
+                      </div>
+                      <div class="item-actions"><button class="btn sm" data-go="chat">Investigate</button><button class="btn sm ghost" data-snooze>Later</button></div>
+                    </div>
+
+                    <div class="group-label">Today</div>
+                    <div class="item" data-id="priya">
+                      <div class="src slack">S</div>
+                      <div>
+                        <h4>Priya asked for your input in #delivery-ops</h4>
+                        <p>Resourcing for the Northwind phase 2 kickoff.</p>
+                        <div class="meta"><span class="tag info">Mention</span><span>Slack · 1h ago</span></div>
+                      </div>
+                      <div class="item-actions"><button class="btn sm" data-go="chat">Draft reply</button><button class="btn sm ghost" data-snooze>Later</button></div>
+                    </div>
+                    <div class="item" data-id="ts">
+                      <div class="src hub">H</div>
+                      <div>
+                        <h4>Timesheet for week 41 isn't submitted</h4>
+                        <p>Due by end of day. GrowthOS can fill it from your calendar and Jira.</p>
+                        <div class="meta"><span class="tag warn">Due today</span><span>Hub</span></div>
+                      </div>
+                      <div class="item-actions"><button class="btn sm" data-go="chat">Fill it</button><button class="btn sm ghost" data-snooze>Later</button></div>
+                    </div>
+
+                    <div class="group-label">This week</div>
+                    <div class="item" data-id="inv">
+                      <div class="src gmail">M</div>
+                      <div>
+                        <h4>Brightline questioned the September invoice</h4>
+                        <p>Their finance team flagged 12 hours on the design sprint.</p>
+                        <div class="meta"><span class="tag warn">Needs reply by Thu</span><span>Gmail · Brightline AP</span></div>
+                      </div>
+                      <div class="item-actions"><button class="btn sm" data-go="chat">Look into it</button><button class="btn sm ghost" data-snooze>Later</button></div>
+                    </div>
+                    <div class="item" data-id="staff">
+                      <div class="src hub">H</div>
+                      <div>
+                        <h4>Northwind phase 2 is short one developer</h4>
+                        <p>Starts in 9 days. Two people on the bench match the skills.</p>
+                        <div class="meta"><span class="tag info">Staffing</span><span>Hub · allocations</span></div>
+                      </div>
+                      <div class="item-actions"><button class="btn sm" data-go="chat">See options</button><button class="btn sm ghost" data-snooze>Later</button></div>
+                    </div>
+
+                    <div class="group-label">Watching</div>
+                    <div class="item" data-id="quiet">
+                      <div class="src slack">S</div>
+                      <div>
+                        <h4>#acme-shared has been quiet for 9 days</h4>
+                        <p>Usually active daily. May be nothing; worth a check-in before renewal.</p>
+                        <div class="meta"><span>Slack · pattern</span></div>
+                      </div>
+                      <div class="item-actions"><button class="btn sm ghost" data-snooze>Dismiss</button></div>
+                    </div>
+                    <div class="item" data-id="jirawatch">
+                      <div class="src jira">J</div>
+                      <div>
+                        <h4>Helio bug count up 40% this sprint</h4>
+                        <p>Mostly SSO-related. Linked to the platform issue in Opportunities.</p>
+                        <div class="meta"><span>Jira · trend</span></div>
+                      </div>
+                      <div class="item-actions"><button class="btn sm ghost" data-snooze>Dismiss</button></div>
+                    </div>
+                  </div>
+
+                  <div data-pane="meetings" hidden>
+                    <div class="group-label">This afternoon</div>
+                    <div class="item"><div class="src zoom">Z</div><div><h4>Northwind weekly sync</h4><p>3:30 – 4:00 · 5 people · Prep ready</p><div class="meta"><span class="tag ok">Prepped</span><span>Recurring</span></div></div><div class="item-actions"><button class="btn sm" data-go="chat">Open prep</button></div></div>
+                    <div class="item"><div class="src cal">C</div><div><h4>1:1 with Meera</h4><p>5:00 – 5:30 · No prep yet</p><div class="meta"><span>One-off</span></div></div><div class="item-actions"><button class="btn sm" data-go="chat">Prep</button></div></div>
+                    <div class="group-label">Earlier</div>
+                    <div class="item"><div class="src zoom">Z</div><div><h4>Brightline scope review</h4><p>Notes captured · 3 action items added to Follow-ups</p><div class="meta"><span>11:00 – 11:45</span></div></div><div class="item-actions"><button class="btn sm ghost" data-go="chat">Notes</button></div></div>
+                  </div>
+
+                  <div data-pane="opps" hidden>
+                    <div class="group-label">Spotted in recent conversations</div>
+                    <div class="item"><div class="src slack">S</div><div><h4>Cross-sell: Acme asked about GTM support</h4><p>Dana mentioned their launch has no marketing owner. Could suit GTM Launchpad.</p><div class="meta"><span class="tag ok">Cross-sell · 78%</span><span>Route to #gtm-team</span></div></div><div class="item-actions"><button class="btn sm">Share with team</button><button class="btn sm ghost">Dismiss</button></div></div>
+                    <div class="item"><div class="src jira">J</div><div><h4>Platform issue: 3 clients hit the same auth bug</h4><p>Helio, Northwind and Brightline report SSO timeouts.</p><div class="meta"><span class="tag warn">Platform · 84%</span><span>Route to #platform</span></div></div><div class="item-actions"><button class="btn sm">Share with team</button><button class="btn sm ghost">Dismiss</button></div></div>
+                  </div>
+                </div>
+
+                <aside>
+                  <div class="card">
+                    <div class="card-label"><svg class="i" style="width:13px;height:13px"><use href="#i-clock"/></svg>Next up</div>
+                    <p class="next-title">Northwind weekly sync</p>
+                    <div class="next-when">in 52 min · 3:30 PM · Zoom</div>
+                    <div class="people"><span style="background:#7a5af5">AL</span><span style="background:#e4572e">PR</span><span style="background:#2e86ab">JM</span><span style="background:#4f9d69">SK</span></div>
+                    <div class="prep">Phase 2 kickoff slipped a week; Arjun will ask about staffing. Last week's open item: send the revised timeline (done Friday).</div>
+                    <div style="display:flex;gap:6px"><button class="btn sm primary" data-go="chat">Open prep</button><button class="btn sm ghost">Join</button></div>
+                  </div>
+                  <div class="card">
+                    <div class="card-label"><svg class="i" style="width:13px;height:13px"><use href="#i-cal"/></svg>Schedule</div>
+                    <ul class="sched">
+                      <li class="past"><time>11:00</time>Brightline scope review</li>
+                      <li class="now"><time>Now</time>Focus time</li>
+                      <li><time>3:30</time>Northwind weekly sync</li>
+                      <li><time>5:00</time>1:1 with Meera</li>
+                    </ul>
+                  </div>
+                  <div class="card">
+                    <div class="card-label">Waiting on others <button class="btn sm ghost" data-go="followups">All</button></div>
+                    <ul class="sched">
+                      <li><time>2d</time>Legal review — Acme MSA</li>
+                      <li><time>5d</time>Arjun: phase 2 budget sign-off</li>
+                    </ul>
+                  </div>
+                </aside>
+              </div>
+            </div>
+          </section>
+
+          <!-- CHAT -->
+          <section class="screen" id="s-chat" style="height:100%">
+            <div class="chat-wrap">
+              <div class="chat-head">
+                <h2>Reply to Acme on Q4 renewal</h2>
+                <button class="chip"><svg class="i"><use href="#i-building"/></svg>York Hub</button>
+                <div class="right">
+                  <button class="icon-btn" title="Share"><svg class="i"><use href="#i-share"/></svg></button>
+                  <button class="icon-btn" title="More"><svg class="i"><use href="#i-more"/></svg></button>
+                </div>
+              </div>
+              <div class="thread" style="position:relative">
+                <div class="thread-inner">
+                  <div class="context-pin"><svg class="i" style="width:14px;height:14px;color:var(--accent-text)"><use href="#i-sparkle"/></svg>Started from Today · <b>Acme is waiting on Q4 renewal pricing</b></div>
+                  <div class="msg-user">Draft a reply to Dana with the renewal pricing we agreed with finance. Keep it short and friendly.</div>
+                  <div class="msg-ai">
+                    <details class="steps">
+                      <summary>
+                        <svg class="i" style="color:var(--accent-text)"><use href="#i-check"/></svg>
+                        Checked 3 sources in 9s
+                        <span class="srcs"><span style="background:#c5221f">M</span><span style="background:#4a154b">S</span><span style="background:#00876a">H</span></span>
+                        <svg class="i chev"><use href="#i-chev"/></svg>
+                      </summary>
+                      <ol>
+                        <li><b>Gmail</b> — read thread “Q4 renewal” (6 messages)</li>
+                        <li><b>Slack</b> — searched #finance-approvals for “Acme”</li>
+                        <li><b>Hub</b> — loaded Acme client record and current rate card</li>
+                      </ol>
+                    </details>
+                    <p>Finance approved <b>$14,200/month</b> for 12 months, a 6% increase that's waived if Acme signs before Oct 24.<span class="cite">1</span> Dana's last email asked to keep the same team.<span class="cite">2</span> Here's a draft:</p>
+                    <div class="draft">
+                      <div class="draft-head"><svg class="i" style="width:14px;height:14px"><use href="#i-file"/></svg>Email draft · to Dana Ruiz<button class="btn sm">Edit</button><button class="btn sm primary" id="sendDraft">Send via Gmail</button></div>
+                      <div class="draft-body">Hi Dana,<br><br>Thanks for your patience. Good news: we can renew at $14,200/month for the next 12 months with the same core team. If we can sign by Oct 24, we'll waive the 6% increase entirely.<br><br>Happy to walk through it on a quick call this week.<br><br>Best,<br>Kalrav</div>
+                    </div>
+                    <p style="color:var(--text-2);font-size:13.5px">Nothing is sent until you click <b>Send</b>. Want me to add a follow-up for Oct 24 too?</p>
+                  </div>
+                </div>
+                <div class="note-pin" style="left:16px;top:90px">2</div>
+                <div class="note-pop" style="left:46px;top:80px"><b>Progressive disclosure.</b> Tool calls collapse into one line showing which sources were checked. Answers cite their sources. Anything that sends or changes something outside the app is a clear button the user has to click.</div>
+              </div>
+              <div class="chat-compose">
+                <div class="chat-tools" id="chatTools" role="status" aria-live="polite"></div>
+                <div class="composer">
+                  <textarea rows="1" placeholder="Reply…   / for skills · @ to mention a person, file or meeting"></textarea>
+                  <div class="composer-row">
+                    <button class="chip"><svg class="i"><use href="#i-clip"/></svg>Add</button>
+                    <button class="chip"><span class="dot"></span>Auto model</button>
+                    <button class="chip"><svg class="i"><use href="#i-mic"/></svg></button>
+                    <button class="send"><svg class="i"><use href="#i-up"/></svg></button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- FOLLOW-UPS -->
+          <section class="screen" id="s-followups">
+            <div class="page" style="max-width:820px;position:relative">
+              <div class="page-head">
+                <div><h1>Follow-ups</h1><p>Promises you made and things you're waiting on. Captured from meetings, email and chat automatically.</p></div>
+              </div>
+              <div class="quick"><svg class="i" style="color:var(--text-3)"><use href="#i-plus"/></svg><input id="quickAdd" placeholder="Add a follow-up… try “send deck to Raj fri”" /></div>
+              <div class="parsed" id="parsed"></div>
+              <div class="tabs" data-tabs="fu">
+                <button class="on" data-tab="mine">I owe <span class="count">5</span></button>
+                <button data-tab="waiting">Waiting on others <span class="count">2</span></button>
+                <button data-tab="closed">Done</button>
+              </div>
+              <div data-pane="mine">
+                <div class="group-label urgent">Overdue</div>
+                <div class="fu"><button class="check"><svg class="i" style="width:11px;height:11px;stroke-width:3"><use href="#i-check"/></svg></button><div><div class="fu-t">Send revised SOW to Raj</div><div class="fu-s">From Brightline scope call · Raj Mehta</div></div><span class="due over">3 days ago</span></div>
+                <div class="fu"><button class="check"><svg class="i" style="width:11px;height:11px;stroke-width:3"><use href="#i-check"/></svg></button><div><div class="fu-t">Share staffing plan with Priya</div><div class="fu-s">From Slack · #delivery-ops</div></div><span class="due over">Yesterday</span></div>
+                <div class="group-label">Today</div>
+                <div class="fu"><button class="check"><svg class="i" style="width:11px;height:11px;stroke-width:3"><use href="#i-check"/></svg></button><div><div class="fu-t">Submit week 41 timesheet</div><div class="fu-s">Hub</div></div><span class="due today">Today</span></div>
+                <div class="group-label">This week</div>
+                <div class="fu"><button class="check"><svg class="i" style="width:11px;height:11px;stroke-width:3"><use href="#i-check"/></svg></button><div><div class="fu-t">Book Northwind phase 2 kickoff</div><div class="fu-s">From Northwind sync · Arjun L.</div></div><span class="due">Thu</span></div>
+                <div class="fu"><button class="check"><svg class="i" style="width:11px;height:11px;stroke-width:3"><use href="#i-check"/></svg></button><div><div class="fu-t">Review Helio release notes</div><div class="fu-s">Added by you</div></div><span class="due">Fri</span></div>
+              </div>
+              <div data-pane="waiting" hidden>
+                <div class="group-label">Waiting</div>
+                <div class="fu"><button class="check"></button><div><div class="fu-t">Legal review — Acme MSA</div><div class="fu-s">Asked Neha · 2 days ago</div></div><button class="btn sm ghost">Nudge</button></div>
+                <div class="fu"><button class="check"></button><div><div class="fu-t">Phase 2 budget sign-off</div><div class="fu-s">Asked Arjun · 5 days ago</div></div><button class="btn sm ghost">Nudge</button></div>
+              </div>
+              <div data-pane="closed" hidden><p style="color:var(--text-3);font-size:13px;padding:20px 0">12 follow-ups closed this week.</p></div>
+              <div class="note-pin" style="left:8px;top:40px">3</div>
+              <div class="note-pop" style="left:38px;top:30px"><b>Plain names.</b> “Loops” becomes “Follow-ups”, and “Mine / Waiting on” becomes “I owe / Waiting on others”. Anyone understands it on day one. Quick-add shows how it read your text before you save.</div>
+            </div>
+          </section>
+
+          <!-- AUTOMATIONS -->
+          <section class="screen" id="s-automations">
+            <div class="page" style="position:relative">
+              <div class="page-head">
+                <div><h1>Automations</h1><p>Things GrowthOS does for you on a schedule or when something happens.</p></div>
+                <div class="actions"><button class="btn primary"><svg class="i"><use href="#i-plus"/></svg>New automation</button></div>
+              </div>
+              <div class="templates">
+                <button class="tpl"><div class="ws-ic"><svg class="i"><use href="#i-sun"/></svg></div><b>Morning brief to Slack</b><small>Every weekday at 9:00, DM me what needs me today.</small></button>
+                <button class="tpl"><div class="ws-ic"><svg class="i"><use href="#i-clock"/></svg></div><b>Friday timesheet</b><small>Draft my timesheet from calendar and Jira every Friday at 4.</small></button>
+                <button class="tpl"><div class="ws-ic"><svg class="i"><use href="#i-cal"/></svg></div><b>Meeting prep</b><small>30 minutes before client meetings, prep notes from all sources.</small></button>
+              </div>
+              <table class="table">
+                <thead><tr><th style="width:44px"></th><th>Automation</th><th>When</th><th>Last run</th><th>Next run</th></tr></thead>
+                <tbody>
+                  <tr><td><button class="switch"></button></td><td><b>Client meeting prep</b><small>Workflow · 4 steps</small></td><td>30 min before external meetings</td><td><span class="status">Succeeded · 11:00</span></td><td>3:00 PM</td></tr>
+                  <tr><td><button class="switch"></button></td><td><b>Weekly status to #delivery-ops</b><small>Scheduled prompt</small></td><td>Fridays 5:00 PM</td><td><span class="status fail">Failed · Fri</span> <button class="btn sm ghost">Why?</button></td><td>Fri 5:00 PM</td></tr>
+                  <tr><td><button class="switch"></button></td><td><b>Jira digest — Helio</b><small>Scheduled prompt</small></td><td>Weekdays 9:30 AM</td><td><span class="status run">Running</span></td><td>Tue 9:30 AM</td></tr>
+                  <tr><td><button class="switch off"></button></td><td><b>Expense reminder</b><small>Scheduled prompt</small></td><td>1st of month</td><td><span class="status">Succeeded · Oct 1</span></td><td style="color:var(--text-3)">Paused</td></tr>
+                </tbody>
+              </table>
+              <div class="note-pin" style="left:8px;top:40px">4</div>
+              <div class="note-pop" style="left:38px;top:30px"><b>One home for automations.</b> Workflows (their own page today) and Scheduled tasks (hidden in Settings) are merged into one list. Failures are shown clearly with a “Why?” link, and templates make the first automation a one-click start.</div>
+            </div>
+          </section>
+
+          <!-- SETTINGS -->
+          <section class="screen" id="s-settings" style="height:100%">
+            <div class="settings" style="position:relative">
+              <nav class="set-nav">
+                <h5>You</h5>
+                <button>Profile</button>
+                <button>Preferences</button>
+                <h5>Connections</h5>
+                <button class="on">Apps &amp; data</button>
+                <button>Meetings</button>
+                <h5>Assistant</h5>
+                <button>Briefing &amp; alerts</button>
+                <button>Skills</button>
+                <button>Memory</button>
+                <button>Models &amp; keys</button>
+                <h5>Advanced</h5>
+                <button>Remote control</button>
+                <button>Sandbox</button>
+                <button>Logs &amp; diagnostics</button>
+              </nav>
+              <div class="set-body">
+                <div class="page-head" style="margin-bottom:10px"><div><h1 style="font-size:22px">Apps &amp; data</h1><p>What GrowthOS can read to brief you and act for you. You approve anything that sends or changes data.</p></div></div>
+                <div id="connList"></div>
+              </div>
+              <div class="note-pin" style="left:186px;top:22px">5</div>
+              <div class="note-pop" style="left:216px;top:12px"><b>Settings grouped by intent</b> rather than by system. Broken connections come first and explain what's affected (“Briefing is missing Jira items”), because a silent connector failure is the main reason the briefing would feel wrong.</div>
+            </div>
+          </section>
+        </main>
+
+        <!-- Inspector (chat only) -->
+        <aside class="inspector">
+          <div class="tabs" data-tabs="ins">
+            <button class="on" data-tab="progress">Progress</button>
+            <button data-tab="sources">Sources</button>
+            <button data-tab="files">Files</button>
+          </div>
+          <div class="ins-body">
+            <div class="ins-pane on" data-pane="progress">
+              <ul class="prog">
+                <li><span class="ck"><svg class="i"><use href="#i-check"/></svg></span>Read the Acme renewal thread</li>
+                <li><span class="ck"><svg class="i"><use href="#i-check"/></svg></span>Find approved pricing</li>
+                <li><span class="ck"><svg class="i"><use href="#i-check"/></svg></span>Draft reply</li>
+                <li class="doing"><span class="ck"></span>Waiting for you to send</li>
+              </ul>
+            </div>
+            <div class="ins-pane" data-pane="sources">
+              <div class="srcrow"><span class="n">1</span><div><b>#finance-approvals</b><small>Slack · Oct 9 · “Approved Acme at 14.2k…”</small></div></div>
+              <div class="srcrow"><span class="n">2</span><div><b>Re: Q4 renewal</b><small>Gmail · Dana Ruiz · Oct 10</small></div></div>
+              <div class="srcrow"><span class="n">3</span><div><b>Acme Corp</b><small>Hub · client record</small></div></div>
+            </div>
+            <div class="ins-pane" data-pane="files">
+              <div class="srcrow"><svg class="i" style="color:var(--text-3)"><use href="#i-file"/></svg><div><b>acme-renewal-reply.md</b><small>Created just now</small></div></div>
+            </div>
+          </div>
+        </aside>
+      </div>
+
+      <!-- Command palette -->
+      <div class="scrim" id="scrim">
+        <div class="palette" role="dialog" aria-label="Command bar">
+          <div class="palette-in"><svg class="i" style="color:var(--text-3)"><use href="#i-search"/></svg><input id="palInput" placeholder="Search chats, ask a question, or run a command…" /></div>
+          <div class="palette-list" id="palList">
+            <h6>Ask GrowthOS</h6>
+            <button class="pal-item sel" data-go="chat"><svg class="i"><use href="#i-sparkle"/></svg><span id="palAsk">Ask: “What's blocking Helio?”</span><kbd>↵</kbd></button>
+            <h6>Jump to</h6>
+            <button class="pal-item" data-go="today"><svg class="i"><use href="#i-sun"/></svg>Today<kbd>⌘1</kbd></button>
+            <button class="pal-item" data-go="followups"><svg class="i"><use href="#i-circle-check"/></svg>Follow-ups<kbd>⌘2</kbd></button>
+            <button class="pal-item" data-go="automations"><svg class="i"><use href="#i-bolt"/></svg>Automations<kbd>⌘3</kbd></button>
+            <h6>Recent chats</h6>
+            <button class="pal-item" data-go="chat"><svg class="i"><use href="#i-chat"/></svg>Reply to Acme on Q4 renewal</button>
+            <button class="pal-item" data-go="chat"><svg class="i"><use href="#i-chat"/></svg>Prep: Northwind weekly sync</button>
+            <h6>Actions</h6>
+            <button class="pal-item" data-go="chat-new"><svg class="i"><use href="#i-plus"/></svg>New chat<kbd>⌘N</kbd></button>
+            <button class="pal-item"><svg class="i"><use href="#i-moon"/></svg>New private chat (not saved)<kbd>⇧⌘N</kbd></button>
+            <button class="pal-item" data-go="settings"><svg class="i"><use href="#i-gear"/></svg>Settings<kbd>⌘,</kbd></button>
+          </div>
+          <div class="palette-foot"><span><kbd>↑</kbd><kbd>↓</kbd> move</span><span><kbd>↵</kbd> open</span><span><kbd>esc</kbd> close</span><span style="margin-left:auto">Also works system-wide with <kbd>⌥ Space</kbd></span></div>
+        </div>
+      </div>
+
+      <div class="note-pin" style="right:236px;top:8px">6</div>
+      <div class="note-pop" style="right:20px;top:36px"><b>Tools status is always visible.</b> Today the app only shows a “connecting” banner on the home screen at startup, and then it disappears. Here one pill in the title bar shows the overall state everywhere. Click it to see each tool, how many actions it provides, and why it failed, with Retry on the spot. Today and the chat composer also say when missing tools affect what you're looking at.</div>
+
+      <div class="toast" id="toast"></div>
+    </div>
+  </div>
+</section>
+
+<!-- =================== RATIONALE DOC =================== -->
+<section class="view" id="view-doc">
+  <article class="doc">
+    <div class="eyebrow">Product &amp; UX redesign · proposal for review</div>
+    <h1>From a toolbox of AI features to one calm place that runs your workday.</h1>
+    <p class="lede">GrowthOS can already do a lot: brief you, prep meetings, track promises, run automations and act across Slack, Gmail, Jira and Hub. The problem is that it shows all of this as separate products. This proposal reorganizes the app around the one question York staff open it to answer, and refreshes the look while keeping the York IE navy and teal.</p>
+
+    <h2><span class="num">01</span>Who it's for and the job they hire it for</h2>
+    <p class="sub">The main user is a York IE team member (delivery, GTM, leadership) moving between client calls, Slack, email, Jira and Hub all day.</p>
+    <div class="jtbd">“When I sit down, or come out of a meeting, show me what needs me right now and help me deal with it in a couple of clicks, without me having to check six tools.”</div>
+    <div class="grid3">
+      <div class="panel"><span class="k">JOB 1 · KNOW</span><h3>What needs me?</h3><p>One prioritized list across every source, with the reason it matters.</p></div>
+      <div class="panel"><span class="k">JOB 2 · ACT</span><h3>Help me handle it</h3><p>Draft, prep, investigate or fill in, starting from that item with its context already attached.</p></div>
+      <div class="panel"><span class="k">JOB 3 · KEEP</span><h3>Don't let things slip</h3><p>Promises are tracked and routine work is automated.</p></div>
+    </div>
+
+    <h2><span class="num">02</span>What gets in the way today</h2>
+    <p class="sub">From reading the current renderer code (about 37k lines in <code>src/renderer</code>).</p>
+    <div class="grid2">
+      <div class="panel problem"><h3>Four places answer “what needs me?”</h3><p>The Home briefing, Matter (signals, radar, focus lenses, focus score), Next-up meeting and Loops each show part of the picture. Users have to put it together themselves.</p></div>
+      <div class="panel problem"><h3>Seven ways to start a conversation</h3><p>New chat, incognito, the Home composer, the Ask Growth OS popup, Screen Snap, Matter's ask bar and Live Assist. Each has a different UI and a different idea of where the answer ends up.</p></div>
+      <div class="panel problem"><h3>Billing shows up as navigation</h3><p>The General / Folders / Hub / Project workspace switch decides who pays for models, and it appears as gate banners and “needs your key” errors. Most staff just want company models to work.</p></div>
+      <div class="panel problem"><h3>Automations are split in two</h3><p>Workflows has its own page, while Scheduled tasks are inside Settings. They are the same idea: GrowthOS doing something without being asked.</p></div>
+      <div class="panel problem"><h3>Pages aren't routes</h3><p>Pages are switched by separate flags (<code>showMatter</code>, <code>showLoops</code> and so on). There's no back/forward or deep linking, and every new page adds more conditions to <code>App.tsx</code>.</p></div>
+      <div class="panel problem"><h3>Internal names in the UI</h3><p>“Matter”, “Loops”, “orbits”, “lenses”, “focus score” are meaningful to the team that built them, but a new hire has to learn them before the product makes sense.</p></div>
+    </div>
+
+    <h2><span class="num">03</span>Design principles</h2>
+    <div class="grid3">
+      <div class="panel"><span class="k">1</span><h3>Answer first</h3><p>Every screen opens with a sentence that summarizes the state, then the list. Show the answer, not a dashboard.</p></div>
+      <div class="panel"><span class="k">2</span><h3>One composer, one history</h3><p>Every entry point (⌘K, Snap, Live Assist, an item on Today) creates a normal chat in the same history.</p></div>
+      <div class="panel"><span class="k">3</span><h3>Act from where you are</h3><p>Each item has one primary action. Context goes with you into the chat, so you never re-explain.</p></div>
+      <div class="panel"><span class="k">4</span><h3>Show detail on demand</h3><p>Tool calls, reasoning, scores and raw JSON are one click away, never in the main view.</p></div>
+      <div class="panel"><span class="k">5</span><h3>The user approves outside actions</h3><p>Sending, posting or changing anything outside the app is always an explicit, labelled button.</p></div>
+      <div class="panel"><span class="k">6</span><h3>Plain language</h3><p>Use the words a new hire would use. Internal names stay in code, not in the UI.</p></div>
+    </div>
+
+    <h2><span class="num">04</span>New information architecture</h2>
+    <p class="sub">Every existing feature keeps a home. Nothing is removed; several things are merged or moved.</p>
+    <div class="map">
+      <div class="col"><h3>Today</h3><ul>
+        <li>Home / Welcome<span>→ Today</span></li>
+        <li>Matter page<span>→ Today</span></li>
+        <li>Matter radar<span>→ Today's main visual, linked to the list</span></li>
+        <li>Focus lenses, focus score<span>→ filters / Today ▸ details</span></li>
+        <li>Opportunities<span>→ Today ▸ tab</span></li>
+        <li>Next-up meeting, calendar<span>→ Today ▸ Meetings</span></li>
+        <li>Loops page<span>→ Follow-ups</span></li>
+        <li>Workflows page<span>→ Automations</span></li>
+        <li>Settings ▸ Schedule<span>→ Automations</span></li>
+        <li>Ask Growth OS popup<span>→ ⌘K / ⌥Space</span></li>
+        <li>Chat search modal<span>→ ⌘K</span></li>
+        <li>Context panel + HTML preview<span>→ Inspector</span></li>
+        <li>Workspace / division switch<span>→ workspace menu</span></li>
+        <li>“Tools connecting” banner (home only, at startup)<span>→ Tools status pill, always visible</span></li>
+        <li>Settings (9 flat tabs)<span>→ 4 groups</span></li>
+      </ul></div>
+      <div class="arrow">→</div>
+      <div class="col"><h3>Proposed</h3><ul>
+        <li class="new"><b>Today</b><span>Brief · Needs you · Meetings · Opportunities</span></li>
+        <li class="new"><b>Follow-ups</b><span>I owe · Waiting on others · Done</span></li>
+        <li class="new"><b>Automations</b><span>Workflows + schedules, one list</span></li>
+        <li class="new"><b>Chats</b><span>History in the sidebar, searched with ⌘K</span></li>
+        <li class="new"><b>Chat</b><span>Thread + Inspector (Progress · Sources · Files)</span></li>
+        <li class="new"><b>⌘K command bar</b><span>Ask, search, jump, act. System-wide with ⌥Space</span></li>
+        <li class="new"><b>Tools status</b><span>Title bar pill → per-tool list with Retry</span></li>
+        <li class="new"><b>Settings</b><span>You · Connections · Assistant · Advanced</span></li>
+      </ul>
+      <p style="font-size:13.5px;color:#8c9ca8;margin:18px 0 0;line-height:1.6">Screen Snap and Live Assist stay as OS-level capture tools, but both open a normal chat in the same history instead of separate windows with their own state.</p></div>
+    </div>
+
+    <h2><span class="num">05</span>Decisions that need your call</h2>
+    <p class="sub">The prototype assumes the recommended option for each of these.</p>
+    <div class="decision"><div><h3>Rename Matter to Today and Loops to Follow-ups</h3><p>Plain names help adoption. “Matter” can stay as the name of the engine in docs and code. The cost is retraining current users, which can be softened with a one-time “Matter is now Today” notice.</p></div><span class="pill call">Needs your call</span></div>
+    <div class="decision"><div><h3>Default every York user to the Hub workspace</h3><p>Company models just work. General/Folders (bring your own key) moves into the workspace menu as “Personal (your OpenRouter key)”. The key prompt only appears if someone picks it.</p></div><span class="pill call">Needs your call</span></div>
+    <div class="decision"><div><h3>Retire the separate Ask Growth OS popup</h3><p>⌘K covers it inside the app, and ⌥Space opens the same command bar system-wide. Answers go into the normal chat history.</p></div><span class="pill rec">Recommended</span></div>
+    <div class="decision"><div><h3>Make the Matter radar the main visual on Today</h3><p>The radar is the one view that shows at a glance how much is close to you and where it's coming from. Keep the rings (Now at the core, then Today, This week, Watching) and make them the same groups as the list, so the radar and the list are two views of the same items, linked on hover and click. Two fixes: the angle becomes one slice per source instead of a random hash of the item ID, and the sweep only animates while a scan is actually running.</p></div><span class="pill rec">Recommended</span></div>
+    <div class="decision"><div><h3>Move the focus score behind “How this was ranked”</h3><p>A score out of 100 doesn't tell anyone what to do next. It stays available for power users and for tuning the ranking.</p></div><span class="pill rec">Recommended</span></div>
+    <div class="decision"><div><h3>Private chat instead of a permanent incognito button</h3><p>Same feature, available from the New chat menu and ⇧⌘N, instead of taking up a permanent spot in the sidebar.</p></div><span class="pill rec">Recommended</span></div>
+
+    <h2><span class="num">06</span>Visual refresh: same brand, calmer</h2>
+    <p class="sub">The current theme variables in <code>globals.css</code> stay as the base. The changes are mainly about restraint.</p>
+    <div class="swatches">
+      <div class="sw"><div style="background:#111b23"></div><small><b>Background</b>#111B23</small></div>
+      <div class="sw"><div style="background:#1a2834"></div><small><b>Surface</b>#1A2834</small></div>
+      <div class="sw"><div style="background:#213240"></div><small><b>Surface 2</b>#213240</small></div>
+      <div class="sw"><div style="background:#00b48a"></div><small><b>Teal (accent)</b>#00B48A</small></div>
+      <div class="sw"><div style="background:#f26d5b"></div><small><b>Urgent</b>#F26D5B</small></div>
+      <div class="sw"><div style="background:#e8b13c"></div><small><b>Attention</b>#E8B13C</small></div>
+    </div>
+    <div class="grid2" style="margin-top:20px">
+      <div class="panel"><h3>What changes</h3><p>• Teal is reserved for the primary action, selection and focus, never decoration.<br>• One border weight and three surface levels, replacing about a dozen ad-hoc opacities.<br>• Red/amber only for real urgency, so they keep their meaning.<br>• An 8-pt spacing grid, 14-px base text and more space between items.<br>• Radius set: 6 / 10 / 14. Shadows only on floating layers (menus, dialogs, ⌘K).</p></div>
+      <div class="panel type-scale">
+        <div style="border-top:0"><span>Display · 30/600</span><b style="font-size:30px;font-weight:600;color:#fff;letter-spacing:-.02em">Good afternoon</b></div>
+        <div><span>Title · 22/600</span><b style="font-size:22px;font-weight:600;color:#fff">Follow-ups</b></div>
+        <div><span>Body · 14/400</span><span style="width:auto;font-family:inherit;font-size:14px;color:#d6e0e6">Dana asked twice since Thursday.</span></div>
+        <div><span>Label · 11/700 caps</span><span style="width:auto;font-family:inherit;font-size:11px;font-weight:700;letter-spacing:.05em;color:#7c8d99">NEEDS YOU</span></div>
+      </div>
+    </div>
+
+    <h2><span class="num">07</span>Rollout plan</h2>
+    <p class="sub">Each phase ships on its own behind a <code>redesign</code> feature flag, with a toggle for internal users first. Main-process changes are limited to tool error details (phase 1) and a shared automations list (phase 4).</p>
+    <div class="phases">
+      <div class="phase"><div class="when">PHASE 0 · ~1 wk</div><div><h3>Foundations</h3><p>Groundwork that makes the rest cheap and safe.</p><ul><li>Replace the <code>show*</code> flags with a small router (hash routes: <code>/today</code>, <code>/chat/:id</code>, <code>/follow-ups</code>…) and get back/forward and deep links for free.</li><li>Update the theme variables, and add <code>Button</code>, <code>Tabs</code>, <code>ListItem</code> and <code>Card</code> components to replace one-off class strings.</li></ul></div></div>
+      <div class="phase"><div class="when">PHASE 1 · ~2 wk</div><div><h3>New shell + ⌘K + tools status</h3><p>New sidebar (4 items + chats), the command bar replacing chat search and the Ask popup, and the workspace menu defaulting to Hub.</p><ul><li>Tools status pill in the title bar, built on the existing <code>mcp.getServerStatus()</code> polling (status + <code>toolCount</code> per server). It replaces <code>ToolsConnectingStatus</code>, which today only shows on the home screen at startup.</li><li>Retry uses the existing <code>mcp.reconnectServer(id)</code>. One small main-process addition: return <code>lastError</code> and <code>lastCheckedAt</code> on <code>McpServerStatus</code> so a failed tool can say why. Today it only reports <code>failed</code>.</li></ul></div></div>
+      <div class="phase"><div class="when">PHASE 2 · ~2 wk</div><div><h3>Today</h3><p>Merge the Welcome screen, Matter briefing, next-up meeting and due Loops into one ranked list on top of the existing Matter and Loops data, grouped by the existing <code>MatterOrbit</code> values. Reuse <code>MatterRadar</code> as the main visual, with source slices instead of <code>hashAngle</code> and shared hover/selection state with the list. Starting a chat from an item carries its context into the chat (this already exists as Matter's chat prefill).</p></div></div>
+      <div class="phase"><div class="when">PHASE 3 · ~2 wk</div><div><h3>Chat + Inspector</h3><p>Collapse tool steps into a single summary line, add numbered source citations, and combine the Context panel and HTML preview into one tabbed Inspector. Split <code>ChatView.tsx</code> (2.6k lines) along the way.</p></div></div>
+      <div class="phase"><div class="when">PHASE 4 · ~2 wk</div><div><h3>Follow-ups, Automations, Settings</h3><p>Rename and polish Loops, merge Workflows and Schedules into one list (needs a shared list API from the main process), and regroup Settings. Then remove the flag.</p></div></div>
+    </div>
+
+    <h2><span class="num">08</span>How we'll know it worked</h2>
+    <table class="metrics">
+      <tr><th>Metric</th><th>Why it matters</th><th>Target</th></tr>
+      <tr><td>Time from launch to first action</td><td>The core promise: open the app and get something done.</td><td>&lt; 20 s median</td></tr>
+      <tr><td>Today items acted on (not snoozed)</td><td>Shows whether the ranking is trusted.</td><td>&gt; 40%</td></tr>
+      <tr><td>Follow-ups closed per user per week</td><td>Promises kept, not just captured.</td><td>+30% vs Loops</td></tr>
+      <tr><td>Daily active days per user per week</td><td>Habit: does it become the default place to start the day?</td><td>≥ 4 of 5</td></tr>
+      <tr><td>Time a broken tool goes unnoticed</td><td>From a tool failing to the user reconnecting it; silent failures make Today look wrong.</td><td>&lt; 1 day median</td></tr>
+      <tr><td>Billing/key errors seen by Hub users</td><td>Billing confusion removed from the main path.</td><td>~0</td></tr>
+    </table>
+    <p style="color:#8c9ca8;font-size:14px;margin-top:16px">Instrument these in phase 0 so we capture a baseline on the current UI before anything changes.</p>
+
+    <div class="cta"><button data-view="proto">Open the prototype →</button></div>
+  </article>
+</section>
+
+<script>
+  const $ = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+
+  // Proposal view toggle
+  $$('[data-view]').forEach((b) => b.addEventListener('click', () => {
+    $$('.seg button').forEach((x) => x.classList.toggle('on', x.dataset.view === b.dataset.view));
+    $$('.view').forEach((v) => v.classList.toggle('on', v.id === 'view-' + b.dataset.view));
+    window.scrollTo({ top: 0 });
+  }));
+
+  // Navigation inside prototype
+  const body = $('#appBody');
+  function go(target) {
+    const screen = target === 'chat-new' ? 'chat' : target;
+    $$('.screen').forEach((s) => s.classList.toggle('on', s.id === 's-' + screen));
+    $$('.nav button').forEach((b) => b.classList.toggle('on', b.dataset.go === screen));
+    $$('.recents button').forEach((b, i) => b.classList.toggle('on', screen === 'chat' && i === 0));
+    body.classList.toggle('with-inspector', screen === 'chat');
+    $('#healthPop').classList.remove('on');
+    closePalette();
+    if (target === 'chat-new') toast('New chat — composer focused');
+  }
+  document.addEventListener('click', (e) => {
+    const el = e.target.closest('[data-go]');
+    if (el && el.closest('#app')) { e.preventDefault(); go(el.dataset.go); }
+  });
+
+  // Tabs
+  $$('[data-tabs]').forEach((group) => {
+    const scope = group.parentElement;
+    group.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-tab]');
+      if (!b) return;
+      $$('[data-tab]', group).forEach((x) => x.classList.toggle('on', x === b));
+      $$(':scope > [data-pane], :scope > .ins-body > [data-pane]', scope).forEach((p) => {
+        const on = p.dataset.pane === b.dataset.tab;
+        p.hidden = !on; p.classList.toggle('on', on);
+      });
+    });
+  });
+
+  // Today item actions
+  document.addEventListener('click', (e) => {
+    const snooze = e.target.closest('[data-snooze]');
+    const done = e.target.closest('[data-done]');
+    if (snooze) { snooze.closest('.item').style.display = 'none'; toast('Snoozed until tomorrow 9:00', 'Undo'); }
+    if (done) { done.closest('.item').classList.add('done'); toast('Follow-up closed', 'Undo'); }
+    const check = e.target.closest('.check');
+    if (check) check.closest('.fu').classList.toggle('done');
+    const sw = e.target.closest('.switch');
+    if (sw) sw.classList.toggle('off');
+    const setBtn = e.target.closest('.set-nav button');
+    if (setBtn) { $$('.set-nav button').forEach((b) => b.classList.toggle('on', b === setBtn)); }
+  });
+  $('#sendDraft').addEventListener('click', () => toast('Sent to Dana · follow-up added for Oct 24', 'Undo'));
+
+  // Quick add parsing
+  const days = { mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', today: 'Today', tomorrow: 'Tomorrow' };
+  $('#quickAdd').addEventListener('input', (e) => {
+    const v = e.target.value.toLowerCase();
+    const bits = [];
+    const d = Object.keys(days).find((k) => new RegExp('\\b' + k).test(v));
+    if (d) bits.push('<span class="tag warn">Due ' + days[d] + '</span>');
+    const p = v.match(/\bto ([a-z]+)/);
+    if (p) bits.push('<span class="tag info">' + p[1][0].toUpperCase() + p[1].slice(1) + '</span>');
+    if (/waiting|wait for/.test(v)) bits.push('<span class="tag ok">Waiting on others</span>');
+    $('#parsed').innerHTML = bits.length ? 'Understood: ' + bits.join('') + ' — press ↵ to add' : '';
+  });
+  $('#quickAdd').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && e.target.value.trim()) { toast('Follow-up added'); e.target.value = ''; $('#parsed').innerHTML = ''; }
+  });
+
+  // Command palette
+  const scrim = $('#scrim');
+  function openPalette() { scrim.classList.add('on'); $('#palInput').value = ''; setTimeout(() => $('#palInput').focus(), 10); }
+  function closePalette() { scrim.classList.remove('on'); }
+  $('#openPalette').addEventListener('click', openPalette);
+  scrim.addEventListener('click', (e) => { if (e.target === scrim) closePalette(); });
+  $('#palInput').addEventListener('input', (e) => {
+    const q = e.target.value.trim();
+    $('#palAsk').textContent = q ? 'Ask: “' + q + '”' : 'Ask: “What\'s blocking Helio?”';
+    $$('.pal-item', $('#palList')).forEach((it, i) => { if (i === 0) return; it.style.display = !q || it.textContent.toLowerCase().includes(q.toLowerCase()) ? '' : 'none'; });
+  });
+  document.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); scrim.classList.contains('on') ? closePalette() : openPalette(); }
+    if (e.key === 'Escape') closePalette();
+    if (scrim.classList.contains('on') && e.key === 'Enter') { const s = $('.pal-item.sel'); if (s?.dataset.go) go(s.dataset.go); }
+    if (scrim.classList.contains('on') && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+      e.preventDefault();
+      const items = $$('.pal-item').filter((x) => x.style.display !== 'none');
+      let i = items.findIndex((x) => x.classList.contains('sel'));
+      items[i]?.classList.remove('sel');
+      i = (i + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+      items[i].classList.add('sel'); items[i].scrollIntoView({ block: 'nearest' });
+    }
+  });
+
+  $('#toggleInspector').addEventListener('click', () => body.classList.toggle('with-inspector'));
+  $('#toggleNotes').addEventListener('click', (e) => { e.preventDefault(); $('#app').classList.toggle('notes-off'); e.target.textContent = $('#app').classList.contains('notes-off') ? 'show pins' : 'hide pins'; });
+  $('#toggleTheme').addEventListener('click', (e) => { e.preventDefault(); $('#app').classList.toggle('light'); e.target.textContent = $('#app').classList.contains('light') ? 'Switch to dark theme' : 'Switch to light theme'; });
+
+  // ---- Matter radar: ring = orbit (now/today/week/watching), slice = source, color = severity
+  const ORBIT_R = { now: 58, today: 92, week: 122, watching: 148 };
+  const SOURCES = [
+    { id: 'gmail', label: 'Gmail', abbr: 'M', color: '#c5221f' },
+    { id: 'slack', label: 'Slack', abbr: 'S', color: '#4a154b' },
+    { id: 'jira', label: 'Jira', abbr: 'J', color: '#0c66e4' },
+    { id: 'hub', label: 'Hub', abbr: 'H', color: '#00876a' },
+    { id: 'loop', label: 'Follow-ups', abbr: '✓', color: '#2a4152' },
+    { id: 'cal', label: 'Calendar', abbr: 'C', color: '#1a73e8' },
+  ];
+  const SEV = { critical: '#f26d5b', warning: '#e8b13c', signal: '#00b48a' };
+  const SIGNALS = [
+    { id: 'acme', orbit: 'now', source: 'gmail', sev: 'critical', title: 'Acme is waiting on Q4 renewal pricing', why: 'Reply overdue 2 days · contract ends Oct 31' },
+    { id: 'sow', orbit: 'now', source: 'loop', sev: 'critical', title: 'Send revised SOW to Raj', why: 'You promised this last Tuesday · overdue 3 days' },
+    { id: 'hel', orbit: 'now', source: 'jira', sev: 'warning', title: 'HEL-412 is blocking the Helio release', why: 'Release is Wednesday' },
+    { id: 'priya', orbit: 'today', source: 'slack', sev: 'signal', title: 'Priya asked for your input', why: '#delivery-ops · 1h ago' },
+    { id: 'ts', orbit: 'today', source: 'hub', sev: 'warning', title: 'Timesheet for week 41', why: 'Due by end of day' },
+    { id: 'inv', orbit: 'week', source: 'gmail', sev: 'warning', title: 'Brightline questioned the September invoice', why: 'Needs reply by Thursday' },
+    { id: 'staff', orbit: 'week', source: 'hub', sev: 'signal', title: 'Northwind phase 2 is short one developer', why: 'Starts in 9 days' },
+    { id: 'quiet', orbit: 'watching', source: 'slack', sev: 'signal', title: '#acme-shared quiet for 9 days', why: 'Pattern change before renewal' },
+    { id: 'jirawatch', orbit: 'watching', source: 'jira', sev: 'signal', title: 'Helio bug count up 40%', why: 'Trend this sprint' },
+  ];
+  const SLICE = 360 / SOURCES.length;
+  const rad = (deg) => ((deg - 90) * Math.PI) / 180;
+  const pt = (r, deg) => [200 + r * Math.cos(rad(deg)), 200 + r * Math.sin(rad(deg))];
+  const defaultCap = $('#radarCap').innerHTML;
+
+  function liveSignals() {
+    return SIGNALS.filter((s) => {
+      const row = $('.item[data-id="' + s.id + '"]');
+      return row && row.style.display !== 'none' && !row.classList.contains('done');
+    });
+  }
+
+  function renderRadar() {
+    const live = liveSignals();
+    const nowCount = live.filter((s) => s.orbit === 'now').length;
+    let g = '<defs><radialGradient id="rCore"><stop offset="0%" stop-color="#00b48a" stop-opacity=".95"/><stop offset="100%" stop-color="#00b48a" stop-opacity=".45"/></radialGradient>' +
+      '<linearGradient id="rSweep" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#00b48a" stop-opacity="0"/><stop offset="1" stop-color="#00b48a" stop-opacity=".35"/></linearGradient></defs>';
+    g += '<circle cx="200" cy="200" r="' + (ORBIT_R.now + 19) + '" class="r-band now"/>';
+    Object.entries(ORBIT_R).forEach(([k, r]) => { g += '<circle cx="200" cy="200" r="' + (r + 19) + '" class="r-ring ' + (k === 'now' ? 'now' : '') + '"/>'; });
+    SOURCES.forEach((s, i) => {
+      const [x1, y1] = pt(48, i * SLICE), [x2, y2] = pt(178, i * SLICE);
+      g += '<line x1="' + x1 + '" y1="' + y1 + '" x2="' + x2 + '" y2="' + y2 + '" class="r-sector"/>';
+      const [lx, ly] = pt(194, i * SLICE + SLICE / 2);
+      g += '<text x="' + lx + '" y="' + (ly + 3.5) + '" text-anchor="middle" class="r-src">' + s.label.toUpperCase() + '</text>';
+    });
+    const labels = { now: 'NOW', today: 'TODAY', week: 'THIS WEEK', watching: 'WATCHING' };
+    Object.entries(ORBIT_R).forEach(([k, r]) => { g += '<text x="203" y="' + (200 - r - 21) + '" class="r-label">' + labels[k] + '</text>'; });
+    const [sx, sy] = pt(178, 90);
+    g += '<g class="r-sweep"><path d="M200 200 L' + pt(178, 50).join(' ') + ' A178 178 0 0 1 ' + sx + ' ' + sy + ' Z" fill="url(#rSweep)"/><line x1="200" y1="200" x2="' + sx + '" y2="' + sy + '" stroke="#00b48a" stroke-width="2" stroke-linecap="round"/></g>';
+    g += '<circle cx="200" cy="200" r="40" fill="url(#rCore)"/>';
+    g += '<text x="200" y="205" text-anchor="middle" class="r-core-n">' + nowCount + '</text><text x="200" y="220" text-anchor="middle" class="r-core-t">NEED YOU NOW</text>';
+
+    const groups = {};
+    live.forEach((s) => { (groups[s.source + s.orbit] ||= []).push(s); });
+    Object.values(groups).forEach((list) => list.forEach((s, j) => {
+      const si = SOURCES.findIndex((x) => x.id === s.source);
+      const spread = list.length > 1 ? (j - (list.length - 1) / 2) * 16 : 0;
+      const [x, y] = pt(ORBIT_R[s.orbit] + 19, si * SLICE + SLICE / 2 + spread);
+      const src = SOURCES[si];
+      const size = s.sev === 'critical' ? 13 : s.orbit === 'watching' ? 9 : 11;
+      g += '<g class="blip ' + (s.sev === 'critical' ? 'crit' : '') + '" data-blip="' + s.id + '" tabindex="0" role="button" aria-label="' + s.title + '">' +
+        (s.sev === 'critical' ? '<circle class="halo" cx="' + x + '" cy="' + y + '" r="' + size + '" fill="none" stroke="' + SEV.critical + '" stroke-width="2"/>' : '') +
+        '<circle class="b" cx="' + x + '" cy="' + y + '" r="' + size + '" fill="' + src.color + '" stroke="' + SEV[s.sev] + '" stroke-width="2.5"/>' +
+        '<text x="' + x + '" y="' + (y + 3.2) + '" text-anchor="middle">' + src.abbr + '</text></g>';
+    }));
+    $('#radarSvg').innerHTML = g;
+  }
+
+  function highlight(id) {
+    const radar = $('#radar');
+    radar.classList.toggle('dim', !!id);
+    $$('.blip').forEach((b) => b.classList.toggle('hl', b.dataset.blip === id));
+    $$('#s-today .item').forEach((r) => r.classList.toggle('hl', r.dataset.id === id));
+    const s = SIGNALS.find((x) => x.id === id);
+    const cap = $('#radarCap');
+    cap.classList.toggle('tip', !!s);
+    cap.innerHTML = s ? '<b>' + s.title + '</b><span>' + s.why + '</span>' : defaultCap;
+  }
+  $('#radarSvg').addEventListener('mouseover', (e) => { const b = e.target.closest('.blip'); highlight(b ? b.dataset.blip : null); });
+  $('#radarSvg').addEventListener('mouseleave', () => highlight(null));
+  $('#radarSvg').addEventListener('click', (e) => {
+    const b = e.target.closest('.blip'); if (!b) return;
+    const row = $('.item[data-id="' + b.dataset.blip + '"]');
+    $$('[data-tabs="today"] [data-tab]').forEach((t) => { if (t.dataset.tab === 'needs' && !t.classList.contains('on')) t.click(); });
+    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    row.classList.remove('flash'); void row.offsetWidth; row.classList.add('flash');
+  });
+  $$('#s-today .item[data-id]').forEach((row) => {
+    row.addEventListener('mouseenter', () => highlight(row.dataset.id));
+    row.addEventListener('mouseleave', () => highlight(null));
+  });
+  document.addEventListener('click', (e) => { if (e.target.closest('[data-snooze],[data-done]')) setTimeout(() => { highlight(null); renderRadar(); }, 0); });
+  renderRadar();
+
+  // ---- Tools status (mirrors McpServerStatus: connecting | connected | failed | disabled + toolCount)
+  const SERVERS = [
+    { id: 'hub', name: 'York Hub', abbr: 'H', color: '#00876a', tools: 22, detail: 'People, projects, timesheets, leave', delay: 700 },
+    { id: 'slack', name: 'Slack', abbr: 'S', color: '#4a154b', tools: 14, detail: 'york-ie.slack.com', delay: 1100 },
+    { id: 'gmail', name: 'Gmail & Calendar', abbr: 'M', color: '#c5221f', tools: 11, detail: 'kalrav@york.ie', delay: 1500 },
+    { id: 'drive', name: 'Google Drive', abbr: 'G', color: '#1e8e3e', tools: 6, detail: 'My Drive + shared drives', delay: 1800 },
+    { id: 'rnd', name: 'R&D Launchpad', abbr: 'R', color: '#5b5bd6', tools: 9, detail: 'Client delivery pipeline', delay: 2300 },
+    { id: 'gtm', name: 'GTM Launchpad', abbr: 'L', color: '#b2541a', tools: 12, detail: 'Workflows, content calendar', delay: 2700 },
+    { id: 'jira', name: 'Jira & Confluence', abbr: 'J', color: '#0c66e4', tools: 18, detail: 'york-ie.atlassian.net', delay: 3200, fails: 'Sign-in expired 2 days ago', impact: 'Jira items may be missing from Today' },
+    { id: 'zoom', name: 'Zoom', abbr: 'Z', color: '#0b5cff', tools: 0, detail: 'Connect to capture meeting notes and action items', disabled: true },
+  ];
+  const state = {};
+  let bootTimers = [];
+  let lastChecked = Date.now();
+
+  function boot() {
+    bootTimers.forEach(clearTimeout); bootTimers = [];
+    SERVERS.forEach((s) => {
+      state[s.id] = s.disabled ? 'disabled' : 'connecting';
+      if (!s.disabled) bootTimers.push(setTimeout(() => { state[s.id] = s.fails ? 'failed' : 'connected'; lastChecked = Date.now(); renderHealth(); }, s.delay));
+    });
+    renderHealth();
+  }
+  function retry(id) {
+    state[id] = 'connecting'; renderHealth();
+    setTimeout(() => { state[id] = 'connected'; lastChecked = Date.now(); renderHealth(); toast(SERVERS.find((s) => s.id === id).name + ' reconnected'); }, 1600);
+  }
+
+  function counts() {
+    const active = SERVERS.filter((s) => state[s.id] !== 'disabled');
+    const by = (st) => active.filter((s) => state[s.id] === st);
+    return { active, connecting: by('connecting'), failed: by('failed'), connected: by('connected'),
+      toolTotal: by('connected').reduce((n, s) => n + s.tools, 0) };
+  }
+  const names = (list) => list.length <= 2 ? list.map((s) => s.name).join(' and ') : list.slice(0, 2).map((s) => s.name).join(', ') + ' and ' + (list.length - 2) + ' more';
+
+  function srvLine(s) {
+    const st = state[s.id];
+    if (st === 'connected') return '<small>' + s.tools + ' actions available</small>';
+    if (st === 'connecting') return '<small class="wait">Connecting…</small>';
+    if (st === 'failed') return '<small class="err">' + s.fails + '</small>';
+    return '<small>Not connected</small>';
+  }
+  function srvAction(s) {
+    const st = state[s.id];
+    if (st === 'failed') return '<button class="btn sm primary" data-retry="' + s.id + '">Retry</button>';
+    if (st === 'disabled') return '<button class="btn sm" data-connect="' + s.id + '">Connect</button>';
+    return '<span class="sdot ' + st + '" title="' + st + '"></span>';
+  }
+
+  function renderHealth() {
+    const c = counts();
+    const pill = $('#healthPill');
+    pill.classList.toggle('fail', c.failed.length > 0 && c.connecting.length === 0);
+    if (c.connecting.length) {
+      pill.innerHTML = '<span class="sdot connecting"></span>Connecting tools · ' + c.connected.length + ' of ' + c.active.length;
+    } else if (c.failed.length) {
+      pill.innerHTML = '<span class="sdot failed"></span>' + c.failed.length + (c.failed.length === 1 ? ' tool needs' : ' tools need') + ' attention';
+    } else {
+      pill.innerHTML = '<span class="sdot"></span>Tools ready';
+    }
+    pill.title = c.connected.length + ' of ' + c.active.length + ' connected · ' + c.toolTotal + ' actions';
+
+    $('#popTitle').textContent = c.connecting.length ? 'Connecting tools…' : c.failed.length ? 'Some tools need attention' : 'All tools ready';
+    $('#popSub').textContent = c.connected.length + ' of ' + c.active.length + ' connected · ' + c.toolTotal + ' actions available to GrowthOS';
+    const order = ['failed', 'connecting', 'connected'];
+    const sorted = c.active.slice().sort((a, b) => order.indexOf(state[a.id]) - order.indexOf(state[b.id]));
+    const row = (s) => '<div class="srv"><div class="src" style="background:' + s.color + '">' + s.abbr + '</div><div><b>' + s.name + '</b>' + srvLine(s) + '</div>' + srvAction(s) + '</div>';
+    const off = SERVERS.filter((s) => state[s.id] === 'disabled');
+    $('#popList').innerHTML = '<h6>Connected apps</h6>' + sorted.map(row).join('') + (off.length ? '<h6>Available</h6>' + off.map(row).join('') : '');
+    const secs = Math.round((Date.now() - lastChecked) / 1000);
+    $('#popChecked').textContent = secs < 5 ? 'Checked just now' : 'Checked ' + secs + 's ago';
+
+    $('#radar').classList.toggle('scanning', c.connecting.length > 0);
+    const note = $('#todayHealth');
+    if (c.connecting.length) {
+      note.className = 'health-note connecting';
+      note.innerHTML = '<span class="sdot connecting"></span>Still connecting to ' + names(c.connecting) + '. Today will update as they come online.';
+    } else if (c.failed.length) {
+      const f = c.failed[0];
+      note.className = 'health-note failed';
+      note.innerHTML = '<span class="sdot failed"></span><span><b>' + f.name + '</b> isn\'t connected. ' + f.impact + '.</span><button class="btn sm primary" data-retry="' + f.id + '">Reconnect</button>';
+    } else {
+      note.className = 'health-note'; note.innerHTML = '';
+    }
+
+    const ct = $('#chatTools');
+    if (c.connecting.length) ct.innerHTML = '<span class="sdot connecting"></span>You can type now. GrowthOS will use ' + names(c.connecting) + ' once connected.';
+    else if (c.failed.length) ct.innerHTML = '<span class="sdot failed"></span>' + names(c.failed) + ' unavailable in this chat. <button data-retry="' + c.failed[0].id + '">Retry</button>';
+    else ct.innerHTML = '';
+
+    $('#connList').innerHTML = SERVERS.slice().sort((a, b) => (state[a.id] === 'failed' ? -1 : 0) - (state[b.id] === 'failed' ? -1 : 0)).map((s) => {
+      const st = state[s.id];
+      const sub = st === 'failed' ? '<small class="err">' + s.fails + '. ' + s.impact + '.</small>'
+        : st === 'connecting' ? '<small>' + s.detail + ' · connecting…</small>'
+        : st === 'connected' ? '<small>' + s.detail + ' · ' + s.tools + ' actions</small>'
+        : '<small>' + s.detail + '</small>';
+      const right = st === 'failed' ? '<button class="btn sm primary" data-retry="' + s.id + '">Reconnect</button>'
+        : st === 'disabled' ? '<button class="btn sm" data-connect="' + s.id + '">Connect</button>'
+        : st === 'connecting' ? '<span class="tag warn">Connecting</span>' : '<span class="tag ok">Connected</span>';
+      return '<div class="conn"><div class="src" style="background:' + s.color + '">' + s.abbr + '</div><div><b>' + s.name + '</b>' + sub + '</div>' + right + '</div>';
+    }).join('');
+  }
+
+  const pop = $('#healthPop');
+  $('#healthPill').addEventListener('click', (e) => {
+    e.stopPropagation();
+    const on = !pop.classList.contains('on');
+    pop.classList.toggle('on', on); $('#healthPill').setAttribute('aria-expanded', on);
+    if (on) renderHealth();
+  });
+  document.addEventListener('click', (e) => {
+    const r = e.target.closest('[data-retry]');
+    if (r) { e.stopPropagation(); retry(r.dataset.retry); return; }
+    const cn = e.target.closest('[data-connect]');
+    if (cn) { toast('Opening Zoom sign-in…'); return; }
+    if (!e.target.closest('#healthPop')) pop.classList.remove('on');
+  });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') pop.classList.remove('on'); });
+  $('#replayBoot').addEventListener('click', (e) => { e.preventDefault(); boot(); });
+  boot();
+
+  let tt;
+  function toast(msg, action) {
+    const t = $('#toast');
+    t.innerHTML = msg + (action ? ' <u>' + action + '</u>' : '');
+    t.classList.add('on'); clearTimeout(tt); tt = setTimeout(() => t.classList.remove('on'), 2400);
+  }
+</script>
+</body>
+</html>

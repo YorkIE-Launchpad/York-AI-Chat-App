@@ -48,6 +48,10 @@ export interface McpServerStatus {
   connected: boolean;
   status: 'connecting' | 'connected' | 'failed' | 'disabled';
   toolCount: number;
+  /** Why the last connect attempt failed (only when status is 'failed'). */
+  lastError?: string;
+  /** Epoch ms when the status last changed. */
+  lastCheckedAt?: number;
 }
 
 /** Aggregate MCP readiness for the tools-not-ready startup banner. */
@@ -176,4 +180,3 @@ export interface RemoteSessionMapping {
   createdAt: number;
   lastActiveAt: number;
 }
-

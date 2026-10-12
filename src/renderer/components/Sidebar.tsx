@@ -34,10 +34,12 @@ import {
   Users,
   Link2,
   CircleDashed,
+  MoreHorizontal,
 } from 'lucide-react';
 import type { Session } from '../types';
 import { DivisionSwitcher } from './DivisionSwitcher';
-import { NextUpMeeting } from './matter/NextUpMeeting';
+import { Menu } from './ui/Menu';
+import { MOD, SIDEBAR_IMPORT_EVENT, SIDEBAR_JOIN_EVENT } from './CommandPalette';
 import {
   activeDivisionFromSession,
   divisionLabel,
@@ -49,47 +51,93 @@ import type { ChatSearchHit } from '../../shared/chat-search';
 import { useUpdaterStatus } from '../hooks/useUpdaterStatus';
 import { shouldShowRestartToUpdate } from '../../shared/updater-types';
 
-import sidebarLogoSrc from '../assets/logo.png';
-
 const FOLDER_TREE_COLLAPSE_KEY = 'yorkie.sidebar.collapsedFolders';
 
-function SidebarFeatureTab({
+function SidebarNavItem({
   icon: Icon,
   label,
   hint,
+  shortcut,
   active,
   badge = 0,
+  badgeTone = 'urgent',
   onClick,
 }: {
   icon: typeof Radar;
   label: string;
   hint: string;
+  shortcut?: string;
   active: boolean;
   badge?: number;
+  badgeTone?: 'urgent' | 'neutral';
   onClick: () => void;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      title={hint}
-      aria-label={label}
-      aria-pressed={active}
-      className={`min-w-0 flex-1 rounded-lg px-1 py-1.5 flex flex-col items-center gap-0.5 transition-colors ${
+      title={shortcut ? `${hint} (${shortcut})` : hint}
+      aria-current={active ? 'page' : undefined}
+      className={`group flex h-8 w-full items-center gap-2.5 rounded-md px-2.5 text-left text-[13px] font-medium transition-colors ${
         active
-          ? 'bg-accent/15 text-accent'
+          ? 'bg-accent-muted text-text-primary'
           : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
       }`}
     >
-      <span className="relative flex h-4 w-4 items-center justify-center">
-        <Icon className="w-4 h-4 text-accent" />
-        {badge > 0 ? (
-          <span className="absolute -top-1.5 -right-2 min-w-[14px] h-[14px] px-0.5 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center">
-            {badge > 9 ? '9+' : badge}
-          </span>
-        ) : null}
-      </span>
-      <span className="max-w-full truncate text-[10px] font-medium leading-tight">{label}</span>
+      <Icon className={`h-4 w-4 shrink-0 ${active ? 'text-accent-text' : 'text-text-muted'}`} />
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+      {badge > 0 ? (
+        <span
+          className={`min-w-[18px] rounded-full px-1.5 text-center text-[10.5px] font-bold leading-[18px] ${
+            badgeTone === 'urgent'
+              ? 'bg-error/15 text-error'
+              : 'bg-surface-hover text-text-secondary'
+          }`}
+        >
+          {badge > 99 ? '99+' : badge}
+        </span>
+      ) : null}
+    </button>
+  );
+}
+
+function SidebarRailButton({
+  icon: Icon,
+  label,
+  active = false,
+  badge = 0,
+  onClick,
+  disabled,
+  dashed,
+}: {
+  icon: typeof Radar;
+  label: string;
+  active?: boolean;
+  badge?: number;
+  onClick: () => void;
+  disabled?: boolean;
+  dashed?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={label}
+      aria-label={label}
+      aria-current={active ? 'page' : undefined}
+      className={`relative flex h-9 w-9 items-center justify-center rounded-lg transition-colors disabled:opacity-50 ${
+        active
+          ? 'bg-accent-muted text-accent-text'
+          : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
+      } ${dashed ? 'border border-dashed border-border' : ''}`}
+    >
+      <Icon className="h-4 w-4" />
+      {badge > 0 ? (
+        <span className="absolute -right-0.5 -top-0.5 flex h-[14px] min-w-[14px] items-center justify-center rounded-full bg-error px-0.5 text-[9px] font-bold text-white">
+          {badge > 9 ? '9+' : badge}
+        </span>
+      ) : null}
     </button>
   );
 }
@@ -297,7 +345,7 @@ export function Sidebar() {
   const setShowSettings = useAppStore((s) => s.setShowSettings);
   const setShowMatter = useAppStore((s) => s.setShowMatter);
   const setShowWorkflows = useAppStore((s) => s.setShowWorkflows);
-  const showMatter = useAppStore((s) => s.showMatter);
+  const showSettings = useAppStore((s) => s.showSettings);
   const showWorkflows = useAppStore((s) => s.showWorkflows);
   const setShowLoops = useAppStore((s) => s.setShowLoops);
   const showLoops = useAppStore((s) => s.showLoops);
@@ -911,6 +959,47 @@ export function Sidebar() {
     setRenameDraft('');
   };
 
+  const importChatRef = useRef(handleImportChat);
+  importChatRef.current = handleImportChat;
+  const joinSharedRef = useRef(handleJoinSharedChat);
+  joinSharedRef.current = handleJoinSharedChat;
+  useEffect(() => {
+    const onImport = () => void importChatRef.current();
+    const onJoin = () => joinSharedRef.current();
+    window.addEventListener(SIDEBAR_IMPORT_EVENT, onImport);
+    window.addEventListener(SIDEBAR_JOIN_EVENT, onJoin);
+    return () => {
+      window.removeEventListener(SIDEBAR_IMPORT_EVENT, onImport);
+      window.removeEventListener(SIDEBAR_JOIN_EVENT, onJoin);
+    };
+  }, []);
+
+  const showToday = !activeSessionId && !showSettings && !showWorkflows && !showLoops;
+
+  const newChatMenu = [
+    {
+      id: 'private',
+      label: t('sidebar.incognitoTask'),
+      icon: <Ghost className="h-3.5 w-3.5" />,
+      hint: `⇧${MOD}N`,
+      onSelect: handleIncognitoSession,
+    },
+    {
+      id: 'import',
+      label: t('sidebar.importChat'),
+      icon: <FileDown className="h-3.5 w-3.5" />,
+      disabled: !isElectron || importing,
+      onSelect: () => void handleImportChat(),
+    },
+    {
+      id: 'join',
+      label: t('sidebar.joinSharedChat'),
+      icon: <Link2 className="h-3.5 w-3.5" />,
+      disabled: !isElectron,
+      onSelect: handleJoinSharedChat,
+    },
+  ];
+
   const toggleTheme = () => {
     const next =
       settings.theme === 'dark' ? 'light' : settings.theme === 'light' ? 'system' : 'dark';
@@ -995,163 +1084,111 @@ export function Sidebar() {
   if (sidebarCollapsed) {
     return (
       <>
-        <aside className="relative z-20 flex w-[4.5rem] shrink-0 flex-col overflow-hidden border-r border-border-muted bg-surface/96">
-          <div className="px-3 pt-3 pb-2 flex flex-col items-center gap-1.5 border-b border-border-muted">
-            <button
-              type="button"
-              onClick={handleGoHome}
-              className="w-9 h-9 rounded-2xl flex items-center justify-center hover:bg-surface-hover transition-colors overflow-hidden"
-              title={t('sidebar.home')}
-              aria-label={t('sidebar.home')}
-            >
-              <img src={sidebarLogoSrc} alt="" className="w-7 h-7 object-contain" />
-            </button>
-            <button
+        <aside className="relative z-20 flex w-[3.75rem] shrink-0 flex-col items-center overflow-hidden border-r border-border-subtle bg-background-secondary py-2.5">
+          <div className="flex flex-col items-center gap-1">
+            <SidebarRailButton
+              icon={ChevronRight}
+              label={t('context.expandPanel')}
               onClick={toggleSidebar}
-              className="w-9 h-9 rounded-2xl flex items-center justify-center hover:bg-surface-hover transition-colors text-text-secondary"
-              title={t('context.expandPanel')}
-            >
-              <ChevronRight className="w-4 h-4" />
-            </button>
-            <button
-              onClick={handleNewSession}
-              className="w-9 h-9 rounded-2xl flex items-center justify-center bg-background hover:bg-surface-hover transition-colors text-text-primary border border-border-subtle"
-              title={t('sidebar.newTask')}
-            >
-              <Plus className="w-4 h-4" />
-            </button>
-            <button
-              onClick={handleIncognitoSession}
-              className="w-9 h-9 rounded-2xl flex items-center justify-center bg-background hover:bg-surface-hover transition-colors text-text-secondary border border-border-subtle border-dashed"
-              title={t('sidebar.incognitoTask')}
-            >
-              <Ghost className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => void handleImportChat()}
-              disabled={!isElectron || importing}
-              className="w-9 h-9 rounded-2xl flex items-center justify-center bg-background hover:bg-surface-hover transition-colors text-text-secondary border border-border-subtle disabled:opacity-50"
-              title={t('sidebar.importChat')}
-            >
-              <FileDown className={`w-4 h-4 ${importing ? 'animate-pulse' : ''}`} />
-            </button>
-            <button
-              onClick={handleJoinSharedChat}
-              disabled={!isElectron}
-              className="w-9 h-9 rounded-2xl flex items-center justify-center bg-background hover:bg-surface-hover transition-colors text-text-secondary border border-border-subtle disabled:opacity-50"
-              title={t('sidebar.joinSharedChat')}
-            >
-              <Link2 className="w-4 h-4" />
-            </button>
+            />
             <button
               type="button"
               onClick={toggleSidebar}
-              className={`w-9 h-9 rounded-2xl flex items-center justify-center border transition-colors ${
+              className={`flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${
                 activeDivision
-                  ? 'bg-accent/10 text-accent border-accent/30 hover:bg-accent/15'
-                  : 'bg-background text-text-muted border-border-subtle border-dashed hover:bg-surface-hover'
+                  ? 'text-accent-text hover:bg-surface-hover'
+                  : 'border border-dashed border-border text-text-muted hover:bg-surface-hover'
               }`}
-              title={activeDivision ? workspaceName : 'Select workspace'}
-              aria-label={activeDivision ? `Workspace: ${workspaceName}` : 'Select workspace'}
+              title={
+                activeDivision
+                  ? t('nav.workspaceTitle', { name: workspaceName })
+                  : t('nav.selectWorkspace')
+              }
+              aria-label={
+                activeDivision
+                  ? t('nav.workspaceTitle', { name: workspaceName })
+                  : t('nav.selectWorkspace')
+              }
             >
-              <WorkspaceIcon className="w-4 h-4" />
-            </button>
-          </div>
-
-          <div className="flex-1 flex flex-col items-center justify-center px-3 py-4">
-            <button
-              onClick={toggleSidebar}
-              className="rounded-2xl px-2 py-3 text-[11px] leading-4 text-center text-text-muted hover:bg-surface-hover transition-colors"
-              title={t('sidebar.expandToView')}
-            >
-              {t('sidebar.expandToView')}
-            </button>
-          </div>
-
-          <div className="px-3 py-2 border-t border-border-muted flex flex-col items-center gap-1.5">
-            {matterEnabled ? (
-              <button
-                type="button"
-                onClick={handleOpenMatter}
-                className={`relative w-9 h-9 rounded-2xl flex items-center justify-center transition-colors border ${
-                  showMatter
-                    ? 'bg-accent/20 text-accent border-accent/50'
-                    : 'bg-background text-accent border-accent/30 hover:bg-accent/10'
-                }`}
-                title={t('sidebar.matter')}
-              >
-                <Radar className="w-4 h-4" />
-                {matterBadgeCount > 0 ? (
-                  <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] px-0.5 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center">
-                    {matterBadgeCount > 9 ? '9+' : matterBadgeCount}
-                  </span>
-                ) : null}
-              </button>
-            ) : null}
-            <button
-              type="button"
-              onClick={handleOpenWorkflows}
-              className={`relative w-9 h-9 rounded-2xl flex items-center justify-center transition-colors border ${
-                showWorkflows
-                  ? 'bg-accent/20 text-accent border-accent/50'
-                  : 'bg-background text-accent border-accent/30 hover:bg-accent/10'
-              }`}
-              title={t('sidebar.workflows')}
-            >
-              <Workflow className="w-4 h-4" />
+              <WorkspaceIcon className="h-4 w-4" />
             </button>
             <button
               type="button"
+              onClick={handleNewSession}
+              title={`${t('nav.newChat')} (${MOD}N)`}
+              aria-label={t('nav.newChat')}
+              className="mt-1 flex h-9 w-9 items-center justify-center rounded-lg bg-accent text-white transition-colors hover:bg-accent-hover"
+            >
+              <Plus className="h-4 w-4" />
+            </button>
+            <SidebarRailButton
+              icon={Ghost}
+              label={t('sidebar.incognitoTask')}
+              onClick={handleIncognitoSession}
+              dashed
+            />
+          </div>
+          <div className="mt-3 flex flex-col items-center gap-1 border-t border-border-subtle pt-3">
+            <SidebarRailButton
+              icon={Radar}
+              label={t('nav.today')}
+              active={showToday}
+              badge={matterEnabled ? matterBadgeCount : 0}
+              onClick={handleOpenMatter}
+            />
+            <SidebarRailButton
+              icon={CircleDashed}
+              label={t('nav.followUps')}
+              active={showLoops}
+              badge={loopsBadgeCount}
               onClick={handleOpenLoops}
-              className={`relative w-9 h-9 rounded-2xl flex items-center justify-center transition-colors border ${
-                showLoops
-                  ? 'bg-accent/20 text-accent border-accent/50'
-                  : 'bg-background text-accent border-accent/30 hover:bg-accent/10'
-              }`}
-              title={t('sidebar.loops')}
-            >
-              <CircleDashed className="w-4 h-4" />
-              {loopsBadgeCount > 0 ? (
-                <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] px-0.5 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center">
-                  {loopsBadgeCount > 9 ? '9+' : loopsBadgeCount}
-                </span>
-              ) : null}
-            </button>
-            {user ? (
-              <div className="w-9 h-9 flex items-center justify-center" title={user.name}>
-                <SidebarUserAvatar
-                  name={user.name}
-                  image={user.image}
-                  className="w-9 h-9 text-[12px]"
-                />
-              </div>
-            ) : null}
-            <button
-              type="button"
-              onClick={handleOpenSettings}
-              className="w-9 h-9 rounded-2xl flex items-center justify-center hover:bg-surface-hover transition-colors text-text-secondary"
-              title={t('sidebar.settings')}
-            >
-              <Settings className="w-4 h-4" />
-            </button>
+            />
+            <SidebarRailButton
+              icon={Workflow}
+              label={t('nav.automations')}
+              active={showWorkflows}
+              onClick={handleOpenWorkflows}
+            />
+          </div>
+          <div className="flex-1" />
+          <div className="flex flex-col items-center gap-1">
             <SidebarUpdateButton compact />
+            <Menu
+              side="top"
+              align="left"
+              items={newChatMenu}
+              trigger={({ toggle }) => (
+                <SidebarRailButton icon={MoreHorizontal} label={t('nav.more')} onClick={toggle} />
+              )}
+            />
+            <SidebarRailButton
+              icon={Settings}
+              label={t('sidebar.settings')}
+              onClick={handleOpenSettings}
+            />
             <button
               type="button"
               onClick={toggleTheme}
-              className="w-9 h-9 rounded-2xl flex items-center justify-center hover:bg-surface-hover transition-colors text-text-secondary"
+              className="flex h-9 w-9 items-center justify-center rounded-lg text-text-secondary transition-colors hover:bg-surface-hover"
               title={t('sidebar.themeToggle')}
             >
               {themeIcon}
             </button>
             {user ? (
-              <button
-                type="button"
-                onClick={() => void logout()}
-                className="w-9 h-9 rounded-2xl flex items-center justify-center hover:bg-surface-hover transition-colors text-text-secondary"
-                title={t('sidebar.signOut')}
-              >
-                <LogOut className="w-4 h-4" />
-              </button>
+              <>
+                <div className="flex h-9 w-9 items-center justify-center" title={user.name}>
+                  <SidebarUserAvatar
+                    name={user.name}
+                    image={user.image}
+                    className="h-7 w-7 text-[10px]"
+                  />
+                </div>
+                <SidebarRailButton
+                  icon={LogOut}
+                  label={t('sidebar.signOut')}
+                  onClick={() => void logout()}
+                />
+              </>
             ) : null}
           </div>
         </aside>
@@ -1162,109 +1199,87 @@ export function Sidebar() {
 
   return (
     <>
-      <aside className="relative z-20 flex w-[17.5rem] shrink-0 flex-col overflow-hidden border-r border-border-muted bg-surface/96">
-        <div className="px-3 pt-3 pb-2 border-b border-border-muted">
-          <div className="flex items-start justify-between gap-2">
-            <button
-              type="button"
-              onClick={handleGoHome}
-              className="min-w-0 flex items-center gap-2 rounded-lg text-left hover:opacity-90 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
-              title={t('sidebar.home')}
-              aria-label={t('sidebar.home')}
-            >
-              <img
-                src={sidebarLogoSrc}
-                alt={t('common.appLogoAlt')}
-                className="w-8 h-8 object-contain flex-shrink-0"
-              />
-              <div className="min-w-0">
-                <h1 className="text-[1.125rem] leading-tight font-semibold tracking-[-0.03em] text-text-primary">
-                  York GrowthOS
-                </h1>
-              </div>
-            </button>
+      <aside className="relative z-20 flex w-[16.5rem] shrink-0 flex-col overflow-hidden border-r border-border-subtle bg-background-secondary">
+        <div className="px-2.5 pb-2 pt-2.5">
+          <div className="flex items-center gap-1">
+            <div className="min-w-0 flex-1">
+              <DivisionSwitcher variant="header" />
+            </div>
             <button
               onClick={toggleSidebar}
-              className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-surface-hover transition-colors text-text-secondary flex-shrink-0"
+              className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-surface-hover hover:text-text-primary"
               title={t('context.collapsePanel')}
+              aria-label={t('context.collapsePanel')}
             >
-              <ChevronLeft className="w-4 h-4" />
+              <ChevronLeft className="h-4 w-4" />
             </button>
           </div>
 
-          <div className="mt-2 space-y-2">
-            <NextUpMeeting />
+          <div className="mt-2.5 flex h-8 items-stretch gap-1">
+            <button
+              type="button"
+              onClick={handleNewSession}
+              className="flex flex-1 items-center gap-2 rounded-md bg-accent px-2.5 text-[13px] font-semibold text-white transition-colors hover:bg-accent-hover"
+              title={`${t('nav.newChat')} (${MOD}N)`}
+            >
+              <Plus className="h-4 w-4" />
+              <span className="flex-1 text-left">{t('nav.newChat')}</span>
+              <span className="text-[11px] font-medium text-white/70">{MOD}N</span>
+            </button>
+            <Menu
+              items={newChatMenu}
+              align="right"
+              trigger={({ toggle, open }) => (
+                <button
+                  type="button"
+                  onClick={toggle}
+                  aria-expanded={open}
+                  aria-label={t('nav.newChatOptions')}
+                  title={t('nav.newChatOptions')}
+                  className="flex h-full w-8 items-center justify-center rounded-md border border-border-subtle text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+                >
+                  <ChevronDown className="h-3.5 w-3.5" />
+                </button>
+              )}
+            />
           </div>
 
-          <div className="mt-2 px-0.5">
-            <DivisionSwitcher variant="header" />
-          </div>
+          <nav className="mt-2.5 space-y-0.5" aria-label={t('nav.label')}>
+            <SidebarNavItem
+              icon={Radar}
+              label={t('nav.today')}
+              hint={t('nav.todayHint')}
+              shortcut={`${MOD}1`}
+              active={showToday}
+              badge={matterEnabled ? matterBadgeCount : 0}
+              onClick={handleOpenMatter}
+            />
+            <SidebarNavItem
+              icon={CircleDashed}
+              label={t('nav.followUps')}
+              hint={t('nav.followUpsHint')}
+              shortcut={`${MOD}2`}
+              active={showLoops}
+              badge={loopsBadgeCount}
+              onClick={handleOpenLoops}
+            />
+            <SidebarNavItem
+              icon={Workflow}
+              label={t('nav.automations')}
+              hint={t('nav.automationsHint')}
+              shortcut={`${MOD}3`}
+              active={showWorkflows}
+              onClick={handleOpenWorkflows}
+            />
+          </nav>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-2 pb-2 pt-2">
-          <div className="mb-1.5 space-y-1.5">
-            <div className="flex h-8 gap-1">
-              <button
-                onClick={handleNewSession}
-                className="flex h-full flex-1 items-center justify-center rounded-lg border border-border-subtle bg-background text-text-primary transition-colors hover:bg-surface-hover"
-                aria-label={t('sidebar.newTask')}
-                title={t('sidebar.newTask')}
-              >
-                <Plus className="w-4 h-4" />
-              </button>
-              <button
-                onClick={handleIncognitoSession}
-                className="flex h-full flex-1 items-center justify-center rounded-lg border border-dashed border-border-subtle bg-background/60 text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
-                aria-label={t('sidebar.incognitoTask')}
-                title={t('sidebar.incognitoTask')}
-              >
-                <Ghost className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => void handleImportChat()}
-                disabled={!isElectron || importing}
-                className="flex h-full flex-1 items-center justify-center rounded-lg border border-border-subtle bg-background/60 text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary disabled:opacity-50"
-                aria-label={t('sidebar.importChat')}
-                title={t('sidebar.importChat')}
-              >
-                <FileDown className={`w-4 h-4 ${importing ? 'animate-pulse' : ''}`} />
-              </button>
-              <button
-                onClick={handleJoinSharedChat}
-                disabled={!isElectron}
-                className="flex h-full flex-1 items-center justify-center rounded-lg border border-border-subtle bg-background/60 text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary disabled:opacity-50"
-                aria-label={t('sidebar.joinSharedChat')}
-                title={t('sidebar.joinSharedChat')}
-              >
-                <Link2 className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="flex items-center gap-1.5">
-              <div className="relative flex-1 min-w-0">
-                <SearchIcon className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-muted" />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder={t('sidebar.search')}
-                  className="w-full h-8 rounded-lg border border-transparent bg-background pl-8 pr-2.5 text-[12px] text-text-primary placeholder:text-text-muted focus:outline-none focus:border-border transition-colors"
-                />
-              </div>
-              <button
-                onClick={() => setSearchAllWorkspaces((prev) => !prev)}
-                className={`h-8 shrink-0 rounded-lg border px-2 text-[10px] font-medium transition-colors ${
-                  searchAllWorkspaces
-                    ? 'border-accent/40 bg-accent/10 text-accent'
-                    : 'border-border-subtle text-text-muted hover:bg-surface-hover hover:text-text-secondary'
-                }`}
-                title={
-                  searchAllWorkspaces ? 'Searching all workspaces' : 'Searching this workspace only'
-                }
-                type="button"
-              >
-                {searchAllWorkspaces ? 'All' : 'Here'}
-              </button>
+        <div className="flex-1 overflow-y-auto px-2 pb-2">
+          <div className="sticky top-0 z-10 mb-1 space-y-1.5 bg-background-secondary pb-1 pt-2">
+            <div className="flex items-center gap-1 px-1">
+              <span className="flex-1 text-[11px] font-bold uppercase tracking-[0.05em] text-text-muted">
+                {t('nav.chats')}
+              </span>
               <button
                 onClick={() => {
                   if (isSelectMode) {
@@ -1273,14 +1288,39 @@ export function Sidebar() {
                     setIsSelectMode(true);
                   }
                 }}
-                className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors ${
+                className={`flex h-6 w-6 items-center justify-center rounded-md transition-colors ${
                   isSelectMode
                     ? 'bg-accent text-white'
-                    : 'text-text-secondary hover:text-text-primary hover:bg-surface-hover'
+                    : 'text-text-muted hover:bg-surface-hover hover:text-text-primary'
                 }`}
                 title={t('sidebar.manage')}
+                aria-label={t('sidebar.manage')}
               >
-                <ListChecks className="w-3.5 h-3.5" />
+                <ListChecks className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            <div className="flex items-center gap-1">
+              <div className="relative min-w-0 flex-1">
+                <SearchIcon className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder={t('sidebar.search')}
+                  className="h-7 w-full rounded-md border border-transparent bg-surface pl-8 pr-2.5 text-[12px] text-text-primary transition-colors placeholder:text-text-muted focus:border-border focus:outline-none"
+                />
+              </div>
+              <button
+                onClick={() => setSearchAllWorkspaces((prev) => !prev)}
+                className={`h-7 shrink-0 rounded-md border px-2 text-[10.5px] font-medium transition-colors ${
+                  searchAllWorkspaces
+                    ? 'border-accent/40 bg-accent-muted text-accent-text'
+                    : 'border-border-subtle text-text-muted hover:bg-surface-hover hover:text-text-secondary'
+                }`}
+                title={searchAllWorkspaces ? t('palette.scopeAllHint') : t('palette.scopeHereHint')}
+                type="button"
+              >
+                {searchAllWorkspaces ? t('palette.scopeAll') : t('palette.scopeHere')}
               </button>
             </div>
           </div>
@@ -1790,47 +1830,20 @@ export function Sidebar() {
             )}
           </div>
         ) : (
-          <div className="px-2 py-2 border-t border-border-muted space-y-1.5">
-            <div className="flex items-stretch gap-0.5 rounded-xl border border-border-subtle bg-background/50 p-0.5">
-              {matterEnabled ? (
-                <SidebarFeatureTab
-                  icon={Radar}
-                  label={t('sidebar.matter')}
-                  hint={t('sidebar.matterHint')}
-                  active={showMatter}
-                  badge={matterBadgeCount}
-                  onClick={handleOpenMatter}
-                />
-              ) : null}
-              <SidebarFeatureTab
-                icon={Workflow}
-                label={t('sidebar.workflows')}
-                hint={t('sidebar.workflowsHint')}
-                active={showWorkflows}
-                onClick={handleOpenWorkflows}
-              />
-              <SidebarFeatureTab
-                icon={CircleDashed}
-                label={t('sidebar.loops')}
-                hint={t('sidebar.loopsHint')}
-                active={showLoops}
-                badge={loopsBadgeCount}
-                onClick={handleOpenLoops}
-              />
-            </div>
-            <div className="flex items-center gap-1.5 rounded-xl bg-background/50 px-2 py-1.5">
+          <div className="border-t border-border-subtle px-2 py-2">
+            <div className="flex items-center gap-1.5 rounded-md px-1.5 py-1">
               {user ? (
                 <>
                   <SidebarUserAvatar
                     name={user.name}
                     image={user.image}
-                    className="w-7 h-7 text-[10px]"
+                    className="h-7 w-7 text-[10px]"
                   />
                   <div className="min-w-0 flex-1">
-                    <div className="text-[12px] font-medium text-text-primary truncate leading-tight">
+                    <div className="truncate text-[12.5px] font-medium leading-tight text-text-primary">
                       {user.name}
                     </div>
-                    <div className="text-[10px] text-text-muted truncate leading-tight">
+                    <div className="truncate text-[10.5px] leading-tight text-text-muted">
                       {user.email}
                     </div>
                   </div>
@@ -1841,16 +1854,18 @@ export function Sidebar() {
               <button
                 type="button"
                 onClick={handleOpenSettings}
-                className="w-7 h-7 rounded-lg flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-surface-hover transition-colors flex-shrink-0"
-                title={t('sidebar.settings')}
+                className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
+                title={`${t('sidebar.settings')} (${MOD},)`}
+                aria-label={t('sidebar.settings')}
               >
-                <Settings className="w-3.5 h-3.5" />
+                <Settings className="h-3.5 w-3.5" />
               </button>
               <button
                 type="button"
                 onClick={toggleTheme}
-                className="w-7 h-7 rounded-lg flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-surface-hover transition-colors flex-shrink-0"
+                className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
                 title={t('sidebar.themeToggle')}
+                aria-label={t('sidebar.themeToggle')}
               >
                 {themeIcon}
               </button>
@@ -1858,10 +1873,11 @@ export function Sidebar() {
                 <button
                   type="button"
                   onClick={() => void logout()}
-                  className="w-7 h-7 rounded-lg flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-surface-hover transition-colors flex-shrink-0"
+                  className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
                   title={t('sidebar.signOut')}
+                  aria-label={t('sidebar.signOut')}
                 >
-                  <LogOut className="w-3.5 h-3.5" />
+                  <LogOut className="h-3.5 w-3.5" />
                 </button>
               ) : null}
             </div>

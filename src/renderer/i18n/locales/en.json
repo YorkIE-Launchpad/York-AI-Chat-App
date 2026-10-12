@@ -1334,7 +1334,43 @@
     "sharedDocsList": "Shared documents",
     "sharedDocsEmpty": "No shared documents yet",
     "sharedDocsOpen": "Open",
-    "exportIncognitoBlocked": "Incognito chats cannot be exported"
+    "exportIncognitoBlocked": "Incognito chats cannot be exported",
+    "steps": {
+      "running": "Working · step {{step}} of {{count}} · {{label}}",
+      "checkedSources_one": "Checked {{count}} source · {{steps}} steps",
+      "checkedSources_other": "Checked {{count}} sources · {{steps}} steps",
+      "ranSteps_one": "Ran {{count}} step",
+      "ranSteps_other": "Ran {{count}} steps",
+      "inTime": "in {{time}}",
+      "failed_one": "{{count}} failed",
+      "failed_other": "{{count}} failed"
+    },
+    "draft": {
+      "kind": "Draft",
+      "kindVia": "{{via}} draft",
+      "to": "to {{recipient}}",
+      "subject": "Subject",
+      "body": "Draft message",
+      "copy": "Copy",
+      "reset": "Undo edits",
+      "send": "Send",
+      "sendVia": "Send via {{via}}",
+      "sent": "Sent to chat",
+      "sendHint": "Asks GrowthOS to send exactly this text. You'll confirm before anything goes out.",
+      "note": "Edit freely. Nothing is sent until you click Send and approve it.",
+      "sendPrompt": "Send this exact draft via {{via}} to {{recipient}}. Do not rewrite it.",
+      "defaultChannel": "the right app",
+      "sameRecipient": "the same recipient"
+    },
+    "empty": {
+      "title": "What should we work on?",
+      "hint": "Ask about a client, a person, a meeting or your inbox. Type / for skills or @ to mention one."
+    },
+    "attach": {
+      "files": "Files",
+      "fromTools": "From your tools",
+      "skills": "Skills"
+    }
   },
   "context": {
     "progress": "Progress",
@@ -1780,6 +1816,18 @@
       "execute_command": "Execute shell commands in the workspace",
       "glob": "Search files by pattern",
       "grep": "Search file contents"
+    },
+    "draft": {
+      "title": "Review before sending",
+      "paused": "Countdown paused while you edit.",
+      "details": "Show full details ({{tool}})",
+      "edited_one": "{{count}} field edited",
+      "edited_other": "{{count}} fields edited",
+      "nothingSent": "Nothing is sent until you click Send.",
+      "dontSend": "Don't send",
+      "send": "Send",
+      "sendHint": "Send (⌘Enter)",
+      "alwaysSend": "Always allow this tool"
     }
   },
   "whatsNew": {
@@ -1872,5 +1920,300 @@
     "completed": "Completed",
     "inDuration": "in {{duration}}",
     "showResult": "Show result"
+  },
+  "nav": {
+    "label": "Main navigation",
+    "today": "Today",
+    "todayHint": "What needs you, your schedule and the radar",
+    "followUps": "Follow-ups",
+    "followUpsHint": "Things you owe and things you're waiting on",
+    "automations": "Automations",
+    "automationsHint": "Workflows and scheduled tasks",
+    "chats": "Chats",
+    "newChat": "New chat",
+    "newChatOptions": "More ways to start a chat",
+    "more": "More",
+    "settings": "Settings",
+    "selectWorkspace": "Workspace",
+    "workspaceTitle": "Workspace: {{name}}",
+    "back": "Back",
+    "forward": "Forward"
+  },
+  "today": {
+    "greeting": {
+      "morning": "Good morning, {{name}}",
+      "afternoon": "Good afternoon, {{name}}",
+      "evening": "Good evening, {{name}}",
+      "morningNoName": "Good morning",
+      "afternoonNoName": "Good afternoon",
+      "eveningNoName": "Good evening"
+    },
+    "lastChecked": "last checked {{when}}",
+    "newChatsIn": "New chats in {{workspace}}",
+    "pickWorkspace": "Pick a workspace to see what needs you today.",
+    "brief": {
+      "needYou_one": "{{count}} thing needs you now.",
+      "needYou_other": "{{count}} things need you now.",
+      "nothingUrgent": "Nothing urgent right now.",
+      "disabled": "Turn on the briefing to see what needs you across your apps."
+    },
+    "suggest": {
+      "prepMeeting": "Prep my {{time}} · {{title}}",
+      "timesheet": "Draft this week's timesheet",
+      "slack": "Catch me up on Slack",
+      "whoIsOut": "Who's out this week?"
+    },
+    "orbit": {
+      "now": "Now",
+      "today": "Today",
+      "week": "This week",
+      "watching": "Watching"
+    },
+    "radar": {
+      "label": "Matter radar",
+      "aria": "Matter radar: the closer to the center, the sooner it needs you",
+      "core": "Need you",
+      "captionTitle": "Closer to the center needs you sooner.",
+      "captionHint": "Hover a blip to see what it is; click to open it.",
+      "more_one": "{{count}} more item",
+      "more_other": "{{count}} more items"
+    },
+    "tabs": {
+      "needs": "Needs you",
+      "meetings": "Meetings",
+      "opportunities": "Opportunities"
+    },
+    "action": {
+      "draftReply": "Draft reply",
+      "investigate": "Investigate",
+      "prep": "Prep me",
+      "helpMe": "Help me",
+      "later": "Later",
+      "more": "More actions",
+      "details": "Details",
+      "done": "Mark done",
+      "addToFollowUps": "Add to Follow-ups",
+      "inFollowUps": "Already in Follow-ups",
+      "pin": "Pin",
+      "unpin": "Unpin",
+      "openIn": "Open in {{source}}",
+      "dismiss": "Dismiss",
+      "dismissMute": "Dismiss and mute similar"
+    },
+    "tag": {
+      "urgent": "Urgent",
+      "attention": "Needs attention"
+    },
+    "inFollowUps": "In Follow-ups",
+    "due": {
+      "overdueMinutes_one": "{{count}} min overdue",
+      "overdueMinutes_other": "{{count}} min overdue",
+      "overdueHours_one": "{{count}} hour overdue",
+      "overdueHours_other": "{{count}} hours overdue",
+      "overdueDays_one": "{{count}} day overdue",
+      "overdueDays_other": "{{count}} days overdue",
+      "inMinutes_one": "due in {{count}} min",
+      "inMinutes_other": "due in {{count}} min",
+      "inHours_one": "due in {{count}} hour",
+      "inHours_other": "due in {{count}} hours",
+      "onDate": "due {{date}}"
+    },
+    "source": {
+      "gmail": "Gmail",
+      "slack": "Slack",
+      "jira": "Jira",
+      "calendar": "Calendar",
+      "meeting": "Meetings",
+      "drive": "Drive",
+      "hub": "Hub",
+      "launchpad": "LaunchPad",
+      "fused": "GrowthOS"
+    },
+    "severity": {
+      "critical": "Critical",
+      "warning": "Warning",
+      "healthy": "Healthy",
+      "signal": "Signal"
+    },
+    "lensStatus": {
+      "ACTIVE": "Active",
+      "MONITORING": "Monitoring",
+      "CLEAR": "Clear",
+      "COORDINATING": "Coordinating"
+    },
+    "filter": {
+      "label": "Filter",
+      "all": "All",
+      "clear": "Clear filter"
+    },
+    "ranking": {
+      "button": "How this was ranked",
+      "title": "How this was ranked",
+      "body": "Items are ranked by urgency, who's waiting on you, due dates and how often you act on similar things. Pick a lens to filter the list.",
+      "focusScore": "Focus score"
+    },
+    "checkNow": "Check now",
+    "checking": "Checking…",
+    "clearNow": "Clear Now",
+    "settings": "Briefing settings",
+    "empty": {
+      "clearTitle": "You're clear",
+      "clearBody": "Nothing needs you right now. We'll keep watching your apps.",
+      "filtered": "Nothing matches this filter.",
+      "scanning": "Checking your apps…",
+      "noAppsTitle": "Connect your apps",
+      "noAppsBody": "Connect Gmail, Slack, Jira or Calendar so GrowthOS can tell you what needs you.",
+      "connect": "Connect apps"
+    },
+    "meetingsChecked": "Checked {{when}}",
+    "rail": {
+      "nextUp": "Next up",
+      "noMeetings": "No more meetings today.",
+      "calendarOff": "Connect Google Calendar to see your schedule.",
+      "openPrep": "Open prep",
+      "prepMe": "Prep me",
+      "openEvent": "Open event",
+      "schedule": "Schedule",
+      "scheduleEmpty": "Nothing else on the calendar today.",
+      "waitingOn": "Waiting on others",
+      "waitingEmpty": "No one owes you anything right now.",
+      "seeAll": "See all {{count}}"
+    },
+    "disabledTitle": "Briefing is off",
+    "disabledBody": "Turn on the briefing to see what needs you across Gmail, Slack, Jira, Calendar and Hub.",
+    "disabledCta": "Turn on briefing",
+    "justNow": "just now",
+    "minutesAgo_one": "{{count}} min ago",
+    "minutesAgo_other": "{{count}} min ago",
+    "hoursAgo_one": "{{count}} hour ago",
+    "hoursAgo_other": "{{count}} hours ago",
+    "daysAgo_one": "{{count}} day ago",
+    "daysAgo_other": "{{count}} days ago",
+    "never": "never"
+  },
+  "health": {
+    "pill": {
+      "title": "Tools status",
+      "ok_one": "{{count}} tool ready",
+      "ok_other": "{{count}} tools ready",
+      "connecting": "Connecting tools…",
+      "degraded_one": "{{count}} tool down",
+      "degraded_other": "{{count}} tools down",
+      "none": "No tools connected"
+    },
+    "popover": {
+      "title": "Tools",
+      "summaryOk": "{{count}} apps connected · {{tools}} tools ready",
+      "summaryConnecting_one": "Connecting {{count}} app…",
+      "summaryConnecting_other": "Connecting {{count}} apps…",
+      "summaryDegraded": "{{failed}} not working · {{connected}} connected",
+      "empty": "No apps connected yet.",
+      "checked": "Checked {{when}}",
+      "refresh": "Refresh",
+      "manage": "Manage apps & data"
+    },
+    "server": {
+      "tools_one": "{{count}} tool",
+      "tools_other": "{{count}} tools",
+      "connecting": "Connecting…",
+      "failed": "Not working.",
+      "off": "Off",
+      "signedIn": "Signed in",
+      "notConnected": "Not connected"
+    },
+    "impact": {
+      "jira": "Jira issues and Confluence pages won't be checked.",
+      "slack": "Slack messages won't be read or sent.",
+      "gmail": "Email won't be read or drafted.",
+      "calendar": "Your schedule and meeting prep won't update.",
+      "google": "Google Drive and Docs won't be searched.",
+      "hub": "Hub data (people, projects, leave) isn't available.",
+      "launchpad": "LaunchPad projects can't be checked.",
+      "generic": "Answers that need this app may be incomplete."
+    },
+    "note": {
+      "connecting_one": "Connecting {{count}} tool — answers may be incomplete for a moment.",
+      "connecting_other": "Connecting {{count}} tools — answers may be incomplete for a moment.",
+      "connectingNamed": "Connecting {{names}}…",
+      "oneFailed": "{{name}} isn't working. {{impact}}",
+      "manyFailed_one": "{{count}} tool isn't working: {{names}}.",
+      "manyFailed_other": "{{count}} tools aren't working: {{names}}.",
+      "chatOneFailed": "{{name}} is down — answers that need it may be incomplete.",
+      "chatManyFailed_one": "{{count}} tool is down — some answers may be incomplete.",
+      "chatManyFailed_other": "{{count}} tools are down — some answers may be incomplete."
+    },
+    "retry": "Retry",
+    "retryAll": "Retry all",
+    "retrying": "Retrying…",
+    "connect": "Connect"
+  },
+  "palette": {
+    "title": "Search and commands",
+    "trigger": "Search or ask…",
+    "placeholder": "Ask anything, jump to a page, or search chats…",
+    "empty": "No matches.",
+    "askQuery": "Ask: {{query}}",
+    "askIn": "Starts a chat in {{workspace}}",
+    "appsAndData": "Apps & data",
+    "checkNow": "Check my apps now",
+    "newChat": "New chat",
+    "newPrivateChat": "New private chat",
+    "toggleTheme": "Toggle light / dark",
+    "scopeHere": "Here",
+    "scopeAll": "All",
+    "scopeHereHint": "Search chats in this workspace",
+    "scopeAllHint": "Search chats in every workspace",
+    "section": {
+      "ask": "Ask",
+      "jump": "Jump to",
+      "recent": "Recent chats",
+      "chatResults": "Chats",
+      "actions": "Actions"
+    },
+    "footer": {
+      "move": "move",
+      "open": "open",
+      "anywhere": "{{shortcut}} to ask from anywhere"
+    }
+  },
+  "followUps": {
+    "title": "Follow-ups",
+    "subtitle": "What you owe people, and what people owe you.",
+    "tabMine": "I owe",
+    "tabWaiting": "Waiting on others",
+    "tabClosed": "Done",
+    "quickAddPlaceholder": "Add a follow-up… e.g. “Send Dana the pricing by Friday”",
+    "quickAddHint": "Dates like “tomorrow” or “by Friday” are picked up automatically.",
+    "willAdd": "Will add:",
+    "noDue": "no due date",
+    "iOwe": "I owe",
+    "waitingOn": "Waiting on",
+    "add": "Add"
+  },
+  "automations": {
+    "title": "Automations",
+    "subtitle": "Workflows and scheduled tasks that run for you.",
+    "tabWorkflows": "Workflows",
+    "tabSchedules": "Scheduled"
+  },
+  "settingsNav": {
+    "groupYou": "You",
+    "groupConnections": "Connections",
+    "groupAssistant": "Assistant",
+    "groupAdvanced": "Advanced",
+    "preferences": "Preferences",
+    "appsAndData": "Apps & data",
+    "briefing": "Briefing & alerts",
+    "logs": "Logs & diagnostics"
+  },
+  "inspector": {
+    "label": "Inspector",
+    "preview": "Preview",
+    "context": "Context",
+    "sources": "Sources",
+    "files": "Files",
+    "noSources": "No sources yet",
+    "noSourcesHint": "Links the assistant cites in this chat show up here, grouped by question.",
+    "untitledQuestion": "Question"
   }
 }

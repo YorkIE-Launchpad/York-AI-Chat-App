@@ -7302,8 +7302,15 @@ async function handleClientEvent(event: ClientEvent): Promise<unknown> {
         pending(decision);
         return { success: true };
       }
-      return sm.handlePermissionResponse(event.payload.toolUseId, event.payload.result);
+      return sm.handlePermissionResponse(
+        event.payload.toolUseId,
+        event.payload.result,
+        event.payload.editedInput
+      );
     }
+
+    case 'permission.hold':
+      return sm.holdPermission(event.payload.toolUseId);
 
     case 'question.response':
       return sm.handleQuestionResponse(event.payload.questionId, event.payload.answer);

@@ -11,6 +11,7 @@
  *
  * Dependencies: config-store (via mcp-config-store)
  */
+import type { McpServerStatus } from '../../shared/ipc-types';
 import {
   Client,
   SSEClientTransport,
@@ -375,6 +376,29 @@ export function findPreferredWindowsNpxPath(
 /**
  * MCP Manager - Manages connections to MCP servers and exposes their tools
  */
+type TrackedConnectionStatus = 'connecting' | 'connected' | 'failed';
+
+/** Connection status map that also records when each server's status last changed. */
+class TimedStatusMap extends Map<string, TrackedConnectionStatus> {
+  readonly changedAt = new Map<string, number>();
+
+  override set(key: string, value: TrackedConnectionStatus): this {
+    this.changedAt?.set(key, Date.now());
+    return super.set(key, value);
+  }
+
+  override delete(key: string): boolean {
+    this.changedAt?.delete(key);
+    return super.delete(key);
+  }
+}
+
+function summarizeConnectError(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error);
+  const firstLine = raw.split('\n')[0]?.trim() || 'Connection failed';
+  return firstLine.length > 160 ? `${firstLine.slice(0, 157)}…` : firstLine;
+}
+
 export class MCPManager {
   private clients: Map<string, Client> = new Map();
   private transports: Map<string, MCPTransport> = new Map();
@@ -408,7 +432,9 @@ export class MCPManager {
   // Server IDs allowed to open a browser for OAuth during the current connect
   private pendingInteractiveOAuth = new Set<string>();
   // Tracks per-server connection status for UI display
-  private connectionStatus = new Map<string, 'connecting' | 'connected' | 'failed'>();
+  private connectionStatus = new TimedStatusMap();
+  /** Last connect error per server, cleared once the server connects. */
+  private lastConnectError = new Map<string, string>();
   /**
    * Servers whose tool list was restored from disk (or saved after a live listTools).
    * These stay "connected" for the UI while the real transport connects in the background.
@@ -1125,6 +1151,7 @@ export class MCPManager {
         });
       }
       this.connectionStatus.set(config.id, 'connected');
+      this.lastConnectError.delete(config.id);
       this.serversReadyFromCache.add(config.id);
       restored.add(config.id);
       log(`[MCPManager] Restored ${cached.tools.length} cached tools for ${config.name}`);
@@ -1190,6 +1217,7 @@ export class MCPManager {
       // Do not mark 'connected' here — that requires a non-empty tool list via refreshTools
       this.cancelConnectRetry(config.id);
     } catch (error) {
+      this.lastConnectError.set(config.id, summarizeConnectError(error));
       if (isMcpOAuthNonRetryableError(error)) {
         this.discardCachedCatalog(config.id);
         this.connectionStatus.set(config.id, 'failed');
@@ -2531,6 +2559,7 @@ export class MCPManager {
           this.tools.set(tool.name, tool);
         }
         this.connectionStatus.set(serverId, 'connected');
+        this.lastConnectError.delete(serverId);
         this.startConnectRetryLoop(config);
         continue;
       }
@@ -2956,20 +2985,8 @@ export class MCPManager {
   /**
    * Get server status
    */
-  getServerStatus(): Array<{
-    id: string;
-    name: string;
-    connected: boolean;
-    status: 'connecting' | 'connected' | 'failed' | 'disabled';
-    toolCount: number;
-  }> {
-    const status: Array<{
-      id: string;
-      name: string;
-      connected: boolean;
-      status: 'connecting' | 'connected' | 'failed' | 'disabled';
-      toolCount: number;
-    }> = [];
+  getServerStatus(): McpServerStatus[] {
+    const status: McpServerStatus[] = [];
 
     for (const [serverId, config] of this.serverConfigs.entries()) {
       const liveConnected = this.clients.has(serverId);
@@ -3003,12 +3020,23 @@ export class MCPManager {
         connected = false;
       }
 
+      let lastError: string | undefined;
+      if (serverStatus === 'failed') {
+        lastError =
+          this.lastConnectError.get(serverId) ??
+          (liveConnected && toolCount === 0 ? 'Connected but returned no tools' : undefined);
+      }
+
       status.push({
         id: serverId,
         name: config.name,
         connected: serverStatus === 'connected' && toolCount > 0 && (connected || catalogReady),
         status: serverStatus,
         toolCount,
+        ...(lastError ? { lastError } : {}),
+        ...(this.connectionStatus.changedAt.has(serverId)
+          ? { lastCheckedAt: this.connectionStatus.changedAt.get(serverId) }
+          : {}),
       });
     }
 

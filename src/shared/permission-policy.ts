@@ -70,3 +70,34 @@ export function truncatePermissionInputPreview(
 
   return out;
 }
+
+/**
+ * Applies user edits from the approval dialog onto the tool input in place (the agent
+ * executes with this same object). Only string fields that already exist — top level or
+ * one object level deep — may change, so edits can never add arguments or change types.
+ */
+export function applyPermissionEdits(
+  input: Record<string, unknown>,
+  edits: Record<string, unknown>
+): void {
+  for (const [key, value] of Object.entries(edits)) {
+    const current = input[key];
+    if (typeof current === 'string' && typeof value === 'string') {
+      input[key] = value;
+    } else if (
+      current &&
+      typeof current === 'object' &&
+      !Array.isArray(current) &&
+      value &&
+      typeof value === 'object' &&
+      !Array.isArray(value)
+    ) {
+      const nested = current as Record<string, unknown>;
+      for (const [nestedKey, nestedValue] of Object.entries(value as Record<string, unknown>)) {
+        if (typeof nested[nestedKey] === 'string' && typeof nestedValue === 'string') {
+          nested[nestedKey] = nestedValue;
+        }
+      }
+    }
+  }
+}

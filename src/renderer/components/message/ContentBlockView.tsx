@@ -36,6 +36,7 @@ import type {
 } from '../../types';
 import { Mic } from 'lucide-react';
 import { CodeBlock } from './CodeBlock';
+import { DraftBlock } from './DraftBlock';
 import { ThinkingBlock, escapeThinkTags } from './ThinkingBlock';
 import { ToolUseBlock } from './ToolUseBlock';
 import { ToolResultBlock } from './ToolResultBlock';
@@ -46,6 +47,8 @@ import { FileAttachmentBlock } from './FileAttachmentBlock';
 import { MemorySourceDetailPanel } from './MemorySourceDetailPanel';
 import { MeetingTranscriptBubble } from './MeetingTranscriptBubble';
 import { LiveAssistActivityBlock } from './LiveAssistActivityBlock';
+import { CitationChip, CitationList } from './Citations';
+import { CITE_PROTOCOL, linkCitationMarkers, splitSources } from '../../utils/citations';
 
 const MessageMarkdown = lazy(() =>
   import('../MessageMarkdown').then((module) => ({ default: module.MessageMarkdown }))
@@ -164,9 +167,33 @@ export const ContentBlockView = memo(function ContentBlockView({
     return renderFileMentionParts(parts, keyPrefix);
   };
 
+  const draftSessionId = isUser ? undefined : (message?.sessionId ?? activeSessionId ?? undefined);
+  const rawText = block.type === 'text' ? (block as { text?: string }).text || '' : '';
+  const citations = useMemo(
+    () => (isUser || !rawText ? null : splitSources(rawText)),
+    [isUser, rawText]
+  );
+  const citationSources = citations?.sources;
+  const openCitationUrl = (url?: string) => {
+    if (!url) return;
+    const memoryId = parseMemoryHref(url);
+    if (memoryId) {
+      setMemorySourceId(memoryId);
+      return;
+    }
+    if (/^https?:/i.test(url) && window.electronAPI?.openExternal) {
+      void window.electronAPI.openExternal(url);
+    }
+  };
   const markdownComponents = useMemo(
     () => ({
       a({ children, href }: { children?: React.ReactNode; href?: string }) {
+        if (href?.startsWith(CITE_PROTOCOL)) {
+          const n = Number(href.slice(CITE_PROTOCOL.length));
+          const source = citationSources?.find((c) => c.n === n);
+          if (!source) return <span>{children}</span>;
+          return <CitationChip source={source} onOpen={openCitationUrl} />;
+        }
         const memoryId = parseMemoryHref(href);
         if (memoryId) {
           return (
@@ -289,6 +316,15 @@ export const ContentBlockView = memo(function ContentBlockView({
           );
         }
 
+        if (match[1].toLowerCase() === 'draft') {
+          return (
+            <DraftBlock
+              raw={String(children).replace(/\n$/, '')}
+              sessionId={draftSessionId}
+              isStreaming={isStreaming}
+            />
+          );
+        }
         return <CodeBlock language={match[1]}>{String(children).replace(/\n$/, '')}</CodeBlock>;
       },
       p({ children }: { children?: React.ReactNode }) {
@@ -348,15 +384,28 @@ export const ContentBlockView = memo(function ContentBlockView({
       },
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [currentWorkingDir, sessionFileIndex, setGlobalNotice, t]
+    [
+      currentWorkingDir,
+      sessionFileIndex,
+      setGlobalNotice,
+      t,
+      draftSessionId,
+      isStreaming,
+      citationSources,
+    ]
   );
 
   switch (block.type) {
     case 'text': {
       const textBlock = block as { type: 'text'; text: string };
       const text = textBlock.text || '';
+      const sources = citations?.sources ?? [];
+      const answerText =
+        citations && sources.length > 0
+          ? linkCitationMarkers(citations.body, sources.length)
+          : text;
       const normalizedText = normalizeCitationMarkdownLinks(
-        normalizeLocalFileMarkdownLinks(normalizeLatexDelimiters(text))
+        normalizeLocalFileMarkdownLinks(normalizeLatexDelimiters(answerText))
       );
 
       if (!text) {
@@ -406,6 +455,7 @@ export const ContentBlockView = memo(function ContentBlockView({
               />
             </Suspense>
           </PanelErrorBoundary>
+          {sources.length > 0 && <CitationList sources={sources} onOpen={openCitationUrl} />}
           {memorySourceId && (
             <MemorySourceDetailPanel
               memoryId={memorySourceId}

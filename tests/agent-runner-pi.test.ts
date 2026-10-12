@@ -25,7 +25,10 @@ describe('CoworkAgentRunner York IE SDK integration', () => {
 
   it('uses standard markdown link guidance for sources citations', () => {
     expect(agentRunnerContent).toContain('<citation_requirements>');
-    expect(agentRunnerContent).toContain('you MUST end with a "Sources:" section.');
+    expect(agentRunnerContent).toContain(
+      'you MUST end with a numbered "Sources:" section and cite inline.'
+    );
+    expect(agentRunnerContent).toContain('1. [Title](https://example.com/real-url-from-tool)');
     expect(agentRunnerContent).toContain('Prefer standard Markdown links: [Title](https://...).');
     expect(agentRunnerContent).toContain('[Title](memory:{id})');
     expect(agentRunnerContent).toContain('/browse/{KEY}');

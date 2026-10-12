@@ -1620,8 +1620,15 @@ export function useIPC() {
     return window.electronAPI.collab.releaseTurn(sessionId);
   }, []);
 
+  const holdPermission = useCallback(
+    (toolUseId: string) => {
+      send({ type: 'permission.hold', payload: { toolUseId } });
+    },
+    [send]
+  );
+
   const respondToPermission = useCallback(
-    (toolUseId: string, result: PermissionResult) => {
+    (toolUseId: string, result: PermissionResult, editedInput?: Record<string, unknown>) => {
       const state = useAppStore.getState();
       const stillPending =
         state.pendingPermission?.toolUseId === toolUseId ||
@@ -1629,7 +1636,7 @@ export function useIPC() {
 
       send({
         type: 'permission.response',
-        payload: { toolUseId, result },
+        payload: editedInput ? { toolUseId, result, editedInput } : { toolUseId, result },
       });
 
       if (stillPending) {
@@ -1741,6 +1748,7 @@ export function useIPC() {
     acquireCollabTurn,
     releaseCollabTurn,
     respondToPermission,
+    holdPermission,
     respondToQuestion,
     respondToSudoPassword,
     selectFolder,

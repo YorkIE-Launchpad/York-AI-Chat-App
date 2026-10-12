@@ -29,7 +29,7 @@ describe('Claude-style workspace sidebar framing', () => {
   it('keeps a workspace kind icon on the collapsed rail', () => {
     const sidebar = fs.readFileSync(sidebarPath, 'utf8');
     expect(sidebar).toContain('workspaceKindIcon');
-    expect(sidebar).toContain('Workspace: ${workspaceName}');
+    expect(sidebar).toContain("t('nav.workspaceTitle', { name: workspaceName })");
   });
 
   it('DivisionSwitcher header variant shows identity vs select-workspace empty state', () => {

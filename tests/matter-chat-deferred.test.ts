@@ -4,10 +4,11 @@ import path from 'node:path';
 
 describe('Matter chat deferred send', () => {
   it('ChatView attaches Matter context on first send and clears the draft', () => {
-    const chatView = fs.readFileSync(
-      path.resolve(process.cwd(), 'src/renderer/components/ChatView.tsx'),
-      'utf8'
-    );
+    const chatDir = path.resolve(process.cwd(), 'src/renderer/components/chat');
+    const chatView = [
+      fs.readFileSync(path.resolve(process.cwd(), 'src/renderer/components/ChatView.tsx'), 'utf8'),
+      fs.readFileSync(path.join(chatDir, 'ChatEmptyState.tsx'), 'utf8'),
+    ].join('\n');
     expect(chatView).toContain('matterChatDraftBySessionId');
     expect(chatView).toContain('buildChatPrompt');
     expect(chatView).toContain('clearMatterChatDraft');

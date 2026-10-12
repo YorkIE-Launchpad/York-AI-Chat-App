@@ -102,7 +102,9 @@ function getSession(states: Record<string, SessionState>, sessionId: string): Se
   return states[sessionId] ?? DEFAULT_SESSION_STATE;
 }
 
-interface AppState {
+export type InspectorTab = 'preview' | 'context' | 'sources' | 'files';
+
+export interface AppState {
   // Sessions
   sessions: Session[];
   activeSessionId: string | null;
@@ -129,6 +131,12 @@ interface AppState {
   showMatter: boolean;
   showWorkflows: boolean;
   showLoops: boolean;
+  /** Which Follow-ups tab to show when the page next opens. */
+  followUpsTab: 'mine' | 'waiting' | 'closed';
+  /** Which Automations tab to show when the page next opens. */
+  automationsTab: 'workflows' | 'schedules';
+  /** Right-panel tab; 'preview' only applies while an HTML preview is open. */
+  inspectorTab: InspectorTab;
   settingsTab: string | null;
   matterBadgeCount: number;
   /** Open loops I own that are overdue or due today. */
@@ -284,6 +292,9 @@ interface AppState {
   setShowMatter: (show: boolean) => void;
   setShowWorkflows: (show: boolean) => void;
   setShowLoops: (show: boolean) => void;
+  setFollowUpsTab: (tab: 'mine' | 'waiting' | 'closed') => void;
+  setAutomationsTab: (tab: 'workflows' | 'schedules') => void;
+  setInspectorTab: (tab: InspectorTab) => void;
   setSettingsTab: (tab: string | null) => void;
   setMatterBadgeCount: (count: number) => void;
   setLoopsBadgeCount: (count: number) => void;
@@ -412,6 +423,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   showMatter: false,
   showWorkflows: false,
   showLoops: false,
+  followUpsTab: 'mine',
+  automationsTab: 'workflows',
+  inspectorTab: 'context',
   settingsTab: null,
   matterBadgeCount: 0,
   loopsBadgeCount: 0,
@@ -434,7 +448,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   globalNotice: null,
   workingDir: null,
   defaultWorkingDir: null,
-  activeDivision: loadActiveDivisionFromStorage(),
+  activeDivision: loadActiveDivisionFromStorage() ?? { kind: 'hub' },
   sandboxSetupProgress: null,
   isSandboxSetupComplete: false,
   sandboxSyncStatus: null,
@@ -962,11 +976,12 @@ export const useAppStore = create<AppState>((set, get) => ({
         ? { showSettings: true, showMatter: false, showWorkflows: false, showLoops: false }
         : { showSettings: false }
     ),
+  // Matter lives on Today (home): "show Matter" means go to Today.
   setShowMatter: (show) =>
     set(
       show
         ? {
-            showMatter: true,
+            showMatter: false,
             showSettings: false,
             showWorkflows: false,
             showLoops: false,
@@ -998,6 +1013,9 @@ export const useAppStore = create<AppState>((set, get) => ({
           }
         : { showLoops: false }
     ),
+  setFollowUpsTab: (tab) => set({ followUpsTab: tab }),
+  setAutomationsTab: (tab) => set({ automationsTab: tab }),
+  setInspectorTab: (tab) => set({ inspectorTab: tab }),
   setSettingsTab: (tab) => set({ settingsTab: tab }),
   setMatterBadgeCount: (count) => set({ matterBadgeCount: Math.max(0, count) }),
   setLoopsBadgeCount: (count) => set({ loopsBadgeCount: Math.max(0, count) }),
@@ -1014,7 +1032,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       matterFocusItemId: itemId,
       matterFocusMeetingId: null,
       matterFocusPrepFullscreen: false,
-      showMatter: true,
+      showMatter: false,
       showSettings: false,
       showWorkflows: false,
       showLoops: false,
@@ -1025,7 +1043,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       matterFocusMeetingId: meetingId,
       matterFocusItemId: null,
       matterFocusPrepFullscreen: Boolean(options?.prepFullscreen),
-      showMatter: true,
+      showMatter: false,
       showSettings: false,
       showWorkflows: false,
       showLoops: false,

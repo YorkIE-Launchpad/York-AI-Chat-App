@@ -10,14 +10,23 @@ const settingsPanelContent = [
   ...readdirSync(settingsDir).map((f) => readFileSync(path.join(settingsDir, f), 'utf8')),
 ].join('\n');
 
-describe('SettingsPanel schedule tab entry', () => {
-  it('renders schedule tab id', () => {
-    expect(settingsPanelContent).toContain("id: 'schedule' as TabId");
+const automationsPagePath = path.resolve(
+  process.cwd(),
+  'src/renderer/components/workflows/WorkflowsPage.tsx'
+);
+
+describe('Scheduled tasks entry (Automations › Scheduled)', () => {
+  it('renders scheduled tasks inside Automations', () => {
+    const automations = readFileSync(automationsPagePath, 'utf8');
+    expect(automations).toContain('<SettingsSchedule isActive={tab ===');
+    expect(automations).toContain("t('automations.tabSchedules')");
   });
 
-  it('uses schedule i18n keys', () => {
-    expect(settingsPanelContent).toContain("t('settings.schedule'");
-    expect(settingsPanelContent).toContain("t('settings.scheduleDesc'");
+  it('redirects legacy settings schedule deep-links to Automations', () => {
+    expect(settingsPanelContent).toContain("storeTab === 'schedule'");
+    expect(settingsPanelContent).toContain(
+      "setAutomationsTab(storeTab === 'schedule' ? 'schedules' : 'workflows')"
+    );
   });
 
   it('handles null nextRunAt explicitly', () => {

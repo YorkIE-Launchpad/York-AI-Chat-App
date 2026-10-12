@@ -13,7 +13,6 @@ import {
 } from './store/selectors';
 import { useIPC } from './hooks/useIPC';
 import { useWindowSize } from './hooks/useWindowSize';
-import { useToolsReady } from './hooks/useToolsReady';
 import { Sidebar } from './components/Sidebar';
 import { WelcomeView } from './components/WelcomeView';
 import { PermissionDialog } from './components/PermissionDialog';
@@ -24,8 +23,9 @@ import { SandboxSyncToast } from './components/SandboxSyncToast';
 import { GlobalNoticeToast } from './components/GlobalNoticeToast';
 import { WhatsNewModal } from './components/WhatsNewModal';
 import { AskGrowthOSPopup } from './components/AskGrowthOSPopup';
-import { ChatSearchModal, useChatSearchHotkey } from './components/ChatSearchModal';
-import { ToolsConnectingStatus } from './components/ToolsConnectingStatus';
+import { CommandPalette, useAppShortcuts } from './components/CommandPalette';
+import { InspectorTabs } from './components/inspector/InspectorTabs';
+import { useNavigationHistoryTracker } from './hooks/useNavigationHistory';
 import { useWhatsNew } from './hooks/useWhatsNew';
 import { useAskGrowthOSHotkey } from './hooks/useAskGrowthOSHotkey';
 import { useSnapOpenSession } from './hooks/useSnapOpenSession';
@@ -52,9 +52,6 @@ const HtmlPreviewPanel = lazy(() =>
 );
 const SettingsPanel = lazy(() =>
   import('./components/SettingsPanel').then((module) => ({ default: module.SettingsPanel }))
-);
-const MatterPage = lazy(() =>
-  import('./components/matter/MatterPage').then((module) => ({ default: module.MatterPage }))
 );
 const WorkflowsPage = lazy(() =>
   import('./components/workflows/WorkflowsPage').then((module) => ({
@@ -150,8 +147,7 @@ function AuthenticatedApp() {
   const setContextPanelCollapsed = useAppStore((s) => s.setContextPanelCollapsed);
   const openHtmlPreview = useAppStore((s) => s.openHtmlPreview);
 
-  const { listSessions, getSessionMessages, getSessionTraceSteps, isElectron } = useIPC();
-  const toolsReadyState = useToolsReady(isElectron);
+  const { listSessions, isElectron } = useIPC();
   const { width } = useWindowSize();
   const { payload: whatsNewPayload, dismiss: dismissWhatsNew } = useWhatsNew();
   useAskGrowthOSHotkey(true);
@@ -160,13 +156,16 @@ function AuthenticatedApp() {
   const initialized = useRef(false);
   const sidebarBeforeSettings = useRef(false);
   const lastHtmlPreviewSig = useRef<string | null>(null);
-  const [chatSearchOpen, setChatSearchOpen] = useState(false);
-  const openSessionWithDivision = useAppStore((s) => s.openSessionWithDivision);
-  const setMessages = useAppStore((s) => s.setMessages);
-  const setTraceSteps = useAppStore((s) => s.setTraceSteps);
-  const setIncognitoDraft = useAppStore((s) => s.setIncognitoDraft);
-
-  useChatSearchHotkey(() => setChatSearchOpen(true), true);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const inspectorTab = useAppStore((s) => s.inspectorTab);
+  const setInspectorTab = useAppStore((s) => s.setInspectorTab);
+  const activePreviewPath = activeHtmlPreview?.path ?? null;
+  useEffect(() => {
+    if (activePreviewPath) setInspectorTab('preview');
+  }, [activePreviewPath, setInspectorTab]);
+  const openPalette = useCallback(() => setPaletteOpen(true), []);
+  useAppShortcuts(openPalette);
+  useNavigationHistoryTracker();
 
   useEffect(() => {
     // Only run once on mount
@@ -434,9 +433,6 @@ function AuthenticatedApp() {
 
         {/* Main Content Area */}
         <main className="flex-1 min-h-0 min-w-0 flex flex-col overflow-hidden bg-background">
-          {!showFeaturePage && !activeSessionId && (
-            <ToolsConnectingStatus toolsReadyState={toolsReadyState} />
-          )}
           {showSettings ? (
             <PanelErrorBoundary
               name="SettingsPanel"
@@ -445,16 +441,6 @@ function AuthenticatedApp() {
             >
               <Suspense fallback={<MainPanelFallback />}>
                 <SettingsPanel onClose={() => setShowSettings(false)} />
-              </Suspense>
-            </PanelErrorBoundary>
-          ) : showMatter ? (
-            <PanelErrorBoundary
-              name="MatterPage"
-              resetKey="matter"
-              fallback={<MainPanelFallback />}
-            >
-              <Suspense fallback={<MainPanelFallback />}>
-                <MatterPage onClose={() => setShowMatter(false)} />
               </Suspense>
             </PanelErrorBoundary>
           ) : showWorkflows ? (
@@ -488,53 +474,42 @@ function AuthenticatedApp() {
           )}
         </main>
 
-        {/* Right rail: HTML preview (when active) or Context Panel */}
-        {activeSessionId && !showFeaturePage && activeHtmlPreview && (
-          <PanelErrorBoundary
-            name="HtmlPreviewPanel"
-            resetKey={`${activeSessionId}:${activeHtmlPreview.path}`}
-            fallback={<HtmlPreviewPanelFallback />}
-          >
-            <Suspense fallback={<HtmlPreviewPanelFallback />}>
-              <HtmlPreviewPanel />
-            </Suspense>
-          </PanelErrorBoundary>
-        )}
-        {activeSessionId && !showFeaturePage && !activeHtmlPreview && (
-          <PanelErrorBoundary
-            name="ContextPanel"
-            resetKey={activeSessionId}
-            fallback={<ContextPanelFallback />}
-          >
-            <Suspense fallback={<ContextPanelFallback />}>
-              <ContextPanel key={activeSessionId} />
-            </Suspense>
-          </PanelErrorBoundary>
+        {/* Inspector: Preview (while open) · Context · Sources · Files */}
+        {activeSessionId && !showFeaturePage && activeHtmlPreview && inspectorTab === 'preview' ? (
+          <div className="flex min-h-0 shrink-0 flex-col border-l border-border-subtle bg-background">
+            <InspectorTabs />
+            <div className="flex min-h-0 flex-1 [&>*]:border-l-0">
+              <PanelErrorBoundary
+                name="HtmlPreviewPanel"
+                resetKey={`${activeSessionId}:${activeHtmlPreview.path}`}
+                fallback={<HtmlPreviewPanelFallback />}
+              >
+                <Suspense fallback={<HtmlPreviewPanelFallback />}>
+                  <HtmlPreviewPanel />
+                </Suspense>
+              </PanelErrorBoundary>
+            </div>
+          </div>
+        ) : (
+          activeSessionId &&
+          !showFeaturePage && (
+            <PanelErrorBoundary
+              name="ContextPanel"
+              resetKey={activeSessionId}
+              fallback={<ContextPanelFallback />}
+            >
+              <Suspense fallback={<ContextPanelFallback />}>
+                <ContextPanel key={activeSessionId} />
+              </Suspense>
+            </PanelErrorBoundary>
+          )
         )}
       </div>
 
       {/* Ask Growth OS global popup */}
       <AskGrowthOSPopup />
 
-      <ChatSearchModal
-        open={chatSearchOpen}
-        onClose={() => setChatSearchOpen(false)}
-        onSelect={(hit) => {
-          setShowSettings(false);
-          setShowMatter(false);
-          setShowWorkflows(false);
-          setShowLoops(false);
-          setIncognitoDraft(false);
-          if (!openSessionWithDivision(hit.sessionId)) return;
-          if (!isElectron) return;
-          void getSessionMessages(hit.sessionId).then((messages) => {
-            if (messages?.length) setMessages(hit.sessionId, messages);
-          });
-          void getSessionTraceSteps(hit.sessionId).then((steps) => {
-            setTraceSteps(hit.sessionId, steps || []);
-          });
-        }}
-      />
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
 
       {/* Permission Dialog — above Ask popup */}
       {pendingPermission && (

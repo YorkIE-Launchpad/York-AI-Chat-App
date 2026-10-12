@@ -4,17 +4,17 @@ import path from 'node:path';
 
 const welcomeViewPath = path.resolve(process.cwd(), 'src/renderer/components/WelcomeView.tsx');
 
-describe('WelcomeView Claude-style layout', () => {
-  it('uses a narrower editorial landing column with York GrowthOS branding', () => {
+describe('WelcomeView as the Today home', () => {
+  it('renders the Today board inside a wide page column', () => {
     const source = fs.readFileSync(welcomeViewPath, 'utf8');
-    expect(source).toContain('max-w-[840px]');
-    expect(source).toContain('York GrowthOS');
+    expect(source).toContain('max-w-[1180px]');
+    expect(source).toContain('<TodayBoard matter={matter} hero={hero} />');
   });
 
-  it('uses a softer rounded composer shell instead of the previous generic card class', () => {
+  it('uses the rounded composer with an accent focus ring', () => {
     const source = fs.readFileSync(welcomeViewPath, 'utf8');
-    expect(source).toContain('rounded-[1.9rem]');
-    expect(source).toContain('shadow-soft');
+    expect(source).toContain('rounded-[14px]');
+    expect(source).toContain('focus-within:ring-accent/15');
   });
 
   it('includes an inline model selector on the welcome composer', () => {
@@ -23,24 +23,23 @@ describe('WelcomeView Claude-style layout', () => {
     expect(source).toContain('<ModelSelector />');
   });
 
-  it('shows Matter briefings instead of connector quick-action chips', () => {
+  it('shows tools status and Today briefing instead of connector quick-action chips', () => {
     const source = fs.readFileSync(welcomeViewPath, 'utf8');
-    expect(source).toContain('WelcomeMatterBriefing');
+    expect(source).toContain('<ToolsHealthNote />');
+    expect(source).toContain('useMatterToday');
     expect(source).not.toContain('getQuickActions');
     expect(source).not.toContain('regenerateQuickActions');
     expect(source).not.toContain('WELCOME_ICON_MAP');
   });
 
-  it('pins the welcome composer to the bottom of the viewport', () => {
+  it('lets the shell focus the composer (New chat / ⌘N)', () => {
     const source = fs.readFileSync(welcomeViewPath, 'utf8');
-    expect(source).toContain('mt-auto shrink-0 pt-7');
-    expect(source).not.toContain('my-auto space-y-7');
+    expect(source).toContain('FOCUS_COMPOSER_EVENT');
   });
 
-  it('shows New chat in {workspace} when a division is selected', () => {
+  it('shows New chats in {workspace} when a division is selected', () => {
     const source = fs.readFileSync(welcomeViewPath, 'utf8');
     expect(source).toContain("import { divisionLabel } from '../../shared/workspace-division'");
-    expect(source).toContain("New chat in{' '}");
-    expect(source).toContain('divisionLabel(activeDivision)');
+    expect(source).toContain("t('today.newChatsIn', { workspace: divisionLabel(activeDivision) })");
   });
 });

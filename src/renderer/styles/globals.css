@@ -9,55 +9,61 @@
   :root {
     color-scheme: dark;
     /* Dark theme (default) — York IE navy + teal */
-    --color-background: #192530;
-    --color-background-secondary: #1e2d3a;
-    --color-surface: #284256;
-    --color-surface-hover: #2f4d63;
-    --color-surface-active: #365970;
-    --color-surface-muted: #152029;
-    --color-border: #3a5568;
-    --color-border-muted: #2f4556;
-    --color-border-subtle: rgba(255, 255, 255, 0.08);
+    --color-background: #111b23;
+    --color-background-secondary: #15212b;
+    --color-surface: #1a2834;
+    --color-surface-hover: #223442;
+    --color-surface-active: #2a3f4f;
+    --color-surface-muted: #0e171e;
+    --color-surface-raised: #213240;
+    --color-border: #2c3d4a;
+    --color-border-muted: #22323e;
+    --color-border-subtle: rgba(255, 255, 255, 0.07);
     --color-mcp: #7eb8c9;
-    --shadow-soft: 0 1px 4px rgba(0, 0, 0, 0.28);
-    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.26), 0 0 0 1px rgba(255, 255, 255, 0.04);
-    --shadow-elevated: 0 8px 24px rgba(0, 0, 0, 0.38), 0 0 0 1px rgba(255, 255, 255, 0.05);
+    --shadow-soft: 0 1px 3px rgba(0, 0, 0, 0.3);
+    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.28);
+    --shadow-elevated: 0 12px 32px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.06);
     --color-accent: #00b48a;
-    --color-accent-hover: #008369;
+    --color-accent-hover: #00c99a;
     --color-accent-muted: rgba(0, 180, 138, 0.14);
-    --color-text-primary: #ffffff;
-    --color-text-secondary: #b8c5ce;
-    --color-text-muted: #8a9aa6;
-    --color-success: #22c55e;
-    --color-warning: #eab308;
-    --color-error: #ef4444;
+    --color-accent-text: #3fd6ae;
+    --color-text-primary: #eef3f6;
+    --color-text-secondary: #a9b8c3;
+    --color-text-muted: #7c8d99;
+    --color-success: #2fbf71;
+    --color-warning: #e8b13c;
+    --color-error: #f26d5b;
+    --color-info: #6fb3d2;
   }
 
   /* Light theme override — York IE clean surfaces + teal */
   .light {
     color-scheme: light;
-    --color-background: #f4f7f9;
+    --color-background: #f6f8fa;
     --color-background-secondary: #eef2f5;
     --color-surface: #ffffff;
-    --color-surface-hover: #f4f7f9;
-    --color-surface-active: #e8eef2;
+    --color-surface-hover: #f1f4f7;
+    --color-surface-active: #e6ecf0;
     --color-surface-muted: #f0f4f7;
-    --color-border: #d5dee5;
-    --color-border-muted: #e2e8ed;
-    --color-border-subtle: rgba(25, 37, 48, 0.06);
+    --color-surface-raised: #ffffff;
+    --color-border: #d8e0e6;
+    --color-border-muted: #e4e9ed;
+    --color-border-subtle: rgba(25, 37, 48, 0.07);
     --color-mcp: #4a8a9a;
-    --shadow-soft: 0 1px 4px rgba(25, 37, 48, 0.06);
-    --shadow-card: 0 1px 3px rgba(25, 37, 48, 0.08), 0 1px 2px rgba(25, 37, 48, 0.04);
-    --shadow-elevated: 0 4px 12px rgba(25, 37, 48, 0.12);
-    --color-accent: #00b48a;
-    --color-accent-hover: #008369;
-    --color-accent-muted: rgba(0, 180, 138, 0.12);
-    --color-text-primary: #192530;
+    --shadow-soft: 0 1px 3px rgba(25, 37, 48, 0.06);
+    --shadow-card: 0 1px 2px rgba(25, 37, 48, 0.06);
+    --shadow-elevated: 0 12px 32px rgba(25, 37, 48, 0.16), 0 0 0 1px rgba(25, 37, 48, 0.06);
+    --color-accent: #00a07b;
+    --color-accent-hover: #008a6a;
+    --color-accent-muted: rgba(0, 160, 123, 0.12);
+    --color-accent-text: #00805f;
+    --color-text-primary: #16222c;
     --color-text-secondary: #4a5d6b;
-    --color-text-muted: #7a8b97;
+    --color-text-muted: #6f808c;
     --color-success: #16a34a;
-    --color-warning: #ca8a04;
-    --color-error: #dc2626;
+    --color-warning: #b7791f;
+    --color-error: #d64b38;
+    --color-info: #2f7fa6;
   }
 
   * {
@@ -113,17 +119,57 @@
 
   /* Button styles */
   .btn {
-    @apply inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl font-medium transition-all duration-150;
-    @apply focus:outline-none focus:ring-2 focus:ring-accent focus:ring-opacity-30;
+    @apply inline-flex items-center justify-center gap-2 px-3.5 py-2 rounded-lg text-[13px] font-medium transition-colors duration-150;
+    @apply focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40;
+    @apply disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-sm {
+    @apply px-2.5 py-1 text-[12px] gap-1.5 rounded-md;
   }
 
   .btn-primary {
     @apply bg-accent text-white hover:bg-accent-hover;
-    @apply shadow-soft;
   }
 
   .btn-secondary {
-    @apply bg-surface border border-border hover:bg-surface-hover text-text-primary;
+    @apply bg-surface-raised border border-border hover:bg-surface-hover text-text-primary;
+  }
+
+  /* Keyboard shortcut hint */
+  .kbd {
+    @apply inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded border border-border-subtle bg-surface-muted;
+    @apply font-sans text-[10.5px] font-medium leading-none text-text-muted;
+  }
+
+  /* Small neutral pill for metadata (source, due, owner) */
+  .meta-chip {
+    @apply inline-flex items-center gap-1 h-5 px-1.5 rounded-md bg-surface-hover text-[11px] font-medium text-text-secondary;
+  }
+
+  /* Underlined tab row used on Today, Follow-ups, Automations */
+  .tab-row {
+    @apply flex items-center gap-5 border-b border-border-subtle;
+  }
+
+  .tab-row-item {
+    @apply relative -mb-px inline-flex items-center gap-1.5 border-b-2 border-transparent py-2 text-[13px] font-medium text-text-muted transition-colors;
+    @apply hover:text-text-primary focus:outline-none focus-visible:text-text-primary;
+  }
+
+  .tab-row-item[aria-selected='true'] {
+    @apply border-accent text-text-primary;
+  }
+
+  .tab-row-count {
+    @apply rounded-full bg-surface-active px-1.5 text-[10.5px] font-semibold leading-4 text-text-muted;
+  }
+
+  /* Editable draft field (email body, Slack message, follow-up text) */
+  .draft-field {
+    @apply w-full rounded-lg border border-border-subtle bg-surface-muted px-3 py-2 text-[13.5px] leading-6 text-text-primary;
+    @apply placeholder:text-text-muted focus:outline-none focus:border-accent/60 focus:ring-2 focus:ring-accent/20;
+    @apply resize-y;
   }
 
   .btn-ghost {
@@ -186,17 +232,17 @@
      Right-align is handled by the parent flex (items-end). Do not use
      `margin-left: auto` with fit-content; that overflows left under the sidebar. */
   .message-user {
-    @apply bg-surface rounded-2xl border border-border-subtle;
+    @apply bg-surface-active/70 border border-border-subtle text-[14px] leading-[1.55];
+    border-radius: 14px 14px 4px 14px;
     width: fit-content;
     max-width: 90%;
   }
 
-  /* Prose styling for assistant messages - elegant serif font */
+  /* Assistant answers — same sans as the UI, tuned for reading */
   .prose-chat {
-    font-family: 'Source Serif 4', Georgia, 'Times New Roman', serif;
-    font-size: 1.0625rem;
-    line-height: 1.625;
-    letter-spacing: -0.01em;
+    font-size: 0.90625rem;
+    line-height: 1.65;
+    letter-spacing: -0.003em;
   }
 
   /* Thinking blocks — muted sans, visually distinct from answer prose */
@@ -303,16 +349,16 @@
   }
 
   .prose-chat h1 {
-    font-size: 1.5rem;
-  }
-  .prose-chat h2 {
     font-size: 1.25rem;
   }
-  .prose-chat h3 {
+  .prose-chat h2 {
     font-size: 1.125rem;
   }
-  .prose-chat h4 {
+  .prose-chat h3 {
     font-size: 1rem;
+  }
+  .prose-chat h4 {
+    font-size: 0.9375rem;
   }
 
   .prose-chat .katex-display {
@@ -339,6 +385,51 @@
     text-decoration-skip-ink: auto;
   }
 
+  .cite-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.15rem;
+    height: 1.05rem;
+    margin: 0 0.1rem;
+    padding: 0 0.3rem;
+    border-radius: 0.3rem;
+    vertical-align: 0.28em;
+    font-size: 0.66rem;
+    font-weight: 600;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    color: theme('colors.accent.text');
+    background: theme('colors.accent.DEFAULT / 0.12');
+    transition:
+      background-color 120ms ease,
+      color 120ms ease;
+  }
+
+  .cite-chip:hover:not(:disabled) {
+    color: theme('colors.background.DEFAULT');
+    background: theme('colors.accent.DEFAULT');
+  }
+
+  .cite-chip:disabled {
+    cursor: default;
+  }
+
+  .cite-num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 1.15rem;
+    height: 1.15rem;
+    border-radius: 0.3rem;
+    font-size: 0.66rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: theme('colors.accent.text');
+    background: theme('colors.accent.DEFAULT / 0.12');
+  }
+
   /* Some model outputs wrap citation links in ~...~; keep links readable */
   .prose-chat del {
     text-decoration: none;
@@ -351,7 +442,7 @@
   .prose-chat blockquote {
     margin: 0.75rem 0;
     padding-left: 1rem;
-    border-left: 3px solid theme('colors.accent.DEFAULT / 40%');
+    border-left: 3px solid theme('colors.accent.DEFAULT / 0.4');
     color: theme('colors.text.secondary');
   }
 
@@ -382,6 +473,122 @@
   .code-block .hljs,
   .code-block code {
     background: transparent;
+  }
+}
+
+/* Today radar — rings match the list groups; sweep only while scanning. */
+.today-radar-ring {
+  fill: none;
+  stroke: var(--color-text-muted);
+  stroke-opacity: 0.28;
+  stroke-dasharray: 2 6;
+}
+.today-radar-ring.is-now {
+  stroke: var(--color-error);
+  stroke-opacity: 0.45;
+}
+.today-radar-band {
+  fill: var(--color-error);
+  fill-opacity: 0.045;
+}
+.today-radar-sector {
+  stroke: var(--color-border-subtle);
+  stroke-width: 1;
+}
+.today-radar-label {
+  fill: var(--color-text-muted);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+}
+.today-radar-src {
+  fill: var(--color-text-muted);
+  font-size: 10px;
+  font-weight: 800;
+}
+.today-radar-core-n {
+  fill: #fff;
+  font-size: 24px;
+  font-weight: 700;
+}
+.today-radar-core-t {
+  fill: #fff;
+  font-size: 7.5px;
+  font-weight: 700;
+  letter-spacing: 0.9px;
+  opacity: 0.85;
+}
+.today-radar-blip {
+  cursor: pointer;
+  outline: none;
+  transition: opacity 0.15s;
+}
+.today-radar-blip circle {
+  transition: r 0.12s;
+}
+.today-radar-more {
+  fill: var(--color-surface-raised);
+  stroke: var(--color-border);
+  stroke-width: 1.5;
+}
+.today-radar-more-t {
+  fill: var(--color-text-secondary);
+  font-size: 8.5px;
+  font-weight: 800;
+  pointer-events: none;
+}
+.today-radar-blip-t {
+  fill: #fff;
+  font-size: 9px;
+  font-weight: 800;
+  pointer-events: none;
+}
+.today-radar-blip.is-critical .today-radar-halo {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: todayRadarHalo 2.4s ease-out infinite;
+}
+.today-radar-sweep {
+  transform-box: view-box;
+  transform-origin: 200px 200px;
+  animation: todayRadarSpin 4.5s linear infinite;
+  opacity: 0;
+  transition: opacity 0.4s;
+}
+.today-radar-sweep.is-scanning {
+  opacity: 1;
+}
+@keyframes todayRadarHalo {
+  0% {
+    opacity: 0.6;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(2.2);
+  }
+}
+@keyframes todayRadarSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes todayRowFlash {
+  0%,
+  30% {
+    background-color: var(--color-accent-muted);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+.today-row-flash {
+  animation: todayRowFlash 1.2s ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .today-radar-sweep,
+  .today-radar-blip.is-critical .today-radar-halo {
+    animation: none;
   }
 }
 

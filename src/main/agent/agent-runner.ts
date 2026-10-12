@@ -3076,14 +3076,21 @@ This folder is for local files only. LaunchPad implement/preview and other remot
 9. macOS privacy: Never scan the entire home directory, and do not read ~/Music, ~/Pictures, or ~/Movies — that triggers system permission prompts (including a spurious Apple Music / media-library dialog). Prefer the workspace, MCP/Drive, or a user-specified folder; only touch Desktop/Downloads/Documents when the request clearly needs those folders.`
             : ''
         }`,
+        `<draft_format>
+When you write a message for the user to review or send (email, Slack message, reply, Jira comment, post) and you are not sending it with a tool in this turn, put the draft in a fenced code block tagged \`draft\` so the app shows it as an editable draft. Optional header lines first — "To: …" or "Channel: …", "Subject: …", "Via: Gmail|Slack|Jira" — then a blank line, then the message body as plain text. One block per draft; keep commentary outside the block.
+</draft_format>`,
         profileInstructionsPrompt,
         workspaceInfoPrompt,
         `<citation_requirements>
-When your answer uses data from MCP tools (or other linkable tool results), you MUST end with a "Sources:" section.
+When your answer uses data from MCP tools (or other linkable tool results), you MUST end with a numbered "Sources:" section and cite inline.
 Format:
+Finance approved the new rate on Friday [1], and Dana asked to keep the same team [2].
+
 Sources:
-- [Title](https://example.com/real-url-from-tool)
+1. [Title](https://example.com/real-url-from-tool)
+2. [Title](https://example.com/another-real-url)
 Rules:
+- Put the bracketed number [n] right after the sentence or bullet it supports; [1][2] or [1, 2] when several back it. Every listed source should be cited at least once. Do not put [n] inside code blocks or drafts.
 - Use real URLs from tool payloads (html_link, web_view_link, permalink, issue/page URLs, etc.).
 - Prefer standard Markdown links: [Title](https://...).
 - For Jira: never cite REST/API self links (.../rest/api/.../issue/...). Use https://{site}.atlassian.net/browse/{KEY} (from the issue key). Same for Confluence — prefer the page URL, not /wiki/rest/api/... .

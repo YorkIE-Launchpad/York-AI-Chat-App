@@ -22,7 +22,7 @@ describe('MessageCard citation link normalization', () => {
       "return markdown.replace(/~\\[(.+?)\\]\\(([^)\\s]+)\\)~/g, '[$1]($2)');"
     );
     expect(messageCardContent).toContain(
-      'normalizeLocalFileMarkdownLinks(normalizeLatexDelimiters(text))'
+      'normalizeLocalFileMarkdownLinks(normalizeLatexDelimiters(answerText))'
     );
   });
 

@@ -3,34 +3,27 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { buildMatterSessionTitle } from '../src/shared/matter-chat';
 
-const matterPagePath = path.resolve(process.cwd(), 'src/renderer/components/matter/MatterPage.tsx');
+const todayHookPath = path.resolve(
+  process.cwd(),
+  'src/renderer/components/today/useMatterToday.ts'
+);
 const useIpcPath = path.resolve(process.cwd(), 'src/renderer/hooks/useIPC.ts');
 
 describe('Matter chat workspace division', () => {
-  it('opens signal Chat as an idle Hub session (no auto-run)', () => {
-    const matterSource = fs.readFileSync(matterPagePath, 'utf8');
+  it('opens item Chat from Today as an idle Hub session (no auto-run)', () => {
+    const todaySource = fs.readFileSync(todayHookPath, 'utf8');
     const ipcSource = fs.readFileSync(useIpcPath, 'utf8');
 
-    expect(matterSource).toContain('createSession(title, workingDir || undefined, { division: \'hub\' })');
-    expect(matterSource).toContain('setMatterChatDraft(session.id');
-    expect(matterSource).toContain('openSignalChat');
-    expect(matterSource).not.toContain(
-      "startSession('Matter', built.prompt, workingDir || undefined, { division: 'hub' })"
-    );
-    expect(matterSource).not.toContain('Help me resolve this Matter item:');
+    expect(todaySource).toContain('const openItemChat');
+    expect(todaySource).toContain('buildMatterSessionTitle(item.title)');
+    expect(todaySource).toContain("{ division: 'hub' }");
+    expect(todaySource).toContain('setMatterChatDraft(session.id');
+    expect(todaySource).not.toContain("startSession('Matter'");
+    expect(todaySource).not.toContain('Help me resolve this Matter item:');
 
     expect(ipcSource).toContain("type: 'session.create'");
     expect(ipcSource).toContain("options?.division === 'hub'");
     expect(ipcSource).toContain('setActiveDivision({ kind: options.division })');
-  });
-
-  it('keeps Ask bar as startSession in Hub with contextual title', () => {
-    const matterSource = fs.readFileSync(matterPagePath, 'utf8');
-    expect(matterSource).toContain('handleAsk');
-    expect(matterSource).toContain(
-      'await startSession(title, built.prompt, workingDir || undefined, { division: \'hub\' })'
-    );
-    expect(matterSource).toContain('buildMatterSessionTitle');
   });
 });
 

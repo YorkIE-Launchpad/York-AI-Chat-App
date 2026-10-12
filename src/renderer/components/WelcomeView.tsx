@@ -6,7 +6,7 @@ import type { ContentBlock, Skill } from '../types';
 import { getInitialSessionTitle } from '../../shared/session-title';
 import { DivisionChooser } from './DivisionChooser';
 import {
-  ArrowRight,
+  ArrowUp,
   X,
   Paperclip,
   Mic,
@@ -30,7 +30,6 @@ type AttachedFile = {
   inlineDataBase64?: string;
 };
 
-import welcomeLogoSrc from '../assets/logo.png';
 import { ModelSelector } from './ModelSelector';
 import { ComposerModeDropdown } from './ComposerModeDropdown';
 import { resolveGptImage25ModelId } from '../../shared/image-generation';
@@ -70,11 +69,24 @@ import { DEFAULT_GOAL_MAX_ITERATIONS } from '../../shared/loop/types';
 import { needsOpenRouterUserKey } from '../../shared/openrouter-user-key';
 import { divisionBudgetCheckKey } from '../../shared/fe-budget-gate';
 import { divisionLabel } from '../../shared/workspace-division';
-import { WelcomeMatterBriefing } from './matter/WelcomeMatterBriefing';
+import { useAuth } from '../auth/AuthContext';
+import { pickNextUpMeeting } from '../../shared/matter-time';
+import { TodayBoard } from './today/TodayBoard';
+import { useMatterToday } from './today/useMatterToday';
+import { formatClock, greetingKey, relativeAgo } from './today/today-format';
+import { ToolsHealthNote } from './health/ToolsHealthNote';
+import { FOCUS_COMPOSER_EVENT } from '../hooks/useNavigation';
 import { prefetchChatPanels } from '../utils/prefetch-chat-panels';
 
 export function WelcomeView() {
   const { t } = useTranslation();
+  const { user } = useAuth();
+  const matter = useMatterToday();
+  const [nowTick, setNowTick] = useState(() => new Date());
+  useEffect(() => {
+    const id = window.setInterval(() => setNowTick(new Date()), 60_000);
+    return () => window.clearInterval(id);
+  }, []);
   const [prompt, setPrompt] = useState('');
   const [cursorIndex, setCursorIndex] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -100,6 +112,12 @@ export function WelcomeView() {
 
   useEffect(() => {
     prefetchChatPanels();
+  }, []);
+
+  useEffect(() => {
+    const focus = () => textareaRef.current?.focus();
+    window.addEventListener(FOCUS_COMPOSER_EVENT, focus);
+    return () => window.removeEventListener(FOCUS_COMPOSER_EVENT, focus);
   }, []);
   const workingDir = useAppStore((state) => state.workingDir);
   const defaultWorkingDir = useAppStore((state) => state.defaultWorkingDir);
@@ -872,572 +890,614 @@ export function WelcomeView() {
     },
   });
 
-  return (
-    <div className="flex flex-1 min-h-0 flex-col items-center overflow-hidden px-5 py-10 md:px-8 md:py-14">
-      <div className="flex min-h-0 w-full max-w-[840px] flex-1 animate-fade-in flex-col">
-        <div className="shrink-0 space-y-4 text-center">
-          <div className="flex items-center justify-center gap-4">
-            <img
-              src={welcomeLogoSrc}
-              alt={t('welcome.logoAlt')}
-              className="w-16 h-16 md:w-20 md:h-20 object-contain"
+  const composer = (
+    <form
+      onSubmit={handleSubmit}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+      className={`composer-shell relative rounded-[14px] border border-border bg-surface px-3.5 pb-2.5 pt-3.5 space-y-3 transition-[border-color,box-shadow] focus-within:border-accent focus-within:ring-[3px] focus-within:ring-accent/15 ${
+        isDragging ? 'ring-2 ring-accent bg-accent/5' : ''
+      }`}
+    >
+      <SlashCommandMenu
+        open={isSlashMenuOpen}
+        skills={slashSkills}
+        selectedIndex={slashSelectedIndex}
+        onSelect={handleSelectSlashSkill}
+        onHoverIndex={setSlashSelectedIndex}
+        onClose={closeSlashMenu}
+      />
+      {/* Image previews */}
+      {pastedImages.length > 0 && (
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2 pb-2 border-b border-border w-full">
+          {pastedImages.map((img, index) => (
+            <AttachmentImageThumb
+              key={img.url || `pasted-image-${index}`}
+              src={img.url}
+              alt={t('welcome.pastedImageAlt', { index: index + 1 })}
+              variant="grid"
+              removeButton={
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    removeImage(index);
+                  }}
+                  title={t('common.removeImage')}
+                  aria-label={t('common.removeImage')}
+                  className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-error text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              }
             />
-            <div className="text-left">
-              <h1 className="text-[2.35rem] md:text-[3.1rem] leading-none font-semibold tracking-[-0.05em] text-text-primary">
-                York GrowthOS
-              </h1>
-            </div>
-          </div>
-          {!activeDivision ? (
-            <p className="heading-serif text-[1.15rem] md:text-[1.45rem] font-medium tracking-[-0.02em] text-text-secondary text-center">
-              Pick a workspace to get started
-            </p>
-          ) : (
-            <p className="heading-serif text-[1.15rem] md:text-[1.45rem] font-medium tracking-[-0.02em] text-text-secondary text-center">
-              New chat in <span className="text-text-primary">{divisionLabel(activeDivision)}</span>
-            </p>
-          )}
-          {incognitoDraft && (
-            <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-dashed border-border-subtle bg-background/70 px-3 py-1.5 text-xs text-text-secondary">
-              <Ghost className="w-3.5 h-3.5 text-text-muted" />
-              <span className="font-medium text-text-primary">{t('welcome.incognitoActive')}</span>
-              <span className="text-text-muted">·</span>
-              <span>{t('welcome.incognitoActiveHint')}</span>
+          ))}
+        </div>
+      )}
+
+      {/* File attachments */}
+      {attachedFiles.length > 0 && (
+        <div className="space-y-2 mb-3">
+          {attachedFiles.map((file, index) => (
+            <FileAttachmentChip
+              key={file.path || `attached-file-${index}`}
+              filename={file.name}
+              className="group"
+              removeButton={
+                <button
+                  type="button"
+                  onClick={() => removeFile(index)}
+                  title={t('common.removeFile')}
+                  aria-label={t('common.removeFile')}
+                  className="w-6 h-6 rounded-full bg-error/10 hover:bg-error/20 text-error flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              }
+            />
+          ))}
+        </div>
+      )}
+
+      {attachedMeetings.length > 0 && (
+        <div className="space-y-2 mb-3">
+          {attachedMeetings.map((meeting) => (
+            <div
+              key={meeting.meetingId}
+              className="flex items-center gap-2 px-3 py-2 rounded-lg bg-surface-muted border border-border group"
+            >
+              <Mic className="h-4 w-4 flex-shrink-0 text-accent" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm text-text-primary truncate">{meeting.title}</p>
+                <label className="mt-1 flex items-center gap-1.5 text-[11px] text-text-muted">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(meeting.includeTranscript)}
+                    onChange={(e) =>
+                      setAttachedMeetings((prev) =>
+                        prev.map((item) =>
+                          item.meetingId === meeting.meetingId
+                            ? { ...item, includeTranscript: e.target.checked }
+                            : item
+                        )
+                      )
+                    }
+                    className="h-3.5 w-3.5 accent-accent"
+                  />
+                  {t('meetings.includeTranscript')}
+                </label>
+              </div>
               <button
                 type="button"
-                onClick={() => setIncognitoDraft(false)}
-                className="ml-1 rounded-full p-0.5 text-text-muted hover:text-text-primary hover:bg-surface-hover transition-colors"
-                title={t('common.close')}
+                onClick={() =>
+                  setAttachedMeetings((prev) =>
+                    prev.filter((item) => item.meetingId !== meeting.meetingId)
+                  )
+                }
+                title={t('common.removeMeeting')}
+                aria-label={t('common.removeMeeting')}
+                className="w-6 h-6 rounded-full bg-error/10 hover:bg-error/20 text-error flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
               >
-                <X className="w-3 h-3" />
+                <X className="w-3.5 h-3.5" />
               </button>
             </div>
+          ))}
+        </div>
+      )}
+
+      {attachedReferences.length > 0 && (
+        <div className="space-y-2 mb-3">
+          {attachedReferences.map((reference) => (
+            <ExternalReferenceChip
+              key={`${reference.source}:${reference.externalId}`}
+              reference={reference}
+              className="group"
+              removeButton={
+                <button
+                  type="button"
+                  onClick={() =>
+                    setAttachedReferences((prev) =>
+                      prev.filter(
+                        (item) =>
+                          !(
+                            item.source === reference.source &&
+                            item.externalId === reference.externalId
+                          )
+                      )
+                    )
+                  }
+                  title={t('references.remove')}
+                  aria-label={t('references.remove')}
+                  className="w-6 h-6 rounded-full bg-error/10 hover:bg-error/20 text-error flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              }
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Text Input - Auto-resizing */}
+      <textarea
+        ref={textareaRef}
+        value={prompt}
+        spellCheck={true}
+        onChange={(e) => {
+          setPrompt(e.target.value);
+          setCursorIndex(e.target.selectionStart ?? e.target.value.length);
+          adjustTextareaHeight();
+        }}
+        onSelect={(e) => {
+          const target = e.target as HTMLTextAreaElement;
+          setCursorIndex(target.selectionStart ?? target.value.length);
+        }}
+        onKeyUp={(e) => {
+          const target = e.target as HTMLTextAreaElement;
+          setCursorIndex(target.selectionStart ?? target.value.length);
+        }}
+        onClick={(e) => {
+          const target = e.target as HTMLTextAreaElement;
+          setCursorIndex(target.selectionStart ?? target.value.length);
+        }}
+        onCompositionStart={() => {
+          isComposingRef.current = true;
+        }}
+        onCompositionEnd={() => {
+          isComposingRef.current = false;
+        }}
+        onPaste={handlePaste}
+        placeholder={
+          composerMode === 'image'
+            ? t('composer.imagePromptPlaceholder')
+            : t('welcome.placeholderSkillHint')
+        }
+        rows={1}
+        style={{ minHeight: '48px', maxHeight: '200px' }}
+        className="w-full resize-none bg-transparent border-none outline-none text-text-primary placeholder:text-text-muted text-[15px] leading-normal overflow-hidden"
+        onKeyDown={(e) => {
+          if (isSlashMenuOpen) {
+            if (e.key === 'ArrowDown') {
+              e.preventDefault();
+              moveSlashSelection(1);
+              return;
+            }
+            if (e.key === 'ArrowUp') {
+              e.preventDefault();
+              moveSlashSelection(-1);
+              return;
+            }
+            if ((e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) && slashSelectedSkill) {
+              if (e.nativeEvent.isComposing || isComposingRef.current || e.keyCode === 229) {
+                return;
+              }
+              e.preventDefault();
+              handleSelectSlashSkill(slashSelectedSkill);
+              return;
+            }
+            if (e.key === 'Escape') {
+              e.preventDefault();
+              closeSlashMenu();
+              return;
+            }
+          }
+          // Enter to send, Shift+Enter for new line
+          if (e.key === 'Enter' && !e.shiftKey) {
+            if (e.nativeEvent.isComposing || isComposingRef.current || e.keyCode === 229) {
+              return;
+            }
+            e.preventDefault();
+            handleSubmit();
+          }
+        }}
+      />
+
+      {/* Bottom Actions */}
+      <div className="composer-toolbar">
+        <div className="flex min-w-0 items-center gap-2">
+          <div className="relative" ref={actionsMenuRef}>
+            <button
+              type="button"
+              onClick={() => {
+                setLoopMenuOpen(false);
+                setActionsMenuOpen((open) => !open);
+              }}
+              className={`flex h-9 w-9 items-center justify-center rounded-2xl transition-colors ${
+                actionsMenuOpen || loopMenuOpen
+                  ? 'bg-accent/10 text-accent'
+                  : 'text-text-muted hover:bg-surface-hover hover:text-text-primary'
+              }`}
+              title={t('welcome.actionsMenu')}
+              aria-label={t('welcome.actionsMenu')}
+              aria-expanded={actionsMenuOpen || loopMenuOpen}
+              aria-haspopup="menu"
+            >
+              <Plus className="h-5 w-5" />
+            </button>
+            {actionsMenuOpen && (
+              <div
+                role="menu"
+                className="absolute bottom-[calc(100%+8px)] left-0 z-30 min-w-[14rem] overflow-hidden rounded-[1.25rem] border border-border-subtle bg-background shadow-elevated"
+              >
+                <div className="space-y-0.5 p-1.5">
+                  {composerMode !== 'image' && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setActionsMenuOpen(false);
+                        void handleSelectFolder();
+                      }}
+                      className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
+                    >
+                      <FolderOpen className="h-4 w-4 text-text-muted" />
+                      <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
+                        {workingDir
+                          ? workingDir.split(/[/\\]/).pop()
+                          : t('welcome.selectWorkingFolder')}
+                      </span>
+                    </button>
+                  )}
+                  {isElectron && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setActionsMenuOpen(false);
+                        void handleFileSelect();
+                      }}
+                      className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
+                    >
+                      <Paperclip className="h-4 w-4 text-text-muted" />
+                      <span className="text-[13px] font-medium">{t('welcome.attachFiles')}</span>
+                    </button>
+                  )}
+                  {composerMode !== 'image' && isElectron && !skillsOffDraft && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setActionsMenuOpen(false);
+                        openSkillPicker();
+                        requestAnimationFrame(() => textareaRef.current?.focus());
+                      }}
+                      className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
+                    >
+                      <Package className="h-4 w-4 text-accent" />
+                      <span className="text-[13px] font-medium">{t('skills.mentionFromMenu')}</span>
+                    </button>
+                  )}
+                  {composerMode !== 'image' && isElectron && meetingsReferenceAllowed && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setActionsMenuOpen(false);
+                        setMeetingPickerOpen(true);
+                      }}
+                      className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
+                    >
+                      <Mic className="h-4 w-4 text-accent" />
+                      <span className="text-[13px] font-medium">{t('meetings.attachMeeting')}</span>
+                    </button>
+                  )}
+                  {composerMode !== 'image' && isElectron && (
+                    <>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setActionsMenuOpen(false);
+                          setReferencePickerSource('drive');
+                        }}
+                        className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
+                      >
+                        <FileText className="h-4 w-4 text-accent" />
+                        <span className="text-[13px] font-medium">{t('references.drive')}</span>
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setActionsMenuOpen(false);
+                          setReferencePickerSource('slack');
+                        }}
+                        className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
+                      >
+                        <MessageSquare className="h-4 w-4 text-accent" />
+                        <span className="text-[13px] font-medium">{t('references.slack')}</span>
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setActionsMenuOpen(false);
+                          setReferencePickerSource('jira');
+                        }}
+                        className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
+                      >
+                        <Hash className="h-4 w-4 text-accent" />
+                        <span className="text-[13px] font-medium">{t('references.jira')}</span>
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setActionsMenuOpen(false);
+                          setReferencePickerSource('confluence');
+                        }}
+                        className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
+                      >
+                        <BookOpen className="h-4 w-4 text-accent" />
+                        <span className="text-[13px] font-medium">
+                          {t('references.confluence')}
+                        </span>
+                      </button>
+                    </>
+                  )}
+                  {composerMode !== 'image' && isElectron && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setActionsMenuOpen(false);
+                        setLoopMenuOpen(true);
+                      }}
+                      className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
+                    >
+                      <RefreshCw className="h-4 w-4 text-text-muted" />
+                      <span className="text-[13px] font-medium">{t('loop.menuButton')}</span>
+                    </button>
+                  )}
+                  {composerMode !== 'image' && isElectron && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setActionsMenuOpen(false);
+                        setSkillsOffDraft(!skillsOffDraft);
+                      }}
+                      className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
+                    >
+                      {skillsOffDraft ? (
+                        <Package className="h-4 w-4 text-accent" />
+                      ) : (
+                        <PackageX className="h-4 w-4 text-text-muted" />
+                      )}
+                      <span className="text-[13px] font-medium">
+                        {skillsOffDraft ? t('skills.enableForChat') : t('skills.disableForChat')}
+                      </span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+            <ChatLoopPanel
+              open={loopMenuOpen}
+              align="left"
+              initialText={prompt.trim()}
+              activeStatus={null}
+              onClose={() => setLoopMenuOpen(false)}
+              onStart={async ({ kind, prompt: loopPrompt, intervalMs, maxIterations }) => {
+                setIsSubmitting(true);
+                try {
+                  await startSessionWithLoop({
+                    kind,
+                    prompt: loopPrompt,
+                    intervalMs,
+                    maxIterations,
+                  });
+                } finally {
+                  setIsSubmitting(false);
+                }
+              }}
+              onStop={async () => {
+                setLoopMenuOpen(false);
+              }}
+            />
+          </div>
+          <ComposerModeDropdown disabled={isSubmitting || openRouterKeyRequired} />
+          {composerMode !== 'image' && skillsOffDraft && (
+            <button
+              type="button"
+              onClick={() => setSkillsOffDraft(false)}
+              className="flex h-8 shrink-0 items-center gap-1 rounded-xl px-2 text-[12px] font-medium text-text-muted transition-colors hover:bg-surface-hover hover:text-text-primary"
+              title={t('skills.enableForChat')}
+            >
+              <PackageX className="h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">{t('skills.disabledForChatBadge')}</span>
+            </button>
+          )}
+          {workingDir && composerMode !== 'image' && (
+            <span
+              className="composer-working-dir min-w-0 max-w-[10rem] truncate text-xs text-text-muted"
+              title={workingDir}
+            >
+              {workingDir.split(/[/\\]/).pop()}
+            </span>
           )}
         </div>
 
-        {!activeDivision ? (
-          <div className="mt-7 min-h-0 flex-1">
-            <DivisionChooser />
-          </div>
-        ) : (
+        <div className="composer-toolbar-end gap-2">
+          {composerMode !== 'image' && <ThinkingModeToggle />}
+          {composerMode !== 'image' && <ModelSelector />}
+          <HubBudgetMeter />
+          {dictationAvailable && (
+            <DictationButton
+              status={dictationStatus}
+              errorKind={dictationErrorKind}
+              disabled={isSubmitting}
+              onToggle={toggleDictation}
+            />
+          )}
+          <button
+            type="submit"
+            disabled={!canSubmit || isSubmitting}
+            onPointerEnter={() => prefetchChatPanels()}
+            aria-label={t('welcome.letsGo')}
+            title={t('welcome.letsGo')}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <ArrowUp className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+    </form>
+  );
+
+  const snapshot = matter.snapshot;
+  const firstName = user?.name?.trim().split(/\s+/)[0] || '';
+  const greeting = firstName
+    ? t(greetingKey(nowTick.getHours()), { name: firstName })
+    : t(`${greetingKey(nowTick.getHours())}NoName`);
+  const needCount = snapshot.items.filter((i) => i.orbit === 'now').length;
+  const briefLead = !matter.enabled
+    ? null
+    : needCount > 0
+      ? t('today.brief.needYou', { count: needCount })
+      : snapshot.items.length > 0
+        ? t('today.brief.nothingUrgent')
+        : null;
+  const briefBody = matter.enabled
+    ? snapshot.morningBrief?.trim() || snapshot.pulse?.trim() || ''
+    : t('today.brief.disabled');
+  const dateLine = nowTick.toLocaleDateString(undefined, {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+  });
+  const nextMeeting = pickNextUpMeeting(snapshot.meetings, nowTick.getTime());
+  const suggestions = [
+    nextMeeting?.title
+      ? t('today.suggest.prepMeeting', {
+          time: formatClock(nextMeeting.startMs),
+          title: nextMeeting.title,
+        })
+      : null,
+    t('today.suggest.timesheet'),
+    t('today.suggest.slack'),
+    t('today.suggest.whoIsOut'),
+  ].filter((s): s is string => Boolean(s));
+
+  const runSuggestion = async (text: string) => {
+    if (openRouterKeyRequired || isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      await startSession(getInitialSessionTitle(text), [{ type: 'text', text }], sessionWorkdir, {
+        incognito: incognitoDraft || undefined,
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const hero = (
+    <div>
+      <p className="mb-1.5 text-[12px] text-text-muted">
+        {dateLine}
+        {matter.enabled ? (
           <>
-            <div className="mt-7 min-h-0 flex-1 space-y-7 overflow-y-auto">
-              <OpenRouterKeyGateBanner />
-              <WelcomeMatterBriefing />
-            </div>
-
-            <div className="mt-auto shrink-0 pt-7">
-              {/* Main Input Card */}
-              <form
-                onSubmit={handleSubmit}
-                onDragOver={handleDragOver}
-                onDragLeave={handleDragLeave}
-                onDrop={handleDrop}
-                className={`composer-shell relative rounded-[1.9rem] border border-border-muted bg-background/85 shadow-soft px-3 py-4 space-y-4 transition-colors sm:px-5 sm:py-5 ${
-                  isDragging ? 'ring-2 ring-accent bg-accent/5' : ''
-                }`}
-              >
-                <SlashCommandMenu
-                  open={isSlashMenuOpen}
-                  skills={slashSkills}
-                  selectedIndex={slashSelectedIndex}
-                  onSelect={handleSelectSlashSkill}
-                  onHoverIndex={setSlashSelectedIndex}
-                  onClose={closeSlashMenu}
-                />
-                {/* Image previews */}
-                {pastedImages.length > 0 && (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2 pb-2 border-b border-border w-full">
-                    {pastedImages.map((img, index) => (
-                      <AttachmentImageThumb
-                        key={img.url || `pasted-image-${index}`}
-                        src={img.url}
-                        alt={t('welcome.pastedImageAlt', { index: index + 1 })}
-                        variant="grid"
-                        removeButton={
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              removeImage(index);
-                            }}
-                            title={t('common.removeImage')}
-                            aria-label={t('common.removeImage')}
-                            className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-error text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                          >
-                            <X className="w-3 h-3" />
-                          </button>
-                        }
-                      />
-                    ))}
-                  </div>
-                )}
-
-                {/* File attachments */}
-                {attachedFiles.length > 0 && (
-                  <div className="space-y-2 mb-3">
-                    {attachedFiles.map((file, index) => (
-                      <FileAttachmentChip
-                        key={file.path || `attached-file-${index}`}
-                        filename={file.name}
-                        className="group"
-                        removeButton={
-                          <button
-                            type="button"
-                            onClick={() => removeFile(index)}
-                            title={t('common.removeFile')}
-                            aria-label={t('common.removeFile')}
-                            className="w-6 h-6 rounded-full bg-error/10 hover:bg-error/20 text-error flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
-                          >
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        }
-                      />
-                    ))}
-                  </div>
-                )}
-
-                {attachedMeetings.length > 0 && (
-                  <div className="space-y-2 mb-3">
-                    {attachedMeetings.map((meeting) => (
-                      <div
-                        key={meeting.meetingId}
-                        className="flex items-center gap-2 px-3 py-2 rounded-lg bg-surface-muted border border-border group"
-                      >
-                        <Mic className="h-4 w-4 flex-shrink-0 text-accent" />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm text-text-primary truncate">{meeting.title}</p>
-                          <label className="mt-1 flex items-center gap-1.5 text-[11px] text-text-muted">
-                            <input
-                              type="checkbox"
-                              checked={Boolean(meeting.includeTranscript)}
-                              onChange={(e) =>
-                                setAttachedMeetings((prev) =>
-                                  prev.map((item) =>
-                                    item.meetingId === meeting.meetingId
-                                      ? { ...item, includeTranscript: e.target.checked }
-                                      : item
-                                  )
-                                )
-                              }
-                              className="h-3.5 w-3.5 accent-accent"
-                            />
-                            {t('meetings.includeTranscript')}
-                          </label>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setAttachedMeetings((prev) =>
-                              prev.filter((item) => item.meetingId !== meeting.meetingId)
-                            )
-                          }
-                          title={t('common.removeMeeting')}
-                          aria-label={t('common.removeMeeting')}
-                          className="w-6 h-6 rounded-full bg-error/10 hover:bg-error/20 text-error flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {attachedReferences.length > 0 && (
-                  <div className="space-y-2 mb-3">
-                    {attachedReferences.map((reference) => (
-                      <ExternalReferenceChip
-                        key={`${reference.source}:${reference.externalId}`}
-                        reference={reference}
-                        className="group"
-                        removeButton={
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setAttachedReferences((prev) =>
-                                prev.filter(
-                                  (item) =>
-                                    !(
-                                      item.source === reference.source &&
-                                      item.externalId === reference.externalId
-                                    )
-                                )
-                              )
-                            }
-                            title={t('references.remove')}
-                            aria-label={t('references.remove')}
-                            className="w-6 h-6 rounded-full bg-error/10 hover:bg-error/20 text-error flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
-                          >
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        }
-                      />
-                    ))}
-                  </div>
-                )}
-
-                {/* Text Input - Auto-resizing */}
-                <textarea
-                  ref={textareaRef}
-                  value={prompt}
-                  spellCheck={true}
-                  onChange={(e) => {
-                    setPrompt(e.target.value);
-                    setCursorIndex(e.target.selectionStart ?? e.target.value.length);
-                    adjustTextareaHeight();
-                  }}
-                  onSelect={(e) => {
-                    const target = e.target as HTMLTextAreaElement;
-                    setCursorIndex(target.selectionStart ?? target.value.length);
-                  }}
-                  onKeyUp={(e) => {
-                    const target = e.target as HTMLTextAreaElement;
-                    setCursorIndex(target.selectionStart ?? target.value.length);
-                  }}
-                  onClick={(e) => {
-                    const target = e.target as HTMLTextAreaElement;
-                    setCursorIndex(target.selectionStart ?? target.value.length);
-                  }}
-                  onCompositionStart={() => {
-                    isComposingRef.current = true;
-                  }}
-                  onCompositionEnd={() => {
-                    isComposingRef.current = false;
-                  }}
-                  onPaste={handlePaste}
-                  placeholder={
-                    composerMode === 'image'
-                      ? t('composer.imagePromptPlaceholder')
-                      : t('welcome.placeholderSkillHint')
-                  }
-                  rows={1}
-                  style={{ minHeight: '72px', maxHeight: '200px' }}
-                  className="w-full resize-none bg-transparent border-none outline-none text-text-primary placeholder:text-text-muted text-base leading-relaxed overflow-hidden"
-                  onKeyDown={(e) => {
-                    if (isSlashMenuOpen) {
-                      if (e.key === 'ArrowDown') {
-                        e.preventDefault();
-                        moveSlashSelection(1);
-                        return;
-                      }
-                      if (e.key === 'ArrowUp') {
-                        e.preventDefault();
-                        moveSlashSelection(-1);
-                        return;
-                      }
-                      if (
-                        (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) &&
-                        slashSelectedSkill
-                      ) {
-                        if (
-                          e.nativeEvent.isComposing ||
-                          isComposingRef.current ||
-                          e.keyCode === 229
-                        ) {
-                          return;
-                        }
-                        e.preventDefault();
-                        handleSelectSlashSkill(slashSelectedSkill);
-                        return;
-                      }
-                      if (e.key === 'Escape') {
-                        e.preventDefault();
-                        closeSlashMenu();
-                        return;
-                      }
-                    }
-                    // Enter to send, Shift+Enter for new line
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      if (
-                        e.nativeEvent.isComposing ||
-                        isComposingRef.current ||
-                        e.keyCode === 229
-                      ) {
-                        return;
-                      }
-                      e.preventDefault();
-                      handleSubmit();
-                    }
-                  }}
-                />
-
-                {/* Bottom Actions */}
-                <div className="composer-toolbar border-t border-border-muted pt-3">
-                  <div className="flex min-w-0 items-center gap-2">
-                    <div className="relative" ref={actionsMenuRef}>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setLoopMenuOpen(false);
-                          setActionsMenuOpen((open) => !open);
-                        }}
-                        className={`flex h-9 w-9 items-center justify-center rounded-2xl transition-colors ${
-                          actionsMenuOpen || loopMenuOpen
-                            ? 'bg-accent/10 text-accent'
-                            : 'text-text-muted hover:bg-surface-hover hover:text-text-primary'
-                        }`}
-                        title={t('welcome.actionsMenu')}
-                        aria-label={t('welcome.actionsMenu')}
-                        aria-expanded={actionsMenuOpen || loopMenuOpen}
-                        aria-haspopup="menu"
-                      >
-                        <Plus className="h-5 w-5" />
-                      </button>
-                      {actionsMenuOpen && (
-                        <div
-                          role="menu"
-                          className="absolute bottom-[calc(100%+8px)] left-0 z-30 min-w-[14rem] overflow-hidden rounded-[1.25rem] border border-border-subtle bg-background shadow-elevated"
-                        >
-                          <div className="space-y-0.5 p-1.5">
-                            {composerMode !== 'image' && (
-                              <button
-                                type="button"
-                                role="menuitem"
-                                onClick={() => {
-                                  setActionsMenuOpen(false);
-                                  void handleSelectFolder();
-                                }}
-                                className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
-                              >
-                                <FolderOpen className="h-4 w-4 text-text-muted" />
-                                <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
-                                  {workingDir
-                                    ? workingDir.split(/[/\\]/).pop()
-                                    : t('welcome.selectWorkingFolder')}
-                                </span>
-                              </button>
-                            )}
-                            {isElectron && (
-                              <button
-                                type="button"
-                                role="menuitem"
-                                onClick={() => {
-                                  setActionsMenuOpen(false);
-                                  void handleFileSelect();
-                                }}
-                                className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
-                              >
-                                <Paperclip className="h-4 w-4 text-text-muted" />
-                                <span className="text-[13px] font-medium">
-                                  {t('welcome.attachFiles')}
-                                </span>
-                              </button>
-                            )}
-                            {composerMode !== 'image' && isElectron && !skillsOffDraft && (
-                              <button
-                                type="button"
-                                role="menuitem"
-                                onClick={() => {
-                                  setActionsMenuOpen(false);
-                                  openSkillPicker();
-                                  requestAnimationFrame(() => textareaRef.current?.focus());
-                                }}
-                                className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
-                              >
-                                <Package className="h-4 w-4 text-accent" />
-                                <span className="text-[13px] font-medium">
-                                  {t('skills.mentionFromMenu')}
-                                </span>
-                              </button>
-                            )}
-                            {composerMode !== 'image' && isElectron && meetingsReferenceAllowed && (
-                              <button
-                                type="button"
-                                role="menuitem"
-                                onClick={() => {
-                                  setActionsMenuOpen(false);
-                                  setMeetingPickerOpen(true);
-                                }}
-                                className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
-                              >
-                                <Mic className="h-4 w-4 text-accent" />
-                                <span className="text-[13px] font-medium">
-                                  {t('meetings.attachMeeting')}
-                                </span>
-                              </button>
-                            )}
-                            {composerMode !== 'image' && isElectron && (
-                              <>
-                                <button
-                                  type="button"
-                                  role="menuitem"
-                                  onClick={() => {
-                                    setActionsMenuOpen(false);
-                                    setReferencePickerSource('drive');
-                                  }}
-                                  className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
-                                >
-                                  <FileText className="h-4 w-4 text-accent" />
-                                  <span className="text-[13px] font-medium">
-                                    {t('references.drive')}
-                                  </span>
-                                </button>
-                                <button
-                                  type="button"
-                                  role="menuitem"
-                                  onClick={() => {
-                                    setActionsMenuOpen(false);
-                                    setReferencePickerSource('slack');
-                                  }}
-                                  className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
-                                >
-                                  <MessageSquare className="h-4 w-4 text-accent" />
-                                  <span className="text-[13px] font-medium">
-                                    {t('references.slack')}
-                                  </span>
-                                </button>
-                                <button
-                                  type="button"
-                                  role="menuitem"
-                                  onClick={() => {
-                                    setActionsMenuOpen(false);
-                                    setReferencePickerSource('jira');
-                                  }}
-                                  className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
-                                >
-                                  <Hash className="h-4 w-4 text-accent" />
-                                  <span className="text-[13px] font-medium">
-                                    {t('references.jira')}
-                                  </span>
-                                </button>
-                                <button
-                                  type="button"
-                                  role="menuitem"
-                                  onClick={() => {
-                                    setActionsMenuOpen(false);
-                                    setReferencePickerSource('confluence');
-                                  }}
-                                  className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
-                                >
-                                  <BookOpen className="h-4 w-4 text-accent" />
-                                  <span className="text-[13px] font-medium">
-                                    {t('references.confluence')}
-                                  </span>
-                                </button>
-                              </>
-                            )}
-                            {composerMode !== 'image' && isElectron && (
-                              <button
-                                type="button"
-                                role="menuitem"
-                                onClick={() => {
-                                  setActionsMenuOpen(false);
-                                  setLoopMenuOpen(true);
-                                }}
-                                className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
-                              >
-                                <RefreshCw className="h-4 w-4 text-text-muted" />
-                                <span className="text-[13px] font-medium">
-                                  {t('loop.menuButton')}
-                                </span>
-                              </button>
-                            )}
-                            {composerMode !== 'image' && isElectron && (
-                              <button
-                                type="button"
-                                role="menuitem"
-                                onClick={() => {
-                                  setActionsMenuOpen(false);
-                                  setSkillsOffDraft(!skillsOffDraft);
-                                }}
-                                className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
-                              >
-                                {skillsOffDraft ? (
-                                  <Package className="h-4 w-4 text-accent" />
-                                ) : (
-                                  <PackageX className="h-4 w-4 text-text-muted" />
-                                )}
-                                <span className="text-[13px] font-medium">
-                                  {skillsOffDraft
-                                    ? t('skills.enableForChat')
-                                    : t('skills.disableForChat')}
-                                </span>
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                      <ChatLoopPanel
-                        open={loopMenuOpen}
-                        align="left"
-                        initialText={prompt.trim()}
-                        activeStatus={null}
-                        onClose={() => setLoopMenuOpen(false)}
-                        onStart={async ({
-                          kind,
-                          prompt: loopPrompt,
-                          intervalMs,
-                          maxIterations,
-                        }) => {
-                          setIsSubmitting(true);
-                          try {
-                            await startSessionWithLoop({
-                              kind,
-                              prompt: loopPrompt,
-                              intervalMs,
-                              maxIterations,
-                            });
-                          } finally {
-                            setIsSubmitting(false);
-                          }
-                        }}
-                        onStop={async () => {
-                          setLoopMenuOpen(false);
-                        }}
-                      />
-                    </div>
-                    <ComposerModeDropdown disabled={isSubmitting || openRouterKeyRequired} />
-                    {composerMode !== 'image' && skillsOffDraft && (
-                      <button
-                        type="button"
-                        onClick={() => setSkillsOffDraft(false)}
-                        className="flex h-8 shrink-0 items-center gap-1 rounded-xl px-2 text-[12px] font-medium text-text-muted transition-colors hover:bg-surface-hover hover:text-text-primary"
-                        title={t('skills.enableForChat')}
-                      >
-                        <PackageX className="h-3.5 w-3.5 shrink-0" />
-                        <span className="truncate">{t('skills.disabledForChatBadge')}</span>
-                      </button>
-                    )}
-                    {workingDir && composerMode !== 'image' && (
-                      <span
-                        className="composer-working-dir min-w-0 max-w-[10rem] truncate text-xs text-text-muted"
-                        title={workingDir}
-                      >
-                        {workingDir.split(/[/\\]/).pop()}
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="composer-toolbar-end gap-2">
-                    {composerMode !== 'image' && <ThinkingModeToggle />}
-                    {composerMode !== 'image' && <ModelSelector />}
-                    <HubBudgetMeter />
-                    {dictationAvailable && (
-                      <DictationButton
-                        status={dictationStatus}
-                        errorKind={dictationErrorKind}
-                        disabled={isSubmitting}
-                        onToggle={toggleDictation}
-                      />
-                    )}
-                    <button
-                      type="submit"
-                      disabled={!canSubmit || isSubmitting}
-                      onPointerEnter={() => prefetchChatPanels()}
-                      aria-label={t('welcome.letsGo')}
-                      className="btn btn-primary shrink-0 px-3 py-2.5 rounded-2xl disabled:opacity-50 disabled:cursor-not-allowed sm:px-5"
-                    >
-                      <span className="composer-submit-label">{t('welcome.letsGo')}</span>
-                      <ArrowRight className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              </form>
-              {dictationStatus === 'error' && dictationErrorKind === 'client_outdated' ? (
-                <ClientOutdatedUpdateActions className="mt-3" />
-              ) : null}
-            </div>
+            {' · '}
+            {snapshot.scanning
+              ? t('today.checking')
+              : t('today.lastChecked', {
+                  when: relativeAgo(t, snapshot.lastScan?.finishedAt ?? null),
+                })}
           </>
+        ) : null}
+        {activeDivision ? (
+          <>
+            {' · '}
+            {t('today.newChatsIn', { workspace: divisionLabel(activeDivision) })}
+          </>
+        ) : null}
+      </p>
+      <h1 className="m-0 text-[30px] font-semibold tracking-[-0.02em] text-text-primary">
+        {greeting}
+      </h1>
+      {briefLead || briefBody ? (
+        <p className="mb-[22px] mt-2 max-w-[760px] text-[15px] leading-[1.6] text-text-secondary">
+          {briefLead ? <b className="font-semibold text-text-primary">{briefLead}</b> : null}
+          {briefLead && briefBody ? ' ' : null}
+          {briefBody}
+        </p>
+      ) : (
+        <div className="h-[22px]" />
+      )}
+      <div className="mb-[18px] -mt-2 empty:hidden">
+        <ToolsHealthNote />
+      </div>
+      {incognitoDraft && (
+        <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-dashed border-border bg-surface px-3 py-1.5 text-xs text-text-secondary">
+          <Ghost className="w-3.5 h-3.5 text-text-muted" />
+          <span className="font-medium text-text-primary">{t('welcome.incognitoActive')}</span>
+          <span className="text-text-muted">·</span>
+          <span>{t('welcome.incognitoActiveHint')}</span>
+          <button
+            type="button"
+            onClick={() => setIncognitoDraft(false)}
+            className="ml-1 rounded-full p-0.5 text-text-muted hover:text-text-primary hover:bg-surface-hover transition-colors"
+            title={t('common.close')}
+          >
+            <X className="w-3 h-3" />
+          </button>
+        </div>
+      )}
+      <OpenRouterKeyGateBanner />
+      {composer}
+      {dictationStatus === 'error' && dictationErrorKind === 'client_outdated' ? (
+        <ClientOutdatedUpdateActions className="mt-3" />
+      ) : null}
+      <div className="mt-3 flex flex-wrap gap-2">
+        {suggestions.map((s) => (
+          <button
+            key={s}
+            type="button"
+            onClick={() => void runSuggestion(s)}
+            disabled={isSubmitting || openRouterKeyRequired}
+            className="h-[30px] max-w-full truncate rounded-full border border-border-subtle bg-transparent px-3 text-[12.5px] text-text-secondary transition-colors hover:border-border hover:bg-surface hover:text-text-primary disabled:opacity-50"
+          >
+            {s}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+      <div className="mx-auto w-full max-w-[1180px] animate-fade-in px-6 py-8 md:px-9 md:py-9">
+        {!activeDivision ? (
+          <>
+            <h1 className="m-0 text-[30px] font-semibold tracking-[-0.02em] text-text-primary">
+              {greeting}
+            </h1>
+            <p className="mb-6 mt-2 text-[15px] text-text-secondary">{t('today.pickWorkspace')}</p>
+            <DivisionChooser />
+          </>
+        ) : (
+          <TodayBoard matter={matter} hero={hero} />
         )}
       </div>
       <MeetingPicker

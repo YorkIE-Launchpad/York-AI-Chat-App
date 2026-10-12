@@ -43,11 +43,20 @@ import {
   Eye,
   Shield,
 } from 'lucide-react';
-import type { TraceStep, MCPServerInfo, ContentBlock, ToolUseContent, PermissionRule } from '../types';
+import type {
+  TraceStep,
+  MCPServerInfo,
+  ContentBlock,
+  ToolUseContent,
+  PermissionRule,
+} from '../types';
 import type { SharedDocWithAccess } from '../../shared/shared-docs/types';
 import type { ConnectorStatus } from './settings/shared';
 import { getMcpToolDisplayName } from './message/toolHelpers';
 import { SharedDocsPanelControls } from './SharedDocsPanelControls';
+import { InspectorTabs, resolveInspectorTab } from './inspector/InspectorTabs';
+import { SessionSourcesPane } from './inspector/SessionSourcesPane';
+import { collectSessionSources } from '../utils/session-sources';
 import {
   DEFAULT_CONFLUENCE_MCP_SERVER_ID,
   DEFAULT_GOOGLE_CALENDAR_MCP_SERVER_ID,
@@ -335,7 +344,10 @@ export function ContextPanel() {
 
   const resetSessionAlwaysAllow = async () => {
     if (!activeSessionId || resettingAlwaysAllow) return;
-    if (typeof window === 'undefined' || !window.electronAPI?.permissions?.clearSessionAlwaysAllow) {
+    if (
+      typeof window === 'undefined' ||
+      !window.electronAPI?.permissions?.clearSessionAlwaysAllow
+    ) {
       return;
     }
     setResettingAlwaysAllow(true);
@@ -399,6 +411,14 @@ export function ContextPanel() {
     }
   };
 
+  const hasPreview = useAppStore((s) => Boolean(s.activeHtmlPreview));
+  const tab = resolveInspectorTab(
+    useAppStore((s) => s.inspectorTab),
+    hasPreview
+  );
+  const sessionSources = useMemo(() => collectSessionSources(messages), [messages]);
+  const sourceCount = sessionSources.reduce((sum, turn) => sum + turn.sources.length, 0);
+
   if (contextPanelCollapsed) {
     return (
       <div className="flex w-10 shrink-0 items-start justify-center border-l border-border-muted bg-background pt-3">
@@ -415,384 +435,400 @@ export function ContextPanel() {
 
   return (
     <div className="flex w-72 shrink-0 flex-col overflow-hidden border-l border-border-muted bg-background text-sm">
-      {/* Header */}
-      <div className="px-3 h-10 flex items-center gap-2 border-b border-border-muted shrink-0">
-        <button
-          onClick={toggleContextPanel}
-          className="w-6 h-6 rounded-md flex items-center justify-center hover:bg-surface-hover text-text-muted hover:text-text-primary transition-colors"
-          title={t('context.collapsePanel')}
-        >
-          <ChevronRight className="w-3.5 h-3.5" />
-        </button>
-        <span className="text-xs font-medium text-text-muted uppercase tracking-wider">
-          {t('context.context')}
-        </span>
-      </div>
+      <InspectorTabs
+        sourceCount={sourceCount}
+        fileCount={displayArtifacts.length}
+        leading={
+          <button
+            onClick={toggleContextPanel}
+            className="w-6 h-6 shrink-0 rounded-md flex items-center justify-center hover:bg-surface-hover text-text-muted hover:text-text-primary transition-colors"
+            title={t('context.collapsePanel')}
+          >
+            <ChevronRight className="w-3.5 h-3.5" />
+          </button>
+        }
+      />
 
-      {/* Session Stats */}
-      {activeSession && (
-        <div className="px-4 py-3 border-b border-border-muted space-y-1.5">
-          <div className="flex items-center gap-1.5 text-text-primary font-medium">
-            <Cpu className="w-3.5 h-3.5 text-text-muted shrink-0" />
-            <span className="truncate">{modelName}</span>
-          </div>
-          {appConfig?.provider === 'openrouter' && (
-            <p className="pl-5 text-[11px] leading-snug text-text-muted">
-              {t('context.openRouterBilling', 'Billed via your OpenRouter key')}
-            </p>
+      {tab === 'context' && (
+        <>
+          {/* Session Stats */}
+          {activeSession && (
+            <div className="px-4 py-3 border-b border-border-muted space-y-1.5">
+              <div className="flex items-center gap-1.5 text-text-primary font-medium">
+                <Cpu className="w-3.5 h-3.5 text-text-muted shrink-0" />
+                <span className="truncate">{modelName}</span>
+              </div>
+              {appConfig?.provider === 'openrouter' && (
+                <p className="pl-5 text-[11px] leading-snug text-text-muted">
+                  {t('context.openRouterBilling', 'Billed via your OpenRouter key')}
+                </p>
+              )}
+              <div className="flex items-center gap-3 text-xs text-text-muted pl-5">
+                <span className="flex items-center gap-1">
+                  <MessageSquare className="w-3 h-3" />
+                  {messageCount}
+                </span>
+                <span className="flex items-center gap-1">
+                  <Wrench className="w-3 h-3" />
+                  {toolCallCount}
+                </span>
+              </div>
+            </div>
           )}
-          <div className="flex items-center gap-3 text-xs text-text-muted pl-5">
-            <span className="flex items-center gap-1">
-              <MessageSquare className="w-3 h-3" />
-              {messageCount}
-            </span>
-            <span className="flex items-center gap-1">
-              <Wrench className="w-3 h-3" />
-              {toolCallCount}
-            </span>
+
+          {/* Tool permissions */}
+          <div className="border-b border-border-muted">
+            <button
+              type="button"
+              onClick={() => setPermissionsOpen(!permissionsOpen)}
+              className="w-full px-4 py-2.5 flex items-center justify-between hover:bg-surface-hover transition-colors"
+            >
+              <span className="text-xs font-medium text-text-muted uppercase tracking-wider">
+                {t('context.toolPermissions')}
+              </span>
+              {permissionsOpen ? (
+                <ChevronUp className="w-3.5 h-3.5 text-text-muted" />
+              ) : (
+                <ChevronDown className="w-3.5 h-3.5 text-text-muted" />
+              )}
+            </button>
+
+            {permissionsOpen && (
+              <div className="px-4 pb-3 space-y-3">
+                <p className="text-[11px] text-text-muted leading-snug">
+                  {t('context.toolPermissionsHint')}
+                </p>
+                {visiblePermissionTools.length === 0 ? (
+                  <p className="text-[11px] text-text-muted">{t('context.toolPermissionsEmpty')}</p>
+                ) : (
+                  <div className="space-y-2">
+                    {visiblePermissionTools.map((tool) => {
+                      const action = getToolPermissionAction(tool);
+                      const busy = permissionBusyTool === tool;
+                      return (
+                        <div key={tool} className="space-y-1">
+                          <div className="flex items-center gap-1.5 text-xs text-text-primary">
+                            <Shield className="w-3 h-3 text-text-muted shrink-0" />
+                            <span className="font-mono">{tool}</span>
+                          </div>
+                          <div className="flex rounded-md border border-border overflow-hidden">
+                            {(['ask', 'allow', 'deny'] as const).map((opt) => {
+                              const selected = action === opt;
+                              const label =
+                                opt === 'ask'
+                                  ? t('context.permissionAsk')
+                                  : opt === 'allow'
+                                    ? t('context.permissionAllow')
+                                    : t('context.permissionDeny');
+                              return (
+                                <button
+                                  key={opt}
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() => void setToolPermissionAction(tool, opt)}
+                                  className={`flex-1 px-1.5 py-1 text-[11px] transition-colors disabled:opacity-50 ${
+                                    selected
+                                      ? opt === 'deny'
+                                        ? 'bg-error/15 text-error font-medium'
+                                        : opt === 'allow'
+                                          ? 'bg-success/15 text-success font-medium'
+                                          : 'bg-accent/15 text-accent font-medium'
+                                      : 'text-text-muted hover:bg-surface-hover'
+                                  }`}
+                                >
+                                  {label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <div className="pt-1 border-t border-border-muted space-y-1.5">
+                  <p className="text-[11px] font-medium text-text-muted">
+                    {t('context.sessionAlwaysAllow')}
+                  </p>
+                  {sessionAlwaysAllow.length === 0 ? (
+                    <p className="text-[11px] text-text-muted">
+                      {t('context.sessionAlwaysAllowEmpty')}
+                    </p>
+                  ) : (
+                    <div className="flex flex-wrap gap-1">
+                      {sessionAlwaysAllow.map((tool) => (
+                        <span
+                          key={tool}
+                          className="px-1.5 py-0.5 rounded bg-surface-muted text-[11px] font-mono text-text-primary"
+                        >
+                          {tool}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    disabled={
+                      !activeSessionId || sessionAlwaysAllow.length === 0 || resettingAlwaysAllow
+                    }
+                    onClick={() => void resetSessionAlwaysAllow()}
+                    className="text-[11px] text-text-muted hover:text-text-primary disabled:opacity-40 transition-colors"
+                  >
+                    {resettingAlwaysAllow ? (
+                      <span className="inline-flex items-center gap-1">
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        {t('context.sessionAlwaysAllowReset')}
+                      </span>
+                    ) : (
+                      t('context.sessionAlwaysAllowReset')
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Connectors (MCP + Zoom OAuth for meeting capture) */}
+          <div className="flex-1 overflow-y-auto">
+            <div className="px-4 py-2.5">
+              <p className="text-xs font-medium text-text-muted uppercase tracking-wider mb-2">
+                {t('context.mcpConnectors')}
+              </p>
+              {mcpServers.length === 0 && !zoomStatus ? (
+                <div className="flex items-center gap-2 text-xs text-text-muted py-1">
+                  <Plug className="w-3.5 h-3.5 shrink-0" />
+                  <span>{t('mcp.noConnectors')}</span>
+                </div>
+              ) : (
+                <div className="space-y-0.5">
+                  {mcpServers.map((server) => (
+                    <div key={server.id} className="space-y-0.5">
+                      <ConnectorItem
+                        server={server}
+                        steps={steps}
+                        mcpToolDisplayNames={mcpToolDisplayNames}
+                        expanded={expandedConnector === server.id}
+                        onToggle={() =>
+                          setExpandedConnector(expandedConnector === server.id ? null : server.id)
+                        }
+                        onStatusChange={async () => {
+                          const servers = await getMCPServers();
+                          setMcpServers(normalizeMcpServers(servers));
+                        }}
+                      />
+                      {server.id === DEFAULT_GOOGLE_CALENDAR_MCP_SERVER_ID && zoomStatus && (
+                        <ZoomConnectorItem status={zoomStatus} onStatusChange={refreshZoomStatus} />
+                      )}
+                    </div>
+                  ))}
+                  {zoomStatus &&
+                    !mcpServers.some((s) => s.id === DEFAULT_GOOGLE_CALENDAR_MCP_SERVER_ID) && (
+                      <ZoomConnectorItem status={zoomStatus} onStatusChange={refreshZoomStatus} />
+                    )}
+                </div>
+              )}
+            </div>
+          </div>
+        </>
+      )}
+
+      {tab === 'files' && (
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          {/* Artifacts Section */}
+          <div className="border-b border-border-muted">
+            <button
+              onClick={() => setArtifactsOpen(!artifactsOpen)}
+              className="w-full px-4 py-2.5 flex items-center justify-between hover:bg-surface-hover transition-colors"
+            >
+              <span className="text-xs font-medium text-text-muted uppercase tracking-wider">
+                {t('context.artifacts')}
+              </span>
+              {artifactsOpen ? (
+                <ChevronUp className="w-3.5 h-3.5 text-text-muted" />
+              ) : (
+                <ChevronDown className="w-3.5 h-3.5 text-text-muted" />
+              )}
+            </button>
+
+            {artifactsOpen && (
+              <div className="pb-2">
+                <SharedDocsPanelControls />
+                {displayArtifacts.length === 0 ? (
+                  <div className="flex items-center gap-2 px-4 py-2 text-xs text-text-muted">
+                    <Layers className="w-3.5 h-3.5 shrink-0" />
+                    <span>{t('context.noArtifactsYet')}</span>
+                  </div>
+                ) : (
+                  <div>
+                    {displayArtifacts.map((artifact, index) => {
+                      const label = artifact.label || t('context.fileCreated');
+                      const artifactPath = artifact.path;
+                      const canPreview = Boolean(artifactPath && isPreviewablePath(artifactPath));
+                      const canReveal = Boolean(artifactPath && canShowItemInFolder);
+                      const canClick = canPreview || canReveal;
+                      const iconComponent = getArtifactIconComponent(label);
+                      const IconComponent =
+                        iconComponent === 'presentation'
+                          ? FilePieChart
+                          : iconComponent === 'table'
+                            ? FileSpreadsheet
+                            : iconComponent === 'document'
+                              ? FileText
+                              : iconComponent === 'code'
+                                ? FileCode2
+                                : iconComponent === 'image'
+                                  ? ImageIcon
+                                  : iconComponent === 'audio'
+                                    ? FileAudio2
+                                    : iconComponent === 'video'
+                                      ? FileVideo
+                                      : iconComponent === 'archive'
+                                        ? FileArchive
+                                        : iconComponent === 'text'
+                                          ? File
+                                          : File;
+
+                      return (
+                        <div
+                          key={artifact.path || artifact.label || `artifact-${index}`}
+                          className={`flex items-center gap-2 px-4 py-1.5 transition-colors ${canClick ? 'cursor-pointer hover:bg-surface-hover' : ''}`}
+                          onClick={async () => {
+                            if (!canClick) return;
+                            if (artifact.doc && activeSessionId && currentWorkingDir) {
+                              const opened = await openSharedDoc({
+                                sessionId: activeSessionId,
+                                cwd: currentWorkingDir,
+                                docId: artifact.doc.id,
+                                doc: artifact.doc,
+                              });
+                              if (!opened.success && artifactPath && canPreview) {
+                                openHtmlPreview(
+                                  artifactPath,
+                                  label,
+                                  previewKindFromPath(artifactPath) ?? undefined,
+                                  {
+                                    docId: artifact.doc.id,
+                                    permission: artifact.doc.permission,
+                                    s3UpdatedAt: artifact.doc.s3UpdatedAt,
+                                  }
+                                );
+                              }
+                              return;
+                            }
+                            if (canPreview && artifactPath) {
+                              openHtmlPreview(
+                                artifactPath,
+                                label,
+                                previewKindFromPath(artifactPath) ?? undefined
+                              );
+                              return;
+                            }
+                            const revealed = await window.electronAPI.showItemInFolder(
+                              artifactPath,
+                              currentWorkingDir ?? undefined
+                            );
+                            if (!revealed) {
+                              setGlobalNotice({
+                                id: `artifact-reveal-failed-${Date.now()}`,
+                                type: 'warning',
+                                message: t('context.revealFailed'),
+                              });
+                            }
+                          }}
+                          title={canPreview ? t('context.previewHtml') : artifactPath || undefined}
+                        >
+                          <IconComponent className="w-3.5 h-3.5 text-text-muted shrink-0" />
+                          <span className="text-xs text-text-primary truncate flex-1">{label}</span>
+                          {canPreview && (
+                            <Eye className="w-3 h-3 text-text-muted shrink-0" aria-hidden="true" />
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Working Directory */}
+          <div className="border-b border-border-muted">
+            <div className="px-4 py-2.5">
+              <p className="text-xs font-medium text-text-muted uppercase tracking-wider mb-2">
+                {t('context.workingDirectory')}
+              </p>
+              <div className="flex items-center gap-1.5 min-w-0">
+                <FolderOpen className="w-3.5 h-3.5 text-text-muted shrink-0" />
+                <span
+                  className={`text-xs truncate flex-1 ${currentWorkingDir ? 'text-text-primary cursor-pointer hover:text-accent-primary transition-colors' : 'text-text-muted'}`}
+                  title={currentWorkingDir ? t('context.openInFileManager') : ''}
+                  onClick={() =>
+                    currentWorkingDir && window.electronAPI?.showItemInFolder(currentWorkingDir)
+                  }
+                >
+                  {currentWorkingDir
+                    ? formatPath(currentWorkingDir)
+                    : t('context.noFolderSelected')}
+                </span>
+                {currentWorkingDir && (
+                  <button
+                    onClick={() => handleCopyPath(currentWorkingDir)}
+                    className="text-text-muted hover:text-text-primary transition-colors shrink-0 ml-1"
+                    title={t('context.copyPath')}
+                  >
+                    {copiedPath ? (
+                      <Check className="w-3 h-3 text-success" />
+                    ) : (
+                      <Copy className="w-3 h-3" />
+                    )}
+                  </button>
+                )}
+                <button
+                  onClick={async () => {
+                    setIsChangingDir(true);
+                    try {
+                      const result = await changeWorkingDir(
+                        activeSessionId || undefined,
+                        currentWorkingDir || undefined
+                      );
+                      if (!result.success && result.error && result.error !== 'User cancelled') {
+                        setGlobalNotice({
+                          id: `change-dir-failed-${Date.now()}`,
+                          type: 'warning',
+                          message: `${t('context.changeDirFailed')}: ${result.error}`,
+                        });
+                      }
+                    } catch (error) {
+                      setGlobalNotice({
+                        id: `change-dir-failed-${Date.now()}`,
+                        type: 'error',
+                        message:
+                          error instanceof Error && error.message
+                            ? `${t('context.changeDirFailed')}: ${error.message}`
+                            : t('context.changeDirFailed'),
+                      });
+                    } finally {
+                      setIsChangingDir(false);
+                    }
+                  }}
+                  disabled={isChangingDir}
+                  className="text-text-muted hover:text-text-primary disabled:opacity-50 transition-colors shrink-0"
+                  title={t('context.changeDir')}
+                >
+                  {isChangingDir ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <FolderSync className="w-3 h-3" />
+                  )}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
 
-      {/* Artifacts Section */}
-      <div className="border-b border-border-muted">
-        <button
-          onClick={() => setArtifactsOpen(!artifactsOpen)}
-          className="w-full px-4 py-2.5 flex items-center justify-between hover:bg-surface-hover transition-colors"
-        >
-          <span className="text-xs font-medium text-text-muted uppercase tracking-wider">
-            {t('context.artifacts')}
-          </span>
-          {artifactsOpen ? (
-            <ChevronUp className="w-3.5 h-3.5 text-text-muted" />
-          ) : (
-            <ChevronDown className="w-3.5 h-3.5 text-text-muted" />
-          )}
-        </button>
-
-        {artifactsOpen && (
-          <div className="pb-2 max-h-64 overflow-y-auto">
-            <SharedDocsPanelControls />
-            {displayArtifacts.length === 0 ? (
-              <div className="flex items-center gap-2 px-4 py-2 text-xs text-text-muted">
-                <Layers className="w-3.5 h-3.5 shrink-0" />
-                <span>{t('context.noArtifactsYet')}</span>
-              </div>
-            ) : (
-              <div>
-                {displayArtifacts.map((artifact, index) => {
-                  const label = artifact.label || t('context.fileCreated');
-                  const artifactPath = artifact.path;
-                  const canPreview = Boolean(artifactPath && isPreviewablePath(artifactPath));
-                  const canReveal = Boolean(artifactPath && canShowItemInFolder);
-                  const canClick = canPreview || canReveal;
-                  const iconComponent = getArtifactIconComponent(label);
-                  const IconComponent =
-                    iconComponent === 'presentation'
-                      ? FilePieChart
-                      : iconComponent === 'table'
-                        ? FileSpreadsheet
-                        : iconComponent === 'document'
-                          ? FileText
-                          : iconComponent === 'code'
-                            ? FileCode2
-                            : iconComponent === 'image'
-                              ? ImageIcon
-                              : iconComponent === 'audio'
-                                ? FileAudio2
-                                : iconComponent === 'video'
-                                  ? FileVideo
-                                  : iconComponent === 'archive'
-                                    ? FileArchive
-                                    : iconComponent === 'text'
-                                      ? File
-                                      : File;
-
-                  return (
-                    <div
-                      key={artifact.path || artifact.label || `artifact-${index}`}
-                      className={`flex items-center gap-2 px-4 py-1.5 transition-colors ${canClick ? 'cursor-pointer hover:bg-surface-hover' : ''}`}
-                      onClick={async () => {
-                        if (!canClick) return;
-                        if (artifact.doc && activeSessionId && currentWorkingDir) {
-                          const opened = await openSharedDoc({
-                            sessionId: activeSessionId,
-                            cwd: currentWorkingDir,
-                            docId: artifact.doc.id,
-                            doc: artifact.doc,
-                          });
-                          if (!opened.success && artifactPath && canPreview) {
-                            openHtmlPreview(
-                              artifactPath,
-                              label,
-                              previewKindFromPath(artifactPath) ?? undefined,
-                              {
-                                docId: artifact.doc.id,
-                                permission: artifact.doc.permission,
-                                s3UpdatedAt: artifact.doc.s3UpdatedAt,
-                              }
-                            );
-                          }
-                          return;
-                        }
-                        if (canPreview && artifactPath) {
-                          openHtmlPreview(
-                            artifactPath,
-                            label,
-                            previewKindFromPath(artifactPath) ?? undefined
-                          );
-                          return;
-                        }
-                        const revealed = await window.electronAPI.showItemInFolder(
-                          artifactPath,
-                          currentWorkingDir ?? undefined
-                        );
-                        if (!revealed) {
-                          setGlobalNotice({
-                            id: `artifact-reveal-failed-${Date.now()}`,
-                            type: 'warning',
-                            message: t('context.revealFailed'),
-                          });
-                        }
-                      }}
-                      title={canPreview ? t('context.previewHtml') : artifactPath || undefined}
-                    >
-                      <IconComponent className="w-3.5 h-3.5 text-text-muted shrink-0" />
-                      <span className="text-xs text-text-primary truncate flex-1">{label}</span>
-                      {canPreview && (
-                        <Eye className="w-3 h-3 text-text-muted shrink-0" aria-hidden="true" />
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Working Directory */}
-      <div className="border-b border-border-muted">
-        <div className="px-4 py-2.5">
-          <p className="text-xs font-medium text-text-muted uppercase tracking-wider mb-2">
-            {t('context.workingDirectory')}
-          </p>
-          <div className="flex items-center gap-1.5 min-w-0">
-            <FolderOpen className="w-3.5 h-3.5 text-text-muted shrink-0" />
-            <span
-              className={`text-xs truncate flex-1 ${currentWorkingDir ? 'text-text-primary cursor-pointer hover:text-accent-primary transition-colors' : 'text-text-muted'}`}
-              title={currentWorkingDir ? t('context.openInFileManager') : ''}
-              onClick={() =>
-                currentWorkingDir && window.electronAPI?.showItemInFolder(currentWorkingDir)
-              }
-            >
-              {currentWorkingDir ? formatPath(currentWorkingDir) : t('context.noFolderSelected')}
-            </span>
-            {currentWorkingDir && (
-              <button
-                onClick={() => handleCopyPath(currentWorkingDir)}
-                className="text-text-muted hover:text-text-primary transition-colors shrink-0 ml-1"
-                title={t('context.copyPath')}
-              >
-                {copiedPath ? (
-                  <Check className="w-3 h-3 text-success" />
-                ) : (
-                  <Copy className="w-3 h-3" />
-                )}
-              </button>
-            )}
-            <button
-              onClick={async () => {
-                setIsChangingDir(true);
-                try {
-                  const result = await changeWorkingDir(
-                    activeSessionId || undefined,
-                    currentWorkingDir || undefined
-                  );
-                  if (!result.success && result.error && result.error !== 'User cancelled') {
-                    setGlobalNotice({
-                      id: `change-dir-failed-${Date.now()}`,
-                      type: 'warning',
-                      message: `${t('context.changeDirFailed')}: ${result.error}`,
-                    });
-                  }
-                } catch (error) {
-                  setGlobalNotice({
-                    id: `change-dir-failed-${Date.now()}`,
-                    type: 'error',
-                    message:
-                      error instanceof Error && error.message
-                        ? `${t('context.changeDirFailed')}: ${error.message}`
-                        : t('context.changeDirFailed'),
-                  });
-                } finally {
-                  setIsChangingDir(false);
-                }
-              }}
-              disabled={isChangingDir}
-              className="text-text-muted hover:text-text-primary disabled:opacity-50 transition-colors shrink-0"
-              title={t('context.changeDir')}
-            >
-              {isChangingDir ? (
-                <Loader2 className="w-3 h-3 animate-spin" />
-              ) : (
-                <FolderSync className="w-3 h-3" />
-              )}
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Tool permissions */}
-      <div className="border-b border-border-muted">
-        <button
-          type="button"
-          onClick={() => setPermissionsOpen(!permissionsOpen)}
-          className="w-full px-4 py-2.5 flex items-center justify-between hover:bg-surface-hover transition-colors"
-        >
-          <span className="text-xs font-medium text-text-muted uppercase tracking-wider">
-            {t('context.toolPermissions')}
-          </span>
-          {permissionsOpen ? (
-            <ChevronUp className="w-3.5 h-3.5 text-text-muted" />
-          ) : (
-            <ChevronDown className="w-3.5 h-3.5 text-text-muted" />
-          )}
-        </button>
-
-        {permissionsOpen && (
-          <div className="px-4 pb-3 space-y-3">
-            <p className="text-[11px] text-text-muted leading-snug">
-              {t('context.toolPermissionsHint')}
-            </p>
-            {visiblePermissionTools.length === 0 ? (
-              <p className="text-[11px] text-text-muted">{t('context.toolPermissionsEmpty')}</p>
-            ) : (
-              <div className="space-y-2">
-                {visiblePermissionTools.map((tool) => {
-                  const action = getToolPermissionAction(tool);
-                  const busy = permissionBusyTool === tool;
-                  return (
-                    <div key={tool} className="space-y-1">
-                      <div className="flex items-center gap-1.5 text-xs text-text-primary">
-                        <Shield className="w-3 h-3 text-text-muted shrink-0" />
-                        <span className="font-mono">{tool}</span>
-                      </div>
-                      <div className="flex rounded-md border border-border overflow-hidden">
-                        {(['ask', 'allow', 'deny'] as const).map((opt) => {
-                          const selected = action === opt;
-                          const label =
-                            opt === 'ask'
-                              ? t('context.permissionAsk')
-                              : opt === 'allow'
-                                ? t('context.permissionAllow')
-                                : t('context.permissionDeny');
-                          return (
-                            <button
-                              key={opt}
-                              type="button"
-                              disabled={busy}
-                              onClick={() => void setToolPermissionAction(tool, opt)}
-                              className={`flex-1 px-1.5 py-1 text-[11px] transition-colors disabled:opacity-50 ${
-                                selected
-                                  ? opt === 'deny'
-                                    ? 'bg-error/15 text-error font-medium'
-                                    : opt === 'allow'
-                                      ? 'bg-success/15 text-success font-medium'
-                                      : 'bg-accent/15 text-accent font-medium'
-                                  : 'text-text-muted hover:bg-surface-hover'
-                              }`}
-                            >
-                              {label}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            <div className="pt-1 border-t border-border-muted space-y-1.5">
-              <p className="text-[11px] font-medium text-text-muted">
-                {t('context.sessionAlwaysAllow')}
-              </p>
-              {sessionAlwaysAllow.length === 0 ? (
-                <p className="text-[11px] text-text-muted">{t('context.sessionAlwaysAllowEmpty')}</p>
-              ) : (
-                <div className="flex flex-wrap gap-1">
-                  {sessionAlwaysAllow.map((tool) => (
-                    <span
-                      key={tool}
-                      className="px-1.5 py-0.5 rounded bg-surface-muted text-[11px] font-mono text-text-primary"
-                    >
-                      {tool}
-                    </span>
-                  ))}
-                </div>
-              )}
-              <button
-                type="button"
-                disabled={!activeSessionId || sessionAlwaysAllow.length === 0 || resettingAlwaysAllow}
-                onClick={() => void resetSessionAlwaysAllow()}
-                className="text-[11px] text-text-muted hover:text-text-primary disabled:opacity-40 transition-colors"
-              >
-                {resettingAlwaysAllow ? (
-                  <span className="inline-flex items-center gap-1">
-                    <Loader2 className="w-3 h-3 animate-spin" />
-                    {t('context.sessionAlwaysAllowReset')}
-                  </span>
-                ) : (
-                  t('context.sessionAlwaysAllowReset')
-                )}
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Connectors (MCP + Zoom OAuth for meeting capture) */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="px-4 py-2.5">
-          <p className="text-xs font-medium text-text-muted uppercase tracking-wider mb-2">
-            {t('context.mcpConnectors')}
-          </p>
-          {mcpServers.length === 0 && !zoomStatus ? (
-            <div className="flex items-center gap-2 text-xs text-text-muted py-1">
-              <Plug className="w-3.5 h-3.5 shrink-0" />
-              <span>{t('mcp.noConnectors')}</span>
-            </div>
-          ) : (
-            <div className="space-y-0.5">
-              {mcpServers.map((server) => (
-                <div key={server.id} className="space-y-0.5">
-                  <ConnectorItem
-                    server={server}
-                    steps={steps}
-                    mcpToolDisplayNames={mcpToolDisplayNames}
-                    expanded={expandedConnector === server.id}
-                    onToggle={() =>
-                      setExpandedConnector(expandedConnector === server.id ? null : server.id)
-                    }
-                    onStatusChange={async () => {
-                      const servers = await getMCPServers();
-                      setMcpServers(normalizeMcpServers(servers));
-                    }}
-                  />
-                  {server.id === DEFAULT_GOOGLE_CALENDAR_MCP_SERVER_ID && zoomStatus && (
-                    <ZoomConnectorItem status={zoomStatus} onStatusChange={refreshZoomStatus} />
-                  )}
-                </div>
-              ))}
-              {zoomStatus &&
-                !mcpServers.some((s) => s.id === DEFAULT_GOOGLE_CALENDAR_MCP_SERVER_ID) && (
-                  <ZoomConnectorItem status={zoomStatus} onStatusChange={refreshZoomStatus} />
-                )}
-            </div>
-          )}
-        </div>
-      </div>
+      {tab === 'sources' && <SessionSourcesPane turns={sessionSources} />}
     </div>
   );
 }

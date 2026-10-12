@@ -1,14 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
-import {
-  relatedMatterLensId,
-  type MatterCategory,
-  type MatterLens,
-} from '../src/shared/matter';
+import { relatedMatterLensId, type MatterCategory, type MatterLens } from '../src/shared/matter';
 
 const lensesPath = path.resolve(process.cwd(), 'src/renderer/components/matter/MatterLenses.tsx');
-const pagePath = path.resolve(process.cwd(), 'src/renderer/components/matter/MatterPage.tsx');
+const pagePath = path.resolve(process.cwd(), 'src/renderer/components/today/TodayBoard.tsx');
 const cssPath = path.resolve(process.cwd(), 'src/renderer/styles/globals.css');
 
 function lens(id: MatterLens['id'], itemIds: string[] = []): MatterLens {
@@ -61,9 +57,10 @@ describe('Matter related-focus highlight UI', () => {
     const page = fs.readFileSync(pagePath, 'utf8');
     const lenses = fs.readFileSync(lensesPath, 'utf8');
 
-    expect(page).toContain('relatedMatterLensId(selectedItem');
+    expect(page).toContain('relatedMatterLensId(drawerItem ?? hoveredItem');
     expect(page).toContain('highlightedLens={relatedLensId}');
-    expect(page).not.toContain('setActiveLens(relatedLensId');
+    expect(page).toContain('matter-focus-lens-related');
+    expect(page).not.toContain('setLens(relatedLensId');
 
     expect(lenses).toContain('highlightedLens');
     expect(lenses).toContain('matter-focus-lens-related');

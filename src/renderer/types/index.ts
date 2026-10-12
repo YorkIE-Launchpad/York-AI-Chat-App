@@ -765,7 +765,16 @@ export type ClientEvent =
         activeDivision?: ActiveDivision | null;
       };
     }
-  | { type: 'permission.response'; payload: { toolUseId: string; result: PermissionResult } }
+  | {
+      type: 'permission.response';
+      payload: {
+        toolUseId: string;
+        result: PermissionResult;
+        /** User-edited string fields (e.g. a draft message) to apply before the tool runs. */
+        editedInput?: Record<string, unknown>;
+      };
+    }
+  | { type: 'permission.hold'; payload: { toolUseId: string } }
   | { type: 'question.response'; payload: UserQuestionResponse }
   | { type: 'sudo.password.response'; payload: { toolUseId: string; password: string | null } }
   | { type: 'settings.update'; payload: Record<string, unknown> }

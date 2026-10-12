@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { UnifiedCompanyProject } from '../../shared/unified-company-projects';
-import {
-  pushRecentProject,
-  resolveRecentProjects,
-} from '../../renderer/utils/recent-projects';
+import { pushRecentProject, resolveRecentProjects } from '../../renderer/utils/recent-projects';
 
 function project(key: string, name: string): UnifiedCompanyProject {
   return {
@@ -24,22 +21,10 @@ describe('recent-projects', () => {
     list = pushRecentProject(list, project('hub:d', 'D'));
     list = pushRecentProject(list, project('hub:e', 'E'));
     list = pushRecentProject(list, project('hub:f', 'F'), 5);
-    expect(list.map((p) => p.canonicalKey)).toEqual([
-      'hub:f',
-      'hub:e',
-      'hub:d',
-      'hub:c',
-      'hub:b',
-    ]);
+    expect(list.map((p) => p.canonicalKey)).toEqual(['hub:f', 'hub:e', 'hub:d', 'hub:c', 'hub:b']);
 
     list = pushRecentProject(list, project('hub:c', 'C renamed'), 5);
-    expect(list.map((p) => p.canonicalKey)).toEqual([
-      'hub:c',
-      'hub:f',
-      'hub:e',
-      'hub:d',
-      'hub:b',
-    ]);
+    expect(list.map((p) => p.canonicalKey)).toEqual(['hub:c', 'hub:f', 'hub:e', 'hub:d', 'hub:b']);
     expect(list[0].name).toBe('C renamed');
   });
 

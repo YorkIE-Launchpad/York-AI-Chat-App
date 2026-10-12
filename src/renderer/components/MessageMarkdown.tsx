@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import ReactMarkdown from 'react-markdown';
+import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 import remarkMath from 'remark-math';
 import remarkGfm from 'remark-gfm';
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
@@ -23,8 +23,8 @@ const mathSanitizeSchema = {
   },
   protocols: {
     ...defaultSchema.protocols,
-    // Allow in-app memory citations: [Title](memory:{id})
-    href: [...(defaultSchema.protocols?.href || []), 'memory'],
+    // Allow in-app memory citations: [Title](memory:{id}) and numbered cites: [1](cite:1)
+    href: [...(defaultSchema.protocols?.href || []), 'memory', 'cite'],
   },
 };
 
@@ -35,6 +35,13 @@ const REHYPE_PLUGINS = [
   [rehypeSanitize, mathSanitizeSchema],
   [rehypeKatex, { throwOnError: false, strict: false }],
 ] as const;
+
+const IN_APP_HREF_RE = /^(?:memory|cite):[^\s]+$/i;
+
+/** react-markdown drops non-web protocols by default; keep in-app memory and numbered cites. */
+function urlTransform(url: string): string {
+  return IN_APP_HREF_RE.test(url) ? url : defaultUrlTransform(url);
+}
 
 export interface MessageMarkdownProps {
   normalizedText: string;
@@ -65,6 +72,7 @@ export const MessageMarkdown = memo(function MessageMarkdown({
           REHYPE_PLUGINS as unknown as Parameters<typeof ReactMarkdown>[0]['rehypePlugins']
         }
         components={components}
+        urlTransform={urlTransform}
       >
         {normalizedText}
       </ReactMarkdown>

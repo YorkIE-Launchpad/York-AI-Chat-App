@@ -20,6 +20,7 @@ export function eventRequiresSessionManager(event: ClientEvent): boolean {
     case 'session.getContextUsage':
     case 'session.searchChats':
     case 'permission.response':
+    case 'permission.hold':
       return true;
     default:
       return false;

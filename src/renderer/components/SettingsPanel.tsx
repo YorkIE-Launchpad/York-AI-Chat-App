@@ -3,10 +3,8 @@ import {
   X,
   Plug,
   Package,
-  Clock3,
+  SlidersHorizontal,
   AlertCircle,
-  Globe,
-  ChevronRight,
   BrainCircuit,
   AudioLines,
   RefreshCw,
@@ -18,7 +16,6 @@ import { useWindowSize } from '../hooks/useWindowSize';
 import { useAppStore } from '../store';
 import { SettingsConnectors } from './settings/SettingsConnectors';
 import { SettingsSkills } from './settings/SettingsSkills';
-import { SettingsSchedule } from './settings/SettingsSchedule';
 import { SettingsGeneral } from './settings/SettingsGeneral';
 import { SettingsProfile } from './settings/SettingsProfile';
 import { SettingsLogs } from './settings/SettingsLogs';
@@ -79,6 +76,7 @@ export function SettingsPanel({ onClose, initialTab = 'connectors' }: SettingsPa
   const storeTab = useAppStore((s) => s.settingsTab);
   const setSettingsTab = useAppStore((s) => s.setSettingsTab);
   const setShowWorkflows = useAppStore((s) => s.setShowWorkflows);
+  const setAutomationsTab = useAppStore((s) => s.setAutomationsTab);
   const resolvedInitial =
     storeTab && VALID_TABS.has(storeTab as TabId) ? (storeTab as TabId) : initialTab;
 
@@ -115,8 +113,9 @@ export function SettingsPanel({ onClose, initialTab = 'connectors' }: SettingsPa
   useEffect(() => {
     if (!storeTab) return;
     // Legacy deep-link: Settings → Workflows → open first-class panel
-    if (storeTab === 'workflows') {
+    if (storeTab === 'workflows' || storeTab === 'schedule') {
       setSettingsTab(null);
+      setAutomationsTab(storeTab === 'schedule' ? 'schedules' : 'workflows');
       setShowWorkflows(true);
       onClose();
       return;
@@ -125,7 +124,7 @@ export function SettingsPanel({ onClose, initialTab = 'connectors' }: SettingsPa
       setActiveTab(storeTab as TabId);
       setSettingsTab(null);
     }
-  }, [storeTab, setSettingsTab, setShowWorkflows, onClose]);
+  }, [storeTab, setSettingsTab, setShowWorkflows, setAutomationsTab, onClose]);
 
   // Mark tab as viewed when it becomes active
   useEffect(() => {
@@ -134,112 +133,142 @@ export function SettingsPanel({ onClose, initialTab = 'connectors' }: SettingsPa
     }
   }, [activeTab]);
 
-  const tabs = [
+  const groups: Array<{
+    id: string;
+    label: string;
+    tabs: Array<{ id: TabId; label: string; icon: typeof Plug; description: string }>;
+  }> = [
     {
-      id: 'connectors' as TabId,
-      label: t('settings.connectors'),
-      icon: Plug,
-      description: t('settings.connectorsDesc'),
+      id: 'you',
+      label: t('settingsNav.groupYou'),
+      tabs: [
+        {
+          id: 'profile',
+          label: t('settings.profile'),
+          icon: User,
+          description: t('settings.profileDesc'),
+        },
+        {
+          id: 'general',
+          label: t('settingsNav.preferences'),
+          icon: SlidersHorizontal,
+          description: t('settings.generalDesc'),
+        },
+      ],
     },
     {
-      id: 'skills' as TabId,
-      label: t('settings.skills'),
-      icon: Package,
-      description: t('settings.skillsDesc'),
+      id: 'connections',
+      label: t('settingsNav.groupConnections'),
+      tabs: [
+        {
+          id: 'connectors',
+          label: t('settingsNav.appsAndData'),
+          icon: Plug,
+          description: t('settings.connectorsDesc'),
+        },
+        {
+          id: 'meetings',
+          label: t('settings.meetings'),
+          icon: AudioLines,
+          description: t('settings.meetingsDesc'),
+        },
+      ],
     },
     {
-      id: 'memory' as TabId,
-      label: t('settings.memory'),
-      icon: BrainCircuit,
-      description: t('settings.memoryDesc'),
+      id: 'assistant',
+      label: t('settingsNav.groupAssistant'),
+      tabs: [
+        {
+          id: 'matter',
+          label: t('settingsNav.briefing'),
+          icon: Radar,
+          description: t('settings.matterDesc'),
+        },
+        {
+          id: 'skills',
+          label: t('settings.skills'),
+          icon: Package,
+          description: t('settings.skillsDesc'),
+        },
+        {
+          id: 'memory',
+          label: t('settings.memory'),
+          icon: BrainCircuit,
+          description: t('settings.memoryDesc'),
+        },
+      ],
     },
     {
-      id: 'meetings' as TabId,
-      label: t('settings.meetings'),
-      icon: AudioLines,
-      description: t('settings.meetingsDesc'),
-    },
-    {
-      id: 'matter' as TabId,
-      label: t('settings.matter'),
-      icon: Radar,
-      description: t('settings.matterDesc'),
-    },
-    {
-      id: 'schedule' as TabId,
-      label: t('settings.schedule'),
-      icon: Clock3,
-      description: t('settings.scheduleDesc'),
-    },
-    {
-      id: 'profile' as TabId,
-      label: t('settings.profile'),
-      icon: User,
-      description: t('settings.profileDesc'),
-    },
-    {
-      id: 'general' as TabId,
-      label: t('settings.general'),
-      icon: Globe,
-      description: t('settings.generalDesc'),
-    },
-    {
-      id: 'logs' as TabId,
-      label: t('settings.logs'),
-      icon: AlertCircle,
-      description: t('settings.logsDesc'),
+      id: 'advanced',
+      label: t('settingsNav.groupAdvanced'),
+      tabs: [
+        {
+          id: 'logs',
+          label: t('settingsNav.logs'),
+          icon: AlertCircle,
+          description: t('settings.logsDesc'),
+        },
+      ],
     },
   ];
+  const tabs = groups.flatMap((g) => g.tabs);
   const activeTabMeta = tabs.find((tab) => tab.id === activeTab);
 
   return (
     <div className="flex h-full w-full overflow-hidden bg-background">
       {/* Sidebar */}
       <div
-        className={`${compactSidebar ? 'w-14' : 'w-52 lg:w-60'} bg-background-secondary/88 border-r border-border-muted flex flex-col flex-shrink-0`}
+        className={`${compactSidebar ? 'w-14' : 'w-56'} flex flex-shrink-0 flex-col border-r border-border-subtle bg-background-secondary`}
       >
         {!compactSidebar && (
-          <div className="px-4 pt-5 pb-4 border-b border-border-muted flex-shrink-0">
-            <p className="text-[11px] uppercase tracking-[0.16em] text-text-muted">
+          <div className="flex-shrink-0 px-4 pb-2 pt-5">
+            <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-text-primary">
               {t('settings.title')}
-            </p>
-            <h2 className="mt-1 text-[1.24rem] font-semibold tracking-[-0.03em] text-text-primary">
-              York GrowthOS
             </h2>
-            <p className="mt-1 text-[11px] leading-4 text-text-muted">{t('settings.panelDesc')}</p>
           </div>
         )}
-        <div
-          className={`flex-1 min-h-0 overflow-y-auto ${compactSidebar ? 'p-1.5 space-y-1' : 'p-3 space-y-1.5'}`}
+        <nav
+          className={`flex-1 min-h-0 overflow-y-auto ${compactSidebar ? 'p-1.5 space-y-1' : 'px-2.5 pb-3'}`}
+          aria-label={t('settings.title')}
         >
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              title={compactSidebar ? tab.label : undefined}
-              className={`w-full flex items-center ${compactSidebar ? 'justify-center p-2.5' : 'gap-3 px-3.5 py-3'} rounded-lg text-left transition-colors active:scale-[0.98] ${
-                activeTab === tab.id
-                  ? 'bg-accent/10 text-text-primary font-medium border-l-2 border-accent'
-                  : 'hover:bg-surface-hover text-text-secondary hover:text-text-primary'
-              }`}
-            >
-              <tab.icon className="w-4.5 h-4.5 flex-shrink-0" />
+          {groups.map((group) => (
+            <div key={group.id} className={compactSidebar ? 'space-y-1' : 'mt-3 first:mt-1'}>
               {!compactSidebar && (
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">{tab.label}</p>
-                  <p className="text-[11px] leading-4 text-text-muted line-clamp-2 mt-0.5">
-                    {tab.description}
-                  </p>
-                </div>
+                <p className="px-2.5 pb-1 text-[11px] font-bold uppercase tracking-[0.05em] text-text-muted">
+                  {group.label}
+                </p>
               )}
-              {!compactSidebar && activeTab === tab.id && (
-                <ChevronRight className="w-4 h-4 flex-shrink-0" />
-              )}
-            </button>
+              {group.tabs.map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  title={compactSidebar ? tab.label : undefined}
+                  aria-current={activeTab === tab.id ? 'page' : undefined}
+                  className={`flex w-full items-center rounded-md text-left transition-colors ${
+                    compactSidebar ? 'justify-center p-2.5' : 'h-8 gap-2.5 px-2.5'
+                  } ${
+                    activeTab === tab.id
+                      ? 'bg-accent-muted text-text-primary'
+                      : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
+                  }`}
+                >
+                  <tab.icon
+                    className={`h-4 w-4 flex-shrink-0 ${
+                      activeTab === tab.id ? 'text-accent-text' : 'text-text-muted'
+                    }`}
+                  />
+                  {!compactSidebar && (
+                    <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
+                      {tab.label}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
           ))}
-        </div>
+        </nav>
         <div
-          className={`${compactSidebar ? 'p-1.5' : 'p-4'} border-t border-border-muted flex-shrink-0 space-y-2`}
+          className={`${compactSidebar ? 'p-1.5' : 'p-3'} flex-shrink-0 space-y-2 border-t border-border-subtle`}
         >
           <button
             onClick={onClose}
@@ -365,12 +394,9 @@ export function SettingsPanel({ onClose, initialTab = 'connectors' }: SettingsPa
 
       {/* Content */}
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
-        <div className="flex items-center justify-between px-4 lg:px-8 py-4 border-b border-border-muted flex-shrink-0 bg-background/88 backdrop-blur-sm">
+        <div className="flex flex-shrink-0 items-start justify-between px-4 pb-4 pt-7 lg:px-9">
           <div>
-            <p className="text-[11px] uppercase tracking-[0.14em] text-text-muted">
-              {t('settings.title')}
-            </p>
-            <h3 className="mt-1 text-[1.15rem] font-semibold tracking-[-0.02em] text-text-primary">
+            <h3 className="text-[22px] font-semibold tracking-[-0.02em] text-text-primary">
               {activeTabMeta?.label}
             </h3>
             {activeTabMeta?.description && (
@@ -388,7 +414,7 @@ export function SettingsPanel({ onClose, initialTab = 'connectors' }: SettingsPa
             <X className="w-5 h-5 text-text-secondary" />
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-6 lg:px-8 lg:py-8">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 pb-10 pt-2 lg:px-9">
           <div className="max-w-[860px] w-full min-w-0 mx-auto">
             <div className="">
               <div className={activeTab === 'connectors' ? '' : 'hidden'}>
@@ -407,11 +433,6 @@ export function SettingsPanel({ onClose, initialTab = 'connectors' }: SettingsPa
               </div>
               <div className={activeTab === 'matter' ? '' : 'hidden'}>
                 {viewedTabs.has('matter') && <SettingsMatter />}
-              </div>
-              <div className={activeTab === 'schedule' ? '' : 'hidden'}>
-                {viewedTabs.has('schedule') && (
-                  <SettingsSchedule isActive={activeTab === 'schedule'} />
-                )}
               </div>
               <div className={activeTab === 'logs' ? '' : 'hidden'}>
                 {viewedTabs.has('logs') && <SettingsLogs isActive={activeTab === 'logs'} />}

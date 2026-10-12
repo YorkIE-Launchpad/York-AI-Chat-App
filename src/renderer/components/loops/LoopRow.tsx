@@ -99,7 +99,7 @@ export function LoopRow({
   const hasSource = Boolean(loop.sourceRef.matterItemId || loop.sourceRef.meetingId);
 
   return (
-    <div className="group flex items-start gap-2.5 rounded-xl border border-border-subtle bg-background px-3 py-2 hover:border-border-muted">
+    <div className="group flex items-start gap-2.5 rounded-[10px] border border-transparent px-3 py-2.5 transition-colors hover:border-border-subtle hover:bg-surface">
       <button
         type="button"
         onClick={() => (open ? onClose(loop.id) : onReopen(loop.id))}

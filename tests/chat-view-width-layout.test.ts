@@ -4,13 +4,17 @@ import path from 'path';
 
 function readChatView() {
   const filePath = path.resolve(__dirname, '../src/renderer/components/ChatView.tsx');
-  return fs.readFileSync(filePath, 'utf8');
+  const chatDir = path.resolve(__dirname, '../src/renderer/components/chat');
+  return [
+    fs.readFileSync(filePath, 'utf8'),
+    ...fs.readdirSync(chatDir).map((f) => fs.readFileSync(path.join(chatDir, f), 'utf8')),
+  ].join('\n');
 }
 
 describe('chat view width layout', () => {
   it('uses a centered responsive messages container', () => {
     const source = readChatView();
-    expect(source).toContain('max-w-[920px]');
+    expect(source).toContain('max-w-[820px]');
     expect(source).toContain('lg:px-8');
   });
 

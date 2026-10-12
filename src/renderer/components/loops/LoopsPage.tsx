@@ -1,9 +1,9 @@
 /**
- * Loops — persistent commitments captured from meetings, Matter, and quick-add.
+ * Follow-ups (Loops) — commitments captured from meetings, Today, and quick-add.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { CircleDashed, Plus, Settings, X } from 'lucide-react';
+import { CalendarClock, Plus, Settings, UserRound, Users, X } from 'lucide-react';
 import { useAppStore } from '../../store';
 import {
   DEFAULT_LOOPS_RUNTIME,
@@ -34,7 +34,13 @@ interface LoopsPageProps {
 export function LoopsPage({ onClose }: LoopsPageProps) {
   const { t } = useTranslation();
   const [snapshot, setSnapshot] = useState<LoopsSnapshot>(EMPTY_SNAPSHOT);
-  const [tab, setTab] = useState<LoopsTab>('mine');
+  const initialTab = useAppStore((s) => s.followUpsTab);
+  const setFollowUpsTab = useAppStore((s) => s.setFollowUpsTab);
+  const [tab, setTabState] = useState<LoopsTab>(initialTab);
+  const setTab = (next: LoopsTab) => {
+    setTabState(next);
+    setFollowUpsTab(next);
+  };
   const [draft, setDraft] = useState('');
   const [waitingDraft, setWaitingDraft] = useState(false);
   const [researchDraft, setResearchDraft] = useState(true);
@@ -86,6 +92,8 @@ export function LoopsPage({ onClose }: LoopsPageProps) {
   const api = window.electronAPI?.loops;
   const update = (id: string, updates: LoopUpdateInput) =>
     api && void run(() => api.update(id, updates));
+
+  const draftPreview = useMemo(() => (draft.trim() ? parseLoopQuickAdd(draft) : null), [draft]);
 
   const submitDraft = () => {
     if (!api) return;
@@ -162,46 +170,50 @@ export function LoopsPage({ onClose }: LoopsPageProps) {
   };
 
   const tabs: Array<{ id: LoopsTab; label: string; count: number }> = [
-    { id: 'mine', label: t('loops.tabMine'), count: mine.length },
-    { id: 'waiting', label: t('loops.tabWaiting'), count: waiting.length },
-    { id: 'closed', label: t('loops.tabClosed'), count: closed.length },
+    { id: 'mine', label: t('followUps.tabMine'), count: mine.length },
+    { id: 'waiting', label: t('followUps.tabWaiting'), count: waiting.length },
+    { id: 'closed', label: t('followUps.tabClosed'), count: closed.length },
   ];
 
   const visible = tab === 'waiting' ? waiting : tab === 'closed' ? closed : mine;
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
-      <header className="relative flex shrink-0 items-center gap-3 border-b border-border-muted px-4 py-3">
-        <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-accent/12 text-accent">
-          <CircleDashed className="h-4 w-4" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <h1 className="text-base font-semibold tracking-tight text-text-primary">
-            {t('sidebar.loops')}
-          </h1>
-          <p className="truncate text-[12px] text-text-muted">{t('sidebar.loopsHint')}</p>
+      <header className="relative flex shrink-0 items-center gap-3 px-6 pb-2 pt-7 md:px-9">
+        <div className="mx-auto flex w-full max-w-[860px] items-start gap-3">
+          <div className="min-w-0 flex-1">
+            <h1 className="m-0 text-[24px] font-semibold tracking-[-0.02em] text-text-primary">
+              {t('followUps.title')}
+            </h1>
+            <p className="mt-1 text-[14px] text-text-secondary">{t('followUps.subtitle')}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSettingsOpen((v) => !v)}
+            className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors ${
+              settingsOpen
+                ? 'bg-accent-muted text-accent-text'
+                : 'text-text-muted hover:bg-surface-hover hover:text-text-primary'
+            }`}
+            title={t('loops.settings')}
+            aria-label={t('loops.settings')}
+            aria-expanded={settingsOpen}
+          >
+            <Settings className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-8 w-8 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-surface-hover hover:text-text-primary"
+            title={t('common.close', { defaultValue: 'Close' })}
+            aria-label={t('common.close', { defaultValue: 'Close' })}
+          >
+            <X className="h-4 w-4" />
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={() => setSettingsOpen((v) => !v)}
-          className="h-9 w-9 rounded-xl border border-border-muted flex items-center justify-center text-text-secondary hover:bg-surface-hover"
-          title={t('loops.settings')}
-          aria-label={t('loops.settings')}
-        >
-          <Settings className="w-4 h-4" />
-        </button>
-        <button
-          type="button"
-          onClick={onClose}
-          className="rounded-lg p-2 text-text-secondary transition-colors hover:bg-surface-hover hover:text-text-primary"
-          title={t('common.close', { defaultValue: 'Close' })}
-          aria-label={t('common.close', { defaultValue: 'Close' })}
-        >
-          <X className="h-5 w-5" />
-        </button>
 
         {settingsOpen ? (
-          <div className="absolute right-4 top-full z-20 mt-2 w-96 rounded-xl border border-border-muted bg-surface p-3 shadow-lg space-y-3">
+          <div className="absolute right-6 top-full z-20 mt-1 w-96 space-y-3 rounded-[14px] border border-border-subtle bg-surface-raised p-4 shadow-elevated md:right-9">
             <div className="text-[12px] font-semibold text-text-primary">
               {t('loops.settingsTitle')}
             </div>
@@ -264,34 +276,78 @@ export function LoopsPage({ onClose }: LoopsPageProps) {
         ) : null}
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6 lg:px-8">
-        <div className="mx-auto w-full max-w-[760px] space-y-4">
+      <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-10 pt-4 md:px-9">
+        <div className="mx-auto w-full max-w-[860px] space-y-4">
           <form
             onSubmit={(e) => {
               e.preventDefault();
               submitDraft();
             }}
-            className="rounded-xl border border-border-muted bg-surface/60 px-3 py-2"
+            className="rounded-[14px] border border-border bg-surface px-3.5 py-3 transition-[border-color,box-shadow] focus-within:border-accent focus-within:ring-[3px] focus-within:ring-accent/15"
           >
             <div className="flex items-center gap-2">
-              <Plus className="w-4 h-4 text-text-muted shrink-0" />
+              <Plus className="h-4 w-4 shrink-0 text-text-muted" />
               <input
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
-                placeholder={t('loops.quickAddPlaceholder')}
-                className="min-w-0 flex-1 bg-transparent text-[13px] text-text-primary outline-none placeholder:text-text-muted"
+                placeholder={t('followUps.quickAddPlaceholder')}
+                className="min-w-0 flex-1 bg-transparent text-[14px] text-text-primary outline-none placeholder:text-text-muted"
               />
-              <label className="flex items-center gap-1 text-[11px] text-text-muted shrink-0">
-                <input
-                  type="checkbox"
-                  className="accent-accent"
-                  checked={waitingDraft}
-                  onChange={(e) => setWaitingDraft(e.target.checked)}
-                />
-                {t('loops.waitingOnToggle')}
-              </label>
+              <button
+                type="submit"
+                disabled={!draftPreview?.title}
+                className="btn btn-sm btn-primary shrink-0"
+              >
+                {t('followUps.add')}
+              </button>
+            </div>
+            <div className="mt-2.5 flex flex-wrap items-center gap-2 pl-6 text-[12px] text-text-muted">
+              {draftPreview?.title ? (
+                <span className="inline-flex min-w-0 items-center gap-1.5 text-text-secondary">
+                  {t('followUps.willAdd')}
+                  <b className="max-w-[260px] truncate font-semibold text-text-primary">
+                    {draftPreview.title}
+                  </b>
+                  <span className="meta-chip">
+                    <CalendarClock className="h-3 w-3" />
+                    {draftPreview.dueAt
+                      ? new Date(draftPreview.dueAt).toLocaleDateString(undefined, {
+                          weekday: 'short',
+                          month: 'short',
+                          day: 'numeric',
+                        })
+                      : t('followUps.noDue')}
+                  </span>
+                </span>
+              ) : (
+                <span>{t('followUps.quickAddHint')}</span>
+              )}
+              <span className="ml-auto inline-flex rounded-md border border-border-subtle p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setWaitingDraft(false)}
+                  aria-pressed={!waitingDraft}
+                  className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11.5px] font-medium ${
+                    !waitingDraft ? 'bg-surface-hover text-text-primary' : 'text-text-muted'
+                  }`}
+                >
+                  <UserRound className="h-3 w-3" />
+                  {t('followUps.iOwe')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setWaitingDraft(true)}
+                  aria-pressed={waitingDraft}
+                  className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11.5px] font-medium ${
+                    waitingDraft ? 'bg-surface-hover text-text-primary' : 'text-text-muted'
+                  }`}
+                >
+                  <Users className="h-3 w-3" />
+                  {t('followUps.waitingOn')}
+                </button>
+              </span>
               <label
-                className="flex items-center gap-1 text-[11px] text-text-muted shrink-0"
+                className="flex shrink-0 items-center gap-1.5 text-[11.5px]"
                 title={t('loops.generateHint')}
               >
                 <input
@@ -311,26 +367,24 @@ export function LoopsPage({ onClose }: LoopsPageProps) {
             </div>
           ) : null}
 
-          <div className="flex items-center gap-1 rounded-lg border border-border-subtle p-0.5 bg-background/50">
+          <div className="tab-row" role="tablist">
             {tabs.map((item) => (
               <button
                 key={item.id}
                 type="button"
+                role="tab"
+                aria-selected={tab === item.id}
                 onClick={() => setTab(item.id)}
-                className={`flex-1 rounded-md px-2 py-1.5 text-[11px] font-semibold uppercase tracking-wide transition-colors ${
-                  tab === item.id
-                    ? 'bg-surface text-text-primary'
-                    : 'text-text-muted hover:text-text-secondary'
-                }`}
+                className="tab-row-item"
               >
                 {item.label}
-                <span className="ml-1 text-[10px] opacity-70">{item.count}</span>
+                <span className="text-[11px] font-semibold text-text-muted">{item.count}</span>
               </button>
             ))}
           </div>
 
           {visible.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-border-muted px-4 py-8 text-center text-[12px] text-text-muted">
+            <div className="rounded-[14px] border border-dashed border-border px-4 py-8 text-center text-[13px] text-text-muted">
               {tab === 'mine'
                 ? t('loops.emptyMine')
                 : tab === 'waiting'
@@ -341,8 +395,8 @@ export function LoopsPage({ onClose }: LoopsPageProps) {
             grouped.map((group) => (
               <section key={group.bucket} className="space-y-1.5">
                 <h2
-                  className={`text-[11px] font-semibold uppercase tracking-wide ${
-                    group.bucket === 'overdue' ? 'text-red-500' : 'text-text-muted'
+                  className={`mt-2 text-[11px] font-bold uppercase tracking-[0.05em] ${
+                    group.bucket === 'overdue' ? 'text-error' : 'text-text-muted'
                   }`}
                 >
                   {t(`loops.bucket.${group.bucket}`)}

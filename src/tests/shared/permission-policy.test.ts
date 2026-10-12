@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  applyPermissionEdits,
   PERMISSION_ASK_TIMEOUT_MS,
   PERMISSION_AUTO_APPROVE_MS,
   truncatePermissionInputPreview,
@@ -34,5 +35,26 @@ describe('permission-policy', () => {
       content: 'hello',
     });
     expect(preview).toEqual({ path: 'a.txt', content: 'hello' });
+  });
+
+  it('applies edited draft strings in place without adding keys or changing types', () => {
+    const input: Record<string, unknown> = {
+      channel: 'C123',
+      text: 'Original draft',
+      count: 2,
+      fields: { summary: 'Old', priority: 'High' },
+    };
+    applyPermissionEdits(input, {
+      text: 'Edited draft',
+      count: '3',
+      injected: 'nope',
+      fields: { summary: 'New', extra: 'nope' },
+    });
+    expect(input).toEqual({
+      channel: 'C123',
+      text: 'Edited draft',
+      count: 2,
+      fields: { summary: 'New', priority: 'High' },
+    });
   });
 });

@@ -59,6 +59,8 @@ describe('memory citation wiring', () => {
       'utf8'
     );
     expect(messageMarkdown).toContain("'memory'");
-    expect(messageMarkdown).toContain('href: [...(defaultSchema.protocols?.href || []), \'memory\']');
+    expect(messageMarkdown).toContain(
+      "href: [...(defaultSchema.protocols?.href || []), 'memory', 'cite']"
+    );
   });
 });

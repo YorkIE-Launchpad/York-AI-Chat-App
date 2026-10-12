@@ -7,6 +7,7 @@ import type { Message, ContentBlock, ToolUseContent, ToolResultContent } from '.
 import { isClientOutdatedError } from '../../shared/client-version';
 import { ContentBlockView } from './message/ContentBlockView';
 import { McpSourcesFooter } from './message/McpSourcesFooter';
+import { ToolStepsGroup } from './message/ToolStepsGroup';
 import { ClientOutdatedUpdateActions } from './ClientOutdatedUpdateActions';
 import { shouldShowMcpSourcesFooter } from '../utils/mcp-sources';
 import { formatAppDateTime } from '../utils/i18n-format';
@@ -62,6 +63,40 @@ export const MessageCard = memo(function MessageCard({
     }
     return ids;
   }, [contentBlocks]);
+
+  type Segment =
+    | { kind: 'block'; block: ContentBlock; index: number }
+    | { kind: 'steps'; blocks: ToolUseContent[] };
+  // Runs of 2+ consecutive tool calls collapse into one summary line.
+  const segments = useMemo((): Segment[] => {
+    const out: Segment[] = [];
+    let run: Array<{ block: ToolUseContent; index: number }> = [];
+    const flush = () => {
+      if (run.length >= 2) out.push({ kind: 'steps', blocks: run.map((r) => r.block) });
+      else for (const r of run) out.push({ kind: 'block', block: r.block, index: r.index });
+      run = [];
+    };
+    contentBlocks.forEach((block, index) => {
+      if (
+        block.type === 'tool_result' &&
+        mergedResultIds.has((block as ToolResultContent).toolUseId)
+      ) {
+        return;
+      }
+      if (block.type === 'tool_use') {
+        const name = (block as ToolUseContent).name;
+        if (name !== 'AskUserQuestion' && name !== 'TodoWrite') {
+          run.push({ block: block as ToolUseContent, index });
+          return;
+        }
+      }
+      if (block.type === 'text' && !(block as { text?: string }).text?.trim()) return;
+      flush();
+      out.push({ kind: 'block', block, index });
+    });
+    flush();
+    return out;
+  }, [contentBlocks, mergedResultIds]);
 
   const mcpSourcesFooter = useMemo(() => {
     if (isUser || !allMessages || allMessages.length === 0) {
@@ -152,7 +187,7 @@ export const MessageCard = memo(function MessageCard({
           <div className="flex min-w-0 max-w-full flex-col items-end gap-1 group">
             <div className="flex min-w-0 max-w-full items-start justify-end gap-2">
               <div
-                className={`message-user min-w-0 w-fit max-w-[90%] break-words px-4 py-3 rounded-[1.65rem] ${
+                className={`message-user min-w-0 w-fit max-w-[90%] break-words px-3.5 py-2.5 ${
                   isCancelled ? 'opacity-55' : ''
                 }`}
                 aria-label={isCancelled ? t('messageCard.cancelledAria') : undefined}
@@ -194,14 +229,18 @@ export const MessageCard = memo(function MessageCard({
       ) : (
         // Assistant message — no bubble, direct content + copy like ChatGPT/Claude
         <div className="group/assistant min-w-0 max-w-full space-y-1.5">
-          {contentBlocks.map((block, index) => {
-            // Skip tool_result blocks that are merged into their tool_use card
-            if (
-              block.type === 'tool_result' &&
-              mergedResultIds.has((block as ToolResultContent).toolUseId)
-            ) {
-              return null;
+          {segments.map((segment) => {
+            if (segment.kind === 'steps') {
+              return (
+                <ToolStepsGroup
+                  key={`steps-${segment.blocks[0].id}`}
+                  blocks={segment.blocks}
+                  allBlocks={contentBlocks}
+                  message={message}
+                />
+              );
             }
+            const { block, index } = segment;
             return (
               <ContentBlockView
                 key={'id' in block ? (block as { id: string }).id : `block-${block.type}-${index}`}
