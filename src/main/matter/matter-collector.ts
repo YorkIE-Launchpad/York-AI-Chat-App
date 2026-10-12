@@ -921,14 +921,16 @@ function draftFromCalendarFields(input: {
  * Uses a single list_events call (structured `events` when available). Avoids
  * fan-out get_event calls that blocked the Matter UI during refresh.
  */
+/** Returns null when Calendar is unreachable, so callers keep the last known meetings. */
 export async function collectCalendarMeetings(
   mcpManager: MCPManager
-): Promise<CalendarMeetingDraft[]> {
+): Promise<CalendarMeetingDraft[] | null> {
+  if (!isServerConnected(mcpManager, DEFAULT_GOOGLE_CALENDAR_MCP_SERVER_ID)) return null;
   const tool = findToolName(mcpManager, DEFAULT_GOOGLE_CALENDAR_MCP_SERVER_ID, [
     'list_events',
     'search_events',
   ]);
-  if (!tool) return [];
+  if (!tool) return null;
 
   const now = new Date();
   const week = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
@@ -937,7 +939,7 @@ export async function collectCalendarMeetings(
     time_max: week.toISOString(),
     limit: 40,
   });
-  if (!text) return [];
+  if (!text) return null;
 
   const structured = parseStructuredCalendarEvents(text);
   if (structured) {

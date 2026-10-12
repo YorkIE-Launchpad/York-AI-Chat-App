@@ -212,8 +212,19 @@ export interface MatterStore {
       }
     >
   ) => MatterItem[];
-  /** Mark active items not in keepFingerprints as expired (keeps pinned/snoozed). */
-  expireAbsentItems: (keepFingerprints: string[], now?: number) => number;
+  /**
+   * After a scan: refresh last-seen for items still present at their source, and expire
+   * active items only once their source was checked and they have been missing for
+   * longer than `graceMs` (keeps pinned/snoozed, and items whose source was skipped).
+   */
+  reconcileAbsentItems: (input: {
+    seenFingerprints: Iterable<string>;
+    checkedSources: Iterable<string>;
+    graceMs: number;
+    now?: number;
+  }) => number;
+  /** Start time + status of the most recent non-skipped scan. */
+  getLastScanAttempt: () => { startedAt: number; failed: boolean } | null;
   /** Persist temporal expiry for items whose expiresAt has passed (no OS notify). */
   expireTimedItems: (now?: number) => MatterItem[];
   /** Expire leftover calendar radar signals (calendar is meetings-only now). */
@@ -474,14 +485,22 @@ export function createMatterStore(db: DatabaseInstance): MatterStore {
       return result;
     },
 
-    expireAbsentItems: (keepFingerprints, now = Date.now()) => {
-      const keep = new Set(keepFingerprints);
+    reconcileAbsentItems: ({ seenFingerprints, checkedSources, graceMs, now = Date.now() }) => {
+      const seen = new Set(seenFingerprints);
+      const checked = new Set(checkedSources);
       let expired = 0;
       for (const row of db.matterItems.listActive()) {
+        if (seen.has(row.fingerprint)) {
+          if (row.last_seen_at < now) db.matterItems.update(row.id, { last_seen_at: now });
+          continue;
+        }
         if (row.pinned === 1) continue;
         if (row.status === 'snoozed' && row.snooze_until && row.snooze_until > now) continue;
-        if (keep.has(row.fingerprint)) continue;
         if (row.status !== 'active' && row.status !== 'resurfaced') continue;
+        // Fused items span sources; any checked source counts.
+        const sourceChecked = row.source === 'fused' ? checked.size > 0 : checked.has(row.source);
+        if (!sourceChecked) continue;
+        if (now - row.last_seen_at < graceMs) continue;
         db.matterItems.update(row.id, {
           status: 'expired',
           resolved_at: now,
@@ -490,6 +509,12 @@ export function createMatterStore(db: DatabaseInstance): MatterStore {
         expired += 1;
       }
       return expired;
+    },
+
+    getLastScanAttempt: () => {
+      const row = db.matterScans.list(20).find((scan) => scan.status !== 'skipped');
+      if (!row) return null;
+      return { startedAt: row.started_at, failed: row.status === 'error' };
     },
 
     expireTimedItems: (now = Date.now()) => {

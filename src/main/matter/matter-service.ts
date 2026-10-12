@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import type { BrowserWindow } from 'electron';
 import type { DatabaseInstance } from '../db/database';
 import type { MCPManager } from '../mcp/mcp-manager';
@@ -47,7 +48,7 @@ import {
   parseEventAttendees,
 } from './matter-calendar-enrichment';
 import { DEFAULT_GOOGLE_CALENDAR_MCP_SERVER_ID } from '../../shared/mcp-defaults';
-import { rankMatterSignals } from './matter-ranker';
+import { rankMatterSignals, type RankedMatterResult } from './matter-ranker';
 import { omitSameAskAs } from './matter-same-ask';
 import { MatterScheduler } from './matter-scheduler';
 import { notifyMatterBrief, notifyMatterItem } from './matter-notifications';
@@ -63,6 +64,45 @@ import {
 const STARTUP_CONNECTOR_WAIT_MS = 120_000;
 const MAX_OPPORTUNITY_NOTIFICATIONS_PER_SCAN = 2;
 const STARTUP_CONNECTOR_POLL_MS = 750;
+/** Opportunity detection re-runs on unchanged signals at most this often. */
+const OPPORTUNITY_UNCHANGED_REFRESH_MS = 4 * 60 * 60 * 1000;
+/** Minimum time an item must be missing from its (checked) source before it expires. */
+const MIN_ABSENT_GRACE_MS = 45 * 60 * 1000;
+/** Morning brief reuses a scan this recent instead of running another. */
+const MORNING_BRIEF_FRESH_MS = 30 * 60 * 1000;
+
+/**
+ * An item must be missing for roughly two consecutive scans before expiring, so a single
+ * flaky connector call or partial fetch does not wipe the radar.
+ */
+function absentGraceMs(intervalMinutes: number): number {
+  return Math.max(MIN_ABSENT_GRACE_MS, Math.round(Math.max(15, intervalMinutes) * 60_000 * 1.5));
+}
+
+function digestSignals(signals: RawMatterSignal[], extra: unknown): string {
+  const hash = createHash('sha1');
+  hash.update(JSON.stringify(extra));
+  for (const s of [...signals].sort((a, b) => a.fingerprint.localeCompare(b.fingerprint))) {
+    hash.update(
+      JSON.stringify([
+        s.fingerprint,
+        s.source,
+        s.title,
+        s.summary,
+        s.rawExcerpt ?? null,
+        s.severityHint ?? null,
+        s.dueAt ?? null,
+        s.expiresAt ?? null,
+      ])
+    );
+  }
+  return hash.digest('hex');
+}
+
+function localDayKey(ms = Date.now()): string {
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+}
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -129,6 +169,12 @@ export class MatterService {
   /** Post-collect hook (e.g. Memory Wiki compiler). Background profile feature. */
   private postScanHandler: ((snapshot: MatterSnapshot) => void) | null = null;
   private clearedLegacyCalendarSignals = false;
+  private lastScanAttemptAt: number | null = null;
+  private lastScanFailed = false;
+  private startupScanPending = false;
+  /** Ranker output for an unchanged signal set — skips the LLM passes. */
+  private rankCache: { digest: string; ranked: RankedMatterResult } | null = null;
+  private lastOpportunityPass: { digest: string; at: number } | null = null;
 
   constructor(
     db: DatabaseInstance,
@@ -136,8 +182,20 @@ export class MatterService {
     private meetingService: MeetingService | null
   ) {
     this.store = createMatterStore(db);
+    const lastAttempt = this.store.getLastScanAttempt();
+    if (lastAttempt) {
+      this.lastScanAttemptAt = lastAttempt.startedAt;
+      this.lastScanFailed = lastAttempt.failed;
+    }
     this.scheduler = new MatterScheduler({
       getRuntime: () => this.getRuntime(),
+      getScanState: () => ({
+        lastAttemptAt: this.lastScanAttemptAt,
+        lastAttemptFailed: this.lastScanFailed,
+        busy: this.scanning || this.startupScanPending,
+      }),
+      getMeetingsLastFetchAt: () =>
+        this.meetingsFetching || this.startupScanPending ? Date.now() : this.meetingsLastFetch,
       onTick: (reason) => {
         void this.runScan({ reason, notify: reason !== 'interval' });
       },
@@ -193,9 +251,26 @@ export class MatterService {
     if (this.stopped) return;
     const runtime = this.getRuntime();
     if (!runtime.enabled || !this.scheduler.isInScanWindow()) return;
-    await this.waitForEnabledConnectors();
+    // Hold the scheduler until connectors settle so it never scans with half the sources.
+    this.startupScanPending = true;
+    try {
+      await this.waitForEnabledConnectors();
+    } finally {
+      this.startupScanPending = false;
+    }
+    // A recent successful scan survives restarts in the DB; let the scheduler pick up the next one.
+    const scanDue = this.scheduler.isScanDue();
+    if (!scanDue) {
+      log('[Matter] Startup scan skipped — last scan is still fresh');
+      const latest = this.store.getLatestScan();
+      if (latest?.status === 'success') {
+        this.lastBrief = latest.brief;
+        this.lastPulse = 'Showing your radar from the last scan.';
+        this.pushSnapshot();
+      }
+    }
     await Promise.all([
-      this.runScan({ reason: 'startup', notify: false }),
+      scanDue ? this.runScan({ reason: 'startup', notify: false }) : Promise.resolve(),
       this.fetchMeetings({ reason: 'startup', force: true }),
     ]);
   }
@@ -387,11 +462,15 @@ export class MatterService {
         this.clearedLegacyCalendarSignals = true;
       }
       const drafts = await collectCalendarMeetings(this.mcpManager);
-      this.store.upsertMeetings(drafts);
       this.meetingsLastFetch = Date.now();
-      log(
-        `[Matter] Calendar meetings fetch (${options?.reason || 'manual'}): ${drafts.length} events`
-      );
+      if (drafts) {
+        this.store.upsertMeetings(drafts);
+        log(
+          `[Matter] Calendar meetings fetch (${options?.reason || 'manual'}): ${drafts.length} events`
+        );
+      } else {
+        logWarn('[Matter] Calendar unavailable — keeping last known meetings');
+      }
     } catch (error) {
       logError('[Matter] Calendar meetings fetch failed:', error);
     } finally {
@@ -433,6 +512,8 @@ export class MatterService {
     this.scanning = true;
     this.pushSnapshot();
     const scan = this.store.startScan();
+    this.lastScanAttemptAt = scan.startedAt;
+    this.lastScanFailed = false;
     try {
       const config = configStore.getAll();
       const profile = await resolveWelcomeProfile({ mcpManager: this.mcpManager });
@@ -452,15 +533,17 @@ export class MatterService {
         title: item.title,
         summary: item.summary,
       }));
+      const unmutedSignals = collected.signals.filter((signal) => {
+        const keys = [
+          signal.fingerprint,
+          ...(signal.muteKeys || []),
+          `source:${signal.source}`,
+          signal.categoryHint ? `category:${signal.categoryHint}` : null,
+        ].filter((k): k is string => !!k);
+        return !keys.some((k) => mutedKeys.has(k));
+      });
       const filteredSignals = omitSameAskAs(
-        collected.signals.filter((signal) => {
-          const keys = [
-            signal.fingerprint,
-            ...(signal.muteKeys || []),
-            `source:${signal.source}`,
-            signal.categoryHint ? `category:${signal.categoryHint}` : null,
-          ].filter((k): k is string => !!k);
-          if (keys.some((k) => mutedKeys.has(k))) return false;
+        unmutedSignals.filter((signal) => {
           const existing = this.store.getByFingerprint(signal.fingerprint);
           if (
             !shouldKeepMatterScanSignal({
@@ -478,15 +561,32 @@ export class MatterService {
         suppressedAsks
       );
 
-      const ranked = await rankMatterSignals({
-        config,
-        profile,
-        signals: filteredSignals,
+      const rankDigest = digestSignals(filteredSignals, {
+        day: localDayKey(),
+        profile: profile?.email ?? null,
         maxItems: runtime.maxActiveItems,
         sensitivity: runtime.sensitivity,
         sourcePrompts: runtime.sourcePrompts,
-        suppressedAsks,
+        suppressed: suppressedAsks.length,
       });
+      let ranked: RankedMatterResult;
+      if (this.rankCache?.digest === rankDigest) {
+        ranked = this.rankCache.ranked;
+        log('[Matter] Signals unchanged since last scan — reusing ranking');
+      } else {
+        ranked = await rankMatterSignals({
+          config,
+          profile,
+          signals: filteredSignals,
+          maxItems: runtime.maxActiveItems,
+          sensitivity: runtime.sensitivity,
+          sourcePrompts: runtime.sourcePrompts,
+          suppressedAsks,
+        });
+        this.rankCache = { digest: rankDigest, ranked };
+      }
+      // The cached result is reused across scans; mutate only per-scan copies.
+      ranked = { ...ranked, items: ranked.items.map((i) => ({ ...i })) };
 
       // Hard boosts for pinned
       const pinned = this.store.listActiveItems().filter((i) => i.pinned);
@@ -516,7 +616,16 @@ export class MatterService {
       }
 
       const upserted = this.store.upsertRankedItems(ranked.items);
-      this.store.expireAbsentItems(ranked.items.map((i) => i.fingerprint));
+      // Items still present at their source stay, even if the ranker skipped them this pass.
+      const expiredCount = this.store.reconcileAbsentItems({
+        seenFingerprints: [
+          ...ranked.items.map((i) => i.fingerprint),
+          ...unmutedSignals.map((s) => s.fingerprint),
+        ],
+        checkedSources: collected.sourcesChecked,
+        graceMs: absentGraceMs(runtime.intervalMinutes),
+      });
+      if (expiredCount > 0) log(`[Matter] Expired ${expiredCount} items no longer at source`);
       this.lastPulse = ranked.pulse;
       this.lastBrief = ranked.brief;
       this.lastLenses = ranked.lenses.map((l) => ({
@@ -597,6 +706,7 @@ export class MatterService {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       logError('[Matter] Scan failed:', error);
+      this.lastScanFailed = true;
       this.store.finishScan(scan.id, {
         status: 'error',
         error: message,
@@ -849,6 +959,11 @@ export class MatterService {
   }): Promise<void> {
     const runtime = this.getRuntime();
     if (!runtime.opportunities.enabled || this.detectingOpportunities || this.stopped) return;
+    const digest = digestSignals(input.scanSignals, { profile: input.profile?.email ?? null });
+    const last = this.lastOpportunityPass;
+    if (last?.digest === digest && Date.now() - last.at < OPPORTUNITY_UNCHANGED_REFRESH_MS) {
+      return;
+    }
     this.detectingOpportunities = true;
     try {
       const context = await collectOpportunityContext({
@@ -863,6 +978,7 @@ export class MatterService {
         context,
       });
       const created = this.store.upsertOpportunities(drafts);
+      this.lastOpportunityPass = { digest, at: Date.now() };
       const settings = this.getRuntime().opportunities;
       if (settings.notify && this.scheduler.isInScanWindow()) {
         const notable = created.filter((o) => o.confidence >= settings.minConfidence);
@@ -991,24 +1107,36 @@ export class MatterService {
     ].join('\n');
   }
 
-  private maybeMorningBrief(): void {
+  private maybeMorningBrief(): boolean {
     const runtime = this.getRuntime();
-    if (!runtime.morningBriefEnabled || !runtime.enabled) return;
-    const day = new Date().toISOString().slice(0, 10);
-    if (this.morningBriefSentDay === day) return;
+    if (!runtime.morningBriefEnabled || !runtime.enabled) return true;
+    const day = localDayKey();
+    if (this.morningBriefSentDay === day) return true;
+    if (this.scanning || this.startupScanPending) return false;
     this.morningBriefSentDay = day;
-    void this.runScan({ reason: 'morning', notify: false }).then((snapshot) => {
+    const send = (snapshot: MatterSnapshot) =>
       notifyMatterBrief({
         title: 'Matter — morning brief',
         body: snapshot.morningBrief || snapshot.pulse,
       });
-    });
+    const lastScan = this.lastScanAttemptAt;
+    if (
+      !this.lastScanFailed &&
+      this.lastBrief &&
+      lastScan != null &&
+      Date.now() - lastScan < MORNING_BRIEF_FRESH_MS
+    ) {
+      send(this.getSnapshot());
+    } else {
+      void this.runScan({ reason: 'morning', notify: false }).then(send);
+    }
+    return true;
   }
 
   private maybeEndOfDay(): void {
     const runtime = this.getRuntime();
     if (!runtime.endOfDayWrapEnabled || !runtime.enabled) return;
-    const day = new Date().toISOString().slice(0, 10);
+    const day = localDayKey();
     if (this.eodSentDay === day) return;
     this.eodSentDay = day;
     const snapshot = this.getSnapshot();

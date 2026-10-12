@@ -8,10 +8,7 @@ import {
   type HubInboxRecord,
   type RawMatterSignal,
 } from '../src/main/matter/matter-collector';
-import {
-  heuristicRank,
-  selectSignalsForRanker,
-} from '../src/main/matter/matter-ranker';
+import { heuristicRank, selectSignalsForRanker } from '../src/main/matter/matter-ranker';
 import type { MCPManager } from '../src/main/mcp/mcp-manager';
 import { DEFAULT_HUB_MCP_NAME, DEFAULT_HUB_MCP_SERVER_ID } from '../src/shared/mcp-defaults';
 import type { MatterSourcesConfig } from '../src/shared/matter';
@@ -191,8 +188,7 @@ describe('collectMatterSignals Hub inbox', () => {
   it('collects Hub when the connector is connected under a non-default id', async () => {
     const { mcp, calls } = mockHubMcp(
       {
-        list_kudos: () =>
-          hubEnvelope([{ id: 'k-2', message: 'Nice work', sender_name: 'Sam' }]),
+        list_kudos: () => hubEnvelope([{ id: 'k-2', message: 'Nice work', sender_name: 'Sam' }]),
         list_announcements: () => envelopeResult(''),
         list_my_timesheet_drafts: () => envelopeResult(''),
         list_pending_leave_wfh_requests: () => envelopeResult(''),
@@ -373,8 +369,8 @@ describe('Hub awareness recency', () => {
     expect(fps).not.toContain('hub:announcement:a-stale');
     // Action inbox stays even when old.
     expect(fps).toContain('hub:timesheet_draft:td-old');
-    // Scan contract: MatterService.runScan → expireAbsentItems(ranked fingerprints).
-    // Stale kudos omitted here leave the keep-set, so prior active rows expire next scan.
+    // Scan contract: MatterService.runScan → reconcileAbsentItems(collected fingerprints).
+    // Stale kudos omitted here leave the seen-set, so prior active rows expire after the grace.
     expect(fps.filter((fp) => fp.startsWith('hub:kudos:'))).toEqual(['hub:kudos:k-fresh']);
   });
 });
