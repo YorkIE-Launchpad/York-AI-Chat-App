@@ -86,6 +86,15 @@ import { createRealtimeTranslationSession } from './dictation/dictation-service'
 import { ScreenSnapController, SNAP_WRITE_SYSTEM_PROMPT } from './snap/screen-snap';
 import { SCREEN_PERMISSION_RELAUNCH_FLAG } from './snap/screen-permission';
 import { DEFAULT_SCREEN_SNAP_WIGGLE } from '../shared/screen-snap';
+import { VoiceController } from './voice/voice-controller';
+import {
+  consumeLaunchVoiceDeepLinkArgv,
+  installVoiceDeepLinkListeners,
+  registerVoiceDeepLinkProtocol,
+  setVoiceDeepLinkHandler,
+} from './voice/voice-deeplink';
+import { installSiriShortcut } from './voice/siri-shortcut';
+import { normalizeVoiceControlConfig, type VoiceControlConfig } from '../shared/voice-control';
 import { getInitialSessionTitle } from '../shared/session-title';
 import {
   appleMeetingTranscriptionService,
@@ -722,10 +731,14 @@ const isDev = !!process.env.VITE_DEV_SERVER_URL;
 const ELECTRON_DEVTOOLS_DEBUG_PORT = '9223';
 const PRODUCT_NAME = 'York GrowthOS';
 
+// `npm run dev` runs a renamed Electron binary (`Electron.real`), which makes
+// `app.isPackaged` true, so fall back to the repo `resources/` when missing.
 function resolveResourcePath(...parts: string[]): string {
-  return app.isPackaged
-    ? join(process.resourcesPath, ...parts)
-    : join(__dirname, '../../resources', ...parts);
+  const devPath = join(__dirname, '../../resources', ...parts);
+  if (!app.isPackaged) return devPath;
+  const packagedPath = join(process.resourcesPath, ...parts);
+  if (fs.existsSync(packagedPath) || !fs.existsSync(devPath)) return packagedPath;
+  return devPath;
 }
 
 /** Menu name + Dock icon (critical in `npm run dev`, where Electron.app is the host). */
@@ -747,6 +760,9 @@ function applyAppBranding() {
 applyAppBranding();
 registerMatterDeepLinkProtocol();
 consumeLaunchDeepLinkArgv(process.argv);
+registerVoiceDeepLinkProtocol();
+installVoiceDeepLinkListeners();
+consumeLaunchVoiceDeepLinkArgv(process.argv);
 
 // macOS Media Session / Music TCC mitigations run in bootstrap-app-data (imported
 // first) so Chromium never probes MediaPlayer or ~/Music during startup.
@@ -936,6 +952,53 @@ const screenSnap = new ScreenSnapController({
   },
 });
 
+async function loadRendererHash(win: BrowserWindow, hash: string): Promise<void> {
+  const devServerUrl = process.env.VITE_DEV_SERVER_URL;
+  if (devServerUrl) {
+    await win.loadURL(`${devServerUrl.replace(/#.*$/, '')}#${hash}`);
+  } else {
+    await win.loadFile(join(__dirname, '../../dist/index.html'), { hash });
+  }
+}
+
+function getVoiceControlConfig(): VoiceControlConfig {
+  return normalizeVoiceControlConfig(configStore.get('voiceControl'));
+}
+
+function updateVoiceControlConfig(partial: Partial<VoiceControlConfig>): VoiceControlConfig {
+  const next = normalizeVoiceControlConfig({ ...getVoiceControlConfig(), ...partial });
+  configStore.update({ voiceControl: next });
+  return next;
+}
+
+const voiceController = new VoiceController({
+  preloadPath: join(__dirname, '../preload/index.js'),
+  getConfig: getVoiceControlConfig,
+  persistHotkey: (hotkey) => updateVoiceControlConfig({ hotkey }),
+  loadOverlay: (win) => loadRendererHash(win, 'voice'),
+  onSessionActiveChanged: () => {
+    buildMacMenu();
+    refreshTrayMenu();
+  },
+  onHotkeyChanged: () => {
+    buildMacMenu();
+    refreshTrayMenu();
+  },
+});
+
+function voiceMenuItems(): Electron.MenuItemConstructorOptions[] {
+  if (!voiceController.isSupported) return [];
+  if (!getVoiceControlConfig().enabled) return [];
+  return [
+    {
+      label: voiceController.isSessionActive ? 'Stop Voice Control' : 'Start Voice Control',
+      accelerator: voiceController.getHotkey() ?? undefined,
+      registerAccelerator: false,
+      click: () => voiceController.toggle('menu'),
+    },
+  ];
+}
+
 function screenSnapMenuItem(): Electron.MenuItemConstructorOptions[] {
   if (!screenSnap.isSupported) return [];
   return [
@@ -969,6 +1032,7 @@ function buildMacMenu() {
           click: () => openAskGrowthOSFromMain(),
         },
         ...screenSnapMenuItem(),
+        ...voiceMenuItems(),
         { type: 'separator' },
         { role: 'services' },
         { type: 'separator' },
@@ -1099,6 +1163,7 @@ function refreshTrayMenu() {
       click: () => openAskGrowthOSFromMain(),
     },
     ...screenSnapMenuItem(),
+    ...voiceMenuItems(),
     {
       label: 'New Session',
       click: () => {
@@ -2572,6 +2637,9 @@ app
         tag: 'ScreenSnap',
       });
     }
+    voiceController.registerIpc();
+    voiceController.registerHotkey(getVoiceControlConfig().hotkey);
+    setVoiceDeepLinkHandler((action) => voiceController.handleDeepLink(action));
     buildMacMenu();
     setupTray();
     registerAskGrowthOSShortcut();
@@ -3135,6 +3203,7 @@ function stopBackgroundServicesForQuit(): void {
   void meetingService?.stop().catch((error) => {
     logError('[App] Error stopping meeting capture:', error);
   });
+  voiceController.dispose();
   try {
     globalShortcut.unregisterAll();
   } catch {
@@ -6914,6 +6983,25 @@ ipcMain.handle(
       targetLanguage: payload?.targetLanguage,
     });
   }
+);
+
+ipcMain.handle('voice.getConfig', () => getVoiceControlConfig());
+
+ipcMain.handle('voice.updateConfig', (_event, partial: Partial<VoiceControlConfig>) => {
+  // The hotkey has its own channel (voice.setHotkey) so conflicts can roll back.
+  const rest: Partial<VoiceControlConfig> = {
+    ...(partial && typeof partial === 'object' ? partial : {}),
+  };
+  delete rest.hotkey;
+  const next = updateVoiceControlConfig(rest);
+  if (!next.enabled) voiceController.stop();
+  buildMacMenu();
+  refreshTrayMenu();
+  return next;
+});
+
+ipcMain.handle('voice.addSiriShortcut', () =>
+  installSiriShortcut(resolveResourcePath('voice', 'York.shortcut'))
 );
 
 ipcMain.handle('dictation.appleTranscription.start', async (event) => {

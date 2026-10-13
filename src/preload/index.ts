@@ -64,6 +64,12 @@ import type {
   ScreenSnapSubmitPayload,
 } from '../shared/screen-snap';
 import type {
+  VoiceActionResult,
+  VoiceControlConfig,
+  VoiceOverlayInit,
+  VoiceSessionCredentials,
+} from '../shared/voice-control';
+import type {
   McpServerConfig,
   McpTool,
   McpServerStatus,
@@ -1281,6 +1287,33 @@ contextBridge.exposeInMainWorld('electronAPI', {
     trigger: (): Promise<{ success: boolean }> => ipcRenderer.invoke('snap.trigger'),
   },
 
+  voice: {
+    getOverlayInit: (): Promise<VoiceOverlayInit> => ipcRenderer.invoke('voice.getOverlayInit'),
+    createSession: (): Promise<VoiceSessionCredentials> =>
+      ipcRenderer.invoke('voice.createSession'),
+    runAction: (name: string, args: unknown): Promise<VoiceActionResult> =>
+      ipcRenderer.invoke('voice.runAction', name, args),
+    sessionEnded: (): Promise<{ success: boolean }> => ipcRenderer.invoke('voice.sessionEnded'),
+    onStop: (callback: () => void): (() => void) => {
+      const listener = () => callback();
+      ipcRenderer.on('voice:stop', listener);
+      return () => ipcRenderer.removeListener('voice:stop', listener);
+    },
+    trigger: (): Promise<{ success: boolean }> => ipcRenderer.invoke('voice.trigger', 'settings'),
+    stop: (): Promise<{ success: boolean }> => ipcRenderer.invoke('voice.stop'),
+    getHotkey: (): Promise<{ hotkey: string | null; supported: boolean }> =>
+      ipcRenderer.invoke('voice.getHotkey'),
+    setHotkey: (hotkey: string | null): Promise<ScreenSnapShortcutResult> =>
+      ipcRenderer.invoke('voice.setHotkey', hotkey),
+    openMicrophoneSettings: (): Promise<{ success: boolean }> =>
+      ipcRenderer.invoke('voice.openMicrophoneSettings'),
+    addSiriShortcut: (): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('voice.addSiriShortcut'),
+    getConfig: (): Promise<VoiceControlConfig> => ipcRenderer.invoke('voice.getConfig'),
+    updateConfig: (partial: Partial<VoiceControlConfig>): Promise<VoiceControlConfig> =>
+      ipcRenderer.invoke('voice.updateConfig', partial),
+  },
+
   permissions: {
     listSessionAlwaysAllow: (sessionId: string): Promise<string[]> =>
       ipcRenderer.invoke('permissions.listSessionAlwaysAllow', sessionId),
@@ -2105,6 +2138,21 @@ declare global {
         getWiggle: () => Promise<{ enabled: boolean }>;
         setWiggle: (enabled: boolean) => Promise<{ enabled: boolean }>;
         trigger: () => Promise<{ success: boolean }>;
+      };
+      voice: {
+        getOverlayInit: () => Promise<VoiceOverlayInit>;
+        createSession: () => Promise<VoiceSessionCredentials>;
+        runAction: (name: string, args: unknown) => Promise<VoiceActionResult>;
+        sessionEnded: () => Promise<{ success: boolean }>;
+        onStop: (callback: () => void) => () => void;
+        trigger: () => Promise<{ success: boolean }>;
+        stop: () => Promise<{ success: boolean }>;
+        getHotkey: () => Promise<{ hotkey: string | null; supported: boolean }>;
+        setHotkey: (hotkey: string | null) => Promise<ScreenSnapShortcutResult>;
+        openMicrophoneSettings: () => Promise<{ success: boolean }>;
+        addSiriShortcut: () => Promise<{ success: boolean; error?: string }>;
+        getConfig: () => Promise<VoiceControlConfig>;
+        updateConfig: (partial: Partial<VoiceControlConfig>) => Promise<VoiceControlConfig>;
       };
       permissions: {
         listSessionAlwaysAllow: (sessionId: string) => Promise<string[]>;

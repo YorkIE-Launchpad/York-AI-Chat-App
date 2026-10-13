@@ -197,6 +197,36 @@ describe('jitless-fetch', () => {
     await expect(response.json()).resolves.toEqual({ landed: true });
   });
 
+  it('jitlessFetch sends string bodies with Content-Length, not chunked', async () => {
+    let receivedHeaders: Record<string, string | string[] | undefined> = {};
+    server = createServer((req, res) => {
+      receivedHeaders = req.headers;
+      req.resume();
+      req.on('end', () => {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end('{}');
+      });
+    });
+    await new Promise<void>((resolve) => {
+      server!.listen(0, '127.0.0.1', () => {
+        const addr = server!.address();
+        const port = typeof addr === 'object' && addr ? addr.port : 0;
+        baseUrl = `http://127.0.0.1:${port}`;
+        resolve();
+      });
+    });
+
+    const body = JSON.stringify({ note: 'héllo' });
+    const response = await jitlessFetch(`${baseUrl}/json`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+    });
+    expect(response.status).toBe(200);
+    expect(receivedHeaders['content-length']).toBe(String(Buffer.byteLength(body)));
+    expect(receivedHeaders['transfer-encoding']).toBeUndefined();
+  });
+
   it('jitlessFetch encodes FormData text fields without trailing CRLF', async () => {
     let received: { body: Buffer; contentType: string } | null = null;
     server = createServer((req, res) => {

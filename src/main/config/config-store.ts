@@ -48,6 +48,11 @@ import {
   normalizeLoopsRuntimeConfig,
   type LoopsRuntimeConfig,
 } from '../../shared/loops';
+import {
+  DEFAULT_VOICE_CONTROL,
+  normalizeVoiceControlConfig,
+  type VoiceControlConfig,
+} from '../../shared/voice-control';
 import { normalizeMatterRuntimeConfig } from '../matter/matter-config';
 import {
   applyBackendManagedCredentials,
@@ -211,6 +216,9 @@ export interface AppConfig {
 
   /** Loops auto-capture settings (meetings, Matter threshold). */
   loopsRuntime?: LoopsRuntimeConfig;
+
+  /** Hands-free voice control (Siri trigger, hotkey). */
+  voiceControl?: VoiceControlConfig;
 
   // Enable thinking mode (show thinking steps)
   enableThinking: boolean;
@@ -517,6 +525,7 @@ const defaultConfig: AppConfig = {
     sourcePrompts: { ...DEFAULT_MATTER_RUNTIME.sourcePrompts },
   },
   loopsRuntime: { ...DEFAULT_LOOPS_RUNTIME },
+  voiceControl: { ...DEFAULT_VOICE_CONTROL },
   enableThinking: false,
   profileDosPrompt: '',
   profileDontsPrompt: '',
@@ -1375,6 +1384,7 @@ export class ConfigStore {
         return { ...normalized, enabled };
       })(),
       loopsRuntime: normalizeLoopsRuntimeConfig(raw.loopsRuntime),
+      voiceControl: normalizeVoiceControlConfig(raw.voiceControl),
       subagent,
       ...(subagentConfigError ? { subagentConfigError } : {}),
       enableThinking: projected.enableThinking,
@@ -1863,6 +1873,13 @@ export class ConfigStore {
         updates.loopsRuntime !== undefined
           ? normalizeLoopsRuntimeConfig(updates.loopsRuntime)
           : normalizeLoopsRuntimeConfig(current.loopsRuntime),
+      voiceControl:
+        updates.voiceControl !== undefined
+          ? normalizeVoiceControlConfig({
+              ...normalizeVoiceControlConfig(current.voiceControl),
+              ...updates.voiceControl,
+            })
+          : normalizeVoiceControlConfig(current.voiceControl),
       autoModelPreference:
         updates.autoModelPreference !== undefined
           ? normalizeAutoModelPreference(updates.autoModelPreference)

@@ -5,6 +5,7 @@ import { useAppStore } from '../../store';
 import { hasOpenRouterUserApiKey } from '../../../shared/openrouter-user-key';
 import { HubBudgetUsageCard } from './HubBudgetUsageCard';
 import { ScreenSnapShortcutSetting } from './ScreenSnapShortcutSetting';
+import { VoiceControlSetting } from './VoiceControlSetting';
 import {
   notifyBackendModelsCatalogRefreshed,
   refreshBackendModelsCatalog,
@@ -118,6 +119,8 @@ export function SettingsGeneral() {
       </div>
 
       <ScreenSnapShortcutSetting />
+
+      <VoiceControlSetting />
 
       {/* Thinking mode */}
       <div className="space-y-3 pt-2 border-t border-border">

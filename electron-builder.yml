@@ -110,8 +110,9 @@ mac:
       - CFBundleURLName: ie.york.app
         CFBundleURLSchemes:
           - yorkgrowthos
+          - york
     LSApplicationCategoryType: public.app-category.developer-tools
-    NSMicrophoneUsageDescription: 'York GrowthOS needs microphone access to capture your voice during meetings.'
+    NSMicrophoneUsageDescription: 'York GrowthOS needs microphone access to capture your voice during meetings and for hands-free voice commands.'
     NSSpeechRecognitionUsageDescription: 'York GrowthOS uses on-device speech recognition to transcribe meetings when Zoom captions are unavailable.'
     NSAudioCaptureUsageDescription: 'York GrowthOS needs system audio access to capture meeting audio from Zoom, Meet, and other apps.'
     NSScreenCaptureUsageDescription: 'York GrowthOS needs screen and system audio recording for meeting capture and GUI automation.'
@@ -137,6 +138,9 @@ mac:
       to: .
     - from: resources/tray-iconTemplate@2x.png
       to: .
+    # Voice control: the signed "York" Siri Shortcut.
+    - from: resources/voice/York.shortcut
+      to: voice/York.shortcut
     # Runtime Dock icon via app.dock.setIcon (separate from CFBundle icon.icns / logo.png).
     - from: resources/GrowthOS-01.png
       to: .

@@ -417,6 +417,15 @@ async function jitlessFetch(input: RequestInfo | URL, init?: RequestInit): Promi
   }
 
   const encodedBody = await encodeRequestBody(body ?? undefined, headers);
+  if (
+    encodedBody !== undefined &&
+    !Object.keys(headers).some((key) => {
+      const lower = key.toLowerCase();
+      return lower === 'content-length' || lower === 'transfer-encoding';
+    })
+  ) {
+    headers['Content-Length'] = String(Buffer.byteLength(encodedBody));
+  }
 
   const response = await performNodeHttpFetch(urlString, {
     method,

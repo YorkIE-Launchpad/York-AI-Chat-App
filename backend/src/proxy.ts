@@ -9,6 +9,15 @@ const STRIP_REQUEST_HEADERS = new Set([
   'host',
   'connection',
   'content-length',
+  // Hop-by-hop: the body is re-sent with an explicit content-length, and
+  // `transfer-encoding` + `content-length` together make Cloudflare return 400.
+  'transfer-encoding',
+  'keep-alive',
+  'te',
+  'trailer',
+  'upgrade',
+  'proxy-connection',
+  'expect',
   'authorization',
   'x-api-key',
   'x-goog-api-key',

@@ -4,6 +4,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { AuthProvider } from './auth/AuthProvider';
 import { AuthCallbackPage } from './components/AuthCallbackPage';
 import { SnapComposer } from './components/SnapComposer';
+import { VoiceOverlay } from './voice/VoiceOverlay';
 import './styles/globals.css';
 import 'katex/dist/katex.min.css';
 import 'highlight.js/styles/github-dark-dimmed.min.css';
@@ -13,7 +14,6 @@ import {
   RendererDiagnosticsDeduper,
   shouldCaptureConsoleError,
 } from './utils/renderer-diagnostics';
-
 function writeRendererDiagnostic(kind: string, args: unknown[]): void {
   const logApi = window.electronAPI?.logs?.write;
   if (!logApi) {
@@ -89,6 +89,10 @@ function Root() {
 
   if (typeof window !== 'undefined' && window.location.hash === '#snap') {
     return <SnapComposer />;
+  }
+
+  if (typeof window !== 'undefined' && window.location.hash === '#voice') {
+    return <VoiceOverlay />;
   }
 
   return (
