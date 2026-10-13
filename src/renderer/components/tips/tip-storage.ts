@@ -1,6 +1,7 @@
-export function isTipSeen(storageKey: string): boolean {
+export function isTipSeen(storageKey: string, defaultSeen = false): boolean {
   try {
-    return localStorage.getItem(storageKey) === '1';
+    const value = localStorage.getItem(storageKey);
+    return value === null ? defaultSeen : value === '1';
   } catch {
     return true;
   }

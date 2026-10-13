@@ -15,7 +15,7 @@ export function TipsHost({ suppressed = false }: TipsHostProps) {
 
   useEffect(() => {
     if (!tip) return;
-    if (isTipSeen(tip.storageKey)) {
+    if (isTipSeen(tip.storageKey, tip.defaultSeen)) {
       setIndex((i) => i + 1);
       return;
     }

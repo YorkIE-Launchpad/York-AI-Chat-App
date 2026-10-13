@@ -1844,6 +1844,150 @@
     "show": "Show",
     "new": "New",
     "unavailable": "Not available on this device",
+    "tryIt": "Try it",
+    "searchPlaceholder": "Search tips…",
+    "searchEmpty": "No tips match \"{{query}}\"",
+    "categories": {
+      "anywhere": "Anywhere on your machine",
+      "navigate": "Navigate faster",
+      "chat": "Chat",
+      "day": "Your day",
+      "meetingsAutomation": "Meetings & automation"
+    },
+    "askAnywhere": {
+      "title": "Ask Growth OS from any app",
+      "summary": "Press ⌘⇧Space anywhere to ask by voice or text.",
+      "body": "Press Cmd+Shift+Space (Ctrl+Shift+Space on Windows) in any app to open Ask Growth OS. Speak or type a quick task, then keep it going in a full chat if you need to.",
+      "demoPrompt": "Brief me on what's coming up today"
+    },
+    "snapShortcut": {
+      "title": "Snap with a shortcut",
+      "summary": "Snap part of the screen with a key combo, then chat or write into the field.",
+      "body": "Press your Snap shortcut to select part of the screen. Chat about it, or switch to Write into field to draft text straight into the app you were using. Change the shortcut in Settings > Preferences.",
+      "demoApp": "Any app",
+      "demoChat": "Chat",
+      "demoWrite": "Write into field",
+      "demoCallout": "Drafts into your app"
+    },
+    "commandPalette": {
+      "title": "Search and commands with ⌘K",
+      "summary": "Search chats, ask anything, or jump to any page.",
+      "body": "Press Cmd+K (Ctrl+K on Windows) to search your chats, start a question, or jump to Today, Follow-ups, Automations and Settings without touching the mouse.",
+      "demoQuery": "today",
+      "demoAsk": "Ask: what's on today?",
+      "demoRecent": "Q3 pricing review"
+    },
+    "keyboardShortcuts": {
+      "title": "Keyboard shortcuts",
+      "summary": "New chat, private chat, and jump between pages from the keyboard.",
+      "body": "Cmd+N starts a new chat and Cmd+Shift+N a private one. Cmd+1, 2 and 3 jump to Today, Follow-ups and Automations. On Windows use Ctrl instead of Cmd."
+    },
+    "slashSkills": {
+      "title": "Use skills with / or @",
+      "summary": "Type / or @ in the composer to pull in a skill.",
+      "body": "Type / or @ in the message box to pick a skill, like building a deck, a doc, or a spreadsheet. The skill guides the assistant for that request.",
+      "demoText": "/pp",
+      "demoPptx": "Build a deck",
+      "demoDocx": "Write a doc",
+      "demoXlsx": "Make a sheet"
+    },
+    "privateChat": {
+      "title": "Private chats",
+      "summary": "Incognito chats aren't saved or used for memory.",
+      "body": "Start a private chat with Cmd+Shift+N or from the New chat menu. It isn't saved and isn't used for memory, and it's discarded when you leave it.",
+      "demoText": "Draft a sensitive note…"
+    },
+    "thinkingMode": {
+      "title": "Think harder on tough tasks",
+      "summary": "Turn on Think for deeper reasoning on complex requests.",
+      "body": "Turn on Think next to the message box for complex, multi-step, or fact-heavy tasks. The assistant reasons more carefully before answering, which uses more tokens.",
+      "demoText": "Compare these three proposals",
+      "demoThinking": "Thinking…"
+    },
+    "dictation": {
+      "title": "Speak instead of typing",
+      "summary": "Use the mic in the composer to dictate your message.",
+      "body": "Click the microphone in the message box and just talk. Your words are transcribed into the message so you can edit before sending.",
+      "demoListening": "Listening",
+      "demoText": "Summarize my last meeting"
+    },
+    "imageMode": {
+      "title": "Generate and edit images",
+      "summary": "Switch the composer to Image mode to create visuals.",
+      "body": "Switch the composer from Chat to Image to generate a new image from a description, or attach images and describe how to edit them.",
+      "demoText": "A clean product hero shot"
+    },
+    "htmlPreview": {
+      "title": "Live preview for pages and docs",
+      "summary": "HTML and docs the assistant creates open in a side preview.",
+      "body": "When the assistant writes a page, deck, or document, it opens in the preview panel next to the chat so you can see it right away and keep iterating.",
+      "demoCallout": "Preview"
+    },
+    "yorkLlm": {
+      "title": "York LLM is free",
+      "summary": "Use York LLM for routine prompts at no cost.",
+      "body": "For everyday tasks like rewrites, summaries, and quick questions, pick York LLM in the model menu. It's free and usually enough; switch to a bigger model when you need it.",
+      "demoText": "Rewrite this more politely",
+      "demoFree": "Free"
+    },
+    "todayBriefing": {
+      "title": "Today shows what needs you",
+      "summary": "Your briefing, schedule, and radar across your apps in one place.",
+      "body": "Today pulls together what needs you across Slack, email, and your calendar, with your schedule and a radar of what's coming up. Press Cmd+1 to jump there.",
+      "demoSlack": "Dana asked about pricing",
+      "demoMeeting": "Prep: design review",
+      "demoEmail": "Invoice overdue"
+    },
+    "askMatter": {
+      "title": "Ask about your day",
+      "summary": "Ask what's blocking you, who needs a reply, or to prep your next meeting.",
+      "body": "From Today, tap a suggestion or ask in your own words: what's blocking me, who needs a reply, prep my next meeting. Answers use what's happening across your connected apps.",
+      "demoText": "Who needs a reply from me?",
+      "demoAnswer": "2 people are waiting on you"
+    },
+    "opportunities": {
+      "title": "Spot opportunities",
+      "summary": "Matter flags platform issues, cross-sell, and upsell openings.",
+      "body": "On every scan, Matter looks for platform issues and sales openings in your clients' activity. Open one to see the evidence and a suggested opener, then preview a Slack report to the owning team before anything is sent.",
+      "demoIssue": "Checkout errors spiking",
+      "demoCrossSell": "Acme could use Analytics",
+      "demoUpsell": "Globex near seat limit"
+    },
+    "followUps": {
+      "title": "Never drop a follow-up",
+      "summary": "Quick-add what you owe or are waiting on, with natural dates.",
+      "body": "Type a follow-up in plain words, like \"Send Dana the pricing by Friday\". Dates are picked up automatically, and action items from meetings land here on their own. Press Cmd+2 to open Follow-ups.",
+      "demoText": "Send Dana the pricing by Friday",
+      "demoDue": "Fri",
+      "demoWaiting": "Waiting on Raj: signed SOW"
+    },
+    "meetings": {
+      "title": "Meetings take their own notes",
+      "summary": "Auto-capture Zoom calls with speaker names, notes, and Live Assist.",
+      "body": "Connect Zoom to capture calls with speaker names and get notes and action items afterwards. Turn on Live Assist to get help in chat while the meeting is still going.",
+      "demoNotes": "Meeting notes",
+      "demoLiveAssist": "Live Assist",
+      "demoActionItems": "3 action items sent to Follow-ups"
+    },
+    "automations": {
+      "title": "Put work on autopilot",
+      "summary": "Workflows and scheduled tasks that run for you.",
+      "body": "Set up workflows and scheduled prompts that run on their own, like a weekly client report or a Friday timesheet reminder. Press Cmd+3 to open Automations.",
+      "demoReport": "Weekly client report",
+      "demoReportWhen": "Mon 9:00",
+      "demoTimesheet": "Timesheet reminder",
+      "demoTimesheetWhen": "Fri 16:00",
+      "demoDigest": "Slack digest",
+      "demoDigestWhen": "Daily"
+    },
+    "memory": {
+      "title": "It remembers what matters",
+      "summary": "Long-term memory carries your preferences across chats.",
+      "body": "Tell the assistant your preferences or important context and it remembers them in future chats. Review or remove anything in Settings > Memory. Private chats are never used for memory.",
+      "demoText": "Remember I prefer bullet summaries",
+      "demoSaved": "Saved to memory",
+      "demoLater": "Next chat: answers come back as bullet summaries."
+    },
     "snapWiggle": {
       "title": "Chat from anywhere on your desktop",
       "summary": "Wiggle your mouse, select part of the screen, chat, and insert into any app.",

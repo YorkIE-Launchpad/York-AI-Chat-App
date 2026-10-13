@@ -10,11 +10,18 @@ interface TipModalProps {
   media?: ReactNode;
   /** Extra info shown on the left of the footer (e.g. a shortcut hint). */
   footerHint?: ReactNode;
+  /** Secondary "Try it" button: dismisses the tip, then runs. */
+  action?: TipAction;
   onDismiss: () => void;
 }
 
+export interface TipAction {
+  labelKey?: string;
+  run: () => void;
+}
+
 /** Centered modal shell shared by all one-time tips. */
-export function TipModal({ title, body, media, footerHint, onDismiss }: TipModalProps) {
+export function TipModal({ title, body, media, footerHint, action, onDismiss }: TipModalProps) {
   const { t } = useTranslation();
   const titleId = useId();
 
@@ -63,10 +70,24 @@ export function TipModal({ title, body, media, footerHint, onDismiss }: TipModal
         <p className="mt-1 text-xs leading-relaxed text-text-secondary">{body}</p>
 
         <div className="mt-3 flex items-center justify-between gap-2">
-          <span className="text-[11px] text-text-muted">{footerHint}</span>
-          <button type="button" className="btn btn-primary" onClick={onDismiss} autoFocus>
-            {t('tips.gotIt')}
-          </button>
+          <span className="min-w-0 text-[11px] text-text-muted">{footerHint}</span>
+          <div className="flex shrink-0 items-center gap-2">
+            {action && (
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => {
+                  onDismiss();
+                  action.run();
+                }}
+              >
+                {t(action.labelKey ?? 'tips.tryIt')}
+              </button>
+            )}
+            <button type="button" className="btn btn-primary" onClick={onDismiss} autoFocus>
+              {t('tips.gotIt')}
+            </button>
+          </div>
         </div>
       </div>
     </div>,

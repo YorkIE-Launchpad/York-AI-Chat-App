@@ -1,5 +1,6 @@
 export { TipsHost } from './TipsHost';
-export { TipModal } from './TipModal';
+export { TipModal, type TipAction } from './TipModal';
 export { TIPS } from './registry';
 export { isTipSeen, markTipSeen } from './tip-storage';
-export type { TipDefinition, TipViewProps } from './types';
+export { TIP_CATEGORIES } from './types';
+export type { TipCategory, TipDefinition, TipViewProps } from './types';

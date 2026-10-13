@@ -5,6 +5,7 @@ import { SnapWiggleTip } from './SnapWiggleTip';
 export const snapWiggleTip: TipDefinition = {
   id: 'snap-wiggle',
   storageKey: 'snap-wiggle-tip-seen-v2',
+  category: 'anywhere',
   icon: MousePointer2,
   titleKey: 'tips.snapWiggle.title',
   summaryKey: 'tips.snapWiggle.summary',
