@@ -55,6 +55,7 @@ const LEADING_PHRASES: RegExp[] = [
   /^(?:what(?:'s|\s+is|\s+are)|how\s+(?:do\s+i|can\s+i|to)|why\s+(?:is|does|do)|is\s+this|can\s+i|do\s+i)\s+/i,
   /^(?:my|our|the|a|an)\s+/i,
 ];
+export const MAX_RENAMED_SESSION_TITLE_LENGTH = 200;
 
 function truncateSessionTitle(value: string): string {
   return value.length > MAX_SESSION_TITLE_LENGTH

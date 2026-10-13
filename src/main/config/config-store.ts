@@ -61,6 +61,7 @@ import {
   resolveYorkLlmBaseUrl,
   YORK_LLM_PROVIDER,
 } from '../../shared/york-llm-config';
+import { normalizeSubagentConfig, type SubagentConfig } from '../../shared/subagent-config';
 
 /**
  * Application configuration schema
@@ -107,6 +108,8 @@ export interface ApiConfigSet {
 }
 
 export interface AppConfig {
+  subagent?: SubagentConfig;
+  subagentConfigError?: string;
   // API Provider
   provider: ProviderType;
 
@@ -836,8 +839,7 @@ export class ConfigStore {
   }
 
   private ensureNormalized(): void {
-    const normalized = this.normalizeConfig(this.store.store as Partial<AppConfig>);
-    this.store.set(normalized);
+    this.saveConfig(this.store.store as Partial<AppConfig>);
   }
 
   /**
@@ -1293,6 +1295,14 @@ export class ConfigStore {
     const activeConfigSet = configSets.find((set) => set.id === activeConfigSetId) || configSets[0];
     const projected = this.projectFromConfigSet(activeConfigSet);
 
+    let subagent: SubagentConfig | undefined;
+    let subagentConfigError: string | undefined;
+    try {
+      subagent = normalizeSubagentConfig(raw.subagent);
+    } catch (error) {
+      subagentConfigError = error instanceof Error ? error.message : String(error);
+    }
+
     const result: AppConfig = {
       provider: projected.provider,
       customProtocol: projected.customProtocol,
@@ -1365,6 +1375,8 @@ export class ConfigStore {
         return { ...normalized, enabled };
       })(),
       loopsRuntime: normalizeLoopsRuntimeConfig(raw.loopsRuntime),
+      subagent,
+      ...(subagentConfigError ? { subagentConfigError } : {}),
       enableThinking: projected.enableThinking,
       autoModelPreference: normalizeAutoModelPreference(raw.autoModelPreference),
       profileDosPrompt:
@@ -1395,9 +1407,13 @@ export class ConfigStore {
     };
   }
 
-  private saveConfig(config: AppConfig): void {
-    const normalized = this.normalizeConfig(config);
-    this.store.set(normalized);
+  private saveConfig(config: Partial<AppConfig>): void {
+    const { subagent, subagentConfigError, ...rest } = this.normalizeConfig(config);
+    // Merge other fields while preserving the invalid persisted subagent for repair.
+    this.store.set({
+      ...rest,
+      ...(config.subagentConfigError || subagentConfigError ? {} : { subagent }),
+    });
   }
 
   private composeProjectedConfig(
@@ -1879,6 +1895,11 @@ export class ConfigStore {
           : current.screenSnapWiggle,
       screenSnapMode:
         updates.screenSnapMode !== undefined ? updates.screenSnapMode : current.screenSnapMode,
+      subagent:
+        updates.subagent === undefined
+          ? current.subagent
+          : normalizeSubagentConfig(updates.subagent),
+      subagentConfigError: updates.subagent === undefined ? current.subagentConfigError : undefined,
       isConfigured:
         updates.isConfigured !== undefined ? updates.isConfigured : current.isConfigured,
     });

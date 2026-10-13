@@ -30,6 +30,7 @@ import type {
 import type { DatabaseInstance, TraceStepRow } from '../db/database';
 import type { MeetingService } from '../meetings/meeting-service';
 import { PathResolver } from '../sandbox/path-resolver';
+import { SessionNotFoundError } from './session-errors';
 import {
   SandboxAdapter,
   getSandboxAdapter,
@@ -87,6 +88,7 @@ import {
 } from '../../shared/collab/shared-session-doc';
 import { getCurrentSession } from '../auth/session';
 import { getCognitoSubFromSession } from '../collab/collab-sync-service';
+import { MAX_RENAMED_SESSION_TITLE_LENGTH } from '../../shared/session-title';
 
 interface AgentRunner {
   run(session: Session, prompt: string, existingMessages: Message[]): Promise<void>;
@@ -797,6 +799,14 @@ export class SessionManager {
     return this.mapSessionRow(row);
   }
 
+  /**
+   * Existence check used by RemoteManager's stale-binding probe: a session may
+   * be deleted from the desktop UI while a channel binding still points at it.
+   */
+  hasSession(sessionId: string): boolean {
+    return Boolean(this.loadSession(sessionId));
+  }
+
   // List all sessions (persisted + live ephemeral)
   listSessions(): Session[] {
     const persisted = this.db.sessions.getAll().map((row) => this.mapSessionRow(row));
@@ -1068,7 +1078,7 @@ export class SessionManager {
 
     const session = this.loadSession(sessionId);
     if (!session) {
-      throw new Error(`Session not found: ${sessionId}`);
+      throw new SessionNotFoundError(sessionId);
     }
 
     this.collabHooks?.assertCanPrompt?.(sessionId);
@@ -2081,6 +2091,20 @@ export class SessionManager {
       type: 'session.status',
       payload: { sessionId, status },
     });
+  }
+
+  renameSession(sessionId: string, title: string): void {
+    // The payload comes from IPC clients, so its type is not guaranteed.
+    const trimmed = typeof title === 'string' ? title.trim() : '';
+    if (!trimmed) {
+      throw new Error('Session title cannot be empty');
+    }
+    if (trimmed.length > MAX_RENAMED_SESSION_TITLE_LENGTH) {
+      throw new Error(`Session title cannot exceed ${MAX_RENAMED_SESSION_TITLE_LENGTH} characters`);
+    }
+    if (!this.updateSessionTitle(sessionId, trimmed)) {
+      throw new Error(`Session not found: ${sessionId}`);
+    }
   }
 
   private updateSessionTitle(sessionId: string, title: string): boolean {

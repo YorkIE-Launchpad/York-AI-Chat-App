@@ -166,8 +166,10 @@ describe('meeting memory cleanup', () => {
     // Seed a non-meeting core entry directly via the same store path ingest uses.
     const overview = service.getOverview();
     const corePath = overview.coreFilePath;
-    const existing = JSON.parse(fs.readFileSync(corePath, 'utf8')) as Record<string, string>;
-    existing['identity.name'] = 'Jack';
+    const existing = JSON.parse(fs.readFileSync(corePath, 'utf8')) as {
+      entries: Record<string, string>;
+    };
+    existing.entries['identity.name'] = 'Jack';
     fs.writeFileSync(corePath, JSON.stringify(existing, null, 2), 'utf8');
 
     // Force store reload by creating a fresh service against the same root

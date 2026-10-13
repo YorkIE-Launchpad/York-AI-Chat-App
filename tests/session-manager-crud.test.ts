@@ -684,9 +684,15 @@ describe('SessionManager.createIdleSession', () => {
     const db = makeDb();
     const manager = new SessionManager(db, sendToRenderer);
 
-    const session = await manager.createIdleSession('Matter · Reply to Acme', undefined, undefined, undefined, {
-      division: 'hub',
-    });
+    const session = await manager.createIdleSession(
+      'Matter · Reply to Acme',
+      undefined,
+      undefined,
+      undefined,
+      {
+        division: 'hub',
+      }
+    );
 
     expect(session.title).toBe('Matter · Reply to Acme');
     expect(session.status).toBe('idle');
@@ -699,6 +705,71 @@ describe('SessionManager.createIdleSession', () => {
         type: 'session.status',
         payload: expect.objectContaining({ status: 'running' }),
       })
+    );
+  });
+});
+
+// ------------------------------------------------------------------
+// renameSession
+// ------------------------------------------------------------------
+describe('SessionManager.renameSession', () => {
+  function makeSessionDb(existing: { id: string; title: string } | null) {
+    return makeDb({
+      sessions: {
+        create: vi.fn(),
+        get: vi.fn(() => existing),
+        getAll: vi.fn(() => []),
+        update: vi.fn(),
+        delete: vi.fn(),
+      } as unknown,
+    });
+  }
+
+  it('stores the trimmed title and tells the renderer', () => {
+    const db = makeSessionDb({ id: 's1', title: 'Old title' });
+    const sendToRenderer = vi.fn();
+    const manager = new SessionManager(db, sendToRenderer);
+
+    manager.renameSession('s1', '  Quarterly plan  ');
+
+    expect(db.sessions.update).toHaveBeenCalledWith('s1', { title: 'Quarterly plan' });
+    expect(sendToRenderer).toHaveBeenCalledWith({
+      type: 'session.update',
+      payload: { sessionId: 's1', updates: { title: 'Quarterly plan' } },
+    });
+  });
+
+  it('rejects a blank title', () => {
+    const db = makeSessionDb({ id: 's1', title: 'Old title' });
+    const manager = new SessionManager(db, vi.fn());
+
+    expect(() => manager.renameSession('s1', '   ')).toThrow('Session title cannot be empty');
+    expect(db.sessions.update).not.toHaveBeenCalled();
+  });
+
+  it('rejects a title over the length limit or of the wrong type', () => {
+    const db = makeSessionDb({ id: 's1', title: 'Old title' });
+    const manager = new SessionManager(db, vi.fn());
+
+    expect(() => manager.renameSession('s1', 'x'.repeat(201))).toThrow(
+      'Session title cannot exceed 200 characters'
+    );
+    expect(() => manager.renameSession('s1', 42 as unknown as string)).toThrow(
+      'Session title cannot be empty'
+    );
+    manager.renameSession('s1', 'x'.repeat(200));
+    expect(db.sessions.update).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a deleted session', () => {
+    const db = makeSessionDb(null);
+    const sendToRenderer = vi.fn();
+    const manager = new SessionManager(db, sendToRenderer);
+
+    expect(() => manager.renameSession('gone', 'New title')).toThrow('Session not found: gone');
+    expect(db.sessions.update).not.toHaveBeenCalled();
+    expect(sendToRenderer).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'session.update' })
     );
   });
 });

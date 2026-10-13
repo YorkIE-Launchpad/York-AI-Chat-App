@@ -11,6 +11,7 @@ import { ToolStepsGroup } from './message/ToolStepsGroup';
 import { ClientOutdatedUpdateActions } from './ClientOutdatedUpdateActions';
 import { shouldShowMcpSourcesFooter } from '../utils/mcp-sources';
 import { formatAppDateTime } from '../utils/i18n-format';
+import type { TextDirection } from '../utils/text-direction';
 
 interface MessageCardProps {
   message: Message;
@@ -44,6 +45,8 @@ export const MessageCard = memo(function MessageCard({
     [contentBlocks, isUser]
   );
   const [copied, setCopied] = useState(false);
+  const [textDirection, setTextDirection] = useState<TextDirection>('auto');
+  const hasText = contentBlocks.some((block) => block.type === 'text' && Boolean(block.text));
   const messageTimeLabel = useMemo(
     () => (message.timestamp ? formatAppDateTime(message.timestamp) : ''),
     [message.timestamp]
@@ -152,6 +155,22 @@ export const MessageCard = memo(function MessageCard({
     </button>
   );
 
+  const directionSelect = (className: string) =>
+    hasText ? (
+      <select
+        dir="ltr"
+        aria-label={t('messageCard.textDirection')}
+        title={t('messageCard.textDirection')}
+        value={textDirection}
+        onChange={(event) => setTextDirection(event.target.value as TextDirection)}
+        className={`w-32 h-7 rounded border border-border bg-surface text-text-secondary text-xs px-1 transition-opacity ${className}`}
+      >
+        <option value="auto">{t('messageCard.directionAuto')}</option>
+        <option value="ltr">{t('messageCard.directionLtr')}</option>
+        <option value="rtl">{t('messageCard.directionRtl')}</option>
+      </select>
+    ) : null;
+
   return (
     <div className="min-w-0 max-w-full animate-fade-in">
       {isUser && isMeetingTranscriptMessage ? (
@@ -184,7 +203,7 @@ export const MessageCard = memo(function MessageCard({
               <span>{t('messageCard.cancelledNotSent')}</span>
             </div>
           )}
-          <div className="flex min-w-0 max-w-full flex-col items-end gap-1 group">
+          <div className="flex min-w-0 max-w-full flex-col items-end gap-1 group/message">
             <div className="flex min-w-0 max-w-full items-start justify-end gap-2">
               <div
                 className={`message-user min-w-0 w-fit max-w-[90%] break-words px-3.5 py-2.5 ${
@@ -208,6 +227,7 @@ export const MessageCard = memo(function MessageCard({
                         block={block}
                         isUser={isUser}
                         isStreaming={isStreaming}
+                        textDirection={textDirection}
                       />
                     ))}
                   </div>
@@ -215,15 +235,20 @@ export const MessageCard = memo(function MessageCard({
               </div>
               {textToCopy
                 ? copyButton(
-                    'mt-1 w-7 h-7 flex items-center justify-center rounded-md bg-surface-muted hover:bg-surface-active transition-all opacity-0 group-hover:opacity-100 focus-visible:opacity-100 flex-shrink-0'
+                    'mt-1 w-7 h-7 flex items-center justify-center rounded-md bg-surface-muted hover:bg-surface-active transition-all opacity-0 group-hover/message:opacity-100 focus-visible:opacity-100 flex-shrink-0'
                   )
                 : null}
             </div>
-            {messageTimeLabel ? (
-              <span className="px-1 text-[11px] text-text-muted" title={messageTimeLabel}>
-                {messageTimeLabel}
-              </span>
-            ) : null}
+            <div className="flex items-center gap-1">
+              {directionSelect(
+                'opacity-100 sm:opacity-0 sm:group-hover/message:opacity-100 focus:opacity-100'
+              )}
+              {messageTimeLabel ? (
+                <span className="px-1 text-[11px] text-text-muted" title={messageTimeLabel}>
+                  {messageTimeLabel}
+                </span>
+              ) : null}
+            </div>
           </div>
         </div>
       ) : (
@@ -247,6 +272,7 @@ export const MessageCard = memo(function MessageCard({
                 block={block}
                 isUser={isUser}
                 isStreaming={isStreaming}
+                textDirection={textDirection}
                 allBlocks={contentBlocks}
                 message={message}
               />
@@ -272,6 +298,9 @@ export const MessageCard = memo(function MessageCard({
                   <RefreshCw className="w-3.5 h-3.5 text-text-muted" aria-hidden />
                 </button>
               ) : null}
+              {directionSelect(
+                'opacity-100 sm:opacity-0 sm:group-hover/assistant:opacity-100 focus:opacity-100'
+              )}
               {messageTimeLabel ? (
                 <span className="ml-1 text-[11px] text-text-muted" title={messageTimeLabel}>
                   {messageTimeLabel}

@@ -11,6 +11,8 @@ import type {
   MemorySearchScope,
 } from '../../types';
 import { useAppStore } from '../../store';
+import { stripIpcErrorPrefix } from '../../../shared/ipc-error';
+import { CoreMemoryEditor } from './CoreMemoryEditor';
 import { SettingsContentSection } from './shared';
 import { SettingsMemoryWiki } from './SettingsMemoryWiki';
 import { SettingsSummaryTree } from './SettingsSummaryTree';
@@ -432,6 +434,21 @@ export function SettingsMemory() {
           </div>
         </div>
       </SettingsContentSection>
+
+      <CoreMemoryEditor
+        overview={overview}
+        disabled={isBusy}
+        onChanged={() => {
+          void Promise.all([refreshOverview(), refreshFiles()]).catch((error: unknown) => {
+            setStatus(
+              t('memory.coreRefreshFailed', {
+                error: stripIpcErrorPrefix(error instanceof Error ? error.message : String(error)),
+              })
+            );
+          });
+        }}
+        onStatus={setStatus}
+      />
 
       <SettingsContentSection
         title={t('memory.runtimeTitle', 'Runtime config')}

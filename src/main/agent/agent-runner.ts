@@ -2519,6 +2519,7 @@ ${hints.join('\n')}
         profileDosPrompt: runtimeConfig.profileDosPrompt,
         profileDontsPrompt: runtimeConfig.profileDontsPrompt,
         profileCustomPrompt: runtimeConfig.profileCustomPrompt,
+        subagent: configStore.getAll().subagent,
       });
       const skillsDisabled = session.skillsDisabled === true;
       const skillPaths = skillsDisabled ? [] : await this.resolveSkillPaths(session.id);
@@ -2560,6 +2561,7 @@ ${hints.join('\n')}
             prompt,
             existingMessages,
             isColdStart: !cachedSession,
+            sandboxIsolated: useSandboxIsolation,
           })
         : { promptPrefix: undefined, customTools: [] };
 

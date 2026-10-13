@@ -92,6 +92,7 @@ describe('CoworkAgentRunner York IE SDK integration', () => {
     );
     expect(agentRunnerContent).toContain('Runtime changed, recreating cached pi session:');
     expect(agentRunnerContent).toContain('runtimeSignature: sessionRuntimeSignature');
+    expect(agentRunnerContent).toContain('subagent: configStore.getAll().subagent');
   });
 
   it('uses the normalized route protocol so openrouter follows the openai-compatible path', () => {

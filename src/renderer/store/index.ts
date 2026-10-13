@@ -115,6 +115,9 @@ export interface AppState {
   // Ephemeral viewport state, kept separate so scrolling does not rerender message consumers.
   sessionScrollPositions: Record<string, number>;
 
+  // Unsent composer text, kept separate so typing does not rerender message consumers.
+  sessionInputDrafts: Record<string, string>;
+
   // UI state
   isLoading: boolean;
   sidebarCollapsed: boolean;
@@ -251,6 +254,7 @@ export interface AppState {
   setIncognitoDraft: (enabled: boolean) => void;
   setSkillsOffDraft: (enabled: boolean) => void;
   setSessionScrollPosition: (sessionId: string, scrollTop: number) => void;
+  setSessionInputDraft: (sessionId: string, draft: string) => void;
 
   addMessage: (sessionId: string, message: Message, options?: { remote?: boolean }) => void;
   updateMessage: (sessionId: string, messageId: string, updates: Partial<Message>) => void;
@@ -415,6 +419,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   activeSessionId: null,
   sessionStates: {},
   sessionScrollPositions: {},
+  sessionInputDrafts: {},
   isLoading: false,
   sidebarCollapsed: false,
   contextPanelCollapsed: false,
@@ -559,11 +564,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       );
       const restMatterDrafts = { ...state.matterChatDraftBySessionId };
       delete restMatterDrafts[sessionId];
+      const restInputDrafts = Object.fromEntries(
+        Object.entries(state.sessionInputDrafts).filter(([id]) => id !== sessionId)
+      );
       return {
         sessions: state.sessions.filter((s) => s.id !== sessionId),
         sessionStates: restSessionStates,
         sessionScrollPositions: restScrollPositions,
         matterChatDraftBySessionId: restMatterDrafts,
+        sessionInputDrafts: restInputDrafts,
         activeSessionId: state.activeSessionId === sessionId ? null : state.activeSessionId,
       };
     }),
@@ -574,6 +583,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const newSessionStates: Record<string, SessionState> = {};
       const newScrollPositions: Record<string, number> = {};
       const newMatterDrafts: Record<string, MatterChatDraft> = {};
+      const newInputDrafts: Record<string, string> = {};
       for (const key of Object.keys(state.sessionStates)) {
         if (!idSet.has(key)) newSessionStates[key] = state.sessionStates[key];
       }
@@ -583,12 +593,16 @@ export const useAppStore = create<AppState>((set, get) => ({
       for (const key of Object.keys(state.matterChatDraftBySessionId)) {
         if (!idSet.has(key)) newMatterDrafts[key] = state.matterChatDraftBySessionId[key];
       }
+      for (const key of Object.keys(state.sessionInputDrafts)) {
+        if (!idSet.has(key)) newInputDrafts[key] = state.sessionInputDrafts[key];
+      }
 
       return {
         sessions: state.sessions.filter((s) => !idSet.has(s.id)),
         sessionStates: newSessionStates,
         sessionScrollPositions: newScrollPositions,
         matterChatDraftBySessionId: newMatterDrafts,
+        sessionInputDrafts: newInputDrafts,
         activeSessionId:
           state.activeSessionId && idSet.has(state.activeSessionId) ? null : state.activeSessionId,
       };
@@ -639,6 +653,24 @@ export const useAppStore = create<AppState>((set, get) => ({
         [sessionId]: scrollTop,
       },
     })),
+
+  setSessionInputDraft: (sessionId, draft) =>
+    set((state) => {
+      if (!draft) {
+        if (!(sessionId in state.sessionInputDrafts)) return state;
+        const restInputDrafts = Object.fromEntries(
+          Object.entries(state.sessionInputDrafts).filter(([id]) => id !== sessionId)
+        );
+        return { sessionInputDrafts: restInputDrafts };
+      }
+      if (state.sessionInputDrafts[sessionId] === draft) return state;
+      return {
+        sessionInputDrafts: {
+          ...state.sessionInputDrafts,
+          [sessionId]: draft,
+        },
+      };
+    }),
 
   // Message actions
   addMessage: (sessionId, message, options) =>

@@ -12,6 +12,7 @@ import {
 } from '../store/selectors';
 import { useAppStore } from '../store';
 import { useIPC } from '../hooks/useIPC';
+import { useSessionInputDraft } from '../hooks/useSessionInputDraft';
 import { MessageCard } from './MessageCard';
 import { MESSAGE_POINTERS_GUTTER_CLASS, MessagePointers } from './MessagePointers';
 import { MessageQueueList } from './MessageQueueList';
@@ -119,7 +120,7 @@ export function ChatView() {
     isElectron,
   } = useIPC();
   const skillsDisabled = activeSession?.skillsDisabled === true;
-  const [prompt, setPrompt] = useState('');
+  const [prompt, setPrompt] = useSessionInputDraft(activeSessionId);
   const [cursorIndex, setCursorIndex] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const matterPrefillAppliedForSessionRef = useRef<string | null>(null);
@@ -305,11 +306,9 @@ export function ChatView() {
       matterPrefillAppliedForSessionRef.current &&
       matterPrefillAppliedForSessionRef.current !== activeSessionId
     ) {
+      const leftSessionId = matterPrefillAppliedForSessionRef.current;
       matterPrefillAppliedForSessionRef.current = null;
-      setPrompt('');
-      if (textareaRef.current) {
-        textareaRef.current.value = '';
-      }
+      useAppStore.getState().setSessionInputDraft(leftSessionId, '');
     }
   }, [activeSessionId]);
 
@@ -330,7 +329,7 @@ export function ChatView() {
       textareaRef.current.setSelectionRange(len, len);
     }
     setCursorIndex(prefill.length);
-  }, [activeSessionId, matterChatDraft, messages.length]);
+  }, [activeSessionId, matterChatDraft, messages.length, setPrompt]);
 
   const handleChangeWorkingDir = async () => {
     if (!activeSessionId) return;
@@ -433,7 +432,7 @@ export function ChatView() {
         }
       });
     },
-    [closeSlashMenu, cursorIndex, prompt, skillTrigger]
+    [closeSlashMenu, cursorIndex, prompt, setPrompt, skillTrigger]
   );
 
   const refreshLoopStatus = useCallback(

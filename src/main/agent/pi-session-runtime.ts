@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import type { SubagentConfig } from '../../shared/subagent-config';
 
 export interface PiSessionRuntimeSignatureInput {
   configProvider?: string;
@@ -12,6 +13,7 @@ export interface PiSessionRuntimeSignatureInput {
   profileDosPrompt?: string;
   profileDontsPrompt?: string;
   profileCustomPrompt?: string;
+  subagent?: SubagentConfig;
 }
 
 function normalizeText(value: string | undefined): string {
@@ -38,5 +40,6 @@ export function buildPiSessionRuntimeSignature(input: PiSessionRuntimeSignatureI
     profileDosPrompt: normalizeText(input.profileDosPrompt),
     profileDontsPrompt: normalizeText(input.profileDontsPrompt),
     profileCustomPrompt: normalizeText(input.profileCustomPrompt),
+    subagent: input.subagent,
   });
 }

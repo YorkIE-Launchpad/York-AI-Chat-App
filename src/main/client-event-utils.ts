@@ -9,6 +9,7 @@ export function eventRequiresSessionManager(event: ClientEvent): boolean {
     case 'session.stop':
     case 'session.dequeue':
     case 'session.delete':
+    case 'session.rename':
     case 'session.batchDelete':
     case 'session.setPinned':
     case 'session.setSkillsDisabled':

@@ -7,6 +7,7 @@ import {
   SessionManager as PiSessionManager,
   SettingsManager as PiSettingsManager,
   createCodingTools,
+  createReadOnlyTools,
   DefaultResourceLoader,
   type ToolDefinition,
 } from '@mariozechner/pi-coding-agent';
@@ -134,7 +135,11 @@ function safeSendEvent(sendEvent: SendEvent | undefined, event: ServerEvent): vo
   }
 }
 
-export function buildChildSystemPrompt(task: string, resultFormat?: string): string {
+export function buildChildSystemPrompt(
+  task: string,
+  resultFormat?: string,
+  rolePrompt?: string
+): string {
   const parts = [
     'You are a focused sub-agent. Complete the task below and return ONLY the result.',
     'Do not ask questions. Do not provide commentary beyond what is needed for the result.',
@@ -142,6 +147,7 @@ export function buildChildSystemPrompt(task: string, resultFormat?: string): str
     `## Task`,
     task,
   ];
+  if (rolePrompt) parts.push('', '## Role', rolePrompt);
   if (resultFormat) {
     parts.push('', `## Expected Output Format`, resultFormat);
   }
@@ -241,6 +247,8 @@ function buildFlatMcpTools(
 
 async function resolveChildPiModel(options: {
   modelMode: 'free' | 'inherit';
+  /** Replaces the parent model id on the inherit route (same provider). */
+  modelOverride?: string;
   promptText: string;
   division?: Partial<SessionDivisionFields> | null;
 }): Promise<{
@@ -251,7 +259,10 @@ async function resolveChildPiModel(options: {
   const config = configStore.getAll();
   const authStorage = getSharedAuthStorage();
 
-  let modelString = config.model?.trim() || '';
+  let modelString =
+    (options.modelMode === 'inherit' && options.modelOverride?.trim()) ||
+    config.model?.trim() ||
+    '';
   let provider = config.provider;
   let customProtocol = config.customProtocol;
   let baseUrl = config.baseUrl?.trim() || undefined;
@@ -391,6 +402,16 @@ export interface RunChildAgentSessionInput {
    */
   mcpToolsMode?: 'flat' | 'meta-only' | 'none';
   allowedTools?: string[];
+  /** Applied to coding and MCP tools; a call can narrow a role's tools, never widen them. */
+  toolFilter?: (toolName: string) => boolean;
+  /** Also expose grep/find/ls alongside the coding tools. */
+  includeReadOnlyTools?: boolean;
+  /** Role preset instructions appended to the child system prompt. */
+  rolePrompt?: string;
+  /** Model id for the inherit route instead of the parent model. */
+  modelOverride?: string;
+  /** Overrides MAX_CONCURRENT_CHILD_AGENTS. */
+  maxConcurrent?: number;
   mcpManager: MCPManager | null;
   sendEvent?: SendEvent;
   parentSessionId?: string;
@@ -440,9 +461,10 @@ export async function runChildAgentSession(
       error: 'task',
     };
   }
-  if (concurrencyState.active >= MAX_CONCURRENT_CHILD_AGENTS) {
+  const maxConcurrent = input.maxConcurrent ?? MAX_CONCURRENT_CHILD_AGENTS;
+  if (concurrencyState.active >= maxConcurrent) {
     return {
-      text: `Error: maximum concurrent subagents (${MAX_CONCURRENT_CHILD_AGENTS}) reached. Wait for a running subagent to complete.`,
+      text: `Error: maximum concurrent subagents (${maxConcurrent}) reached. Wait for a running subagent to complete.`,
       subagentId,
       durationMs: 0,
       error: 'concurrency',
@@ -472,6 +494,7 @@ export async function runChildAgentSession(
 
     const resolved = await resolveChildPiModel({
       modelMode,
+      modelOverride: input.modelOverride,
       promptText: task,
       division: input.division,
     });
@@ -531,8 +554,18 @@ export async function runChildAgentSession(
     }
 
     let customTools: ToolDefinition[] = [];
+    const toolFilter = input.toolFilter ?? (() => true);
     const codingTools = includeCodingTools
-      ? annotateReadToolForPdfs(createCodingTools(cwd, { read: createPdfAwareReadOptions() }))
+      ? [
+          ...new Map(
+            [
+              ...annotateReadToolForPdfs(
+                createCodingTools(cwd, { read: createPdfAwareReadOptions() })
+              ),
+              ...(input.includeReadOnlyTools ? createReadOnlyTools(cwd) : []),
+            ].map((tool) => [tool.name, tool])
+          ).values(),
+        ].filter((tool) => toolFilter(tool.name))
       : [];
     const onProjectScopeViolation = createProjectScopeViolationReporter({
       sessionId: input.parentSessionId,
@@ -562,7 +595,7 @@ export async function runChildAgentSession(
         onProjectScopeViolation,
         input.parentSessionId,
         sessionLinkage
-      );
+      ).filter((tool) => toolFilter(tool.name));
       let allowedToolNames: Set<string> | null = null;
       if (input.allowedTools && input.allowedTools.length > 0) {
         allowedToolNames = new Set(input.allowedTools);
@@ -592,7 +625,7 @@ export async function runChildAgentSession(
     }
 
     const baseChildSystemPrompt =
-      input.systemPrompt || buildChildSystemPrompt(task, input.resultFormat);
+      input.systemPrompt || buildChildSystemPrompt(task, input.resultFormat, input.rolePrompt);
     const profileInstructions = buildProfileInstructionsBlock(configStore.getAll());
     const childSystemPrompt = [baseChildSystemPrompt, profileInstructions]
       .filter((section) => Boolean(section && section.trim()))

@@ -12,6 +12,7 @@ import {
   usePendingDialogs,
 } from './store/selectors';
 import { useIPC } from './hooks/useIPC';
+import { useModelCycleShortcut } from './hooks/useModelCycleShortcut';
 import { useWindowSize } from './hooks/useWindowSize';
 import { Sidebar } from './components/Sidebar';
 import { WelcomeView } from './components/WelcomeView';
@@ -154,6 +155,7 @@ function AuthenticatedApp() {
   useAskGrowthOSHotkey(true);
   useSnapOpenSession();
   useWorkspaceBudgetCheck();
+  useModelCycleShortcut();
   const initialized = useRef(false);
   const sidebarBeforeSettings = useRef(false);
   const lastHtmlPreviewSig = useRef<string | null>(null);

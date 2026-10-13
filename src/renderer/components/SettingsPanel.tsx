@@ -11,6 +11,7 @@ import {
   Radar,
   User,
   Lightbulb,
+  UsersRound,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useWindowSize } from '../hooks/useWindowSize';
@@ -31,6 +32,7 @@ import {
   shouldShowUpdateReadyMessage,
   isUpdateStagingForInstall,
 } from '../../shared/updater-types';
+import { SettingsSubagents } from './settings/SettingsSubagents';
 
 interface SettingsPanelProps {
   onClose: () => void;
@@ -40,6 +42,7 @@ interface SettingsPanelProps {
     | 'memory'
     | 'meetings'
     | 'matter'
+    | 'subagents'
     | 'schedule'
     | 'logs'
     | 'profile'
@@ -53,6 +56,7 @@ type TabId =
   | 'memory'
   | 'meetings'
   | 'matter'
+  | 'subagents'
   | 'schedule'
   | 'logs'
   | 'profile'
@@ -65,6 +69,7 @@ const VALID_TABS = new Set<TabId>([
   'memory',
   'meetings',
   'matter',
+  'subagents',
   'schedule',
   'logs',
   'profile',
@@ -206,6 +211,12 @@ export function SettingsPanel({ onClose, initialTab = 'connectors' }: SettingsPa
           label: t('settings.memory'),
           icon: BrainCircuit,
           description: t('settings.memoryDesc'),
+        },
+        {
+          id: 'subagents',
+          label: t('settings.subagents'),
+          icon: UsersRound,
+          description: t('settings.subagentsDesc'),
         },
       ],
     },
@@ -438,6 +449,9 @@ export function SettingsPanel({ onClose, initialTab = 'connectors' }: SettingsPa
               </div>
               <div className={activeTab === 'memory' ? '' : 'hidden'}>
                 {viewedTabs.has('memory') && <SettingsMemory />}
+              </div>
+              <div className={activeTab === 'subagents' ? '' : 'hidden'}>
+                {viewedTabs.has('subagents') && <SettingsSubagents />}
               </div>
               <div className={activeTab === 'meetings' ? '' : 'hidden'}>
                 {viewedTabs.has('meetings') && <SettingsMeetings />}

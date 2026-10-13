@@ -35,8 +35,19 @@ import {
   Link2,
   CircleDashed,
   MoreHorizontal,
+  Download,
+  FileText,
+  FileJson,
 } from 'lucide-react';
 import type { Session } from '../types';
+import {
+  createSessionExport,
+  createSessionMarkdownExport,
+  getSessionExportMessages,
+  type SessionExportFormat,
+} from '../utils/session-export';
+import { renameKeyAction, resolveRenameTitle } from '../utils/session-rename';
+import { MAX_RENAMED_SESSION_TITLE_LENGTH } from '../../shared/session-title';
 import { DivisionSwitcher } from './DivisionSwitcher';
 import { Menu } from './ui/Menu';
 import { MOD, SIDEBAR_IMPORT_EVENT, SIDEBAR_JOIN_EVENT } from './CommandPalette';
@@ -358,7 +369,7 @@ export function Sidebar() {
     deleteSession,
     batchDeleteSessions,
     setSessionPinned,
-    setSessionTitle,
+    renameSession,
     getSessionMessages,
     getSessionTraceSteps,
     importSession,
@@ -374,6 +385,14 @@ export function Sidebar() {
   const [isSelectMode, setIsSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [pendingDeleteSession, setPendingDeleteSession] = useState<{
+    id: string;
+    title: string;
+  } | null>(null);
+  const [exportError, setExportError] = useState<
+    'sidebar.exportFailed' | 'sidebar.exportPending' | null
+  >(null);
+  const [exportingSessionId, setExportingSessionId] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [joinModalOpen, setJoinModalOpen] = useState(false);
   const [joinInviteDraft, setJoinInviteDraft] = useState('');
@@ -625,12 +644,29 @@ export function Sidebar() {
 
   // Exit select mode when sidebar collapses
   useEffect(() => {
-    if (sidebarCollapsed && isSelectMode) {
+    if (!sidebarCollapsed) return;
+    setPendingDeleteSession(null);
+    if (isSelectMode) {
       setIsSelectMode(false);
       setSelectedIds(new Set());
       setShowDeleteConfirm(false);
     }
   }, [sidebarCollapsed, isSelectMode]);
+
+  useEffect(() => {
+    if (!pendingDeleteSession) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setPendingDeleteSession(null);
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [pendingDeleteSession]);
+
+  useEffect(() => {
+    if (!exportError) return;
+    const timeout = window.setTimeout(() => setExportError(null), 5000);
+    return () => window.clearTimeout(timeout);
+  }, [exportError]);
 
   // Escape key exits select mode
   useEffect(() => {
@@ -921,7 +957,85 @@ export function Sidebar() {
 
   const handleDeleteSession = (e: React.MouseEvent, sessionId: string) => {
     e.stopPropagation();
-    deleteSession(sessionId);
+    const session = sessions.find((item) => item.id === sessionId);
+    setPendingDeleteSession({ id: sessionId, title: session?.title ?? '' });
+  };
+
+  const confirmPendingDelete = () => {
+    if (!pendingDeleteSession) return;
+    deleteSession(pendingDeleteSession.id);
+    setPendingDeleteSession(null);
+  };
+
+  const handleExportSession = async (session: Session, format: SessionExportFormat) => {
+    setExportError(null);
+    setExportingSessionId(session.id);
+    try {
+      const messages = await getSessionExportMessages(session.id, isElectron, getSessionMessages);
+      if (messages === null) {
+        setExportError('sidebar.exportPending');
+        return;
+      }
+      const { blob, filename } =
+        format === 'markdown'
+          ? createSessionMarkdownExport(session, messages, t)
+          : createSessionExport(session, messages);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (error) {
+      console.error('[Sidebar] Failed to export session:', error);
+      setExportError('sidebar.exportFailed');
+    } finally {
+      setExportingSessionId(null);
+    }
+  };
+
+  const renderExportMenu = (session: Session) => {
+    const exportPending = isElectron && session.status === 'running';
+    const disabled = exportingSessionId !== null || exportPending;
+    return (
+      <div className="absolute right-[5.25rem] top-1/2 -translate-y-1/2">
+        <Menu
+          menuClassName="min-w-[11rem]"
+          items={[
+            {
+              id: 'export-markdown',
+              label: t('sidebar.exportSessionMarkdown'),
+              icon: <FileText className="w-3.5 h-3.5" />,
+              disabled,
+              onSelect: () => void handleExportSession(session, 'markdown'),
+            },
+            {
+              id: 'export-json',
+              label: t('sidebar.exportSession'),
+              icon: <FileJson className="w-3.5 h-3.5" />,
+              disabled,
+              onSelect: () => void handleExportSession(session, 'json'),
+            },
+          ]}
+          trigger={({ toggle }) => (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                toggle();
+              }}
+              className="w-6 h-6 rounded-lg flex items-center justify-center text-text-muted hover:text-text-primary hover:bg-surface-active transition-colors"
+              title={t(exportPending ? 'sidebar.exportPending' : 'sidebar.exportSession')}
+              aria-label={t(exportPending ? 'sidebar.exportPending' : 'sidebar.exportSession')}
+            >
+              <Download className="w-3 h-3" />
+            </button>
+          )}
+        />
+      </div>
+    );
   };
 
   const handleTogglePinSession = (e: React.MouseEvent, session: Session) => {
@@ -948,15 +1062,10 @@ export function Sidebar() {
       skipRenameCommitRef.current = false;
       return;
     }
-    const trimmed = renameDraft.trim();
-    if (!trimmed || trimmed === session.title) {
-      setRenamingSessionId(null);
-      setRenameDraft('');
-      return;
-    }
-    setSessionTitle(session.id, trimmed);
+    const title = resolveRenameTitle(session.title, renameDraft);
     setRenamingSessionId(null);
     setRenameDraft('');
+    if (title) void renameSession(session, title);
   };
 
   const importChatRef = useRef(handleImportChat);
@@ -1458,7 +1567,7 @@ export function Sidebar() {
                                       />
                                       <div
                                         className={`flex items-center gap-2 ${
-                                          !isSelectMode && !isRenaming ? 'pr-20' : ''
+                                          !isSelectMode && !isRenaming ? 'pr-28' : ''
                                         }`}
                                       >
                                         {isSelectMode && (
@@ -1506,14 +1615,13 @@ export function Sidebar() {
                                               onChange={(e) => setRenameDraft(e.target.value)}
                                               onClick={(e) => e.stopPropagation()}
                                               onBlur={() => handleCommitRename(session)}
+                                              maxLength={MAX_RENAMED_SESSION_TITLE_LENGTH}
                                               onKeyDown={(e) => {
-                                                if (e.key === 'Enter') {
-                                                  e.preventDefault();
-                                                  handleCommitRename(session);
-                                                } else if (e.key === 'Escape') {
-                                                  e.preventDefault();
-                                                  handleCancelRename();
-                                                }
+                                                const action = renameKeyAction(e.nativeEvent);
+                                                if (!action) return;
+                                                e.preventDefault();
+                                                if (action === 'save') handleCommitRename(session);
+                                                else handleCancelRename();
                                               }}
                                               className="w-full min-w-0 rounded-md border border-border-muted bg-background px-1.5 py-0.5 text-[13px] font-medium leading-5 text-text-primary outline-none focus:border-accent"
                                               aria-label={t('sidebar.rename')}
@@ -1532,6 +1640,8 @@ export function Sidebar() {
                                       </div>
                                       {!isSelectMode && !isRenaming && (
                                         <>
+                                          {hoveredSession === session.id &&
+                                            renderExportMenu(session)}
                                           {hoveredSession === session.id && (
                                             <button
                                               onClick={(e) => handleStartRename(e, session)}
@@ -1645,7 +1755,7 @@ export function Sidebar() {
                       />
                       <div
                         className={`flex items-center gap-2 ${
-                          !isSelectMode && !isRenaming ? 'pr-20' : ''
+                          !isSelectMode && !isRenaming ? 'pr-28' : ''
                         }`}
                       >
                         {isSelectMode && (
@@ -1693,14 +1803,13 @@ export function Sidebar() {
                                 onChange={(e) => setRenameDraft(e.target.value)}
                                 onClick={(e) => e.stopPropagation()}
                                 onBlur={() => handleCommitRename(session)}
+                                maxLength={MAX_RENAMED_SESSION_TITLE_LENGTH}
                                 onKeyDown={(e) => {
-                                  if (e.key === 'Enter') {
-                                    e.preventDefault();
-                                    handleCommitRename(session);
-                                  } else if (e.key === 'Escape') {
-                                    e.preventDefault();
-                                    handleCancelRename();
-                                  }
+                                  const action = renameKeyAction(e.nativeEvent);
+                                  if (!action) return;
+                                  e.preventDefault();
+                                  if (action === 'save') handleCommitRename(session);
+                                  else handleCancelRename();
                                 }}
                                 className="w-full min-w-0 rounded-md border border-border-muted bg-background px-1.5 py-0.5 text-[13px] font-medium leading-5 text-text-primary outline-none focus:border-accent"
                                 aria-label={t('sidebar.rename')}
@@ -1734,6 +1843,7 @@ export function Sidebar() {
 
                       {!isSelectMode && !isRenaming && (
                         <>
+                          {hoveredSession === session.id && renderExportMenu(session)}
                           {hoveredSession === session.id && (
                             <button
                               onClick={(e) => handleStartRename(e, session)}
@@ -1882,6 +1992,45 @@ export function Sidebar() {
               ) : null}
             </div>
             <SidebarUpdateButton />
+          </div>
+        )}
+        {exportError && (
+          <p role="alert" className="px-4 pb-2 text-xs text-error">
+            {t(exportError)}
+          </p>
+        )}
+
+        {pendingDeleteSession && (
+          <div
+            className="absolute inset-0 z-30 flex items-end bg-black/20"
+            onClick={() => setPendingDeleteSession(null)}
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              className="w-full border-t border-border-muted bg-surface px-2 py-2"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="border border-error/30 bg-error/10 rounded-lg px-3 py-3">
+                <p className="text-[13px] text-text-primary mb-3">
+                  {t('sidebar.deleteConfirm', { title: pendingDeleteSession.title })}
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setPendingDeleteSession(null)}
+                    className="flex-1 px-3 py-1.5 rounded-lg text-[13px] font-medium text-text-secondary hover:bg-surface-hover transition-colors"
+                  >
+                    {t('sidebar.cancel')}
+                  </button>
+                  <button
+                    onClick={confirmPendingDelete}
+                    className="flex-1 px-3 py-1.5 rounded-lg text-[13px] font-medium bg-error text-white hover:bg-error/90 transition-colors"
+                  >
+                    {t('sidebar.confirmDelete')}
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         )}
       </aside>

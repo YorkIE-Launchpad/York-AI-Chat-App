@@ -1,6 +1,7 @@
 import type { ActiveDivision, WorkspaceDivisionKind } from '../../shared/workspace-division';
 import type { ChatSearchScope } from '../../shared/chat-search';
 import type { ExternalReferenceContent } from '../../shared/external-reference';
+import type { SubagentConfig } from '../../shared/subagent-config';
 
 export type {
   ExternalReferenceContent,
@@ -554,6 +555,15 @@ export interface MemoryInspectSessionResult {
   chunks: ChunkMemoryItem[];
 }
 
+export interface CoreMemoryListEntry {
+  combinedKey: string;
+  category?: 'identity' | 'preferences' | 'skills' | 'interests';
+  key: string;
+  value: string;
+  /** Written by the user in Settings; extraction and rebuild keep it as is. */
+  userWritten: boolean;
+}
+
 export interface MemoryOverview {
   enabled: boolean;
   storageRoot: string;
@@ -741,6 +751,7 @@ export type ClientEvent =
   | { type: 'session.stop'; payload: { sessionId: string } }
   | { type: 'session.dequeue'; payload: { sessionId: string; queueIndex: number } }
   | { type: 'session.delete'; payload: { sessionId: string } }
+  | { type: 'session.rename'; payload: { sessionId: string; title: string } }
   | { type: 'session.batchDelete'; payload: { sessionIds: string[] } }
   | { type: 'session.setPinned'; payload: { sessionId: string; pinned: boolean } }
   | {
@@ -1190,6 +1201,8 @@ export interface MeetingOverview {
 }
 
 export interface AppConfig {
+  subagent?: SubagentConfig;
+  subagentConfigError?: string;
   provider: ProviderType;
   apiKey: string;
   baseUrl?: string;

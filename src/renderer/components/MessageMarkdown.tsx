@@ -4,7 +4,11 @@ import remarkMath from 'remark-math';
 import remarkGfm from 'remark-gfm';
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
 import rehypeKatex from 'rehype-katex';
-import { AUTO_TEXT_DIRECTION_PROPS } from '../utils/text-direction';
+import {
+  getTextAlignmentClass,
+  getTextDirectionProps,
+  type TextDirection,
+} from '../utils/text-direction';
 
 // Hoisted to module scope to avoid re-creating arrays on every render
 const REMARK_PLUGINS = [remarkMath, [remarkGfm, { singleTilde: false }]] as const;
@@ -49,6 +53,7 @@ export interface MessageMarkdownProps {
   components?: Record<string, unknown>;
   /** Visual tone — thinking uses muted sans; output keeps primary serif prose. */
   tone?: 'output' | 'thinking';
+  textDirection?: TextDirection;
 }
 
 export const MessageMarkdown = memo(function MessageMarkdown({
@@ -56,14 +61,16 @@ export const MessageMarkdown = memo(function MessageMarkdown({
   isStreaming,
   components,
   tone = 'output',
+  textDirection = 'auto',
 }: MessageMarkdownProps) {
+  const alignmentClass = getTextAlignmentClass(textDirection);
   const proseClass =
     tone === 'thinking'
-      ? 'prose-thinking max-w-none text-text-secondary text-start'
-      : 'prose-chat max-w-none text-text-primary text-start';
+      ? `prose-thinking max-w-none text-text-secondary ${alignmentClass}`
+      : `prose-chat max-w-none text-text-primary ${alignmentClass}`;
 
   return (
-    <div {...AUTO_TEXT_DIRECTION_PROPS} className={proseClass}>
+    <div {...getTextDirectionProps(textDirection)} className={proseClass}>
       <ReactMarkdown
         remarkPlugins={
           REMARK_PLUGINS as unknown as Parameters<typeof ReactMarkdown>[0]['remarkPlugins']
