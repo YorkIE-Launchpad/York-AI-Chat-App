@@ -32,11 +32,9 @@ import {
   useYorkLlmModels,
   yorkLlmDisplayName,
 } from '../hooks/useYorkLlmModels';
-import {
-  YORK_LLM_PROVIDER,
-  yorkLlmSelectionPayload,
-} from '../../shared/york-llm-config';
+import { YORK_LLM_PROVIDER, yorkLlmSelectionPayload } from '../../shared/york-llm-config';
 import { isGptImage25ModelId } from '../../shared/image-generation';
+import { useMenuPlacement } from '../hooks/useMenuPlacement';
 
 const isElectron = typeof window !== 'undefined' && window.electronAPI !== undefined;
 
@@ -81,6 +79,7 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const placement = useMenuPlacement(rootRef, isOpen, 448);
   const loadGenRef = useRef(0);
   const {
     models: yorkLlmModels,
@@ -305,10 +304,7 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
 
   const showViaOpenRouter = appConfig?.provider === 'openrouter' && !selectedAuto;
   const triggerTitle = selectedAuto
-    ? t(
-        'workspace.models.autoBlurb',
-        'Auto · York for everyday, frontier when hard'
-      )
+    ? t('workspace.models.autoBlurb', 'Auto · York for everyday, frontier when hard')
     : showViaOpenRouter
       ? `${displayName} via Openrouter`
       : displayName;
@@ -350,9 +346,11 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
       {isOpen && (
         <div
           role="listbox"
-          className="absolute bottom-[calc(100%+8px)] right-0 z-30 w-max min-w-[min(14rem,100cqw)] max-w-[min(24rem,calc(100cqw-0.5rem))] overflow-hidden rounded-[1.25rem] border border-border-subtle bg-background shadow-elevated"
+          className={`absolute right-0 z-30 w-max min-w-[min(14rem,100cqw)] max-w-[min(24rem,calc(100cqw-0.5rem))] overflow-hidden rounded-[1.25rem] border border-border-subtle bg-background shadow-elevated ${
+            placement.direction === 'up' ? 'bottom-[calc(100%+8px)]' : 'top-[calc(100%+8px)]'
+          }`}
         >
-          <div className="max-h-[min(28rem,70vh)] overflow-y-auto py-1.5">
+          <div style={{ maxHeight: placement.maxHeight }} className="overflow-y-auto py-1.5">
             <div className="px-1.5 py-1">
               <div className="px-2.5 pb-1 pt-1.5 text-[11px] font-medium tracking-[0.04em] text-text-muted">
                 {t('workspace.models.autoTitle', 'Smart Auto')}
@@ -376,10 +374,7 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
                 {selectedAuto && <Check className="h-3.5 w-3.5 shrink-0" />}
               </button>
               <div className="px-2.5 pt-1 text-[10px] leading-snug text-text-muted">
-                {t(
-                  'workspace.models.autoBlurb',
-                  'Auto · York for everyday, frontier when hard'
-                )}
+                {t('workspace.models.autoBlurb', 'Auto · York for everyday, frontier when hard')}
               </div>
               {selectedAuto && (
                 <div className="mt-1.5 flex flex-wrap gap-1 px-2.5 pb-1">
@@ -532,9 +527,7 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
                         {t('workspace.models.openRouterCue', 'OpenRouter')}
                       </span>
                     )}
-                    {isSelected && !rowDisabled && (
-                      <Check className="h-3.5 w-3.5 shrink-0" />
-                    )}
+                    {isSelected && !rowDisabled && <Check className="h-3.5 w-3.5 shrink-0" />}
                   </button>
                 );
               };
@@ -618,7 +611,9 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
               chatCatalogModels.length > 0 &&
               !hasOpenRouterKey &&
               (activeDivision?.kind === 'hub' || activeDivision?.kind === 'project') &&
-              chatCatalogModels.some((m) => m.provider !== 'openrouter' && m.hasBudget === false) && (
+              chatCatalogModels.some(
+                (m) => m.provider !== 'openrouter' && m.hasBudget === false
+              ) && (
                 <div className="border-t border-border-subtle px-4 py-2 text-[11px] leading-snug text-text-muted">
                   {t('workspace.models.askManager')}
                 </div>

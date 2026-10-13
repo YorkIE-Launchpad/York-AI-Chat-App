@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { ExternalReferenceContent } from '../../../shared/external-reference';
+import { useMenuPlacement } from '../../hooks/useMenuPlacement';
 
 interface ComposerAttachMenuProps {
   menuRef: RefObject<HTMLDivElement>;
@@ -53,6 +54,7 @@ export function ComposerAttachMenu({
   skillsToggle,
 }: ComposerAttachMenuProps) {
   const { t } = useTranslation();
+  const placement = useMenuPlacement(menuRef, open, 480);
   const icon = (node: ReactNode) => <span className="text-text-muted">{node}</span>;
 
   const files: Item[] = [
@@ -143,7 +145,10 @@ export function ComposerAttachMenu({
       {open ? (
         <div
           role="menu"
-          className="absolute bottom-[calc(100%+8px)] left-0 z-30 min-w-[14rem] rounded-xl border border-border-subtle bg-surface-raised p-1 shadow-elevated animate-fade-in"
+          style={{ maxHeight: placement.maxHeight }}
+          className={`absolute left-0 z-30 min-w-[14rem] overflow-y-auto rounded-xl border border-border-subtle bg-surface-raised p-1 shadow-elevated animate-fade-in ${
+            placement.direction === 'up' ? 'bottom-[calc(100%+8px)]' : 'top-[calc(100%+8px)]'
+          }`}
         >
           {groups.map((group, index) => (
             <div

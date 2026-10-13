@@ -58,6 +58,7 @@ import {
   normalizeSelectedFiles,
 } from '../utils/load-composer-image';
 import { useDictation } from '../hooks/useDictation';
+import { useMenuPlacement } from '../hooks/useMenuPlacement';
 import { DictationButton } from './DictationButton';
 import { ClientOutdatedUpdateActions } from './ClientOutdatedUpdateActions';
 import {
@@ -107,6 +108,7 @@ export function WelcomeView() {
   const [isDragging, setIsDragging] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const actionsMenuRef = useRef<HTMLDivElement>(null);
+  const actionsMenuPlacement = useMenuPlacement(actionsMenuRef, actionsMenuOpen, 480);
   const { startSession, sendImageTurn, changeWorkingDir, isElectron } = useIPC();
   const composerMode = useAppStore((state) => state.composerMode);
   const backendModelsCatalog = useAppStore((state) => state.backendModelsCatalog);
@@ -196,7 +198,6 @@ export function WelcomeView() {
     },
     [closeSlashMenu, cursorIndex, prompt, skillTrigger]
   );
-
   useEffect(() => {
     if (!actionsMenuOpen && !loopMenuOpen) return;
     const onPointerDown = (event: MouseEvent) => {
@@ -1146,7 +1147,12 @@ export function WelcomeView() {
             {actionsMenuOpen && (
               <div
                 role="menu"
-                className="absolute bottom-[calc(100%+8px)] left-0 z-30 min-w-[14rem] overflow-hidden rounded-[1.25rem] border border-border-subtle bg-background shadow-elevated"
+                style={{ maxHeight: actionsMenuPlacement.maxHeight }}
+                className={`absolute left-0 z-30 min-w-[14rem] overflow-y-auto rounded-[1.25rem] border border-border-subtle bg-background shadow-elevated ${
+                  actionsMenuPlacement.direction === 'up'
+                    ? 'bottom-[calc(100%+8px)]'
+                    : 'top-[calc(100%+8px)]'
+                }`}
               >
                 <div className="space-y-0.5 p-1.5">
                   {composerMode !== 'image' && (
