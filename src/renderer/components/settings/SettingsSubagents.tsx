@@ -1,10 +1,170 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Plus, Save, Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../../store';
-import { DEFAULT_SUBAGENT_CONFIG, type SubagentPreset } from '../../../shared/subagent-config';
+import {
+  DEFAULT_SUBAGENT_CONFIG,
+  encodeSubagentModel,
+  parseSubagentModel,
+  type SubagentPreset,
+} from '../../../shared/subagent-config';
+import type { BackendCloudProvider } from '../../../shared/backend-config';
+import { AUTO_MODEL_ID, isAutoModelId } from '../../../shared/auto-model';
+import { isGptImage25ModelId } from '../../../shared/image-generation';
+import { YORK_LLM_PROVIDER } from '../../../shared/york-llm-config';
+import {
+  filterModelsForDivision,
+  sessionFieldsFromActiveDivision,
+} from '../../../shared/workspace-division';
+import { filterModelsForOpenRouterKey } from '../../../shared/openrouter-fallback';
+import {
+  isYorkLlmSelection,
+  useYorkLlmModels,
+  yorkLlmDisplayName,
+} from '../../hooks/useYorkLlmModels';
 
 const fieldClass = 'w-full px-3 py-2 rounded-lg bg-background border border-border text-sm';
+
+const PROVIDER_GROUPS: Array<{ provider: BackendCloudProvider; label: string }> = [
+  { provider: 'anthropic', label: 'Anthropic' },
+  { provider: 'openai', label: 'OpenAI' },
+  { provider: 'gemini', label: 'Gemini' },
+  { provider: 'openrouter', label: 'OpenRouter' },
+];
+
+interface ModelOption {
+  value: string;
+  label: string;
+}
+
+interface ModelGroup {
+  label: string;
+  options: ModelOption[];
+}
+
+function catalogModelLabel(name: string, id: string): string {
+  if (name && name !== id) return name;
+  return id.split('/').pop() || id;
+}
+
+/** Same model list as the chat composer picker, with values encoded as `provider::modelId`. */
+function useChildModelOptions() {
+  const { t } = useTranslation();
+  const appConfig = useAppStore((state) => state.appConfig);
+  const activeDivision = useAppStore((state) => state.activeDivision);
+  const catalog = useAppStore((state) => state.backendModelsCatalog);
+  const setBackendModelsCatalog = useAppStore((state) => state.setBackendModelsCatalog);
+  const { models: yorkLlmModels } = useYorkLlmModels();
+
+  useEffect(() => {
+    if (catalog.length > 0 || typeof window === 'undefined' || !window.electronAPI) return;
+    void window.electronAPI.config
+      .listBackendModels({ usable: true })
+      .then((items) => {
+        if (items.length > 0) setBackendModelsCatalog(items);
+      })
+      .catch(() => undefined);
+  }, [catalog.length, setBackendModelsCatalog]);
+
+  return useMemo(() => {
+    const autoLabel = t('workspace.models.autoShort', 'Auto');
+    const usable = filterModelsForOpenRouterKey(
+      filterModelsForDivision(
+        catalog.filter((model) => !isGptImage25ModelId(model.id)),
+        sessionFieldsFromActiveDivision(activeDivision)
+      ),
+      appConfig?.openRouterUserApiKey
+    );
+    const groups: ModelGroup[] = [
+      {
+        label: t('workspace.models.autoTitle', 'Smart Auto'),
+        options: [{ value: AUTO_MODEL_ID, label: autoLabel }],
+      },
+      {
+        label: t('workspace.models.yorkLocalLlmTitle', 'York LLM'),
+        options: yorkLlmModels.map((model) => ({
+          value: encodeSubagentModel(YORK_LLM_PROVIDER, model.id),
+          label: yorkLlmDisplayName(model.id, model.name),
+        })),
+      },
+      ...PROVIDER_GROUPS.map(({ provider, label }) => ({
+        label,
+        options: usable
+          .filter((model) => model.provider === provider)
+          .map((model) => ({
+            value: encodeSubagentModel(provider, model.id),
+            label: catalogModelLabel(model.name, model.id),
+          })),
+      })),
+    ].filter((group) => group.options.length > 0);
+
+    const labelFor = (value: string, provider = appConfig?.provider): string => {
+      const parsed = parseSubagentModel(value);
+      if (!parsed.model) return '';
+      if (isAutoModelId(parsed.model)) return autoLabel;
+      const modelProvider = parsed.provider || provider;
+      if (
+        modelProvider === YORK_LLM_PROVIDER ||
+        (!parsed.provider && isYorkLlmSelection(provider, appConfig?.baseUrl, parsed.model))
+      ) {
+        const known = yorkLlmModels.find((model) => model.id === parsed.model);
+        return yorkLlmDisplayName(parsed.model, known?.name);
+      }
+      const known = catalog.find(
+        (model) => model.provider === modelProvider && model.id === parsed.model
+      );
+      return known ? catalogModelLabel(known.name, known.id) : parsed.model;
+    };
+    return { groups, labelFor, parentLabel: labelFor(appConfig?.model || '') };
+  }, [
+    activeDivision,
+    appConfig?.baseUrl,
+    appConfig?.model,
+    appConfig?.openRouterUserApiKey,
+    appConfig?.provider,
+    catalog,
+    t,
+    yorkLlmModels,
+  ]);
+}
+
+function ChildModelSelect({
+  label,
+  value,
+  defaultLabel,
+  groups,
+  labelFor,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  defaultLabel: string;
+  groups: ModelGroup[];
+  labelFor: (value: string) => string;
+  onChange: (value: string) => void;
+}) {
+  const known = groups.some((group) => group.options.some((option) => option.value === value));
+  return (
+    <select
+      aria-label={label}
+      className={fieldClass}
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+    >
+      <option value="">{defaultLabel}</option>
+      {value && !known && <option value={value}>{labelFor(value)}</option>}
+      {groups.map((group) => (
+        <optgroup key={group.label} label={group.label}>
+          {group.options.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </optgroup>
+      ))}
+    </select>
+  );
+}
 
 export function SettingsSubagents() {
   const { t } = useTranslation();
@@ -16,6 +176,7 @@ export function SettingsSubagents() {
   const [selected, setSelected] = useState(0);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
+  const { groups: modelGroups, labelFor, parentLabel } = useChildModelOptions();
   useEffect(() => {
     setDraft(structuredClone(appConfig?.subagent ?? DEFAULT_SUBAGENT_CONFIG));
   }, [appConfig?.subagent]);
@@ -70,12 +231,13 @@ export function SettingsSubagents() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <label className="space-y-1 text-sm">
           <span>{t('subagentSettings.model')}</span>
-          <input
-            aria-label={t('subagentSettings.model')}
-            className={fieldClass}
+          <ChildModelSelect
+            label={t('subagentSettings.model')}
             value={draft.model}
-            placeholder={appConfig?.model}
-            onChange={(event) => setDraft({ ...draft, model: event.target.value })}
+            defaultLabel={t('subagentSettings.sameAsParent', { model: parentLabel })}
+            groups={modelGroups}
+            labelFor={labelFor}
+            onChange={(model) => setDraft({ ...draft, model })}
           />
         </label>
         <label className="space-y-1 text-sm">
@@ -200,12 +362,15 @@ export function SettingsSubagents() {
             </label>
             <label className="block text-sm space-y-1">
               <span>{t('subagentSettings.roleModel')}</span>
-              <input
-                aria-label={t('subagentSettings.roleModel')}
-                className={fieldClass}
+              <ChildModelSelect
+                label={t('subagentSettings.roleModel')}
                 value={preset.model}
-                placeholder={draft.model || appConfig?.model}
-                onChange={(event) => updatePreset({ model: event.target.value })}
+                defaultLabel={t('subagentSettings.sameAsDefault', {
+                  model: draft.model ? labelFor(draft.model) : parentLabel,
+                })}
+                groups={modelGroups}
+                labelFor={labelFor}
+                onChange={(model) => updatePreset({ model })}
               />
             </label>
             <label className="block text-sm space-y-1">

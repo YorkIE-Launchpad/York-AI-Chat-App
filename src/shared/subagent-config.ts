@@ -90,3 +90,23 @@ export function normalizeSubagentConfig(input: unknown = DEFAULT_SUBAGENT_CONFIG
   }
   return { model: config.model.trim(), defaultAgent, maxConcurrent: config.maxConcurrent, presets };
 }
+
+const MODEL_PROVIDER_SEPARATOR = '::';
+
+/** Subagent model values are `provider::modelId`; a bare id keeps the parent's provider. */
+export function encodeSubagentModel(provider: string, modelId: string): string {
+  return `${provider}${MODEL_PROVIDER_SEPARATOR}${modelId}`;
+}
+
+export function parseSubagentModel(value: string | undefined | null): {
+  provider?: string;
+  model: string;
+} {
+  const trimmed = value?.trim() || '';
+  const index = trimmed.indexOf(MODEL_PROVIDER_SEPARATOR);
+  if (index <= 0) return { model: trimmed };
+  return {
+    provider: trimmed.slice(0, index),
+    model: trimmed.slice(index + MODEL_PROVIDER_SEPARATOR.length),
+  };
+}

@@ -6,7 +6,13 @@ import { DEFAULT_SUBAGENT_CONFIG, type SubagentConfig } from '../src/shared/suba
 const mocks = vi.hoisted(() => ({ config: {} as SubagentConfig }));
 vi.mock('../src/renderer/store', () => ({
   useAppStore: (selector: (state: unknown) => unknown) =>
-    selector({ appConfig: { subagent: mocks.config }, setAppConfig: vi.fn() }),
+    selector({
+      appConfig: { subagent: mocks.config },
+      setAppConfig: vi.fn(),
+      activeDivision: null,
+      backendModelsCatalog: [],
+      setBackendModelsCatalog: vi.fn(),
+    }),
 }));
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({

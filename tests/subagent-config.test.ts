@@ -1,7 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeSubagentConfig } from '../src/shared/subagent-config';
+import {
+  encodeSubagentModel,
+  normalizeSubagentConfig,
+  parseSubagentModel,
+} from '../src/shared/subagent-config';
 
 describe('subagent configuration', () => {
+  it('encodes provider-qualified models and keeps bare ids on the parent provider', () => {
+    const value = encodeSubagentModel('openrouter', 'anthropic/claude-sonnet-4');
+    expect(parseSubagentModel(value)).toEqual({
+      provider: 'openrouter',
+      model: 'anthropic/claude-sonnet-4',
+    });
+    expect(parseSubagentModel('/models/qwen.gguf')).toEqual({ model: '/models/qwen.gguf' });
+    expect(parseSubagentModel('')).toEqual({ model: '' });
+  });
+
   it('preserves legacy defaults and rejects duplicate or invalid roles', () => {
     const config = normalizeSubagentConfig();
     expect(config.maxConcurrent).toBe(3);

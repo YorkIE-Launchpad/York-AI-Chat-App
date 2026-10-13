@@ -40,8 +40,11 @@ import {
   isYorkLlmBaseUrl,
   resolveYorkLlmApiKey,
   shouldSkipHubUsageForYorkLlm,
+  YORK_LLM_PROVIDER,
   YORK_LLM_ZERO_COST,
+  yorkLlmSelectionPayload,
 } from '../../shared/york-llm-config';
+import { parseSubagentModel } from '../../shared/subagent-config';
 import type { CustomProtocolType, ProviderType } from '../config/config-store';
 import {
   applyPiModelRuntimeOverrides,
@@ -58,7 +61,11 @@ import {
   filterModelsForOpenRouterKey,
   resolveYorkPaidEcoFallback,
 } from '../../shared/openrouter-fallback';
-import { isBackendManagedProvider } from '../../shared/backend-config';
+import {
+  applyBackendManagedCredentials,
+  BACKEND_PROXY_PLACEHOLDER_KEY,
+  isBackendManagedProvider,
+} from '../../shared/backend-config';
 import { withAppVersionHeader } from '../../shared/client-version';
 import {
   isOpenRouterAccountLimitError,
@@ -247,7 +254,7 @@ function buildFlatMcpTools(
 
 async function resolveChildPiModel(options: {
   modelMode: 'free' | 'inherit';
-  /** Replaces the parent model id on the inherit route (same provider). */
+  /** Inherit-route model: bare id (parent provider) or `provider::modelId`. */
   modelOverride?: string;
   promptText: string;
   division?: Partial<SessionDivisionFields> | null;
@@ -259,14 +266,35 @@ async function resolveChildPiModel(options: {
   const config = configStore.getAll();
   const authStorage = getSharedAuthStorage();
 
-  let modelString =
-    (options.modelMode === 'inherit' && options.modelOverride?.trim()) ||
-    config.model?.trim() ||
-    '';
+  const override =
+    options.modelMode === 'inherit' ? parseSubagentModel(options.modelOverride) : { model: '' };
+  let modelString = override.model || config.model?.trim() || '';
   let provider = config.provider;
   let customProtocol = config.customProtocol;
   let baseUrl = config.baseUrl?.trim() || undefined;
   let apiKey = config.apiKey;
+  if (override.model && override.provider === YORK_LLM_PROVIDER) {
+    const route = yorkLlmSelectionPayload(override.model);
+    provider = route.provider;
+    customProtocol = route.customProtocol;
+    baseUrl = route.baseUrl;
+    apiKey = route.apiKey;
+  } else if (override.model && isBackendManagedProvider(override.provider)) {
+    const route = applyBackendManagedCredentials({
+      provider: override.provider,
+      apiKey: BACKEND_PROXY_PLACEHOLDER_KEY,
+      baseUrl: undefined as string | undefined,
+    });
+    provider = override.provider as ProviderType;
+    customProtocol =
+      override.provider === 'gemini'
+        ? 'gemini'
+        : override.provider === 'openai' || override.provider === 'openrouter'
+          ? 'openai'
+          : 'anthropic';
+    baseUrl = route.baseUrl;
+    apiKey = route.apiKey;
+  }
   const yorkLlmApiKey = resolveYorkLlmApiKey();
   if (isYorkLlmBaseUrl(baseUrl) && yorkLlmApiKey) {
     apiKey = yorkLlmApiKey;
@@ -408,7 +436,7 @@ export interface RunChildAgentSessionInput {
   includeReadOnlyTools?: boolean;
   /** Role preset instructions appended to the child system prompt. */
   rolePrompt?: string;
-  /** Model id for the inherit route instead of the parent model. */
+  /** Inherit-route model instead of the parent: bare id or `provider::modelId`. */
   modelOverride?: string;
   /** Overrides MAX_CONCURRENT_CHILD_AGENTS. */
   maxConcurrent?: number;

@@ -210,8 +210,67 @@ export function messagesToTranscript(messages: Message[]): MemoryTranscriptTurn[
     .filter((item): item is MemoryTranscriptTurn => Boolean(item));
 }
 
-export function compactTranscript(turns: MemoryTranscriptTurn[]): string {
-  return turns.map((turn) => `${turn.role}: ${turn.content.trim()}`).join('\n');
+export const TRANSCRIPT_MAX_TURN_CHARS = 12_000;
+export const TRANSCRIPT_MAX_TOTAL_CHARS = 300_000;
+
+function truncateMiddle(text: string, maxChars: number): string {
+  if (text.length <= maxChars) {
+    return text;
+  }
+  const marker = `\n[... ${text.length - maxChars} chars omitted ...]\n`;
+  const keep = Math.max(0, maxChars - marker.length);
+  const head = Math.ceil(keep * 0.7);
+  return `${text.slice(0, head)}${marker}${text.slice(text.length - (keep - head))}`;
+}
+
+/**
+ * Turn labels are 1-based and stay aligned with the original `turns` index even when
+ * middle turns are dropped, because extractors resolve `source_turns` against them.
+ */
+export function compactTranscript(
+  turns: MemoryTranscriptTurn[],
+  options: { maxTurnChars?: number; maxTotalChars?: number } = {}
+): string {
+  const maxTurnChars = options.maxTurnChars ?? TRANSCRIPT_MAX_TURN_CHARS;
+  const maxTotalChars = options.maxTotalChars ?? TRANSCRIPT_MAX_TOTAL_CHARS;
+
+  const lines = turns.map(
+    (turn, index) =>
+      `[${index + 1}] ${turn.role}: ${truncateMiddle(turn.content.trim(), maxTurnChars)}`
+  );
+
+  const total = lines.reduce((sum, line) => sum + line.length + 1, 0);
+  if (total <= maxTotalChars) {
+    return lines.join('\n');
+  }
+
+  const headBudget = Math.floor(maxTotalChars * 0.3);
+  const head: string[] = [];
+  let used = 0;
+  let headEnd = 0;
+  while (headEnd < lines.length && used + lines[headEnd].length + 1 <= headBudget) {
+    used += lines[headEnd].length + 1;
+    head.push(lines[headEnd]);
+    headEnd += 1;
+  }
+
+  const tail: string[] = [];
+  let tailStart = lines.length;
+  while (tailStart > headEnd && used + lines[tailStart - 1].length + 1 <= maxTotalChars) {
+    tailStart -= 1;
+    used += lines[tailStart].length + 1;
+    tail.unshift(lines[tailStart]);
+  }
+
+  const omitted = tailStart - headEnd;
+  if (omitted <= 0) {
+    return [...head, ...tail].join('\n');
+  }
+  return [
+    ...head,
+    `[... turns ${headEnd + 1}-${tailStart} omitted (${omitted} turns) ...]`,
+    ...tail,
+  ].join('\n');
 }
 
 export function summarizeText(text: string, maxLength = 220): string {
