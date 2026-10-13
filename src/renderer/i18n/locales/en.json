@@ -76,7 +76,9 @@
     "profile": "Profile",
     "profileDesc": "Account and AI instruction prompts",
     "general": "General",
-    "generalDesc": "Appearance, language & preferences"
+    "generalDesc": "Appearance, language & preferences",
+    "tips": "Tips",
+    "tipsDesc": "Quick walkthroughs of features you can use anywhere"
   },
   "profile": {
     "account": "Account",
@@ -1834,6 +1836,37 @@
     "title": "What's new in {{version}}",
     "subtitle": "Updates since {{fromVersion}}",
     "gotIt": "Got it"
+  },
+  "tips": {
+    "badge": "Tip",
+    "gotIt": "Got it",
+    "dismiss": "Dismiss tip",
+    "show": "Show",
+    "new": "New",
+    "unavailable": "Not available on this device",
+    "snapWiggle": {
+      "title": "Chat from anywhere on your desktop",
+      "summary": "Wiggle your mouse, select part of the screen, chat, and insert into any app.",
+      "body": "In any app, on any screen, shake your mouse, select part of the screen, and chat about it. Then insert the answer straight into any text field.",
+      "shortcut": "Or press {{shortcut}}",
+      "anywhere": "Works in any app",
+      "wiggleLabel": "Wiggle!",
+      "selectLabel": "Select an area",
+      "insertButton": "Insert",
+      "insertedLabel": "Inserted",
+      "scenes": {
+        "mail": "Reply…",
+        "browser": "Leave a comment…",
+        "chat": "Message #launch",
+        "notes": "Start typing…"
+      },
+      "instructions": {
+        "mail": "Draft a reply",
+        "browser": "Summarize this",
+        "chat": "Write an update",
+        "notes": "Turn into tasks"
+      }
+    }
   },
   "askGrowthOS": {
     "title": "Ask Growth OS",

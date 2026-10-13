@@ -22,6 +22,7 @@ import { SandboxSetupDialog } from './components/SandboxSetupDialog';
 import { SandboxSyncToast } from './components/SandboxSyncToast';
 import { GlobalNoticeToast } from './components/GlobalNoticeToast';
 import { WhatsNewModal } from './components/WhatsNewModal';
+import { TipsHost } from './components/tips';
 import { AskGrowthOSPopup } from './components/AskGrowthOSPopup';
 import { CommandPalette, useAppShortcuts } from './components/CommandPalette';
 import { InspectorTabs } from './components/inspector/InspectorTabs';
@@ -529,6 +530,9 @@ function AuthenticatedApp() {
 
       {/* What's New after upgrade */}
       {whatsNewPayload && <WhatsNewModal payload={whatsNewPayload} onDismiss={dismissWhatsNew} />}
+
+      {/* One-time first-launch tips */}
+      <TipsHost suppressed={!!whatsNewPayload || !!showSandboxSetup} />
 
       {/* Sandbox Sync Toast */}
       <SandboxSyncToast status={sandboxSyncStatus} />

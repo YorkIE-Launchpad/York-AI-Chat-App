@@ -10,6 +10,7 @@ import {
   RefreshCw,
   Radar,
   User,
+  Lightbulb,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useWindowSize } from '../hooks/useWindowSize';
@@ -22,6 +23,7 @@ import { SettingsLogs } from './settings/SettingsLogs';
 import { SettingsMemory } from './settings/SettingsMemory';
 import { SettingsMeetings } from './settings/SettingsMeetings';
 import { SettingsMatter } from './settings/SettingsMatter';
+import { SettingsTips } from './settings/SettingsTips';
 import { useUpdaterStatus } from '../hooks/useUpdaterStatus';
 import { ManualInstallerDownload } from './ManualInstallerDownload';
 import {
@@ -41,7 +43,8 @@ interface SettingsPanelProps {
     | 'schedule'
     | 'logs'
     | 'profile'
-    | 'general';
+    | 'general'
+    | 'tips';
 }
 
 type TabId =
@@ -53,7 +56,8 @@ type TabId =
   | 'schedule'
   | 'logs'
   | 'profile'
-  | 'general';
+  | 'general'
+  | 'tips';
 
 const VALID_TABS = new Set<TabId>([
   'connectors',
@@ -65,6 +69,7 @@ const VALID_TABS = new Set<TabId>([
   'logs',
   'profile',
   'general',
+  'tips',
 ]);
 
 export function SettingsPanel({ onClose, initialTab = 'connectors' }: SettingsPanelProps) {
@@ -153,6 +158,12 @@ export function SettingsPanel({ onClose, initialTab = 'connectors' }: SettingsPa
           label: t('settingsNav.preferences'),
           icon: SlidersHorizontal,
           description: t('settings.generalDesc'),
+        },
+        {
+          id: 'tips',
+          label: t('settings.tips'),
+          icon: Lightbulb,
+          description: t('settings.tipsDesc'),
         },
       ],
     },
@@ -442,6 +453,9 @@ export function SettingsPanel({ onClose, initialTab = 'connectors' }: SettingsPa
               </div>
               <div className={activeTab === 'general' ? '' : 'hidden'}>
                 {viewedTabs.has('general') && <SettingsGeneral />}
+              </div>
+              <div className={activeTab === 'tips' ? '' : 'hidden'}>
+                {viewedTabs.has('tips') && <SettingsTips />}
               </div>
             </div>
           </div>
