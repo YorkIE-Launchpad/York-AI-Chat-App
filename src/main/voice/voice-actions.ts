@@ -11,8 +11,9 @@ import { systemPreferences } from 'electron';
 import type { VoiceActionName, VoiceActionResult } from '../../shared/voice-control';
 import { defaultRunOsascript, type RunOsascript } from '../snap/front-app';
 import { pasteText as defaultPasteText, type PasteResult } from '../snap/paste-into-app';
-import { voiceWrite, type VoiceScreenDeps } from './screen-context';
+import { voiceLookAtScreen, voiceWrite, type VoiceScreenDeps } from './screen-context';
 import { doOnScreen } from './screen-agent';
+import { runAssistantAction, type VoiceAssistantDeps } from './voice-assistant';
 import { describeVoiceModel, switchVoiceModel, type VoiceModelDeps } from './voice-model';
 
 const OPEN_PATH = '/usr/bin/open';
@@ -26,6 +27,7 @@ export interface VoiceActionDeps {
   /** Vision-backed `do_on_screen` / `write`; those tools fail politely when absent. */
   screen?: VoiceScreenDeps;
   models?: VoiceModelDeps;
+  assistant?: VoiceAssistantDeps;
 }
 
 type Modifier = 'command' | 'shift' | 'option' | 'control';
@@ -367,6 +369,16 @@ export async function runVoiceAction(
           ? await doOnScreen(args, screenDeps)
           : await voiceWrite(args, screenDeps);
       }
+
+      case 'look_at_screen':
+        if (!deps.screen) return { ok: false, message: 'Screen actions are unavailable.' };
+        return await voiceLookAtScreen(args, deps.screen);
+
+      case 'web_search':
+      case 'read_webpage':
+      case 'open_url':
+      case 'ask_growthos':
+        return await runAssistantAction(name, args, deps.assistant ?? {});
 
       case 'set_model':
       case 'get_model': {

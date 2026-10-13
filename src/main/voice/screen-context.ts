@@ -205,6 +205,40 @@ export function formatHistory(history: string[] | undefined): string {
   return history && history.length > 0 ? history.join('\n') : '(none)';
 }
 
+const LOOK_SYSTEM_PROMPT = [
+  "You are looking at the user's screen to answer their question.",
+  'Your answer is read aloud: reply in 1-3 short plain sentences, no markdown or lists.',
+  'Quote exact text (names, numbers, errors) when that is what they asked for.',
+  'If the answer is not visible, say so briefly.',
+].join(' ');
+
+export async function voiceLookAtScreen(
+  rawArgs: Record<string, unknown>,
+  deps: VoiceScreenDeps
+): Promise<VoiceActionResult> {
+  const question = str(rawArgs.question) || 'Describe what is on the screen.';
+  const screenGranted =
+    deps.isScreenGranted ?? (() => systemPreferences.getMediaAccessStatus('screen') === 'granted');
+  if (!screenGranted()) return { ok: false, message: SCREEN_PERMISSION_MESSAGE };
+
+  deps.onProgress?.('Looking at the screen…');
+  const shot = await (deps.capture ?? ((edge: number) => captureVoiceScreenshot(edge)))(
+    DRAFT_MAX_EDGE
+  );
+  const where = shot.target ? `\n\nThe frontmost app is ${shot.target.name}.` : '';
+  const history = deps.getHistory?.() ?? [];
+  const context =
+    history.length > 0
+      ? `\n\nEarlier in this voice session (use it to resolve references):\n${formatHistory(history)}`
+      : '';
+  const answer = (
+    await deps.ask(`${question}${where}${context}`, LOOK_SYSTEM_PROMPT, shot.image, 400)
+  ).trim();
+  return answer
+    ? { ok: true, message: answer }
+    : { ok: false, message: 'Could not read the screen.' };
+}
+
 const DRAFT_PREVIEW_CHARS = 160;
 
 export async function voiceWrite(

@@ -84,6 +84,11 @@ describe('createVoiceSession', () => {
     });
     expect(session.tools.map((tool) => tool.name)).toEqual([
       'do_on_screen',
+      'look_at_screen',
+      'web_search',
+      'read_webpage',
+      'open_url',
+      'ask_growthos',
       'scroll',
       'switch_tab',
       'open_app',

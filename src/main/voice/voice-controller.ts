@@ -28,6 +28,7 @@ import { log, logError, logWarn } from '../utils/logger';
 import type { GlobalShortcutLike } from '../snap/screen-snap';
 import { runVoiceAction } from './voice-actions';
 import type { VoiceScreenDeps } from './screen-context';
+import type { VoiceAssistantDeps } from './voice-assistant';
 import type { VoiceModelDeps } from './voice-model';
 import { createVoiceSession } from './voice-session-service';
 
@@ -68,6 +69,9 @@ export interface VoiceControllerOptions {
   screen?: VoiceScreenDeps;
   /** Backs the `set_model` / `get_model` tools. */
   models?: VoiceModelDeps;
+  /** Backs web search, page reading, opening links, and `ask_growthos`. */
+  assistant?: VoiceAssistantDeps;
+  onSessionStart?: () => void;
   onSessionActiveChanged?: (active: boolean) => void;
   onHotkeyChanged?: (hotkey: string | null) => void;
 }
@@ -109,6 +113,7 @@ export class VoiceController {
     if (this.isSessionActive) return;
     this.source = source;
     this.history = [];
+    this.options.onSessionStart?.();
     log('[Voice] Starting session from', source);
     this.openOverlay();
   }
@@ -242,6 +247,10 @@ export class VoiceController {
           onDraft: (update) => this.showDraft(update),
         },
         models: this.options.models,
+        assistant: this.options.assistant && {
+          ...this.options.assistant,
+          onProgress: (text) => this.sendToOverlay('voice:progress', text),
+        },
       });
       this.noteHistory(`Action ${name}${describeArgs(args)} -> ${result.message}`);
       return result;

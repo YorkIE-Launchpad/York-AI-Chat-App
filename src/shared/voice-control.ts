@@ -80,6 +80,11 @@ export type VoiceActionName =
   | 'press_keys'
   | 'type_text'
   | 'do_on_screen'
+  | 'look_at_screen'
+  | 'web_search'
+  | 'read_webpage'
+  | 'open_url'
+  | 'ask_growthos'
   | 'write'
   | 'set_model'
   | 'get_model'
@@ -135,6 +140,18 @@ export const VOICE_SYSTEM_PROMPT = [
   'press_keys when they name keys; open_app / focus_app to open or switch apps by name.',
   'Changing a project, workspace, channel, folder, filter, or view is do_on_screen, never switch_tab.',
   '',
+  'Questions and research: look_at_screen answers questions about what is visible ("what does',
+  'this error say", "summarize this page", "who sent that"). web_search for public facts, news,',
+  'prices, weather, docs; read_webpage to read a specific URL from the results. open_url opens a',
+  'website in the browser ("open github.com", "pull up that link").',
+  'ask_growthos runs a full GrowthOS agent with all company tools: York Hub (people, leave,',
+  'projects, timesheets), Slack, Gmail, Google Calendar and Drive, Jira, Confluence, Launchpad,',
+  'meetings, files, and skills. Use it for work data and multi-step tasks ("who is on leave',
+  'today", "what is on my calendar", "summarize unread Slack", "create a Jira ticket for this").',
+  'Give it a complete task with references resolved. It can take a while: before calling it say',
+  '"On it." Then speak the answer it returns briefly, in your own words.',
+  'For answers from these tools, speak the gist in 1-3 short sentences; never read URLs aloud.',
+  '',
   'set_model switches the GrowthOS AI model ("use Opus", "switch to GPT", "back to auto");',
   'if it lists several options, ask which one. get_model says which model is in use.',
   '',
@@ -173,6 +190,75 @@ export const VOICE_TOOLS = [
         confirmed: CONFIRMED_PROPERTY,
       },
       required: ['goal'],
+    },
+  },
+  {
+    type: 'function',
+    name: 'look_at_screen',
+    description:
+      'Answer a question about what is currently on screen (read text, summarize a page, explain an error). Does not click.',
+    parameters: {
+      type: 'object',
+      properties: {
+        question: {
+          type: 'string',
+          description: 'The question, self-contained, e.g. "What does the error dialog say?".',
+        },
+      },
+      required: ['question'],
+    },
+  },
+  {
+    type: 'function',
+    name: 'web_search',
+    description:
+      'Search the public web. Returns titles, snippets, and URLs. Use for facts, news, prices, weather, docs.',
+    parameters: {
+      type: 'object',
+      properties: { query: { type: 'string' } },
+      required: ['query'],
+    },
+  },
+  {
+    type: 'function',
+    name: 'read_webpage',
+    description: 'Fetch a web page and return its text, e.g. a result from web_search.',
+    parameters: {
+      type: 'object',
+      properties: { url: { type: 'string' } },
+      required: ['url'],
+    },
+  },
+  {
+    type: 'function',
+    name: 'open_url',
+    description: 'Open a website or link in the default browser.',
+    parameters: {
+      type: 'object',
+      properties: {
+        url: { type: 'string', description: 'Full URL or domain, e.g. "github.com/york-ie".' },
+      },
+      required: ['url'],
+    },
+  },
+  {
+    type: 'function',
+    name: 'ask_growthos',
+    description:
+      'Hand a task to the full GrowthOS agent, which has every company tool: York Hub, Slack, Gmail, ' +
+      'Google Calendar and Drive, Jira, Confluence, Launchpad, meetings, files, skills, and web research. ' +
+      'Use for work questions and multi-step tasks. Returns its answer; may take up to a couple of minutes. ' +
+      'The conversation is saved as a GrowthOS chat.',
+    parameters: {
+      type: 'object',
+      properties: {
+        task: {
+          type: 'string',
+          description:
+            'Complete, self-contained request with references resolved, e.g. "Who in the Hub Revamp project is on leave this week?".',
+        },
+      },
+      required: ['task'],
     },
   },
   {

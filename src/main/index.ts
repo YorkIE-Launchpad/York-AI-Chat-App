@@ -86,6 +86,7 @@ import { createRealtimeTranslationSession } from './dictation/dictation-service'
 import { ScreenSnapController, SNAP_WRITE_SYSTEM_PROMPT } from './snap/screen-snap';
 import { SCREEN_PERMISSION_RELAUNCH_FLAG } from './snap/screen-permission';
 import { DEFAULT_SCREEN_SNAP_WIGGLE } from '../shared/screen-snap';
+import { VoiceAgentBridge } from './voice/voice-assistant';
 import { VoiceController } from './voice/voice-controller';
 import {
   consumeLaunchVoiceDeepLinkArgv,
@@ -105,7 +106,9 @@ import { createRealtimeTranscriptionSession } from './meetings/meeting-realtime-
 import { ConfigExtension } from './config/config-extension';
 import { SubagentExtension } from './agent/subagent-extension';
 import { AgentRuntimeExtensionManager } from './extensions/agent-runtime-extension-manager';
+import { fetchWebPage } from './tools/web-fetch';
 import { WebFetchExtension } from './tools/web-fetch-extension';
+import { searchWeb } from './tools/web-search';
 import { WebSearchExtension } from './tools/web-search-extension';
 import { AskUserQuestionExtension } from './tools/ask-user-question-extension';
 import { WikiService } from './wiki/wiki-service';
@@ -385,6 +388,33 @@ app.disableHardwareAcceleration();
 
 let mainWindow: BrowserWindow | null = null;
 let sessionManager: SessionManager | null = null;
+const voiceAgentBridge = new VoiceAgentBridge({
+  startSession: async (title, prompt) => {
+    if (!sessionManager) throw new Error('GrowthOS is still starting.');
+    const session = await sessionManager.startSession(title, prompt);
+    sendToRenderer({
+      type: 'session.update',
+      payload: { sessionId: session.id, updates: session },
+    });
+    return session;
+  },
+  continueSession: async (sessionId, prompt) => {
+    if (!sessionManager) throw new Error('GrowthOS is still starting.');
+    await sessionManager.continueSession(sessionId, prompt, undefined, {
+      broadcastUserMessage: true,
+    });
+  },
+  hasSession: (sessionId) => sessionManager?.hasSession(sessionId) ?? false,
+  showSession: (sessionId) => {
+    const session = sessionManager?.getSession(sessionId);
+    if (!session) return;
+    focusMainWindow();
+    mainWindow?.webContents.send('server-event', {
+      type: 'liveAssist.sessionStarted',
+      payload: { sessionId, session },
+    });
+  },
+});
 let collabSyncService: CollabSyncService | null = null;
 let sharedDocLockService: SharedDocLockService | null = null;
 let skillsManager: SkillsManager | null = null;
@@ -1000,6 +1030,13 @@ const voiceController = new VoiceController({
       await syncConfigAfterMutation(previousConfig);
     },
   },
+  assistant: {
+    searchWeb,
+    fetchPage: fetchWebPage,
+    openUrl: (url) => shell.openExternal(url),
+    askAgent: voiceAgentBridge.ask,
+  },
+  onSessionStart: () => voiceAgentBridge.reset(),
   onSessionActiveChanged: () => {
     buildMacMenu();
     refreshTrayMenu();
@@ -1827,6 +1864,7 @@ let eventSender: ((event: ServerEvent) => void) | null = null;
 
 // Send events to the renderer (including remote session interception)
 function sendToRenderer(event: ServerEvent) {
+  voiceAgentBridge.handleEvent(event);
   const payload =
     'payload' in event
       ? (event.payload as { sessionId?: string; [key: string]: unknown })
