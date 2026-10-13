@@ -67,6 +67,7 @@ import {
 } from '../utils/active-turn';
 import { isImageExtension } from '../utils/attachment-preview';
 import { loadComposerImageFromPath } from '../utils/load-composer-image';
+import { handleComposerTextKeyDown } from '../utils/composer-text-editing';
 import { useDictation } from '../hooks/useDictation';
 import { DictationButton } from './DictationButton';
 import { ClientOutdatedUpdateActions } from './ClientOutdatedUpdateActions';
@@ -1144,6 +1145,13 @@ export function ChatView() {
                       closeSlashMenu();
                       return;
                     }
+                  }
+                  if (
+                    !e.nativeEvent.isComposing &&
+                    !isComposingRef.current &&
+                    handleComposerTextKeyDown(e, e.currentTarget)
+                  ) {
+                    return;
                   }
                   // Enter to send, Shift+Enter for new line
                   if (e.key === 'Enter' && !e.shiftKey) {

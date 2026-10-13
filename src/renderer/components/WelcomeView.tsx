@@ -50,6 +50,7 @@ import type { ExternalReferenceContent } from '../../shared/external-reference';
 import { parseExternalReferenceUrl } from '../../shared/external-reference-urls';
 import { ChatLoopPanel } from './ChatLoopPanel';
 import { isImageExtension } from '../utils/attachment-preview';
+import { handleComposerTextKeyDown } from '../utils/composer-text-editing';
 import {
   isBrowserFileImage,
   loadComposerImageFromPath,
@@ -1101,6 +1102,13 @@ export function WelcomeView() {
               closeSlashMenu();
               return;
             }
+          }
+          if (
+            !e.nativeEvent.isComposing &&
+            !isComposingRef.current &&
+            handleComposerTextKeyDown(e, e.currentTarget)
+          ) {
+            return;
           }
           // Enter to send, Shift+Enter for new line
           if (e.key === 'Enter' && !e.shiftKey) {
