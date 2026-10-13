@@ -976,6 +976,30 @@ const voiceController = new VoiceController({
   getConfig: getVoiceControlConfig,
   persistHotkey: (hotkey) => updateVoiceControlConfig({ hotkey }),
   loadOverlay: (win) => loadRendererHash(win, 'voice'),
+  screen: {
+    ask: async (prompt, systemPrompt, image, maxTokens, onDelta) => {
+      if (!configStore.hasUsableCredentialsForActiveSet()) {
+        throw new Error('No model is configured. Open GrowthOS and choose a model first.');
+      }
+      const result = await runPiAiStream(prompt, systemPrompt, configStore.getAll(), {
+        images: [{ data: image.base64, mimeType: image.mediaType }],
+        maxTokens,
+        onDelta,
+        usageFeature: 'voice_screen',
+        usageSessionId: 'voice_control',
+      });
+      return result.text;
+    },
+  },
+  models: {
+    listModels: () => fetchBackendModels({ usable: true }),
+    getConfig: () => configStore.getAll(),
+    saveConfig: async (partial) => {
+      const previousConfig = configStore.getAll();
+      configStore.update(partial);
+      await syncConfigAfterMutation(previousConfig);
+    },
+  },
   onSessionActiveChanged: () => {
     buildMacMenu();
     refreshTrayMenu();

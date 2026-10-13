@@ -11,6 +11,9 @@ import { systemPreferences } from 'electron';
 import type { VoiceActionName, VoiceActionResult } from '../../shared/voice-control';
 import { defaultRunOsascript, type RunOsascript } from '../snap/front-app';
 import { pasteText as defaultPasteText, type PasteResult } from '../snap/paste-into-app';
+import { voiceWrite, type VoiceScreenDeps } from './screen-context';
+import { doOnScreen } from './screen-agent';
+import { describeVoiceModel, switchVoiceModel, type VoiceModelDeps } from './voice-model';
 
 const OPEN_PATH = '/usr/bin/open';
 
@@ -20,6 +23,9 @@ export interface VoiceActionDeps {
   listApps?: () => string[];
   pasteText?: (text: string) => Promise<PasteResult>;
   isTrusted?: (prompt: boolean) => boolean;
+  /** Vision-backed `do_on_screen` / `write`; those tools fail politely when absent. */
+  screen?: VoiceScreenDeps;
+  models?: VoiceModelDeps;
 }
 
 type Modifier = 'command' | 'shift' | 'option' | 'control';
@@ -334,6 +340,40 @@ export async function runVoiceAction(
           if (blocked) return blocked;
         }
         return { ok: true, message: submit ? 'Typed and sent.' : 'Typed.' };
+      }
+
+      case 'do_on_screen':
+      case 'write': {
+        if (!deps.screen) return { ok: false, message: 'Screen actions are unavailable.' };
+        const screenDeps: VoiceScreenDeps = {
+          pasteText: deps.pasteText,
+          isTrusted: deps.isTrusted,
+          pressKeys: async (keys) => {
+            const chord = parseKeyChord(keys);
+            if (!chord) throw new Error(`Could not understand the keys "${keys}".`);
+            await run(chordToOsascriptArgs(chord));
+          },
+          isDangerousKeys: (keys) => {
+            const chord = parseKeyChord(keys);
+            // A plain Enter is left to the model's judgement (searching vs sending).
+            if (!chord || (chord.keyCode === KEY_CODES.return && chord.modifiers.length === 0)) {
+              return false;
+            }
+            return chordNeedsConfirmation(chord);
+          },
+          ...deps.screen,
+        };
+        return name === 'do_on_screen'
+          ? await doOnScreen(args, screenDeps)
+          : await voiceWrite(args, screenDeps);
+      }
+
+      case 'set_model':
+      case 'get_model': {
+        if (!deps.models) return { ok: false, message: 'Model switching is unavailable.' };
+        return name === 'set_model'
+          ? await switchVoiceModel(args.name, deps.models)
+          : await describeVoiceModel(deps.models);
       }
 
       case 'stop_listening':

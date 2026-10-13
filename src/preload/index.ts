@@ -66,6 +66,7 @@ import type {
 import type {
   VoiceActionResult,
   VoiceControlConfig,
+  VoiceDraftUpdate,
   VoiceOverlayInit,
   VoiceSessionCredentials,
 } from '../shared/voice-control';
@@ -1312,6 +1313,22 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getConfig: (): Promise<VoiceControlConfig> => ipcRenderer.invoke('voice.getConfig'),
     updateConfig: (partial: Partial<VoiceControlConfig>): Promise<VoiceControlConfig> =>
       ipcRenderer.invoke('voice.updateConfig', partial),
+    onDraft: (callback: (update: VoiceDraftUpdate) => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, update: VoiceDraftUpdate) =>
+        callback(update);
+      ipcRenderer.on('voice:draft', listener);
+      return () => ipcRenderer.removeListener('voice:draft', listener);
+    },
+    copyDraft: (text: string): Promise<{ success: boolean }> =>
+      ipcRenderer.invoke('voice.copyDraft', text),
+    dismissDraft: (): Promise<{ success: boolean }> => ipcRenderer.invoke('voice.dismissDraft'),
+    noteTurn: (role: 'user' | 'assistant', text: string): Promise<{ success: boolean }> =>
+      ipcRenderer.invoke('voice.noteTurn', role, text),
+    onProgress: (callback: (text: string) => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, text: string) => callback(text);
+      ipcRenderer.on('voice:progress', listener);
+      return () => ipcRenderer.removeListener('voice:progress', listener);
+    },
   },
 
   permissions: {
@@ -2153,6 +2170,11 @@ declare global {
         addSiriShortcut: () => Promise<{ success: boolean; error?: string }>;
         getConfig: () => Promise<VoiceControlConfig>;
         updateConfig: (partial: Partial<VoiceControlConfig>) => Promise<VoiceControlConfig>;
+        onDraft: (callback: (update: VoiceDraftUpdate) => void) => () => void;
+        copyDraft: (text: string) => Promise<{ success: boolean }>;
+        dismissDraft: () => Promise<{ success: boolean }>;
+        noteTurn: (role: 'user' | 'assistant', text: string) => Promise<{ success: boolean }>;
+        onProgress: (callback: (text: string) => void) => () => void;
       };
       permissions: {
         listSessionAlwaysAllow: (sessionId: string) => Promise<string[]>;

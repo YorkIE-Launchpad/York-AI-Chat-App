@@ -248,7 +248,10 @@ export class VoiceRealtimeSession {
       }
       case 'conversation.item.input_audio_transcription.completed':
         if (event.item_id) this.userTranscript.delete(event.item_id);
-        if (event.transcript) this.callbacks.onUserTranscript(event.transcript.trim());
+        if (event.transcript?.trim()) {
+          this.callbacks.onUserTranscript(event.transcript.trim());
+          void window.electronAPI.voice.noteTurn('user', event.transcript.trim());
+        }
         break;
       case 'response.created':
         this.responseInFlight = true;
@@ -317,6 +320,9 @@ export class VoiceRealtimeSession {
   }
 
   private async finishResponse(): Promise<void> {
+    if (this.assistantText.trim()) {
+      void window.electronAPI.voice.noteTurn('assistant', this.assistantText.trim());
+    }
     const calls = this.pendingCalls;
     this.pendingCalls = [];
     await Promise.allSettled(calls);

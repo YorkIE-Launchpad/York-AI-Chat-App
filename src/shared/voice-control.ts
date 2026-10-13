@@ -79,7 +79,20 @@ export type VoiceActionName =
   | 'focus_app'
   | 'press_keys'
   | 'type_text'
+  | 'do_on_screen'
+  | 'write'
+  | 'set_model'
+  | 'get_model'
   | 'stop_listening';
+
+/** Live state of a `write` draft, shown as a card in the voice overlay. */
+export interface VoiceDraftUpdate {
+  phase: 'drafting' | 'pasted' | 'failed';
+  instruction: string;
+  text: string;
+  /** Shown under the draft, e.g. why pasting failed. */
+  note?: string;
+}
 
 export interface VoiceActionResult {
   ok: boolean;
@@ -99,13 +112,36 @@ export interface VoiceOverlayInit {
 }
 
 export const VOICE_SYSTEM_PROMPT = [
-  "You control the user's Mac by voice. The user speaks short commands like",
-  '"scroll down", "next tab", "open Slack", "type hello team".',
-  'Prefer exactly one tool call per command and act immediately; do not ask clarifying',
-  'questions unless the command is truly ambiguous.',
-  'After acting, confirm in under 5 words (for example "Done." or "Opening Slack.").',
-  'If a tool result says it needs confirmation, ask the user to say "confirm",',
-  'and only retry with confirmed=true after they clearly confirm.',
+  "You control the user's Mac by voice. Work out what the user wants from their words and",
+  'the conversation so far, then call the right tool right away. Users rarely name the tool:',
+  'they will not say "click" or "write", so decide from intent.',
+  '',
+  'do_on_screen sees the screen and can click, pick from dropdowns and menus, fill search',
+  'boxes and fields, select items, toggle settings, and open links in several steps. Use it',
+  'for anything about something visible: "change the project to Hub", "pick last week",',
+  '"search for invoices", "open the second result", "go to settings", "select all unread",',
+  '"turn on dark mode", "that one". When unsure which tool fits, use do_on_screen.',
+  'Give do_on_screen a complete, self-contained goal: resolve "this", "that", "it", "the',
+  'other one" from earlier turns (for example "In the project dropdown, select Hub Revamp").',
+  '',
+  'write drafts text from what is on screen and pastes it into the focused box: replies,',
+  'messages, emails, comments ("reply saying I can make it", "tell him thanks", "draft a',
+  'polite no"). If the box is not focused, first call do_on_screen to focus it. Never send',
+  'after writing unless asked. The draft is shown on screen, so do not read it aloud; say "Drafted."',
+  'type_text is only for dictating exact words the user spells out ("type: see you at 5").',
+  '',
+  'Keyboard tools are only for explicit generic commands: scroll for "scroll down/up";',
+  'switch_tab only when the user literally says next tab, previous tab, or tab number N;',
+  'press_keys when they name keys; open_app / focus_app to open or switch apps by name.',
+  'Changing a project, workspace, channel, folder, filter, or view is do_on_screen, never switch_tab.',
+  '',
+  'set_model switches the GrowthOS AI model ("use Opus", "switch to GPT", "back to auto");',
+  'if it lists several options, ask which one. get_model says which model is in use.',
+  '',
+  'Ask a clarifying question only when the request is truly ambiguous even with context.',
+  'After acting, confirm in under 6 words (for example "Done." or "Switched to Hub.").',
+  'If a tool fails, say why in one short sentence. If a result needs confirmation, ask the',
+  'user to say "confirm" and only retry with confirmed=true after they clearly confirm.',
   'When the user says "stop", "that\'s all", "never mind" or thanks you, call stop_listening.',
   'Speak English and keep every reply very short.',
 ].join(' ');
@@ -119,8 +155,31 @@ const CONFIRMED_PROPERTY = {
 export const VOICE_TOOLS = [
   {
     type: 'function',
+    name: 'do_on_screen',
+    description:
+      'Default tool for anything involving the visible screen. It looks at the screen and takes as many steps as needed: ' +
+      'clicking buttons and links, opening dropdowns and picking options, choosing from menus, typing into search boxes or fields, ' +
+      'selecting list items, toggling settings, scrolling a specific pane. Sending, deleting, or submitting needs confirmation.',
+    parameters: {
+      type: 'object',
+      properties: {
+        goal: {
+          type: 'string',
+          description:
+            'The complete outcome to reach, self-contained with references resolved from the conversation, e.g. ' +
+            '"In the project dropdown, select Hub Revamp", "Search for invoices in the search bar and press enter", ' +
+            '"Open the second search result".',
+        },
+        confirmed: CONFIRMED_PROPERTY,
+      },
+      required: ['goal'],
+    },
+  },
+  {
+    type: 'function',
     name: 'scroll',
-    description: 'Scroll the frontmost window.',
+    description:
+      'Scroll the frontmost window when the user simply says scroll up/down/to top/to bottom.',
     parameters: {
       type: 'object',
       properties: {
@@ -137,7 +196,9 @@ export const VOICE_TOOLS = [
   {
     type: 'function',
     name: 'switch_tab',
-    description: 'Switch tabs in the frontmost app (browser, editor, terminal).',
+    description:
+      'Keyboard tab switch (Ctrl+Tab) in a browser or editor. Only when the user literally says "next tab", ' +
+      '"previous tab", or "tab 3". Not for projects, workspaces, channels, filters, or in-page tabs; use do_on_screen.',
     parameters: {
       type: 'object',
       properties: {
@@ -202,6 +263,43 @@ export const VOICE_TOOLS = [
       },
       required: ['text'],
     },
+  },
+  {
+    type: 'function',
+    name: 'write',
+    description:
+      'Look at the screen (the conversation, email, or page the user is on), draft text following the instruction, ' +
+      'and paste it into the focused text box. Does not send.',
+    parameters: {
+      type: 'object',
+      properties: {
+        instruction: {
+          type: 'string',
+          description:
+            'What to write, in the user\'s words plus any tone or length, e.g. "reply that I can join at 5, friendly".',
+        },
+      },
+      required: ['instruction'],
+    },
+  },
+  {
+    type: 'function',
+    name: 'set_model',
+    description:
+      'Switch the AI model GrowthOS uses for chats and for drafting, e.g. "Opus", "GPT 5", "Gemini Flash", or "auto".',
+    parameters: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'The model name as the user said it.' },
+      },
+      required: ['name'],
+    },
+  },
+  {
+    type: 'function',
+    name: 'get_model',
+    description: 'Say which AI model GrowthOS is currently using and which ones are available.',
+    parameters: { type: 'object', properties: {} },
   },
   {
     type: 'function',

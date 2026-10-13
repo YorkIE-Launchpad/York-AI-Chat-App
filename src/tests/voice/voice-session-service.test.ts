@@ -83,12 +83,16 @@ describe('createVoiceSession', () => {
       create_response: true,
     });
     expect(session.tools.map((tool) => tool.name)).toEqual([
+      'do_on_screen',
       'scroll',
       'switch_tab',
       'open_app',
       'focus_app',
       'press_keys',
       'type_text',
+      'write',
+      'set_model',
+      'get_model',
       'stop_listening',
     ]);
     expect(session.instructions).toMatch(/control the user's Mac/);

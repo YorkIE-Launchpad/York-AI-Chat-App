@@ -5,6 +5,7 @@
  */
 import {
   BrowserWindow,
+  clipboard,
   globalShortcut as electronGlobalShortcut,
   ipcMain,
   screen,
@@ -17,6 +18,7 @@ import {
 import type {
   VoiceActionResult,
   VoiceControlConfig,
+  VoiceDraftUpdate,
   VoiceDeepLinkAction,
   VoiceOverlayInit,
   VoiceSessionCredentials,
@@ -25,10 +27,27 @@ import type {
 import { log, logError, logWarn } from '../utils/logger';
 import type { GlobalShortcutLike } from '../snap/screen-snap';
 import { runVoiceAction } from './voice-actions';
+import type { VoiceScreenDeps } from './screen-context';
+import type { VoiceModelDeps } from './voice-model';
 import { createVoiceSession } from './voice-session-service';
 
 const OVERLAY_WIDTH = 380;
 const OVERLAY_HEIGHT = 132;
+/** Room for the draft card under the pill. */
+const OVERLAY_DRAFT_HEIGHT = 380;
+const HISTORY_MAX = 16;
+const HISTORY_LINE_MAX = 300;
+
+function describeArgs(args: unknown): string {
+  if (!args || typeof args !== 'object') return '';
+  const values = Object.entries(args as Record<string, unknown>)
+    .filter(
+      ([key, value]) =>
+        key !== 'confirmed' && (typeof value === 'string' || typeof value === 'number')
+    )
+    .map(([, value]) => String(value));
+  return values.length > 0 ? ` (${values.join(', ')})` : '';
+}
 const OVERLAY_TOP_MARGIN = 12;
 /** Close the overlay ourselves if the renderer never acknowledges a stop. */
 const STOP_FALLBACK_MS = 1500;
@@ -45,6 +64,10 @@ export interface VoiceControllerOptions {
   globalShortcut?: GlobalShortcutLike;
   createSession?: () => Promise<VoiceSessionCredentials>;
   runAction?: (name: string, args: unknown) => Promise<VoiceActionResult>;
+  /** Vision call for the screen-aware `click` / `write` tools. */
+  screen?: VoiceScreenDeps;
+  /** Backs the `set_model` / `get_model` tools. */
+  models?: VoiceModelDeps;
   onSessionActiveChanged?: (active: boolean) => void;
   onHotkeyChanged?: (hotkey: string | null) => void;
 }
@@ -55,6 +78,8 @@ export class VoiceController {
   private activeHotkey: string | null = null;
   private escapeRegistered = false;
   private stopTimer: NodeJS.Timeout | null = null;
+  /** This session's spoken turns and action results, oldest first. */
+  private history: string[] = [];
   private readonly platform: NodeJS.Platform;
   private readonly globalShortcut: GlobalShortcutLike;
 
@@ -83,6 +108,7 @@ export class VoiceController {
     }
     if (this.isSessionActive) return;
     this.source = source;
+    this.history = [];
     log('[Voice] Starting session from', source);
     this.openOverlay();
   }
@@ -176,6 +202,20 @@ export class VoiceController {
     ipcMain.handle('voice.setHotkey', (_event, hotkey: unknown) =>
       this.setHotkey(typeof hotkey === 'string' ? hotkey : null)
     );
+    ipcMain.handle('voice.noteTurn', (_event, role: unknown, text: unknown) => {
+      if ((role === 'user' || role === 'assistant') && typeof text === 'string') {
+        this.noteHistory(`${role === 'user' ? 'User' : 'Assistant'}: ${text}`);
+      }
+      return { success: true };
+    });
+    ipcMain.handle('voice.copyDraft', (_event, text: unknown) => {
+      if (typeof text === 'string' && text) clipboard.writeText(text);
+      return { success: true };
+    });
+    ipcMain.handle('voice.dismissDraft', () => {
+      this.setOverlayHeight(OVERLAY_HEIGHT);
+      return { success: true };
+    });
     ipcMain.handle('voice.openMicrophoneSettings', async () => {
       await shell.openExternal(MICROPHONE_SETTINGS_URL);
       return { success: true };
@@ -192,10 +232,52 @@ export class VoiceController {
     // A synthesized Escape keystroke must reach the target app, not our close shortcut.
     this.setEscapeRegistered(false);
     try {
-      return await (this.options.runAction ?? runVoiceAction)(name, args);
+      if (this.options.runAction) return await this.options.runAction(name, args);
+      const screenDeps = this.options.screen;
+      const result = await runVoiceAction(name, args, {
+        screen: screenDeps && {
+          ...screenDeps,
+          getHistory: () => [...this.history],
+          onProgress: (text) => this.sendToOverlay('voice:progress', text),
+          onDraft: (update) => this.showDraft(update),
+        },
+        models: this.options.models,
+      });
+      this.noteHistory(`Action ${name}${describeArgs(args)} -> ${result.message}`);
+      return result;
     } finally {
       if (this.isSessionActive) this.setEscapeRegistered(true);
     }
+  }
+
+  private noteHistory(line: string): void {
+    const trimmed = line.replace(/\s+/g, ' ').trim().slice(0, HISTORY_LINE_MAX);
+    if (!trimmed) return;
+    this.history.push(trimmed);
+    if (this.history.length > HISTORY_MAX)
+      this.history.splice(0, this.history.length - HISTORY_MAX);
+  }
+
+  private sendToOverlay(channel: string, payload: unknown): void {
+    const win = this.overlay;
+    if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
+  }
+
+  private showDraft(update: VoiceDraftUpdate): void {
+    if (!this.isSessionActive) return;
+    this.setOverlayHeight(OVERLAY_DRAFT_HEIGHT);
+    this.sendToOverlay('voice:draft', update);
+  }
+
+  /** Grows downward from the pill's current position, clamped to its display. */
+  private setOverlayHeight(height: number): void {
+    const win = this.overlay;
+    if (!win || win.isDestroyed()) return;
+    const current = win.getBounds();
+    if (current.height === height) return;
+    const { workArea } = screen.getDisplayMatching(current);
+    const clamped = Math.min(height, workArea.y + workArea.height - current.y);
+    win.setBounds({ ...current, height: clamped });
   }
 
   private tryRegisterHotkey(accelerator: string): boolean {
@@ -277,6 +359,8 @@ export class VoiceController {
       visibleOnFullScreen: true,
       skipTransformProcessType: true,
     });
+    // Keeps the pill out of the screenshots `click` / `write` send to the model.
+    win.setContentProtection(true);
     win.once('ready-to-show', () => {
       if (!win.isDestroyed()) win.showInactive();
     });
