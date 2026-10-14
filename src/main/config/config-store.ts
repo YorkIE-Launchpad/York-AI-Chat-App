@@ -7,7 +7,7 @@
  * - electron-store backed config persistence (API keys, model presets, settings)
  * - Config set management: create, rename, delete, switch between config profiles
  * - API key validation and provider credential resolution
- * - Model preset definitions (Anthropic, OpenAI, Gemini, OpenRouter, Ollama)
+ * - Model preset definitions (Anthropic, OpenAI, Gemini, Ollama)
  *
  * Dependencies: electron-store, auth-utils, api-model-presets
  */
@@ -62,6 +62,7 @@ import {
   isBackendManagedProvider,
 } from '../../shared/backend-config';
 import {
+  LEGACY_PROVIDER_IDS,
   resolveYorkLlmApiKey,
   resolveYorkLlmBaseUrl,
   YORK_LLM_PROVIDER,
@@ -71,11 +72,10 @@ import { normalizeSubagentConfig, type SubagentConfig } from '../../shared/subag
 /**
  * Application configuration schema
  */
-export type ProviderType = 'openrouter' | 'anthropic' | 'custom' | 'openai' | 'gemini' | 'ollama';
+export type ProviderType = 'anthropic' | 'custom' | 'openai' | 'gemini' | 'ollama';
 export type CustomProtocolType = 'anthropic' | 'openai' | 'gemini';
 export type AppTheme = 'dark' | 'light' | 'system';
 export type ProviderProfileKey =
-  | 'openrouter'
   | 'anthropic'
   | 'openai'
   | 'gemini'
@@ -183,12 +183,6 @@ export interface AppConfig {
 
   // Dedicated memory runtime config
   memoryRuntime: MemoryRuntimeConfig;
-
-  /**
-   * User's OpenRouter API key (BYOK). Required for all OpenRouter traffic.
-   * Never export to plaintext config; never write via agent tools.
-   */
-  openRouterUserApiKey?: string;
 
   /**
    * TypeSafe API key for Jev (System One) decisions.
@@ -383,8 +377,7 @@ export const FIELD_VALIDATORS: Record<string, (v: unknown) => boolean> = {
   model: (v) => typeof v === 'string',
   autoModelPreference: (v) => v === 'eco' || v === 'balanced' || v === 'max',
   provider: (v) =>
-    typeof v === 'string' &&
-    ['openrouter', 'anthropic', 'custom', 'openai', 'gemini', 'ollama'].includes(v),
+    typeof v === 'string' && ['anthropic', 'custom', 'openai', 'gemini', 'ollama'].includes(v),
   contextWindow: isValidPositiveNumber,
   maxTokens: isValidPositiveNumber,
   profileDosPrompt: (v) => typeof v === 'string',
@@ -393,11 +386,6 @@ export const FIELD_VALIDATORS: Record<string, (v: unknown) => boolean> = {
 };
 
 const defaultProfiles: Record<ProviderProfileKey, ProviderProfile> = {
-  openrouter: {
-    apiKey: '',
-    baseUrl: 'https://openrouter.ai/api/v1',
-    model: 'openrouter/free',
-  },
   anthropic: {
     apiKey: '',
     baseUrl: 'https://api.anthropic.com',
@@ -475,7 +463,6 @@ const defaultConfig: AppConfig = {
   memoryEnabled: true,
   superContextMode: 'cold_intent',
   mcpWriteAccessEnabled: true,
-  openRouterUserApiKey: '',
   typesafeApiKey: '',
   jevEnabled: true,
   memoryRuntime: {
@@ -586,7 +573,6 @@ export async function getPiAiModelPresets(): Promise<typeof PROVIDER_PRESETS> {
 }
 
 const PROFILE_KEYS: ProviderProfileKey[] = [
-  'openrouter',
   'anthropic',
   'openai',
   'gemini',
@@ -599,7 +585,6 @@ const VALID_THEMES: AppTheme[] = ['dark', 'light', 'system'];
 
 function isProviderType(value: unknown): value is ProviderType {
   return (
-    value === 'openrouter' ||
     value === 'anthropic' ||
     value === 'custom' ||
     value === 'openai' ||
@@ -864,11 +849,6 @@ export class ConfigStore {
         profile.model = profile.model.slice('gemini/'.length);
       }
     }
-    // Fix openrouter baseUrl: /api → /api/v1
-    const orProfile = config.profiles?.openrouter;
-    if (orProfile?.baseUrl === 'https://openrouter.ai/api') {
-      orProfile.baseUrl = 'https://openrouter.ai/api/v1';
-    }
     // Fix York Gemini proxy baseUrl: /gemini → /gemini/v1beta (pi-ai omits apiVersion)
     const rewriteGeminiProxyBase = (url: string | undefined): string | undefined => {
       if (!url) return url;
@@ -888,14 +868,6 @@ export class ConfigStore {
     if (config.baseUrl) {
       const next = rewriteGeminiProxyBase(config.baseUrl);
       if (next) config.baseUrl = next;
-    }
-    // Fix openrouter model IDs: dashes → dots for claude models
-    // Registry uses "anthropic/claude-sonnet-4.5", old config had "anthropic/claude-sonnet-4-5"
-    if (orProfile?.model) {
-      orProfile.model = orProfile.model.replace(
-        /^(anthropic\/claude-(?:sonnet|opus|haiku)-\d+)-(\d+)/,
-        '$1.$2'
-      );
     }
     // Also fix the flat model field (legacy compat)
     if (config.model?.startsWith('gemini/')) {
@@ -924,10 +896,6 @@ export class ConfigStore {
       if (profile?.model) {
         profile.model = retireGeminiModel(profile.model) || profile.model;
       }
-    }
-    // Fix flat baseUrl for openrouter
-    if (config.baseUrl === 'https://openrouter.ai/api' && config.provider === 'openrouter') {
-      config.baseUrl = 'https://openrouter.ai/api/v1';
     }
   }
 
@@ -1029,10 +997,13 @@ export class ConfigStore {
         : derivedProfileKey;
 
     const profiles = this.cloneProfiles(raw.profiles);
+    const rawProviderRetired =
+      typeof raw.provider === 'string' && LEGACY_PROVIDER_IDS.has(raw.provider);
     const hasLegacyProjection =
-      typeof raw.apiKey === 'string' ||
-      typeof raw.baseUrl === 'string' ||
-      typeof raw.model === 'string';
+      !rawProviderRetired &&
+      (typeof raw.apiKey === 'string' ||
+        typeof raw.baseUrl === 'string' ||
+        typeof raw.model === 'string');
 
     if (shouldUseLegacyProjection && hasLegacyProjection) {
       profiles[derivedProfileKey] = this.normalizeProfile(derivedProfileKey, {
@@ -1357,10 +1328,6 @@ export class ConfigStore {
         defaultConfig.mcpWriteAccessEnabled
       ),
       memoryRuntime: normalizeMemoryRuntimeConfig(raw.memoryRuntime),
-      openRouterUserApiKey:
-        typeof raw.openRouterUserApiKey === 'string'
-          ? raw.openRouterUserApiKey
-          : defaultConfig.openRouterUserApiKey,
       typesafeApiKey:
         typeof raw.typesafeApiKey === 'string' ? raw.typesafeApiKey : defaultConfig.typesafeApiKey,
       jevEnabled: toBoolean(raw.jevEnabled, defaultConfig.jevEnabled),
@@ -1842,10 +1809,6 @@ export class ConfigStore {
         updates.memoryRuntime !== undefined
           ? normalizeMemoryRuntimeConfig(updates.memoryRuntime)
           : current.memoryRuntime,
-      openRouterUserApiKey:
-        updates.openRouterUserApiKey !== undefined
-          ? updates.openRouterUserApiKey
-          : current.openRouterUserApiKey,
       typesafeApiKey:
         updates.typesafeApiKey !== undefined ? updates.typesafeApiKey : current.typesafeApiKey,
       jevEnabled: updates.jevEnabled !== undefined ? updates.jevEnabled : current.jevEnabled,
@@ -1935,12 +1898,8 @@ export class ConfigStore {
     apiKey?: string;
     baseUrl?: string;
     model?: string;
-    openRouterUserApiKey?: string;
   }): boolean {
     if (isBackendManagedProvider(projection.provider)) {
-      if (projection.provider === 'openrouter') {
-        return Boolean(projection.openRouterUserApiKey?.trim() && projection.model?.trim());
-      }
       return Boolean(projection.model?.trim());
     }
     if (projection.provider === 'ollama' && !projection.model?.trim()) {
@@ -2013,7 +1972,6 @@ export class ConfigStore {
       apiKey: normalized.apiKey,
       baseUrl: normalized.baseUrl,
       model: normalized.model,
-      openRouterUserApiKey: normalized.openRouterUserApiKey,
     });
   }
 
@@ -2027,7 +1985,6 @@ export class ConfigStore {
         apiKey: projected.apiKey,
         baseUrl: projected.baseUrl,
         model: projected.model,
-        openRouterUserApiKey: normalized.openRouterUserApiKey,
       });
     });
   }
@@ -2040,7 +1997,7 @@ export class ConfigStore {
    * - OpenAI direct: OPENAI_API_KEY = apiKey, OPENAI_BASE_URL optional
    * - Anthropic direct: ANTHROPIC_API_KEY = apiKey
    * - Custom Anthropic: ANTHROPIC_API_KEY = apiKey
-   * - OpenRouter: ANTHROPIC_AUTH_TOKEN = apiKey, ANTHROPIC_API_KEY = '' (proxy mode)
+   * - Proxy mode: ANTHROPIC_AUTH_TOKEN = apiKey, ANTHROPIC_API_KEY = ''
    */
   applyToEnv(): void {
     const config = this.getAll();
@@ -2145,7 +2102,7 @@ export class ConfigStore {
           delete process.env.ANTHROPIC_AUTH_TOKEN;
         }
       } else {
-        // OpenRouter: use ANTHROPIC_AUTH_TOKEN for proxy authentication
+        // Proxy mode: use ANTHROPIC_AUTH_TOKEN for authentication
         if (effectiveAnthropicApiKey) {
           process.env.ANTHROPIC_AUTH_TOKEN = effectiveAnthropicApiKey;
         }

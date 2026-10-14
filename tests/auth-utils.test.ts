@@ -50,13 +50,6 @@ describe('auth-utils', () => {
         apiKey: 'custom-key-without-sk-prefix',
       })
     ).toBe(false);
-    expect(
-      shouldUseAnthropicAuthToken({
-        provider: 'openrouter',
-        customProtocol: 'anthropic',
-        apiKey: 'sk-or-v1-abc',
-      })
-    ).toBe(true);
   });
 
   it('resolves openai credentials when api key is provided', () => {

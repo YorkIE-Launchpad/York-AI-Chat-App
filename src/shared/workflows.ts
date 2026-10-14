@@ -3,24 +3,12 @@
  */
 
 import type { CheckpointRun } from './orchestration';
-import type {
-  SessionDivisionFields,
-  WorkspaceDivisionKind,
-} from './workspace-division';
-import {
-  normalizeSessionDivision,
-  projectDisplayName,
-} from './workspace-division';
+import type { SessionDivisionFields, WorkspaceDivisionKind } from './workspace-division';
+import { normalizeSessionDivision, projectDisplayName } from './workspace-division';
 
 export const WORKFLOW_SCHEMA_VERSION = 1 as const;
 
-export type WorkflowNodeType =
-  | 'trigger'
-  | 'agent'
-  | 'tool'
-  | 'approval'
-  | 'input'
-  | 'notify';
+export type WorkflowNodeType = 'trigger' | 'agent' | 'tool' | 'approval' | 'input' | 'notify';
 
 export type WorkflowTriggerKind = 'cron' | 'channel' | 'manual';
 
@@ -67,7 +55,7 @@ export interface WorkflowAgentNode extends WorkflowNodeBase {
   type: 'agent';
   prompt: string;
   model?: string;
-  /** Provider for locked model (e.g. openrouter, anthropic). */
+  /** Provider for locked model (e.g. anthropic, openai). */
   provider?: string;
 }
 
@@ -204,14 +192,14 @@ export function buildWorkflowTitle(raw: string, maxLength = WORKFLOW_TITLE_MAX_L
   return text;
 }
 
-export function normalizeWorkflowBinding(
-  input?: Partial<WorkflowBinding> | null
-): WorkflowBinding {
+export function normalizeWorkflowBinding(input?: Partial<WorkflowBinding> | null): WorkflowBinding {
   return normalizeSessionDivision(input ?? { division: 'general' });
 }
 
 /** sessionManager.startSession options from a workflow definition. */
-export function workflowBindingToStartOptions(def: Pick<WorkflowDefinition, keyof WorkflowBinding>): {
+export function workflowBindingToStartOptions(
+  def: Pick<WorkflowDefinition, keyof WorkflowBinding>
+): {
   division: WorkspaceDivisionKind;
   hubProjectId: string | null;
   hubProjectName: string | null;
@@ -306,10 +294,7 @@ export interface WorkflowRunProgressEvent {
   steps?: WorkflowRunStep[];
 }
 
-export type WorkflowRunDisplayStatus =
-  | CheckpointRun['status']
-  | 'needs_approval'
-  | 'needs_input';
+export type WorkflowRunDisplayStatus = CheckpointRun['status'] | 'needs_approval' | 'needs_input';
 
 /** Event payload when a run pauses for structured user input. */
 export interface WorkflowInputRequestEvent {

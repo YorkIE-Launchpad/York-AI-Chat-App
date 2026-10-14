@@ -1,8 +1,7 @@
-import OpenAI from 'openai';
-import { BACKEND_PROXY_PLACEHOLDER_KEY, getBackendProxyBaseUrl } from '../../shared/backend-config';
-import { appVersionHeaders } from '../../shared/client-version';
+import { runPiAiOneShot } from '../agent/sdk-one-shot';
 import { isAuthenticated } from '../auth/session';
-import { getClientAppVersion, resolveBackendClientApiKey } from '../config/backend-auth';
+import { configStore } from '../config/config-store';
+import { resolveYorkLlmOneShotConfig } from '../config/york-llm-api';
 import { logWarn } from '../utils/logger';
 
 /** Devanagari (Hindi etc.) */
@@ -25,7 +24,7 @@ export function needsEnglishTranslation(text: string): boolean {
 
 /**
  * Return English transcript text. Latin/English passes through; Hindi/Gujarati
- * script is translated via the York OpenAI backend proxy.
+ * script is translated via York LLM.
  */
 export async function normalizeTranscriptToEnglish(text: string): Promise<string> {
   const trimmed = text.trim();
@@ -49,26 +48,12 @@ export async function normalizeTranscriptToEnglish(text: string): Promise<string
   }
 
   try {
-    const baseUrl = getBackendProxyBaseUrl('openai');
-    const apiKey = await resolveBackendClientApiKey({
-      provider: 'openai',
-      apiKey: BACKEND_PROXY_PLACEHOLDER_KEY,
-    });
-    const client = new OpenAI({
-      apiKey,
-      baseURL: baseUrl,
-      defaultHeaders: appVersionHeaders(getClientAppVersion()),
-    });
-    const completion = await client.chat.completions.create({
-      model: 'gpt-4o-mini',
+    const config = await resolveYorkLlmOneShotConfig(configStore.getAll());
+    const result = await runPiAiOneShot(trimmed, TRANSLATE_SYSTEM, config, {
       temperature: 0,
-      max_tokens: Math.min(2000, Math.max(256, trimmed.length * 3)),
-      messages: [
-        { role: 'system', content: TRANSLATE_SYSTEM },
-        { role: 'user', content: trimmed },
-      ],
+      maxTokens: Math.min(2000, Math.max(256, trimmed.length * 3)),
     });
-    const translated = completion.choices[0]?.message?.content?.trim();
+    const translated = result.text?.trim();
     if (translated) {
       return translated;
     }

@@ -101,7 +101,7 @@ function createSpawnSubagentTool(
       model: Type.Optional(
         Type.Union([Type.Literal('free'), Type.Literal('inherit')], {
           description:
-            'Child model routing. Default "inherit" (role preset / Settings > Subagents model, else the parent quality model). Use "free" for OpenRouter free / eco bulk work.',
+            'Child model routing. Default "inherit" (role preset / Settings > Subagents model, else the parent quality model). Use "free" for low-cost eco bulk work.',
         })
       ),
     }),

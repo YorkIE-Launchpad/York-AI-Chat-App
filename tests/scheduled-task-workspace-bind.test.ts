@@ -22,8 +22,8 @@ function baseTask(overrides: Partial<ScheduledTask> = {}): ScheduledTask {
     lastRunAt: null,
     lastRunSessionId: null,
     lastError: null,
-    model: 'openrouter/free',
-    provider: 'openrouter',
+    model: 'claude-sonnet-5',
+    provider: 'anthropic',
     kind: 'schedule',
     sessionMode: 'new',
     boundSessionId: null,
@@ -115,8 +115,8 @@ describe('executeScheduledTask workspace binding', () => {
     expect(startSession).toHaveBeenCalledTimes(1);
     const options = startSession.mock.calls[0][6];
     expect(options).toMatchObject({
-      model: 'openrouter/free',
-      provider: 'openrouter',
+      model: 'claude-sonnet-5',
+      provider: 'anthropic',
       lockModel: true,
       division: 'hub',
     });

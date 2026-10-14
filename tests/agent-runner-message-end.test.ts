@@ -187,12 +187,12 @@ describe('toUserFacingErrorText', () => {
     );
   });
 
-  it('maps OpenRouter 402 credit errors to contact-admin copy without provider details', () => {
+  it('maps provider 402 credit errors to contact-admin copy without provider details', () => {
     const raw =
-      "402 This request requires more credits, or fewer max_tokens. You requested up to 16384 tokens, but can only afford 800. To increase, visit https://openrouter.ai/workspaces/default/keys/a95827fde3abfee736e0df5301661c52d6b58fc66af4bf00dbb908fc205750fb and adjust the key's total limit";
+      "402 This request requires more credits, or fewer max_tokens. You requested up to 16384 tokens, but can only afford 800. To increase, visit https://llm.example.com/workspaces/default/keys/a95827fde3abfee736e0df5301661c52d6b58fc66af4bf00dbb908fc205750fb and adjust the key's total limit";
     const result = toUserFacingErrorText(raw);
     expect(result).toBe(USAGE_LIMIT_USER_MESSAGE);
-    expect(result).not.toContain('openrouter.ai');
+    expect(result).not.toContain('llm.example.com');
     expect(result).not.toContain(
       'a95827fde3abfee736e0df5301661c52d6b58fc66af4bf00dbb908fc205750fb'
     );
@@ -226,7 +226,9 @@ describe('toUserFacingErrorText', () => {
   });
 
   it('still maps first_response_timeout correctly (regression)', () => {
-    expect(toUserFacingErrorText('first_response_timeout')).toBe(MODEL_RESPONSE_TIMEOUT_USER_MESSAGE);
+    expect(toUserFacingErrorText('first_response_timeout')).toBe(
+      MODEL_RESPONSE_TIMEOUT_USER_MESSAGE
+    );
   });
 
   it('maps Upstream idle timeout exceeded to timeout copy', () => {
@@ -239,7 +241,9 @@ describe('toUserFacingErrorText', () => {
   });
 
   it('maps idle timeout exceeded without Upstream prefix to timeout copy', () => {
-    expect(toUserFacingErrorText('idle timeout exceeded')).toBe(MODEL_RESPONSE_TIMEOUT_USER_MESSAGE);
+    expect(toUserFacingErrorText('idle timeout exceeded')).toBe(
+      MODEL_RESPONSE_TIMEOUT_USER_MESSAGE
+    );
   });
 
   it('maps 5xx server errors to upstream service hint', () => {
@@ -329,9 +333,9 @@ describe('isSdkRetryableTransientError', () => {
     expect(isSdkRetryableTransientError('401 Unauthorized')).toBe(false);
     expect(isSdkRetryableTransientError('HTTP 400: bad request')).toBe(false);
     expect(isSdkRetryableTransientError('empty_success_result')).toBe(false);
-    expect(isSdkRetryableTransientError('prompt is too long: 1047685 tokens > 1000000 maximum')).toBe(
-      false
-    );
+    expect(
+      isSdkRetryableTransientError('prompt is too long: 1047685 tokens > 1000000 maximum')
+    ).toBe(false);
     expect(isSdkRetryableTransientError('413 Payload Too Large')).toBe(false);
     expect(isSdkRetryableTransientError('')).toBe(false);
   });
@@ -417,7 +421,9 @@ describe('buildTerminalErrorMessage', () => {
 
   it('uses a final retry hint for non-4xx terminal errors (not in-progress auto-retry)', () => {
     const result = buildTerminalErrorMessage('connection reset');
-    expect(result).toContain('_Please retry. If this keeps happening, try again later or switch models._');
+    expect(result).toContain(
+      '_Please retry. If this keeps happening, try again later or switch models._'
+    );
     expect(result).not.toContain('_Agent is retrying automatically, please wait..._');
   });
 
@@ -434,17 +440,6 @@ describe('buildTerminalErrorMessage', () => {
     expect(result).not.toContain('_Please check your configuration and retry._');
   });
 
-  it('uses OpenRouter BYOK actions instead of admin for OpenRouter limit messages', () => {
-    const openRouterLimit =
-      'OpenRouter rate or credit limit reached for your key (limits apply to the whole account). Add credits at openrouter.ai (≈$10 raises daily limits to 1000 requests/day), pick a free OpenRouter model, or switch to Hub / Project for York-managed models.';
-    const result = buildTerminalErrorMessage(openRouterLimit);
-    expect(result).toContain(openRouterLimit);
-    expect(result).toContain(
-      '_Add credits, pick a free OpenRouter model, or switch to Hub / Project for York-managed models._'
-    );
-    expect(result).not.toContain('contact your admin');
-  });
-
   it('uses the admin hint for rate-limit terminal errors', () => {
     const sanitized = toUserFacingErrorText(
       '429 Rate limit exceeded: free-models-per-day. Add 10 credits to unlock 1000 free model requests per day'
@@ -456,15 +451,15 @@ describe('buildTerminalErrorMessage', () => {
     expect(result).not.toContain('_Please check your configuration and retry._');
   });
 
-  it('uses the admin hint for raw OpenRouter 402 credit errors', () => {
+  it('uses the admin hint for raw provider 402 credit errors', () => {
     const raw =
-      "402 This request requires more credits, or fewer max_tokens. You requested up to 16384 tokens, but can only afford 800. To increase, visit https://openrouter.ai/workspaces/default/keys/a95827fde3abfee736e0df5301661c52d6b58fc66af4bf00dbb908fc205750fb and adjust the key's total limit";
+      "402 This request requires more credits, or fewer max_tokens. You requested up to 16384 tokens, but can only afford 800. To increase, visit https://llm.example.com/workspaces/default/keys/a95827fde3abfee736e0df5301661c52d6b58fc66af4bf00dbb908fc205750fb and adjust the key's total limit";
     const sanitized = toUserFacingErrorText(raw);
     const result = buildTerminalErrorMessage(sanitized);
     expect(sanitized).toBe(USAGE_LIMIT_USER_MESSAGE);
     expect(result).toContain(`**Error**: ${USAGE_LIMIT_USER_MESSAGE}`);
     expect(result).toContain('_Contact your admin to restore access._');
-    expect(result).not.toContain('openrouter.ai');
+    expect(result).not.toContain('llm.example.com');
     expect(result).not.toContain('_Please check your configuration and retry._');
   });
 

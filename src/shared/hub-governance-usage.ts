@@ -3,11 +3,7 @@
  * Safe to import from MCP subprocesses.
  */
 
-import {
-  computeModelUsageCost,
-  DEFAULT_MODEL_PRICING,
-  resolveModelPricing,
-} from './model-pricing';
+import { computeModelUsageCost, DEFAULT_MODEL_PRICING, resolveModelPricing } from './model-pricing';
 
 export const HUB_USAGE_SOURCE = 'vecos';
 export const HUB_USAGE_FEATURE_DEFAULT = 'chat';
@@ -127,17 +123,9 @@ export function buildHubUsagePayloadFromPiUsage(
   const modelId = (input.modelId || '').trim();
   const provider = (input.provider || '').trim();
   if (!modelId || !provider) return null;
-  // OpenRouter always runs on the user's own key — York does not pay, so Hub never sees it.
-  if (provider.toLowerCase() === 'openrouter') return null;
 
   const usage = asRecord(input.usage) || {};
-  const promptTokens = numberField(
-    usage,
-    'input',
-    'input_tokens',
-    'inputTokens',
-    'prompt_tokens'
-  );
+  const promptTokens = numberField(usage, 'input', 'input_tokens', 'inputTokens', 'prompt_tokens');
   const completionTokens = numberField(
     usage,
     'output',
@@ -175,9 +163,7 @@ export function buildHubUsagePayloadFromPiUsage(
 
   const totalTokens =
     totalFromUsage ??
-    (promptTokens !== undefined ||
-    completionTokens !== undefined ||
-    imageInputTokens !== undefined
+    (promptTokens !== undefined || completionTokens !== undefined || imageInputTokens !== undefined
       ? (promptTokens ?? 0) + (completionTokens ?? 0) + (imageInputTokens ?? 0)
       : undefined);
 
@@ -279,13 +265,7 @@ export function extractVisionApiUsage(raw: unknown): Record<string, number> | nu
   const usage = asRecord(raw);
   if (!usage) return null;
 
-  const promptTokens = numberField(
-    usage,
-    'prompt_tokens',
-    'input_tokens',
-    'inputTokens',
-    'input'
-  );
+  const promptTokens = numberField(usage, 'prompt_tokens', 'input_tokens', 'inputTokens', 'input');
   const completionTokens = numberField(
     usage,
     'completion_tokens',
@@ -295,16 +275,13 @@ export function extractVisionApiUsage(raw: unknown): Record<string, number> | nu
   );
   const totalTokens = numberField(usage, 'total_tokens', 'totalTokens', 'total');
 
-  if (
-    promptTokens === undefined &&
-    completionTokens === undefined &&
-    totalTokens === undefined
-  ) {
+  if (promptTokens === undefined && completionTokens === undefined && totalTokens === undefined) {
     return null;
   }
 
   const out: Record<string, number> = {};
-  const inputDetails = asRecord(usage.input_tokens_details) || asRecord(usage.prompt_tokens_details);
+  const inputDetails =
+    asRecord(usage.input_tokens_details) || asRecord(usage.prompt_tokens_details);
   const imageTokens = inputDetails ? numberField(inputDetails, 'image_tokens') : undefined;
   const cachedTokens = inputDetails ? numberField(inputDetails, 'cached_tokens') : undefined;
   if (promptTokens !== undefined) {

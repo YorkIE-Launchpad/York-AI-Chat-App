@@ -28,7 +28,7 @@ const FAQ_ITEMS = [
   {
     question: 'What AI models are supported?',
     answer:
-      'York IE VECOS supports Claude through Anthropic or OpenRouter, OpenAI-compatible APIs, and models such as Gemini, DeepSeek, GLM, MiniMax, and Kimi.',
+      'York IE VECOS supports Claude through Anthropic, OpenAI-compatible APIs, and models such as Gemini, DeepSeek, GLM, MiniMax, and Kimi.',
   },
   {
     question: 'Is York IE VECOS free?',

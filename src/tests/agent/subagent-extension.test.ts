@@ -38,7 +38,7 @@ async function getTool(overrides: Record<string, unknown> = {}) {
 
 describe('SubagentExtension', () => {
   beforeEach(() => {
-    mockGetAll.mockReturnValue({ provider: 'openrouter', model: 'parent-model' });
+    mockGetAll.mockReturnValue({ provider: 'anthropic', model: 'parent-model' });
     mockRunChildAgentSession.mockReset().mockResolvedValue({
       text: 'child result',
       subagentId: 'child-1',

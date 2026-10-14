@@ -175,9 +175,9 @@ describe('ConfigStore contextWindow/maxTokens projection', () => {
 
     expect(() =>
       store.update({
-        provider: 'openrouter',
-        apiKey: 'sk-or',
-        model: 'anthropic/claude',
+        provider: 'openai',
+        apiKey: 'sk-openai',
+        model: 'gpt-5.4',
       })
     ).not.toThrow();
     const secondSetView = store.getAll();

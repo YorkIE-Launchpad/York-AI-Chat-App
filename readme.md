@@ -52,7 +52,7 @@ It provides a sandboxed workspace where AI can manage files, generate profession
 | York IE       | ✓            | ✓              | ✓             |
 
 - **One-Click Install, Ready to Use**: Pre-built installers for Windows and macOS, no environment setup needed—just download and start using.
-- **Flexible Model Support**: Supports **Claude**, **OpenAI-compatible APIs**, and Chinese models like **GLM**, **MiniMax**, **Kimi**. Use your OpenRouter, Anthropic, or other API keys with flexible configuration. More models coming soon!
+- **Flexible Model Support**: Supports **Claude**, **OpenAI-compatible APIs**, and Chinese models like **GLM**, **MiniMax**, **Kimi**. Use your Anthropic or other API keys with flexible configuration. More models coming soon!
 - **Remote Control**: Connect to collaboration platforms like **Feishu (Lark)** and other remote services to automate workflows and cross-platform operations.
 - **GUI Operation**: Control and interact with various desktop GUI applications on your computer. **Recommended model: Gemini-3-Pro** for optimal GUI understanding and control.
 - **Smart File Management**: Read, write, and organize files within your workspace.
@@ -162,11 +162,10 @@ brew install lima
 
 ### 1. Get an API Key
 
-You need an API key to power the agent. We support **OpenRouter**, **Anthropic**, and various cost-effective **Chinese Models**.
+You need an API key to power the agent. We support **Anthropic** and various cost-effective **Chinese Models**.
 
 | Provider           | Get Key / Coding Plan                                                      | Base URL (Required)                      | Recommended Model    |
 | ------------------ | -------------------------------------------------------------------------- | ---------------------------------------- | -------------------- |
-| **OpenRouter**     | [OpenRouter](https://openrouter.ai/)                                       | `https://openrouter.ai/api`              | `claude-4-5-sonnet`  |
 | **Anthropic**      | [Anthropic Console](https://console.anthropic.com/)                        | (Default)                                | `claude-4-5-sonnet`  |
 | **Zhipu AI (GLM)** | [GLM Coding Plan](https://bigmodel.cn/glm-coding) (⚡️Chinese Deal)         | `https://open.bigmodel.cn/api/anthropic` | `glm-4.7`, `glm-4.6` |
 | **MiniMax**        | [MiniMax Coding Plan](https://platform.minimaxi.com/subscribe/coding-plan) | `https://api.minimaxi.com/anthropic`     | `minimax-m2`         |
@@ -294,7 +293,7 @@ York IE is a free, open-source desktop application that provides a local AI agen
 York IE is the open-source implementation of Claude Cowork. It adds multi-model support (not just Claude), GUI automation via computer use, remote control through Feishu/Slack, and VM-level sandbox isolation. See the [feature comparison table](#features) for details.
 
 **What AI models does York IE support?**
-Claude (via Anthropic or OpenRouter), OpenAI-compatible APIs, and Chinese models including GLM (Zhipu AI), MiniMax, and Kimi. Any provider offering an OpenAI-compatible API endpoint can be configured.
+Claude (via Anthropic), OpenAI-compatible APIs, and Chinese models including GLM (Zhipu AI), MiniMax, and Kimi. Any provider offering an OpenAI-compatible API endpoint can be configured.
 
 **Is York IE free?**
 Yes. York IE itself is completely free and open-source under the MIT license. You only need to pay for the AI model API usage from your chosen provider.
@@ -315,7 +314,7 @@ MCP (Model Context Protocol) lets AI connect to external tools and services. Yor
 York IE supports remote control through Feishu (Lark) and Slack integration, allowing you to send commands and receive results from collaboration platforms. Check the app settings for remote control configuration.
 
 **Is my data safe? Does York IE send data to external servers?**
-York IE runs locally on your machine. Your files stay in your workspace. The only external communication is with the AI model API you configure (e.g., Anthropic, OpenRouter). No data is sent to York IE servers.
+York IE runs locally on your machine. Your files stay in your workspace. The only external communication is with the AI model API you configure (e.g., Anthropic, OpenAI). No data is sent to York IE servers.
 
 ---
 

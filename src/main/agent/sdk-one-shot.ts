@@ -28,26 +28,11 @@ import {
   resolveSyntheticPiModelFallback,
 } from './pi-model-resolution';
 import { resolveAutoModelIfNeeded } from './auto-model-resolve';
-import { fetchBackendModels } from '../config/backend-client';
-import {
-  filterModelsForOpenRouterKey,
-  resolveYorkPaidEcoFallback,
-} from '../../shared/openrouter-fallback';
-import {
-  isOpenRouterAccountLimitError,
-  openRouterKeyRequiredMessage,
-  openRouterLimitUserMessage,
-} from '../../shared/openrouter-limit';
-import {
-  OPENROUTER_LIMIT_FALLBACK_NOTE,
-  hasOpenRouterUserApiKey,
-  withOpenRouterUserKeyHeader,
-} from '../../shared/openrouter-user-key';
 import { isBackendManagedProvider } from '../../shared/backend-config';
 import { withAppVersionHeader } from '../../shared/client-version';
 import {
-  generalWorkspaceOpenRouterOnlyMessage,
   isProviderAllowedInDivision,
+  modelProviderUnavailableMessage,
   type SessionDivisionFields,
 } from '../../shared/workspace-division';
 import { reportHubGovernanceUsageFromCompletion } from '../hub/hub-ai-governance';
@@ -133,7 +118,6 @@ function resolveProbeApiKey(
 
   if (
     input.provider === 'openai' ||
-    input.provider === 'openrouter' ||
     (input.provider === 'custom' && resolvedCustomProtocol === 'openai')
   ) {
     return (
@@ -264,7 +248,7 @@ export async function runPiAiOneShot(
   }
 
   if (!isProviderAllowedInDivision(effectiveConfig.provider, options?.division)) {
-    throw new Error(generalWorkspaceOpenRouterOnlyMessage());
+    throw new Error(modelProviderUnavailableMessage());
   }
 
   const modelString = resolvePiModelString({
@@ -325,15 +309,7 @@ export async function runPiAiOneShot(
 
   // piModel is guaranteed non-undefined after synthetic fallback
   let resolvedModel = piModel!;
-  let activeProvider = effectiveConfig.provider || provider;
-
-  if (activeProvider === 'openrouter') {
-    const userKey = config.openRouterUserApiKey?.trim();
-    if (!hasOpenRouterUserApiKey(userKey)) {
-      throw new Error(openRouterKeyRequiredMessage());
-    }
-    resolvedModel = withOpenRouterUserKeyHeader(resolvedModel, userKey);
-  }
+  const activeProvider = effectiveConfig.provider || provider;
 
   if (isBackendManagedProvider(activeProvider)) {
     resolvedModel = withAppVersionHeader(resolvedModel, getClientAppVersion());
@@ -341,7 +317,7 @@ export async function runPiAiOneShot(
 
   const yorkLlmActiveForAuth = isYorkLlmBaseUrl(effectiveBaseUrl || resolvedModel.baseUrl);
   const yorkLlmApiKey = yorkLlmActiveForAuth ? resolveYorkLlmApiKey() : '';
-  let apiKey = (
+  const apiKey = (
     await resolveBackendClientApiKey({
       provider: effectiveConfig.provider,
       apiKey: yorkLlmApiKey || effectiveConfig.apiKey,
@@ -439,85 +415,7 @@ export async function runPiAiOneShot(
   }
 
   try {
-    let response = await runOnce(resolvedModel, baseOptions);
-
-    // OpenRouter account limits are key-wide — one York eco retry.
-    const errorMessage =
-      (response.stopReason === 'error' || response.stopReason === 'aborted') &&
-      typeof response.errorMessage === 'string'
-        ? response.errorMessage
-        : '';
-    if (errorMessage && isOpenRouterAccountLimitError(activeProvider, errorMessage)) {
-      if (options?.division?.division === 'general' || options?.division?.division === 'folder') {
-        throw new Error(openRouterLimitUserMessage(false));
-      }
-      const rawModels = await fetchBackendModels();
-      const enabledModels = filterModelsForOpenRouterKey(rawModels, config.openRouterUserApiKey);
-      const fallback = resolveYorkPaidEcoFallback({
-        enabledModels,
-        promptText: prompt,
-        preference: 'eco',
-      });
-      if (!fallback) {
-        throw new Error(openRouterLimitUserMessage(true));
-      }
-      logWarn(
-        `[OneShot] ${OPENROUTER_LIMIT_FALLBACK_NOTE} ${fallback.provider}/${fallback.modelId}`
-      );
-      effectiveConfig = {
-        ...effectiveConfig,
-        model: fallback.modelId,
-        provider: fallback.provider,
-        customProtocol: fallback.customProtocol,
-        baseUrl: fallback.baseUrl,
-        apiKey: fallback.apiKey,
-      };
-      activeProvider = fallback.provider;
-      const yorkModelString = resolvePiModelString({
-        ...effectiveConfig,
-        defaultModel: fallback.modelId,
-      });
-      let yorkModel = resolvePiRegistryModel(yorkModelString, {
-        configProvider: fallback.customProtocol,
-        customBaseUrl: fallback.baseUrl,
-        rawProvider: fallback.provider,
-        customProtocol: fallback.customProtocol,
-      });
-      if (!yorkModel) {
-        const synthetic = resolveSyntheticPiModelFallback({
-          rawModel: fallback.modelId,
-          resolvedModelString: yorkModelString,
-          rawProvider: fallback.provider,
-          routeProtocol: fallback.customProtocol,
-          baseUrl: fallback.baseUrl,
-        });
-        yorkModel = buildSyntheticPiModel(
-          synthetic.modelId,
-          synthetic.provider,
-          fallback.customProtocol,
-          fallback.baseUrl || '',
-          inferPiApi(fallback.customProtocol)
-        );
-      }
-      resolvedModel = yorkModel!;
-      if (isBackendManagedProvider(fallback.provider)) {
-        resolvedModel = withAppVersionHeader(resolvedModel, getClientAppVersion());
-      }
-      apiKey = (
-        await resolveBackendClientApiKey({
-          provider: fallback.provider,
-          apiKey: fallback.apiKey,
-        })
-      ).trim();
-      if (apiKey) {
-        const authStorage = getSharedAuthStorage();
-        authStorage.setRuntimeApiKey(fallback.provider, apiKey);
-        if (resolvedModel.provider !== fallback.provider) {
-          authStorage.setRuntimeApiKey(resolvedModel.provider, apiKey);
-        }
-      }
-      response = await runOnce(resolvedModel, { ...baseOptions, apiKey: apiKey || undefined });
-    }
+    const response = await runOnce(resolvedModel, baseOptions);
 
     // pi-ai resolves (not rejects) on provider errors — the error details
     // live in stopReason/errorMessage on the response object.  Surface them
@@ -544,9 +442,6 @@ export async function runPiAiOneShot(
           status: 'error',
           errorCode: response.stopReason,
         });
-      }
-      if (isOpenRouterAccountLimitError(activeProvider, details)) {
-        throw new Error(openRouterLimitUserMessage(true));
       }
       throw new Error(details);
     }
@@ -673,7 +568,7 @@ async function runPiAiStreamInner(
   }
 
   if (!isProviderAllowedInDivision(effectiveConfig.provider, options?.division)) {
-    throw new Error(generalWorkspaceOpenRouterOnlyMessage());
+    throw new Error(modelProviderUnavailableMessage());
   }
 
   const modelString = resolvePiModelString({
@@ -731,14 +626,6 @@ async function runPiAiStreamInner(
 
   let resolvedModel = piModel!;
   const activeProvider = effectiveConfig.provider || provider;
-
-  if (activeProvider === 'openrouter') {
-    const userKey = config.openRouterUserApiKey?.trim();
-    if (!hasOpenRouterUserApiKey(userKey)) {
-      throw new Error(openRouterKeyRequiredMessage());
-    }
-    resolvedModel = withOpenRouterUserKeyHeader(resolvedModel, userKey);
-  }
 
   if (isBackendManagedProvider(activeProvider)) {
     resolvedModel = withAppVersionHeader(resolvedModel, getClientAppVersion());
@@ -843,16 +730,6 @@ async function runPiAiStreamInner(
       const withoutTemperature = { ...baseOptions };
       delete withoutTemperature.temperature;
       ({ response, accumulated } = await consumeStream(resolvedModel, withoutTemperature));
-    }
-
-    const errorMessage =
-      (response.stopReason === 'error' || response.stopReason === 'aborted') &&
-      typeof response.errorMessage === 'string'
-        ? response.errorMessage
-        : '';
-
-    if (errorMessage && isOpenRouterAccountLimitError(activeProvider, errorMessage)) {
-      throw new Error(openRouterLimitUserMessage(true));
     }
 
     if (response.stopReason === 'error' || response.stopReason === 'aborted') {

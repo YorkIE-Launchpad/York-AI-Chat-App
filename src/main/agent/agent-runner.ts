@@ -93,21 +93,6 @@ import {
   isBackendManagedProvider,
 } from '../../shared/backend-config';
 import { withAppVersionHeader } from '../../shared/client-version';
-import {
-  filterModelsForOpenRouterKey,
-  resolveYorkPaidEcoFallback,
-} from '../../shared/openrouter-fallback';
-import {
-  isOpenRouterAccountLimitError,
-  openRouterKeyRequiredMessage,
-  openRouterLimitUserMessage,
-} from '../../shared/openrouter-limit';
-import {
-  OPENROUTER_LIMIT_FALLBACK_NOTE,
-  hasOpenRouterUserApiKey,
-  withOpenRouterUserKeyHeader,
-} from '../../shared/openrouter-user-key';
-import { fetchBackendModels } from '../config/backend-client';
 import { reportHubGovernanceUsageFromCompletion } from '../hub/hub-ai-governance';
 import {
   buildTerminalErrorEmissionDetails,
@@ -125,7 +110,7 @@ import {
   resolvePiRegistryModel,
   resolvePiRouteProtocol,
 } from './pi-model-resolution';
-import { applyOpenRouterClaudeCacheHints, enableLongAnthropicPromptCache } from './prompt-cache';
+import { enableLongAnthropicPromptCache } from './prompt-cache';
 import {
   injectAnthropicContextEditing,
   pruneMessagesForLiveTurn,
@@ -138,9 +123,8 @@ import {
   buildDivisionActiveClientContext,
   buildDivisionSystemPrompt,
   filterMcpToolsForDivision,
-  filterModelsForDivision,
-  generalWorkspaceOpenRouterOnlyMessage,
   isProviderAllowedInDivision,
+  modelProviderUnavailableMessage,
   type SessionDivisionFields,
 } from '../../shared/workspace-division';
 import { applyCompanyProjectScopedMcpResultFilter } from '../../shared/company-project-mcp-scope';
@@ -823,10 +807,6 @@ interface CachedPiSession {
 /**
  * CoworkAgentRunner - Uses @mariozechner/pi-coding-agent SDK
  *
- * Environment variables should be set before running:
- *   ANTHROPIC_BASE_URL=https://openrouter.ai/api
- *   ANTHROPIC_AUTH_TOKEN=your_openrouter_api_key
- *   ANTHROPIC_API_KEY="" (must be empty)
  */
 export class CoworkAgentRunner {
   private sendToRenderer: (event: ServerEvent) => void;
@@ -1693,7 +1673,7 @@ ${hints.join('\n')}
     const runStartTime = Date.now();
     logCtx('[CoworkAgentRunner] run() started');
 
-    let controller = new AbortController();
+    const controller = new AbortController();
     try {
       // The SDK attaches many listeners on the same AbortSignal; raise the limit to avoid noisy warnings while debugging.
       setMaxListeners(0, controller.signal);
@@ -1728,12 +1708,6 @@ ${hints.join('\n')}
     // The catch block consults this flag to avoid overwriting the published
     // 'Request failed' trace state with a generic 'Cancelled' update.
     let abortedByStreamError = false;
-    // OpenRouter account limits are key-wide — one hit → single York eco retry.
-    const openRouterLimitRetry = {
-      pending: false,
-      done: false,
-      rawError: '',
-    };
 
     try {
       this.pathResolver.registerSession(session.id, session.mountedPaths);
@@ -2105,7 +2079,7 @@ ${hints.join('\n')}
           runtimeConfig.customProtocol =
             session.provider === 'gemini'
               ? 'gemini'
-              : session.provider === 'openai' || session.provider === 'openrouter'
+              : session.provider === 'openai'
                 ? 'openai'
                 : 'anthropic';
           if (isBackendManagedProvider(session.provider)) {
@@ -2196,9 +2170,9 @@ ${hints.join('\n')}
         });
       }
 
-      // Provider must be set (OpenRouter BYOK / York proxy gating is FE-owned).
+      // Provider must be set (York proxy gating is FE-owned).
       if (!isProviderAllowedInDivision(resolvedProvider, session)) {
-        const msg = generalWorkspaceOpenRouterOnlyMessage();
+        const msg = modelProviderUnavailableMessage();
         this.sendMessage(session.id, {
           id: uuidv4(),
           sessionId: session.id,
@@ -2257,27 +2231,6 @@ ${hints.join('\n')}
       }
       logCtx('[CoworkAgentRunner] Resolved pi-ai model:', piModel.provider, piModel.id);
 
-      if (resolvedProvider === 'openrouter') {
-        const userKey = runtimeConfig.openRouterUserApiKey?.trim();
-        if (!hasOpenRouterUserApiKey(userKey)) {
-          const msg = openRouterKeyRequiredMessage();
-          this.sendMessage(session.id, {
-            id: uuidv4(),
-            sessionId: session.id,
-            role: 'assistant',
-            content: [{ type: 'text', text: `**Error**: ${msg}` }],
-            timestamp: Date.now(),
-          });
-          this.sendTraceUpdate(session.id, thinkingStepId, {
-            status: 'error',
-            title: 'OpenRouter key required',
-          });
-          return;
-        }
-        piModel = withOpenRouterUserKeyHeader(piModel, userKey);
-      }
-
-      // Definite model for the rest of this run (including York eco limit fallback).
       if (!piModel) {
         throw new Error('Failed to resolve pi-ai model');
       }
@@ -2286,9 +2239,8 @@ ${hints.join('\n')}
       }
       let activePiModel = piModel;
 
-      // Prefer 1h Anthropic prompt-cache TTL; pin OpenRouter Claude cache + session affinity.
+      // Prefer 1h Anthropic prompt-cache TTL.
       enableLongAnthropicPromptCache();
-      activePiModel = applyOpenRouterClaudeCacheHints(activePiModel, session.id);
       if (supportsAnthropicContextEditing(activePiModel.api)) {
         activePiModel = {
           ...activePiModel,
@@ -2371,8 +2323,8 @@ ${hints.join('\n')}
         const piProvider =
           provider === 'custom' ? runtimeConfig.customProtocol || 'anthropic' : provider;
         authStorage.setRuntimeApiKey(piProvider, apiKey);
-        // Also set the key for the model's native provider (e.g., when using
-        // google/gemini via openrouter, pi-ai looks up "google" not "openrouter")
+        // Also set the key for the model's native provider (e.g. the gemini
+        // config provider maps to pi-ai's "google")
         if (activePiModel.provider !== piProvider) {
           authStorage.setRuntimeApiKey(activePiModel.provider, apiKey);
           log(
@@ -3690,22 +3642,6 @@ ${
                   );
                   break;
                 }
-                if (
-                  isOpenRouterAccountLimitError(resolvedProvider, rawStreamError) &&
-                  !openRouterLimitRetry.done
-                ) {
-                  openRouterLimitRetry.pending = true;
-                  openRouterLimitRetry.rawError = rawStreamError;
-                  abortedByStreamError = true;
-                  if (!controller.signal.aborted) {
-                    try {
-                      controller.abort();
-                    } catch (abortErr) {
-                      logWarn('[CoworkAgentRunner] openrouter-limit abort failed:', abortErr);
-                    }
-                  }
-                  break;
-                }
                 // Transient upstream failures (idle timeout, network, 5xx): let the
                 // SDK auto-retry. Do NOT abort — that mutes subscribe and hides recovery.
                 if (isSdkRetryableTransientError(rawStreamError)) {
@@ -3719,10 +3655,7 @@ ${
                   });
                   break;
                 }
-                const userFacing = isOpenRouterAccountLimitError(resolvedProvider, rawStreamError)
-                  ? openRouterLimitUserMessage(true)
-                  : resolveAssistantStreamErrorText(ame);
-                emitTerminalError(userFacing, { abort: true });
+                emitTerminalError(resolveAssistantStreamErrorText(ame), { abort: true });
               }
               break;
             }
@@ -3735,7 +3668,7 @@ ${
                 if (yorkLlmActive || (msg as { role?: unknown })?.role !== 'assistant') return;
                 reportHubGovernanceUsageFromCompletion({
                   modelId: activePiModel.id,
-                  // Route provider, not pi's: OpenRouter ids can resolve to a google/openai registry entry.
+                  // Route provider, not pi's: auto-routed ids can resolve to a different registry provider.
                   provider: String(resolvedProvider || activePiModel.provider || provider || ''),
                   sessionId: session.id,
                   hubProjectId: session.hubProjectId,
@@ -3797,22 +3730,6 @@ ${
                   );
                   break;
                 }
-                if (
-                  isOpenRouterAccountLimitError(resolvedProvider, rawError) &&
-                  !openRouterLimitRetry.done
-                ) {
-                  openRouterLimitRetry.pending = true;
-                  openRouterLimitRetry.rawError = rawError;
-                  abortedByStreamError = true;
-                  if (!controller.signal.aborted) {
-                    try {
-                      controller.abort();
-                    } catch (abortErr) {
-                      logWarn('[CoworkAgentRunner] openrouter-limit abort failed:', abortErr);
-                    }
-                  }
-                  break;
-                }
                 // Transient upstream failures: defer until auto_retry_end or prompt returns.
                 if (isSdkRetryableTransientError(rawError)) {
                   pendingRetryableError = rawError;
@@ -3825,11 +3742,8 @@ ${
                   });
                   break;
                 }
-                const userFacing = isOpenRouterAccountLimitError(resolvedProvider, rawError)
-                  ? openRouterLimitUserMessage(true)
-                  : resolvedPayload.errorText;
                 reportTurnUsage('error', 'message_end_error');
-                emitTerminalError(userFacing);
+                emitTerminalError(resolvedPayload.errorText);
                 break;
               }
               if (resolvedPayload.shouldEmitMessage) {
@@ -4211,156 +4125,11 @@ ${
             })
           );
         }
-        try {
-          const promptResult = await piSession.prompt(contextualPrompt, promptOptions);
-          log(
-            '[CoworkAgentRunner] prompt() returned:',
-            JSON.stringify(promptResult ?? 'void').substring(0, 1000)
-          );
-        } catch (promptErr) {
-          // OpenRouter limit abort is intentional — fall through to York eco retry below.
-          if (
-            !(
-              openRouterLimitRetry.pending &&
-              !openRouterLimitRetry.done &&
-              promptErr instanceof Error &&
-              promptErr.name === 'AbortError'
-            )
-          ) {
-            throw promptErr;
-          }
-          logCtx('[CoworkAgentRunner] OpenRouter limit abort; preparing York eco fallback');
-        }
-
-        if (
-          openRouterLimitRetry.pending &&
-          !openRouterLimitRetry.done &&
-          !abortedByTimeout &&
-          !abortedByLoopGuard
-        ) {
-          openRouterLimitRetry.done = true;
-          openRouterLimitRetry.pending = false;
-          abortedByStreamError = false;
-          hasEmittedError = false;
-          terminalErrorText = undefined;
-          pendingRetryableError = undefined;
-          emittedAssistantContentThisPrompt = false;
-          streamedText = '';
-
-          // General / personal folders cannot fall back to York-paid models.
-          if (session.division === 'general' || session.division === 'folder') {
-            emitTerminalError(openRouterLimitUserMessage(false));
-          } else {
-            const rawModels = await fetchBackendModels();
-            const enabledModels = filterModelsForOpenRouterKey(
-              filterModelsForDivision(rawModels, session),
-              runtimeConfig.openRouterUserApiKey
-            );
-            const fallback = resolveYorkPaidEcoFallback({
-              enabledModels,
-              promptText: promptTextForAuto,
-              preference: 'eco',
-            });
-
-            if (!fallback) {
-              emitTerminalError(openRouterLimitUserMessage(true));
-            } else {
-              log(
-                `[CoworkAgentRunner] ${OPENROUTER_LIMIT_FALLBACK_NOTE} ${fallback.provider}/${fallback.modelId}`
-              );
-              this.sendToRenderer({
-                type: 'session.autoRoute',
-                payload: {
-                  sessionId: session.id,
-                  provider: fallback.provider,
-                  modelId: fallback.modelId,
-                  tier: 'fast',
-                  score: 0,
-                  reason: OPENROUTER_LIMIT_FALLBACK_NOTE,
-                },
-              });
-              this.sendMessage(session.id, {
-                id: uuidv4(),
-                sessionId: session.id,
-                role: 'assistant',
-                content: [
-                  {
-                    type: 'text',
-                    text: `_${OPENROUTER_LIMIT_FALLBACK_NOTE} Now using ${fallback.provider}/${fallback.modelId}._`,
-                  },
-                ],
-                timestamp: Date.now(),
-              });
-
-              const yorkProtocol = resolvePiRouteProtocol(
-                fallback.provider,
-                fallback.customProtocol
-              );
-              let yorkModel = resolvePiRegistryModel(fallback.modelId, {
-                configProvider: yorkProtocol,
-                customBaseUrl: fallback.baseUrl,
-                rawProvider: fallback.provider,
-                customProtocol: fallback.customProtocol,
-              });
-              if (!yorkModel) {
-                yorkModel = buildSyntheticPiModelFromRuntimeConfig(
-                  {
-                    ...runtimeConfig,
-                    model: fallback.modelId,
-                    provider: fallback.provider,
-                    customProtocol: fallback.customProtocol,
-                  },
-                  {
-                    resolvedModelString: fallback.modelId,
-                    routeProtocol: yorkProtocol,
-                    effectiveBaseUrl: fallback.baseUrl,
-                  }
-                );
-              }
-
-              if (!yorkModel) {
-                emitTerminalError(openRouterLimitUserMessage(true));
-              } else {
-                if (isBackendManagedProvider(fallback.provider)) {
-                  yorkModel = withAppVersionHeader(yorkModel, getClientAppVersion());
-                }
-                activePiModel = yorkModel;
-                resolvedProvider = fallback.provider;
-                await piSession.setModel(activePiModel);
-
-                const yorkApiKey = (
-                  await resolveBackendClientApiKey({
-                    provider: fallback.provider,
-                    apiKey: fallback.apiKey,
-                  })
-                ).trim();
-                if (yorkApiKey) {
-                  const authStorage = getSharedAuthStorage();
-                  authStorage.setRuntimeApiKey(fallback.provider, yorkApiKey);
-                  if (activePiModel.provider !== fallback.provider) {
-                    authStorage.setRuntimeApiKey(activePiModel.provider, yorkApiKey);
-                  }
-                }
-
-                // Fresh abort controller so subscribe callbacks accept events again.
-                controller = new AbortController();
-                try {
-                  setMaxListeners(0, controller.signal);
-                } catch {
-                  // ignore
-                }
-                this.activeControllers.set(session.id, controller);
-
-                resetActivityTimeout();
-                const retryResult = await piSession.prompt(contextualPrompt, promptOptions);
-                log(
-                  '[CoworkAgentRunner] York eco fallback prompt() returned:',
-                  JSON.stringify(retryResult ?? 'void').substring(0, 1000)
-                );
-              }
-            }
-          }
-        }
+        const promptResult = await piSession.prompt(contextualPrompt, promptOptions);
+        log(
+          '[CoworkAgentRunner] prompt() returned:',
+          JSON.stringify(promptResult ?? 'void').substring(0, 1000)
+        );
 
         // Safety net: deferred retryable error never cleared (SDK retry disabled,
         // or auto_retry_end missed) and no assistant content was recovered.
@@ -4386,8 +4155,7 @@ ${
           !abortedByTimeout &&
           !abortedByLoopGuard &&
           !abortedByStreamError &&
-          !hasEmittedError &&
-          !openRouterLimitRetry.pending;
+          !hasEmittedError;
 
         if (canAttemptIncompleteRecovery) {
           const evaluateIncomplete = () =>

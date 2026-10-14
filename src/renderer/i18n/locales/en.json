@@ -139,18 +139,7 @@
     "manualInstallStepOpenDmg": "Open the downloaded .dmg from your Downloads folder.",
     "manualInstallStepReplace": "Drag York GrowthOS into Applications and choose Replace.",
     "manualInstallStepLaunch": "Eject the DMG and open York GrowthOS from Applications, not from Downloads or the DMG.",
-    "openRouterKey": "Your OpenRouter API key (General & Folders)",
-    "openRouterKeyHelp": "General and personal Folders only use OpenRouter with this key — York does not bill those models. Hub uses your personal York allowance; Project uses York-managed models — neither needs this key. Free OpenRouter models have no per-token cost (rate limits apply). Paid names like Claude or GPT Sol bill your OpenRouter credits.",
-    "openRouterLimits": "OpenRouter account limits (whole key): under $10 credits → about 20 requests/min and 50/day. With $10+ credits → 20/min and 1000/day. Hit a limit? Add credits, pick a free model, or switch to Hub / Project for company models.",
-    "openRouterGetKey": "Create a free key at openrouter.ai/keys",
-    "openRouterKeyConfigured": "Key saved — paste a new one to replace",
-    "openRouterKeySaved": "OpenRouter key saved — General workspace is unlocked",
-    "openRouterKeyCleared": "OpenRouter key cleared — General is locked until you add one again",
-    "openRouterKeySaveFailed": "Failed to save OpenRouter key",
-    "saveOpenRouterKey": "Save OpenRouter key",
-    "clearOpenRouterKey": "Remove key",
     "saving": "Saving…",
-    "openRouterKeyMissing": "Without this key you cannot use General or Folders. Add a key here, or use Hub / Project for York models.",
     "thinkingMode": "Thinking mode",
     "thinkingModeHelp": "Deeper model reasoning plus a mid-loop think scratchpad for complex, multi-step, or fact-heavy work. Uses more tokens. Toggle Think next to the model picker in chat.",
     "modelsCatalog": "Model catalog",
@@ -505,10 +494,6 @@
         "probeMismatchDetected": "{{service}} responded with an unexpected probe format. Try the recommended {{recommendedProtocol}} setup and verify the model ID for that endpoint."
       },
       "setups": {
-        "openrouter": {
-          "name": "OpenRouter",
-          "note": "Prefer the dedicated OpenRouter provider tab unless you are debugging a custom relay."
-        },
         "deepseek": {
           "name": "DeepSeek API",
           "note": "Use OpenAI-compatible mode and copy the exact model ID from DeepSeek docs."
@@ -1230,32 +1215,10 @@
   },
   "workspace": {
     "projectScopeViolation": "Incorrect use. This attempt will be reported. This session is scoped to \"{{projectName}}\". Switch Project workspace (or General) in the sidebar to query another project.",
-    "openRouter": {
-      "generalLabel": "General",
-      "foldersLabel": "Folders",
-      "hubLabel": "Hub",
-      "projectLabel": "Project",
-      "gateTitle": "{{workspace}} needs your OpenRouter API key",
-      "gateShort": "Add your key in Settings, or switch to Hub / Project for York models.",
-      "gateBody": "General and personal Folders only run OpenRouter models on your own API key (York does not pay for them). Paste a key from openrouter.ai/keys in Settings → General. Free OpenRouter models have no per-token cost; rate limits still apply.",
-      "gateAlt": "Need company models without your own key? Switch workspace to Hub or Project.",
-      "addKeyCta": "Add OpenRouter key",
-      "getKeyLink": "Get a free key"
-    },
     "models": {
-      "generalOpenRouterTitle": "OpenRouter · your key (not York billing)",
-      "generalOpenRouterHint": "Personal York models (Hub) or project York models: switch workspace.",
-      "freeGroup": "Free on your key",
-      "viaYourKeyGroup": "Paid on your key",
-      "openRouterCue": "OpenRouter",
-      "viaOpenRouter": "via OpenRouter",
-      "keyRequired": "your key required",
-      "byokRequired": "needs York budget or your key",
       "askManager": "Ask your manager to add model access and usage budget in Hub.",
-      "addOpenRouterKey": "Add your OpenRouter API key (Settings → General)",
       "noProviderKeys": "No provider keys configured",
-      "openRouterLimitsFooter": "Your OpenRouter limits: under $10 credits → ~50/day; $10+ → ~1000/day. Paid models use your credits, not York’s.",
-      "openRouterKeyFooter": "General/Folders need your OpenRouter API key. Free models still require a key for access. Limits: <$10 → 50/day; $10+ → 1000/day.",
+      "overBudget": "Over budget",
       "yorkLocalLlmTitle": "York LLM",
       "yorkLocalLlmLoading": "Loading local models…",
       "yorkLocalLlmUnavailable": "Unavailable — check VPN/network connection to the York LLM server.",
@@ -1278,7 +1241,7 @@
       "you": "Your allowance",
       "project": "This project · used first",
       "projectNamed": "This project (currently {{name}} project's workspace) · used first",
-      "noYorkAllowance": "No York models or budget in this workspace yet. Ask your manager to assign them in Hub, or use your OpenRouter key.",
+      "noYorkAllowance": "No York models or budget in this workspace yet. Ask your manager to assign them in Hub.",
       "onTrack": "On track",
       "onTrackDetail": "On track this month.",
       "high": "Running high",
@@ -1288,8 +1251,7 @@
       "askManager": "Your manager can add model access and usage budget in Hub.",
       "renewsOn": "Renews {{renewsOn}}",
       "openSettings": "Open AI usage in Settings",
-      "lastReply": "Last reply {{tokens}}",
-      "byokCue": "Add your OpenRouter API key below."
+      "lastReply": "Last reply {{tokens}}"
     }
   },
   "yorkLlm": {
@@ -1493,7 +1455,6 @@
     "openInFileManager": "Open in file manager",
     "contextUsage": "Context Usage",
     "contextUsageLabel": "{{used}} / {{total}}",
-    "openRouterBilling": "Billed via your OpenRouter key",
     "toolPermissions": "Tool permissions",
     "toolPermissionsHint": "Only tools asked or used in this chat. Allow skips future prompts.",
     "toolPermissionsEmpty": "No permission prompts yet in this chat",
@@ -1595,7 +1556,7 @@
     "workspaceBound": "{{workspace}} · {{path}}",
     "workspaceNoPath": "(no folder)",
     "model": "Model",
-    "modelHint": "Used only for this schedule. Defaults to OpenRouter Free.",
+    "modelHint": "Used only for this schedule. Defaults to York LLM.",
     "modelEmpty": "No provider keys configured",
     "modelLabel": "Model: {{value}}",
     "executionTime": "Run timing",

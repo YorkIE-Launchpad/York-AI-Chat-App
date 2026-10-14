@@ -221,16 +221,7 @@ export function buildTerminalErrorMessage(errorText: string, partialText = ''): 
   // retry UX is shown via the thinking trace (auto_retry_start), not this bubble.
   let hint = '_Please retry. If this keeps happening, try again later or switch models._';
   const lower = errorText.toLowerCase();
-  // OpenRouter BYOK limits are user-owned — never tell them to contact York admin.
-  if (
-    lower.includes('openrouter') &&
-    (lower.includes('openrouter.ai') ||
-      lower.includes('your key') ||
-      lower.includes('york-managed'))
-  ) {
-    hint =
-      '_Add credits, pick a free OpenRouter model, or switch to Hub / Project for York-managed models._';
-  } else if (isUsageLimitError(errorText)) {
+  if (isUsageLimitError(errorText)) {
     hint = '_Contact your admin to restore access._';
   } else if (isRateLimitError(errorText)) {
     hint = '_Please retry later or contact your admin._';

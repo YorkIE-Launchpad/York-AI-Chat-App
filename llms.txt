@@ -39,7 +39,6 @@ Download from: https://york.ie
 
 | Provider       | Base URL                                 | Recommended Model     |
 |----------------|------------------------------------------|-----------------------|
-| OpenRouter     | https://openrouter.ai/api                | claude-4-5-sonnet     |
 | Anthropic      | (Default)                                | claude-4-5-sonnet     |
 | Zhipu AI (GLM) | https://open.bigmodel.cn/api/anthropic   | glm-4.7, glm-4.6     |
 | MiniMax        | https://api.minimaxi.com/anthropic       | minimax-m2            |
@@ -54,7 +53,7 @@ York IE is a free, open-source desktop application that provides a local AI agen
 York IE is the open-source implementation of Claude Cowork. It adds multi-model support (not just Claude), GUI automation via computer use, remote control through Feishu/Slack, and VM-level sandbox isolation.
 
 ### What AI models does York IE support?
-Claude (via Anthropic or OpenRouter), OpenAI-compatible APIs, and Chinese models including GLM (Zhipu AI), MiniMax, and Kimi. Any provider offering an OpenAI-compatible API endpoint can be configured.
+Claude (via Anthropic), OpenAI-compatible APIs, and Chinese models including GLM (Zhipu AI), MiniMax, and Kimi. Any provider offering an OpenAI-compatible API endpoint can be configured.
 
 ### Is York IE free?
 Yes. York IE itself is completely free and open-source under the MIT license. You only need to pay for the AI model API usage from your chosen provider.

@@ -198,7 +198,6 @@ const WRITABLE_KEYS = new Set<keyof AppConfig>([
  */
 const BLOCKED_TOP_LEVEL_KEYS = new Set<string>([
   'apiKey',
-  'openRouterUserApiKey',
   'profiles',
   'configSets',
   'memoryRuntime',

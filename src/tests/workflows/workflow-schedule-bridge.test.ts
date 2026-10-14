@@ -30,8 +30,8 @@ function makeTask(
     lastRunAt: null,
     lastRunSessionId: null,
     lastError: null,
-    model: 'openrouter/free',
-    provider: 'openrouter',
+    model: 'claude-sonnet-5',
+    provider: 'anthropic',
     kind: 'schedule',
     sessionMode: 'new',
     boundSessionId: null,
@@ -121,7 +121,10 @@ describe('workflow-schedule-bridge', () => {
       scheduleConfig: { kind: 'daily', times: ['09:00'] },
     });
 
-    const bridge = createWorkflowScheduleBridge(() => manager, () => '/tmp');
+    const bridge = createWorkflowScheduleBridge(
+      () => manager,
+      () => '/tmp'
+    );
     await bridge.removeSchedulesForWorkflow(workflowId, created.id);
 
     expect(manager.get(created.id)).toBeNull();
@@ -139,7 +142,10 @@ describe('workflow-schedule-bridge', () => {
       scheduleConfig: { kind: 'daily', times: ['10:00'] },
     });
 
-    const bridge = createWorkflowScheduleBridge(() => manager, () => '/tmp');
+    const bridge = createWorkflowScheduleBridge(
+      () => manager,
+      () => '/tmp'
+    );
     await bridge.removeSchedulesForWorkflow(workflowId, null);
 
     expect(manager.get(created.id)).toBeNull();
@@ -156,7 +162,10 @@ describe('workflow-schedule-bridge', () => {
       scheduleConfig: { kind: 'daily', times: ['08:00'] },
     });
 
-    const bridge = createWorkflowScheduleBridge(() => manager, () => '/tmp');
+    const bridge = createWorkflowScheduleBridge(
+      () => manager,
+      () => '/tmp'
+    );
     const taskId = await bridge.upsertCronSchedule({
       workflowId,
       workflowName: 'New name',

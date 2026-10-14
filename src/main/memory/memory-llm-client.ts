@@ -146,7 +146,6 @@ export class MemoryLLMClient implements MemoryLLMClientLike {
     const protocol = embedConfig.customProtocol;
     const isOpenAiCompatible =
       provider === 'openai' ||
-      provider === 'openrouter' ||
       provider === 'ollama' ||
       (provider === 'custom' && protocol === 'openai');
 

@@ -19,18 +19,13 @@ import {
   type BackendCloudProvider,
   type BackendModelInfo,
 } from '../../shared/backend-config';
-import { filterModelsForOpenRouterKey } from '../../shared/openrouter-fallback';
 import {
   filterModelsForDivision,
   type SessionDivisionFields,
 } from '../../shared/workspace-division';
-import {
-  YORK_LLM_PROVIDER,
-  yorkLlmSelectionPayload,
-} from '../../shared/york-llm-config';
+import { YORK_LLM_PROVIDER, yorkLlmSelectionPayload } from '../../shared/york-llm-config';
 import { fetchBackendModels } from '../config/backend-client';
 import { listYorkLlmModels } from '../config/york-llm-api';
-import { configStore } from '../config/config-store';
 import { log } from '../utils/logger';
 
 export interface AutoResolveInput {
@@ -42,8 +37,6 @@ export interface AutoResolveInput {
   contextChars?: number;
   /** Optional prefetched catalog; fetched from backend when omitted. */
   enabledModels?: BackendModelInfo[];
-  /** When omitted, reads from config store. */
-  openRouterUserApiKey?: string | null;
   /** Session workspace division (provider gating is FE-owned). */
   division?: Partial<SessionDivisionFields> | null;
   /** Optional prefetched York model id; listed when omitted and fast tier applies. */
@@ -62,7 +55,7 @@ export interface AutoResolveResult {
 
 function protocolForProvider(provider: BackendCloudProvider): 'anthropic' | 'openai' | 'gemini' {
   if (provider === 'gemini') return 'gemini';
-  if (provider === 'openai' || provider === 'openrouter') return 'openai';
+  if (provider === 'openai') return 'openai';
   return 'anthropic';
 }
 
@@ -174,14 +167,7 @@ export async function resolveAutoModelIfNeeded(
   }
 
   const rawModels = await getEnabledModels(input.enabledModels);
-  const openRouterUserApiKey =
-    input.openRouterUserApiKey !== undefined
-      ? input.openRouterUserApiKey
-      : configStore.getAll().openRouterUserApiKey;
-  const enabledModels = filterModelsForOpenRouterKey(
-    filterModelsForDivision(rawModels, input.division),
-    openRouterUserApiKey
-  );
+  const enabledModels = filterModelsForDivision(rawModels, input.division);
   const pick = pickAutoModel(enabledModels, score, preference, {
     requireVision: Boolean(input.hasImages),
   });

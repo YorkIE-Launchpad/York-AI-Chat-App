@@ -1,14 +1,21 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Briefcase, Building2, KeyRound, Layers, Loader2, Lock, Search, Users } from 'lucide-react';
+import { Briefcase, Building2, Layers, Loader2, Search, Users } from 'lucide-react';
 import { useAppStore } from '../store';
-import type { ClientProjectGroup, UnifiedCompanyProject } from '../../shared/unified-company-projects';
-import { canonicalKeyForUnified, filterClientProjectGroups, filterCompanyProjects, groupUnifiedProjectsByClient } from '../../shared/unified-company-projects';
+import type {
+  ClientProjectGroup,
+  UnifiedCompanyProject,
+} from '../../shared/unified-company-projects';
+import {
+  canonicalKeyForUnified,
+  filterClientProjectGroups,
+  filterCompanyProjects,
+  groupUnifiedProjectsByClient,
+} from '../../shared/unified-company-projects';
 import {
   activeDivisionFromUnifiedProject,
   clientDivisionFromProjects,
   companyProjectSourceLabel,
 } from '../../shared/workspace-division';
-import { hasOpenRouterUserApiKey } from '../../shared/openrouter-user-key';
 import {
   rememberRecentProject,
   resolveRecentProjects,
@@ -20,15 +27,6 @@ import {
  */
 export function DivisionChooser() {
   const setActiveDivision = useAppStore((s) => s.setActiveDivision);
-  const appConfig = useAppStore((s) => s.appConfig);
-  const setShowSettings = useAppStore((s) => s.setShowSettings);
-  const setSettingsTab = useAppStore((s) => s.setSettingsTab);
-  const hasOpenRouterKey = hasOpenRouterUserApiKey(appConfig?.openRouterUserApiKey);
-
-  const openOpenRouterKeySettings = useCallback(() => {
-    setSettingsTab('general');
-    setShowSettings(true);
-  }, [setSettingsTab, setShowSettings]);
   const [pickingProject, setPickingProject] = useState(false);
   const [pickingClient, setPickingClient] = useState(false);
   const [projects, setProjects] = useState<UnifiedCompanyProject[]>([]);
@@ -271,49 +269,49 @@ export function DivisionChooser() {
               />
             </div>
             <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain pr-1">
-            {visibleRecentProjects.length > 0 && (
-              <>
-                <div className="px-1 text-[10px] font-medium uppercase tracking-wide text-text-muted">
-                  Recent
-                </div>
-                {visibleRecentProjects.map((project) => (
-                  <button
-                    key={`recent:${project.canonicalKey}`}
-                    type="button"
-                    onClick={() => selectProject(project)}
-                    className="shrink-0 rounded-xl border border-border-subtle bg-bg-secondary px-4 py-3 text-left hover:border-accent/40 hover:bg-bg-tertiary transition-colors"
-                  >
-                    <div className="font-medium text-text-primary">{project.name}</div>
-                    <div className="mt-0.5 text-xs text-text-muted">
-                      {companyProjectSourceLabel(project.sources)}
-                    </div>
-                  </button>
-                ))}
-                {visibleOtherProjects.length > 0 && (
-                  <div className="px-1 pt-1 text-[10px] font-medium uppercase tracking-wide text-text-muted">
-                    All projects
+              {visibleRecentProjects.length > 0 && (
+                <>
+                  <div className="px-1 text-[10px] font-medium uppercase tracking-wide text-text-muted">
+                    Recent
                   </div>
-                )}
-              </>
-            )}
-            {visibleOtherProjects.map((project) => (
-              <button
-                key={project.canonicalKey}
-                type="button"
-                onClick={() => selectProject(project)}
-                className="shrink-0 rounded-xl border border-border-subtle bg-bg-secondary px-4 py-3 text-left hover:border-accent/40 hover:bg-bg-tertiary transition-colors"
-              >
-                <div className="font-medium text-text-primary">{project.name}</div>
-                <div className="mt-0.5 text-xs text-text-muted">
-                  {companyProjectSourceLabel(project.sources)}
-                </div>
-              </button>
-            ))}
-            {!hasProjectMatches && (
-              <p className="rounded-lg border border-border-subtle bg-bg-secondary px-4 py-6 text-center text-sm text-text-muted">
-                No matching projects
-              </p>
-            )}
+                  {visibleRecentProjects.map((project) => (
+                    <button
+                      key={`recent:${project.canonicalKey}`}
+                      type="button"
+                      onClick={() => selectProject(project)}
+                      className="shrink-0 rounded-xl border border-border-subtle bg-bg-secondary px-4 py-3 text-left hover:border-accent/40 hover:bg-bg-tertiary transition-colors"
+                    >
+                      <div className="font-medium text-text-primary">{project.name}</div>
+                      <div className="mt-0.5 text-xs text-text-muted">
+                        {companyProjectSourceLabel(project.sources)}
+                      </div>
+                    </button>
+                  ))}
+                  {visibleOtherProjects.length > 0 && (
+                    <div className="px-1 pt-1 text-[10px] font-medium uppercase tracking-wide text-text-muted">
+                      All projects
+                    </div>
+                  )}
+                </>
+              )}
+              {visibleOtherProjects.map((project) => (
+                <button
+                  key={project.canonicalKey}
+                  type="button"
+                  onClick={() => selectProject(project)}
+                  className="shrink-0 rounded-xl border border-border-subtle bg-bg-secondary px-4 py-3 text-left hover:border-accent/40 hover:bg-bg-tertiary transition-colors"
+                >
+                  <div className="font-medium text-text-primary">{project.name}</div>
+                  <div className="mt-0.5 text-xs text-text-muted">
+                    {companyProjectSourceLabel(project.sources)}
+                  </div>
+                </button>
+              ))}
+              {!hasProjectMatches && (
+                <p className="rounded-lg border border-border-subtle bg-bg-secondary px-4 py-6 text-center text-sm text-text-muted">
+                  No matching projects
+                </p>
+              )}
             </div>
           </div>
         )}
@@ -327,36 +325,20 @@ export function DivisionChooser() {
         Choose a workspace
       </h2>
       <p className="mb-6 text-center text-sm text-text-muted">
-        Each workspace has its own chats and experience memory. General needs your own OpenRouter
-        API key; Hub uses your personal York allowance; Project uses York-managed models.
+        Each workspace has its own chats and experience memory. Hub uses your personal York
+        allowance; Project uses York-managed models.
       </p>
       <div className="grid gap-3 sm:grid-cols-2">
         <ChooserCard
           icon={Layers}
           title="General"
-          description="Personal chats on OpenRouter. Requires your OpenRouter API key (not York billing)."
-          locked={!hasOpenRouterKey}
-          lockHint="Add your OpenRouter key in Settings first"
-          onClick={() => {
-            if (!hasOpenRouterKey) {
-              openOpenRouterKeySettings();
-              return;
-            }
-            setActiveDivision({ kind: 'general' });
-          }}
-          secondaryAction={
-            !hasOpenRouterKey
-              ? {
-                  label: 'Add OpenRouter key',
-                  onClick: openOpenRouterKeySettings,
-                }
-              : undefined
-          }
+          description="Personal chats on York models."
+          onClick={() => setActiveDivision({ kind: 'general' })}
         />
         <ChooserCard
           icon={Building2}
           title="Hub"
-          description="People, culture, and HRMS — personal York models, no OpenRouter key needed"
+          description="People, culture, and HRMS — personal York models"
           onClick={() => setActiveDivision({ kind: 'hub' })}
         />
         <ChooserCard
@@ -372,11 +354,6 @@ export function DivisionChooser() {
           onClick={() => setPickingProject(true)}
         />
       </div>
-      {!hasOpenRouterKey && (
-        <p className="mt-4 text-center text-xs text-text-muted">
-          Prefer York models without your own key? Start with Hub, Client, or Project.
-        </p>
-      )}
     </div>
   );
 }
@@ -386,65 +363,23 @@ function ChooserCard({
   title,
   description,
   onClick,
-  locked = false,
-  lockHint,
-  secondaryAction,
 }: {
   icon: typeof Layers;
   title: string;
   description: string;
   onClick: () => void;
-  locked?: boolean;
-  lockHint?: string;
-  secondaryAction?: { label: string; onClick: () => void };
 }) {
   return (
-    <div
-      className={`flex flex-col items-start gap-3 rounded-xl border p-4 text-left transition-colors ${
-        locked
-          ? 'border-amber-500/30 bg-amber-500/5'
-          : 'border-border-subtle bg-bg-secondary hover:border-accent/40 hover:bg-bg-tertiary'
-      }`}
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex flex-col items-start gap-3 rounded-xl border border-border-subtle bg-bg-secondary p-4 text-left transition-colors hover:border-accent/40 hover:bg-bg-tertiary"
     >
-      <button
-        type="button"
-        onClick={onClick}
-        className="flex w-full flex-col items-start gap-3 text-left"
-      >
-        <div className="flex w-full items-center justify-between gap-2">
-          <Icon
-            className={`h-5 w-5 ${locked ? 'text-amber-700 dark:text-amber-400' : 'text-text-muted'}`}
-          />
-          {locked ? (
-            <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-800 dark:text-amber-300">
-              <Lock className="h-3 w-3" />
-              Key required
-            </span>
-          ) : null}
-        </div>
-        <div>
-          <div className="font-semibold text-text-primary">{title}</div>
-          <div className="mt-1 text-xs leading-relaxed text-text-muted">{description}</div>
-          {locked && lockHint ? (
-            <div className="mt-2 text-xs font-medium text-amber-800 dark:text-amber-300">
-              {lockHint}
-            </div>
-          ) : null}
-        </div>
-      </button>
-      {secondaryAction ? (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            secondaryAction.onClick();
-          }}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-2.5 py-1.5 text-xs font-medium text-white hover:opacity-90"
-        >
-          <KeyRound className="h-3.5 w-3.5" />
-          {secondaryAction.label}
-        </button>
-      ) : null}
-    </div>
+      <Icon className="h-5 w-5 text-text-muted" />
+      <div>
+        <div className="font-semibold text-text-primary">{title}</div>
+        <div className="mt-1 text-xs leading-relaxed text-text-muted">{description}</div>
+      </div>
+    </button>
   );
 }

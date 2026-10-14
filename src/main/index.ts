@@ -2593,7 +2593,7 @@ app
     setMcpWriteAccessServerSource(() => mcpConfigStore.getServers());
     setMcpWriteAccessEnabled(configStore.get('mcpWriteAccessEnabled') !== false);
 
-    // Migrate legacy Auto / openrouter/free defaults → York LLM before window boot.
+    // Migrate empty / retired default models → York LLM before window boot.
     await bootstrapYorkLlmDefault();
 
     // Start config file watcher for bidirectional sync
@@ -4455,7 +4455,6 @@ ipcMain.handle('config.save', async (_event, newConfig: Partial<AppConfig>) => {
   log('[Config] Saving config:', {
     ...newConfig,
     apiKey: newConfig.apiKey ? '***' : '',
-    openRouterUserApiKey: newConfig.openRouterUserApiKey ? '***' : '',
     memoryRuntime: newConfig.memoryRuntime
       ? {
           ...newConfig.memoryRuntime,

@@ -15,7 +15,7 @@ const MODELS: BackendModelInfo[] = [
   { id: 'gpt-5.4', name: 'GPT-5.4', provider: 'openai' },
   { id: 'gemini-3.6-flash', name: 'Gemini 3.6 Flash', provider: 'gemini' },
   { id: 'gpt-image-2.5', name: 'GPT Image 2.5', provider: 'openai' },
-  { id: 'x/paid', name: 'Paid Router Model', provider: 'openrouter', hasBudget: false },
+  { id: 'gpt-5.6-luna', name: 'GPT-5.6 Luna', provider: 'openai', hasBudget: false },
 ];
 
 describe('matchVoiceModel', () => {
@@ -46,10 +46,10 @@ describe('matchVoiceModel', () => {
 });
 
 describe('selectableVoiceModels', () => {
-  it('drops image-only and over-budget models without a user key', () => {
-    const ids = selectableVoiceModels(MODELS, undefined).map((m) => m.id);
+  it('drops image-only and over-budget models', () => {
+    const ids = selectableVoiceModels(MODELS).map((m) => m.id);
     expect(ids).not.toContain('gpt-image-2.5');
-    expect(ids).not.toContain('x/paid');
+    expect(ids).not.toContain('gpt-5.6-luna');
     expect(ids).toContain('claude-opus-5');
   });
 });

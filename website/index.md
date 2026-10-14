@@ -155,7 +155,7 @@ York IE VECOS is a free, open-source AI agent desktop application for Windows an
 
 ### What AI models are supported?
 
-Claude (via Anthropic or OpenRouter), OpenAI-compatible APIs, and Chinese models including GLM (Zhipu AI), MiniMax, and Kimi. Any provider offering an OpenAI-compatible API endpoint can be configured.
+Claude (via Anthropic), OpenAI-compatible APIs, and Chinese models including GLM (Zhipu AI), MiniMax, and Kimi. Any provider offering an OpenAI-compatible API endpoint can be configured.
 
 </div>
 

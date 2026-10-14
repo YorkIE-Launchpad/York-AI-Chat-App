@@ -31,7 +31,6 @@ const PROVIDER_TARGETS: ProviderTarget[] = [
     upstreamOrigin: 'https://generativelanguage.googleapis.com',
     mountPath: '/gemini',
   },
-  { provider: 'openrouter', upstreamOrigin: 'https://openrouter.ai/api', mountPath: '/openrouter' },
   { provider: 'typesafe', upstreamOrigin: 'https://api.typesafe.ai', mountPath: '/typesafe' },
 ];
 

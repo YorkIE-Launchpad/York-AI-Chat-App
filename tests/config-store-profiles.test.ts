@@ -67,7 +67,7 @@ describe('ConfigStore provider profiles', () => {
     expect(config.activeProfileKey).toBe('openai');
     expect(config.apiKey).toBe('sk-legacy-openai');
     expect(config.profiles.openai?.apiKey).toBe('sk-legacy-openai');
-    expect(config.profiles.openrouter?.apiKey).toBe('');
+    expect(config.profiles.anthropic?.apiKey).toBe('');
     expect(config.profiles['custom:anthropic']?.apiKey).toBe('');
   });
 
@@ -81,11 +81,6 @@ describe('ConfigStore provider profiles', () => {
           apiKey: 'sk-openai',
           baseUrl: 'https://api.openai.com/v1',
           model: 'gpt-5.2',
-        },
-        openrouter: {
-          apiKey: 'sk-openrouter',
-          baseUrl: 'https://openrouter.ai/api',
-          model: 'anthropic/claude-sonnet-4.5',
         },
         anthropic: {
           apiKey: 'sk-ant',
@@ -110,11 +105,11 @@ describe('ConfigStore provider profiles', () => {
     };
 
     const store = new ConfigStore();
-    store.update({ provider: 'openrouter' });
+    store.update({ provider: 'anthropic' });
     const switched = store.getAll();
 
-    expect(switched.provider).toBe('openrouter');
-    expect(switched.apiKey).toBe('sk-openrouter');
+    expect(switched.provider).toBe('anthropic');
+    expect(switched.apiKey).toBe('sk-ant');
     expect(switched.profiles.openai?.apiKey).toBe('sk-openai');
 
     store.update({ provider: 'openai' });
@@ -126,11 +121,11 @@ describe('ConfigStore provider profiles', () => {
   it('updates active profile credentials only for current profile', () => {
     const store = new ConfigStore();
 
-    store.update({ provider: 'openrouter' });
+    store.update({ provider: 'anthropic' });
     store.update({
-      apiKey: 'sk-or-new',
-      model: 'anthropic/claude-sonnet-4',
-      baseUrl: 'https://openrouter.ai/api',
+      apiKey: 'sk-ant-new',
+      model: 'claude-sonnet-4',
+      baseUrl: 'https://api.anthropic.com',
     });
 
     store.update({ provider: 'openai' });
@@ -138,11 +133,11 @@ describe('ConfigStore provider profiles', () => {
     expect(openaiView.provider).toBe('openai');
     expect(openaiView.apiKey).toBe('');
 
-    store.update({ provider: 'openrouter' });
-    const openrouterView = store.getAll();
-    expect(openrouterView.provider).toBe('openrouter');
-    expect(openrouterView.apiKey).toBe('sk-or-new');
-    expect(openrouterView.model).toBe('anthropic/claude-sonnet-4');
+    store.update({ provider: 'anthropic' });
+    const anthropicView = store.getAll();
+    expect(anthropicView.provider).toBe('anthropic');
+    expect(anthropicView.apiKey).toBe('sk-ant-new');
+    expect(anthropicView.model).toBe('claude-sonnet-4');
   });
 
   it('keeps gemini and custom gemini profiles isolated from other providers', () => {
@@ -178,7 +173,7 @@ describe('ConfigStore provider profiles', () => {
   it('treats global configured state as any set usable while active set can still be unusable', () => {
     const store = new ConfigStore();
 
-    store.update({ provider: 'openrouter', apiKey: 'sk-or-global' });
+    store.update({ provider: 'anthropic', apiKey: 'sk-ant-global' });
     store.createSet({ name: 'Blank Active', mode: 'blank' });
 
     expect(store.hasUsableCredentialsForActiveSet()).toBe(false);

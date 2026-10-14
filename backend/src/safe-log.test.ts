@@ -42,11 +42,11 @@ describe('safe-log secret redaction', () => {
   it('scrubs Bearer tokens, JWTs, and common API key prefixes in free text', () => {
     const jwt = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature';
     const text = scrubSecretStrings(
-      `auth=Bearer ${jwt} key=sk-or-user-abc slack=xoxb-1-2-3 google=AIzaSyAbcdef123`
+      `auth=Bearer ${jwt} key=sk-proj-user-abc slack=xoxb-1-2-3 google=AIzaSyAbcdef123`
     );
 
     assert.equal(text.includes(jwt), false);
-    assert.equal(text.includes('sk-or-user-abc'), false);
+    assert.equal(text.includes('sk-proj-user-abc'), false);
     assert.equal(text.includes('xoxb-1-2-3'), false);
     assert.equal(text.includes('AIzaSyAbcdef123'), false);
     assert.match(text, /Bearer \[REDACTED]/);

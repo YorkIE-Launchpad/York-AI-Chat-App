@@ -13,7 +13,6 @@ import {
   serializeClientDivisionProjects,
   sessionMatchesActiveDivision,
 } from '../../shared/workspace-division';
-import { filterModelsForOpenRouterKey } from '../../shared/openrouter-fallback';
 import type { BackendModelInfo } from '../../shared/backend-config';
 import {
   parseActiveUsersWithAllocations,
@@ -285,7 +284,12 @@ describe('workspace-division', () => {
     ).toBe(true);
     expect(
       sessionMatchesActiveDivision(
-        { division: 'client', clientName: 'Other', clientProjectIds: '[]', canonicalKey: 'client:other' },
+        {
+          division: 'client',
+          clientName: 'Other',
+          clientProjectIds: '[]',
+          canonicalKey: 'client:other',
+        },
         active
       )
     ).toBe(false);
@@ -295,7 +299,11 @@ describe('workspace-division', () => {
     const projects = serializeClientDivisionProjects([
       { name: 'Portal', hubProjectId: 'h1', canonicalKey: 'hub:h1' },
     ]);
-    const session = { division: 'client' as const, clientName: 'Acme Corp', clientProjectIds: projects };
+    const session = {
+      division: 'client' as const,
+      clientName: 'Acme Corp',
+      clientProjectIds: projects,
+    };
     const prompt = buildDivisionSystemPrompt(session);
     expect(prompt).toContain('locked to client "Acme Corp"');
     expect(prompt).toContain('OUT OF SCOPE');
@@ -307,53 +315,37 @@ describe('workspace-division', () => {
 
   it('allows Hub-allowed providers in all workspace divisions', () => {
     const catalog: BackendModelInfo[] = [
-      { id: 'openrouter/free', name: 'Free', provider: 'openrouter' },
       { id: 'claude-haiku-4-5', name: 'Haiku', provider: 'anthropic' },
       { id: 'gpt-5.4-mini', name: 'Mini', provider: 'openai' },
       { id: 'gemini-2.5-flash', name: 'Flash', provider: 'gemini' },
     ];
 
-    expect(filterModelsForDivision(catalog, { division: 'general' })).toHaveLength(4);
+    expect(filterModelsForDivision(catalog, { division: 'general' })).toHaveLength(3);
     expect(
       filterModelsForDivision(catalog, {
         division: 'folder',
         folderId: 'f1',
         folderName: 'Notes',
       })
-    ).toHaveLength(4);
-    expect(filterModelsForDivision(catalog, { division: 'hub' })).toHaveLength(4);
+    ).toHaveLength(3);
+    expect(filterModelsForDivision(catalog, { division: 'hub' })).toHaveLength(3);
     expect(
       filterModelsForDivision(catalog, {
         division: 'project',
         hubProjectId: 'p1',
         hubProjectName: 'P',
       })
-    ).toHaveLength(4);
+    ).toHaveLength(3);
 
-    expect(isProviderAllowedInDivision('openrouter', { division: 'general' })).toBe(true);
     expect(isProviderAllowedInDivision('anthropic', { division: 'general' })).toBe(true);
     expect(isProviderAllowedInDivision('anthropic', { division: 'folder' })).toBe(true);
     expect(isProviderAllowedInDivision('anthropic', { division: 'hub' })).toBe(true);
-    expect(isProviderAllowedInDivision('openrouter', { division: 'hub' })).toBe(true);
     expect(isProviderAllowedInDivision('', { division: 'hub' })).toBe(false);
 
-    // Without BYOK, OpenRouter rows are still filtered out; York providers remain.
-    expect(
-      filterModelsForOpenRouterKey(filterModelsForDivision(catalog, { division: 'general' }), '').map(
-        (m) => m.provider
-      )
-    ).toEqual(['anthropic', 'openai', 'gemini']);
-    expect(
-      filterModelsForOpenRouterKey(
-        filterModelsForDivision(catalog, { division: 'general' }),
-        'sk-or'
-      )
-    ).toHaveLength(4);
-
     // No division context → pass-through
-    expect(filterModelsForDivision(catalog, null)).toHaveLength(4);
-    expect(filterModelsForDivision(catalog, undefined)).toHaveLength(4);
-    expect(filterModelsForDivision(catalog, {})).toHaveLength(4);
+    expect(filterModelsForDivision(catalog, null)).toHaveLength(3);
+    expect(filterModelsForDivision(catalog, undefined)).toHaveLength(3);
+    expect(filterModelsForDivision(catalog, {})).toHaveLength(3);
     expect(isProviderAllowedInDivision('anthropic', null)).toBe(true);
   });
 });

@@ -139,11 +139,11 @@ describe('ConfigStore config sets', () => {
 
   it('creates/switches sets without polluting other sets', () => {
     mocks.seed = {
-      provider: 'openrouter',
+      provider: 'anthropic',
       customProtocol: 'anthropic',
-      apiKey: 'sk-openrouter-origin',
-      baseUrl: 'https://openrouter.ai/api',
-      model: 'anthropic/claude-sonnet-4-6',
+      apiKey: 'sk-anthropic-origin',
+      baseUrl: 'https://api.anthropic.com',
+      model: 'claude-sonnet-4-6',
       enableThinking: false,
       isConfigured: true,
     };
@@ -163,8 +163,8 @@ describe('ConfigStore config sets', () => {
 
     store.switchSet({ id: 'default' });
     const defaultSetView = store.getAll();
-    expect(defaultSetView.provider).toBe('openrouter');
-    expect(defaultSetView.apiKey).toBe('sk-openrouter-origin');
+    expect(defaultSetView.provider).toBe('anthropic');
+    expect(defaultSetView.apiKey).toBe('sk-anthropic-origin');
   });
 
   it('guards default set deletion and falls back to default after delete', () => {

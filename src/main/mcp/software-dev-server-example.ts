@@ -821,14 +821,14 @@ async function takeScreenshot(outputPath: string): Promise<string> {
   return outputPath;
 }
 
-// Helper: Call vision API (supports Anthropic, OpenAI-compatible, and OpenRouter)
+// Helper: Call vision API (supports Anthropic and OpenAI-compatible)
 
 async function callVisionAPI(
   base64Image: string,
   prompt: string,
   maxTokens: number = 2048
 ): Promise<string> {
-  // Get API configuration from environment (supports Anthropic/OpenRouter/OpenAI-compatible)
+  // Get API configuration from environment (supports Anthropic/OpenAI-compatible)
   const anthropicApiKey = process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN;
   const openAIApiKey = process.env.OPENAI_API_KEY;
   const apiKey = anthropicApiKey || openAIApiKey;
@@ -855,21 +855,16 @@ async function callVisionAPI(
   // Log the prompt
   writeMCPLog(prompt, 'PROMPT');
 
-  // Check if using OpenRouter
-  const isOpenRouter =
-    !!baseUrl && (baseUrl.includes('openrouter.ai') || baseUrl.includes('openrouter'));
-
   // Check if model/config is OpenAI-compatible (Gemini, GPT, etc.)
   const isOpenAICompatible =
     hasOpenAIConfig ||
     model.includes('gemini') ||
     model.includes('gpt-') ||
     model.includes('openai/') ||
-    isOpenRouter ||
     (baseUrl ? baseUrl.includes('api.openai.com') : false);
 
   if (isOpenAICompatible) {
-    // Use OpenAI-compatible API format (for Gemini, GPT, etc. via OpenRouter)
+    // Use OpenAI-compatible API format (for Gemini, GPT, etc.)
     const openAIBaseUrl = baseUrl || 'https://api.openai.com/v1';
     const openAIUrl = openAIBaseUrl.endsWith('/v1')
       ? `${openAIBaseUrl}/chat/completions`
@@ -887,7 +882,7 @@ async function callVisionAPI(
     const isHttps = urlObj.protocol === 'https:';
     const httpModule = isHttps ? https : http;
 
-    // Build request body with optional reasoning parameter for OpenRouter
+    // Build request body
     const requestBodyObj: Record<string, unknown> = {
       model: model,
       messages: [
@@ -910,12 +905,6 @@ async function callVisionAPI(
       max_tokens: maxTokens,
     };
 
-    // For OpenRouter: control reasoning/thinking based on settings
-    // When enableThinking is false, set effort to 'none' to disable extended thinking
-    // if (isOpenRouter && !enableThinking) {
-    //   requestBodyObj.reasoning = { effort: 'none' };
-    // }
-
     const requestBody = JSON.stringify(requestBodyObj);
 
     const headers: Record<string, string | number> = {
@@ -923,11 +912,6 @@ async function callVisionAPI(
       Authorization: `Bearer ${apiKey}`,
       'Content-Length': Buffer.byteLength(requestBody),
     };
-
-    if (isOpenRouter) {
-      headers['HTTP-Referer'] = 'https://york.ie';
-      headers['X-Title'] = 'York IE VECOS';
-    }
 
     return new Promise<string>((resolve, reject) => {
       const options = {

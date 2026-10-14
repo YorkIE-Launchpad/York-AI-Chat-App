@@ -9,6 +9,8 @@ export const YORK_LLM_PROVIDER = 'ollama' as const;
  * `auto` is a first-class Smart Auto selection and must not migrate away.
  */
 export const LEGACY_DEFAULT_MODEL_IDS = new Set(['openrouter/free']);
+/** Retired providers; stored selections for these fall back to York LLM. */
+export const LEGACY_PROVIDER_IDS = new Set(['openrouter']);
 
 /** Activity timeout for York turns (slow shared llama.cpp). Cloud stays at 5 min. */
 export const YORK_LLM_PROMPT_TIMEOUT_MS = 60 * 60 * 1000;

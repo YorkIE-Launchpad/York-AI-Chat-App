@@ -5,7 +5,7 @@
 
 import type { AppConfig } from '../../config/config-store';
 import { runPiAiOneShot } from '../../agent/sdk-one-shot';
-import { applyBackendManagedCredentials } from '../../../shared/backend-config';
+import { resolveYorkLlmOneShotConfig } from '../../config/york-llm-api';
 import { logWarn } from '../../utils/logger';
 import { parseJsonLoose } from './connectors';
 import type {
@@ -22,7 +22,6 @@ import type {
   SeriesHistory,
 } from './types';
 
-const MEETING_PREP_MODEL = 'gpt-5.6-luna';
 export const MAX_EVIDENCE_ITEMS = 40;
 export const MAX_EVIDENCE_CHARS = 24_000;
 
@@ -279,15 +278,7 @@ export async function synthesizePrepBrief(input: {
   const selected = selectEvidenceForPrompt(input.evidence);
   const validIds = new Set(selected.map((e) => e.id));
   try {
-    const creds = applyBackendManagedCredentials({ provider: 'openai', apiKey: '', baseUrl: '' });
-    const oneShotConfig: AppConfig = {
-      ...input.config,
-      model: MEETING_PREP_MODEL,
-      provider: 'openai',
-      customProtocol: 'openai',
-      baseUrl: creds.baseUrl || input.config.baseUrl,
-      apiKey: creds.apiKey || input.config.apiKey,
-    };
+    const oneShotConfig = await resolveYorkLlmOneShotConfig(input.config);
     const prompt = buildSynthesisPrompt({ ...input, evidence: selected });
     const result = await runPiAiOneShot(prompt, SYSTEM_PROMPT, oneShotConfig, {
       usageFeature: 'matter_prep',

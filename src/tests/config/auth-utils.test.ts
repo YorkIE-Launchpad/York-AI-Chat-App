@@ -103,46 +103,21 @@ describe('normalizeOpenAICompatibleBaseUrl', () => {
     );
   });
 
-  // --- OpenRouter URLs (special handling preserved) ---
-  it('adds /api/v1 to bare OpenRouter URL', () => {
-    expect(normalizeOpenAICompatibleBaseUrl('https://openrouter.ai')).toBe(
-      'https://openrouter.ai/api/v1'
+  it('strips /chat/completions from OpenAI-compatible URL', () => {
+    expect(
+      normalizeOpenAICompatibleBaseUrl('https://llm.example.com/api/v1/chat/completions')
+    ).toBe('https://llm.example.com/api/v1');
+  });
+
+  it('strips /completions from OpenAI-compatible URL', () => {
+    expect(normalizeOpenAICompatibleBaseUrl('https://llm.example.com/api/v1/completions')).toBe(
+      'https://llm.example.com/api/v1'
     );
   });
 
-  it('adds /api/v1 to OpenRouter URL with trailing slash', () => {
-    expect(normalizeOpenAICompatibleBaseUrl('https://openrouter.ai/')).toBe(
-      'https://openrouter.ai/api/v1'
-    );
-  });
-
-  it('completes /api to /api/v1 for OpenRouter', () => {
-    expect(normalizeOpenAICompatibleBaseUrl('https://openrouter.ai/api')).toBe(
-      'https://openrouter.ai/api/v1'
-    );
-  });
-
-  it('preserves correct OpenRouter /api/v1 path', () => {
-    expect(normalizeOpenAICompatibleBaseUrl('https://openrouter.ai/api/v1')).toBe(
-      'https://openrouter.ai/api/v1'
-    );
-  });
-
-  it('strips /chat/completions from OpenRouter URL', () => {
-    expect(normalizeOpenAICompatibleBaseUrl('https://openrouter.ai/api/v1/chat/completions')).toBe(
-      'https://openrouter.ai/api/v1'
-    );
-  });
-
-  it('strips /completions from OpenRouter URL', () => {
-    expect(normalizeOpenAICompatibleBaseUrl('https://openrouter.ai/api/v1/completions')).toBe(
-      'https://openrouter.ai/api/v1'
-    );
-  });
-
-  it('strips /responses from OpenRouter URL', () => {
-    expect(normalizeOpenAICompatibleBaseUrl('https://openrouter.ai/api/v1/responses')).toBe(
-      'https://openrouter.ai/api/v1'
+  it('strips /responses from OpenAI-compatible URL', () => {
+    expect(normalizeOpenAICompatibleBaseUrl('https://llm.example.com/api/v1/responses')).toBe(
+      'https://llm.example.com/api/v1'
     );
   });
 

@@ -16,7 +16,6 @@ import {
   filterModelsForDivision,
   sessionFieldsFromActiveDivision,
 } from '../../../shared/workspace-division';
-import { filterModelsForOpenRouterKey } from '../../../shared/openrouter-fallback';
 import {
   isYorkLlmSelection,
   useYorkLlmModels,
@@ -29,7 +28,6 @@ const PROVIDER_GROUPS: Array<{ provider: BackendCloudProvider; label: string }> 
   { provider: 'anthropic', label: 'Anthropic' },
   { provider: 'openai', label: 'OpenAI' },
   { provider: 'gemini', label: 'Gemini' },
-  { provider: 'openrouter', label: 'OpenRouter' },
 ];
 
 interface ModelOption {
@@ -68,12 +66,9 @@ function useChildModelOptions() {
 
   return useMemo(() => {
     const autoLabel = t('workspace.models.autoShort', 'Auto');
-    const usable = filterModelsForOpenRouterKey(
-      filterModelsForDivision(
-        catalog.filter((model) => !isGptImage25ModelId(model.id)),
-        sessionFieldsFromActiveDivision(activeDivision)
-      ),
-      appConfig?.openRouterUserApiKey
+    const usable = filterModelsForDivision(
+      catalog.filter((model) => !isGptImage25ModelId(model.id)),
+      sessionFieldsFromActiveDivision(activeDivision)
     );
     const groups: ModelGroup[] = [
       {
@@ -120,7 +115,6 @@ function useChildModelOptions() {
     activeDivision,
     appConfig?.baseUrl,
     appConfig?.model,
-    appConfig?.openRouterUserApiKey,
     appConfig?.provider,
     catalog,
     t,

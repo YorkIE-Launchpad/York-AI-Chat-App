@@ -8,27 +8,19 @@ vi.mock('../../main/auth/session', () => ({
   isAuthenticated: vi.fn(() => true),
 }));
 
-vi.mock('../../main/config/backend-auth', () => ({
-  resolveBackendClientApiKey: vi.fn(async () => 'test-key'),
+vi.mock('../../main/config/config-store', () => ({
+  configStore: { getAll: vi.fn(() => ({ provider: 'openai', model: 'gpt-5.4' })) },
 }));
 
-vi.mock('../../shared/backend-config', () => ({
-  BACKEND_PROXY_PLACEHOLDER_KEY: 'proxy-key',
-  getBackendProxyBaseUrl: vi.fn(() => 'https://example.test/openai'),
+const resolveYorkConfigMock = vi.hoisted(() => vi.fn());
+vi.mock('../../main/config/york-llm-api', () => ({
+  resolveYorkLlmOneShotConfig: resolveYorkConfigMock,
 }));
 
-const createMock = vi.fn();
-
-vi.mock('openai', () => {
-  class OpenAI {
-    chat = {
-      completions: {
-        create: createMock,
-      },
-    };
-  }
-  return { default: OpenAI };
-});
+const runPiAiOneShotMock = vi.hoisted(() => vi.fn());
+vi.mock('../../main/agent/sdk-one-shot', () => ({
+  runPiAiOneShot: runPiAiOneShotMock,
+}));
 
 describe('needsEnglishTranslation', () => {
   it('returns false for English', () => {
@@ -50,7 +42,13 @@ describe('needsEnglishTranslation', () => {
 
 describe('normalizeTranscriptToEnglish', () => {
   beforeEach(() => {
-    createMock.mockReset();
+    runPiAiOneShotMock.mockReset();
+    resolveYorkConfigMock.mockReset();
+    resolveYorkConfigMock.mockImplementation(async (config: object) => ({
+      ...config,
+      provider: 'ollama',
+      model: 'york-test.gguf',
+    }));
   });
 
   afterEach(() => {
@@ -61,20 +59,25 @@ describe('normalizeTranscriptToEnglish', () => {
     await expect(normalizeTranscriptToEnglish('Ship the release tomorrow.')).resolves.toBe(
       'Ship the release tomorrow.'
     );
-    expect(createMock).not.toHaveBeenCalled();
+    expect(runPiAiOneShotMock).not.toHaveBeenCalled();
   });
 
-  it('translates Hindi via chat completions', async () => {
-    createMock.mockResolvedValue({
-      choices: [{ message: { content: 'We will look at the roadmap.' } }],
-    });
+  it('translates Hindi via York LLM', async () => {
+    runPiAiOneShotMock.mockResolvedValue({ text: 'We will look at the roadmap.' });
     await expect(normalizeTranscriptToEnglish('हम रोडमैप देखेंगे')).resolves.toBe(
       'We will look at the roadmap.'
     );
-    expect(createMock).toHaveBeenCalledOnce();
-    const args = createMock.mock.calls[0]?.[0] as {
-      messages: Array<{ role: string; content: string }>;
-    };
-    expect(args.messages[1]?.content).toBe('हम रोडमैप देखेंगे');
+    expect(runPiAiOneShotMock).toHaveBeenCalledOnce();
+    const [userPrompt, , config] = runPiAiOneShotMock.mock.calls[0] ?? [];
+    expect(userPrompt).toBe('हम रोडमैप देखेंगे');
+    expect(config).toMatchObject({ provider: 'ollama', model: 'york-test.gguf' });
+  });
+
+  it('keeps the original text when York LLM is unavailable', async () => {
+    resolveYorkConfigMock.mockRejectedValue(new Error('York LLM has no models available'));
+    await expect(normalizeTranscriptToEnglish('हम रोडमैप देखेंगे')).resolves.toBe(
+      'हम रोडमैप देखेंगे'
+    );
+    expect(runPiAiOneShotMock).not.toHaveBeenCalled();
   });
 });

@@ -9,8 +9,6 @@ import {
   type BackendModelInfo,
 } from '../../shared/backend-config';
 import { isGptImage25ModelId } from '../../shared/image-generation';
-import { filterModelsForOpenRouterKey } from '../../shared/openrouter-fallback';
-import { hasOpenRouterUserApiKey } from '../../shared/openrouter-user-key';
 import type { VoiceActionResult } from '../../shared/voice-control';
 import type { AppConfig } from '../config/config-store';
 
@@ -77,17 +75,8 @@ export function matchVoiceModel(spoken: string, models: BackendModelInfo[]): Voi
 }
 
 /** Models the chat model selector would let this user pick. */
-export function selectableVoiceModels(
-  models: BackendModelInfo[],
-  openRouterUserApiKey: string | undefined
-): BackendModelInfo[] {
-  const hasKey = hasOpenRouterUserApiKey(openRouterUserApiKey);
-  return filterModelsForOpenRouterKey(
-    models.filter((model) => !isGptImage25ModelId(model.id)),
-    openRouterUserApiKey
-  ).filter(
-    (model) => (model.provider !== 'openrouter' || hasKey) && (model.hasBudget !== false || hasKey)
-  );
+export function selectableVoiceModels(models: BackendModelInfo[]): BackendModelInfo[] {
+  return models.filter((model) => !isGptImage25ModelId(model.id) && model.hasBudget !== false);
 }
 
 /** Same payload the chat model selector saves for a backend catalog model. */
@@ -96,11 +85,7 @@ export function modelSelectionPayload(model: BackendModelInfo): Partial<AppConfi
     provider: model.provider,
     activeProfileKey: model.provider,
     customProtocol:
-      model.provider === 'gemini'
-        ? 'gemini'
-        : model.provider === 'openai' || model.provider === 'openrouter'
-          ? 'openai'
-          : 'anthropic',
+      model.provider === 'gemini' ? 'gemini' : model.provider === 'openai' ? 'openai' : 'anthropic',
     model: model.id,
     apiKey: BACKEND_PROXY_PLACEHOLDER_KEY,
   });
@@ -117,7 +102,7 @@ function optionList(models: BackendModelInfo[]): string {
 
 export async function describeVoiceModel(deps: VoiceModelDeps): Promise<VoiceActionResult> {
   const config = deps.getConfig();
-  const models = selectableVoiceModels(await deps.listModels(), config.openRouterUserApiKey);
+  const models = selectableVoiceModels(await deps.listModels());
   return {
     ok: true,
     message: `Using ${currentModelLabel(config, models)}. Available: Auto, ${optionList(models)}.`,
@@ -131,7 +116,7 @@ export async function switchVoiceModel(
   const spoken = typeof rawName === 'string' ? rawName.trim() : '';
   if (!spoken) return { ok: false, message: 'Say which model to use.' };
   const config = deps.getConfig();
-  const models = selectableVoiceModels(await deps.listModels(), config.openRouterUserApiKey);
+  const models = selectableVoiceModels(await deps.listModels());
   const match = matchVoiceModel(spoken, models);
 
   switch (match.kind) {

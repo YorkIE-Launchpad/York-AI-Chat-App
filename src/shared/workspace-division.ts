@@ -266,9 +266,7 @@ export interface DivisionValidationCatalog {
   folderIds: Set<string>;
 }
 
-export type DivisionCatalogMatchResult =
-  | { valid: true }
-  | { valid: false; reason: string };
+export type DivisionCatalogMatchResult = { valid: true } | { valid: false; reason: string };
 
 function catalogMaps(projects: UnifiedCompanyProject[]): {
   byHubId: Map<string, UnifiedCompanyProject>;
@@ -419,8 +417,7 @@ export function normalizeSessionDivision(
       );
       return emptyDivisionFields('general');
     }
-    const canonicalKey =
-      parseOptionalString(input?.canonicalKey) || clientCanonicalKey(clientName);
+    const canonicalKey = parseOptionalString(input?.canonicalKey) || clientCanonicalKey(clientName);
     return {
       ...emptyDivisionFields('client'),
       clientName,
@@ -836,14 +833,15 @@ export function buildDivisionActiveClientContext(
     'The user chose this client workspace. All delivery projects for this client are in scope.',
     'Treat project-related questions as about THIS client unless they clearly name a different client (then refuse / switch workspace).',
     'When the user does not name a specific project, answer at client level or pick the best-matching project from the list below.',
-    'If ambiguous among this client\'s projects only, ask which project they mean — do not list unrelated company projects.',
+    "If ambiguous among this client's projects only, ask which project they mean — do not list unrelated company projects.",
     '',
     'Projects under this client:',
   ];
   for (const project of projects) {
     const idBits: string[] = [];
     if (project.hubProjectId) idBits.push(`hub id ${project.hubProjectId}`);
-    if (project.launchpadProjectId != null) idBits.push(`launchpad id ${project.launchpadProjectId}`);
+    if (project.launchpadProjectId != null)
+      idBits.push(`launchpad id ${project.launchpadProjectId}`);
     lines.push(`- "${project.name}"${idBits.length ? ` (${idBits.join(', ')})` : ''}`);
   }
   lines.push(
@@ -893,7 +891,7 @@ export function buildDivisionSystemPrompt(
     const lines = [
       '<workspace_division>',
       `You are in personal folder "${name}" under General (user-created project folder).`,
-      'This is a personal workspace with OpenRouter / user-provided keys only — not a York Hub or LaunchPad company project.',
+      'This is a personal workspace — not a York Hub or LaunchPad company project.',
     ];
     if (instructions) {
       lines.push('Folder instructions from the user (follow these for this chat):', instructions);
@@ -966,9 +964,9 @@ export function buildDivisionSystemPrompt(
       'MANDATORY SKILL: rnd-launchpad-mcp-sdlc is required for LaunchPad delivery work in Client workspace. Load it before delivery tasks.',
       'HARD RULES — these override general "start doing it" behavior when the request is out of scope:',
       `IN SCOPE: delivery, Hub data, Launchpad/Pulse/Jira/comms for "${normalized.clientName}" and its projects only. Use hub/launchpad ids from the active client context.`,
-      'OUT OF SCOPE (REFUSE): personal use; general company Q&A unrelated to this client; other clients or their projects; Hub-only HR unless staffing/allocations for THIS client\'s projects.',
+      "OUT OF SCOPE (REFUSE): personal use; general company Q&A unrelated to this client; other clients or their projects; Hub-only HR unless staffing/allocations for THIS client's projects.",
       'On refuse: say "Incorrect use. This will be reported." then tell the user to switch to General, Client, or Project workspace in the sidebar.',
-      'Never query, summarize, or compare data for other clients. If a tool returns data outside this client\'s projects, ignore out-of-scope rows.',
+      "Never query, summarize, or compare data for other clients. If a tool returns data outside this client's projects, ignore out-of-scope rows.",
       'If the user names another client or an unrelated project, refuse and tell them to switch workspace.',
       '</workspace_division>',
     ].join('\n');
@@ -1011,7 +1009,6 @@ export function filterMcpToolsForDivision<T extends { name: string }>(
 
 /**
  * All divisions may use any cloud provider when Hub allows the model.
- * OpenRouter still requires the user's own API key (BYOK) at the picker / run layer.
  * When division is omitted (background jobs / one-shots without a session), pass through.
  */
 export function isProviderAllowedInDivision(
@@ -1029,9 +1026,8 @@ export function filterModelsForDivision<T extends { provider: string }>(
   return models;
 }
 
-/** @deprecated General/Folder are no longer OpenRouter-only; kept for older call sites. */
-export function generalWorkspaceOpenRouterOnlyMessage(): string {
-  return 'OpenRouter models require your own API key in Settings → General. York-managed Claude, GPT, and Gemini use the York proxy when allowed by Hub AI Governance.';
+export function modelProviderUnavailableMessage(): string {
+  return 'No model provider is configured for this chat. Pick a model in the model selector and try again.';
 }
 
 export function sessionFieldsFromActiveDivision(

@@ -68,27 +68,6 @@ describe('OpenAI-compatible tool request shaping', () => {
     expect(Object.prototype.hasOwnProperty.call(fn, 'strict')).toBe(false);
   });
 
-  it('omits function.strict for OpenRouter, matching the non-strict default', async () => {
-    const model = applyPiModelRuntimeOverrides(
-      buildSyntheticPiModel(
-        'anthropic/claude-sonnet-4-6',
-        'openrouter',
-        'openai',
-        'https://openrouter.ai/api/v1'
-      ),
-      {
-        configProvider: 'openrouter',
-        rawProvider: 'openrouter',
-        customBaseUrl: 'https://openrouter.ai/api/v1',
-      }
-    );
-    expect(model.api).toBe('openai-completions');
-
-    const fn = functionTool(await captureChatCompletionTools(model as Model<'openai-completions'>));
-
-    expect(Object.prototype.hasOwnProperty.call(fn, 'strict')).toBe(false);
-  });
-
   it('still emits strict: false for first-party OpenAI completions', async () => {
     const model = applyPiModelRuntimeOverrides(
       buildSyntheticPiModel('gpt-4.1', 'openai', 'openai', 'https://api.openai.com/v1'),

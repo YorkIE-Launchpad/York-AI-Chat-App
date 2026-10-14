@@ -6,7 +6,6 @@ import {
   formatCompactTokens,
   type BudgetMeterTone,
 } from '../../../shared/fe-budget-gate';
-import { hasOpenRouterUserApiKey } from '../../../shared/openrouter-user-key';
 import { useAppStore } from '../../store';
 import { refreshWorkspaceBudgets } from '../../hooks/useWorkspaceBudgetCheck';
 import { BudgetUsageTrack, formatNextMonthRenewal, toneStatusKey } from '../HubBudgetMeter';
@@ -33,13 +32,7 @@ function CompactRow({ label, percent }: { label: string; percent: number }) {
   );
 }
 
-function UsageHeader({
-  refreshing,
-  onRefresh,
-}: {
-  refreshing: boolean;
-  onRefresh: () => void;
-}) {
+function UsageHeader({ refreshing, onRefresh }: { refreshing: boolean; onRefresh: () => void }) {
   const { t } = useTranslation();
   return (
     <div className="flex items-center justify-between gap-2">
@@ -63,14 +56,12 @@ export function HubBudgetUsageCard() {
   const { t } = useTranslation();
   const hubUsage = useAppStore((s) => s.hubUsage);
   const activeDivision = useAppStore((s) => s.activeDivision);
-  const appConfig = useAppStore((s) => s.appConfig);
 
   const userPercent = hubUsage?.userBudgetPercent ?? null;
   const projectPercent =
     activeDivision?.kind === 'project' ? (hubUsage?.projectBudgetPercent ?? null) : null;
   const activeSource = hubUsage?.activeSource ?? 'none';
   const lastTokens = hubUsage?.lastTurnTokens;
-  const hasKey = hasOpenRouterUserApiKey(appConfig?.openRouterUserApiKey);
   const renewsOn = formatNextMonthRenewal();
   const [refreshing, setRefreshing] = useState(false);
 
@@ -91,11 +82,6 @@ export function HubBudgetUsageCard() {
         <UsageHeader refreshing={refreshing} onRefresh={() => void onRefresh()} />
         <p className="text-sm text-text-secondary">{t('workspace.budget.noYorkAllowance')}</p>
         <p className="text-xs text-text-secondary">{t('workspace.budget.askManager')}</p>
-        {!hasKey && (
-          <p className="text-xs text-amber-600 dark:text-amber-400">
-            {t('workspace.budget.byokCue')}
-          </p>
-        )}
       </div>
     );
   }
@@ -119,9 +105,6 @@ export function HubBudgetUsageCard() {
           : ''}
       </p>
       <p className="text-xs text-text-secondary">{t('workspace.budget.askManager')}</p>
-      {activeSource === 'none' && !hasKey && (
-        <p className="text-xs text-amber-600 dark:text-amber-400">{t('workspace.budget.byokCue')}</p>
-      )}
     </div>
   );
 }

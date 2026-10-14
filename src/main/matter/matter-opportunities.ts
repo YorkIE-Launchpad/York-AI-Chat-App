@@ -407,7 +407,7 @@ export async function detectOpportunities(options: {
     const result = await runPiAiOneShot(
       userPrompt,
       buildSystemPrompt(),
-      matterOneShotConfig(config),
+      await matterOneShotConfig(config),
       { usageFeature: 'matter_opportunities', usageSessionId: 'matter_opportunities' }
     );
     const drafts = parseOpportunityResponse(extractJsonObject(result.text), context);

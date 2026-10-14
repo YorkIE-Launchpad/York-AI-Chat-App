@@ -11,6 +11,13 @@ vi.mock('../src/main/agent/sdk-one-shot', () => ({
 vi.mock('../src/main/tools/web-fetch', () => ({
   fetchWebPage: fetchWebPageMock,
 }));
+vi.mock('../src/main/config/york-llm-api', () => ({
+  resolveYorkLlmOneShotConfig: vi.fn(async (config: object) => ({
+    ...config,
+    provider: 'ollama',
+    model: 'york-test.gguf',
+  })),
+}));
 
 import type { AppConfig } from '../src/main/config/config-store';
 import type { MCPManager } from '../src/main/mcp/mcp-manager';

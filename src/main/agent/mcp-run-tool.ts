@@ -1,5 +1,5 @@
 /**
- * Parent-facing mcp_run tool — offloads MCP search→call to a free OpenRouter child.
+ * Parent-facing mcp_run tool — offloads MCP search→call to a low-cost child agent.
  */
 import { Type } from '@sinclair/typebox';
 import type { ToolDefinition } from '@mariozechner/pi-coding-agent';

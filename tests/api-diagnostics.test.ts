@@ -53,7 +53,6 @@ vi.mock('../src/main/config/config-store', () => ({
     openai: { baseUrl: 'https://api.openai.com/v1' },
     anthropic: { baseUrl: 'https://api.anthropic.com' },
     ollama: { baseUrl: 'http://localhost:11434/v1' },
-    openrouter: { baseUrl: 'https://openrouter.ai/api' },
   },
   configStore: {
     getAll: () => ({

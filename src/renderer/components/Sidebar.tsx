@@ -996,6 +996,13 @@ export function Sidebar() {
     }
   };
 
+  const sessionTitlePaddingClass = (session: Session, controlsHidden: boolean) => {
+    if (controlsHidden) return '';
+    if (hoveredSession === session.id) return 'pr-28';
+    if (session.pinned && session.incognito !== true) return 'pr-7';
+    return '';
+  };
+
   const renderExportMenu = (session: Session) => {
     const exportPending = isElectron && session.status === 'running';
     const disabled = exportingSessionId !== null || exportPending;
@@ -1566,9 +1573,10 @@ export function Sidebar() {
                                         className="pointer-events-none absolute -left-[calc(0.5rem+1px)] top-1/2 h-px w-2 -translate-y-1/2 bg-border-muted/80"
                                       />
                                       <div
-                                        className={`flex items-center gap-2 ${
-                                          !isSelectMode && !isRenaming ? 'pr-28' : ''
-                                        }`}
+                                        className={`flex items-center gap-2 ${sessionTitlePaddingClass(
+                                          session,
+                                          isSelectMode || isRenaming
+                                        )}`}
                                       >
                                         {isSelectMode && (
                                           <div
@@ -1754,9 +1762,10 @@ export function Sidebar() {
                         className="pointer-events-none absolute -left-[calc(0.5rem+1px)] top-1/2 h-px w-2 -translate-y-1/2 bg-border-muted"
                       />
                       <div
-                        className={`flex items-center gap-2 ${
-                          !isSelectMode && !isRenaming ? 'pr-28' : ''
-                        }`}
+                        className={`flex items-center gap-2 ${sessionTitlePaddingClass(
+                          session,
+                          isSelectMode || isRenaming
+                        )}`}
                       >
                         {isSelectMode && (
                           <div

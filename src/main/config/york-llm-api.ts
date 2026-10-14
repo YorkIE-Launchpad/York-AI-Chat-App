@@ -1,10 +1,13 @@
 import {
   extractYorkLlmContextWindow,
   formatYorkLlmModelName,
+  isYorkLlmBaseUrl,
   resolveYorkLlmApiKey,
   resolveYorkLlmBaseUrl,
+  yorkLlmSelectionPayload,
 } from '../../shared/york-llm-config';
 import type { ProviderModelInfo } from '../../renderer/types';
+import type { AppConfig } from './config-store';
 import { logWarn } from '../utils/logger';
 import { fetchOllamaModelIndex } from './ollama-api';
 
@@ -83,6 +86,22 @@ export async function getYorkLlmModelContextWindow(modelId: string): Promise<num
     logWarn('[YorkLlm] Context window lookup failed:', error);
     return undefined;
   }
+}
+
+/**
+ * Route an internal one-shot (Matter, meeting prep, transcript translation) to York LLM,
+ * regardless of the user's selected chat model.
+ */
+export async function resolveYorkLlmOneShotConfig(config: AppConfig): Promise<AppConfig> {
+  let modelId = isYorkLlmBaseUrl(config.baseUrl) ? config.model?.trim() || '' : '';
+  if (!modelId) {
+    const models = await listYorkLlmModels();
+    modelId = models[0]?.id?.trim() || '';
+  }
+  if (!modelId) {
+    throw new Error('York LLM has no models available');
+  }
+  return { ...config, ...yorkLlmSelectionPayload(modelId) };
 }
 
 export function resetYorkLlmModelsCacheForTests(): void {

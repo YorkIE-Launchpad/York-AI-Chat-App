@@ -189,7 +189,7 @@ export interface ThinkingContent {
 export interface TokenUsage {
   input: number;
   output: number;
-  /** Anthropic/OpenRouter prompt-cache read tokens (0.10× price when hit). */
+  /** Anthropic prompt-cache read tokens (0.10× price when hit). */
   cacheRead?: number;
   /** Anthropic prompt-cache write / creation tokens. */
   cacheWrite?: number;
@@ -243,9 +243,9 @@ export interface ScheduleTask {
   lastRunAt: number | null;
   lastRunSessionId: string | null;
   lastError: string | null;
-  /** Model id used when the task runs (defaults to openrouter/free). */
+  /** Model id used when the task runs. */
   model: string;
-  /** Provider for the locked model (defaults to openrouter). */
+  /** Provider for the locked model. */
   provider: string;
   kind: 'schedule' | 'loop' | 'watch';
   sessionMode: 'new' | 'continue';
@@ -1004,11 +1004,10 @@ export interface ExecutionContext {
 }
 
 // App Config types
-export type ProviderType = 'openrouter' | 'anthropic' | 'custom' | 'openai' | 'gemini' | 'ollama';
+export type ProviderType = 'anthropic' | 'custom' | 'openai' | 'gemini' | 'ollama';
 export type CustomProtocolType = 'anthropic' | 'openai' | 'gemini';
 export type AppTheme = 'dark' | 'light' | 'system';
 export type ProviderProfileKey =
-  | 'openrouter'
   | 'anthropic'
   | 'openai'
   | 'gemini'
@@ -1236,8 +1235,6 @@ export interface AppConfig {
    */
   mcpWriteAccessEnabled?: boolean;
   memoryRuntime?: MemoryRuntimeConfig;
-  /** User OpenRouter API key for General/Folders; required before those workspaces chat. */
-  openRouterUserApiKey?: string;
   /** TypeSafe API key for Jev decisions (secret). */
   typesafeApiKey?: string;
   /** Kill-switch for TypeSafe Jev; default true. */
@@ -1265,7 +1262,6 @@ export interface ProviderPreset {
 }
 
 export interface ProviderPresets {
-  openrouter: ProviderPreset;
   anthropic: ProviderPreset;
   custom: ProviderPreset;
   openai: ProviderPreset;

@@ -21,15 +21,11 @@ const STRIP_REQUEST_HEADERS = new Set([
   'authorization',
   'x-api-key',
   'x-goog-api-key',
-  // User OpenRouter BYOK — consumed by proxy, never forwarded upstream as this header.
-  'x-york-openrouter-key',
   // Client version gate — never forward to provider APIs.
   'x-york-app-version',
   // Forced to identity below — do not forward client gzip preferences.
   'accept-encoding',
 ]);
-
-const YORK_OPENROUTER_USER_KEY_HEADER = 'x-york-openrouter-key';
 
 /** Hop-by-hop / length headers Express must not forward when we stream. */
 const STRIP_RESPONSE_HEADERS = new Set([
@@ -44,12 +40,6 @@ export interface ProviderTarget {
   upstreamOrigin: string;
   /** Path prefix on our server (e.g. /anthropic) */
   mountPath: string;
-}
-
-function readHeaderValue(req: IncomingMessage, name: string): string | undefined {
-  const raw = req.headers[name];
-  if (Array.isArray(raw)) return raw[0]?.trim() || undefined;
-  return typeof raw === 'string' ? raw.trim() || undefined : undefined;
 }
 
 function buildUpstreamUrl(req: Request, target: ProviderTarget): string {
@@ -93,11 +83,7 @@ function headersToOutgoing(headers: Headers): http.OutgoingHttpHeaders {
   return out;
 }
 
-function applyProviderAuth(
-  provider: BackendProvider,
-  headers: Headers,
-  openRouterUserKey?: string
-): void {
+function applyProviderAuth(provider: BackendProvider, headers: Headers): void {
   switch (provider) {
     case 'anthropic': {
       const apiKey = getProviderApiKey(provider);
@@ -110,11 +96,6 @@ function applyProviderAuth(
       const apiKey = getProviderApiKey(provider);
       if (!apiKey) return;
       headers.set('authorization', `Bearer ${apiKey}`);
-      break;
-    }
-    case 'openrouter': {
-      if (!openRouterUserKey) return;
-      headers.set('authorization', `Bearer ${openRouterUserKey}`);
       break;
     }
     case 'gemini': {
@@ -180,38 +161,23 @@ export async function proxyToProvider(
   res: Response,
   target: ProviderTarget
 ): Promise<void> {
-  const openRouterUserKey =
-    target.provider === 'openrouter'
-      ? readHeaderValue(req, YORK_OPENROUTER_USER_KEY_HEADER)
-      : undefined;
-
-  if (target.provider === 'openrouter') {
-    if (!openRouterUserKey) {
-      res.status(401).json({
-        error:
-          'OpenRouter requires a user API key. Send it as X-York-OpenRouter-Key (configure in the app Settings).',
-      });
-      return;
-    }
-  } else {
-    const apiKey = getProviderApiKey(target.provider);
-    if (!apiKey) {
-      res.status(503).json({
-        error: `Provider ${target.provider} is not configured. Set ${
-          target.provider === 'typesafe'
-            ? 'TYPESAFE_API_KEY'
-            : `${target.provider.toUpperCase()}_API_KEY`
-        } in backend/.env`,
-      });
-      return;
-    }
+  const apiKey = getProviderApiKey(target.provider);
+  if (!apiKey) {
+    res.status(503).json({
+      error: `Provider ${target.provider} is not configured. Set ${
+        target.provider === 'typesafe'
+          ? 'TYPESAFE_API_KEY'
+          : `${target.provider.toUpperCase()}_API_KEY`
+      } in backend/.env`,
+    });
+    return;
   }
 
   let upstreamUrl = buildUpstreamUrl(req, target);
   upstreamUrl = appendGeminiKeyToUrl(upstreamUrl, target.provider);
 
   const headers = copyRequestHeaders(req, {});
-  applyProviderAuth(target.provider, headers, openRouterUserKey);
+  applyProviderAuth(target.provider, headers);
   // Avoid gzip so SSE frames are not re-buffered by decompression.
   headers.set('accept-encoding', 'identity');
 

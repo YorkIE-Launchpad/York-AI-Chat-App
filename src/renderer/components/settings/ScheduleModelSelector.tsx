@@ -3,14 +3,16 @@ import { Check, ChevronDown } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { BackendCloudProvider, BackendModelInfo } from '../../../shared/backend-config';
 import { isAutoModelId } from '../../../shared/auto-model';
-import { hasOpenRouterUserApiKey } from '../../../shared/openrouter-user-key';
-import { useAppStore } from '../../store';
 import {
   isYorkLlmSelection,
   useYorkLlmModels,
   yorkLlmDisplayName,
 } from '../../hooks/useYorkLlmModels';
-import { YORK_LLM_DISPLAY_NAME, YORK_LLM_PROVIDER } from '../../../shared/york-llm-config';
+import {
+  LEGACY_PROVIDER_IDS,
+  YORK_LLM_DISPLAY_NAME,
+  YORK_LLM_PROVIDER,
+} from '../../../shared/york-llm-config';
 
 const isElectron = typeof window !== 'undefined' && window.electronAPI !== undefined;
 
@@ -21,10 +23,9 @@ const PROVIDER_LABELS: Record<BackendCloudProvider, string> = {
   anthropic: 'Anthropic',
   openai: 'OpenAI',
   gemini: 'Gemini',
-  openrouter: 'OpenRouter',
 };
 
-const PROVIDER_ORDER: BackendCloudProvider[] = ['anthropic', 'openai', 'gemini', 'openrouter'];
+const PROVIDER_ORDER: BackendCloudProvider[] = ['anthropic', 'openai', 'gemini'];
 
 function shortModelName(name: string, id: string): string {
   if (name && name !== id) return name;
@@ -49,16 +50,11 @@ export function ScheduleModelSelector({
   disabled = false,
 }: ScheduleModelSelectorProps) {
   const { t } = useTranslation();
-  const appConfig = useAppStore((s) => s.appConfig);
-  const setShowSettings = useAppStore((s) => s.setShowSettings);
-  const setSettingsTab = useAppStore((s) => s.setSettingsTab);
   const [models, setModels] = useState<BackendModelInfo[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const { models: yorkLlmModels, isLoading: isYorkLlmLoading } = useYorkLlmModels();
-
-  const hasOpenRouterKey = hasOpenRouterUserApiKey(appConfig?.openRouterUserApiKey);
 
   const loadModels = useCallback((opts?: { silent?: boolean }) => {
     if (!isElectron) return;
@@ -102,7 +98,6 @@ export function ScheduleModelSelector({
       anthropic: [],
       openai: [],
       gemini: [],
-      openrouter: [],
     };
     for (const model of models) {
       if (groups[model.provider]) {
@@ -129,7 +124,7 @@ export function ScheduleModelSelector({
     [models, value.model, value.provider]
   );
 
-  // Reconcile Auto (or OpenRouter without BYOK) → York LLM when available.
+  // Reconcile Auto (or a retired provider) → York LLM when available.
   useEffect(() => {
     if (isAutoModelId(value.model)) {
       if (yorkLlmModels[0]) {
@@ -139,21 +134,13 @@ export function ScheduleModelSelector({
       }
       return;
     }
-    if (hasOpenRouterKey) return;
-    if (value.provider !== 'openrouter') return;
+    if (!LEGACY_PROVIDER_IDS.has(value.provider)) return;
     if (yorkLlmModels[0]) {
       onChange({ model: yorkLlmModels[0].id, provider: YORK_LLM_PROVIDER });
     } else {
-      const fallback =
-        models.find((m) => m.provider === 'anthropic') ||
-        models.find((m) => m.provider !== 'openrouter');
-      if (fallback) {
-        onChange({ model: fallback.id, provider: fallback.provider });
-      } else {
-        onChange({ model: DEFAULT_SCHEDULE_MODEL, provider: DEFAULT_SCHEDULE_PROVIDER });
-      }
+      onChange({ model: DEFAULT_SCHEDULE_MODEL, provider: DEFAULT_SCHEDULE_PROVIDER });
     }
-  }, [hasOpenRouterKey, models, onChange, value.model, value.provider, yorkLlmModels]);
+  }, [onChange, value.model, value.provider, yorkLlmModels]);
 
   const displayName = selectedYorkLlmModel
     ? yorkLlmDisplayName(selectedYorkLlmModel.id, selectedYorkLlmModel.name)
@@ -208,8 +195,7 @@ export function ScheduleModelSelector({
                 </div>
                 <div className="space-y-0.5">
                   {yorkLlmModels.map((model) => {
-                    const isSelected =
-                      value.provider === 'ollama' && value.model === model.id;
+                    const isSelected = value.provider === 'ollama' && value.model === model.id;
                     return (
                       <button
                         key={model.id}
@@ -240,26 +226,11 @@ export function ScheduleModelSelector({
             {PROVIDER_ORDER.map((provider) => {
               const items = groupedModels[provider];
               if (items.length === 0) return null;
-              const openRouterDisabled = provider === 'openrouter' && !hasOpenRouterKey;
               return (
                 <div key={provider} className="px-1.5 py-1">
                   <div className="px-2.5 pb-1 pt-1.5 text-[11px] font-medium tracking-[0.04em] text-text-muted">
                     {PROVIDER_LABELS[provider]}
-                    {openRouterDisabled ? ' · key required' : ''}
                   </div>
-                  {openRouterDisabled && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowSettings(true);
-                        setSettingsTab('general');
-                        setIsOpen(false);
-                      }}
-                      className="mb-1 w-full rounded-xl px-2.5 py-2 text-left text-[12px] text-accent hover:bg-surface-hover"
-                    >
-                      Add OpenRouter key (Settings)
-                    </button>
-                  )}
                   <div className="space-y-0.5">
                     {items.map((model) => {
                       const isSelected =
@@ -270,10 +241,7 @@ export function ScheduleModelSelector({
                           type="button"
                           role="option"
                           aria-selected={isSelected}
-                          aria-disabled={openRouterDisabled}
-                          disabled={openRouterDisabled}
                           onClick={() => {
-                            if (openRouterDisabled) return;
                             onChange({
                               model: model.id,
                               provider: model.provider,
@@ -281,19 +249,15 @@ export function ScheduleModelSelector({
                             setIsOpen(false);
                           }}
                           className={`flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left transition-colors ${
-                            openRouterDisabled
-                              ? 'cursor-not-allowed text-text-muted opacity-50'
-                              : isSelected
-                                ? 'bg-accent-muted text-accent'
-                                : 'text-text-primary hover:bg-surface-hover'
+                            isSelected
+                              ? 'bg-accent-muted text-accent'
+                              : 'text-text-primary hover:bg-surface-hover'
                           }`}
                         >
                           <span className="whitespace-nowrap text-[13px] font-medium">
                             {shortModelName(model.name, model.id)}
                           </span>
-                          {isSelected && !openRouterDisabled && (
-                            <Check className="h-3.5 w-3.5 shrink-0" />
-                          )}
+                          {isSelected && <Check className="h-3.5 w-3.5 shrink-0" />}
                         </button>
                       );
                     })}
@@ -302,11 +266,14 @@ export function ScheduleModelSelector({
               );
             })}
 
-            {!isLoading && !isYorkLlmLoading && models.length === 0 && yorkLlmModels.length === 0 && (
-              <div className="px-4 py-2 text-[11px] leading-snug text-text-muted">
-                {t('schedule.modelEmpty')}
-              </div>
-            )}
+            {!isLoading &&
+              !isYorkLlmLoading &&
+              models.length === 0 &&
+              yorkLlmModels.length === 0 && (
+                <div className="px-4 py-2 text-[11px] leading-snug text-text-muted">
+                  {t('schedule.modelEmpty')}
+                </div>
+              )}
           </div>
         )}
       </div>

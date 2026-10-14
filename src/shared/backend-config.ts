@@ -19,33 +19,21 @@ export function resolveBackendUrl(): string {
   return fromEnv || DEFAULT_BACKEND_URL;
 }
 
-export type BackendCloudProvider = 'anthropic' | 'openai' | 'gemini' | 'openrouter';
+export type BackendCloudProvider = 'anthropic' | 'openai' | 'gemini';
 
 export function isBackendManagedProvider(
   provider: SharedProviderType | string | undefined
 ): provider is BackendCloudProvider {
-  return (
-    provider === 'anthropic' ||
-    provider === 'openai' ||
-    provider === 'gemini' ||
-    provider === 'openrouter'
-  );
+  return provider === 'anthropic' || provider === 'openai' || provider === 'gemini';
 }
 
-const BACKEND_PROVIDER_LOOKUP_ORDER: BackendCloudProvider[] = [
-  'anthropic',
-  'openai',
-  'gemini',
-  'openrouter',
-];
+const BACKEND_PROVIDER_LOOKUP_ORDER: BackendCloudProvider[] = ['anthropic', 'openai', 'gemini'];
 
 /**
  * Infer York-proxy provider for a Hub grant that is not in GET /models
  * (e.g. group-only allowlist rows).
  */
-export function inferBackendCloudProviderForModelId(
-  modelId: string
-): BackendCloudProvider | null {
+export function inferBackendCloudProviderForModelId(modelId: string): BackendCloudProvider | null {
   const id = modelId.trim();
   if (!id) return null;
   const lower = id.toLowerCase();
@@ -57,7 +45,6 @@ export function inferBackendCloudProviderForModelId(
   if (lower.startsWith('claude-')) return 'anthropic';
   if (lower.startsWith('gemini-')) return 'gemini';
   if (/^(gpt-|o[1-4]|chatgpt-)/.test(lower)) return 'openai';
-  if (id.includes('/')) return 'openrouter';
   return null;
 }
 
@@ -76,8 +63,6 @@ export function getBackendProxyBaseUrl(
       // pi-ai/@google/genai clears apiVersion when baseUrl is set, so the version
       // must live on the base URL (same pattern as openai → /openai/v1).
       return `${base}/gemini/v1beta`;
-    case 'openrouter':
-      return `${base}/openrouter/v1`;
     default:
       return base;
   }
@@ -102,13 +87,12 @@ export interface BackendModelInfo {
   /**
    * From user allowed-models grant: is_free || root has_budget.
    * Root has_budget is true only when a FY ceiling is set and not over (ok/warning).
-   * false → paid model while over/unset; requires BYOK (OpenRouter user key).
+   * false → paid model while over/unset; not usable until budget is restored.
    */
   hasBudget?: boolean;
 }
 
 const PROFILE_KEY_TO_BACKEND_PROVIDER: Record<string, BackendCloudProvider> = {
-  openrouter: 'openrouter',
   anthropic: 'anthropic',
   openai: 'openai',
   gemini: 'gemini',

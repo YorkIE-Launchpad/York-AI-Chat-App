@@ -21,13 +21,6 @@ describe('provider guidance helpers', () => {
     expect(setup?.recommendedProtocol).toBe('openai');
   });
 
-  it('detects OpenRouter and prefers the dedicated provider tab', () => {
-    const setup = detectCommonProviderSetup('https://openrouter.ai/api/v1');
-    expect(setup?.id).toBe('openrouter');
-    expect(setup?.preferProviderTab).toBe('openrouter');
-    expect(detectCommonProviderSetup('https://openrouter.ai')?.id).toBe('openrouter');
-  });
-
   it('detects Ollama only on the local default port and prefers the dedicated provider tab', () => {
     const setup = detectCommonProviderSetup('http://localhost:11434/v1');
     expect(setup?.id).toBe('ollama');

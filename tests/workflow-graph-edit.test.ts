@@ -8,7 +8,11 @@ import {
   updateNodeFields,
   addNode,
 } from '../src/shared/workflow-graph-edit';
-import { WORKFLOW_SCHEMA_VERSION, buildInitialRunSteps, type WorkflowGraph } from '../src/shared/workflows';
+import {
+  WORKFLOW_SCHEMA_VERSION,
+  buildInitialRunSteps,
+  type WorkflowGraph,
+} from '../src/shared/workflows';
 
 function linearGraph(): WorkflowGraph {
   return {
@@ -37,12 +41,7 @@ describe('workflow-graph-edit', () => {
     expect(next.edges.some((e) => e.from === inserted.id && e.to === 'agent_2')).toBe(true);
     expect(next.edges.some((e) => e.from === 'agent_1' && e.to === 'agent_2')).toBe(false);
     // nodes[] and run steps must place Middle before Second (not at end)
-    expect(next.nodes.map((n) => n.id)).toEqual([
-      'trigger_1',
-      'agent_1',
-      inserted.id,
-      'agent_2',
-    ]);
+    expect(next.nodes.map((n) => n.id)).toEqual(['trigger_1', 'agent_1', inserted.id, 'agent_2']);
   });
 
   it('removes agent and reconnects linear chain', () => {
@@ -66,13 +65,13 @@ describe('workflow-graph-edit', () => {
   it('updates agent prompt and model', () => {
     const next = updateNodeFields(linearGraph(), 'agent_1', {
       prompt: 'New instructions',
-      model: 'openrouter/free',
-      provider: 'openrouter',
+      model: 'claude-sonnet-5',
+      provider: 'anthropic',
     });
     const agent = next.nodes.find((n) => n.id === 'agent_1');
     expect(agent?.type === 'agent' && agent.prompt).toBe('New instructions');
-    expect(agent?.type === 'agent' && agent.model).toBe('openrouter/free');
-    expect(agent?.type === 'agent' && agent.provider).toBe('openrouter');
+    expect(agent?.type === 'agent' && agent.model).toBe('claude-sonnet-5');
+    expect(agent?.type === 'agent' && agent.provider).toBe('anthropic');
 
     const cleared = updateNodeFields(next, 'agent_1', { model: null, provider: null });
     const agent2 = cleared.nodes.find((n) => n.id === 'agent_1');
@@ -180,12 +179,7 @@ describe('workflow-graph-edit', () => {
       ],
     };
     const steps = buildInitialRunSteps(graph);
-    expect(steps.map((s) => s.nodeId)).toEqual([
-      'trigger_1',
-      'agent_1',
-      'agent_3',
-      'agent_2',
-    ]);
+    expect(steps.map((s) => s.nodeId)).toEqual(['trigger_1', 'agent_1', 'agent_3', 'agent_2']);
   });
 
   it('adds and connects approval without cycle', () => {

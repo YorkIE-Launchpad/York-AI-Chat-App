@@ -35,7 +35,6 @@ import { ComposerModeDropdown } from './ComposerModeDropdown';
 import { resolveGptImage25ModelId } from '../../shared/image-generation';
 import { HubBudgetMeter } from './HubBudgetMeter';
 import { ThinkingModeToggle } from './ThinkingModeToggle';
-import { OpenRouterKeyGateBanner } from './OpenRouterKeyGateBanner';
 import { SlashCommandMenu } from './SlashCommandMenu';
 import {
   useSlashCommands,
@@ -68,8 +67,6 @@ import {
   parseLoopCommand,
 } from '../../shared/loop/parse';
 import { DEFAULT_GOAL_MAX_ITERATIONS } from '../../shared/loop/types';
-import { needsOpenRouterUserKey } from '../../shared/openrouter-user-key';
-import { divisionBudgetCheckKey } from '../../shared/fe-budget-gate';
 import { divisionLabel } from '../../shared/workspace-division';
 import { useAuth } from '../auth/AuthContext';
 import { pickNextUpMeeting } from '../../shared/matter-time';
@@ -126,30 +123,19 @@ export function WelcomeView() {
   const defaultWorkingDir = useAppStore((state) => state.defaultWorkingDir);
   const sessionWorkdir = workingDir || defaultWorkingDir || undefined;
   const activeDivision = useAppStore((state) => state.activeDivision);
-  const appConfig = useAppStore((state) => state.appConfig);
-  const hubUsage = useAppStore((state) => state.hubUsage);
   const incognitoDraft = useAppStore((state) => state.incognitoDraft);
   const setIncognitoDraft = useAppStore((state) => state.setIncognitoDraft);
   const skillsOffDraft = useAppStore((state) => state.skillsOffDraft);
   const setSkillsOffDraft = useAppStore((state) => state.setSkillsOffDraft);
   const setGlobalNotice = useAppStore((state) => state.setGlobalNotice);
-  const openRouterKeyRequired = needsOpenRouterUserKey(
-    activeDivision,
-    appConfig?.openRouterUserApiKey,
-    {
-      activeSource: hubUsage?.activeSource,
-      budgetReady: hubUsage?.checkedDivisionKey === divisionBudgetCheckKey(activeDivision),
-    }
-  );
   const canSubmit =
-    !openRouterKeyRequired &&
-    (composerMode === 'image'
+    composerMode === 'image'
       ? prompt.trim().length > 0
       : prompt.trim().length > 0 ||
         pastedImages.length > 0 ||
         attachedFiles.length > 0 ||
         attachedMeetings.length > 0 ||
-        attachedReferences.length > 0);
+        attachedReferences.length > 0;
   const {
     isOpen: isSlashMenuOpen,
     filteredSkills: slashSkills,
@@ -623,8 +609,7 @@ export function WelcomeView() {
         attachedFiles.length === 0 &&
         attachedMeetings.length === 0 &&
         attachedReferences.length === 0) ||
-      isSubmitting ||
-      openRouterKeyRequired
+      isSubmitting
     )
       return;
 
@@ -1331,7 +1316,7 @@ export function WelcomeView() {
               }}
             />
           </div>
-          <ComposerModeDropdown disabled={isSubmitting || openRouterKeyRequired} />
+          <ComposerModeDropdown disabled={isSubmitting} />
           {composerMode !== 'image' && skillsOffDraft && (
             <button
               type="button"
@@ -1415,7 +1400,7 @@ export function WelcomeView() {
   ].filter((s): s is string => Boolean(s));
 
   const runSuggestion = async (text: string) => {
-    if (openRouterKeyRequired || isSubmitting) return;
+    if (isSubmitting) return;
     setIsSubmitting(true);
     try {
       await startSession(getInitialSessionTitle(text), [{ type: 'text', text }], sessionWorkdir, {
@@ -1478,7 +1463,6 @@ export function WelcomeView() {
           </button>
         </div>
       )}
-      <OpenRouterKeyGateBanner />
       {composer}
       {dictationStatus === 'error' && dictationErrorKind === 'client_outdated' ? (
         <ClientOutdatedUpdateActions className="mt-3" />
@@ -1489,7 +1473,7 @@ export function WelcomeView() {
             key={s}
             type="button"
             onClick={() => void runSuggestion(s)}
-            disabled={isSubmitting || openRouterKeyRequired}
+            disabled={isSubmitting}
             className="h-[30px] max-w-full truncate rounded-full border border-border-subtle bg-transparent px-3 text-[12.5px] text-text-secondary transition-colors hover:border-border hover:bg-surface hover:text-text-primary disabled:opacity-50"
           >
             {s}

@@ -38,7 +38,10 @@ vi.mock('../../shared/backend-config', async () => {
   };
 });
 
-import { resolveAutoModelIfNeeded, formatAutoRouteLabel } from '../../main/agent/auto-model-resolve';
+import {
+  resolveAutoModelIfNeeded,
+  formatAutoRouteLabel,
+} from '../../main/agent/auto-model-resolve';
 import { YORK_LLM_PROVIDER, DEFAULT_YORK_LLM_BASE_URL } from '../../shared/york-llm-config';
 
 describe('resolveAutoModelIfNeeded York fast tier', () => {
@@ -46,7 +49,7 @@ describe('resolveAutoModelIfNeeded York fast tier', () => {
     listYorkLlmModels.mockReset();
     fetchBackendModels.mockReset();
     getAll.mockReset();
-    getAll.mockReturnValue({ openRouterUserApiKey: '' });
+    getAll.mockReturnValue({});
   });
 
   it('prefers York LLM for low-complexity Auto prompts when available', async () => {

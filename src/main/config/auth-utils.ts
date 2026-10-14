@@ -30,9 +30,6 @@ export function isLikelyOAuthAccessToken(token: string | undefined | null): bool
 export function shouldUseAnthropicAuthToken(
   config: Pick<AppConfig, 'provider' | 'customProtocol' | 'apiKey'>
 ): boolean {
-  if (config.provider === 'openrouter') {
-    return true;
-  }
   if (config.provider !== 'anthropic') {
     return false;
   }
@@ -73,28 +70,6 @@ export function normalizeOpenAICompatibleBaseUrl(baseUrl: string | undefined): s
   }
   try {
     const parsed = new URL(normalized);
-    const host = parsed.hostname.toLowerCase();
-
-    // OpenRouter has its own path convention (/api/v1) — handle separately.
-    if (host.includes('openrouter.ai')) {
-      let pathname = parsed.pathname.replace(/\/+$/, '');
-      // Strip endpoint suffixes first (user may have pasted full endpoint)
-      pathname = pathname
-        .replace(/\/chat\/completions$/i, '')
-        .replace(/\/completions$/i, '')
-        .replace(/\/responses$/i, '')
-        .replace(/\/+$/, '');
-      if (!pathname || pathname === '/') {
-        parsed.pathname = '/api/v1';
-        return parsed.toString().replace(/\/+$/, '');
-      }
-      if (/^\/api$/i.test(pathname)) {
-        parsed.pathname = '/api/v1';
-        return parsed.toString().replace(/\/+$/, '');
-      }
-      parsed.pathname = pathname;
-      return parsed.toString().replace(/\/+$/, '');
-    }
 
     // Generic OpenAI-compatible provider normalization:
     // Strip trailing endpoint suffixes that users may have copy-pasted from docs.

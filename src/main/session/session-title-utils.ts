@@ -22,7 +22,7 @@ export type TitleDecisionInput = {
 
 /**
  * Reject model titles whose script does not match the user request.
- * Main failure mode: Chinese-default models (OpenRouter free tier, GLM, etc.) return
+ * Main failure mode: Chinese-default models (GLM, etc.) return
  * Chinese titles for English prompts — including mixed labels like "PPT制作".
  *
  * English titles for CJK prompts are allowed.

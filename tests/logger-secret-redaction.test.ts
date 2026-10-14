@@ -7,7 +7,6 @@ describe('logger secret redaction', () => {
       apiKey: 'sk-ant-secret-value',
       accessToken: 'ya29.secret',
       refreshToken: '1//refresh',
-      openRouterUserApiKey: 'sk-or-user-key',
       authorization: 'Bearer abc.def.ghi',
       clientSecret: 'zoom-client-secret',
       appSecret: 'feishu-secret',
@@ -18,7 +17,6 @@ describe('logger secret redaction', () => {
     expect(redacted.apiKey).toBe('[REDACTED]');
     expect(redacted.accessToken).toBe('[REDACTED]');
     expect(redacted.refreshToken).toBe('[REDACTED]');
-    expect(redacted.openRouterUserApiKey).toBe('[REDACTED]');
     expect(redacted.authorization).toBe('[REDACTED]');
     expect(redacted.clientSecret).toBe('[REDACTED]');
     expect(redacted.appSecret).toBe('[REDACTED]');

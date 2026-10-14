@@ -44,7 +44,6 @@ export interface ModelCycleHandlerOptions extends ModelCycleActions {
 
 function isProviderType(value: string | undefined): value is ProviderType {
   return (
-    value === 'openrouter' ||
     value === 'anthropic' ||
     value === 'custom' ||
     value === 'openai' ||

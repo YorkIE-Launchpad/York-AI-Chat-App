@@ -1,6 +1,6 @@
 import type { AppConfig } from '../config/config-store';
 import { runPiAiOneShot } from '../agent/sdk-one-shot';
-import { applyBackendManagedCredentials } from '../../shared/backend-config';
+import { resolveYorkLlmOneShotConfig } from '../config/york-llm-api';
 import { log, logWarn } from '../utils/logger';
 import type { WelcomeProfile } from '../../shared/welcome-actions';
 import type {
@@ -29,9 +29,6 @@ import { isJevEnabled } from '../jev/jev-client';
 import { runMatterJevDecisions, type MatterJevSignalDecision } from '../jev/matter-jev';
 import { applySameAskGroups, collapseSameAskItems, omitSameAskAs } from './matter-same-ask';
 import { formatMatterSourceOverrides } from './matter-source-prompts';
-
-/** Cluster + narrative model. Jev still owns keep / severity / orbit / rank. */
-const MATTER_RANKER_MODEL = 'gpt-5.6-terra';
 
 /** Max Slack items on the Matter radar so calendar/jira/gmail/hub stay visible. */
 export const MATTER_RADAR_SLACK_CAP = 8;
@@ -515,20 +512,8 @@ Rules:
 - Do not merge unrelated messages.
 - Do not invent count rollups or new fingerprints.`;
 
-export function matterOneShotConfig(config: AppConfig): AppConfig {
-  const creds = applyBackendManagedCredentials({
-    provider: 'openai',
-    apiKey: '',
-    baseUrl: '',
-  });
-  return {
-    ...config,
-    model: MATTER_RANKER_MODEL,
-    provider: 'openai',
-    customProtocol: 'openai',
-    baseUrl: creds.baseUrl || config.baseUrl,
-    apiKey: creds.apiKey || config.apiKey,
-  };
+export function matterOneShotConfig(config: AppConfig): Promise<AppConfig> {
+  return resolveYorkLlmOneShotConfig(config);
 }
 
 /** Slack message time is not a deadline — only an explicit dueAt is. */
@@ -577,7 +562,7 @@ async function clusterSameAskPool(
         })),
       }),
       SAME_ASK_CLUSTER_PROMPT,
-      matterOneShotConfig(config),
+      await matterOneShotConfig(config),
       { usageFeature: 'matter_scan', usageSessionId: 'matter_scan' }
     );
     const groups = parseSameAskGroups(
@@ -711,7 +696,7 @@ async function rankMatterSignalsViaJev(options: {
   let pulse: string | null = null;
   let brief: string | null = null;
   try {
-    const oneShotConfig = matterOneShotConfig(config);
+    const oneShotConfig = await matterOneShotConfig(config);
     const narrativePrompt = [
       'You write short Matter copy for items ALREADY selected for this person.',
       'Return JSON only: {"pulse":string,"brief":string|null,"items":[{"fingerprint":string,"summary":string,"whyItMatters":string,"suggestedAction":string|null,"title":string}]}',
@@ -884,7 +869,7 @@ async function rankMatterSignalsViaLlm(options: {
 }): Promise<RankedMatterResult> {
   const { config, profile, signals, rankerPool, softMax, sensitivity, sourcePrompts } = options;
   try {
-    const oneShotConfig = matterOneShotConfig(config);
+    const oneShotConfig = await matterOneShotConfig(config);
     const userPrompt = JSON.stringify(
       {
         maxItems: softMax,

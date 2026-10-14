@@ -22,7 +22,6 @@ import { resolveGptImage25ModelId } from '../../shared/image-generation';
 import { YorkLlmRoutineTip } from './YorkLlmRoutineTip';
 import { HubBudgetMeter } from './HubBudgetMeter';
 import { ThinkingModeToggle } from './ThinkingModeToggle';
-import { OpenRouterKeyGateBanner } from './OpenRouterKeyGateBanner';
 import { SlashCommandMenu } from './SlashCommandMenu';
 import { SubagentTracker } from './SubagentTracker';
 import type { Message, ContentBlock, Skill, ChatLoopStatus } from '../types';
@@ -71,8 +70,6 @@ import { handleComposerTextKeyDown } from '../utils/composer-text-editing';
 import { useDictation } from '../hooks/useDictation';
 import { DictationButton } from './DictationButton';
 import { ClientOutdatedUpdateActions } from './ClientOutdatedUpdateActions';
-import { needsOpenRouterUserKey } from '../../shared/openrouter-user-key';
-import { divisionBudgetCheckKey } from '../../shared/fe-budget-gate';
 import { divisionLabel } from '../../shared/workspace-division';
 
 export function ChatView() {
@@ -92,16 +89,6 @@ export function ChatView() {
     activeSessionId ? (s.yorkLlmQueueBySessionId[activeSessionId] ?? null) : null
   );
   const activeDivision = useAppStore((s) => s.activeDivision);
-  const appConfig = useAppStore((s) => s.appConfig);
-  const hubUsage = useAppStore((s) => s.hubUsage);
-  const openRouterKeyRequired = needsOpenRouterUserKey(
-    activeDivision,
-    appConfig?.openRouterUserApiKey,
-    {
-      activeSource: hubUsage?.activeSource,
-      budgetReady: hubUsage?.checkedDivisionKey === divisionBudgetCheckKey(activeDivision),
-    }
-  );
   const chatLoopStatus = useAppStore((s) =>
     activeSessionId ? (s.chatLoopBySessionId[activeSessionId] ?? null) : null
   );
@@ -535,8 +522,7 @@ export function ChatView() {
           attachedMeetings.length === 0 &&
           attachedReferences.length === 0) ||
       !activeSessionId ||
-      isSubmitting ||
-      openRouterKeyRequired
+      isSubmitting
     )
       return;
 
@@ -1039,7 +1025,6 @@ export function ChatView() {
             onDrop={handleDrop}
             className="relative w-full"
           >
-            <OpenRouterKeyGateBanner compact className="mb-2.5" />
             <ComposerAttachments
               images={pastedImages}
               files={attachedFiles}
@@ -1167,12 +1152,7 @@ export function ChatView() {
                     ? t('composer.imagePromptPlaceholder')
                     : t('chat.typeMessageSkillHint')
                 }
-                disabled={
-                  isSubmitting ||
-                  openRouterKeyRequired ||
-                  collabBlocksComposer ||
-                  sharedDocBlocksComposer
-                }
+                disabled={isSubmitting || collabBlocksComposer || sharedDocBlocksComposer}
                 rows={1}
                 className="w-full min-w-0 resize-none overflow-hidden border-none bg-transparent px-0.5 py-0.5 text-[14.5px] leading-6 text-text-primary outline-none placeholder:text-text-muted"
               />
@@ -1226,7 +1206,7 @@ export function ChatView() {
                     }
                   />
 
-                  <ComposerModeDropdown disabled={isSubmitting || openRouterKeyRequired} />
+                  <ComposerModeDropdown disabled={isSubmitting} />
 
                   {!textOnly && skillsDisabled && activeSessionId && (
                     <button
@@ -1314,7 +1294,7 @@ export function ChatView() {
                     <DictationButton
                       status={dictationStatus}
                       errorKind={dictationErrorKind}
-                      disabled={isSubmitting || openRouterKeyRequired}
+                      disabled={isSubmitting}
                       onToggle={toggleDictation}
                     />
                   )}
@@ -1332,7 +1312,7 @@ export function ChatView() {
                   )}
                   <button
                     type="submit"
-                    disabled={openRouterKeyRequired || !hasDraftContent || isSubmitting}
+                    disabled={!hasDraftContent || isSubmitting}
                     className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-40"
                     title={t('chat.sendMessage')}
                     aria-label={t('chat.sendMessage')}

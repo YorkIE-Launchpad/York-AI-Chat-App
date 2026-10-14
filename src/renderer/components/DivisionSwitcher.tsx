@@ -6,7 +6,6 @@ import {
   Layers,
   Loader2,
   Folder,
-  Lock,
   Search,
   Users,
 } from 'lucide-react';
@@ -18,14 +17,16 @@ import {
   companyProjectSourceLabel,
   divisionLabel,
 } from '../../shared/workspace-division';
-import type { ClientProjectGroup, UnifiedCompanyProject } from '../../shared/unified-company-projects';
+import type {
+  ClientProjectGroup,
+  UnifiedCompanyProject,
+} from '../../shared/unified-company-projects';
 import {
   canonicalKeyForUnified,
   filterClientProjectGroups,
   filterCompanyProjects,
   groupUnifiedProjectsByClient,
 } from '../../shared/unified-company-projects';
-import { hasOpenRouterUserApiKey } from '../../shared/openrouter-user-key';
 import {
   rememberRecentProject,
   resolveRecentProjects,
@@ -60,10 +61,6 @@ export function DivisionSwitcher({
   const isHeader = variant === 'header';
   const activeDivision = useAppStore((s) => s.activeDivision);
   const setActiveDivision = useAppStore((s) => s.setActiveDivision);
-  const appConfig = useAppStore((s) => s.appConfig);
-  const setShowSettings = useAppStore((s) => s.setShowSettings);
-  const setSettingsTab = useAppStore((s) => s.setSettingsTab);
-  const hasOpenRouterKey = hasOpenRouterUserApiKey(appConfig?.openRouterUserApiKey);
   const [menuOpen, setMenuOpen] = useState(false);
   const [pickingProject, setPickingProject] = useState(false);
   const [pickingClient, setPickingClient] = useState(false);
@@ -102,58 +99,61 @@ export function DivisionSwitcher({
     return () => window.clearTimeout(id);
   }, [pickingProject, loadingProjects, projects.length]);
 
-  const loadProjects = useCallback(async (forceRefresh = false): Promise<UnifiedCompanyProject[]> => {
-    setLoadingProjects(true);
-    setProjectsError(null);
-    try {
-      const api = window.electronAPI?.projects;
-      if (!api?.listUnified) {
-        const hubApi = window.electronAPI?.hub;
-        if (!hubApi?.listAllocatedProjects) {
-          setProjects([]);
-          setProjectsError('Projects unavailable');
-          return [];
+  const loadProjects = useCallback(
+    async (forceRefresh = false): Promise<UnifiedCompanyProject[]> => {
+      setLoadingProjects(true);
+      setProjectsError(null);
+      try {
+        const api = window.electronAPI?.projects;
+        if (!api?.listUnified) {
+          const hubApi = window.electronAPI?.hub;
+          if (!hubApi?.listAllocatedProjects) {
+            setProjects([]);
+            setProjectsError('Projects unavailable');
+            return [];
+          }
+          const result = await hubApi.listAllocatedProjects(forceRefresh);
+          if (!result.success) {
+            setProjects([]);
+            setProjectsError(result.error || 'Failed to load projects');
+            return [];
+          }
+          const mapped = (result.projects || []).map((p) => ({
+            canonicalKey: `hub:${p.id}`,
+            name: p.name,
+            sources: { hub: true as const },
+            hubProjectId: p.id,
+            hubProjectName: p.name,
+            ...(p.clientName ? { clientName: p.clientName } : {}),
+          }));
+          setProjects(mapped);
+          if (!mapped.length) {
+            setProjectsError('No projects');
+          }
+          return mapped;
         }
-        const result = await hubApi.listAllocatedProjects(forceRefresh);
-        if (!result.success) {
-          setProjects([]);
-          setProjectsError(result.error || 'Failed to load projects');
-          return [];
+        const result = await api.listUnified(forceRefresh);
+        const loaded = result.projects || [];
+        setProjects(loaded);
+        const partial: string[] = [];
+        if (result.hubError) partial.push(`Hub: ${result.hubError}`);
+        if (result.launchpadError) partial.push(`LaunchPad: ${result.launchpadError}`);
+        if (!loaded.length) {
+          setProjectsError(partial.join(' · ') || result.error || 'No projects');
+        } else if (partial.length) {
+          setProjectsError(partial.join(' · '));
         }
-        const mapped = (result.projects || []).map((p) => ({
-          canonicalKey: `hub:${p.id}`,
-          name: p.name,
-          sources: { hub: true as const },
-          hubProjectId: p.id,
-          hubProjectName: p.name,
-          ...(p.clientName ? { clientName: p.clientName } : {}),
-        }));
-        setProjects(mapped);
-        if (!mapped.length) {
-          setProjectsError('No projects');
-        }
-        return mapped;
+        return loaded;
+      } catch (error) {
+        setProjects([]);
+        setProjectsError(error instanceof Error ? error.message : 'Failed to load projects');
+        return [];
+      } finally {
+        setLoadingProjects(false);
       }
-      const result = await api.listUnified(forceRefresh);
-      const loaded = result.projects || [];
-      setProjects(loaded);
-      const partial: string[] = [];
-      if (result.hubError) partial.push(`Hub: ${result.hubError}`);
-      if (result.launchpadError) partial.push(`LaunchPad: ${result.launchpadError}`);
-      if (!loaded.length) {
-        setProjectsError(partial.join(' · ') || result.error || 'No projects');
-      } else if (partial.length) {
-        setProjectsError(partial.join(' · '));
-      }
-      return loaded;
-    } catch (error) {
-      setProjects([]);
-      setProjectsError(error instanceof Error ? error.message : 'Failed to load projects');
-      return [];
-    } finally {
-      setLoadingProjects(false);
-    }
-  }, []);
+    },
+    []
+  );
 
   // Warn when the stored project workspace is no longer in the live allocation list.
   useEffect(() => {
@@ -240,15 +240,6 @@ export function DivisionSwitcher({
 
   const selectDivision = useCallback(
     async (division: ActiveDivision) => {
-      if (
-        (division.kind === 'general' || division.kind === 'folder') &&
-        !hasOpenRouterUserApiKey(appConfig?.openRouterUserApiKey)
-      ) {
-        setSettingsTab('general');
-        setShowSettings(true);
-        setMenuOpen(false);
-        return;
-      }
       if (division.kind === 'project') {
         setPickingClient(false);
         setPickingProject(true);
@@ -266,13 +257,7 @@ export function DivisionSwitcher({
       setPickingProject(false);
       setPickingClient(false);
     },
-    [
-      appConfig?.openRouterUserApiKey,
-      loadProjects,
-      setActiveDivision,
-      setSettingsTab,
-      setShowSettings,
-    ]
+    [loadProjects, setActiveDivision]
   );
 
   const selectClient = useCallback(
@@ -321,12 +306,6 @@ export function DivisionSwitcher({
   const hasProjectMatches = visibleRecentProjects.length > 0 || visibleOtherProjects.length > 0;
 
   const enterFoldersWorkspace = useCallback(async () => {
-    if (!hasOpenRouterUserApiKey(appConfig?.openRouterUserApiKey)) {
-      setSettingsTab('general');
-      setShowSettings(true);
-      setMenuOpen(false);
-      return;
-    }
     const list = await loadFolders();
     if (list.length === 0) {
       // Enter Folders workspace with no active folder; create happens in chat history.
@@ -348,14 +327,7 @@ export function DivisionSwitcher({
     setMenuOpen(false);
     setPickingProject(false);
     setPickingClient(false);
-  }, [
-    activeDivision,
-    appConfig?.openRouterUserApiKey,
-    loadFolders,
-    setActiveDivision,
-    setSettingsTab,
-    setShowSettings,
-  ]);
+  }, [activeDivision, loadFolders, setActiveDivision]);
 
   const hasDivision = Boolean(activeDivision);
   const isFoldersWorkspace = activeDivision?.kind === 'folder';
@@ -451,31 +423,21 @@ export function DivisionSwitcher({
               <MenuItem
                 icon={Layers}
                 label="General"
-                description={
-                  hasOpenRouterKey
-                    ? 'Personal · your OpenRouter API key (not York billing)'
-                    : 'Requires your OpenRouter API key — tap to add it'
-                }
+                description="Personal chats · York models"
                 active={activeDivision?.kind === 'general'}
-                locked={!hasOpenRouterKey}
                 onClick={() => void selectDivision({ kind: 'general' })}
               />
               <MenuItem
                 icon={Folder}
                 label="Folders"
-                description={
-                  hasOpenRouterKey
-                    ? 'Personal folders · your OpenRouter API key'
-                    : 'Requires your OpenRouter API key — tap to add it'
-                }
+                description="Personal folders · York models"
                 active={activeDivision?.kind === 'folder'}
-                locked={!hasOpenRouterKey}
                 onClick={() => void enterFoldersWorkspace()}
               />
               <MenuItem
                 icon={Building2}
                 label="Hub"
-                description="People & HR · your OpenRouter API key"
+                description="People & HR · your personal York allowance"
                 active={activeDivision?.kind === 'hub'}
                 onClick={() => void selectDivision({ kind: 'hub' })}
               />
@@ -496,7 +458,7 @@ export function DivisionSwitcher({
               <MenuItem
                 icon={Briefcase}
                 label="Project"
-                description="Hub + LaunchPad · York-managed models (no OpenRouter key)"
+                description="Hub + LaunchPad · York-managed models"
                 active={activeDivision?.kind === 'project'}
                 onClick={() =>
                   void selectDivision({
@@ -588,9 +550,11 @@ export function DivisionSwitcher({
                       </div>
                     </button>
                   ))}
-                {!loadingProjects && clientGroups.length > 0 && visibleClientGroups.length === 0 && (
-                  <p className="px-3 py-3 text-xs text-text-muted">No matching clients</p>
-                )}
+                {!loadingProjects &&
+                  clientGroups.length > 0 &&
+                  visibleClientGroups.length === 0 && (
+                    <p className="px-3 py-3 text-xs text-text-muted">No matching clients</p>
+                  )}
               </div>
             </div>
           ) : pickingProject ? (
@@ -725,14 +689,12 @@ function MenuItem({
   label,
   description,
   active,
-  locked = false,
   onClick,
 }: {
   icon: typeof Layers;
   label: string;
   description: string;
   active: boolean;
-  locked?: boolean;
   onClick: () => void;
 }) {
   return (
@@ -741,19 +703,11 @@ function MenuItem({
       onClick={onClick}
       className={`flex w-full items-start gap-2.5 px-3 py-2 text-left hover:bg-bg-secondary ${
         active ? 'bg-bg-secondary' : ''
-      } ${locked ? 'opacity-90' : ''}`}
+      }`}
     >
       <Icon className="mt-0.5 h-4 w-4 shrink-0 text-text-muted" />
       <span className="min-w-0 flex-1">
-        <span className="flex items-center gap-1.5">
-          <span className="block text-sm font-medium text-text-primary">{label}</span>
-          {locked ? (
-            <span className="inline-flex items-center gap-0.5 rounded border border-amber-500/30 bg-amber-500/10 px-1 py-px text-[10px] font-medium text-amber-800 dark:text-amber-300">
-              <Lock className="h-2.5 w-2.5" />
-              Key
-            </span>
-          ) : null}
-        </span>
+        <span className="block text-sm font-medium text-text-primary">{label}</span>
         <span className="block text-xs text-text-muted">{description}</span>
       </span>
     </button>

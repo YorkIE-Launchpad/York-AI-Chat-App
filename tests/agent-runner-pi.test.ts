@@ -95,7 +95,7 @@ describe('CoworkAgentRunner York IE SDK integration', () => {
     expect(agentRunnerContent).toContain('subagent: configStore.getAll().subagent');
   });
 
-  it('uses the normalized route protocol so openrouter follows the openai-compatible path', () => {
+  it('uses the normalized route protocol for the openai-compatible path', () => {
     expect(agentRunnerContent).toContain('resolvePiRouteProtocol');
     expect(agentRunnerContent).toContain('const configProtocol = resolvePiRouteProtocol(');
     expect(agentRunnerContent).toContain('buildSyntheticPiModelFromRuntimeConfig');

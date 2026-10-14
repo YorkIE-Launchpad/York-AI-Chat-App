@@ -2,12 +2,11 @@ import { v4 as uuidv4 } from 'uuid';
 import type { DatabaseInstance, ScheduledTaskRow } from '../db/database';
 import type { ScheduleSessionMode, ScheduleTaskKind, WatchConfig } from '../../shared/loop/types';
 import {
+  LEGACY_DEFAULT_MODEL_IDS,
+  LEGACY_PROVIDER_IDS,
   YORK_LLM_PROVIDER,
 } from '../../shared/york-llm-config';
-import {
-  normalizeWorkflowBinding,
-  workflowBindingToStartOptions,
-} from '../../shared/workflows';
+import { normalizeWorkflowBinding, workflowBindingToStartOptions } from '../../shared/workflows';
 import type {
   ScheduledTask,
   ScheduledTaskCreateInput,
@@ -25,6 +24,12 @@ export function resolveScheduleModel(
 ): { model: string; provider: string } {
   const resolvedModel = model?.trim() || DEFAULT_SCHEDULE_MODEL;
   const resolvedProvider = provider?.trim() || DEFAULT_SCHEDULE_PROVIDER;
+  if (
+    LEGACY_PROVIDER_IDS.has(resolvedProvider.toLowerCase()) ||
+    LEGACY_DEFAULT_MODEL_IDS.has(resolvedModel.toLowerCase())
+  ) {
+    return { model: DEFAULT_SCHEDULE_MODEL, provider: DEFAULT_SCHEDULE_PROVIDER };
+  }
   return { model: resolvedModel, provider: resolvedProvider };
 }
 

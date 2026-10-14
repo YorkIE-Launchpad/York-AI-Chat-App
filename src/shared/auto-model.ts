@@ -40,51 +40,29 @@ export interface PromptComplexityContext {
 
 const TIER_ORDER: AutoModelTier[] = ['fast', 'balanced', 'frontier'];
 
-/** Curated pool — preference order within each tier. Free OpenRouter first on fast/balanced; after paid on frontier. */
+/** Curated pool — preference order within each tier. */
 export const AUTO_MODEL_TIERS: Record<AutoModelTier, AutoModelCandidate[]> = {
   fast: [
-    { provider: 'openrouter', id: 'openrouter/free', supportsVision: true },
-    { provider: 'openrouter', id: 'meta-llama/llama-3.2-3b-instruct:free', supportsVision: false },
-    { provider: 'openrouter', id: 'openai/gpt-oss-20b:free', supportsVision: false },
-    { provider: 'openrouter', id: 'nvidia/nemotron-3-nano-30b-a3b:free', supportsVision: false },
-    { provider: 'openrouter', id: 'poolside/laguna-xs-2.1:free', supportsVision: false },
     { provider: 'anthropic', id: 'claude-haiku-4-5', supportsVision: true },
     { provider: 'gemini', id: 'gemini-3.6-flash', supportsVision: true },
     { provider: 'openai', id: 'gpt-5.4-mini', supportsVision: true },
     { provider: 'gemini', id: 'gemini-3.5-flash-lite', supportsVision: true },
     { provider: 'gemini', id: 'gemini-3.1-flash-lite', supportsVision: true },
-    { provider: 'openrouter', id: 'anthropic/claude-haiku-4.5', supportsVision: true },
-    { provider: 'openrouter', id: 'google/gemini-3.6-flash', supportsVision: true },
-    { provider: 'openrouter', id: 'google/gemini-3.5-flash', supportsVision: true },
   ],
   balanced: [
-    { provider: 'openrouter', id: 'meta-llama/llama-3.3-70b-instruct:free', supportsVision: false },
-    { provider: 'openrouter', id: 'google/gemma-4-31b-it:free', supportsVision: true },
-    { provider: 'openrouter', id: 'qwen/qwen3-next-80b-a3b-instruct:free', supportsVision: false },
     { provider: 'anthropic', id: 'claude-sonnet-5', supportsVision: true },
     // Temporarily hidden — re-enable later: gpt-5.6
     { provider: 'openai', id: 'gpt-5.6-luna', supportsVision: true },
     { provider: 'gemini', id: 'gemini-3.7-flash', supportsVision: true },
     { provider: 'gemini', id: 'gemini-3.5-flash', supportsVision: true },
     { provider: 'gemini', id: 'gemini-3.1-pro-preview', supportsVision: true },
-    { provider: 'openrouter', id: 'anthropic/claude-sonnet-5', supportsVision: true },
-    // Temporarily hidden — re-enable later: openai/gpt-5.6-sol
-    { provider: 'openrouter', id: 'google/gemini-3.7-flash', supportsVision: true },
-    { provider: 'openrouter', id: 'google/gemini-3.1-pro-preview', supportsVision: true },
   ],
   frontier: [
     { provider: 'anthropic', id: 'claude-fable-5', supportsVision: true },
     { provider: 'anthropic', id: 'claude-opus-5', supportsVision: true },
     { provider: 'anthropic', id: 'claude-opus-4-8', supportsVision: true },
-    // Temporarily hidden — re-enable later: gpt-5.6-sol / gpt-5.6 / openai/gpt-5.6-sol
+    // Temporarily hidden — re-enable later: gpt-5.6-sol / gpt-5.6
     { provider: 'openai', id: 'gpt-5.6-luna', supportsVision: true },
-    { provider: 'openrouter', id: 'anthropic/claude-fable-5', supportsVision: true },
-    { provider: 'openrouter', id: 'anthropic/claude-opus-5', supportsVision: true },
-    { provider: 'openrouter', id: 'anthropic/claude-opus-4.8', supportsVision: true },
-    { provider: 'openrouter', id: 'openai/gpt-5.6-luna', supportsVision: true },
-    { provider: 'openrouter', id: 'nvidia/nemotron-3-super-120b-a12b:free', supportsVision: false },
-    { provider: 'openrouter', id: 'qwen/qwen3-coder:free', supportsVision: false },
-    { provider: 'openrouter', id: 'poolside/laguna-m.1:free', supportsVision: false },
   ],
 };
 

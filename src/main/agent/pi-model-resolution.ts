@@ -66,7 +66,6 @@ export function resolvePiRouteProtocol(provider?: string, customProtocol?: strin
   }
   if (provider === 'ollama') return 'openai';
   if (provider === 'openai') return 'openai';
-  if (provider === 'openrouter') return 'openai';
   if (provider === 'gemini') return 'gemini';
   return provider || 'anthropic';
 }
@@ -89,7 +88,7 @@ function shouldDisableDeveloperRoleForEndpoint(
 
 /**
  * Every non-official OpenAI-compatible endpoint (custom relays such as
- * TokenMix, local Ollama, OpenRouter) gets the same compat overrides.
+ * TokenMix, local Ollama) gets the same compat overrides.
  * Those endpoints 400 on proprietary Chat Completions fields (`strict`
  * inside `function`, `store`, `developer` role). pi-ai omits `strict` when
  * `supportsStrictMode` is false. Omitting the field matches OpenAI's default
@@ -257,17 +256,9 @@ export function resolveSyntheticPiModelFallback(
   const baseUrl = input.baseUrl?.trim() || '';
   const preservesExplicitPrefixedId =
     rawModel.includes('/') &&
-    (input.rawProvider === 'openrouter' ||
-      input.rawProvider === 'custom' ||
+    (input.rawProvider === 'custom' ||
       (input.rawProvider === 'openai' && !!baseUrl && !isOfficialOpenAIBaseUrl(baseUrl))) &&
     input.routeProtocol === 'openai';
-
-  if (input.rawProvider === 'openrouter') {
-    return {
-      provider: 'openrouter',
-      modelId: preservesExplicitPrefixedId ? modelString : strippedModelId,
-    };
-  }
 
   const fallbackProvider =
     input.rawProvider === 'custom' || input.rawProvider === 'ollama'
@@ -382,9 +373,6 @@ export function applyPiModelRuntimeOverrides(
     // Most custom OpenAI-compatible relays only implement chat/completions.
     nextModel = { ...nextModel, api: 'openai-completions' } as typeof nextModel;
   }
-  if (effectiveProvider === 'openrouter' && nextModel.api !== 'openai-completions') {
-    nextModel = { ...nextModel, api: 'openai-completions' } as typeof nextModel;
-  }
   if (shouldDisableDeveloperRoleForEndpoint(nextModel, options)) {
     nextModel = applyNonOfficialOpenAICompat(nextModel);
   }
@@ -418,24 +406,6 @@ export function applyPiModelRuntimeOverrides(
     const targetApi = inferPiApi(options.customProtocol);
     if (nextModel.api !== targetApi && !shouldPreserveOpenAIResponsesApi(nextModel, options)) {
       nextModel = { ...nextModel, api: targetApi } as typeof nextModel;
-    }
-  }
-
-  // OpenRouter Claude: keep anthropic/ id prefix so pi-ai injects cache_control.
-  if (effectiveProvider === 'openrouter') {
-    const id = String(nextModel.id || '');
-    const looksClaude = /(^|\/)claude[-/]/i.test(id) || id.toLowerCase().startsWith('anthropic/');
-    if (looksClaude) {
-      if (!id.startsWith('anthropic/') && !id.includes('/')) {
-        nextModel = {
-          ...nextModel,
-          id: `anthropic/${id}`,
-          name: nextModel.name || `anthropic/${id}`,
-        } as typeof nextModel;
-      }
-      if (nextModel.provider !== 'openrouter') {
-        nextModel = { ...nextModel, provider: 'openrouter' } as typeof nextModel;
-      }
     }
   }
 

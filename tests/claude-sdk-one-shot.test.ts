@@ -62,7 +62,7 @@ vi.mock('../src/main/agent/pi-model-resolution', () => ({
       }
       return 'anthropic';
     }
-    if (provider === 'ollama' || provider === 'openai' || provider === 'openrouter') {
+    if (provider === 'ollama' || provider === 'openai') {
       return 'openai';
     }
     if (provider === 'gemini') {
@@ -89,7 +89,6 @@ vi.mock('../src/main/agent/pi-model-resolution', () => ({
   buildSyntheticPiModel: mocks.buildSyntheticPiModel,
   applyPiModelRuntimeOverrides: (model: unknown) => model,
   resolveSyntheticPiModelFallback: ({
-    rawModel,
     resolvedModelString,
     rawProvider,
     routeProtocol,
@@ -101,16 +100,12 @@ vi.mock('../src/main/agent/pi-model-resolution', () => ({
     routeProtocol: string;
     baseUrl?: string;
   }) => {
-    const raw = rawModel?.trim() || '';
     const resolved = resolvedModelString.trim();
     const parts = resolved.split('/');
     const strippedModelId = parts.length >= 2 ? parts.slice(1).join('/') : resolved;
-    const preserve =
-      rawProvider === 'openrouter' && routeProtocol === 'openai' && raw.includes('/');
     return {
-      provider:
-        rawProvider === 'openrouter' ? 'openrouter' : parts[0] || rawProvider || routeProtocol,
-      modelId: preserve ? resolved : strippedModelId,
+      provider: parts[0] || rawProvider || routeProtocol,
+      modelId: strippedModelId,
       baseUrl,
     };
   },
@@ -388,42 +383,6 @@ describe('probeWithSdk', () => {
       expect.any(String),
       'openai',
       'http://localhost:11434/v1',
-      'openai-completions'
-    );
-  });
-
-  it('keeps explicit openrouter model namespaces for synthetic fallback models', async () => {
-    mocks.resolvePiRegistryModel.mockReturnValue(undefined);
-    mocks.buildSyntheticPiModel.mockReturnValue({
-      id: 'z-ai/glm-5-turbo',
-      provider: 'openrouter',
-      api: 'openai-completions',
-      baseUrl: 'https://openrouter.ai/api/v1',
-    });
-
-    const result = await probeWithSdk(
-      {
-        provider: 'openrouter',
-        apiKey: 'sk-or-test',
-        model: 'z-ai/glm-5-turbo',
-        baseUrl: 'https://openrouter.ai/api/v1',
-      },
-      createConfig({
-        provider: 'openrouter',
-        apiKey: 'sk-or-test',
-        baseUrl: 'https://openrouter.ai/api/v1',
-        customProtocol: 'anthropic',
-        model: 'z-ai/glm-5-turbo',
-        activeProfileKey: 'openrouter',
-      })
-    );
-
-    expect(result.ok).toBe(true);
-    expect(mocks.buildSyntheticPiModel).toHaveBeenCalledWith(
-      'z-ai/glm-5-turbo',
-      'openrouter',
-      'openai',
-      'https://openrouter.ai/api/v1',
       'openai-completions'
     );
   });

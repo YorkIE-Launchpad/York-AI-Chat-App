@@ -81,8 +81,8 @@ describe('pi model runtime overrides', () => {
         id: 'deepseek/deepseek-v4-flash',
         name: 'deepseek/deepseek-v4-flash',
         api: 'openai-completions',
-        provider: 'openrouter',
-        baseUrl: 'https://openrouter.ai/api/v1',
+        provider: 'custom',
+        baseUrl: 'https://llm.example.com/api/v1',
         reasoning: true,
         input: ['text'],
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
@@ -90,9 +90,9 @@ describe('pi model runtime overrides', () => {
         maxTokens: 16384,
       } as Model<Api>,
       {
-        configProvider: 'openrouter',
-        rawProvider: 'openrouter',
-        customBaseUrl: 'https://openrouter.ai/api/v1',
+        configProvider: 'custom',
+        rawProvider: 'custom',
+        customBaseUrl: 'https://llm.example.com/api/v1',
       }
     );
 

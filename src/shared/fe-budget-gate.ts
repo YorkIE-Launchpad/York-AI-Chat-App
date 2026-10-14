@@ -109,14 +109,13 @@ export function parseLaunchPadProjectBudget(payload: unknown): LaunchPadProjectB
   const totalSpendUsd = numberField(data, 'totalSpendUsd', 'total_spend_usd') ?? 0;
   const remainingUsd =
     numberField(data, 'remainingUsd', 'remaining_usd') ?? budgetUsd - totalSpendUsd;
-  const isOverBudget =
-    booleanField(data, 'isOverBudget', 'is_over_budget') ?? remainingUsd < 0;
+  const isOverBudget = booleanField(data, 'isOverBudget', 'is_over_budget') ?? remainingUsd < 0;
   return { budgetUsd, totalSpendUsd, remainingUsd, isOverBudget };
 }
 
 export type BudgetMeterTone = 'ok' | 'warning' | 'over';
 
-/** Which York allowance the current workspace draws from. `none` → OpenRouter. */
+/** Which York allowance the current workspace draws from. `none` → no paid allowance (York LLM). */
 export type ActiveBudgetSource = 'project' | 'user' | 'none';
 
 /** Live meter snapshot pushed after usage ingest (and seeded from GET ai-budget). */
@@ -183,10 +182,15 @@ export function launchPadBudgetPercent(
 }
 
 /** True when a Hub snapshot has a real ceiling (not unset / missing). */
-export function hasAiBudgetCeiling(snapshot: {
-  status?: string | null;
-  amount?: number | null;
-} | null | undefined): boolean {
+export function hasAiBudgetCeiling(
+  snapshot:
+    | {
+        status?: string | null;
+        amount?: number | null;
+      }
+    | null
+    | undefined
+): boolean {
   if (!snapshot) return false;
   if (snapshot.status === 'unset') return false;
   if (snapshot.status === 'ok' || snapshot.status === 'warning' || snapshot.status === 'over') {
@@ -203,11 +207,16 @@ export function hasLaunchPadBudgetCeiling(
   return Boolean(budget && Number.isFinite(budget.budgetUsd) && budget.budgetUsd > 0);
 }
 
-export function divisionBudgetCheckKey(division: {
-  kind?: string | null;
-  canonicalKey?: string;
-  folderId?: string;
-} | null | undefined): string {
+export function divisionBudgetCheckKey(
+  division:
+    | {
+        kind?: string | null;
+        canonicalKey?: string;
+        folderId?: string;
+      }
+    | null
+    | undefined
+): string {
   const kind = division?.kind || 'none';
   if (kind === 'project') return `project:${division?.canonicalKey || ''}`;
   if (kind === 'client') return `client:${division?.canonicalKey || ''}`;
@@ -216,8 +225,8 @@ export function divisionBudgetCheckKey(division: {
 }
 
 /**
- * Project allowance first, then personal, then OpenRouter (`none`).
- * General / Folders always `none` (OpenRouter-only workspaces).
+ * Project allowance first, then personal, then no paid allowance (`none`).
+ * General / Folders always `none`.
  */
 export function resolveActiveBudgetSource(input: {
   divisionKind?: string | null;
@@ -306,13 +315,10 @@ export function resolveProjectBudgetGateStrategy(input: {
   if (input.division !== 'project') return null;
 
   const sourcesProvided =
-    Boolean(input.sources) &&
-    (Boolean(input.sources?.hub) || Boolean(input.sources?.launchpad));
+    Boolean(input.sources) && (Boolean(input.sources?.hub) || Boolean(input.sources?.launchpad));
 
   const hub = sourcesProvided ? Boolean(input.sources?.hub) : hasHubProjectLink(input);
-  const lp = sourcesProvided
-    ? Boolean(input.sources?.launchpad)
-    : hasLaunchPadProjectLink(input);
+  const lp = sourcesProvided ? Boolean(input.sources?.launchpad) : hasLaunchPadProjectLink(input);
 
   if (hub && lp) return 'both';
   if (lp) return 'launchpad';

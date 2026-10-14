@@ -165,7 +165,6 @@ function resolvePresets(config) {
     let effectiveProtocol = 'anthropic';
     if (provider === 'openai' || protocol === 'openai') effectiveProtocol = 'openai';
     else if (provider === 'gemini' || protocol === 'gemini') effectiveProtocol = 'gemini';
-    else if (provider === 'openrouter') effectiveProtocol = 'openai'; // openrouter is openai-compat
 
     // Skip providers that need a special proxy (e.g. OpenAI Codex OAuth JWT)
     if (provider === 'openai' && apiKey.startsWith('eyJ')) {

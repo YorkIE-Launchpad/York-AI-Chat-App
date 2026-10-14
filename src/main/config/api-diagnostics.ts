@@ -100,7 +100,6 @@ function isOpenAICompatible(input: DiagnosticInput): boolean {
   return (
     input.provider === 'openai' ||
     input.provider === 'ollama' ||
-    input.provider === 'openrouter' ||
     (input.provider === 'custom' && input.customProtocol === 'openai')
   );
 }

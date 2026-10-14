@@ -100,7 +100,7 @@ describe('createEncryptedStoreWithKeyRotation', () => {
       JSON.stringify({
         key: 'some-old-key',
         payload: {
-          provider: 'openrouter',
+          provider: 'anthropic',
           apiKey: 'legacy-secret',
         },
       })

@@ -24,7 +24,6 @@ const SENSITIVE_HEADER_KEYS = new Set([
   'authorization',
   'x-api-key',
   'x-goog-api-key',
-  'x-york-openrouter-key',
   'cookie',
   'set-cookie',
 ]);

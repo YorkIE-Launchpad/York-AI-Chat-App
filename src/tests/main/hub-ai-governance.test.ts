@@ -94,7 +94,6 @@ describe('parseHubGovernanceModels', () => {
           { id: 'mystery', name: 'Mystery', provider: 'azure' },
           { id: 'gpt-4o', name: 'GPT-4o Dup', provider: 'openai' },
           { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', provider: 'gemini' },
-          { id: 'openrouter/auto', name: 'OpenRouter Auto', provider: 'openrouter' },
         ],
       },
     });
@@ -102,7 +101,6 @@ describe('parseHubGovernanceModels', () => {
     expect(models).toEqual([
       { id: 'gpt-4o', name: 'GPT-4o', provider: 'openai' },
       { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', provider: 'gemini' },
-      { id: 'openrouter/auto', name: 'OpenRouter Auto', provider: 'openrouter' },
     ]);
   });
 
@@ -340,8 +338,20 @@ describe('joinCatalogWithAllowedModels', () => {
       hasBudget: true,
       modelIds: ['claude-sonnet-4', 'claude-opus-4-8'],
       grants: [
-        { modelId: 'claude-sonnet-4', workspaceTags: [], source: 'default', isFree: true, hasBudget: true },
-        { modelId: 'claude-opus-4-8', workspaceTags: [], source: 'group', isFree: false, hasBudget: true },
+        {
+          modelId: 'claude-sonnet-4',
+          workspaceTags: [],
+          source: 'default',
+          isFree: true,
+          hasBudget: true,
+        },
+        {
+          modelId: 'claude-opus-4-8',
+          workspaceTags: [],
+          source: 'group',
+          isFree: false,
+          hasBudget: true,
+        },
       ],
     });
     expect(joined.map((m) => m.id)).toEqual(['claude-sonnet-4', 'claude-opus-4-8']);
@@ -752,19 +762,6 @@ describe('buildHubUsagePayloadFromPiUsage', () => {
       usage: { input: 300_000, output: 0 },
     });
     expect(long?.cost).toBeCloseTo(0.12);
-  });
-
-  it('never builds a payload for OpenRouter (user-key) usage', () => {
-    for (const modelId of ['anthropic/claude-opus-4.8', 'qwen/qwen3-coder:free', 'openrouter/auto']) {
-      expect(
-        buildHubUsagePayloadFromPiUsage({
-          modelId,
-          provider: 'OpenRouter',
-          sessionId: 's1',
-          usage: { input: 5000, output: 500, cost: { total: 1.23 } },
-        })
-      ).toBeNull();
-    }
   });
 
   it('prices gpt-image-2.5 edits with separate text/image input rates', () => {

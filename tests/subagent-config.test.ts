@@ -7,10 +7,10 @@ import {
 
 describe('subagent configuration', () => {
   it('encodes provider-qualified models and keeps bare ids on the parent provider', () => {
-    const value = encodeSubagentModel('openrouter', 'anthropic/claude-sonnet-4');
+    const value = encodeSubagentModel('gemini', 'gemini-3.6-flash');
     expect(parseSubagentModel(value)).toEqual({
-      provider: 'openrouter',
-      model: 'anthropic/claude-sonnet-4',
+      provider: 'gemini',
+      model: 'gemini-3.6-flash',
     });
     expect(parseSubagentModel('/models/qwen.gguf')).toEqual({ model: '/models/qwen.gguf' });
     expect(parseSubagentModel('')).toEqual({ model: '' });

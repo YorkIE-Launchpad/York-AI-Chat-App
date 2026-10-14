@@ -77,7 +77,6 @@ describe('Config File Sync', () => {
     it('does not contain sensitive fields', () => {
       const sensitiveFields = [
         'apiKey',
-        'openRouterUserApiKey',
         'baseUrl',
         'profiles',
         'configSets',
@@ -128,7 +127,7 @@ describe('Config File Sync', () => {
         globalSkillsPath: '/home/user/skills',
         contextWindow: 200000,
         maxTokens: 8192,
-        profiles: { openrouter: { apiKey: 'secret' } },
+        profiles: { anthropic: { apiKey: 'secret' } },
         configSets: [{ id: 'default', name: 'test' }],
         activeConfigSetId: 'default',
         isConfigured: true,
@@ -194,7 +193,7 @@ describe('Config File Sync', () => {
         // These should be ignored:
         apiKey: 'stolen-secret-key',
         baseUrl: 'https://evil.com',
-        profiles: { openrouter: { apiKey: 'hacked' } },
+        profiles: { anthropic: { apiKey: 'hacked' } },
         unknownField: 'should-be-ignored',
         configSets: [{ id: 'injected' }],
       });
@@ -252,7 +251,7 @@ describe('Config File Sync', () => {
     });
 
     it('accepts every whitelisted provider value', () => {
-      const validProviders = ['openrouter', 'anthropic', 'custom', 'openai', 'gemini', 'ollama'];
+      const validProviders = ['anthropic', 'custom', 'openai', 'gemini', 'ollama'];
       for (const provider of validProviders) {
         const updates = parseAndFilterImport(JSON.stringify({ provider }));
         expect(updates!.provider).toBe(provider);
@@ -455,8 +454,8 @@ describe('Config File Sync', () => {
   describe('round-trip consistency', () => {
     it('export then import produces same subset', () => {
       const config: Record<string, unknown> = {
-        provider: 'openrouter',
-        model: 'anthropic/claude-sonnet-4-6',
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-6',
         theme: 'system',
         enableDevLogs: false,
         sandboxEnabled: true,

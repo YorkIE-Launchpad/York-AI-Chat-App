@@ -98,47 +98,6 @@ describe('auto-model', () => {
     expect(pick.reason).toContain('ultimate-fallback');
   });
 
-  it('prefers OpenRouter free models for eco/fast when only free catalog is available', () => {
-    const freeOnly: BackendModelInfo[] = [
-      { id: 'openrouter/free', name: 'OpenRouter Free', provider: 'openrouter' },
-      {
-        id: 'meta-llama/llama-3.2-3b-instruct:free',
-        name: 'Llama 3.2 3B (Free)',
-        provider: 'openrouter',
-      },
-      {
-        id: 'meta-llama/llama-3.3-70b-instruct:free',
-        name: 'Llama 3.3 70B (Free)',
-        provider: 'openrouter',
-      },
-      {
-        id: 'nvidia/nemotron-3-super-120b-a12b:free',
-        name: 'Nemotron 3 Super (Free)',
-        provider: 'openrouter',
-      },
-    ];
-    const score = scorePromptComplexity('hi');
-    const pick = pickAutoModel(freeOnly, score, 'eco');
-    expect(pick.tier).toBe('fast');
-    expect(pick.provider).toBe('openrouter');
-    expect(pick.modelId).toBe('openrouter/free');
-  });
-
-  it('falls back to free frontier models when only free OpenRouter models exist', () => {
-    const freeFrontier: BackendModelInfo[] = [
-      {
-        id: 'nvidia/nemotron-3-super-120b-a12b:free',
-        name: 'Nemotron 3 Super (Free)',
-        provider: 'openrouter',
-      },
-      { id: 'qwen/qwen3-coder:free', name: 'Qwen3 Coder (Free)', provider: 'openrouter' },
-      { id: 'poolside/laguna-m.1:free', name: 'Laguna M.1 (Free)', provider: 'openrouter' },
-    ];
-    const pick = pickAutoModel(freeFrontier, 90, 'max');
-    expect(pick.provider).toBe('openrouter');
-    expect(pick.modelId).toBe('nvidia/nemotron-3-super-120b-a12b:free');
-  });
-
   it('recognizes frontier catalog models used for research cues', () => {
     expect(isFrontierCatalogModel('anthropic', 'claude-fable-5')).toBe(true);
     expect(isFrontierCatalogModel('openai', 'gpt-5.6-luna')).toBe(true);

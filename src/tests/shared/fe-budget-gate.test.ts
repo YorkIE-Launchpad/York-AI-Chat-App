@@ -198,15 +198,15 @@ describe('shouldFetchLaunchPadProjectBudget', () => {
 describe('shouldUseUnfilteredAllowedModels', () => {
   it('is true for launchpad-only and both when Hub is blocking', () => {
     expect(shouldUseUnfilteredAllowedModels({ strategy: 'launchpad' })).toBe(true);
-    expect(
-      shouldUseUnfilteredAllowedModels({ strategy: 'both', userBudgetStatus: 'over' })
-    ).toBe(true);
-    expect(
-      shouldUseUnfilteredAllowedModels({ strategy: 'both', userBudgetStatus: 'unset' })
-    ).toBe(true);
-    expect(
-      shouldUseUnfilteredAllowedModels({ strategy: 'both', userBudgetStatus: 'ok' })
-    ).toBe(false);
+    expect(shouldUseUnfilteredAllowedModels({ strategy: 'both', userBudgetStatus: 'over' })).toBe(
+      true
+    );
+    expect(shouldUseUnfilteredAllowedModels({ strategy: 'both', userBudgetStatus: 'unset' })).toBe(
+      true
+    );
+    expect(shouldUseUnfilteredAllowedModels({ strategy: 'both', userBudgetStatus: 'ok' })).toBe(
+      false
+    );
     expect(shouldUseUnfilteredAllowedModels({ strategy: 'hub' })).toBe(false);
     expect(shouldUseUnfilteredAllowedModels({ strategy: null })).toBe(false);
   });
@@ -333,12 +333,11 @@ describe('budget meter helpers', () => {
   });
 
   it('derives percent from spent/amount snapshot', () => {
-    expect(
-      userBudgetPercentFromSnapshot({ status: 'ok', amount: 500, spent: 128.45 })
-    ).toBeCloseTo(25.69, 2);
-    expect(
-      userBudgetPercentFromSnapshot({ status: 'warning', amount: 100, spent: 85 })
-    ).toBe(85);
+    expect(userBudgetPercentFromSnapshot({ status: 'ok', amount: 500, spent: 128.45 })).toBeCloseTo(
+      25.69,
+      2
+    );
+    expect(userBudgetPercentFromSnapshot({ status: 'warning', amount: 100, spent: 85 })).toBe(85);
   });
 
   it('hides meter when unset or amount is missing', () => {
@@ -350,7 +349,7 @@ describe('budget meter helpers', () => {
 });
 
 describe('resolveActiveBudgetSource', () => {
-  it('uses project first, then personal, then OpenRouter', () => {
+  it('uses project first, then personal, then none', () => {
     expect(
       resolveActiveBudgetSource({
         divisionKind: 'project',
@@ -374,7 +373,7 @@ describe('resolveActiveBudgetSource', () => {
     ).toBe('none');
   });
 
-  it('uses personal budget in Hub, OpenRouter when unset', () => {
+  it('uses personal budget in Hub, none when unset', () => {
     expect(
       resolveActiveBudgetSource({
         divisionKind: 'hub',
@@ -391,7 +390,7 @@ describe('resolveActiveBudgetSource', () => {
     ).toBe('none');
   });
 
-  it('always OpenRouter in General and Folders', () => {
+  it('always none in General and Folders', () => {
     expect(
       resolveActiveBudgetSource({
         divisionKind: 'general',

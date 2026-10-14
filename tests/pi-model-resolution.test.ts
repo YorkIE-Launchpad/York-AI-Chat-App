@@ -24,20 +24,6 @@ describe('pi model resolution helpers', () => {
     ]);
   });
 
-  it('prefers openrouter full model id before native provider lookup', () => {
-    const candidates = buildPiModelLookupCandidates('anthropic/claude-sonnet-4-6', {
-      configProvider: 'anthropic',
-      rawProvider: 'openrouter',
-    });
-
-    expect(candidates).toEqual([
-      { provider: 'openrouter', model: 'anthropic/claude-sonnet-4-6' },
-      { provider: 'anthropic', model: 'claude-sonnet-4-6' },
-      { provider: 'openai', model: 'claude-sonnet-4-6' },
-      { provider: 'google', model: 'claude-sonnet-4-6' },
-    ]);
-  });
-
   it('builds provider-prefixed model ids from config-like input', () => {
     expect(
       resolvePiModelString({ provider: 'openai', customProtocol: 'openai', model: 'gpt-5.4' })
@@ -58,8 +44,7 @@ describe('pi model resolution helpers', () => {
     ).toBe('anthropic/claude-sonnet-4-6');
   });
 
-  it('routes openrouter through the openai-compatible protocol', () => {
-    expect(resolvePiRouteProtocol('openrouter', 'anthropic')).toBe('openai');
+  it('routes providers through their configured protocol', () => {
     expect(resolvePiRouteProtocol('ollama', 'openai')).toBe('openai');
     expect(resolvePiRouteProtocol('custom', 'gemini')).toBe('gemini');
     expect(resolvePiRouteProtocol('custom', 'anthropic')).toBe('anthropic');
@@ -75,21 +60,6 @@ describe('pi model resolution helpers', () => {
     expect(model.provider).toBe('xai');
     expect(model.api).toBe('openai-completions');
     expect(model.baseUrl).toBe('https://api.x.ai/v1');
-  });
-
-  it('preserves explicit provider-prefixed ids for openrouter synthetic fallbacks', () => {
-    const fallback = resolveSyntheticPiModelFallback({
-      rawModel: 'z-ai/glm-5-turbo',
-      resolvedModelString: 'z-ai/glm-5-turbo',
-      rawProvider: 'openrouter',
-      routeProtocol: 'openai',
-      baseUrl: 'https://openrouter.ai/api/v1',
-    });
-
-    expect(fallback).toEqual({
-      provider: 'openrouter',
-      modelId: 'z-ai/glm-5-turbo',
-    });
   });
 
   it('strips helper-added provider prefixes for first-party openai fallbacks', () => {
@@ -451,14 +421,14 @@ describe('pi model resolution helpers', () => {
     );
   });
 
-  it('disables developer role for openrouter with custom endpoint', () => {
+  it('disables developer role for custom openai-compatible endpoints', () => {
     const model = applyPiModelRuntimeOverrides(
       {
         id: 'anthropic/claude-sonnet-4-6',
         name: 'claude-sonnet-4-6',
         api: 'openai-completions',
-        provider: 'openrouter',
-        baseUrl: 'https://openrouter.ai/api/v1',
+        provider: 'custom',
+        baseUrl: 'https://llm.example.com/api/v1',
         reasoning: false,
         input: ['text'],
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
@@ -466,9 +436,9 @@ describe('pi model resolution helpers', () => {
         maxTokens: 8192,
       },
       {
-        configProvider: 'openrouter',
-        rawProvider: 'openrouter',
-        customBaseUrl: 'https://openrouter.ai/api/v1',
+        configProvider: 'custom',
+        rawProvider: 'custom',
+        customBaseUrl: 'https://llm.example.com/api/v1',
       }
     );
 

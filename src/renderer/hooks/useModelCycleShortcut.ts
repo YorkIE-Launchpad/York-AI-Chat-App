@@ -11,12 +11,10 @@ import {
   BACKEND_PROXY_PLACEHOLDER_KEY,
   isBackendManagedProvider,
 } from '../../shared/backend-config';
-import { hasOpenRouterUserApiKey } from '../../shared/openrouter-user-key';
 import {
   filterModelsForDivision,
   sessionFieldsFromActiveDivision,
 } from '../../shared/workspace-division';
-import { filterModelsForOpenRouterKey } from '../../shared/openrouter-fallback';
 import { isGptImage25ModelId } from '../../shared/image-generation';
 
 /**
@@ -28,19 +26,10 @@ function listYorkModelCycleTargets(config: AppConfig): ModelCycleTarget[] {
     return listModelCycleTargets(config).filter((target) => target.kind === 'set');
   }
   const state = useAppStore.getState();
-  const hasOpenRouterKey = hasOpenRouterUserApiKey(config.openRouterUserApiKey);
-  const usable = filterModelsForOpenRouterKey(
-    filterModelsForDivision(
-      state.backendModelsCatalog.filter((model) => !isGptImage25ModelId(model.id)),
-      sessionFieldsFromActiveDivision(state.activeDivision)
-    ),
-    config.openRouterUserApiKey
-  ).filter(
-    (model) =>
-      model.provider === config.provider &&
-      (model.provider !== 'openrouter' || hasOpenRouterKey) &&
-      (model.hasBudget !== false || hasOpenRouterKey)
-  );
+  const usable = filterModelsForDivision(
+    state.backendModelsCatalog.filter((model) => !isGptImage25ModelId(model.id)),
+    sessionFieldsFromActiveDivision(state.activeDivision)
+  ).filter((model) => model.provider === config.provider && model.hasBudget !== false);
   if (usable.length <= 1) return [];
   return usable.map((model) => ({ kind: 'model' as const, model: model.id }));
 }

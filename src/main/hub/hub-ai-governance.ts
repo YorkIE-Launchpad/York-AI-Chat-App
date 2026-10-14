@@ -26,7 +26,6 @@ import {
   type HubGovernanceUsageIngestResult,
   type HubGovernanceUsagePayload,
 } from '../../shared/hub-governance-usage';
-import { ensureModelPricingFresh } from '../../shared/model-pricing';
 import { ensureAuthenticatedSession } from '../auth/session';
 import { log, logWarn } from '../utils/logger';
 
@@ -310,9 +309,7 @@ export function joinCatalogWithAllowedModels(
     if (!allowedIds.has(m.id) && !(includeCatalogFree && m.isFree === true)) continue;
     const grant = grantById.get(m.id);
     if (!grant) {
-      joined.push(
-        includeCatalogFree && m.isFree === true ? { ...m, hasBudget: true } : m
-      );
+      joined.push(includeCatalogFree && m.isFree === true ? { ...m, hasBudget: true } : m);
     } else {
       joined.push({
         ...m,
@@ -428,10 +425,7 @@ export async function fetchHubGovernanceModelsForToken(input: {
   const fetchFn = input.fetchFn ?? fetch;
   let result = await hubGet(MODELS_PATH, input.token, fetchFn);
 
-  if (
-    (!result.ok || result.status === 401 || result.status === 403) &&
-    input.alternateToken
-  ) {
+  if ((!result.ok || result.status === 401 || result.status === 403) && input.alternateToken) {
     logWarn('[HubAiGovernance]', MODELS_PATH, 'failed with primary token — retrying alternate');
     result = await hubGet(MODELS_PATH, input.alternateToken, fetchFn);
   }
@@ -471,10 +465,7 @@ export async function fetchUserAllowedAiModelsForToken(input: {
   const path = allowedModelsPath(input.email, usable);
   let result = await hubGet(path, input.token, fetchFn);
 
-  if (
-    (!result.ok || result.status === 401 || result.status === 403) &&
-    input.alternateToken
-  ) {
+  if ((!result.ok || result.status === 401 || result.status === 403) && input.alternateToken) {
     logWarn('[HubAiGovernance]', path, 'failed with primary token — retrying alternate');
     result = await hubGet(path, input.alternateToken, fetchFn);
   }
@@ -538,10 +529,7 @@ export async function fetchUserAiBudgetForToken(input: {
   const path = userAiBudgetPath(input.email);
   let result = await hubGet(path, input.token, fetchFn);
 
-  if (
-    (!result.ok || result.status === 401 || result.status === 403) &&
-    input.alternateToken
-  ) {
+  if ((!result.ok || result.status === 401 || result.status === 403) && input.alternateToken) {
     logWarn('[HubAiGovernance]', path, 'failed with primary token — retrying alternate');
     result = await hubGet(path, input.alternateToken, fetchFn);
   }
@@ -610,10 +598,7 @@ export async function fetchProjectAiBudgetForToken(input: {
   const path = projectAiBudgetPath(projectId);
   let result = await hubGet(path, input.token, fetchFn);
 
-  if (
-    (!result.ok || result.status === 401 || result.status === 403) &&
-    input.alternateToken
-  ) {
+  if ((!result.ok || result.status === 401 || result.status === 403) && input.alternateToken) {
     logWarn('[HubAiGovernance]', path, 'failed with primary token — retrying alternate');
     result = await hubGet(path, input.alternateToken, fetchFn);
   }
@@ -776,10 +761,7 @@ export async function postHubGovernanceUsageForToken(input: {
   const fetchFn = input.fetchFn ?? fetch;
   let result = await hubPost(USAGE_PATH, input.token, input.payload, fetchFn);
 
-  if (
-    (!result.ok || result.status === 401 || result.status === 403) &&
-    input.alternateToken
-  ) {
+  if ((!result.ok || result.status === 401 || result.status === 403) && input.alternateToken) {
     logWarn('[HubAiGovernance]', USAGE_PATH, 'failed with primary token — retrying alternate');
     result = await hubPost(USAGE_PATH, input.alternateToken, input.payload, fetchFn);
   }
@@ -817,6 +799,7 @@ export async function postHubGovernanceUsageForToken(input: {
 function broadcastHubUsage(snapshot: HubUsageMeterSnapshot): void {
   try {
     // Lazy require so unit tests / MCP imports do not load Electron.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
     const { BrowserWindow } = require('electron') as typeof import('electron');
     for (const win of BrowserWindow.getAllWindows()) {
       if (win.isDestroyed()) continue;
@@ -890,7 +873,6 @@ export async function postHubGovernanceUsage(
 /**
  * Build + post usage from pi-ai message_end context. Fire-and-forget safe.
  * No-ops when payload cannot be built (no tokens/cost).
- * Live list prices are refreshed only after auth succeeds (no network when signed out).
  */
 export function reportHubGovernanceUsageFromCompletion(input: BuildHubUsageInput): void {
   if (!buildHubUsagePayloadFromPiUsage(input)) return;
@@ -898,7 +880,6 @@ export function reportHubGovernanceUsageFromCompletion(input: BuildHubUsageInput
   void (async () => {
     try {
       const auth = await resolveAccessToken();
-      await ensureModelPricingFresh();
       const payload = buildHubUsagePayloadFromPiUsage({ ...input, occurredAt });
       if (!payload) return;
       warnIfUnpriced(payload);

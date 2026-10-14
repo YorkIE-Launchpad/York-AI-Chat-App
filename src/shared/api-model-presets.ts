@@ -1,10 +1,4 @@
-export type SharedProviderType =
-  | 'openrouter'
-  | 'anthropic'
-  | 'custom'
-  | 'openai'
-  | 'gemini'
-  | 'ollama';
+export type SharedProviderType = 'anthropic' | 'custom' | 'openai' | 'gemini' | 'ollama';
 
 export type SharedCustomProtocolType = 'anthropic' | 'openai' | 'gemini';
 
@@ -17,7 +11,6 @@ export interface SharedProviderPreset {
 }
 
 export interface SharedProviderPresets {
-  openrouter: SharedProviderPreset;
   anthropic: SharedProviderPreset;
   custom: SharedProviderPreset;
   openai: SharedProviderPreset;
@@ -31,53 +24,6 @@ export interface ModelInputGuidance {
 }
 
 export const API_PROVIDER_PRESETS: SharedProviderPresets = {
-  openrouter: {
-    name: 'OpenRouter',
-    baseUrl: 'https://openrouter.ai/api/v1',
-    models: [
-      { id: 'openrouter/auto-beta', name: 'openrouter/auto-beta' },
-      { id: 'openrouter/auto', name: 'openrouter/auto' },
-      { id: 'openrouter/free', name: 'openrouter/free' },
-      {
-        id: 'meta-llama/llama-3.2-3b-instruct:free',
-        name: 'meta-llama/llama-3.2-3b-instruct:free',
-      },
-      { id: 'openai/gpt-oss-20b:free', name: 'openai/gpt-oss-20b:free' },
-      { id: 'nvidia/nemotron-3-nano-30b-a3b:free', name: 'nvidia/nemotron-3-nano-30b-a3b:free' },
-      { id: 'poolside/laguna-xs-2.1:free', name: 'poolside/laguna-xs-2.1:free' },
-      {
-        id: 'meta-llama/llama-3.3-70b-instruct:free',
-        name: 'meta-llama/llama-3.3-70b-instruct:free',
-      },
-      { id: 'google/gemma-4-31b-it:free', name: 'google/gemma-4-31b-it:free' },
-      {
-        id: 'qwen/qwen3-next-80b-a3b-instruct:free',
-        name: 'qwen/qwen3-next-80b-a3b-instruct:free',
-      },
-      { id: 'qwen/qwen3-coder:free', name: 'qwen/qwen3-coder:free' },
-      {
-        id: 'nvidia/nemotron-3-super-120b-a12b:free',
-        name: 'nvidia/nemotron-3-super-120b-a12b:free',
-      },
-      { id: 'poolside/laguna-m.1:free', name: 'poolside/laguna-m.1:free' },
-      { id: 'moonshotai/kimi-k3', name: 'moonshotai/kimi-k3' },
-      { id: 'anthropic/claude-fable-5', name: 'anthropic/claude-fable-5' },
-      { id: 'anthropic/claude-opus-5', name: 'anthropic/claude-opus-5' },
-      { id: 'anthropic/claude-opus-4.8', name: 'anthropic/claude-opus-4.8' },
-      { id: 'anthropic/claude-sonnet-5', name: 'anthropic/claude-sonnet-5' },
-      { id: 'anthropic/claude-haiku-4.5', name: 'anthropic/claude-haiku-4.5' },
-      // Temporarily hidden — re-enable later:
-      // { id: 'openai/gpt-5.6-sol', name: 'openai/gpt-5.6-sol' },
-      // { id: 'openai/gpt-5.6-terra', name: 'openai/gpt-5.6-terra' },
-      { id: 'openai/gpt-5.6-luna', name: 'openai/gpt-5.6-luna' },
-      { id: 'google/gemini-3.7-flash', name: 'google/gemini-3.7-flash' },
-      { id: 'google/gemini-3.6-flash', name: 'google/gemini-3.6-flash' },
-      { id: 'google/gemini-3.5-flash', name: 'google/gemini-3.5-flash' },
-      { id: 'google/gemini-3.1-pro-preview', name: 'google/gemini-3.1-pro-preview' },
-    ],
-    keyPlaceholder: 'sk-or-v1-...',
-    keyHint: 'Get from openrouter.ai/keys',
-  },
   anthropic: {
     name: 'Anthropic',
     baseUrl: 'https://api.anthropic.com',
@@ -160,38 +106,6 @@ export const API_PROVIDER_PRESETS: SharedProviderPresets = {
 };
 
 export const PI_AI_CURATED_PRESETS: Record<string, { piProvider: string; pick: string[] }> = {
-  openrouter: {
-    piProvider: 'openrouter',
-    pick: [
-      'openrouter/auto-beta',
-      'openrouter/auto',
-      'openrouter/free',
-      'meta-llama/llama-3.2-3b-instruct:free',
-      'openai/gpt-oss-20b:free',
-      'nvidia/nemotron-3-nano-30b-a3b:free',
-      'poolside/laguna-xs-2.1:free',
-      'meta-llama/llama-3.3-70b-instruct:free',
-      'google/gemma-4-31b-it:free',
-      'qwen/qwen3-next-80b-a3b-instruct:free',
-      'qwen/qwen3-coder:free',
-      'nvidia/nemotron-3-super-120b-a12b:free',
-      'poolside/laguna-m.1:free',
-      'moonshotai/kimi-k3',
-      'anthropic/claude-fable-5',
-      'anthropic/claude-opus-5',
-      'anthropic/claude-opus-4.8',
-      'anthropic/claude-sonnet-5',
-      'anthropic/claude-haiku-4.5',
-      // Temporarily hidden — re-enable later:
-      // 'openai/gpt-5.6-sol',
-      // 'openai/gpt-5.6-terra',
-      'openai/gpt-5.6-luna',
-      'google/gemini-3.7-flash',
-      'google/gemini-3.6-flash',
-      'google/gemini-3.5-flash',
-      'google/gemini-3.1-pro-preview',
-    ],
-  },
   anthropic: {
     piProvider: 'anthropic',
     pick: [
@@ -237,13 +151,6 @@ export function getModelInputGuidance(
   provider: SharedProviderType,
   customProtocol: SharedCustomProtocolType = 'anthropic'
 ): ModelInputGuidance {
-  if (provider === 'openrouter') {
-    return {
-      placeholder: 'openai/gpt-5.6-luna, anthropic/claude-sonnet-5, google/gemini-3.6-flash',
-      hint: 'Use the exact model ID for the selected protocol or endpoint.',
-    };
-  }
-
   if (provider === 'custom' && customProtocol === 'openai') {
     return {
       placeholder: 'deepseek-chat, deepseek-reasoner, qwen-max, gpt-5.6-luna',

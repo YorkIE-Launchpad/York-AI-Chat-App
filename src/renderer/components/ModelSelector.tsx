@@ -17,15 +17,10 @@ import {
   type AutoModelPreference,
 } from '../../shared/auto-model';
 import {
-  hasOpenRouterUserApiKey,
-  isOpenRouterFreeTierModel,
-} from '../../shared/openrouter-user-key';
-import {
   filterModelsForDivision,
   sessionFieldsFromActiveDivision,
 } from '../../shared/workspace-division';
 import { applyActiveProjectBudgetToModels } from '../../shared/fe-budget-gate';
-import { filterModelsForOpenRouterKey } from '../../shared/openrouter-fallback';
 import { useTranslation } from 'react-i18next';
 import {
   isYorkLlmSelection,
@@ -42,10 +37,9 @@ const PROVIDER_LABELS: Record<BackendCloudProvider, string> = {
   anthropic: 'Anthropic',
   openai: 'OpenAI',
   gemini: 'Gemini',
-  openrouter: 'OpenRouter',
 };
 
-const PROVIDER_ORDER: BackendCloudProvider[] = ['anthropic', 'openai', 'gemini', 'openrouter'];
+const PROVIDER_ORDER: BackendCloudProvider[] = ['anthropic', 'openai', 'gemini'];
 
 const AUTO_PREFERENCE_ORDER: AutoModelPreference[] = ['eco', 'balanced', 'max'];
 
@@ -70,8 +64,6 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
   const activeDivision = useAppStore((state) => state.activeDivision);
   const setAppConfig = useAppStore((state) => state.setAppConfig);
   const setIsConfigured = useAppStore((state) => state.setIsConfigured);
-  const setShowSettings = useAppStore((state) => state.setShowSettings);
-  const setSettingsTab = useAppStore((state) => state.setSettingsTab);
   // Shared across Welcome/Chat remounts — stale-while-revalidate.
   const models = useAppStore((state) => state.backendModelsCatalog);
   const setBackendModelsCatalog = useAppStore((state) => state.setBackendModelsCatalog);
@@ -88,7 +80,6 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
     loadModels: loadYorkLlmModels,
   } = useYorkLlmModels();
 
-  const hasOpenRouterKey = hasOpenRouterUserApiKey(appConfig?.openRouterUserApiKey);
   const hubUsage = useAppStore((state) => state.hubUsage);
   const activeBudgetSource = hubUsage?.activeSource ?? null;
   const projectBudgetPercent = hubUsage?.projectBudgetPercent ?? null;
@@ -102,12 +93,8 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
     [models]
   );
   const usableModels = useMemo(
-    () =>
-      filterModelsForOpenRouterKey(
-        filterModelsForDivision(chatCatalogModels, divisionSession),
-        appConfig?.openRouterUserApiKey
-      ),
-    [appConfig?.openRouterUserApiKey, chatCatalogModels, divisionSession]
+    () => filterModelsForDivision(chatCatalogModels, divisionSession),
+    [chatCatalogModels, divisionSession]
   );
 
   const loadModels = useCallback(
@@ -184,7 +171,6 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
         anthropic: [],
         openai: [],
         gemini: [],
-        openrouter: [],
       }
     );
   }, [chatCatalogModels]);
@@ -254,26 +240,14 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
 
   const handleSelect = useCallback(
     async (model: BackendModelInfo) => {
-      if (model.provider === 'openrouter' && !hasOpenRouterKey) {
-        setShowSettings(true);
-        setSettingsTab('general');
-        setIsOpen(false);
-        return;
-      }
-      // Over-budget paid models require OpenRouter BYOK (or Project LaunchPad fallback elsewhere).
-      if (model.hasBudget === false && !hasOpenRouterKey) {
-        setShowSettings(true);
-        setSettingsTab('general');
-        setIsOpen(false);
-        return;
-      }
+      if (model.hasBudget === false) return;
       let payload: Partial<AppConfig> = {
         provider: model.provider,
         activeProfileKey: profileKeyForProvider(model.provider),
         customProtocol:
           model.provider === 'gemini'
             ? 'gemini'
-            : model.provider === 'openai' || model.provider === 'openrouter'
+            : model.provider === 'openai'
               ? 'openai'
               : 'anthropic',
         model: model.id,
@@ -283,7 +257,7 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
       await saveConfig(payload);
       setIsOpen(false);
     },
-    [hasOpenRouterKey, saveConfig, setSettingsTab, setShowSettings]
+    [saveConfig]
   );
 
   const displayName = selectedAuto
@@ -302,12 +276,9 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
               ? 'York LLM'
               : 'Select model';
 
-  const showViaOpenRouter = appConfig?.provider === 'openrouter' && !selectedAuto;
   const triggerTitle = selectedAuto
     ? t('workspace.models.autoBlurb', 'Auto · York for everyday, frontier when hard')
-    : showViaOpenRouter
-      ? `${displayName} via Openrouter`
-      : displayName;
+    : displayName;
 
   const isDisabled = isLoading || isSaving;
 
@@ -330,11 +301,6 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
       >
         <span className="inline-flex min-w-0 flex-1 items-baseline gap-1 text-[12px] font-medium tracking-[-0.01em]">
           <span className="truncate">{displayName}</span>
-          {showViaOpenRouter && (
-            <span className="composer-model-via shrink-0 font-normal text-text-muted">
-              {t('workspace.models.viaOpenRouter', 'via Openrouter')}
-            </span>
-          )}
         </span>
         <ChevronDown
           className={`composer-compact-chevron h-3 w-3 shrink-0 text-text-muted transition-transform ${
@@ -477,13 +443,11 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
             {PROVIDER_ORDER.map((provider) => {
               const items = groupedModels[provider];
               if (items.length === 0) return null;
-              const openRouterDisabled = provider === 'openrouter' && !hasOpenRouterKey;
 
-              const renderModelButton = (model: BackendModelInfo, showOpenRouterCue: boolean) => {
+              const renderModelButton = (model: BackendModelInfo) => {
                 const isSelected =
                   selectedModel?.provider === model.provider && selectedModel?.id === model.id;
-                const budgetRequiresByok = model.hasBudget === false && !hasOpenRouterKey;
-                const rowDisabled = openRouterDisabled || budgetRequiresByok;
+                const rowDisabled = model.hasBudget === false;
                 const showFrontierCue = isFrontierCatalogModel(model.provider, model.id);
                 return (
                   <button
@@ -517,14 +481,9 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
                         </span>
                       )}
                     </span>
-                    {budgetRequiresByok && (
+                    {rowDisabled && (
                       <span className="shrink-0 text-[10px] font-medium tracking-[0.02em] text-text-muted">
-                        {t('workspace.models.byokRequired')}
-                      </span>
-                    )}
-                    {showOpenRouterCue && !rowDisabled && (
-                      <span className="shrink-0 text-[10px] font-medium tracking-[0.02em] text-text-muted">
-                        {t('workspace.models.openRouterCue', 'OpenRouter')}
+                        {t('workspace.models.overBudget', 'Over budget')}
                       </span>
                     )}
                     {isSelected && !rowDisabled && <Check className="h-3.5 w-3.5 shrink-0" />}
@@ -532,69 +491,13 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
                 );
               };
 
-              if (provider === 'openrouter') {
-                const freeItems = items.filter((m) => isOpenRouterFreeTierModel(m.id));
-                const paidItems = items.filter((m) => !isOpenRouterFreeTierModel(m.id));
-                return (
-                  <div key={provider} className="px-1.5 py-1">
-                    <div className="px-2.5 pb-1.5 pt-1.5">
-                      <div className="text-[11px] font-medium tracking-[0.04em] text-text-muted">
-                        {t(
-                          'workspace.models.openRouterTitle',
-                          'OpenRouter · your key (not York billing)'
-                        )}
-                        {openRouterDisabled
-                          ? ` · ${t('workspace.models.keyRequired', 'key required')}`
-                          : ''}
-                      </div>
-                    </div>
-                    {openRouterDisabled && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setShowSettings(true);
-                          setSettingsTab('general');
-                          setIsOpen(false);
-                        }}
-                        className="mb-1 w-full rounded-xl px-2.5 py-2 text-left text-[12px] text-accent hover:bg-surface-hover"
-                      >
-                        {t(
-                          'workspace.models.addOpenRouterKey',
-                          'Add your OpenRouter API key (Settings → General)'
-                        )}
-                      </button>
-                    )}
-                    {freeItems.length > 0 && (
-                      <div className="mb-1">
-                        <div className="px-2.5 pb-1 pt-1 text-[11px] font-medium tracking-[0.04em] text-text-muted">
-                          {t('workspace.models.freeGroup', 'Free')}
-                        </div>
-                        <div className="space-y-0.5">
-                          {freeItems.map((model) => renderModelButton(model, false))}
-                        </div>
-                      </div>
-                    )}
-                    {paidItems.length > 0 && (
-                      <div>
-                        <div className="px-2.5 pb-1 pt-1 text-[11px] font-medium tracking-[0.04em] text-text-muted">
-                          {t('workspace.models.viaYourKeyGroup', 'Via your key')}
-                        </div>
-                        <div className="space-y-0.5">
-                          {paidItems.map((model) => renderModelButton(model, true))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              }
-
               return (
                 <div key={provider} className="px-1.5 py-1">
                   <div className="px-2.5 pb-1 pt-1.5 text-[11px] font-medium tracking-[0.04em] text-text-muted">
                     {PROVIDER_LABELS[provider]}
                   </div>
                   <div className="space-y-0.5">
-                    {items.map((model) => renderModelButton(model, false))}
+                    {items.map((model) => renderModelButton(model))}
                   </div>
                 </div>
               );
@@ -609,28 +512,12 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
             )}
             {!isLoading &&
               chatCatalogModels.length > 0 &&
-              !hasOpenRouterKey &&
               (activeDivision?.kind === 'hub' || activeDivision?.kind === 'project') &&
-              chatCatalogModels.some(
-                (m) => m.provider !== 'openrouter' && m.hasBudget === false
-              ) && (
+              chatCatalogModels.some((m) => m.hasBudget === false) && (
                 <div className="border-t border-border-subtle px-4 py-2 text-[11px] leading-snug text-text-muted">
                   {t('workspace.models.askManager')}
                 </div>
               )}
-            {!isLoading && chatCatalogModels.some((m) => m.provider === 'openrouter') && (
-              <div className="border-t border-border-subtle px-4 py-2 text-[11px] leading-snug text-text-muted">
-                {hasOpenRouterKey
-                  ? t(
-                      'workspace.models.openRouterLimitsFooter',
-                      'OpenRouter limits: under $10 credits → 50/day; $10+ → 1000/day. Paid models use your credits.'
-                    )
-                  : t(
-                      'workspace.models.openRouterKeyFooter',
-                      'Free OpenRouter models need your key. Limits: <$10 → 50/day; $10+ → 1000/day.'
-                    )}
-              </div>
-            )}
           </div>
         </div>
       )}

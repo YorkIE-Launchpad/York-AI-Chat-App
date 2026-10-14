@@ -50,11 +50,6 @@
   ],
   "modelProviders": [
     {
-      "name": "OpenRouter",
-      "baseUrl": "https://openrouter.ai/api",
-      "recommendedModels": ["claude-4-5-sonnet"]
-    },
-    {
       "name": "Anthropic",
       "baseUrl": "default",
       "recommendedModels": ["claude-4-5-sonnet"]

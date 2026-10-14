@@ -29,6 +29,12 @@ describe('resolveScheduleModel', () => {
       provider: 'anthropic',
     });
   });
+
+  it('moves retired providers and legacy default models to York LLM', () => {
+    const yorkDefault = { model: DEFAULT_SCHEDULE_MODEL, provider: YORK_LLM_PROVIDER };
+    expect(resolveScheduleModel('anthropic/claude-sonnet-4', 'openrouter')).toEqual(yorkDefault);
+    expect(resolveScheduleModel('openrouter/free', YORK_LLM_PROVIDER)).toEqual(yorkDefault);
+  });
 });
 
 describe('scheduled task executeTask lock wiring', () => {

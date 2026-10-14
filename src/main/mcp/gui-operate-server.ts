@@ -4258,15 +4258,10 @@ function buildVisionRuntimeSummary(
 function pickVisionApiKey(
   selectedRoute: 'openai-chat-completions' | 'anthropic-messages',
   anthropicApiKey: string | undefined,
-  openAIApiKey: string | undefined,
-  isOpenRouter: boolean
+  openAIApiKey: string | undefined
 ): string | undefined {
   if (selectedRoute === 'anthropic-messages') {
     return anthropicApiKey;
-  }
-  // OpenRouter historically reuses Anthropic-style key env vars.
-  if (isOpenRouter) {
-    return anthropicApiKey || openAIApiKey;
   }
   return openAIApiKey;
 }
@@ -4283,7 +4278,7 @@ async function callVisionAPIWithTimeout(
   compatibilityMode: boolean = false,
   previousErrorMessage?: string
 ): Promise<string> {
-  // Get API configuration from environment (supports Anthropic/OpenRouter/OpenAI-compatible)
+  // Get API configuration from environment (supports Anthropic/OpenAI-compatible)
   const anthropicApiKey = process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN;
   const openAIApiKey = process.env.OPENAI_API_KEY;
   const openAIBaseUrl = process.env.OPENAI_BASE_URL?.trim();
@@ -4297,17 +4292,12 @@ async function callVisionAPIWithTimeout(
   const baseUrl = openAIBaseUrl || anthropicBaseUrl;
   const model = openAIModel || anthropicModel || 'claude-sonnet-4-6';
 
-  // Check if using OpenRouter
-  const isOpenRouter =
-    !!baseUrl && (baseUrl.includes('openrouter.ai') || baseUrl.includes('openrouter'));
-
   // Check if model/config is OpenAI-compatible (Gemini, GPT, etc.)
   const isOpenAICompatible =
     hasOpenAIConfig ||
     model.includes('gemini') ||
     model.includes('gpt-') ||
     model.includes('openai/') ||
-    isOpenRouter ||
     (baseUrl ? baseUrl.includes('api.openai.com') : false);
 
   const runtimeSummary = buildVisionRuntimeSummary(
@@ -4329,20 +4319,13 @@ async function callVisionAPIWithTimeout(
 
   const visionRequestStartedAt = Date.now();
   const visionProvider = isOpenAICompatible
-    ? isOpenRouter
-      ? 'openrouter'
-      : model.includes('gemini')
-        ? 'gemini'
-        : 'openai'
+    ? model.includes('gemini')
+      ? 'gemini'
+      : 'openai'
     : 'anthropic';
   const visionModelId = isOpenAICompatible ? model : anthropicModel || model;
 
-  const selectedApiKey = pickVisionApiKey(
-    selectedRoute,
-    anthropicApiKey,
-    openAIApiKey,
-    isOpenRouter
-  );
+  const selectedApiKey = pickVisionApiKey(selectedRoute, anthropicApiKey, openAIApiKey);
   if (!selectedApiKey) {
     if (selectedRoute === 'anthropic-messages') {
       throw new Error(
@@ -4353,7 +4336,7 @@ async function callVisionAPIWithTimeout(
   }
 
   if (isOpenAICompatible) {
-    // Use OpenAI-compatible API format (for Gemini, GPT, etc. via OpenRouter)
+    // Use OpenAI-compatible API format (for Gemini, GPT, etc.)
     const openAIBaseUrl = baseUrl || OPENAI_PLATFORM_BASE_URL;
     const openAIUrl = openAIBaseUrl.endsWith('/v1')
       ? `${openAIBaseUrl}/chat/completions`
@@ -4400,11 +4383,6 @@ async function callVisionAPIWithTimeout(
       Authorization: `Bearer ${selectedApiKey}`,
       'Content-Length': Buffer.byteLength(requestBody),
     };
-
-    if (isOpenRouter) {
-      headers['HTTP-Referer'] = 'https://york.ie';
-      headers['X-Title'] = 'York IE VECOS';
-    }
 
     return new Promise<string>((resolve, reject) => {
       // eslint-disable-next-line prefer-const

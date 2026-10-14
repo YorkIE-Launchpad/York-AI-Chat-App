@@ -25,7 +25,7 @@ export async function bootstrapYorkLlmDefault(): Promise<void> {
     const models = await listYorkLlmModels({ forceRefresh: true });
     const first = models[0];
     if (!first?.id) {
-      // Keep York provider/baseUrl with empty model — do not fall back to OpenRouter.
+      // Keep York provider/baseUrl with empty model.
       const yorkShape = yorkLlmSelectionPayload('');
       configStore.update({
         ...yorkShape,
