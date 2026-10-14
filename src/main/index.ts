@@ -364,7 +364,7 @@ function resolveDotenvPath(): string {
 }
 
 const envPath = resolveDotenvPath();
-log('[dotenv] Loading from:', envPath);
+log('[dotenv] Loading from:', basename(envPath));
 const dotenvResult = config({ path: envPath });
 if (dotenvResult.error) {
   logWarn('[dotenv] Failed to load env file:', dotenvResult.error.message);

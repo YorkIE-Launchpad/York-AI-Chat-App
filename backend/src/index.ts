@@ -4,6 +4,7 @@ import express from 'express';
 import { requireMinClientVersion } from './client-version.js';
 import { requireCognito } from './cognito-auth.js';
 import { createCollabInviteRouter } from './collab/invite-router.js';
+import { createConnectorOauthRouter } from './connector-oauth-routes.js';
 import { createCollabHttpRelayRouter } from './collab/http-relay.js';
 import { createShareDocRouter } from './share/doc-router.js';
 import { attachCollabRelay } from './collab/yjs-relay.js';
@@ -73,6 +74,9 @@ app.use(requireMinClientVersion);
 app.get('/models', (_req, res) => {
   res.json({ models: listEnabledModels() });
 });
+
+// Slack / Google / Zoom connector token exchange + refresh (client secrets stay server-side).
+app.use('/connectors/oauth', express.json(), createConnectorOauthRouter());
 
 // Long-poll Yjs relay for proxies that drop WebSocket upgrades (memory only, like /collab/ws).
 app.use('/collab', createCollabHttpRelayRouter());

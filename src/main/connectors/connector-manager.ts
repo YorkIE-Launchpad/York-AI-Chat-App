@@ -1,4 +1,6 @@
 import { authConfig } from '../../shared/auth-config';
+import { resolveBackendUrl } from '../../shared/backend-config';
+import { getBackendAuthHeaders } from '../config/backend-auth';
 import { log, logWarn } from '../utils/logger';
 import {
   assertAllowedGoogleConnectorEmail,
@@ -136,7 +138,6 @@ class ConnectorManager {
 
     const tokenPayload = await this.exchangeAuthorizationCode(
       connectorId,
-      oauth,
       authResult.code,
       authResult.codeVerifier,
       authResult.redirectUri
@@ -200,8 +201,7 @@ class ConnectorManager {
       );
     }
 
-    const oauth = this.getOauthConfig(connectorId);
-    const refreshed = await this.refreshAccessToken(connectorId, oauth, current.refreshToken);
+    const refreshed = await this.refreshAccessToken(connectorId, current.refreshToken);
     if (!refreshed.accessToken?.trim()) {
       throw new Error(`${connectorId} token refresh did not return an access token`);
     }
@@ -225,8 +225,8 @@ class ConnectorManager {
 
   private getOauthConfig(connectorId: ConnectorId): ConnectorOauthConfig {
     if (connectorId === 'slack') {
-      if (!authConfig.slackClientId || !authConfig.slackClientSecret) {
-        throw new Error('Slack OAuth credentials are missing');
+      if (!authConfig.slackClientId) {
+        throw new Error('Slack OAuth client ID is missing');
       }
       const extraAuthorizeParams: Record<string, string> = {
         user_scope: SLACK_SCOPES.join(','),
@@ -237,33 +237,27 @@ class ConnectorManager {
       }
       return {
         clientId: authConfig.slackClientId,
-        clientSecret: authConfig.slackClientSecret,
         authorizeUrl: 'https://slack.com/oauth/v2/authorize',
-        tokenUrl: 'https://slack.com/api/oauth.v2.access',
         scopes: [],
         extraAuthorizeParams,
       };
     }
     if (connectorId === 'zoom') {
-      if (!authConfig.zoomConnectorClientId || !authConfig.zoomConnectorClientSecret) {
-        throw new Error('Zoom OAuth credentials are missing');
+      if (!authConfig.zoomConnectorClientId) {
+        throw new Error('Zoom OAuth client ID is missing');
       }
       return {
         clientId: authConfig.zoomConnectorClientId,
-        clientSecret: authConfig.zoomConnectorClientSecret,
         authorizeUrl: 'https://zoom.us/oauth/authorize',
-        tokenUrl: 'https://zoom.us/oauth/token',
         scopes: ZOOM_SCOPES,
       };
     }
-    if (!authConfig.googleConnectorClientId || !authConfig.googleConnectorClientSecret) {
-      throw new Error('Google connector OAuth credentials are missing');
+    if (!authConfig.googleConnectorClientId) {
+      throw new Error('Google connector OAuth client ID is missing');
     }
     return {
       clientId: authConfig.googleConnectorClientId,
-      clientSecret: authConfig.googleConnectorClientSecret,
       authorizeUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
-      tokenUrl: 'https://oauth2.googleapis.com/token',
       scopes: GOOGLE_SCOPES,
       extraAuthorizeParams: {
         access_type: 'offline',
@@ -273,28 +267,39 @@ class ConnectorManager {
     };
   }
 
+  /** Token exchange / refresh runs on the York backend, which holds the client secrets. */
+  private async requestBackendToken(
+    connectorId: ConnectorId,
+    body: Record<string, string>
+  ): Promise<{ response: Response; payload: Record<string, unknown> }> {
+    const url = `${resolveBackendUrl().replace(/\/+$/, '')}/connectors/oauth/${connectorId}/token`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { ...(await getBackendAuthHeaders()), 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const text = await response.text();
+    let payload: Record<string, unknown> = {};
+    try {
+      payload = text ? (JSON.parse(text) as Record<string, unknown>) : {};
+    } catch {
+      payload = { error: text.slice(0, 200) || response.statusText };
+    }
+    return { response, payload };
+  }
+
   private async exchangeAuthorizationCode(
     connectorId: ConnectorId,
-    oauth: ConnectorOauthConfig,
     code: string,
     codeVerifier: string,
     redirectUri: string
   ): Promise<Record<string, unknown>> {
-    const params = new URLSearchParams({
+    const { response, payload } = await this.requestBackendToken(connectorId, {
       grant_type: 'authorization_code',
       code,
       redirect_uri: redirectUri,
-      client_id: oauth.clientId,
-      client_secret: oauth.clientSecret,
       code_verifier: codeVerifier,
-      ...oauth.extraTokenParams,
     });
-    const response = await fetch(oauth.tokenUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: params,
-    });
-    const payload = (await response.json()) as Record<string, unknown>;
     if (!response.ok || payload.ok === false) {
       throw new Error(
         `${connectorId} OAuth token exchange failed: ${String(payload.error || response.statusText)}`
@@ -305,21 +310,12 @@ class ConnectorManager {
 
   private async refreshAccessToken(
     connectorId: ConnectorId,
-    oauth: ConnectorOauthConfig,
     refreshToken: string
   ): Promise<ConnectorTokenRefreshResult> {
-    const params = new URLSearchParams({
+    const { response, payload } = await this.requestBackendToken(connectorId, {
       grant_type: 'refresh_token',
       refresh_token: refreshToken,
-      client_id: oauth.clientId,
-      client_secret: oauth.clientSecret,
     });
-    const response = await fetch(oauth.tokenUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: params,
-    });
-    const payload = (await response.json()) as Record<string, unknown>;
     if (!response.ok || payload.ok === false) {
       throw new Error(
         `${connectorId} token refresh failed: ${String(payload.error || response.statusText)}`

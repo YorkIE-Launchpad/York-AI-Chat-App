@@ -1,3 +1,5 @@
+import { BACKEND_PROXY_PLACEHOLDER_KEY } from './backend-config';
+
 export const DEFAULT_YORK_LLM_BASE_URL = 'http://llm.yorkdevs.link:2222/v1';
 export const DEFAULT_YORK_LLM_MAX_CONCURRENT = 4;
 export const YORK_LLM_DISPLAY_NAME = 'York LLM V1';
@@ -31,9 +33,22 @@ export function resolveYorkLlmBaseUrl(): string {
   return fromEnv || DEFAULT_YORK_LLM_BASE_URL;
 }
 
-/** llama.cpp `--api-key` — set via `YORK_LLM_API_KEY` only (no hardcoded default). */
+/** `YORK_LLM_VIA_BACKEND=0|1` overrides; otherwise on when a backend URL is configured. */
+export function isYorkLlmViaBackendEnabled(): boolean {
+  const flag = readEnv('YORK_LLM_VIA_BACKEND').toLowerCase();
+  if (flag === '0' || flag === 'false') return false;
+  if (flag === '1' || flag === 'true') return true;
+  return Boolean(readEnv('YORK_IE_BACKEND_URL'));
+}
+
+/**
+ * llama.cpp `--api-key` for direct (dev) access via `YORK_LLM_API_KEY`. Packaged builds
+ * route through the backend, which injects the real key, so they only get the proxy placeholder.
+ */
 export function resolveYorkLlmApiKey(): string {
-  return readEnv('YORK_LLM_API_KEY');
+  const direct = readEnv('YORK_LLM_API_KEY');
+  if (direct) return direct;
+  return isYorkLlmViaBackendEnabled() ? BACKEND_PROXY_PLACEHOLDER_KEY : '';
 }
 
 /** True when stored model is empty or a retired system default (openrouter/free). */

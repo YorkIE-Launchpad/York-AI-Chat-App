@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../../shared/auth-config', () => ({
   authConfig: {
     zoomConnectorClientId: 'zoom-client-id',
-    zoomConnectorClientSecret: 'secret',
   },
 }));
 

@@ -1,5 +1,5 @@
 import { resolveBackendUrl } from '../../shared/backend-config';
-import { isYorkLlmHost } from '../../shared/york-llm-config';
+import { isYorkLlmHost, isYorkLlmViaBackendEnabled } from '../../shared/york-llm-config';
 import { getBackendAuthHeaders } from '../config/backend-auth';
 
 /**
@@ -14,16 +14,8 @@ type FetchFn = typeof fetch;
 
 let originalFetch: FetchFn | null = null;
 
-function readEnv(name: string): string {
-  return process.env[name]?.trim() || '';
-}
-
-/** `YORK_LLM_VIA_BACKEND=0|1` overrides; otherwise on when a backend URL is configured. */
 export function shouldRouteYorkLlmViaBackend(): boolean {
-  const flag = readEnv('YORK_LLM_VIA_BACKEND').toLowerCase();
-  if (flag === '0' || flag === 'false') return false;
-  if (flag === '1' || flag === 'true') return true;
-  return Boolean(readEnv('YORK_IE_BACKEND_URL'));
+  return isYorkLlmViaBackendEnabled();
 }
 
 export function rewriteYorkLlmUrlForBackend(

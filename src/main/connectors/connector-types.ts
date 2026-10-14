@@ -28,12 +28,9 @@ export interface ConnectorStatus {
 
 export interface ConnectorOauthConfig {
   clientId: string;
-  clientSecret: string;
   authorizeUrl: string;
-  tokenUrl: string;
   scopes: string[];
   extraAuthorizeParams?: Record<string, string>;
-  extraTokenParams?: Record<string, string>;
 }
 
 export interface ConnectorTokenRefreshResult {

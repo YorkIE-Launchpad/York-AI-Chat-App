@@ -193,6 +193,7 @@ import {
   YORK_LLM_ZERO_COST,
 } from '../../shared/york-llm-config';
 import { createWindowsBashOperations } from './windows-bash-operations';
+import { agentShellSpawnHook } from '../utils/agent-shell-env';
 import { createCompactionExtensionFactory } from './compaction-extension';
 import { remapCoworkVirtualPath, remapCoworkVirtualPathsInCommand } from './cowork-path-remap';
 
@@ -3090,11 +3091,13 @@ ${
       // executed via Pi SDK's Bash tool can find bundled and user-installed executables.
       await enrichProcessPathForBuild();
 
-      const bashOptions: BashToolOptions | undefined =
-        process.platform === 'win32' ? { operations: createWindowsBashOperations() } : undefined;
+      const bashOptions: BashToolOptions = {
+        spawnHook: agentShellSpawnHook,
+        ...(process.platform === 'win32' ? { operations: createWindowsBashOperations() } : {}),
+      };
       const codingTools = annotateReadToolForPdfs(
         createCodingTools(effectiveCwd, {
-          ...(bashOptions ? { bash: bashOptions } : {}),
+          bash: bashOptions,
           read: createPdfAwareReadOptions(),
         })
       );

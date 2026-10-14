@@ -18,6 +18,7 @@ import type { MCPManager } from '../mcp/mcp-manager';
 import { log, logError } from '../utils/logger';
 import { resolveWritableSessionCwd } from '../session/resolve-session-cwd';
 import { annotateReadToolForPdfs, createPdfAwareReadOptions } from '../utils/pdf-text';
+import { agentShellSpawnHook } from '../utils/agent-shell-env';
 import type { CheckpointService } from '../orchestration/checkpoint-service';
 
 /** Optional durable checkpoints for child subagents (M3). */
@@ -558,7 +559,10 @@ export async function runChildAgentSession(
           ...new Map(
             [
               ...annotateReadToolForPdfs(
-                createCodingTools(cwd, { read: createPdfAwareReadOptions() })
+                createCodingTools(cwd, {
+                  bash: { spawnHook: agentShellSpawnHook },
+                  read: createPdfAwareReadOptions(),
+                })
               ),
               ...(input.includeReadOnlyTools ? createReadOnlyTools(cwd) : []),
             ].map((tool) => [tool.name, tool])

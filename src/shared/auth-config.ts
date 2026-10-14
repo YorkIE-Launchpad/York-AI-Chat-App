@@ -92,7 +92,7 @@ function readIsPackagedElectron(): boolean | undefined {
   }
   try {
     // Shared module: only main has electron at runtime; renderer falls through.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
     const { app } = require('electron') as typeof import('electron');
     return app.isPackaged;
   } catch {
@@ -146,9 +146,7 @@ export type ResolveHubOAuthRedirectUrlOptions = {
  * Dev (Vite): `http://localhost:6767/auth/callback` (or `127.0.0.1`) → AuthCallbackPage + relay.
  * Packaged: loopback `19892` (or explicit non-6767 URL).
  */
-export function resolveHubOAuthRedirectUrl(
-  opts: ResolveHubOAuthRedirectUrlOptions = {}
-): string {
+export function resolveHubOAuthRedirectUrl(opts: ResolveHubOAuthRedirectUrlOptions = {}): string {
   const explicit = opts.explicitRedirect?.trim();
   const { isPackaged, isDev, viteDev } = resolveOAuthDevContext(opts);
 
@@ -184,10 +182,7 @@ export function resolveHubOAuthRedirectUrl(
   return applyUnpackagedDevOAuthFallback(DEFAULT_DESKTOP_OAUTH_REDIRECT, isPackaged);
 }
 
-function applyUnpackagedDevOAuthFallback(
-  resolved: string,
-  isPackaged: boolean
-): string {
+function applyUnpackagedDevOAuthFallback(resolved: string, isPackaged: boolean): string {
   if (isPackaged || resolved !== DEFAULT_DESKTOP_OAUTH_REDIRECT) {
     return resolved;
   }
@@ -270,8 +265,7 @@ export const authConfig = {
    * `https://gtm-launchpad.yorkdevs.link/api/mcp`.
    */
   get gtmLaunchpadMcpUrl(): string {
-    const explicit =
-      readEnv('GTM_LAUNCHPAD_MCP_URL') ?? readEnv('VITE_GTM_LAUNCHPAD_MCP_URL');
+    const explicit = readEnv('GTM_LAUNCHPAD_MCP_URL') ?? readEnv('VITE_GTM_LAUNCHPAD_MCP_URL');
     if (explicit) {
       return trimTrailingSlash(explicit);
     }
@@ -294,8 +288,7 @@ export const authConfig = {
    */
   get hubOAuthRedirectUrl(): string {
     return resolveHubOAuthRedirectUrl({
-      explicitRedirect:
-        readEnv('HUB_OAUTH_REDIRECT_URL') ?? readEnv('VITE_HUB_OAUTH_REDIRECT_URL'),
+      explicitRedirect: readEnv('HUB_OAUTH_REDIRECT_URL') ?? readEnv('VITE_HUB_OAUTH_REDIRECT_URL'),
       frontendUrl: readEnv('VITE_FRONTEND_URL') ?? readEnv('FRONTEND_URL'),
       viteDevServerUrl: readViteDevServerUrl(),
       isPackaged: readIsPackagedElectron(),
@@ -363,9 +356,6 @@ export const authConfig = {
   get slackClientId(): string | undefined {
     return readEnv('SLACK_CLIENT_ID') ?? readEnv('VITE_SLACK_CLIENT_ID');
   },
-  get slackClientSecret(): string | undefined {
-    return readEnv('SLACK_CLIENT_SECRET') ?? readEnv('VITE_SLACK_CLIENT_SECRET');
-  },
   /** Optional hard pin: Slack team_id that may connect the Slack MCP connector. */
   get slackAllowedTeamId(): string | undefined {
     return readEnv('SLACK_ALLOWED_TEAM_ID') ?? readEnv('VITE_SLACK_ALLOWED_TEAM_ID');
@@ -377,18 +367,8 @@ export const authConfig = {
       readEnv('VITE_GOOGLE_CONNECTOR_CLIENT_ID')
     );
   },
-  get googleConnectorClientSecret(): string | undefined {
-    return (
-      readEnv('GOOGLE_CONNECTOR_CLIENT_SECRET') ??
-      readEnv('GOOGLE_CLIENT_SECRET') ??
-      readEnv('VITE_GOOGLE_CONNECTOR_CLIENT_SECRET')
-    );
-  },
   get zoomConnectorClientId(): string | undefined {
     return readEnv('ZOOM_CONNECTOR_CLIENT_ID') ?? readEnv('VITE_ZOOM_CONNECTOR_CLIENT_ID');
-  },
-  get zoomConnectorClientSecret(): string | undefined {
-    return readEnv('ZOOM_CONNECTOR_CLIENT_SECRET') ?? readEnv('VITE_ZOOM_CONNECTOR_CLIENT_SECRET');
   },
 };
 

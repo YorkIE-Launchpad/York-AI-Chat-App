@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
+import { BACKEND_PROXY_PLACEHOLDER_KEY } from '../../shared/backend-config';
 import {
   DEFAULT_YORK_LLM_BASE_URL,
   DEFAULT_YORK_LLM_MAX_CONCURRENT,
@@ -29,9 +30,21 @@ describe('york-llm-config', () => {
   });
 
   it('resolves api key from YORK_LLM_API_KEY only', () => {
+    vi.stubEnv('YORK_IE_BACKEND_URL', '');
+    vi.stubEnv('YORK_LLM_VIA_BACKEND', '');
+    vi.stubEnv('YORK_LLM_API_KEY', '');
     expect(resolveYorkLlmApiKey()).toBe('');
     vi.stubEnv('YORK_LLM_API_KEY', 'env-only-key');
     expect(resolveYorkLlmApiKey()).toBe('env-only-key');
+  });
+
+  it('uses the backend proxy placeholder instead of a real key when routed via backend', () => {
+    vi.stubEnv('YORK_LLM_API_KEY', '');
+    vi.stubEnv('YORK_LLM_VIA_BACKEND', '');
+    vi.stubEnv('YORK_IE_BACKEND_URL', 'https://backend.example');
+    expect(resolveYorkLlmApiKey()).toBe(BACKEND_PROXY_PLACEHOLDER_KEY);
+    vi.stubEnv('YORK_LLM_VIA_BACKEND', '0');
+    expect(resolveYorkLlmApiKey()).toBe('');
   });
 
   it('exposes longer York activity timeout and retry budget', () => {
@@ -53,18 +66,16 @@ describe('york-llm-config', () => {
   });
 
   it('detects chat completion urls', () => {
-    expect(
-      isYorkLlmChatCompletionUrl('http://llm.yorkdevs.link:2222/v1/chat/completions')
-    ).toBe(true);
+    expect(isYorkLlmChatCompletionUrl('http://llm.yorkdevs.link:2222/v1/chat/completions')).toBe(
+      true
+    );
     expect(isYorkLlmChatCompletionUrl('http://llm.yorkdevs.link:2222/v1/models')).toBe(false);
     expect(isYorkLlmChatCompletionUrl('http://localhost:11434/v1/chat/completions')).toBe(false);
   });
 
   it('formats display name as York LLM V1', () => {
     expect(
-      formatYorkLlmModelName(
-        '/Users/dhavalj/models/Qwen3.6-35B-A3B/Qwen3.6-35B-A3B-UD-IQ2_M.gguf'
-      )
+      formatYorkLlmModelName('/Users/dhavalj/models/Qwen3.6-35B-A3B/Qwen3.6-35B-A3B-UD-IQ2_M.gguf')
     ).toBe('York LLM V1');
   });
 
