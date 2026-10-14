@@ -1,0 +1,75 @@
+diff --git a/node_modules/@mariozechner/pi-agent-core/dist/agent-loop.js b/node_modules/@mariozechner/pi-agent-core/dist/agent-loop.js
+index 4816333..2ebdfac 100644
+--- a/node_modules/@mariozechner/pi-agent-core/dist/agent-loop.js
++++ b/node_modules/@mariozechner/pi-agent-core/dist/agent-loop.js
+@@ -274,12 +274,68 @@ async function executeToolCallsParallel(currentContext, assistantMessage, toolCa
+     }
+     return results;
+ }
++function findToolByLooseName(tools, rawName) {
++    if (typeof rawName !== "string")
++        return undefined;
++    const normalized = rawName.trim().replace(/^(functions|tools?)[.:]/i, "").trim().toLowerCase();
++    if (!normalized)
++        return undefined;
++    return tools.find((t) => t.name.toLowerCase() === normalized);
++}
++/**
++ * Small/local models sometimes emit malformed tool calls (empty name, wrong
++ * case, `functions.` prefix, or `{ name, arguments }` wrapped inside the args).
++ * Repair in place when the intended tool is unambiguous.
++ */
++function resolveToolForCall(tools, toolCall) {
++    if (!tools || tools.length === 0)
++        return undefined;
++    const exact = tools.find((t) => t.name === toolCall.name);
++    if (exact)
++        return exact;
++    const loose = findToolByLooseName(tools, toolCall.name);
++    if (loose) {
++        toolCall.name = loose.name;
++        return loose;
++    }
++    const args = toolCall.arguments;
++    if (args && typeof args === "object" && !Array.isArray(args)) {
++        const wrappedName = args.name ?? args.tool_name ?? args.toolName ?? args.function;
++        const wrapped = findToolByLooseName(tools, wrappedName);
++        if (wrapped) {
++            const inner = args.arguments ?? args.parameters ?? args.args ?? args.input;
++            toolCall.name = wrapped.name;
++            if (inner && typeof inner === "object" && !Array.isArray(inner)) {
++                toolCall.arguments = inner;
++            }
++            else if (typeof inner === "string") {
++                try {
++                    const parsed = JSON.parse(inner);
++                    if (parsed && typeof parsed === "object" && !Array.isArray(parsed))
++                        toolCall.arguments = parsed;
++                }
++                catch { }
++            }
++            return wrapped;
++        }
++    }
++    return undefined;
++}
++function buildToolNotFoundMessage(tools, toolCall) {
++    const raw = typeof toolCall.name === "string" ? toolCall.name.trim() : "";
++    const names = (tools ?? []).map((t) => t.name);
++    const listed = names.slice(0, 60).join(", ") + (names.length > 60 ? ", …" : "");
++    const problem = raw ? `there is no tool named "${raw}"` : "the tool name was empty";
++    return (`Invalid tool call: ${problem}. This call was NOT executed. ` +
++        `Retry now with the exact name of one of the available tools and its arguments` +
++        (listed ? `: ${listed}.` : "."));
++}
+ async function prepareToolCall(currentContext, assistantMessage, toolCall, config, signal) {
+-    const tool = currentContext.tools?.find((t) => t.name === toolCall.name);
++    const tool = resolveToolForCall(currentContext.tools, toolCall);
+     if (!tool) {
+         return {
+             kind: "immediate",
+-            result: createErrorToolResult(`Tool ${toolCall.name} not found`),
++            result: createErrorToolResult(buildToolNotFoundMessage(currentContext.tools, toolCall)),
+             isError: true,
+         };
+     }

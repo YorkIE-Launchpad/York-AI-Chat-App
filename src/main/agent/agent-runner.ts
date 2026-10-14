@@ -174,6 +174,7 @@ import {
   summarizeContentBlocks,
   type TurnContentSummary,
 } from './incomplete-turn';
+import { waitForPiSessionIdle } from './pi-session-idle';
 import {
   LaunchPadTurnProgress,
   isLaunchPadPollToolForLoopGuard,
@@ -1399,6 +1400,7 @@ ${hints.join('\n')}
   }
 
   private getToolDisplayName(toolName: string): string {
+    if (!toolName?.trim()) return 'Invalid tool call (model will retry)';
     const cached = this.toolDisplayNameCache.get(toolName);
     if (cached) {
       return cached;
@@ -4125,11 +4127,34 @@ ${
             })
           );
         }
+        const idleOutcome = await waitForPiSessionIdle(piSession, {
+          signal: controller.signal,
+          timeoutMs: 30_000,
+          onWait: () => {
+            log('[CoworkAgentRunner] pi session still busy (compaction/retry); waiting for idle');
+            this.sendTraceUpdate(session.id, thinkingStepId, {
+              title: 'Finishing previous step...',
+            });
+          },
+        });
+        if (idleOutcome === 'aborted_stale') {
+          logWarn('[CoworkAgentRunner] Aborted stale pi run before new prompt');
+        }
+        resetActivityTimeout();
         const promptResult = await piSession.prompt(contextualPrompt, promptOptions);
         log(
           '[CoworkAgentRunner] prompt() returned:',
           JSON.stringify(promptResult ?? 'void').substring(0, 1000)
         );
+        // Background compaction-retry is real work for this turn; the activity
+        // timeout (via controller.signal) bounds it instead of a fixed cap.
+        await waitForPiSessionIdle(piSession, {
+          signal: controller.signal,
+          timeoutMs: Number.POSITIVE_INFINITY,
+          onWait: () => {
+            log('[CoworkAgentRunner] prompt() returned while pi session busy; waiting for idle');
+          },
+        });
 
         // Safety net: deferred retryable error never cleared (SDK retry disabled,
         // or auto_retry_end missed) and no assistant content was recovered.
@@ -4195,6 +4220,11 @@ ${
               });
               resetActivityTimeout();
               try {
+                await waitForPiSessionIdle(piSession, {
+                  signal: controller.signal,
+                  timeoutMs: Number.POSITIVE_INFINITY,
+                });
+                if (controller.signal.aborted) break;
                 const continueResult = await piSession.prompt(steerText);
                 log(
                   '[IncompleteTurn] continuation prompt() returned:',
