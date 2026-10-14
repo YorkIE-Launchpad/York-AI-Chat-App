@@ -40,6 +40,8 @@ export interface ProviderTarget {
   upstreamOrigin: string;
   /** Path prefix on our server (e.g. /anthropic) */
   mountPath: string;
+  /** Upstream may run without an API key (llama.cpp started without --api-key). */
+  apiKeyOptional?: boolean;
 }
 
 function buildUpstreamUrl(req: Request, target: ProviderTarget): string {
@@ -105,7 +107,8 @@ function applyProviderAuth(provider: BackendProvider, headers: Headers): void {
       headers.set('x-goog-api-key', apiKey);
       break;
     }
-    case 'typesafe': {
+    case 'typesafe':
+    case 'york-llm': {
       const apiKey = getProviderApiKey(provider);
       if (!apiKey) return;
       headers.set('authorization', `Bearer ${apiKey}`);
@@ -162,7 +165,7 @@ export async function proxyToProvider(
   target: ProviderTarget
 ): Promise<void> {
   const apiKey = getProviderApiKey(target.provider);
-  if (!apiKey) {
+  if (!apiKey && !target.apiKeyOptional) {
     res.status(503).json({
       error: `Provider ${target.provider} is not configured. Set ${
         target.provider === 'typesafe'
@@ -209,6 +212,7 @@ export async function proxyToProvider(
     const cleanup = (): void => {
       req.off('close', onClientGone);
       req.off('aborted', onClientGone);
+      res.off('close', onResponseClosed);
     };
 
     const finish = (err?: unknown): void => {
@@ -237,8 +241,15 @@ export async function proxyToProvider(
       finish();
     };
 
+    // req 'close' has already fired once the body is buffered, so a disconnect
+    // mid-stream only shows up as the response closing before it finished.
+    const onResponseClosed = (): void => {
+      if (!res.writableFinished) onClientGone();
+    };
+
     req.on('close', onClientGone);
     req.on('aborted', onClientGone);
+    res.on('close', onResponseClosed);
 
     const options: RequestOptions = {
       protocol: parsedUrl.protocol,

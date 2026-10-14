@@ -155,6 +155,7 @@ import { listYorkLlmModels } from './config/york-llm-api';
 import { bootstrapYorkLlmDefault } from './config/york-llm-default-bootstrap';
 import { fetchBackendModels } from './config/backend-client';
 import { installYorkLlmFetchGate } from './york-llm/york-llm-fetch-gate';
+import { installYorkLlmBackendRoute } from './york-llm/york-llm-backend-route';
 import { getYorkLlmGateSnapshot, subscribeYorkLlmQueue } from './york-llm/york-llm-gate';
 import {
   setPermissionRules,
@@ -2015,6 +2016,7 @@ app
   .whenReady()
   .then(async () => {
     installYorkLlmFetchGate();
+    installYorkLlmBackendRoute();
     subscribeYorkLlmQueue((event) => {
       sendToRenderer({
         type: 'yorkLlm.queue',

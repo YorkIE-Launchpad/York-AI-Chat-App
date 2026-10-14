@@ -10,6 +10,7 @@ import { attachCollabRelay } from './collab/yjs-relay.js';
 import { listEnabledModels } from './models.js';
 import { proxyToProvider, type ProviderTarget } from './proxy.js';
 import { log } from './safe-log.js';
+import { createYorkLlmRouter, resolveYorkLlmUpstreamOrigin } from './york-llm-router.js';
 import { createZoomSessionRouter, createZoomWebhookRouter } from './zoom-routes.js';
 import {
   createZoomOauthCallbackRouter,
@@ -81,6 +82,16 @@ app.use('/collab', express.json(), createCollabInviteRouter());
 
 // Shared artifact documents — stateless invite JWTs (no doc registry); blobs in Hub S3.
 app.use('/share/docs', express.json(), createShareDocRouter());
+
+app.use(
+  '/york-llm',
+  createYorkLlmRouter({
+    provider: 'york-llm',
+    upstreamOrigin: resolveYorkLlmUpstreamOrigin(),
+    mountPath: '/york-llm',
+    apiKeyOptional: true,
+  })
+);
 
 for (const target of PROVIDER_TARGETS) {
   app.use(target.mountPath, (req, res) => {

@@ -1,4 +1,4 @@
-export type BackendProvider = 'anthropic' | 'openai' | 'gemini' | 'typesafe';
+export type BackendProvider = 'anthropic' | 'openai' | 'gemini' | 'typesafe' | 'york-llm';
 
 export interface BackendModelEntry {
   id: string;
@@ -41,6 +41,8 @@ const CATALOG: Record<BackendProvider, Array<{ id: string; name: string }>> = {
   ],
   // Decision API (System One) — not listed as a chat model in Auto.
   typesafe: [],
+  // Clients list York LLM models from the llama.cpp /v1/models endpoint.
+  'york-llm': [],
 };
 
 const ENV_KEY_BY_PROVIDER: Record<BackendProvider, string> = {
@@ -48,6 +50,7 @@ const ENV_KEY_BY_PROVIDER: Record<BackendProvider, string> = {
   openai: 'OPENAI_API_KEY',
   gemini: 'GEMINI_API_KEY',
   typesafe: 'TYPESAFE_API_KEY',
+  'york-llm': 'YORK_LLM_API_KEY',
 };
 
 export function providerHasKey(provider: BackendProvider): boolean {
