@@ -164,4 +164,52 @@ describe('compressToolResultTextForModel', () => {
     expect(Array.isArray(cached)).toBe(true);
     expect((cached as unknown[]).length).toBe(5000);
   });
+
+  it('caps nested arrays and strips signed URLs when over budget', () => {
+    const signedUrl =
+      'https://bucket.s3.ap-south-1.amazonaws.com/profilepics/a.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Security-Token=' +
+      'T'.repeat(1500) +
+      '&X-Amz-Signature=abc';
+    const quarter = () => ({
+      totalMBOs: 201,
+      avgGrade: 7.61,
+      topPerformers: Array.from({ length: 201 }, (_, i) => ({
+        employee: { id: `YI${i}`, email: `e${i}@york.ie`, profile_pic: signedUrl },
+        avgGrade: 7 + (i % 3),
+        gradeLabel: 'A',
+      })),
+    });
+    const raw = JSON.stringify({
+      Q1: quarter(),
+      Q2: quarter(),
+      Q3: quarter(),
+      Q4: quarter(),
+      performanceTrends: [1, 2, 3],
+    });
+
+    const out = compressToolResultTextForModel(raw, {
+      maxChars: 20_000,
+      pageTargetChars: 16_000,
+    });
+
+    expect(out.length).toBeLessThanOrEqual(20_000);
+    expect(out).toContain('paged: true');
+    expect(out).toContain('Q1.topPerformers');
+    expect(out).not.toContain('X-Amz-Signature');
+    expect(out).toContain('https://bucket.s3.ap-south-1.amazonaws.com/profilepics/a.png');
+    expect(out).toContain('totalMBOs: 201');
+  });
+
+  it('keeps signed URLs intact when the result fits the budget', () => {
+    const url = 'https://bucket.s3.amazonaws.com/doc.pdf?X-Amz-Signature=abc';
+    const out = compressToolResultTextForModel(JSON.stringify({ url }));
+    expect(out).toContain('X-Amz-Signature=abc');
+  });
+
+  it('never exceeds maxChars even when a single item is too large', () => {
+    const raw = JSON.stringify([{ blob: 'x'.repeat(50_000) }, { blob: 'y' }]);
+    const out = compressToolResultTextForModel(raw, { maxChars: 5_000, pageTargetChars: 4_000 });
+    expect(out.length).toBeLessThanOrEqual(5_000);
+    expect(out).toContain('[truncated');
+  });
 });

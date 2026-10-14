@@ -157,40 +157,84 @@ function countTopLevelItems(value: unknown): number {
   return 1;
 }
 
-function pageStructuredValue(
-  value: unknown,
-  maxItems: number
-): { page: unknown; nextOffset: number | null; totalItems: number } {
+const SIGNED_URL_PARAM_PATTERN =
+  /[?&](X-Amz-Signature|X-Amz-Credential|X-Amz-Security-Token|X-Goog-Signature|GoogleAccessId|Signature|sig|se|sp)=/i;
+
+/**
+ * Strip query strings from presigned URLs (S3/GCS/Azure SAS). The tokens are
+ * kilobytes each, expire within hours, and carry no meaning for the model.
+ */
+export function elideSignedUrls(value: unknown): unknown {
+  if (typeof value === 'string') {
+    if (!/^https?:\/\//i.test(value) || !SIGNED_URL_PARAM_PATTERN.test(value)) return value;
+    const queryStart = value.indexOf('?');
+    return queryStart === -1 ? value : value.slice(0, queryStart);
+  }
   if (Array.isArray(value)) {
-    const totalItems = value.length;
-    const page = value.slice(0, maxItems);
-    const nextOffset = totalItems > maxItems ? maxItems : null;
-    return { page, nextOffset, totalItems };
+    return value.map((item) => elideSignedUrls(item));
   }
-
   if (isRecord(value)) {
-    // Prefer paging the largest array field (typical analytics envelope).
-    let bestKey: string | null = null;
-    let bestLen = 0;
+    const out: Record<string, unknown> = {};
     for (const [key, nested] of Object.entries(value)) {
-      if (Array.isArray(nested) && nested.length > bestLen) {
-        bestKey = key;
-        bestLen = nested.length;
-      }
+      out[key] = elideSignedUrls(nested);
     }
-    if (bestKey && bestLen > 0) {
-      const arr = value[bestKey] as unknown[];
-      const pageArr = arr.slice(0, maxItems);
-      const nextOffset = bestLen > maxItems ? maxItems : null;
-      return {
-        page: { ...value, [bestKey]: pageArr },
-        nextOffset,
-        totalItems: bestLen,
-      };
+    return out;
+  }
+  return value;
+}
+
+type TruncatedArray = { path: string; shown: number; total: number };
+
+function maxArrayLength(value: unknown): number {
+  if (Array.isArray(value)) {
+    return value.reduce<number>((max, item) => Math.max(max, maxArrayLength(item)), value.length);
+  }
+  if (isRecord(value)) {
+    return Object.values(value).reduce<number>(
+      (max, nested) => Math.max(max, maxArrayLength(nested)),
+      0
+    );
+  }
+  return 0;
+}
+
+/** Cap every array in the tree (top-level and nested) to `cap` items. */
+function capArrays(
+  value: unknown,
+  cap: number,
+  path = '',
+  truncated: TruncatedArray[] = []
+): { page: unknown; truncated: TruncatedArray[] } {
+  if (Array.isArray(value)) {
+    if (value.length > cap) {
+      truncated.push({ path: path || '$', shown: cap, total: value.length });
+    }
+    const page = value
+      .slice(0, cap)
+      .map((item, index) => capArrays(item, cap, `${path}[${index}]`, truncated).page);
+    return { page, truncated };
+  }
+  if (isRecord(value)) {
+    const page: Record<string, unknown> = {};
+    for (const [key, nested] of Object.entries(value)) {
+      page[key] = capArrays(nested, cap, path ? `${path}.${key}` : key, truncated).page;
+    }
+    return { page, truncated };
+  }
+  return { page: value, truncated };
+}
+
+/** Collapse per-row paths (`a[0].b`, `a[1].b`) so the inventory stays short. */
+function summarizeTruncations(truncated: TruncatedArray[], limit = 12): TruncatedArray[] {
+  const byPath = new Map<string, TruncatedArray>();
+  for (const entry of truncated) {
+    const key = entry.path.replace(/\[\d+\]/g, '[]');
+    const existing = byPath.get(key);
+    if (!existing || entry.total > existing.total) {
+      byPath.set(key, { ...entry, path: key });
     }
   }
-
-  return { page: value, nextOffset: null, totalItems: countTopLevelItems(value) };
+  return [...byPath.values()].sort((a, b) => b.total - a.total).slice(0, limit);
 }
 
 function encodeToon(value: unknown): string {
@@ -270,49 +314,51 @@ export function compressToolResultTextForModel(
     return fullDoc;
   }
 
-  // Spillover: page largest array, keep full payload in cache.
+  // Spillover: keep full payload in cache, elide signed URLs, then cap every
+  // array (including nested ones) to the largest size that fits the page target.
   const cacheId = cacheSpillover(pruned);
-  const keys = collectTopLevelKeys(pruned);
-  const totalItems = countTopLevelItems(pruned);
+  const slim = elideSignedUrls(pruned);
 
-  let lo = 1;
-  let hi = Math.max(1, totalItems);
-  let bestItems = 1;
-  let bestEncoded = encodeStructured(pageStructuredValue(pruned, 1).page);
+  const slimEncoded = encodeStructured(slim);
+  const slimDoc = formatStructuredDocument(slimEncoded.format, slimEncoded.body);
+  if (slimDoc.length <= maxChars) {
+    return slimDoc;
+  }
 
-  while (lo <= hi) {
-    const mid = Math.floor((lo + hi) / 2);
-    const { page } = pageStructuredValue(pruned, mid);
+  const keys = collectTopLevelKeys(slim);
+  const totalItems = countTopLevelItems(slim);
+  const buildDoc = (cap: number): string => {
+    const { page, truncated } = capArrays(slim, cap);
     const encoded = encodeStructured(page);
-    const inventoryPreview = {
+    const inventory = {
       paged: true,
       totalItems,
       keys,
       cacheId,
-      nextOffset: totalItems > mid ? mid : null,
-      hint: 'Result exceeded model budget. Showing page 1 only; full data kept. Re-call the same tool with tighter filters/limit/offset to fetch more.',
+      nextOffset: truncated.length > 0 ? cap : null,
+      truncatedArrays: summarizeTruncations(truncated),
+      hint: `Result exceeded model budget. Every list is capped at ${cap} items; full data kept. Re-call the same tool with tighter filters/limit/offset (or a narrower type/scope) to fetch more.`,
     };
-    const doc = formatStructuredDocument(encoded.format, encoded.body, inventoryPreview);
+    return formatStructuredDocument(encoded.format, encoded.body, inventory);
+  };
+
+  let lo = 1;
+  let hi = Math.max(1, maxArrayLength(slim));
+  let bestDoc = buildDoc(1);
+  while (lo <= hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    const doc = buildDoc(mid);
     if (doc.length <= pageTarget) {
-      bestItems = mid;
-      bestEncoded = encoded;
+      bestDoc = doc;
       lo = mid + 1;
-    } else if (mid <= 1) {
-      bestItems = 1;
-      bestEncoded = encoded;
-      break;
     } else {
       hi = mid - 1;
     }
   }
 
-  const inventory = {
-    paged: true,
-    totalItems,
-    keys,
-    cacheId,
-    nextOffset: totalItems > bestItems ? bestItems : null,
-    hint: 'Result exceeded model budget. Showing page 1 only; full data kept. Re-call the same tool with tighter filters/limit/offset to fetch more.',
-  };
-  return formatStructuredDocument(bestEncoded.format, bestEncoded.body, inventory);
+  if (bestDoc.length > maxChars) {
+    const marker = '\n…[truncated: result still exceeded model budget at 1 item per list]';
+    return bestDoc.slice(0, Math.max(0, maxChars - marker.length)) + marker;
+  }
+  return bestDoc;
 }

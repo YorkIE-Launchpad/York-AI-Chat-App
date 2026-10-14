@@ -13,7 +13,10 @@ import type { MCPManager, MCPTool } from '../mcp/mcp-manager';
 import { applyCompanyProjectScopedMcpResultFilter } from '../../shared/company-project-mcp-scope';
 import { prepareCompanyProjectScopedMcpArgs as prepareProjectScopedMcpArgs } from '../../shared/company-project-mcp-scope';
 import type { OnProjectScopeViolation } from '../../shared/project-mcp-scope';
-import { filterMcpToolsForDivision, type SessionDivisionFields } from '../../shared/workspace-division';
+import {
+  filterMcpToolsForDivision,
+  type SessionDivisionFields,
+} from '../../shared/workspace-division';
 import type { ProjectLinkageMetadata } from '../../shared/project-linkage-metadata';
 import { log } from '../utils/logger';
 import { normalizeMcpToolResultForModel } from './tool-result-utils';
@@ -144,6 +147,21 @@ function summarizeInputParams(
     .map((name) => ({ name, required: required.has(name) }));
 }
 
+function normalizeServerKey(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+/** Substring match ignoring case and separators ("york ie" matches "York_IE_HUB"). */
+function filterToolsByServer(tools: MCPTool[], server: string | undefined): MCPTool[] {
+  const key = server ? normalizeServerKey(server) : '';
+  if (!key) return tools;
+  return tools.filter(
+    (tool) =>
+      normalizeServerKey(tool.serverName).includes(key) ||
+      normalizeServerKey(tool.name).includes(key)
+  );
+}
+
 export function searchMcpTools(
   tools: MCPTool[],
   options: {
@@ -155,21 +173,21 @@ export function searchMcpTools(
   } = {}
 ): McpSearchToolHit[] {
   const limit = Math.min(Math.max(1, options.limit ?? DEFAULT_SEARCH_LIMIT), MAX_SEARCH_LIMIT);
-  const serverFilter = options.server?.trim().toLowerCase();
   const query = options.query?.trim() ?? '';
   const includeSchema = Boolean(options.includeSchema);
 
-  let filtered = tools;
-  if (serverFilter) {
-    filtered = filtered.filter((tool) => tool.serverName.toLowerCase().includes(serverFilter));
-  }
+  let filtered = filterToolsByServer(tools, options.server);
 
   if (query) {
-    filtered = filtered
+    const scored = filtered
       .map((tool) => ({ tool, score: scoreToolMatch(tool, query) }))
       .filter((entry) => entry.score > 0)
       .sort((a, b) => b.score - a.score || a.tool.name.localeCompare(b.tool.name))
       .map((entry) => entry.tool);
+    filtered =
+      scored.length > 0 || !options.server?.trim()
+        ? scored
+        : [...filtered].sort((a, b) => a.name.localeCompare(b.name));
   } else {
     filtered = [...filtered].sort((a, b) => a.name.localeCompare(b.name));
   }
@@ -212,11 +230,7 @@ export async function searchMcpToolsAsync(
   if (query) {
     try {
       const { runMcpJevSearch } = await import('../jev/mcp-jev');
-      let pool = tools;
-      const serverFilter = options.server?.trim().toLowerCase();
-      if (serverFilter) {
-        pool = pool.filter((tool) => tool.serverName.toLowerCase().includes(serverFilter));
-      }
+      const pool = filterToolsByServer(tools, options.server);
       const jev = await runMcpJevSearch({
         query,
         tools: pool,
@@ -241,11 +255,11 @@ export async function searchMcpToolsAsync(
             }
           }
         }
-        return ordered.slice(0, limit).map((tool) => toSearchHit(tool, includeSchema));
+        if (ordered.length > 0) {
+          return ordered.slice(0, limit).map((tool) => toSearchHit(tool, includeSchema));
+        }
       }
-      if (jev && !jev.needMcp) {
-        return [];
-      }
+      // An explicit tool search always wants tools; ignore a "no MCP needed" verdict.
     } catch {
       // Fall through to lexical.
     }
@@ -270,7 +284,7 @@ function resolveAllowedMcpTools(
   allowedToolNames?: ReadonlySet<string> | null,
   division?: Partial<SessionDivisionFields> | null
 ): MCPTool[] {
-  let all = filterMcpToolsForDivision(mcpManager.getTools(), division);
+  const all = filterMcpToolsForDivision(mcpManager.getTools(), division);
   if (!allowedToolNames || allowedToolNames.size === 0) {
     return all;
   }
@@ -504,10 +518,7 @@ export function selectCustomToolsForModel(input: {
   const budgetLimit = toolBudgetLimitForApi(api);
 
   const useMeta =
-    budgetLimit != null &&
-    Boolean(mcpManager) &&
-    mcpTools.length > 0 &&
-    totalIfFlat > budgetLimit;
+    budgetLimit != null && Boolean(mcpManager) && mcpTools.length > 0 && totalIfFlat > budgetLimit;
 
   if (!useMeta || !mcpManager) {
     return {

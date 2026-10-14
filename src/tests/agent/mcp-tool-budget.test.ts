@@ -174,6 +174,63 @@ describe('searchMcpTools', () => {
       required: ['q'],
     });
   });
+
+  const hubTools = [
+    makeMcpTool({
+      name: 'mcp__York_IE_HUB__get_mbo_analytics',
+      originalName: 'get_mbo_analytics',
+      serverName: 'York_IE_HUB',
+      description: 'MBO analytics by type and year',
+    }),
+    makeMcpTool({
+      name: 'mcp__York_IE_HUB__list_employees',
+      originalName: 'list_employees',
+      serverName: 'York_IE_HUB',
+      description: 'List employees',
+    }),
+  ];
+
+  it('matches server filters ignoring case and separators', () => {
+    expect(searchMcpTools(hubTools, { server: 'york ie hub' })).toHaveLength(2);
+    expect(searchMcpTools(hubTools, { server: 'York' })).toHaveLength(2);
+  });
+
+  it('finds multi-word queries by token', () => {
+    const matches = searchMcpTools(hubTools, {
+      query: 'mbo goals rating quarter',
+      server: 'york',
+    });
+    expect(matches[0]?.name).toBe('mcp__York_IE_HUB__get_mbo_analytics');
+  });
+
+  it('falls back to the server tool list when the query matches nothing', () => {
+    const matches = searchMcpTools(hubTools, { query: 'zzz unrelated', server: 'York' });
+    expect(matches.map((m) => m.name).sort()).toEqual([
+      'mcp__York_IE_HUB__get_mbo_analytics',
+      'mcp__York_IE_HUB__list_employees',
+    ]);
+  });
+});
+
+describe('searchMcpToolsAsync', () => {
+  it('falls back to lexical search when the relevance ranker says no MCP is needed', async () => {
+    vi.resetModules();
+    vi.doMock('../../main/jev/mcp-jev', () => ({
+      runMcpJevSearch: async () => ({ needMcp: false, rankedToolNames: [] }),
+    }));
+    const { searchMcpToolsAsync } = await import('../../main/agent/mcp-tool-budget');
+    const tools = [
+      makeMcpTool({
+        name: 'mcp__York_IE_HUB__get_mbo_analytics',
+        originalName: 'get_mbo_analytics',
+        serverName: 'York_IE_HUB',
+        description: 'MBO analytics',
+      }),
+    ];
+    const matches = await searchMcpToolsAsync(tools, { query: 'MBO analytics', server: 'York' });
+    expect(matches.map((m) => m.name)).toEqual(['mcp__York_IE_HUB__get_mbo_analytics']);
+    vi.doUnmock('../../main/jev/mcp-jev');
+  });
 });
 
 describe('selectCustomToolsForModel', () => {
