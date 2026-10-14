@@ -16,6 +16,8 @@ export interface SubagentConfig {
   presets: SubagentPreset[];
 }
 
+export const MAX_SUBAGENT_CONCURRENT = 15;
+
 export const DEFAULT_SUBAGENT_CONFIG: SubagentConfig = {
   model: '',
   defaultAgent: '',
@@ -50,7 +52,7 @@ export const DEFAULT_SUBAGENT_CONFIG: SubagentConfig = {
 const configSchema = Type.Object({
   model: Type.String({ maxLength: 200 }),
   defaultAgent: Type.String({ maxLength: 64 }),
-  maxConcurrent: Type.Integer({ minimum: 1, maximum: 8 }),
+  maxConcurrent: Type.Integer({ minimum: 1, maximum: MAX_SUBAGENT_CONCURRENT }),
   presets: Type.Array(
     Type.Object({
       name: Type.String({ minLength: 1, maxLength: 64 }),
@@ -66,7 +68,7 @@ const configSchema = Type.Object({
 export function normalizeSubagentConfig(input: unknown = DEFAULT_SUBAGENT_CONFIG): SubagentConfig {
   if (!Value.Check(configSchema, input)) {
     throw new Error(
-      'Invalid subagent configuration: provide model, defaultAgent, maxConcurrent (1-8), and valid presets.'
+      `Invalid subagent configuration: provide model, defaultAgent, maxConcurrent (1-${MAX_SUBAGENT_CONCURRENT}), and valid presets.`
     );
   }
   const config = input as SubagentConfig;

@@ -27,7 +27,7 @@ beforeEach(() => {
 });
 
 describe('subagent settings validation', () => {
-  it.each([NaN, 0, 9, 1.5])('marks invalid concurrency %s and disables save', (value) => {
+  it.each([NaN, 0, 16, 1.5])('marks invalid concurrency %s and disables save', (value) => {
     mocks.config.maxConcurrent = value;
     const html = renderToStaticMarkup(createElement(SettingsSubagents));
     expect(html).toContain('aria-describedby="subagent-concurrency-error"');
@@ -51,7 +51,7 @@ describe('subagent settings validation', () => {
     expect(html).toMatch(/<button disabled=""[^>]*>.*subagentSettings.save<\/button>/s);
   });
 
-  it.each([1, 8])('allows valid settings at concurrency boundary %s', (value) => {
+  it.each([1, 15])('allows valid settings at concurrency boundary %s', (value) => {
     mocks.config.maxConcurrent = value;
     const html = renderToStaticMarkup(createElement(SettingsSubagents));
     expect(html).not.toContain('role="alert"');

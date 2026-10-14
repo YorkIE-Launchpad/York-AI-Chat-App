@@ -5,6 +5,7 @@ import { useAppStore } from '../../store';
 import {
   DEFAULT_SUBAGENT_CONFIG,
   encodeSubagentModel,
+  MAX_SUBAGENT_CONCURRENT,
   parseSubagentModel,
   type SubagentPreset,
 } from '../../../shared/subagent-config';
@@ -181,7 +182,9 @@ export function SettingsSubagents() {
   }, [appConfig?.subagent]);
   const preset = draft.presets[selected];
   const concurrencyValid =
-    Number.isInteger(draft.maxConcurrent) && draft.maxConcurrent >= 1 && draft.maxConcurrent <= 8;
+    Number.isInteger(draft.maxConcurrent) &&
+    draft.maxConcurrent >= 1 &&
+    draft.maxConcurrent <= MAX_SUBAGENT_CONCURRENT;
   const missingInstructions = draft.presets.filter((entry) => !entry.prompt.trim());
   const hiddenMissingInstructions = missingInstructions.filter((entry) => entry !== preset);
 
@@ -245,7 +248,7 @@ export function SettingsSubagents() {
             aria-label={t('subagentSettings.concurrency')}
             type="number"
             min={1}
-            max={8}
+            max={MAX_SUBAGENT_CONCURRENT}
             step={1}
             required
             aria-invalid={!concurrencyValid}
@@ -256,7 +259,7 @@ export function SettingsSubagents() {
           />
           {!concurrencyValid && (
             <span id="subagent-concurrency-error" role="alert" className="block text-xs text-error">
-              {t('subagentSettings.concurrencyInvalid')}
+              {t('subagentSettings.concurrencyInvalid', { max: MAX_SUBAGENT_CONCURRENT })}
             </span>
           )}
         </label>

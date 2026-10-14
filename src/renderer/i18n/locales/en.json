@@ -2129,7 +2129,7 @@
     "sameAsParent": "Same as main chat ({{model}})",
     "sameAsDefault": "Default child model ({{model}})",
     "concurrency": "Concurrent children per session",
-    "concurrencyInvalid": "Enter a whole number from 1 to 8.",
+    "concurrencyInvalid": "Enter a whole number from 1 to {{max}}.",
     "defaultRole": "Default role",
     "generalRole": "General",
     "roles": "Named agents",

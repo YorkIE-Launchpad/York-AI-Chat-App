@@ -1,5 +1,5 @@
 export const DEFAULT_YORK_LLM_BASE_URL = 'http://llm.yorkdevs.link:2222/v1';
-export const DEFAULT_YORK_LLM_MAX_CONCURRENT = 4;
+export const DEFAULT_YORK_LLM_MAX_CONCURRENT = 15;
 export const YORK_LLM_DISPLAY_NAME = 'York LLM V1';
 export const YORK_LLM_SESSION_HEADER = 'X-York-Llm-Session-Id';
 /** Provider key used when York LLM is selected in the model picker. */
