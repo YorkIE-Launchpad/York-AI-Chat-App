@@ -11,6 +11,7 @@ import {
 import {
   AUTO_MODEL_ID,
   AUTO_PREFERENCE_SHORT_LABELS,
+  hasAutoRoutableCatalogModels,
   isAutoModelId,
   isAutoModelPreference,
   isFrontierCatalogModel,
@@ -70,6 +71,10 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  /** Store keeps the last non-empty catalog, so track whether Hub actually returned nothing. */
+  const [catalogStatus, setCatalogStatus] = useState<'unknown' | 'empty' | 'loaded'>(
+    models.length > 0 ? 'loaded' : 'unknown'
+  );
   const rootRef = useRef<HTMLDivElement>(null);
   const placement = useMenuPlacement(rootRef, isOpen, 448);
   const loadGenRef = useRef(0);
@@ -116,6 +121,7 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
           if (items.length > 0) {
             setBackendModelsCatalog(items);
           }
+          setCatalogStatus(items.length > 0 ? 'loaded' : 'empty');
         } catch {
           // Keep last-good catalog in the store; do not clear on transient Hub errors.
         } finally {
@@ -175,6 +181,11 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
     );
   }, [chatCatalogModels]);
 
+  const isYorkLlmOnly =
+    catalogStatus !== 'unknown' &&
+    yorkLlmModels.length > 0 &&
+    !hasAutoRoutableCatalogModels(catalogStatus === 'empty' ? [] : usableModels);
+
   const selectedAuto = isAutoModelId(appConfig?.model);
   const autoPreference: AutoModelPreference = isAutoModelPreference(appConfig?.autoModelPreference)
     ? appConfig.autoModelPreference
@@ -230,6 +241,11 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
     await saveConfig({ model: AUTO_MODEL_ID });
     setIsOpen(false);
   }, [saveConfig]);
+
+  useEffect(() => {
+    if (!selectedAuto || !isYorkLlmOnly || isSaving) return;
+    void saveConfig(yorkLlmSelectionPayload(yorkLlmModels[0].id));
+  }, [isSaving, isYorkLlmOnly, saveConfig, selectedAuto, yorkLlmModels]);
 
   const handleAutoPreference = useCallback(
     async (preference: AutoModelPreference) => {
@@ -317,63 +333,65 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
           }`}
         >
           <div style={{ maxHeight: placement.maxHeight }} className="overflow-y-auto py-1.5">
-            <div className="px-1.5 py-1">
-              <div className="px-2.5 pb-1 pt-1.5 text-[11px] font-medium tracking-[0.04em] text-text-muted">
-                {t('workspace.models.autoTitle', 'Smart Auto')}
-              </div>
-              <button
-                type="button"
-                role="option"
-                aria-selected={selectedAuto}
-                onClick={() => {
-                  void handleSelectAuto();
-                }}
-                className={`flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left transition-colors ${
-                  selectedAuto
-                    ? 'bg-accent-muted text-accent'
-                    : 'text-text-primary hover:bg-surface-hover'
-                }`}
-              >
-                <span className="min-w-0 flex-1 truncate whitespace-nowrap text-[13px] font-medium">
-                  {t('workspace.models.autoShort', 'Auto')}
-                </span>
-                {selectedAuto && <Check className="h-3.5 w-3.5 shrink-0" />}
-              </button>
-              <div className="px-2.5 pt-1 text-[10px] leading-snug text-text-muted">
-                {t('workspace.models.autoBlurb', 'Auto · York for everyday, frontier when hard')}
-              </div>
-              {selectedAuto && (
-                <div className="mt-1.5 flex flex-wrap gap-1 px-2.5 pb-1">
-                  {AUTO_PREFERENCE_ORDER.map((preference) => {
-                    const isActive = autoPreference === preference;
-                    return (
-                      <button
-                        key={preference}
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          void handleAutoPreference(preference);
-                        }}
-                        className={`rounded-lg px-2 py-1 text-[11px] font-medium transition-colors ${
-                          isActive
-                            ? 'bg-accent-muted text-accent'
-                            : 'text-text-muted hover:bg-surface-hover hover:text-text-primary'
-                        }`}
-                        title={
-                          preference === 'eco'
-                            ? t('workspace.models.autoPrefEco', 'Prefer lower cost')
-                            : preference === 'max'
-                              ? t('workspace.models.autoPrefMax', 'Prefer smartest')
-                              : t('workspace.models.autoPrefBalanced', 'Balanced')
-                        }
-                      >
-                        {AUTO_PREFERENCE_SHORT_LABELS[preference]}
-                      </button>
-                    );
-                  })}
+            {!isYorkLlmOnly && (
+              <div className="px-1.5 py-1">
+                <div className="px-2.5 pb-1 pt-1.5 text-[11px] font-medium tracking-[0.04em] text-text-muted">
+                  {t('workspace.models.autoTitle', 'Smart Auto')}
                 </div>
-              )}
-            </div>
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={selectedAuto}
+                  onClick={() => {
+                    void handleSelectAuto();
+                  }}
+                  className={`flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left transition-colors ${
+                    selectedAuto
+                      ? 'bg-accent-muted text-accent'
+                      : 'text-text-primary hover:bg-surface-hover'
+                  }`}
+                >
+                  <span className="min-w-0 flex-1 truncate whitespace-nowrap text-[13px] font-medium">
+                    {t('workspace.models.autoShort', 'Auto')}
+                  </span>
+                  {selectedAuto && <Check className="h-3.5 w-3.5 shrink-0" />}
+                </button>
+                <div className="px-2.5 pt-1 text-[10px] leading-snug text-text-muted">
+                  {t('workspace.models.autoBlurb', 'Auto · York for everyday, frontier when hard')}
+                </div>
+                {selectedAuto && (
+                  <div className="mt-1.5 flex flex-wrap gap-1 px-2.5 pb-1">
+                    {AUTO_PREFERENCE_ORDER.map((preference) => {
+                      const isActive = autoPreference === preference;
+                      return (
+                        <button
+                          key={preference}
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void handleAutoPreference(preference);
+                          }}
+                          className={`rounded-lg px-2 py-1 text-[11px] font-medium transition-colors ${
+                            isActive
+                              ? 'bg-accent-muted text-accent'
+                              : 'text-text-muted hover:bg-surface-hover hover:text-text-primary'
+                          }`}
+                          title={
+                            preference === 'eco'
+                              ? t('workspace.models.autoPrefEco', 'Prefer lower cost')
+                              : preference === 'max'
+                                ? t('workspace.models.autoPrefMax', 'Prefer smartest')
+                                : t('workspace.models.autoPrefBalanced', 'Balanced')
+                          }
+                        >
+                          {AUTO_PREFERENCE_SHORT_LABELS[preference]}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
 
             {(isYorkLlmLoading || yorkLlmModels.length > 0 || isYorkLlmUnavailable) && (
               <div className="px-1.5 py-1">

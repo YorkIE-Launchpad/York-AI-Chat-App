@@ -4,6 +4,7 @@
  */
 import {
   AUTO_MODEL_ID,
+  hasAutoRoutableCatalogModels,
   isAutoModelId,
   normalizeAutoModelPreference,
   pickAutoModel,
@@ -76,10 +77,11 @@ async function getEnabledModels(prefetch?: BackendModelInfo[]): Promise<BackendM
   return models;
 }
 
-async function resolveYorkLlmForFastTier(
+async function resolveYorkLlmRoute(
   score: number,
   preference: AutoModelPreference,
-  yorkLlmModelId?: string | null
+  yorkLlmModelId?: string | null,
+  reasonSuffix = 'york-llm'
 ): Promise<AutoResolveResult | null> {
   let modelId = yorkLlmModelId?.trim() || '';
   if (!modelId) {
@@ -98,10 +100,10 @@ async function resolveYorkLlmForFastTier(
     modelId,
     tier: 'fast',
     score,
-    reason: `tier=fast;preference=${preference};york-llm`,
+    reason: `tier=fast;preference=${preference};${reasonSuffix}`,
   };
 
-  log(`[AutoModel] Routed to York LLM ${modelId} (tier=fast, score=${score}, ${pick.reason})`);
+  log(`[AutoModel] Routed to York LLM ${modelId} (score=${score}, ${pick.reason})`);
 
   return {
     usedAuto: true,
@@ -162,12 +164,23 @@ export async function resolveAutoModelIfNeeded(
 
   // York LLM for routine (fast) asks — skip when images need vision-capable cloud models.
   if (preferredTier === 'fast' && !input.hasImages) {
-    const yorkRoute = await resolveYorkLlmForFastTier(score, preference, input.yorkLlmModelId);
+    const yorkRoute = await resolveYorkLlmRoute(score, preference, input.yorkLlmModelId);
     if (yorkRoute) return yorkRoute;
   }
 
   const rawModels = await getEnabledModels(input.enabledModels);
   const enabledModels = filterModelsForDivision(rawModels, input.division);
+
+  if (!hasAutoRoutableCatalogModels(enabledModels)) {
+    const yorkOnlyRoute = await resolveYorkLlmRoute(
+      score,
+      preference,
+      input.yorkLlmModelId,
+      'york-llm-only'
+    );
+    if (yorkOnlyRoute) return yorkOnlyRoute;
+  }
+
   const pick = pickAutoModel(enabledModels, score, preference, {
     requireVision: Boolean(input.hasImages),
   });

@@ -3,6 +3,7 @@
  * per message from curated fast / balanced / frontier tiers.
  */
 import type { BackendCloudProvider, BackendModelInfo } from './backend-config';
+import { isGptImage25ModelId } from './image-generation';
 import { YORK_LLM_PROVIDER, isYorkLlmBaseUrl } from './york-llm-config';
 
 export const AUTO_MODEL_ID = 'auto';
@@ -87,6 +88,14 @@ const MATH_RE = /[$∫∑√∞≈≠≤≥]|\\frac\b|\\sum\b|\btheorem\b|\blemm
 
 export function isAutoModelId(model: string | undefined | null): boolean {
   return (model?.trim().toLowerCase() || '') === AUTO_MODEL_ID;
+}
+
+/**
+ * True when the catalog has at least one chat model Auto could route to.
+ * False means York LLM is the only option, so Auto has nothing to choose between.
+ */
+export function hasAutoRoutableCatalogModels(models: BackendModelInfo[]): boolean {
+  return models.some((model) => model.hasBudget !== false && !isGptImage25ModelId(model.id));
 }
 
 export function isAutoModelPreference(value: unknown): value is AutoModelPreference {

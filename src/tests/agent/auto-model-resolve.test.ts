@@ -121,6 +121,23 @@ describe('resolveAutoModelIfNeeded York fast tier', () => {
     expect(result.modelId).toBe('claude-haiku-4-5');
   });
 
+  it('routes hard prompts to York LLM when it is the only available model', async () => {
+    listYorkLlmModels.mockResolvedValue([{ id: '/models/york.gguf', name: 'York LLM V1' }]);
+    const result = await resolveAutoModelIfNeeded({
+      model: 'auto',
+      preference: 'max',
+      promptText:
+        'Analyze the architecture and design a multi-step refactor plan for src/main/index.ts',
+      enabledModels: [
+        { id: 'claude-opus-5', name: 'Claude Opus 5', provider: 'anthropic', hasBudget: false },
+      ],
+    });
+
+    expect(result.provider).toBe(YORK_LLM_PROVIDER);
+    expect(result.modelId).toBe('/models/york.gguf');
+    expect(result.pick?.reason).toContain('york-llm-only');
+  });
+
   it('does not route non-auto models', async () => {
     const result = await resolveAutoModelIfNeeded({
       model: 'claude-fable-5',

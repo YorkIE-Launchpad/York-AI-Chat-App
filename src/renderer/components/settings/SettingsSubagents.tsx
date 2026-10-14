@@ -9,7 +9,11 @@ import {
   type SubagentPreset,
 } from '../../../shared/subagent-config';
 import type { BackendCloudProvider } from '../../../shared/backend-config';
-import { AUTO_MODEL_ID, isAutoModelId } from '../../../shared/auto-model';
+import {
+  AUTO_MODEL_ID,
+  hasAutoRoutableCatalogModels,
+  isAutoModelId,
+} from '../../../shared/auto-model';
 import { isGptImage25ModelId } from '../../../shared/image-generation';
 import { YORK_LLM_PROVIDER } from '../../../shared/york-llm-config';
 import {
@@ -70,10 +74,11 @@ function useChildModelOptions() {
       catalog.filter((model) => !isGptImage25ModelId(model.id)),
       sessionFieldsFromActiveDivision(activeDivision)
     );
+    const isYorkLlmOnly = yorkLlmModels.length > 0 && !hasAutoRoutableCatalogModels(usable);
     const groups: ModelGroup[] = [
       {
         label: t('workspace.models.autoTitle', 'Smart Auto'),
-        options: [{ value: AUTO_MODEL_ID, label: autoLabel }],
+        options: isYorkLlmOnly ? [] : [{ value: AUTO_MODEL_ID, label: autoLabel }],
       },
       {
         label: t('workspace.models.yorkLocalLlmTitle', 'York LLM'),
