@@ -254,7 +254,7 @@ describe('ensureAuthenticatedSession', () => {
     expect(sessionMod.getCurrentSession()).toBeNull();
   });
 
-  it('logs out when the token is expired and refresh fails transiently', async () => {
+  it('stays signed in when the token is expired and refresh fails transiently', async () => {
     const sessionMod = await loadSession();
     sessionMod.__resetAuthSessionForTests();
     const idToken = makeJwt(-120);
@@ -271,15 +271,47 @@ describe('ensureAuthenticatedSession', () => {
       refreshToken: 'rt-1',
     });
 
-    expect(sessionMod.getAuthStatus()).toEqual({ user: null, tokens: null });
-
     hubRefreshTokens.mockResolvedValue({ ok: false, reason: 'transient' });
 
-    await expect(sessionMod.ensureAuthenticatedSession()).rejects.toMatchObject({
-      name: 'AuthRequiredError',
+    const ensured = await sessionMod.ensureAuthenticatedSession();
+    expect(ensured.refreshToken).toBe('rt-1');
+    expect(authStore.clear).not.toHaveBeenCalled();
+    expect(sessionMod.getAuthStatus().user).toEqual(
+      expect.objectContaining({ email: 'user@york.ie' })
+    );
+
+    hubRefreshTokens.mockResolvedValue({
+      ok: true,
+      tokens: { idToken: makeJwt(3600), accessToken: makeJwt(3600) },
     });
-    expect(authStore.clear).toHaveBeenCalled();
-    expect(sessionMod.getCurrentSession()).toBeNull();
-    expect(sessionMod.getAuthStatus()).toEqual({ user: null, tokens: null });
+    const cognito = await import('../../main/auth/cognito');
+    vi.mocked(cognito.verifyCognitoTokenDetailed).mockResolvedValue({
+      ok: true,
+      payload: { sub: 'u1', email: 'user@york.ie' },
+    } as unknown as Awaited<ReturnType<typeof cognito.verifyCognitoTokenDetailed>>);
+    const userService = await import('../../main/auth/user-service');
+    vi.mocked(userService.findOrCreateUserFromCognitoPayload).mockReturnValue({
+      user: { id: 1, email: 'user@york.ie', name: 'User', role: 'manager', image: null },
+    } as ReturnType<typeof userService.findOrCreateUserFromCognitoPayload>);
+    const recovered = await sessionMod.ensureAuthenticatedSession();
+    expect(sessionMod.isAuthenticated()).toBe(true);
+    expect(recovered.refreshToken).toBe('rt-1');
+  });
+
+  it('keeps an expired stored session across launch when Hub is unreachable', async () => {
+    const sessionMod = await loadSession();
+    sessionMod.__resetAuthSessionForTests();
+    const idToken = makeJwt(-3600);
+    authStore.load.mockReturnValue({
+      idToken,
+      accessToken: idToken,
+      refreshToken: 'rt-1',
+      userJson: JSON.stringify({ id: 1, email: 'user@york.ie', name: 'User', role: 'manager' }),
+    });
+    hubRefreshTokens.mockResolvedValue({ ok: false, reason: 'transient' });
+
+    const restored = await sessionMod.restoreSessionFromStore();
+    expect(restored?.refreshToken).toBe('rt-1');
+    expect(authStore.clear).not.toHaveBeenCalled();
   });
 });
