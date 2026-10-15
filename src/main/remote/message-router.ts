@@ -9,7 +9,7 @@ import { log, logError } from '../utils/logger';
 import { isUncPath, isWindowsDrivePath } from '../../shared/local-file-path';
 import { resolvePathAgainstWorkspace } from '../../shared/workspace-path';
 import type { RemoteMessage, RemoteResponse, RemoteSessionMapping, ChannelType } from './types';
-import type { Message, ContentBlock, TextContent } from '../../renderer/types/index';
+import type { Message, ContentBlock, ImageContent, TextContent } from '../../renderer/types/index';
 
 // Callback type for sending responses back to channels
 type ResponseCallback = (response: RemoteResponse) => Promise<void>;
@@ -491,6 +491,13 @@ export class MessageRouter {
         } as TextContent);
     }
 
+    for (const image of message.content.images ?? []) {
+      blocks.push({
+        type: 'image',
+        source: { type: 'base64', media_type: image.mediaType, data: image.data },
+      } as ImageContent);
+    }
+
     return blocks;
   }
 
@@ -525,6 +532,14 @@ export class MessageRouter {
       }
 
       return { prompt: text || 'Hello', cwd };
+    }
+
+    const imageCount = message.content.images?.length ?? 0;
+    if (imageCount > 0) {
+      return {
+        prompt: imageCount === 1 ? 'Take a look at this image.' : 'Take a look at these images.',
+        cwd,
+      };
     }
 
     return { prompt: 'Please process the content above', cwd };

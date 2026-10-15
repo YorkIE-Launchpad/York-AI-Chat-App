@@ -4,11 +4,13 @@
  */
 import express, { type Request, type Response, type Router } from 'express';
 import type { SlackRelayConfig } from './config.js';
+import { IMAGE_LIMITS } from './protocol.js';
 import type { InboundSlackMessage, SlackRelayHub } from './relay-hub.js';
 import { verifySlackSignature } from './signature.js';
 import { logWarn } from '../safe-log.js';
 
-export const SLACK_EVENTS_BODY_LIMIT = '64kb';
+/** File-share events carry full file objects (thumbnails, URLs), so they run larger than text. */
+export const SLACK_EVENTS_BODY_LIMIT = '256kb';
 
 function header(req: Request, name: string): string | undefined {
   const value = req.headers[name];
@@ -16,7 +18,7 @@ function header(req: Request, name: string): string | undefined {
   return typeof value === 'string' ? value : undefined;
 }
 
-/** Narrow a signed event_callback to a plain-text 1:1 DM from a human. */
+/** Narrow a signed event_callback to a 1:1 DM from a human: text, attached files, or both. */
 export function toInboundMessage(
   body: Record<string, unknown>,
   config: SlackRelayConfig
@@ -30,20 +32,32 @@ export function toInboundMessage(
   if (!eventId || !event) return null;
 
   if (event.type !== 'message' || event.channel_type !== 'im') return null;
-  if (event.subtype !== undefined || event.bot_id !== undefined || event.files !== undefined) {
-    return null;
-  }
+  if (event.subtype !== undefined && event.subtype !== 'file_share') return null;
+  if (event.bot_id !== undefined) return null;
+  const files = Array.isArray(event.files)
+    ? event.files.slice(0, IMAGE_LIMITS.filesMax).filter((f) => f && typeof f === 'object')
+    : [];
 
   const userId = typeof event.user === 'string' ? event.user : '';
   const channel = typeof event.channel === 'string' ? event.channel : '';
   const text = typeof event.text === 'string' ? event.text.trim() : '';
   const ts = typeof event.ts === 'string' ? event.ts : '';
-  if (!/^[UW][A-Z0-9]{1,30}$/.test(userId) || !/^D[A-Z0-9]{1,30}$/.test(channel) || !text || !ts) {
+  if (!/^[UW][A-Z0-9]{1,30}$/.test(userId) || !/^D[A-Z0-9]{1,30}$/.test(channel) || !ts) {
     return null;
   }
+  if (!text && files.length === 0) return null;
 
   const threadTs = typeof event.thread_ts === 'string' ? event.thread_ts : undefined;
-  return { eventId, teamId: config.teamId, userId, channel, text, ts, threadTs };
+  return {
+    eventId,
+    teamId: config.teamId,
+    userId,
+    channel,
+    text,
+    ts,
+    threadTs,
+    ...(files.length > 0 ? { files } : {}),
+  };
 }
 
 export function createSlackEventsRouter(deps: {

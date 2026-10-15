@@ -298,7 +298,12 @@ export class RemoteGateway extends EventEmitter {
     }
 
     // Check if this is a response to a pending interaction (only after authorization)
-    if (this.messageInterceptor && message.content.type === 'text' && message.content.text) {
+    if (
+      this.messageInterceptor &&
+      message.content.type === 'text' &&
+      message.content.text &&
+      !message.content.images?.length
+    ) {
       const consumed = await this.messageInterceptor(message);
       if (consumed) {
         log('[Gateway] Message consumed by interceptor (interaction response)');

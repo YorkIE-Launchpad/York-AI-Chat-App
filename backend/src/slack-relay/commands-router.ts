@@ -1,5 +1,5 @@
 /**
- * Public Slack slash-command endpoint (`POST /slack/commands`) for `/growth`.
+ * Public Slack slash-command endpoint (`POST /slack/commands`) for `/growthos`.
  *
  * Answers within Slack's 3-second window using only in-memory state: `help` and
  * "desktop offline" are answered directly, everything else gets an ephemeral
@@ -30,11 +30,18 @@ const ALIASES: Record<string, CommandName> = {
   cancel: 'stop',
   abort: 'stop',
   '?': 'help',
+  models: 'model',
+  workspaces: 'workspace',
+  ws: 'workspace',
+  project: 'workspace',
+  projects: 'workspace',
 };
 
-const ACKS: Record<Exclude<CommandName, 'help' | 'open'>, string> = {
+const ACKS: Record<Exclude<CommandName, 'help' | 'open' | 'pick'>, string> = {
   new: 'Starting a new chat…',
   chats: 'Fetching your recent chats…',
+  model: 'Checking models…',
+  workspace: 'Checking workspaces…',
   stop: 'Stopping…',
   status: 'Checking…',
 };
@@ -100,7 +107,7 @@ export function createSlackCommandsRouter(deps: {
       );
       return;
     }
-    if (name === 'help' || name === 'open') {
+    if (name === 'help' || name === 'open' || name === 'pick') {
       res.json(ephemeral(helpText(command)));
       return;
     }
@@ -112,7 +119,9 @@ export function createSlackCommandsRouter(deps: {
     }
 
     const inIm = hub.ownerImChannel(teamId, userId) === channelId;
-    res.json(ephemeral(inIm ? ACKS[name] : `${ACKS[name]} I'll reply in your York IE DM.`));
+    res.json(
+      ephemeral(inIm ? ACKS[name] : `${ACKS[name]} I'll reply in your York IE GrowthOS DM.`)
+    );
 
     const responseUrl = form.get('response_url');
     afterAck('slash command', async () => {

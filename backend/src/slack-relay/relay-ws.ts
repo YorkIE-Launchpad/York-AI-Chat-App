@@ -17,7 +17,9 @@ import { log, logWarn } from '../safe-log.js';
 import { isEmailAllowed, type SlackRelayConfig } from './config.js';
 import {
   APPROVAL_OUTCOMES,
+  QUESTION_OUTCOMES,
   RELAY_CAPABILITIES,
+  SERVER_FEATURES,
   STATUS_PHASES,
   isOneOf,
   type RelayCapability,
@@ -247,7 +249,12 @@ function handleConnection(
           }
           state = 'registered';
           clearTimeout(registerTimer);
-          peer.send({ type: 'registered', slackUserId: result.userId, teamId: result.teamId });
+          peer.send({
+            type: 'registered',
+            slackUserId: result.userId,
+            teamId: result.teamId,
+            features: [...SERVER_FEATURES],
+          });
         }
       );
       return;
@@ -282,8 +289,19 @@ function handleConnection(
           hub.handleApprovalClosed(peer, frame.approvalId, frame.outcome);
         }
         return;
+      case 'question':
+        hub.handleQuestion(peer, frame);
+        return;
+      case 'question_closed':
+        if (isOneOf(QUESTION_OUTCOMES, frame.outcome)) {
+          hub.handleQuestionClosed(peer, frame.questionId, frame.outcome, frame.answers);
+        }
+        return;
       case 'chat_list':
         hub.handleChatList(peer, frame.replyHandle, frame.chats);
+        return;
+      case 'picker':
+        hub.handlePicker(peer, frame);
         return;
       case 'notice':
         hub.handleNotice(peer, frame.replyHandle, frame.text);

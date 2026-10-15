@@ -7,6 +7,7 @@ type FetchFn = typeof fetch;
 
 const SLACK_API_BASE = 'https://slack.com/api';
 const REQUEST_TIMEOUT_MS = 10_000;
+const FILE_DOWNLOAD_TIMEOUT_MS = 20_000;
 const MAX_RETRY_AFTER_SECONDS = 30;
 
 export interface SlackIdentity {
@@ -51,6 +52,49 @@ export interface SlackApi {
   removeReaction(input: { channel: string; ts: string; name: string }): Promise<void>;
   /** POST to an interaction / slash-command `response_url` (hooks.slack.com only). */
   respond(responseUrl: string, body: Record<string, unknown>): Promise<void>;
+  /** File metadata via `files.info`, for events that only carry a file id. */
+  fileInfo(fileId: string): Promise<Record<string, unknown>>;
+  /** Download a private file (files.slack.com only). Throws `too_large` past `maxBytes`. */
+  downloadFile(url: string, maxBytes: number): Promise<Uint8Array>;
+}
+
+/** Private Slack file URLs always live on files.slack.com; the bot token is only sent there. */
+export function isSlackFileUrl(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length > 2_000) return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && url.hostname === 'files.slack.com' && !url.username;
+  } catch {
+    return false;
+  }
+}
+
+async function readCapped(response: Response, maxBytes: number): Promise<Uint8Array> {
+  const declared = Number(response.headers.get('content-length') ?? '');
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    throw new SlackApiError('file_download', 'too_large');
+  }
+  if (!response.body) return new Uint8Array(await response.arrayBuffer());
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel();
+      throw new SlackApiError('file_download', 'too_large');
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return out;
 }
 
 /** Slack `response_url`s always live on hooks.slack.com; anything else is refused. */
@@ -220,6 +264,30 @@ export function createSlackApi(botToken: string, fetchFn: FetchFn = fetch): Slac
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
       if (!response.ok) throw new SlackApiError('response_url', `http_${response.status}`);
+    },
+
+    async fileInfo(fileId) {
+      const payload = await call('files.info', botToken, { file: fileId });
+      const file =
+        payload.file && typeof payload.file === 'object'
+          ? (payload.file as Record<string, unknown>)
+          : null;
+      if (!file || file.id !== fileId) throw new SlackApiError('files.info', 'missing_file');
+      return file;
+    },
+
+    async downloadFile(url, maxBytes) {
+      if (!isSlackFileUrl(url)) throw new SlackApiError('file_download', 'invalid_url');
+      const response = await fetchFn(url, {
+        headers: { Authorization: `Bearer ${botToken}` },
+        // A redirect means Slack refused the token (login page); never carry it elsewhere.
+        redirect: 'manual',
+        signal: AbortSignal.timeout(FILE_DOWNLOAD_TIMEOUT_MS),
+      });
+      if (response.status !== 200) {
+        throw new SlackApiError('file_download', `http_${response.status}`);
+      }
+      return readCapped(response, maxBytes);
     },
   };
 }

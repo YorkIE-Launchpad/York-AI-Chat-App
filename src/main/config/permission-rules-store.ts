@@ -216,6 +216,8 @@ export function decidePermission(
   if (isAutoAllowedWikiTool(toolName)) return 'allow';
   if (isAutoAllowedMatterTool(toolName)) return 'allow';
   if (isAutoAllowedLoopTool(toolName)) return 'allow';
+  // Asking the user a question needs no approval of its own.
+  if (lowered === 'askuserquestion') return 'allow';
   if (lowered === 'webfetch') return 'allow';
   if (lowered === 'websearch') return 'allow';
   if (lowered === 'mcp_run') return 'allow';

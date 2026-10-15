@@ -14,26 +14,40 @@
 import { createHash, randomBytes } from 'node:crypto';
 import {
   BLOCK_TEXT_MAX,
+  questionNeedsSubmit,
   renderApprovalCard,
   renderChatList,
   renderFinishedStatus,
+  renderPicker,
+  renderQuestionCard,
   renderReplyWithFooter,
   renderWorkingStatus,
   type ApprovalCardState,
+  type PickerItem,
+  type QuestionCardState,
+  type QuestionItem,
 } from './blocks.js';
+import { needsFileInfo, toInboundFile, type InboundSlackFile } from './files.js';
 import {
+  IMAGE_LIMITS,
   OPAQUE_ID_RE,
+  PICKER_KINDS,
   PROTOCOL_LIMITS,
   cleanLine,
   cleanText,
+  isOneOf,
+  sniffImageType,
   type ApprovalOutcome,
   type CommandName,
+  type ImageMediaType,
+  type PickerKind,
+  type QuestionOutcome,
   type RelayCapability,
   type StatusPhase,
 } from './protocol.js';
 import { chunkMrkdwn, markdownToMrkdwn } from './mrkdwn.js';
 import { escapeSlackText } from './sanitize.js';
-import type { SlackApi } from './slack-api.js';
+import { SlackApiError, type SlackApi } from './slack-api.js';
 import { log, logWarn } from '../safe-log.js';
 
 export interface RelayPeer {
@@ -50,6 +64,15 @@ export interface InboundSlackMessage {
   text: string;
   ts: string;
   threadTs?: string;
+  /** Raw Slack file objects from a `file_share` message. */
+  files?: unknown[];
+}
+
+/** An attached image forwarded to the desktop, base64 encoded. */
+export interface RelayImage {
+  name: string;
+  mediaType: ImageMediaType;
+  data: string;
 }
 
 export type InboundResult = 'delivered' | 'offline' | 'dropped';
@@ -74,7 +97,8 @@ export type OwnerActionResult =
   | 'outdated'
   | 'unknown'
   | 'expired'
-  | 'rate_limited';
+  | 'rate_limited'
+  | 'incomplete';
 
 export const RELAY_LIMITS = {
   inboundTextMax: 4_000,
@@ -103,9 +127,16 @@ export const RELAY_CLOSE_CODES = {
 } as const;
 
 const OFFLINE_NOTICE =
-  'York IE is not connected on your computer right now. Open York IE and turn on "Control York IE from Slack" to continue.';
+  'York IE GrowthOS is not connected on your computer right now. Open York IE GrowthOS and turn on "Control York IE GrowthOS from Slack" to continue.';
 const TAKEOVER_NOTICE =
-  'A new York IE desktop just connected to your Slack remote control and replaced the previous one. If this was not you, disconnect Slack in York IE settings and sign out of York IE immediately.';
+  'A new York IE GrowthOS desktop just connected to your Slack remote control and replaced the previous one. If this was not you, disconnect Slack in York IE GrowthOS settings and sign out of York IE GrowthOS immediately.';
+
+const IMAGES_OUTDATED_NOTICE =
+  'Update York IE GrowthOS on your computer to send images from Slack. Your text was sent without the attachment.';
+const IMAGES_OUTDATED_ONLY_NOTICE =
+  'Update York IE GrowthOS on your computer to send images from Slack.';
+const IMAGES_SKIPPED_NOTICE =
+  'I could not include: {names}. I can read PNG, JPEG, GIF and WebP images, up to 4 per message.';
 
 const REACTION_WORKING = 'hourglass_flowing_sand';
 const REACTION_DONE = 'white_check_mark';
@@ -154,10 +185,26 @@ interface ApprovalEntry {
   state: ApprovalCardState;
 }
 
+interface QuestionEntry {
+  ownerKey: string;
+  peerId: string;
+  channel: string;
+  threadTs?: string;
+  ts: string | null;
+  questions: QuestionItem[];
+  selections: number[][];
+  answers?: string[][];
+  expiresInSec: number;
+  expiresAt: number;
+  state: QuestionCardState;
+}
+
+/** Button tokens: `chat` opens a chat; picker kinds come back as the `pick` command. */
 interface ChatTokenEntry {
   ownerKey: string;
   peerId: string;
   expiresAt: number;
+  kind: 'chat' | PickerKind;
 }
 
 export class SlidingWindowLimiter {
@@ -197,10 +244,13 @@ export class SlackRelayHub {
   private readonly owners = new Map<string, OwnerEntry>();
   private readonly handles = new Map<string, ReplyHandle>();
   private readonly approvals = new Map<string, ApprovalEntry>();
+  private readonly questions = new Map<string, QuestionEntry>();
   private readonly chatTokens = new Map<string, ChatTokenEntry>();
   private readonly seenEvents = new Map<string, number>();
   private readonly lastOfflineNotice = new Map<string, number>();
   private readonly queues = new Map<string, Promise<void>>();
+  /** Per-owner inbound delivery chain, so a text sent after an image never overtakes it. */
+  private readonly inboundChains = new Map<string, Promise<unknown>>();
   private readonly inboundLimiter: SlidingWindowLimiter;
   private readonly replyLimiter: SlidingWindowLimiter;
   private readonly now: () => number;
@@ -301,6 +351,51 @@ export class SlackRelayHub {
       return 'dropped';
     }
 
+    const previous = this.inboundChains.get(ownerKey) ?? Promise.resolve();
+    const delivery = previous.then(
+      () => this.deliverInbound(ownerKey, owner, message),
+      () => this.deliverInbound(ownerKey, owner, message)
+    );
+    this.inboundChains.set(ownerKey, delivery);
+    void delivery.finally(() => {
+      if (this.inboundChains.get(ownerKey) === delivery) this.inboundChains.delete(ownerKey);
+    });
+    return delivery;
+  }
+
+  private async deliverInbound(
+    ownerKey: string,
+    owner: OwnerEntry,
+    message: InboundSlackMessage
+  ): Promise<InboundResult> {
+    const text = message.text.slice(0, RELAY_LIMITS.inboundTextMax);
+    const notify = (notice: string) =>
+      void this.enqueue(ownerKey, async () => {
+        await this.api.postMessage({
+          channel: owner.imChannel,
+          text: escapeSlackText(notice),
+          ...(message.threadTs ? { threadTs: message.threadTs } : {}),
+        });
+      });
+
+    let images: RelayImage[] = [];
+    let skipped: string[] = [];
+    if (message.files && message.files.length > 0) {
+      if (!owner.capabilities.has('images')) {
+        notify(text ? IMAGES_OUTDATED_NOTICE : IMAGES_OUTDATED_ONLY_NOTICE);
+        if (!text) return 'dropped';
+      } else {
+        ({ images, skipped } = await this.fetchImages(message.files));
+      }
+    }
+
+    // Downloads take a while; the desktop may have gone or been replaced meanwhile.
+    if (this.owners.get(ownerKey)?.peer.id !== owner.peer.id) return 'dropped';
+    if (skipped.length > 0) {
+      notify(IMAGES_SKIPPED_NOTICE.replace('{names}', skipped.join(', ')));
+    }
+    if (!text && images.length === 0) return 'dropped';
+
     const replyHandle = this.issueHandle({
       ownerKey,
       peerId: owner.peer.id,
@@ -311,10 +406,73 @@ export class SlackRelayHub {
     owner.peer.send({
       type: 'event',
       replyHandle,
-      text: message.text.slice(0, RELAY_LIMITS.inboundTextMax),
+      text,
       ts: message.ts,
+      ...(images.length > 0 ? { images } : {}),
     });
     return 'delivered';
+  }
+
+  /** Download image attachments with the bot token; everything else is reported as skipped. */
+  private async fetchImages(
+    rawFiles: unknown[]
+  ): Promise<{ images: RelayImage[]; skipped: string[] }> {
+    const images: RelayImage[] = [];
+    const skipped: string[] = [];
+    let budget: number = IMAGE_LIMITS.totalMaxBytes;
+    for (const raw of rawFiles.slice(0, IMAGE_LIMITS.filesMax)) {
+      let file = toInboundFile(raw);
+      if (file && needsFileInfo(raw)) {
+        try {
+          file = toInboundFile(await this.api.fileInfo(file.id));
+        } catch (error) {
+          logWarn('[slack-relay] files.info failed', error);
+        }
+      }
+      if (!file) {
+        skipped.push('a file');
+        continue;
+      }
+      if (!file.isImage || images.length >= IMAGE_LIMITS.imagesMax || budget <= 0) {
+        skipped.push(file.name);
+        continue;
+      }
+      const image = await this.downloadImage(file, Math.min(IMAGE_LIMITS.imageMaxBytes, budget));
+      if (!image) {
+        skipped.push(file.name);
+        continue;
+      }
+      budget -= image.bytes;
+      images.push({ name: file.name, mediaType: image.mediaType, data: image.data });
+    }
+    return { images, skipped };
+  }
+
+  private async downloadImage(
+    file: InboundSlackFile,
+    maxBytes: number
+  ): Promise<{ mediaType: ImageMediaType; data: string; bytes: number } | null> {
+    for (const url of file.urls) {
+      try {
+        const bytes = await this.api.downloadFile(url, maxBytes);
+        const mediaType = sniffImageType(bytes);
+        if (!mediaType) {
+          // Usually Slack's login page: the bot token is missing the files:read scope.
+          logWarn('[slack-relay] downloaded file is not a supported image');
+          return null;
+        }
+        return {
+          mediaType,
+          data: Buffer.from(bytes).toString('base64'),
+          bytes: bytes.byteLength,
+        };
+      } catch (error) {
+        if (error instanceof SlackApiError && error.code === 'too_large') continue;
+        logWarn('[slack-relay] file download failed', error);
+        return null;
+      }
+    }
+    return null;
   }
 
   async handleReply(
@@ -530,6 +688,142 @@ export class SlackRelayHub {
     return 'ok';
   }
 
+  /** Post a question card (AskUserQuestion). The desktop owns the question id and the timeout. */
+  handleQuestion(peer: RelayPeer, frame: Record<string, unknown>): boolean {
+    const handle = this.peerHandle(peer, frame.replyHandle);
+    if (!handle) return false;
+    const questionId = frame.questionId;
+    if (typeof questionId !== 'string' || !OPAQUE_ID_RE.test(questionId)) return false;
+    if (this.questions.has(questionId)) return false;
+    const questions = parseQuestionItems(frame.questions);
+    const expiresInSec = Number(frame.expiresInSec);
+    if (
+      !questions ||
+      !Number.isInteger(expiresInSec) ||
+      expiresInSec < PROTOCOL_LIMITS.approvalMinSec ||
+      expiresInSec > PROTOCOL_LIMITS.approvalMaxSec
+    ) {
+      return false;
+    }
+
+    this.pruneQuestions(handle.ownerKey);
+    const entry: QuestionEntry = {
+      ownerKey: handle.ownerKey,
+      peerId: peer.id,
+      channel: handle.channel,
+      threadTs: handle.threadTs,
+      ts: null,
+      questions,
+      selections: questions.map(() => []),
+      expiresInSec,
+      expiresAt: this.now() + expiresInSec * 1000,
+      state: 'pending',
+    };
+    this.questions.set(questionId, entry);
+    this.enqueue(handle.ownerKey, async () => {
+      const rendered = this.renderQuestion(questionId, entry);
+      const posted = await this.api.postMessage({
+        channel: entry.channel,
+        text: rendered.text,
+        blocks: rendered.blocks,
+        ...(entry.threadTs ? { threadTs: entry.threadTs } : {}),
+      });
+      entry.ts = posted.ts || null;
+    });
+    return true;
+  }
+
+  /** Desktop confirms the final outcome (buttons, typed reply, skip, or timeout). */
+  handleQuestionClosed(
+    peer: RelayPeer,
+    questionId: unknown,
+    outcome: QuestionOutcome,
+    answers?: unknown
+  ): boolean {
+    if (typeof questionId !== 'string') return false;
+    const entry = this.questions.get(questionId);
+    if (!entry || entry.peerId !== peer.id) return false;
+    this.questions.delete(questionId);
+    entry.state = outcome;
+    if (outcome === 'answered') {
+      entry.answers = parseAnswerLabels(answers, entry.questions.length) ?? undefined;
+    }
+    this.updateQuestionCard(questionId, entry);
+    return true;
+  }
+
+  /**
+   * Owner clicked an option, Submit, or Skip. Synchronous: decisions are relayed
+   * immediately; card updates are queued.
+   */
+  clickQuestion(input: {
+    teamId: string;
+    userId: string;
+    channelId: string;
+    questionId: string;
+    action: { kind: 'option'; q: number; o: number } | { kind: 'submit' } | { kind: 'skip' };
+  }): OwnerActionResult {
+    const ownerKey = ownerKeyOf(input.teamId, input.userId);
+    const entry = this.questions.get(input.questionId);
+    if (!entry || entry.ownerKey !== ownerKey || entry.channel !== input.channelId) {
+      return 'unknown';
+    }
+    const owner = this.owners.get(ownerKey);
+    if (!owner || owner.peer.id !== entry.peerId) return 'offline';
+    if (entry.state !== 'pending') return 'unknown';
+    if (entry.expiresAt <= this.now()) {
+      this.questions.delete(input.questionId);
+      entry.state = 'expired';
+      this.updateQuestionCard(input.questionId, entry);
+      return 'expired';
+    }
+
+    const { action } = input;
+    if (action.kind === 'skip') {
+      entry.state = 'submitting';
+      owner.peer.send({
+        type: 'action',
+        kind: 'answer',
+        questionId: input.questionId,
+        answers: null,
+      });
+      this.updateQuestionCard(input.questionId, entry);
+      return 'ok';
+    }
+
+    if (action.kind === 'option') {
+      const item = entry.questions[action.q];
+      if (!item || action.o >= item.options.length) return 'unknown';
+      const current = entry.selections[action.q];
+      if (item.multiSelect) {
+        entry.selections[action.q] = current.includes(action.o)
+          ? current.filter((o) => o !== action.o)
+          : [...current, action.o].sort((a, b) => a - b);
+      } else {
+        entry.selections[action.q] = [action.o];
+      }
+      if (questionNeedsSubmit(entry.questions)) {
+        this.updateQuestionCard(input.questionId, entry);
+        return 'ok';
+      }
+    }
+
+    const unanswered = entry.questions.some(
+      (item, q) => item.options.length > 0 && entry.selections[q].length === 0
+    );
+    if (unanswered) return 'incomplete';
+
+    entry.state = 'submitting';
+    owner.peer.send({
+      type: 'action',
+      kind: 'answer',
+      questionId: input.questionId,
+      answers: entry.selections.map((s) => [...s]),
+    });
+    this.updateQuestionCard(input.questionId, entry);
+    return 'ok';
+  }
+
   handleChatList(peer: RelayPeer, replyHandle: unknown, chats: unknown): boolean {
     const handle = this.peerHandle(peer, replyHandle);
     if (!handle || !Array.isArray(chats) || chats.length > PROTOCOL_LIMITS.chatListMax) {
@@ -552,10 +846,60 @@ export class SlackRelayHub {
     this.pruneChatTokens(handle.ownerKey);
     const expiresAt = this.now() + RELAY_LIMITS.chatTokenTtlMs;
     for (const chat of parsed) {
-      this.chatTokens.set(chat.token, { ownerKey: handle.ownerKey, peerId: peer.id, expiresAt });
+      this.chatTokens.set(chat.token, {
+        ownerKey: handle.ownerKey,
+        peerId: peer.id,
+        expiresAt,
+        kind: 'chat',
+      });
     }
     this.enqueue(handle.ownerKey, async () => {
       const rendered = renderChatList(parsed);
+      await this.api.postMessage({
+        channel: handle.channel,
+        text: rendered.text,
+        blocks: rendered.blocks,
+      });
+    });
+    return true;
+  }
+
+  /** Model / workspace list from the desktop. Item tokens only resolve for this socket. */
+  handlePicker(peer: RelayPeer, frame: Record<string, unknown>): boolean {
+    const handle = this.peerHandle(peer, frame.replyHandle);
+    const kind = frame.kind;
+    const items = frame.items;
+    if (!handle || !isOneOf(PICKER_KINDS, kind) || !Array.isArray(items)) return false;
+    if (items.length > PROTOCOL_LIMITS.pickerItemsMax) return false;
+    const parsed: PickerItem[] = [];
+    for (const raw of items) {
+      if (!raw || typeof raw !== 'object') return false;
+      const item = raw as Record<string, unknown>;
+      if (typeof item.token !== 'string' || !OPAQUE_ID_RE.test(item.token)) return false;
+      const label = cleanLine(item.label, PROTOCOL_LIMITS.pickerLabel);
+      if (!label) return false;
+      parsed.push({
+        token: item.token,
+        label,
+        detail: cleanLine(item.detail, PROTOCOL_LIMITS.pickerDetail) ?? '',
+        current: item.current === true,
+      });
+    }
+    const note = cleanLine(frame.note, PROTOCOL_LIMITS.pickerNote) ?? undefined;
+
+    this.pruneChatTokens(handle.ownerKey);
+    const expiresAt = this.now() + RELAY_LIMITS.chatTokenTtlMs;
+    for (const item of parsed) {
+      if (item.current) continue;
+      this.chatTokens.set(item.token, {
+        ownerKey: handle.ownerKey,
+        peerId: peer.id,
+        expiresAt,
+        kind,
+      });
+    }
+    this.enqueue(handle.ownerKey, async () => {
+      const rendered = renderPicker({ kind, items: parsed, ...(note ? { note } : {}) });
       await this.api.postMessage({
         channel: handle.channel,
         text: rendered.text,
@@ -603,12 +947,13 @@ export class SlackRelayHub {
     if (!this.inboundLimiter.allow(ownerKey)) return 'rate_limited';
 
     let arg = input.arg?.slice(0, PROTOCOL_LIMITS.commandArg);
-    if (input.name === 'open') {
+    if (input.name === 'open' || input.name === 'pick') {
       const token = input.token ?? '';
       const entry = this.chatTokens.get(token);
       if (!entry || entry.ownerKey !== ownerKey || entry.peerId !== owner.peer.id) {
         return 'unknown';
       }
+      if ((entry.kind === 'chat') !== (input.name === 'open')) return 'unknown';
       if (entry.expiresAt <= this.now()) {
         this.chatTokens.delete(token);
         return 'expired';
@@ -784,6 +1129,44 @@ export class SlackRelayHub {
     }
   }
 
+  private pruneQuestions(ownerKey: string): void {
+    const now = this.now();
+    const owned: string[] = [];
+    for (const [id, entry] of this.questions) {
+      if (entry.expiresAt + 60_000 <= now) {
+        this.questions.delete(id);
+      } else if (entry.ownerKey === ownerKey) {
+        owned.push(id);
+      }
+    }
+    while (owned.length >= RELAY_LIMITS.approvalsPerOwner) {
+      this.questions.delete(owned.shift()!);
+    }
+  }
+
+  private renderQuestion(questionId: string, entry: QuestionEntry) {
+    return renderQuestionCard({
+      questionId,
+      questions: entry.questions,
+      selections: entry.selections,
+      state: entry.state,
+      expiresInSec: entry.expiresInSec,
+      answers: entry.answers,
+    });
+  }
+
+  private updateQuestionCard(questionId: string, entry: QuestionEntry): void {
+    const snapshot: QuestionEntry = {
+      ...entry,
+      selections: entry.selections.map((s) => [...s]),
+    };
+    this.enqueue(entry.ownerKey, async () => {
+      if (!entry.ts) return;
+      const rendered = this.renderQuestion(questionId, snapshot);
+      await this.api.updateMessage({ channel: entry.channel, ts: entry.ts, ...rendered });
+    });
+  }
+
   private pruneChatTokens(ownerKey: string): void {
     const now = this.now();
     const owned: string[] = [];
@@ -794,7 +1177,8 @@ export class SlackRelayHub {
         owned.push(token);
       }
     }
-    while (owned.length + PROTOCOL_LIMITS.chatListMax > RELAY_LIMITS.chatTokensPerOwner) {
+    const incoming = Math.max(PROTOCOL_LIMITS.chatListMax, PROTOCOL_LIMITS.pickerItemsMax);
+    while (owned.length + incoming > RELAY_LIMITS.chatTokensPerOwner) {
       this.chatTokens.delete(owned.shift()!);
     }
   }
@@ -805,6 +1189,9 @@ export class SlackRelayHub {
     }
     for (const [id, entry] of this.approvals) {
       if (entry.ownerKey === ownerKey) this.approvals.delete(id);
+    }
+    for (const [id, entry] of this.questions) {
+      if (entry.ownerKey === ownerKey) this.questions.delete(id);
     }
     for (const [token, entry] of this.chatTokens) {
       if (entry.ownerKey === ownerKey) this.chatTokens.delete(token);
@@ -822,6 +1209,58 @@ export class SlackRelayHub {
       logWarn('[slack-relay] offline notice failed', error);
     }
   }
+}
+
+function parseQuestionItems(value: unknown): QuestionItem[] | null {
+  if (!Array.isArray(value) || value.length === 0 || value.length > PROTOCOL_LIMITS.questionsMax) {
+    return null;
+  }
+  const items: QuestionItem[] = [];
+  for (const raw of value) {
+    if (!raw || typeof raw !== 'object') return null;
+    const item = raw as Record<string, unknown>;
+    const question = cleanText(item.question, PROTOCOL_LIMITS.questionText);
+    if (!question) return null;
+    const rawOptions = item.options ?? [];
+    if (!Array.isArray(rawOptions) || rawOptions.length > PROTOCOL_LIMITS.questionOptionsMax) {
+      return null;
+    }
+    const options: QuestionItem['options'] = [];
+    for (const rawOption of rawOptions) {
+      if (!rawOption || typeof rawOption !== 'object') return null;
+      const option = rawOption as Record<string, unknown>;
+      const label = cleanLine(option.label, PROTOCOL_LIMITS.optionLabel);
+      if (!label) return null;
+      const description = cleanText(option.description, PROTOCOL_LIMITS.optionDescription);
+      options.push({
+        label,
+        ...(description ? { description } : {}),
+        ...(option.recommended === true ? { recommended: true } : {}),
+      });
+    }
+    const header = cleanLine(item.header, PROTOCOL_LIMITS.questionHeader);
+    items.push({
+      question,
+      ...(header ? { header } : {}),
+      multiSelect: item.multiSelect === true && options.length > 0,
+      options,
+    });
+  }
+  return items;
+}
+
+/** Answer labels per question, for showing the outcome on the card. */
+function parseAnswerLabels(value: unknown, questionCount: number): string[][] | null {
+  if (!Array.isArray(value) || value.length !== questionCount) return null;
+  const parsed: string[][] = [];
+  for (const raw of value) {
+    if (!Array.isArray(raw) || raw.length > PROTOCOL_LIMITS.questionOptionsMax) return null;
+    const labels = raw
+      .map((label) => cleanLine(label, PROTOCOL_LIMITS.answerLabel))
+      .filter((label): label is string => label !== null);
+    parsed.push(labels);
+  }
+  return parsed;
 }
 
 /** Short non-reversible identity tag for logs. */

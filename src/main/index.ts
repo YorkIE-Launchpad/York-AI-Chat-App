@@ -98,6 +98,9 @@ import { installSiriShortcut } from './voice/siri-shortcut';
 import { normalizeVoiceControlConfig, type VoiceControlConfig } from '../shared/voice-control';
 import { getInitialSessionTitle } from '../shared/session-title';
 import { DEFAULT_SLACK_MCP_SERVER_ID } from '../shared/mcp-defaults';
+import { AUTO_MODEL_ID, isAutoModelId } from '../shared/auto-model';
+import { sessionFieldsFromActiveDivision } from '../shared/workspace-division';
+import { modelSelectionConfig } from './remote/channels/slack/slack-relay-choices';
 import {
   appleMeetingTranscriptionService,
   getMeetingSttProviderConfig,
@@ -2480,13 +2483,13 @@ app
 
         // Set up RemoteManager with StdioChannel
         const stdioAgentExecutor: AgentExecutor = {
-          startSession: async (title, prompt, cwd) => {
+          startSession: async (title, prompt, cwd, options) => {
             if (!sessionManager) throw new Error('Session manager not initialized');
             const unsupportedReason = getWorkspacePathUnsupportedReason(cwd);
             if (unsupportedReason) {
               throw new Error(unsupportedReason);
             }
-            return sessionManager.startSession(title, prompt, cwd);
+            return sessionManager.startSession(title, prompt, cwd, undefined, options?.content);
           },
           continueSession: async (sessionId, prompt, content) => {
             if (!sessionManager) throw new Error('Session manager not initialized');
@@ -3142,11 +3145,24 @@ app
         if (unsupportedReason) {
           throw new Error(unsupportedReason);
         }
-        return options?.strictRemote
-          ? sessionManager.startSession(title, prompt, cwd, undefined, undefined, undefined, {
-              strictRemote: true,
-            })
-          : sessionManager.startSession(title, prompt, cwd);
+        const divisionOpts = options?.workspace
+          ? await resolveValidatedSessionDivisionOptions(
+              sessionFieldsFromActiveDivision(options.workspace),
+              { db: initDatabase(), sendToRenderer }
+            )
+          : {};
+        return sessionManager.startSession(
+          title,
+          prompt,
+          cwd,
+          undefined,
+          options?.content,
+          undefined,
+          {
+            ...divisionOpts,
+            ...(options?.strictRemote ? { strictRemote: true } : {}),
+          }
+        );
       },
       continueSession: async (sessionId, prompt, content, cwd) => {
         if (!sessionManager) throw new Error('Session manager not initialized');
@@ -3194,6 +3210,35 @@ app
         return workingDir ? [workingDir] : [];
       },
       notify: (title, body) => showOsNotification({ title, body, tag: 'SlackRemote' }),
+      listModels: () => fetchBackendModels({ usable: true }),
+      getCurrentModel: () => configStore.get('model') || undefined,
+      selectModel: async (modelId) => {
+        let update: Partial<AppConfig>;
+        if (isAutoModelId(modelId)) {
+          update = { model: AUTO_MODEL_ID };
+        } else {
+          const model = (await fetchBackendModels({ usable: true })).find((m) => m.id === modelId);
+          if (!model) return 'That model is no longer available.';
+          if (model.hasBudget === false) return 'That model has no budget left.';
+          update = modelSelectionConfig(model);
+        }
+        const previousConfig = configStore.getAll();
+        configStore.update(update);
+        await syncConfigAfterMutation(previousConfig);
+        return null;
+      },
+      listWorkspaceSources: async () => {
+        const folders = getFolderManager().list();
+        try {
+          await ensureAuthenticatedSession();
+          const result = await listUnifiedCompanyProjects({ forceRefresh: false });
+          const error = [result.hubError, result.launchpadError].filter(Boolean).join(' · ');
+          return { folders, projects: result.projects, ...(error ? { error } : {}) };
+        } catch (error) {
+          logWarn('[SlackRelay] Listing projects failed:', error);
+          return { folders, projects: [], error: 'projects are unavailable right now' };
+        }
+      },
     });
 
     // Cascade channel-binding cleanup when a session is deleted from the

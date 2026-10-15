@@ -5,8 +5,11 @@ import { afterEach, describe, it, mock } from 'node:test';
 import express, { type Router } from 'express';
 import {
   ACTION_IDS,
+  parseQuestionOptionValue,
+  questionOptionValue,
   renderApprovalCard,
   renderChatList,
+  renderQuestionCard,
   renderFinishedStatus,
   renderWorkingStatus,
 } from './blocks.js';
@@ -258,6 +261,181 @@ describe('SlackRelayHub approvals', () => {
   });
 });
 
+const QUESTION_ID = 'ques_'.padEnd(24, 'q');
+
+function questionFrame(replyHandle: string, overrides: Record<string, unknown> = {}) {
+  return {
+    replyHandle,
+    questionId: QUESTION_ID,
+    expiresInSec: 300,
+    questions: [
+      {
+        question: 'Which **format**?',
+        header: 'Format',
+        options: [
+          { label: 'Deck', description: 'Slides <b>', recommended: true },
+          { label: 'Doc' },
+        ],
+      },
+    ],
+    ...overrides,
+  };
+}
+
+const questionClick = (
+  action: { kind: 'option'; q: number; o: number } | { kind: 'submit' } | { kind: 'skip' },
+  overrides: Record<string, string> = {}
+) => ({
+  teamId: 'T1',
+  userId: 'U1',
+  channelId: 'D1',
+  questionId: QUESTION_ID,
+  action,
+  ...overrides,
+});
+
+describe('question cards', () => {
+  it('renders options as buttons with escaped text, and shows answers once closed', () => {
+    const pending = renderQuestionCard({
+      questionId: QUESTION_ID,
+      questions: [
+        {
+          question: 'Pick <one>',
+          header: 'Format',
+          multiSelect: false,
+          options: [
+            { label: 'Deck', description: 'Slides & notes', recommended: true },
+            { label: 'Doc' },
+          ],
+        },
+      ],
+      selections: [[]],
+      state: 'pending',
+      expiresInSec: 300,
+    });
+    const json = JSON.stringify(pending.blocks);
+    assert.ok(json.includes(ACTION_IDS.questionOption));
+    assert.ok(json.includes(ACTION_IDS.questionSkip));
+    assert.ok(json.includes('Pick &lt;one&gt;'));
+    assert.ok(json.includes('Slides &amp; notes'));
+    assert.ok(json.includes('Recommended'));
+    assert.ok(!json.includes('{"question"'));
+
+    const answered = renderQuestionCard({
+      questionId: QUESTION_ID,
+      questions: [{ question: 'Pick one', options: [{ label: 'Deck' }, { label: 'Doc' }] }],
+      selections: [[1]],
+      state: 'answered',
+      expiresInSec: 300,
+      answers: [['Doc']],
+    });
+    const closed = JSON.stringify(answered.blocks);
+    assert.ok(!closed.includes(ACTION_IDS.questionOption));
+    assert.ok(closed.includes('Doc'));
+  });
+
+  it('round-trips option button values', () => {
+    const value = questionOptionValue(QUESTION_ID, 1, 3);
+    assert.deepEqual(parseQuestionOptionValue(value), { questionId: QUESTION_ID, q: 1, o: 3 });
+    assert.equal(parseQuestionOptionValue('bad.1.3'), null);
+  });
+});
+
+describe('SlackRelayHub questions', () => {
+  it('posts a question card and answers on a single-choice tap', async () => {
+    const { api, hub, peer } = setup();
+    const handle = await handleFor(hub, peer);
+    assert.ok(hub.handleQuestion(peer, questionFrame(handle)));
+    await hub.drain();
+    assert.equal(api.posts.length, 1);
+    assert.ok(JSON.stringify(api.posts[0].blocks).includes(ACTION_IDS.questionOption));
+
+    assert.equal(hub.clickQuestion(questionClick({ kind: 'option', q: 0, o: 1 })), 'ok');
+    assert.deepEqual(peer.frames.at(-1), {
+      type: 'action',
+      kind: 'answer',
+      questionId: QUESTION_ID,
+      answers: [[1]],
+    });
+    assert.equal(hub.clickQuestion(questionClick({ kind: 'option', q: 0, o: 0 })), 'unknown');
+
+    assert.ok(hub.handleQuestionClosed(peer, QUESTION_ID, 'answered', [['Doc']]));
+    await hub.drain();
+    const closed = JSON.stringify(api.updates.at(-1)?.blocks);
+    assert.ok(closed.includes('Doc'));
+    assert.ok(!closed.includes(ACTION_IDS.questionOption));
+  });
+
+  it('collects multi-select picks until Submit, and requires every question answered', async () => {
+    const { hub, peer } = setup();
+    const handle = await handleFor(hub, peer);
+    const questions = [
+      { question: 'Which channels?', multiSelect: true, options: [{ label: 'A' }, { label: 'B' }] },
+      { question: 'Tone?', options: [{ label: 'Formal' }, { label: 'Casual' }] },
+    ];
+    assert.ok(hub.handleQuestion(peer, questionFrame(handle, { questions })));
+    const before = peer.frames.length;
+
+    assert.equal(hub.clickQuestion(questionClick({ kind: 'option', q: 0, o: 1 })), 'ok');
+    assert.equal(hub.clickQuestion(questionClick({ kind: 'option', q: 0, o: 0 })), 'ok');
+    assert.equal(hub.clickQuestion(questionClick({ kind: 'submit' })), 'incomplete');
+    assert.equal(hub.clickQuestion(questionClick({ kind: 'option', q: 1, o: 0 })), 'ok');
+    assert.equal(peer.frames.length, before);
+
+    assert.equal(hub.clickQuestion(questionClick({ kind: 'submit' })), 'ok');
+    assert.deepEqual(peer.frames.at(-1)?.answers, [[0, 1], [0]]);
+  });
+
+  it('relays Skip as a null answer', async () => {
+    const { hub, peer } = setup();
+    const handle = await handleFor(hub, peer);
+    assert.ok(hub.handleQuestion(peer, questionFrame(handle)));
+    assert.equal(hub.clickQuestion(questionClick({ kind: 'skip' })), 'ok');
+    assert.equal(peer.frames.at(-1)?.answers, null);
+  });
+
+  it('rejects invalid frames and clicks from anyone but the owner IM', async () => {
+    const { hub, peer } = setup();
+    const handle = await handleFor(hub, peer);
+    assert.equal(hub.handleQuestion(peer, questionFrame(handle, { questionId: 'short' })), false);
+    assert.equal(hub.handleQuestion(peer, questionFrame(handle, { questions: [] })), false);
+    assert.equal(
+      hub.handleQuestion(
+        peer,
+        questionFrame(handle, {
+          questions: Array.from({ length: 5 }, () => ({ question: 'q', options: [] })),
+        })
+      ),
+      false
+    );
+    assert.ok(hub.handleQuestion(peer, questionFrame(handle)));
+    assert.equal(hub.handleQuestion(peer, questionFrame(handle)), false);
+
+    const before = peer.frames.length;
+    assert.equal(hub.clickQuestion(questionClick({ kind: 'skip' }, { userId: 'U2' })), 'unknown');
+    assert.equal(
+      hub.clickQuestion(questionClick({ kind: 'skip' }, { channelId: 'D2' })),
+      'unknown'
+    );
+    assert.equal(hub.clickQuestion(questionClick({ kind: 'option', q: 0, o: 9 })), 'unknown');
+    assert.equal(peer.frames.length, before);
+  });
+
+  it('expires stale questions instead of relaying them', async () => {
+    let now = 1_000_000;
+    const api = createFakeSlackApi();
+    const hub = new SlackRelayHub(api, { now: () => now });
+    const peer = createFakePeer('p1');
+    hub.registerOwner('T1:U1', peer, 'D1', CAPS);
+    const handle = await handleFor(hub, peer);
+    hub.handleQuestion(peer, questionFrame(handle, { expiresInSec: 10 }));
+    now += 11_000;
+    const before = peer.frames.length;
+    assert.equal(hub.clickQuestion(questionClick({ kind: 'option', q: 0, o: 0 })), 'expired');
+    assert.equal(peer.frames.length, before);
+  });
+});
+
 describe('SlackRelayHub commands', () => {
   it('reports offline and outdated desktops', () => {
     const api = createFakeSlackApi();
@@ -303,6 +481,77 @@ describe('SlackRelayHub commands', () => {
     );
     assert.equal(peer.frames.at(-1)?.arg, CHAT_TOKEN);
     assert.equal(hub.handleChatList(peer, handle, [{ token: 'bad', title: 'x' }]), false);
+  });
+
+  it('posts model / workspace pickers and relays picks only for their own tokens', async () => {
+    const { api, hub, peer } = setup();
+    const handle = await handleFor(hub, peer);
+    const PICK = 'pick_'.padEnd(24, 'p');
+    const CURRENT = 'curr_'.padEnd(24, 'c');
+    assert.ok(
+      hub.handlePicker(peer, {
+        replyHandle: handle,
+        kind: 'model',
+        note: 'Current model: <Sonnet>.',
+        items: [
+          { token: CURRENT, label: 'Sonnet', detail: 'Anthropic', current: true },
+          { token: PICK, label: 'GPT *5*', detail: 'OpenAI', current: false },
+        ],
+      })
+    );
+    await hub.drain();
+    const json = JSON.stringify(api.posts.at(-1)?.blocks);
+    assert.ok(json.includes('Choose a model'));
+    assert.ok(json.includes(ACTION_IDS.pick));
+    assert.ok(json.includes('&lt;Sonnet&gt;'));
+    assert.ok(!json.includes(CURRENT));
+
+    const who = { teamId: 'T1', userId: 'U1' };
+    assert.equal(hub.dispatchCommand({ ...who, name: 'open', token: PICK }), 'unknown');
+    assert.equal(hub.dispatchCommand({ ...who, name: 'pick', token: CURRENT }), 'unknown');
+    assert.equal(hub.dispatchCommand({ ...who, name: 'pick', token: PICK }), 'ok');
+    assert.deepEqual(
+      { name: peer.frames.at(-1)?.name, arg: peer.frames.at(-1)?.arg },
+      { name: 'pick', arg: PICK }
+    );
+
+    assert.ok(
+      hub.handleChatList(peer, handle, [
+        { token: CHAT_TOKEN, title: 'Budget', updatedLabel: '2h ago', current: false },
+      ])
+    );
+    assert.equal(hub.dispatchCommand({ ...who, name: 'pick', token: CHAT_TOKEN }), 'unknown');
+  });
+
+  it('rejects malformed pickers', async () => {
+    const { hub, peer } = setup();
+    const handle = await handleFor(hub, peer);
+    const item = { token: 'tok_'.padEnd(24, 't'), label: 'Hub', detail: '', current: false };
+    assert.equal(
+      hub.handlePicker(peer, { replyHandle: handle, kind: 'theme', items: [item] }),
+      false
+    );
+    assert.equal(
+      hub.handlePicker(peer, {
+        replyHandle: handle,
+        kind: 'workspace',
+        items: [{ ...item, label: '' }],
+      }),
+      false
+    );
+    assert.equal(
+      hub.handlePicker(peer, {
+        replyHandle: handle,
+        kind: 'workspace',
+        items: Array.from({ length: 21 }, () => item),
+      }),
+      false
+    );
+    assert.equal(
+      hub.handlePicker(peer, { replyHandle: 'nope', kind: 'workspace', items: [] }),
+      false
+    );
+    assert.ok(hub.handlePicker(peer, { replyHandle: handle, kind: 'workspace', items: [item] }));
   });
 });
 
@@ -466,7 +715,7 @@ describe('POST /slack/commands', () => {
       team_id: 'T1',
       user_id: 'U1',
       channel_id: 'D1',
-      command: '/growth',
+      command: '/growthos',
       text: '',
       trigger_id: `trig-${Math.random()}`,
       response_url: 'https://hooks.slack.com/commands/T1/1/abc',
@@ -483,6 +732,15 @@ describe('POST /slack/commands', () => {
       raw: 'new',
     });
     assert.equal(parseSlashText('dance').name, null);
+    assert.deepEqual(parseSlashText('model claude sonnet'), {
+      name: 'model',
+      arg: 'claude sonnet',
+      raw: 'model',
+    });
+    assert.equal(parseSlashText('Models').name, 'model');
+    assert.deepEqual(parseSlashText('ws Acme'), { name: 'workspace', arg: 'Acme', raw: 'ws' });
+    assert.equal(parseSlashText('projects').name, 'workspace');
+    assert.equal(parseSlashText('pick abc').name, null);
   });
 
   it('rejects bad signatures and other workspaces', async () => {
@@ -502,14 +760,15 @@ describe('POST /slack/commands', () => {
       const res = await post(help, signed(help, FORM));
       const json = (await res.json()) as Record<string, string>;
       assert.equal(json.response_type, 'ephemeral');
-      assert.match(json.text, /\/growth new/);
+      assert.match(json.text, /`\/growthos new`/);
+      assert.match(json.text, /York IE GrowthOS/);
 
-      const renamed = commandBody({ text: 'help', command: '/growthos' });
+      const renamed = commandBody({ text: 'help', command: '/yorkbot' });
       const json3 = (await (await post(renamed, signed(renamed, FORM))).json()) as Record<
         string,
         string
       >;
-      assert.match(json3.text, /`\/growthos chats`/);
+      assert.match(json3.text, /`\/yorkbot chats`/);
 
       const unknown = commandBody({ text: 'dance' });
       const json2 = (await (await post(unknown, signed(unknown, FORM))).json()) as Record<
@@ -535,7 +794,7 @@ describe('POST /slack/commands', () => {
         string,
         string
       >;
-      assert.match(json2.text, /Update York IE/);
+      assert.match(json2.text, /Update York IE GrowthOS/);
     });
   });
 
@@ -552,7 +811,7 @@ describe('POST /slack/commands', () => {
       const res = await post(body, signed(body, FORM));
       assert.ok(Date.now() - started < 1_000);
       const json = (await res.json()) as Record<string, string>;
-      assert.equal(json.text, "Starting a new chat… I'll reply in your York IE DM.");
+      assert.equal(json.text, "Starting a new chat… I'll reply in your York IE GrowthOS DM.");
 
       const retry = await post(body, signed(body, FORM));
       assert.equal(retry.status, 200);

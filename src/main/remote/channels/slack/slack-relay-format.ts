@@ -108,23 +108,34 @@ export function formatAnswerFooter(chatTitle: string | null | undefined): string
 export function slackRelayHelpText(): string {
   const c = SLACK_RELAY_SLASH_COMMAND;
   return [
-    '*Control York IE from Slack*',
+    '*Control York IE GrowthOS from Slack*',
     'Just send a message to work in your current chat, or use:',
     `• \`${c} new\` (or \`${c} new <message>\`) – start a fresh chat`,
     `• \`${c} chats\` – pick one of your recent chats`,
-    `• \`${c} stop\` – stop what York IE is doing`,
+    `• \`${c} model\` (or \`${c} model <name>\`) – see or change the model`,
+    `• \`${c} workspace\` (or \`${c} workspace <name>\`) – see or change the workspace`,
+    `• \`${c} stop\` – stop what York IE GrowthOS is doing`,
     `• \`${c} status\` – show the current chat and whether it's busy`,
     `• \`help\` – show this help`,
   ].join('\n');
 }
 
-const TEXT_COMMAND_ALIASES: Record<string, Exclude<SlackRelayCommandName, 'open'>> = {
+type TypedCommandName = Exclude<SlackRelayCommandName, 'open' | 'pick'>;
+
+const TEXT_COMMAND_ALIASES: Record<string, TypedCommandName> = {
   new: 'new',
   reset: 'new',
   chats: 'chats',
   chat: 'chats',
   list: 'chats',
   ls: 'chats',
+  model: 'model',
+  models: 'model',
+  workspace: 'workspace',
+  workspaces: 'workspace',
+  ws: 'workspace',
+  project: 'workspace',
+  projects: 'workspace',
   stop: 'stop',
   cancel: 'stop',
   abort: 'stop',
@@ -139,7 +150,7 @@ const TEXT_COMMAND_ALIASES: Record<string, Exclude<SlackRelayCommandName, 'open'
  */
 export function parseSlackTextCommand(
   text: string
-): { name: Exclude<SlackRelayCommandName, 'open'>; arg?: string } | null {
+): { name: TypedCommandName; arg?: string } | null {
   const trimmed = text.trim();
   if (/^(help|\?)[.!?]*$/i.test(trimmed)) return { name: 'help' };
   const slash = /^\/growth(?:os)?(?:\s+([\s\S]*))?$/i.exec(trimmed);
@@ -149,5 +160,6 @@ export function parseSlackTextCommand(
   const first = rest.split(/\s+/)[0];
   const name = TEXT_COMMAND_ALIASES[first.toLowerCase()] ?? 'help';
   const arg = rest.slice(first.length).trim();
-  return name === 'new' && arg ? { name, arg } : { name };
+  const takesArg = name === 'new' || name === 'model' || name === 'workspace';
+  return takesArg && arg ? { name, arg } : { name };
 }

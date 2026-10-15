@@ -12,7 +12,10 @@ import {
   SLACK_RELAY_CHANNEL_ID,
   slackRelayReplyHandleOf,
 } from '../src/main/remote/channels/slack/slack-relay-channel';
-import type { SlackRelayAction } from '../src/main/remote/channels/slack/slack-relay-protocol';
+import {
+  parseSlackRelayAction,
+  type SlackRelayAction,
+} from '../src/main/remote/channels/slack/slack-relay-protocol';
 import type { RemoteMessage } from '../src/main/remote/types';
 
 class FakeSocket extends EventEmitter {
@@ -89,7 +92,7 @@ describe('SlackRelayChannel', () => {
     expect(socket.sent[0]).toEqual({
       type: 'register',
       slackUserToken: 'xoxp-user-token',
-      capabilities: ['status', 'approvals', 'commands'],
+      capabilities: ['status', 'approvals', 'commands', 'images'],
     });
     expect(c.connected).toBe(true);
   });
@@ -127,6 +130,26 @@ describe('SlackRelayChannel', () => {
     expect(messages).toHaveLength(0);
   });
 
+  it('carries attached images, and accepts image-only events', async () => {
+    const { socket, messages } = await connectRegistered();
+    const png = { name: 'chart.png', mediaType: 'image/png', data: 'iVBORw0KGgo=' };
+    socket.frame({ type: 'event', replyHandle: 'h1', text: 'what is this?', images: [png] });
+    socket.frame({ type: 'event', replyHandle: 'h2', text: '', images: [png] });
+    socket.frame({
+      type: 'event',
+      replyHandle: 'h3',
+      text: '',
+      images: [
+        { mediaType: 'image/svg+xml', data: 'PHN2Zz4=' },
+        { mediaType: 'image/png', data: 'not base64!' },
+      ],
+    });
+    expect(messages.map((m) => m.content)).toEqual([
+      { type: 'text', text: 'what is this?', images: [png] },
+      { type: 'text', text: '', images: [png] },
+    ]);
+  });
+
   it('replies with the latest handle and resolves on reply_result', async () => {
     const { socket, channel: c } = await connectRegistered();
     socket.frame({ type: 'event', replyHandle: 'h1', text: 'first' });
@@ -155,7 +178,7 @@ describe('SlackRelayChannel', () => {
     const { socket, channel: c, sockets } = await connectRegistered();
     socket.emit('close', 4409, Buffer.from('replaced'));
     expect(c.connected).toBe(false);
-    expect(c.lastError).toMatch(/Another York IE desktop/);
+    expect(c.lastError).toMatch(/Another York IE GrowthOS desktop/);
     await new Promise((r) => setTimeout(r, 20));
     expect(sockets).toHaveLength(1);
   });
@@ -253,5 +276,55 @@ describe('SlackRelayChannel', () => {
       { kind: 'command', name: 'chats', replyHandle: 'h-cmd' },
     ]);
     expect(c.latestHandle).toBe('h-cmd');
+  });
+
+  it('sends question frames only when the backend advertises the feature', async () => {
+    const request = {
+      questionId: 'q'.repeat(24),
+      expiresInSec: 300,
+      questions: [{ question: 'Which?', options: [{ label: 'A' }, { label: 'B' }] }],
+    };
+    const old = await connectRegistered();
+    expect(old.channel.supportsQuestions).toBe(false);
+    expect(old.channel.sendQuestion('h1', request)).toBe(false);
+    await old.channel.stop();
+
+    const ctx = await createChannel();
+    await ctx.channel.start();
+    const socket = ctx.sockets[0];
+    socket.open();
+    socket.frame({ type: 'registered', slackUserId: OWNER, teamId: 'T1', features: ['questions'] });
+    expect(ctx.channel.supportsQuestions).toBe(true);
+    expect(ctx.channel.sendQuestion('h1', request)).toBe(true);
+    expect(ctx.channel.closeQuestion(request.questionId, 'answered', [['A']])).toBe(true);
+    expect(socket.sent.slice(-2)).toEqual([
+      { type: 'question', replyHandle: 'h1', ...request },
+      {
+        type: 'question_closed',
+        questionId: request.questionId,
+        outcome: 'answered',
+        answers: [['A']],
+      },
+    ]);
+  });
+
+  it('parses answer actions and rejects malformed ones', () => {
+    const questionId = 'q'.repeat(24);
+    expect(parseSlackRelayAction({ kind: 'answer', questionId, answers: [[1], [0, 2]] })).toEqual({
+      kind: 'answer',
+      questionId,
+      answers: [[1], [0, 2]],
+    });
+    expect(parseSlackRelayAction({ kind: 'answer', questionId, answers: null })).toEqual({
+      kind: 'answer',
+      questionId,
+      answers: null,
+    });
+    expect(parseSlackRelayAction({ kind: 'answer', questionId: 'short', answers: [] })).toBeNull();
+    expect(parseSlackRelayAction({ kind: 'answer', questionId, answers: [[9]] })).toBeNull();
+    expect(parseSlackRelayAction({ kind: 'answer', questionId, answers: [['0']] })).toBeNull();
+    expect(
+      parseSlackRelayAction({ kind: 'answer', questionId, answers: [[0], [0], [0], [0], [0]] })
+    ).toBeNull();
   });
 });

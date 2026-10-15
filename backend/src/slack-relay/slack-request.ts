@@ -49,11 +49,13 @@ export function afterAck(label: string, work: () => void | Promise<void>): void 
 
 const RESULT_MESSAGES: Record<Exclude<OwnerActionResult, 'ok'>, string> = {
   offline:
-    'York IE is not connected on your computer right now. Open York IE and turn on "Control York IE from Slack" to continue.',
-  outdated: 'Update York IE on your computer to use buttons and slash commands from Slack.',
+    'York IE GrowthOS is not connected on your computer right now. Open York IE GrowthOS and turn on "Control York IE GrowthOS from Slack" to continue.',
+  outdated:
+    'Update York IE GrowthOS on your computer to use buttons and slash commands from Slack.',
   unknown: 'This request is no longer active.',
-  expired: 'This request expired. Ask York IE again if you still need it.',
+  expired: 'This request expired. Ask York IE GrowthOS again if you still need it.',
   rate_limited: 'That was a lot of requests in a short time. Try again in a minute.',
+  incomplete: 'Pick an answer for every question first, then press Submit.',
 };
 
 export function resultMessage(result: Exclude<OwnerActionResult, 'ok'>): string {

@@ -7,7 +7,7 @@
  * in their own IM with the bot, are honored.
  */
 import express, { type Request, type Response, type Router } from 'express';
-import { ACTION_IDS } from './blocks.js';
+import { ACTION_IDS, parseQuestionOptionValue } from './blocks.js';
 import type { SlackRelayConfig } from './config.js';
 import type { OwnerActionResult, SlackRelayHub } from './relay-hub.js';
 import type { SlackApi } from './slack-api.js';
@@ -77,9 +77,30 @@ function dispatch(action: ParsedBlockAction, hub: SlackRelayHub): OwnerActionRes
         approvalId: action.value,
         decision: action.actionId === ACTION_IDS.approvalAllow ? 'allow' : 'deny',
       });
+    case ACTION_IDS.questionOption: {
+      const parsed = parseQuestionOptionValue(action.value);
+      if (!parsed) return 'unknown';
+      return hub.clickQuestion({
+        ...who,
+        channelId: action.channelId,
+        questionId: parsed.questionId,
+        action: { kind: 'option', q: parsed.q, o: parsed.o },
+      });
+    }
+    case ACTION_IDS.questionSubmit:
+    case ACTION_IDS.questionSkip:
+      return hub.clickQuestion({
+        ...who,
+        channelId: action.channelId,
+        questionId: action.value,
+        action: { kind: action.actionId === ACTION_IDS.questionSubmit ? 'submit' : 'skip' },
+      });
     case ACTION_IDS.chatOpen:
       if (hub.ownerImChannel(action.teamId, action.userId) !== action.channelId) return 'unknown';
       return hub.dispatchCommand({ ...who, name: 'open', token: action.value });
+    case ACTION_IDS.pick:
+      if (hub.ownerImChannel(action.teamId, action.userId) !== action.channelId) return 'unknown';
+      return hub.dispatchCommand({ ...who, name: 'pick', token: action.value });
     case ACTION_IDS.chatNew:
       if (hub.ownerImChannel(action.teamId, action.userId) !== action.channelId) return 'unknown';
       return hub.dispatchCommand({ ...who, name: 'new' });

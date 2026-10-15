@@ -324,6 +324,13 @@ export interface RemoteSender {
   extra?: Record<string, unknown>;
 }
 
+export interface RemoteInlineImage {
+  name?: string;
+  mediaType: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp';
+  /** Base64, no data: prefix */
+  data: string;
+}
+
 export interface RemoteContent {
   /** Content type */
   type: 'text' | 'image' | 'file' | 'voice' | 'video' | 'rich_text' | 'interactive';
@@ -334,6 +341,9 @@ export interface RemoteContent {
   /** Image URL or key (for image type) */
   imageUrl?: string;
   imageKey?: string;
+
+  /** Images already downloaded by the channel, sent to the agent alongside the text. */
+  images?: RemoteInlineImage[];
 
   /** File information (for file type) */
   file?: {
@@ -582,6 +592,8 @@ export interface RemoteConfig {
     websocket?: WebSocketChannelConfig;
     slack?: SlackChannelConfig;
     slackRelay?: SlackRelayChannelConfig;
+    /** Workspace (ActiveDivision JSON) new Slack chats start in; unset means General. */
+    slackRelayWorkspace?: unknown;
   };
 }
 

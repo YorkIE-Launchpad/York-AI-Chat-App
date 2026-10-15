@@ -9,8 +9,14 @@ vi.mock('../src/main/utils/logger', () => ({
   logError: vi.fn(),
 }));
 
+const relayWorkspace = vi.hoisted(() => ({ value: null as unknown }));
+
 vi.mock('../src/main/remote/remote-config-store', () => ({
   remoteConfigStore: {
+    getSlackRelayWorkspace: () => relayWorkspace.value,
+    setSlackRelayWorkspace: (value: unknown) => {
+      relayWorkspace.value = value;
+    },
     getAll: () => ({
       gateway: { enabled: false, autoApproveSafeTools: true },
       channels: {},
@@ -50,7 +56,7 @@ describe('RemoteManager strict Slack relay policy', () => {
   let outsideRoot: string;
   let manager: RemoteManager;
   let sent: RemoteResponse[];
-  let startCalls: Array<{ cwd?: string; options?: { strictRemote?: boolean } }>;
+  let startCalls: Array<{ cwd?: string; options?: { strictRemote?: boolean; content?: unknown } }>;
   const notify = vi.fn();
 
   beforeEach(() => {
@@ -114,6 +120,23 @@ describe('RemoteManager strict Slack relay policy', () => {
     expect(startCalls).toHaveLength(1);
     expect(startCalls[0].options).toEqual({ strictRemote: true });
     expect(notify).toHaveBeenCalledWith('Remote session started', expect.any(String));
+  });
+
+  it('sends Slack images to the agent as image blocks', async () => {
+    const message = slackMessage('');
+    message.content.images = [{ name: 'a.png', mediaType: 'image/png', data: 'iVBORw0KGgo=' }];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (manager as any).messageRouter.routeMessage(message);
+    expect(startCalls).toHaveLength(1);
+    expect(startCalls[0].options).toEqual({
+      strictRemote: true,
+      content: [
+        {
+          type: 'image',
+          source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0KGgo=' },
+        },
+      ],
+    });
   });
 
   it('rejects a working directory outside the allowed roots', async () => {
@@ -216,9 +239,27 @@ describe('RemoteManager interactive Slack relay', () => {
   let manager: RemoteManager;
   let relay: ReturnType<typeof createFakeRelay>;
   let startCalls: string[];
+  let startOptions: Array<Record<string, unknown> | undefined>;
   let continueCalls: string[];
   let stopCalls: string[];
   let sessions: Map<string, Session>;
+  let currentModel: string;
+  const selectModel = vi.fn();
+  const MODELS = [
+    { id: 'claude-sonnet', name: 'Claude Sonnet', provider: 'anthropic' as const },
+    { id: 'claude-opus', name: 'Claude Opus', provider: 'anthropic' as const },
+    { id: 'gpt-5', name: 'GPT-5', provider: 'openai' as const },
+  ];
+  const FOLDERS = [{ id: 'f1', name: 'Research', createdAt: 1, updatedAt: 2 }];
+  const PROJECTS = [
+    {
+      canonicalKey: 'hub:p1',
+      name: 'Acme Website',
+      sources: { hub: true as const },
+      hubProjectId: 'p1',
+      clientName: 'Acme',
+    },
+  ];
 
   function createFakeRelay() {
     const calls = {
@@ -228,10 +269,34 @@ describe('RemoteManager interactive Slack relay', () => {
       closed: [] as Array<{ approvalId: string; outcome: string }>,
       chatLists: [] as Array<{ handle: string; chats: Array<Record<string, unknown>> }>,
       notices: [] as Array<{ handle: string; text: string }>,
+      questions: [] as Array<{ handle: string; request: Record<string, unknown> }>,
+      questionsClosed: [] as Array<{ questionId: string; outcome: string; answers?: string[][] }>,
+      pickers: [] as Array<{
+        handle: string;
+        picker: {
+          kind: string;
+          note?: string;
+          items: Array<{ token: string; label: string; detail: string; current: boolean }>;
+        };
+      }>,
     };
     return {
       calls,
       connected: true,
+      supportsQuestions: true,
+      supportsPickers: true,
+      sendPicker: (handle: string, picker: (typeof calls.pickers)[number]['picker']) => {
+        calls.pickers.push({ handle, picker });
+        return true;
+      },
+      sendQuestion: (handle: string, request: Record<string, unknown>) => {
+        calls.questions.push({ handle, request });
+        return true;
+      },
+      closeQuestion: (questionId: string, outcome: string, answers?: string[][]) => {
+        calls.questionsClosed.push({ questionId, outcome, ...(answers ? { answers } : {}) });
+        return true;
+      },
       latestHandle: 'h-latest' as string | null,
       sendStatus: (handle: string, phase: string, label?: string) => {
         calls.status.push({ handle, phase, label });
@@ -276,14 +341,18 @@ describe('RemoteManager interactive Slack relay', () => {
   beforeEach(() => {
     allowedRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'relay-interactive-'));
     startCalls = [];
+    startOptions = [];
     continueCalls = [];
     stopCalls = [];
+    currentModel = 'claude-sonnet';
+    relayWorkspace.value = null;
     sessions = new Map([[OTHER_ID, session(OTHER_ID, { cwd: allowedRoot, updatedAt: 1 })]]);
 
     manager = new RemoteManager();
     manager.setAgentExecutor({
-      startSession: async (title) => {
+      startSession: async (title, _prompt, _cwd, options) => {
         startCalls.push(title);
+        startOptions.push(options);
         const created = session(`${SESSION_ID}-${startCalls.length}`, {
           title: 'Quarterly report',
         });
@@ -308,7 +377,15 @@ describe('RemoteManager interactive Slack relay', () => {
       getUpgradeHeaders: async () => ({}),
       getAllowedRoots: () => [allowedRoot],
       notify: vi.fn(),
+      listModels: async () => MODELS,
+      getCurrentModel: () => currentModel,
+      selectModel: selectModel.mockImplementation(async (id: string) => {
+        currentModel = id;
+        return null;
+      }),
+      listWorkspaceSources: async () => ({ folders: FOLDERS, projects: PROJECTS }),
     });
+    selectModel.mockClear();
     relay = createFakeRelay();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const internals = manager as any;
@@ -399,12 +476,88 @@ describe('RemoteManager interactive Slack relay', () => {
     expect(relay.calls.closed.at(-1)).toEqual({ approvalId, outcome: 'expired' });
   });
 
+  const QUESTIONS = [
+    {
+      question: 'Which format?',
+      header: 'Format',
+      options: [{ label: 'Deck', recommended: true }, { label: 'Doc' }],
+    },
+    {
+      question: 'Which channels?',
+      multiSelect: true,
+      options: [{ label: 'Email' }, { label: 'LinkedIn' }, { label: 'Slack' }],
+    },
+  ];
+
+  it('posts AskUserQuestion as a Slack card and answers from the buttons', async () => {
+    await manager.routeMessage(relayMessage('hi', 'h1'));
+    const sendResponse = vi.fn(async () => {});
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (manager as any).gateway.sendResponse = sendResponse;
+    const pending = manager.handleQuestionRequest(firstSessionId(), 'ask-1', QUESTIONS);
+    await vi.waitFor(() => expect(relay.calls.questions).toHaveLength(1));
+    expect(sendResponse).not.toHaveBeenCalled();
+    const { handle, request } = relay.calls.questions[0];
+    expect(handle).toBe('h1');
+    expect(request).toMatchObject({
+      expiresInSec: 300,
+      questions: [
+        {
+          question: 'Which format?',
+          header: 'Format',
+          options: [{ label: 'Deck', recommended: true }, { label: 'Doc' }],
+        },
+        { question: 'Which channels?', multiSelect: true },
+      ],
+    });
+    expect(relay.calls.status.at(-1)?.label).toBe('Waiting for your answer…');
+
+    const questionId = request.questionId as string;
+    await manager.handleSlackRelayAction({ kind: 'answer', questionId, answers: [[1], [0, 2]] });
+    await expect(pending).resolves.toBe(JSON.stringify({ 0: ['Doc'], 1: ['Email', 'Slack'] }));
+    expect(relay.calls.questionsClosed).toEqual([
+      { questionId, outcome: 'answered', answers: [['Doc'], ['Email', 'Slack']] },
+    ]);
+  });
+
+  it('closes the card as skipped on Skip, and as expired on timeout or a late click', async () => {
+    await manager.routeMessage(relayMessage('hi', 'h1'));
+    const skipped = manager.handleQuestionRequest(firstSessionId(), 'ask-2', QUESTIONS);
+    await vi.waitFor(() => expect(relay.calls.questions).toHaveLength(1));
+    const skipId = relay.calls.questions[0].request.questionId as string;
+    await manager.handleSlackRelayAction({ kind: 'answer', questionId: skipId, answers: null });
+    await expect(skipped).resolves.toBe('{}');
+    expect(relay.calls.questionsClosed.at(-1)).toEqual({ questionId: skipId, outcome: 'skipped' });
+
+    vi.useFakeTimers();
+    const timedOut = manager.handleQuestionRequest(firstSessionId(), 'ask-3', QUESTIONS);
+    await vi.waitFor(() => expect(relay.calls.questions).toHaveLength(2));
+    await vi.advanceTimersByTimeAsync(5 * 60 * 1000 + 10);
+    await expect(timedOut).resolves.toBeNull();
+    const lateId = relay.calls.questions[1].request.questionId as string;
+    expect(relay.calls.questionsClosed.at(-1)).toEqual({ questionId: lateId, outcome: 'expired' });
+
+    await manager.handleSlackRelayAction({ kind: 'answer', questionId: lateId, answers: [[0]] });
+    expect(relay.calls.questionsClosed.at(-1)).toEqual({ questionId: lateId, outcome: 'expired' });
+  });
+
+  it('falls back to the text prompt when the backend has no question cards', async () => {
+    await manager.routeMessage(relayMessage('hi', 'h1'));
+    relay.supportsQuestions = false;
+    const sendResponse = vi.fn(async () => {});
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (manager as any).gateway.sendResponse = sendResponse;
+    void manager.handleQuestionRequest(firstSessionId(), 'ask-4', QUESTIONS);
+    await vi.waitFor(() => expect(sendResponse).toHaveBeenCalledTimes(1));
+    expect(relay.calls.questions).toHaveLength(0);
+  });
+
   it('answers a plain "help" DM and typed /growth commands without running the agent', async () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const intercept = (manager as any).handleSlackRelayTextCommand.bind(manager);
     expect(await intercept(relayMessage('Help', 'h1'))).toBe(true);
     expect(relay.calls.notices.at(-1)).toMatchObject({ handle: 'h1' });
-    expect(relay.calls.notices.at(-1)!.text).toContain('Control York IE from Slack');
+    expect(relay.calls.notices.at(-1)!.text).toContain('Control York IE GrowthOS from Slack');
 
     expect(await intercept(relayMessage('/growthOS chats', 'h2'))).toBe(true);
     expect(relay.calls.chatLists.at(-1)).toMatchObject({ handle: 'h2' });
@@ -492,5 +645,99 @@ describe('RemoteManager interactive Slack relay', () => {
     await manager.handleSlackRelayAction({ kind: 'command', name: 'stop', replyHandle: 'h4' });
     expect(stopCalls).toEqual([firstSessionId()]);
     expect(relay.calls.notices.at(-1)!.text).toBe('Stopped.');
+  });
+
+  const command = (name: 'model' | 'workspace' | 'pick', arg?: string) =>
+    manager.handleSlackRelayAction({
+      kind: 'command',
+      name,
+      replyHandle: 'h-cmd',
+      ...(arg ? { arg } : {}),
+    });
+
+  it('/growthos model lists models and a button switches the app-wide model', async () => {
+    await command('model');
+    const { picker } = relay.calls.pickers[0];
+    expect(picker.kind).toBe('model');
+    expect(picker.note).toBe('Current model: Claude Sonnet.');
+    expect(picker.items.map((i) => [i.label, i.current])).toEqual([
+      ['Auto', false],
+      ['Claude Sonnet', true],
+      ['Claude Opus', false],
+      ['GPT-5', false],
+    ]);
+
+    await command('pick', picker.items[3].token);
+    expect(selectModel).toHaveBeenCalledWith('gpt-5');
+    expect(relay.calls.notices.at(-1)!.text).toBe(
+      'Model switched to GPT-5. This also applies on your computer.'
+    );
+
+    await command('pick', picker.items[3].token);
+    expect(relay.calls.notices.at(-1)!.text).toContain('That list has expired');
+    await command('pick', picker.items[1].token);
+    expect(selectModel).toHaveBeenCalledTimes(1);
+  });
+
+  it('/growthos model <name> switches directly, or narrows the list when ambiguous', async () => {
+    await command('model', 'opus');
+    expect(selectModel).toHaveBeenCalledWith('claude-opus');
+
+    await command('model', 'claude');
+    expect(relay.calls.pickers.at(-1)!.picker.items.map((i) => i.label)).toEqual([
+      'Claude Sonnet',
+      'Claude Opus',
+    ]);
+
+    await command('model', 'llama');
+    expect(relay.calls.pickers.at(-1)!.picker.note).toContain('No model matches "llama"');
+
+    await command('model', 'opus');
+    expect(relay.calls.notices.at(-1)!.text).toBe('Already using Claude Opus.');
+    expect(selectModel).toHaveBeenCalledTimes(1);
+  });
+
+  it('/growthos workspace switches where new Slack chats start', async () => {
+    await manager.routeMessage(relayMessage('hi', 'h1'));
+    expect(startOptions[0]).not.toHaveProperty('workspace');
+
+    await command('workspace');
+    const { picker } = relay.calls.pickers[0];
+    expect(picker.kind).toBe('workspace');
+    expect(picker.items.map((i) => [i.label, i.detail, i.current])).toEqual([
+      ['General', 'Everyday chats', true],
+      ['Hub', 'York IE Hub', false],
+      ['Research', 'Personal folder', false],
+      ['Acme Website', 'Project · Acme', false],
+      ['Acme', 'Client · 1 project', false],
+    ]);
+
+    await command('pick', picker.items[3].token);
+    expect(relayWorkspace.value).toMatchObject({ kind: 'project', canonicalKey: 'hub:p1' });
+    expect(relay.calls.notices.at(-1)!.text).toBe(
+      'Switched to the Acme Website workspace. Your next message starts a new chat there.'
+    );
+
+    await manager.routeMessage(relayMessage('plan the launch', 'h2'));
+    expect(startCalls).toHaveLength(2);
+    expect(startOptions[1]?.workspace).toMatchObject({ kind: 'project', name: 'Acme Website' });
+
+    await command('workspace', 'general');
+    expect(relayWorkspace.value).toBeNull();
+    await command('workspace', 'nothing like this');
+    expect(relay.calls.notices.at(-1)!.text).toContain('No workspace matches');
+
+    await manager.handleSlackRelayAction({ kind: 'command', name: 'status', replyHandle: 'h3' });
+    expect(relay.calls.notices.at(-1)!.text).toContain('Workspace: General');
+    expect(relay.calls.notices.at(-1)!.text).toContain('Model: claude-sonnet');
+  });
+
+  it('falls back to a text list when the backend has no pickers', async () => {
+    relay.supportsPickers = false;
+    await command('model');
+    expect(relay.calls.pickers).toHaveLength(0);
+    const text = relay.calls.notices.at(-1)!.text;
+    expect(text).toContain('• *Claude Sonnet* (Anthropic) – current');
+    expect(text).toContain('`/growthos model <name>`');
   });
 });

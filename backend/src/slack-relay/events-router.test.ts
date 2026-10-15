@@ -74,8 +74,32 @@ describe('toInboundMessage', () => {
     );
     assert.equal(toInboundMessage(eventBody({}, { subtype: 'message_changed' }), config), null);
     assert.equal(toInboundMessage(eventBody({}, { bot_id: 'B1' }), config), null);
-    assert.equal(toInboundMessage(eventBody({}, { files: [{}] }), config), null);
     assert.equal(toInboundMessage(eventBody({}, { text: '   ' }), config), null);
+    assert.equal(
+      toInboundMessage(eventBody({}, { subtype: 'file_share', text: '', files: [] }), config),
+      null
+    );
+  });
+
+  it('accepts file shares, with or without text', () => {
+    const file = { id: 'F1', mimetype: 'image/png' };
+    const withText = toInboundMessage(
+      eventBody({}, { subtype: 'file_share', text: 'what is this?', files: [file] }),
+      config
+    );
+    assert.equal(withText?.text, 'what is this?');
+    assert.deepEqual(withText?.files, [file]);
+
+    const imageOnly = toInboundMessage(
+      eventBody({}, { subtype: 'file_share', text: '', files: [file, 'junk'] }),
+      config
+    );
+    assert.equal(imageOnly?.text, '');
+    assert.deepEqual(imageOnly?.files, [file]);
+
+    const many = Array.from({ length: 15 }, (_, i) => ({ id: `F${i}` }));
+    const capped = toInboundMessage(eventBody({}, { subtype: 'file_share', files: many }), config);
+    assert.equal(capped?.files?.length, 10);
   });
 });
 
@@ -126,7 +150,7 @@ describe('POST /slack/events', () => {
   it('rejects bodies over the size limit', async () => {
     const hub = new SlackRelayHub(createFakeSlackApi());
     await withServer({ config, hub }, async (post) => {
-      const body = JSON.stringify({ pad: 'x'.repeat(70 * 1024) });
+      const body = JSON.stringify({ pad: 'x'.repeat(260 * 1024) });
       assert.equal((await post(body, signedHeaders(body))).status, 413);
     });
   });

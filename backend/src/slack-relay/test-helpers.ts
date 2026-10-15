@@ -1,5 +1,10 @@
 import type { RelayPeer } from './relay-hub.js';
-import type { SlackApi, SlackBlock, SlackUserProfile } from './slack-api.js';
+import {
+  SlackApiError,
+  type SlackApi,
+  type SlackBlock,
+  type SlackUserProfile,
+} from './slack-api.js';
 
 export interface FakeSlackApi extends SlackApi {
   posts: Array<{ channel: string; text: string; threadTs?: string; blocks?: SlackBlock[] }>;
@@ -11,6 +16,10 @@ export interface FakeSlackApi extends SlackApi {
   imChannel: string;
   /** When set, every Web API call waits on this promise (simulates a slow Slack). */
   gate: Promise<void> | null;
+  /** Downloadable files by URL; anything else fails like a Slack 404. */
+  files: Map<string, Uint8Array>;
+  fileInfos: Map<string, Record<string, unknown>>;
+  downloads: string[];
 }
 
 export function createFakeSlackApi(): FakeSlackApi {
@@ -24,6 +33,9 @@ export function createFakeSlackApi(): FakeSlackApi {
     reactions: [],
     responses: [],
     gate: null,
+    files: new Map(),
+    fileInfos: new Map(),
+    downloads: [],
     identity: { userId: 'U1', teamId: 'T1' },
     imChannel: 'D1',
     profile: {
@@ -66,6 +78,18 @@ export function createFakeSlackApi(): FakeSlackApi {
     async respond(url, body) {
       await wait();
       fake.responses.push({ url, body });
+    },
+    async fileInfo(fileId) {
+      const info = fake.fileInfos.get(fileId);
+      if (!info) throw new SlackApiError('files.info', 'file_not_found');
+      return info;
+    },
+    async downloadFile(url, maxBytes) {
+      fake.downloads.push(url);
+      const data = fake.files.get(url);
+      if (!data) throw new SlackApiError('file_download', 'http_404');
+      if (data.byteLength > maxBytes) throw new SlackApiError('file_download', 'too_large');
+      return data;
     },
   };
   return fake;

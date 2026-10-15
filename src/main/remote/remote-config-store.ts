@@ -21,6 +21,7 @@ import type {
   PairedUser,
 } from './types';
 import { DEFAULT_REMOTE_CONFIG } from './types';
+import { coerceActiveDivision, type ActiveDivision } from '../../shared/workspace-division';
 
 class RemoteConfigStore {
   private store: Store<RemoteConfig & { pairedUsers: PairedUser[] }>;
@@ -241,6 +242,18 @@ class RemoteConfigStore {
         : {}),
     });
     log('[RemoteConfig] Slack relay enabled:', config.enabled === true);
+  }
+
+  getSlackRelayWorkspace(): ActiveDivision | null {
+    return coerceActiveDivision(this.store.get('channels.slackRelayWorkspace'));
+  }
+
+  setSlackRelayWorkspace(division: ActiveDivision | null): void {
+    if (division) {
+      this.store.set('channels.slackRelayWorkspace', division);
+    } else {
+      this.store.delete('channels.slackRelayWorkspace' as never);
+    }
   }
 
   /**

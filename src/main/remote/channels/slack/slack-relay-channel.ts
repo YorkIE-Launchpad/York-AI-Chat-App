@@ -15,11 +15,17 @@ import { isLoopbackUrl, resolveBackendWsUrl } from '../../../../shared/backend-c
 import type { RemoteMessage, RemoteResponse } from '../../types';
 import {
   SLACK_RELAY_CAPABILITIES,
+  SLACK_RELAY_IMAGE_LIMITS,
   parseSlackRelayAction,
+  parseSlackRelayImages,
   type SlackRelayAction,
   type SlackRelayApprovalOutcome,
   type SlackRelayApprovalRequest,
   type SlackRelayChatEntry,
+  type SlackRelayPicker,
+  type SlackRelayQuestionOutcome,
+  type SlackRelayQuestionRequest,
+  type SlackRelayServerFeature,
   type SlackRelayStatusPhase,
 } from './slack-relay-protocol';
 
@@ -90,6 +96,7 @@ export class SlackRelayChannel extends ChannelBase {
   private pendingReplies = new Map<string, PendingReply>();
   private statusThrottles = new Map<string, StatusThrottle>();
   private actionHandler?: (action: SlackRelayAction) => void;
+  private serverFeatures = new Set<SlackRelayServerFeature>();
   private _lastError: string | null = null;
 
   constructor(private readonly deps: SlackRelayChannelDeps) {
@@ -105,7 +112,16 @@ export class SlackRelayChannel extends ChannelBase {
     return this.latestReplyHandle;
   }
 
-  /** Button clicks and `/growth` commands relayed by the backend. */
+  /** Whether the connected backend renders AskUserQuestion as a button card. */
+  get supportsQuestions(): boolean {
+    return this._connected && this.serverFeatures.has('questions');
+  }
+
+  get supportsPickers(): boolean {
+    return this._connected && this.serverFeatures.has('pickers');
+  }
+
+  /** Button clicks and `/growthos` commands relayed by the backend. */
   onAction(handler: (action: SlackRelayAction) => void): void {
     this.actionHandler = handler;
   }
@@ -162,7 +178,7 @@ export class SlackRelayChannel extends ChannelBase {
     let text = body.trim();
     if (!text) return;
     if (text.length > REPLY_TEXT_MAX) {
-      text = `${text.slice(0, REPLY_TEXT_MAX)}\n\n…(truncated — open York IE to see the full reply)`;
+      text = `${text.slice(0, REPLY_TEXT_MAX)}\n\n…(truncated — open York IE GrowthOS to see the full reply)`;
     }
 
     const requestId = randomUUID();
@@ -237,8 +253,32 @@ export class SlackRelayChannel extends ChannelBase {
     return this.sendFrame({ type: 'approval_closed', approvalId, outcome });
   }
 
+  sendQuestion(replyHandle: string, request: SlackRelayQuestionRequest): boolean {
+    if (!this.supportsQuestions) return false;
+    return this.sendFrame({ type: 'question', replyHandle, ...request });
+  }
+
+  closeQuestion(
+    questionId: string,
+    outcome: SlackRelayQuestionOutcome,
+    answers?: string[][]
+  ): boolean {
+    if (!this.supportsQuestions) return false;
+    return this.sendFrame({
+      type: 'question_closed',
+      questionId,
+      outcome,
+      ...(answers ? { answers } : {}),
+    });
+  }
+
   sendChatList(replyHandle: string, chats: SlackRelayChatEntry[]): boolean {
     return this.sendFrame({ type: 'chat_list', replyHandle, chats });
+  }
+
+  sendPicker(replyHandle: string, picker: SlackRelayPicker): boolean {
+    if (!this.supportsPickers) return false;
+    return this.sendFrame({ type: 'picker', replyHandle, ...picker });
   }
 
   sendNotice(replyHandle: string, text: string): boolean {
@@ -297,7 +337,11 @@ export class SlackRelayChannel extends ChannelBase {
     const url = this.resolveUrl();
     const ws = this.deps.createSocket
       ? this.deps.createSocket(url, headers)
-      : new WebSocket(url, { headers, maxPayload: 64 * 1024, handshakeTimeout: 15_000 });
+      : new WebSocket(url, {
+          headers,
+          maxPayload: SLACK_RELAY_IMAGE_LIMITS.frameBytes,
+          handshakeTimeout: 15_000,
+        });
     this.ws = ws;
 
     ws.on('unexpected-response', (req, res) => {
@@ -306,9 +350,9 @@ export class SlackRelayChannel extends ChannelBase {
       if (this.ws === ws) this.ws = null;
       const status = res.statusCode ?? 0;
       if (status === 426) {
-        this.halt('York IE must be updated before Slack remote control can connect.');
+        this.halt('York IE GrowthOS must be updated before Slack remote control can connect.');
       } else if (status === 401 || status === 403) {
-        this.setError('Slack remote control was refused. Sign in to York IE again.');
+        this.setError('Slack remote control was refused. Sign in to York IE GrowthOS again.');
         this.scheduleReconnect(MAX_BACKOFF_MS);
       } else {
         this.setError(`Slack relay unavailable (HTTP ${status || '?'})`);
@@ -352,10 +396,12 @@ export class SlackRelayChannel extends ChannelBase {
       const reason = reasonBuf.toString();
       if (code === CLOSE_FORBIDDEN) {
         this.halt(
-          'Slack rejected this desktop. Your Slack account email must match your York IE sign-in, and guest accounts are not allowed.'
+          'Slack rejected this desktop. Your Slack account email must match your York IE GrowthOS sign-in, and guest accounts are not allowed.'
         );
       } else if (code === CLOSE_REPLACED) {
-        this.halt('Another York IE desktop took over Slack remote control for your account.');
+        this.halt(
+          'Another York IE GrowthOS desktop took over Slack remote control for your account.'
+        );
       } else {
         if (reason) log('[SlackRelay] Disconnected:', { code, reason });
         this.scheduleReconnect(code === CLOSE_RATE_LIMITED ? MAX_BACKOFF_MS : undefined);
@@ -376,6 +422,11 @@ export class SlackRelayChannel extends ChannelBase {
           );
           return;
         }
+        this.serverFeatures = new Set(
+          (Array.isArray(frame.features) ? frame.features : []).filter(
+            (f): f is SlackRelayServerFeature => f === 'questions' || f === 'pickers'
+          )
+        );
         this.backoffMs = MIN_BACKOFF_MS;
         this._lastError = null;
         this.setConnected(true);
@@ -387,7 +438,8 @@ export class SlackRelayChannel extends ChannelBase {
         if (!this._connected) return;
         const handle = typeof frame.replyHandle === 'string' ? frame.replyHandle : '';
         const text = typeof frame.text === 'string' ? frame.text.trim() : '';
-        if (!handle || handle.length > 64 || !text) return;
+        const images = parseSlackRelayImages(frame.images);
+        if (!handle || handle.length > 64 || (!text && images.length === 0)) return;
         this.latestReplyHandle = handle;
         this.deps.onActivity?.();
         const message: RemoteMessage = {
@@ -395,7 +447,11 @@ export class SlackRelayChannel extends ChannelBase {
           channelType: 'slack',
           channelId: SLACK_RELAY_CHANNEL_ID,
           sender: { id: this.deps.expectedSlackUserId, isBot: false },
-          content: { type: 'text', text: text.slice(0, INBOUND_TEXT_MAX) },
+          content: {
+            type: 'text',
+            text: text.slice(0, INBOUND_TEXT_MAX),
+            ...(images.length > 0 ? { images } : {}),
+          },
           timestamp: Date.now(),
           isGroup: false,
           isMentioned: true,

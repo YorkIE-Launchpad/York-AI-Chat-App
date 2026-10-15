@@ -16,10 +16,14 @@ import {
   SlackRelayChannel,
   slackRelayReplyHandleOf,
 } from './channels/slack/slack-relay-channel';
-import type {
-  SlackRelayAction,
-  SlackRelayChatEntry,
-  SlackRelayCommandName,
+import {
+  SLACK_RELAY_PICKER_MAX_ITEMS,
+  SLACK_RELAY_QUESTION_LIMITS,
+  SLACK_RELAY_SLASH_COMMAND,
+  type SlackRelayAction,
+  type SlackRelayPickerKind,
+  type SlackRelayChatEntry,
+  type SlackRelayCommandName,
 } from './channels/slack/slack-relay-protocol';
 import {
   formatAnswerFooter,
@@ -58,6 +62,18 @@ import {
   markStrictRemoteSession,
 } from '../config/permission-rules-store';
 import { getFeishuWebhookConfigError } from '../../shared/feishu-webhook-config';
+import type { BackendModelInfo } from '../../shared/backend-config';
+import type { UnifiedCompanyProject } from '../../shared/unified-company-projects';
+import type { ActiveDivision, PersonalFolder } from '../../shared/workspace-division';
+import {
+  buildModelChoices,
+  buildWorkspaceChoices,
+  describeModel,
+  describeWorkspace,
+  matchChoices,
+  workspaceKey,
+  type SlackRelayChoice,
+} from './channels/slack/slack-relay-choices';
 
 /** Credentials and hooks the Slack relay needs from the main process. */
 export interface SlackRelayProvider {
@@ -70,11 +86,24 @@ export interface SlackRelayProvider {
   /** Folders a remote session may switch into. */
   getAllowedRoots(): string[];
   notify(title: string, body: string): void;
+  /** Chat model catalog, as in the desktop model picker. */
+  listModels?(): Promise<BackendModelInfo[]>;
+  /** The app-wide model id. */
+  getCurrentModel?(): string | undefined;
+  /** Switch the app-wide model; returns an error message on failure. */
+  selectModel?(modelId: string): Promise<string | null>;
+  /** Folders and company projects for the workspace picker. */
+  listWorkspaceSources?(): Promise<{
+    folders: PersonalFolder[];
+    projects: UnifiedCompanyProject[];
+    error?: string;
+  }>;
 }
 
 const SLACK_RELAY_IDLE_CHECK_MS = 5 * 60_000;
 const STRICT_PERMISSION_INPUT_PREVIEW_MAX = 1_500;
 const SLACK_CHAT_LIST_SIZE = 8;
+const REMOTE_QUESTION_TIMEOUT_MS = 5 * 60 * 1000;
 const SLACK_CHAT_TOKEN_TTL_MS = 15 * 60_000;
 
 function opaqueId(): string {
@@ -93,7 +122,7 @@ export interface AgentExecutor {
     title: string,
     prompt: string,
     cwd?: string,
-    options?: { strictRemote?: boolean }
+    options?: { strictRemote?: boolean; content?: ContentBlock[]; workspace?: ActiveDivision }
   ): Promise<Session>;
   continueSession(
     sessionId: string,
@@ -247,6 +276,20 @@ export function parseRemoteQuestionResponse(
   return JSON.stringify(answers);
 }
 
+/** Labels per question from a resolved answer (`{"0":["A"]}`); null when unparseable. */
+function answerLabels(answer: string, questionCount: number): string[][] | null {
+  try {
+    const parsed = JSON.parse(answer) as Record<string, unknown>;
+    if (!parsed || typeof parsed !== 'object') return null;
+    return Array.from({ length: questionCount }, (_, q) => {
+      const value = parsed[q];
+      return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [];
+    });
+  } catch {
+    return null;
+  }
+}
+
 export function formatRemoteQuestionMessage(questions: RemoteQuestionItem[]): string {
   let messageText = '**Your answer is needed**\n\n';
 
@@ -351,6 +394,14 @@ export class RemoteManager extends EventEmitter {
   private slackApprovals: Map<string, string> = new Map();
   // Chat-picker tokens -> desktop session id
   private slackChatTokens: Map<string, { sessionId: string; expiresAt: number }> = new Map();
+  // Model / workspace picker buttons -> what they select
+  private slackPickTokens: Map<
+    string,
+    | { kind: 'model'; modelId: string; label: string; expiresAt: number }
+    | { kind: 'workspace'; workspace: ActiveDivision; expiresAt: number }
+  > = new Map();
+  // Slack question id (shown on the question card) -> AskUserQuestion questionId
+  private slackQuestions: Map<string, string> = new Map();
 
   constructor() {
     super();
@@ -667,7 +718,9 @@ export class RemoteManager extends EventEmitter {
       }
       this.slackTurns.clear();
       this.slackApprovals.clear();
+      this.slackQuestions.clear();
       this.slackChatTokens.clear();
+      this.slackPickTokens.clear();
 
       log('[RemoteManager] Remote control system stopped');
       this.emitStatusUpdate();
@@ -977,48 +1030,54 @@ export class RemoteManager extends EventEmitter {
       questionId,
       questions,
       createdAt: Date.now(),
-      expiresAt: Date.now() + 5 * 60 * 1000, // 5 minutes timeout
+      expiresAt: Date.now() + REMOTE_QUESTION_TIMEOUT_MS,
     };
     await this.withInteractionLock(async () => {
       this.pendingInteractions.set(questionId, interaction);
     });
 
-    // Send to channel
-    try {
-      await this.gateway.sendResponse({
-        channelType: channelInfo.channelType,
-        channelId: channelInfo.channelId,
-        content: {
-          type: 'markdown',
-          markdown: messageText,
-        },
-      });
-    } catch (err) {
-      logError('[RemoteManager] Failed to send question to channel:', err);
-      await this.withInteractionLock(async () => {
-        this.pendingInteractions.delete(questionId);
-      });
-      return null;
+    // Slack relay: button card (typed replies still work); other channels: markdown prompt.
+    const slackQuestionId = this.sendSlackQuestion(actualSessionId, questionId, questions);
+    if (!slackQuestionId) {
+      try {
+        await this.gateway.sendResponse({
+          channelType: channelInfo.channelType,
+          channelId: channelInfo.channelId,
+          content: {
+            type: 'markdown',
+            markdown: messageText,
+          },
+        });
+      } catch (err) {
+        logError('[RemoteManager] Failed to send question to channel:', err);
+        await this.withInteractionLock(async () => {
+          this.pendingInteractions.delete(questionId);
+        });
+        return null;
+      }
     }
 
     // Wait for user response
     return new Promise((resolve) => {
-      this.interactionResolvers.set(questionId, resolve);
+      const settle = (answer: string | null) => {
+        if (slackQuestionId) {
+          this.closeSlackQuestion(actualSessionId, slackQuestionId, questions, answer);
+        }
+        resolve(answer);
+      };
+      this.interactionResolvers.set(questionId, settle);
 
       // Set timeout — resolve null so the agent path cancels (not empty success)
-      setTimeout(
-        () => {
-          this.withInteractionLock(async () => {
-            if (this.pendingInteractions.has(questionId)) {
-              log('[RemoteManager] Question timeout:', questionId);
-              this.pendingInteractions.delete(questionId);
-              this.interactionResolvers.delete(questionId);
-              resolve(null);
-            }
-          }).catch((err) => logError('[RemoteManager] Question timeout lock error:', err));
-        },
-        5 * 60 * 1000
-      );
+      setTimeout(() => {
+        this.withInteractionLock(async () => {
+          if (this.pendingInteractions.has(questionId)) {
+            log('[RemoteManager] Question timeout:', questionId);
+            this.pendingInteractions.delete(questionId);
+            this.interactionResolvers.delete(questionId);
+            settle(null);
+          }
+        }).catch((err) => logError('[RemoteManager] Question timeout lock error:', err));
+      }, REMOTE_QUESTION_TIMEOUT_MS);
     });
   }
 
@@ -1572,6 +1631,10 @@ export class RemoteManager extends EventEmitter {
       await this.resolveSlackApproval(action.approvalId, action.decision);
       return;
     }
+    if (action.kind === 'answer') {
+      await this.resolveSlackQuestion(action.questionId, action.answers);
+      return;
+    }
     await this.handleSlackRelayCommand(action.name, action.arg, action.replyHandle);
   }
 
@@ -1661,6 +1724,96 @@ export class RemoteManager extends EventEmitter {
       this.updateSlackTurnStatus(actualSessionId, 'thinking', 'Continuing…');
   }
 
+  /** Post a question card for a Slack relay session. Returns its id, or null to fall back to text. */
+  private sendSlackQuestion(
+    actualSessionId: string,
+    questionId: string,
+    questions: RemoteQuestionItem[]
+  ): string | null {
+    const channel = this.slackRelayChannel;
+    const remoteSessionId = this.sessionIdMapping.get(actualSessionId);
+    const channelInfo = remoteSessionId ? this.sessionChannelMapping.get(remoteSessionId) : null;
+    if (!channel?.supportsQuestions || channelInfo?.channelType !== 'slack') return null;
+    if (
+      questions.length === 0 ||
+      questions.length > SLACK_RELAY_QUESTION_LIMITS.questions ||
+      questions.some((q) => (q.options?.length ?? 0) > SLACK_RELAY_QUESTION_LIMITS.options)
+    ) {
+      return null;
+    }
+    const handle = this.slackTurns.get(actualSessionId)?.handle ?? channel.latestHandle;
+    if (!handle) return null;
+
+    const slackQuestionId = opaqueId();
+    const sent = channel.sendQuestion(handle, {
+      questionId: slackQuestionId,
+      expiresInSec: Math.round(REMOTE_QUESTION_TIMEOUT_MS / 1000),
+      questions: questions.map((q) => ({
+        question: q.question,
+        ...(q.header ? { header: q.header } : {}),
+        ...(q.multiSelect ? { multiSelect: true } : {}),
+        options: (q.options ?? []).map((o) => ({
+          label: o.label,
+          ...(o.description ? { description: o.description } : {}),
+          ...(o.recommended ? { recommended: true } : {}),
+        })),
+      })),
+    });
+    if (!sent) return null;
+    this.slackQuestions.set(slackQuestionId, questionId);
+    this.updateSlackTurnStatus(actualSessionId, 'thinking', 'Waiting for your answer…');
+    return slackQuestionId;
+  }
+
+  private closeSlackQuestion(
+    actualSessionId: string,
+    slackQuestionId: string,
+    questions: RemoteQuestionItem[],
+    answer: string | null
+  ): void {
+    this.slackQuestions.delete(slackQuestionId);
+    const channel = this.slackRelayChannel;
+    if (!channel) return;
+    if (answer === null) {
+      channel.closeQuestion(slackQuestionId, 'expired');
+      return;
+    }
+    const labels = answerLabels(answer, questions.length);
+    if (!labels || labels.every((l) => l.length === 0)) {
+      channel.closeQuestion(slackQuestionId, 'skipped');
+    } else {
+      channel.closeQuestion(slackQuestionId, 'answered', labels);
+    }
+    this.updateSlackTurnStatus(actualSessionId, 'thinking', 'Continuing…');
+  }
+
+  private async resolveSlackQuestion(
+    slackQuestionId: string,
+    picks: number[][] | null
+  ): Promise<void> {
+    const questionId = this.slackQuestions.get(slackQuestionId);
+    const pending = await this.withInteractionLock(async () => {
+      const interaction = questionId ? this.pendingInteractions.get(questionId) : undefined;
+      if (!questionId || !interaction) return null;
+      this.pendingInteractions.delete(questionId);
+      const resolver = this.interactionResolvers.get(questionId) ?? null;
+      this.interactionResolvers.delete(questionId);
+      return resolver ? { resolver, questions: interaction.questions ?? [] } : null;
+    });
+    if (!pending) {
+      this.slackQuestions.delete(slackQuestionId);
+      this.slackRelayChannel?.closeQuestion(slackQuestionId, 'expired');
+      return;
+    }
+    const answers: Record<number, string[]> = {};
+    picks?.forEach((indexes, q) => {
+      const options = pending.questions[q]?.options ?? [];
+      const labels = indexes.map((o) => options[o]?.label).filter((l): l is string => !!l);
+      if (labels.length > 0) answers[q] = labels;
+    });
+    pending.resolver(JSON.stringify(answers));
+  }
+
   private async resolveSlackApproval(
     approvalId: string,
     decision: 'allow' | 'deny'
@@ -1713,6 +1866,15 @@ export class RemoteManager extends EventEmitter {
         case 'chats':
           this.slackListChats(ownerId, handle);
           return;
+        case 'model':
+          await this.slackModel(handle, arg);
+          return;
+        case 'workspace':
+          await this.slackWorkspace(ownerId, handle, arg);
+          return;
+        case 'pick':
+          await this.slackPick(ownerId, handle, arg);
+          return;
         case 'open':
           await this.slackOpenChat(ownerId, handle, arg);
           return;
@@ -1730,7 +1892,7 @@ export class RemoteManager extends EventEmitter {
       logError('[RemoteManager] Slack relay command failed:', error);
       channel.sendNotice(
         handle,
-        'Something went wrong handling that command. Check York IE on your computer.'
+        'Something went wrong handling that command. Check York IE GrowthOS on your computer.'
       );
     }
   }
@@ -1813,7 +1975,7 @@ export class RemoteManager extends EventEmitter {
     const notice = (text: string) => channel?.sendNotice(handle, text);
     const entry = token ? this.slackChatTokens.get(token) : undefined;
     if (!entry || entry.expiresAt <= Date.now()) {
-      notice('That chat list has expired. Run /growth chats again.');
+      notice(`That chat list has expired. Run \`${SLACK_RELAY_SLASH_COMMAND} chats\` again.`);
       return;
     }
     const target = entry.sessionId;
@@ -1879,11 +2041,18 @@ export class RemoteManager extends EventEmitter {
   }
 
   private slackChatStatus(ownerId: string, handle: string): void {
+    const settings = [
+      `Model: ${describeModel(this.slackRelayProvider?.getCurrentModel?.(), [])}`,
+      `Workspace: ${describeWorkspace(remoteConfigStore.getSlackRelayWorkspace())}`,
+    ];
     const binding = this.currentSlackBinding(ownerId);
     if (!binding?.actualSessionId) {
       this.slackRelayChannel?.sendNotice(
         handle,
-        'No chat yet. Send a message to start one, or run /growth chats to pick one.'
+        [
+          `No chat yet. Send a message to start one, or run ${SLACK_RELAY_SLASH_COMMAND} chats to pick one.`,
+          ...settings,
+        ].join('\n')
       );
       return;
     }
@@ -1892,9 +2061,204 @@ export class RemoteManager extends EventEmitter {
     const lines = [
       `Current chat: ${session?.title || 'Untitled chat'}`,
       `Status: ${session?.status === 'running' ? 'working on it' : 'idle'}`,
+      ...settings,
       ...(folder ? [`Folder: ${folder}`] : []),
     ];
     this.slackRelayChannel?.sendNotice(handle, lines.join('\n'));
+  }
+
+  /** Model / workspace list as buttons, or as text when the backend predates pickers. */
+  private sendSlackPicker<T>(
+    handle: string,
+    kind: SlackRelayPickerKind,
+    choices: SlackRelayChoice<T>[],
+    currentKey: string | undefined,
+    note: string,
+    select: (
+      choice: SlackRelayChoice<T>
+    ) =>
+      | { kind: 'model'; modelId: string; label: string }
+      | { kind: 'workspace'; workspace: ActiveDivision }
+  ): void {
+    const channel = this.slackRelayChannel;
+    if (!channel) return;
+    const now = Date.now();
+    for (const [token, entry] of this.slackPickTokens) {
+      if (entry.expiresAt <= now) this.slackPickTokens.delete(token);
+    }
+    const shown = choices.slice(0, SLACK_RELAY_PICKER_MAX_ITEMS);
+    if (channel.supportsPickers) {
+      const items = shown.map((choice) => {
+        const token = opaqueId();
+        const current = choice.key === currentKey;
+        if (!current) {
+          this.slackPickTokens.set(token, {
+            ...select(choice),
+            expiresAt: now + SLACK_CHAT_TOKEN_TTL_MS,
+          });
+        }
+        return { token, label: choice.label, detail: choice.detail, current };
+      });
+      channel.sendPicker(handle, { kind, items, ...(note ? { note } : {}) });
+      return;
+    }
+    const lines = shown.map(
+      (choice) =>
+        `• *${choice.label}*${choice.detail ? ` (${choice.detail})` : ''}${
+          choice.key === currentKey ? ' – current' : ''
+        }`
+    );
+    channel.sendNotice(
+      handle,
+      [note, ...lines, `Type \`${SLACK_RELAY_SLASH_COMMAND} ${kind} <name>\` to switch.`]
+        .filter(Boolean)
+        .join('\n')
+    );
+  }
+
+  private async slackModel(handle: string, query?: string): Promise<void> {
+    const provider = this.slackRelayProvider;
+    const notice = (text: string) => this.slackRelayChannel?.sendNotice(handle, text);
+    if (!provider?.listModels || !provider.selectModel) {
+      notice("Changing the model from Slack isn't available in this version.");
+      return;
+    }
+    const models = await provider.listModels();
+    const choices = buildModelChoices(models);
+    const current = provider.getCurrentModel?.();
+    const currentNote = `Current model: ${describeModel(current, models)}.`;
+    const pick = (choice: SlackRelayChoice<string>) => ({
+      kind: 'model' as const,
+      modelId: choice.value,
+      label: choice.label,
+    });
+
+    if (!query) {
+      this.sendSlackPicker(handle, 'model', choices, current, currentNote, pick);
+      return;
+    }
+    const matches = matchChoices(choices, query);
+    if (matches.length === 1) {
+      await this.applySlackModel(handle, matches[0].value, matches[0].label);
+      return;
+    }
+    const note =
+      matches.length === 0
+        ? `No model matches "${query}". ${currentNote}`
+        : `Several models match "${query}". Pick one.`;
+    this.sendSlackPicker(handle, 'model', matches.length ? matches : choices, current, note, pick);
+  }
+
+  private async applySlackModel(handle: string, modelId: string, label: string): Promise<void> {
+    const provider = this.slackRelayProvider;
+    const notice = (text: string) => this.slackRelayChannel?.sendNotice(handle, text);
+    if (!provider?.selectModel) return;
+    if (provider.getCurrentModel?.() === modelId) {
+      notice(`Already using ${label}.`);
+      return;
+    }
+    const error = await provider.selectModel(modelId);
+    if (error) {
+      notice(`Couldn't switch the model: ${error}`);
+      return;
+    }
+    notice(`Model switched to ${label}. This also applies on your computer.`);
+    provider.notify('Slack changed the model', `York IE GrowthOS now uses ${label}.`);
+  }
+
+  private async slackWorkspace(ownerId: string, handle: string, query?: string): Promise<void> {
+    const provider = this.slackRelayProvider;
+    const notice = (text: string) => this.slackRelayChannel?.sendNotice(handle, text);
+    if (!provider?.listWorkspaceSources) {
+      notice("Changing the workspace from Slack isn't available in this version.");
+      return;
+    }
+    const sources = await provider.listWorkspaceSources();
+    const choices = buildWorkspaceChoices(sources.folders, sources.projects);
+    const current = remoteConfigStore.getSlackRelayWorkspace();
+    const currentKey = workspaceKey(current);
+    const currentNote = `Current workspace: ${describeWorkspace(current)}.`;
+    const loadNote = sources.error ? ` Some projects couldn't load: ${sources.error}` : '';
+    const pick = (choice: SlackRelayChoice<ActiveDivision>) => ({
+      kind: 'workspace' as const,
+      workspace: choice.value,
+    });
+
+    if (!query) {
+      const more =
+        choices.length > SLACK_RELAY_PICKER_MAX_ITEMS
+          ? ` Showing ${SLACK_RELAY_PICKER_MAX_ITEMS} of ${choices.length}; type \`${SLACK_RELAY_SLASH_COMMAND} workspace <name>\` to find others.`
+          : '';
+      this.sendSlackPicker(
+        handle,
+        'workspace',
+        choices,
+        currentKey,
+        `${currentNote}${more}${loadNote}`,
+        pick
+      );
+      return;
+    }
+    const matches = matchChoices(choices, query);
+    if (matches.length === 1) {
+      await this.applySlackWorkspace(ownerId, handle, matches[0].value);
+      return;
+    }
+    if (matches.length === 0) {
+      notice(`No workspace matches "${query}". ${currentNote}${loadNote}`);
+      return;
+    }
+    this.sendSlackPicker(
+      handle,
+      'workspace',
+      matches,
+      currentKey,
+      `Several workspaces match "${query}". Pick one.`,
+      pick
+    );
+  }
+
+  /** New Slack chats start in this workspace; the DM moves to a fresh chat there. */
+  private async applySlackWorkspace(
+    ownerId: string,
+    handle: string,
+    workspace: ActiveDivision
+  ): Promise<void> {
+    const label = describeWorkspace(workspace);
+    if (workspaceKey(workspace) === workspaceKey(remoteConfigStore.getSlackRelayWorkspace())) {
+      this.slackRelayChannel?.sendNotice(handle, `Already in ${label}.`);
+      return;
+    }
+    remoteConfigStore.setSlackRelayWorkspace(workspace.kind === 'general' ? null : workspace);
+    const workingDirectory = await this.detachSlackBinding(ownerId);
+    this.messageRouter.bindDmSession('slack', SLACK_RELAY_CHANNEL_ID, ownerId, {
+      workingDirectory,
+    });
+    this.slackRelayChannel?.sendNotice(
+      handle,
+      `Switched to the ${label} workspace. Your next message starts a new chat there.`
+    );
+    this.slackRelayProvider?.notify(
+      'Slack switched workspace',
+      `New Slack chats now start in ${label}.`
+    );
+  }
+
+  private async slackPick(ownerId: string, handle: string, token?: string): Promise<void> {
+    const entry = token ? this.slackPickTokens.get(token) : undefined;
+    if (!token || !entry || entry.expiresAt <= Date.now()) {
+      this.slackRelayChannel?.sendNotice(
+        handle,
+        `That list has expired. Run \`${SLACK_RELAY_SLASH_COMMAND} model\` or \`${SLACK_RELAY_SLASH_COMMAND} workspace\` again.`
+      );
+      return;
+    }
+    this.slackPickTokens.delete(token);
+    if (entry.kind === 'model') {
+      await this.applySlackModel(handle, entry.modelId, entry.label);
+    } else {
+      await this.applySlackWorkspace(ownerId, handle, entry.workspace);
+    }
   }
 
   // ============================================================================
@@ -2138,11 +2502,16 @@ export class RemoteManager extends EventEmitter {
     if (isNewSession) {
       // Create new session with working directory
       const strict = this.isStrictChannel(channelType);
+      const workspace = slackHandle ? remoteConfigStore.getSlackRelayWorkspace() : null;
       const newSession = await this.agentExecutor.startSession(
         buildRemoteSessionTitle(prompt),
         prompt,
         workingDirectory,
-        strict ? { strictRemote: true } : undefined
+        {
+          ...(strict ? { strictRemote: true } : {}),
+          ...(content.some((block) => block.type === 'image') ? { content } : {}),
+          ...(workspace ? { workspace } : {}),
+        }
       );
       if (strict) {
         this.slackRelayProvider?.notify(
