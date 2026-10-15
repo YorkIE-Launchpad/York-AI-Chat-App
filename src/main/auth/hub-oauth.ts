@@ -1,3 +1,4 @@
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { authConfig, isHubOAuthViteDevCallbackUrl } from '../../shared/auth-config';
@@ -73,7 +74,7 @@ function redirectUrlUsesViteDevServer(redirectUrl: string): boolean {
     if (process.env[APP_DATA_ENV_VAR] === 'dev') {
       return true;
     }
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { app } = require('electron') as typeof import('electron');
     return !app.isPackaged;
   } catch {
@@ -143,11 +144,35 @@ function waitForViteOAuthCode(redirectUri: string): Promise<string> {
   });
 }
 
-function createOAuthCallbackServer(
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function oauthStateMatches(received: string | null, expected: string): boolean {
+  if (!received) return false;
+  const a = createHash('sha256').update(received).digest();
+  const b = createHash('sha256').update(expected).digest();
+  return timingSafeEqual(a, b);
+}
+
+/** Overrides any upstream `state`; the Hub code exchange does not use it, the loopback callback does. */
+export function withOAuthState(authUrl: string, state: string): string {
+  const url = new URL(authUrl);
+  url.searchParams.set('state', state);
+  return url.toString();
+}
+
+export function createOAuthCallbackServer(
   redirectUrl: string,
   timeoutMs: number
 ): Promise<{
   redirectUrl: string;
+  state: string;
   waitForCode: () => Promise<string>;
   close: () => Promise<void>;
 }> {
@@ -171,6 +196,7 @@ function createOAuthCallbackServer(
   let rejectCode!: (error: Error) => void;
   let settled = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
+  const expectedState = randomBytes(32).toString('base64url');
 
   const codePromise = new Promise<string>((resolve, reject) => {
     resolveCode = resolve;
@@ -202,6 +228,14 @@ function createOAuthCallbackServer(
       return;
     }
 
+    // Leave the flow pending on mismatch so a forged callback cannot hijack or abort the real one.
+    if (!oauthStateMatches(parsedUrl.searchParams.get('state'), expectedState)) {
+      log('[Auth] Ignoring Hub OAuth callback with missing or mismatched state');
+      response.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
+      response.end('Invalid OAuth state. Start sign-in again from York GrowthOS.');
+      return;
+    }
+
     if (authorizationCode) {
       settled = true;
       response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -222,7 +256,9 @@ function createOAuthCallbackServer(
 
     settled = true;
     response.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
-    response.end(`<html><body><h1>Sign-in failed</h1><p>${failureMessage}</p></body></html>`);
+    response.end(
+      `<html><body><h1>Sign-in failed</h1><p>${escapeHtml(failureMessage)}</p></body></html>`
+    );
     rejectCode(new Error(failureMessage));
     void closeServer(server);
   });
@@ -253,6 +289,7 @@ function createOAuthCallbackServer(
 
       resolve({
         redirectUrl: boundRedirect,
+        state: expectedState,
         waitForCode: () =>
           codePromise.finally(() => {
             if (timer) {
@@ -405,7 +442,7 @@ export async function runHubGoogleOAuthFlow(): Promise<HubOAuthCallbackResult> {
   try {
     const authUrl = await fetchHubGoogleAuthUrl(listener.redirectUrl);
     const exchangeRedirect = resolveOAuthExchangeRedirectUri(authUrl, listener.redirectUrl);
-    openOAuthBrowserWindow(authUrl);
+    openOAuthBrowserWindow(withOAuthState(authUrl, listener.state));
     const code = await listener.waitForCode();
     return await finishHubOAuthAfterCode(code, exchangeRedirect);
   } catch (error) {

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+  buildZoomOauthBridgeCsp,
   buildZoomOauthBridgeHtml,
   buildZoomOauthMisconfiguredRedirectHtml,
   resolveZoomOauthLocalCallbackUrl,
@@ -76,6 +77,38 @@ describe('buildZoomOauthBridgeHtml', () => {
     });
     assert.match(html, /127\.0\.0\.1:19891\/callback/);
     assert.doesNotMatch(html, /api\.vecos\.yorkdevs\.link/);
+  });
+
+  it('cannot break out of the inline script via code or state', () => {
+    const payload = '</script><script>alert(1)</script><!--';
+    const html = buildZoomOauthBridgeHtml({
+      code: payload,
+      state: `x\u2028${payload}`,
+      localCallbackUrl: 'http://127.0.0.1:19891/callback',
+    });
+    assert.equal(html.match(/<\/script>/g)?.length, 1);
+    assert.doesNotMatch(html, /<script>alert/);
+    assert.doesNotMatch(html, /<!--/);
+    assert.doesNotMatch(html, /\u2028/);
+
+    const script = html.slice(html.indexOf('<script>') + 8, html.indexOf('</script>'));
+    const codeLiteral = /var code = (.*);/.exec(script)?.[1];
+    assert.equal(JSON.parse(codeLiteral ?? 'null'), payload);
+  });
+
+  it('adds the CSP nonce to the inline script', () => {
+    const html = buildZoomOauthBridgeHtml({ code: 'c', state: 's', nonce: 'abc123' });
+    assert.match(html, /<script nonce="abc123">/);
+  });
+});
+
+describe('buildZoomOauthBridgeCsp', () => {
+  it('only allows the nonce script and the local callback origin', () => {
+    const csp = buildZoomOauthBridgeCsp('n0nce', 'http://127.0.0.1:19891/callback');
+    assert.match(csp, /default-src 'none'/);
+    assert.match(csp, /script-src 'nonce-n0nce'/);
+    assert.match(csp, /connect-src http:\/\/127\.0\.0\.1:19891(;|$)/);
+    assert.doesNotMatch(csp, /unsafe-inline/);
   });
 });
 

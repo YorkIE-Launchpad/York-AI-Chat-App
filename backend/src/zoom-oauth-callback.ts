@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import type { Request, Response, Router } from 'express';
 import { Router as createRouter } from 'express';
 import { logWarn } from './safe-log.js';
@@ -13,8 +14,33 @@ function escapeHtml(value: string): string {
     .replace(/'/g, '&#39;');
 }
 
+/** JSON string literal that is also safe inside an inline `<script>` element. */
 function escapeJsString(value: string): string {
-  return JSON.stringify(value);
+  return JSON.stringify(value)
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/&/g, '\\u0026')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
+}
+
+function localCallbackOrigin(localCallbackUrl: string): string {
+  try {
+    return new URL(localCallbackUrl).origin;
+  } catch {
+    return new URL(DEFAULT_LOCAL_CALLBACK).origin;
+  }
+}
+
+export function buildZoomOauthBridgeCsp(nonce: string, localCallbackUrl: string): string {
+  return [
+    "default-src 'none'",
+    `script-src 'nonce-${nonce}'`,
+    `connect-src ${localCallbackOrigin(localCallbackUrl)}`,
+    "base-uri 'none'",
+    "form-action 'none'",
+    "frame-ancestors 'none'",
+  ].join('; ');
 }
 
 /**
@@ -80,6 +106,7 @@ export function buildZoomOauthBridgeHtml(input: {
   state?: string;
   error?: string;
   localCallbackUrl?: string;
+  nonce?: string;
 }): string {
   const localCallback = resolveZoomOauthLocalCallbackUrl(input.localCallbackUrl);
   const error = input.error?.trim() || '';
@@ -113,7 +140,7 @@ export function buildZoomOauthBridgeHtml(input: {
 <body>
   <h1>Connecting Zoom…</h1>
   <p id="status">Handing off to York. Keep this window open for a moment.</p>
-  <script>
+  <script${input.nonce ? ` nonce="${escapeHtml(input.nonce)}"` : ''}>
     (function () {
       var code = ${escapeJsString(code)};
       var state = ${escapeJsString(state)};
@@ -210,14 +237,19 @@ export function createZoomOauthCallbackRouter(): Router {
           ? req.query.error_description
           : undefined;
 
+    const nonce = randomBytes(16).toString('base64');
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Content-Security-Policy', buildZoomOauthBridgeCsp(nonce, localCallbackUrl));
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Referrer-Policy', 'no-referrer');
     res.status(200).send(
       buildZoomOauthBridgeHtml({
         code,
         state,
         error,
         localCallbackUrl,
+        nonce,
       })
     );
   });

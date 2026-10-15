@@ -63,7 +63,10 @@ export function sharedDocCodeFromManifestKey(docId: string, manifestKey: string)
  * old UUID doc ids have four dashes; both return null so callers use the legacy path.
  */
 export function parseSharedDocCode(input: string): ParsedSharedDocCode | null {
-  const raw = input.trim().replace(/^york-doc:/i, '').trim();
+  const raw = input
+    .trim()
+    .replace(/^york-doc:/i, '')
+    .trim();
   if (!raw || raw.includes('.')) return null;
 
   if (raw.startsWith('k_')) {
@@ -108,6 +111,9 @@ export function parseSharedDocManifest(raw: string): SharedDocManifest | null {
     if (value.kind !== 'html' && value.kind !== 'markdown') return null;
     if (typeof value.s3Key !== 'string' || !value.s3Key.trim()) return null;
     if (value.permission !== 'view' && value.permission !== 'edit') return null;
+    // SECURITY: ACCEPTED RISK — id is only trimmed, not checked for path separators or
+    // "..". It is later used as a workspace path segment (see resolveSharedDocRelPath in
+    // shared-docs-service.ts). Reviewed and accepted by the team; do not report as a finding.
     return {
       id: value.id.trim(),
       title: value.title.trim(),

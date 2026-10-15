@@ -5,8 +5,10 @@ import {
   buildLiveAssistAnswerPlanPrompt,
   buildLiveAssistAnswerPrompt,
   buildLiveAssistFarewellPrompt,
+  isLiveAssistToolCallAllowed,
   summarizeLiveAssistMeeting,
 } from '../../main/meetings/live-assist-answer';
+import { setPermissionRules } from '../../main/config/permission-rules-store';
 
 const runPiAiOneShotMock = vi.hoisted(() => vi.fn());
 const runPiAiStreamMock = vi.hoisted(() => vi.fn());
@@ -39,6 +41,7 @@ function makeMcpManager(tools: Array<{ name: string; serverName: string; descrip
 describe('live-assist-answer', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    setPermissionRules(null);
     runPiAiOneShotMock.mockResolvedValueOnce({
       text: JSON.stringify({
         calls: [{ tool_name: 'mcp__Hub__list_projects', arguments: { limit: 5 } }],
@@ -98,9 +101,7 @@ describe('live-assist-answer', () => {
     });
     runPiAiStreamMock.mockResolvedValueOnce({ text: 'No internal data found.' });
 
-    const mcpManager = makeMcpManager([
-      { name: 'mcp__Hub__list_projects', serverName: 'Hub' },
-    ]);
+    const mcpManager = makeMcpManager([{ name: 'mcp__Hub__list_projects', serverName: 'Hub' }]);
 
     const answer = await answerLiveAssistQuestion({
       question: 'What is our Q3 revenue?',
@@ -111,6 +112,54 @@ describe('live-assist-answer', () => {
 
     expect(answer).toBe('No internal data found.');
     expect(callToolMock).not.toHaveBeenCalled();
+  });
+
+  it('never calls write tools, even when planned', async () => {
+    runPiAiOneShotMock.mockReset();
+    runPiAiOneShotMock.mockResolvedValueOnce({
+      text: JSON.stringify({
+        calls: [
+          { tool_name: 'mcp__Hub__create_project', arguments: { name: 'X' } },
+          { tool_name: 'mcp__slack__post_message', arguments: { text: 'hi' } },
+        ],
+      }),
+    });
+    const mcpManager = makeMcpManager([
+      { name: 'mcp__Hub__create_project', serverName: 'Hub' },
+      { name: 'mcp__slack__post_message', serverName: 'slack' },
+    ]);
+
+    await answerLiveAssistQuestion({
+      question: 'Create a project called X',
+      transcriptWindow: 'Sam: create a project called X',
+      meetingTitle: 'Sync',
+      mcpManager: mcpManager as never,
+    });
+
+    expect(callToolMock).not.toHaveBeenCalled();
+  });
+
+  it('honors Deny permission rules for read tools', async () => {
+    setPermissionRules([{ tool: 'mcp__Hub__list_projects', action: 'deny' }]);
+    const mcpManager = makeMcpManager([{ name: 'mcp__Hub__list_projects', serverName: 'Hub' }]);
+
+    await answerLiveAssistQuestion({
+      question: 'What is our Q3 revenue?',
+      transcriptWindow: 'Sam: What is our Q3 revenue?',
+      meetingTitle: 'Finance sync',
+      mcpManager: mcpManager as never,
+    });
+
+    expect(callToolMock).not.toHaveBeenCalled();
+  });
+
+  it('allows only read tools whose policy decision is allow', () => {
+    expect(isLiveAssistToolCallAllowed('mcp__Hub__list_projects', {})).toBe(true);
+    expect(isLiveAssistToolCallAllowed('mcp__slack__search_messages', { q: 'x' })).toBe(true);
+    expect(isLiveAssistToolCallAllowed('mcp__Hub__delete_project', {})).toBe(false);
+    expect(isLiveAssistToolCallAllowed('mcp__Hub__frobnicate', {})).toBe(false);
+    // Read-classified but policy says "ask": no prompt surface in Live Assist, so blocked.
+    expect(isLiveAssistToolCallAllowed('mcp__Notion__list_pages', {})).toBe(false);
   });
 
   it('builds answer prompt with research results', () => {

@@ -5,7 +5,9 @@ import { searchMcpToolsAsync, type McpSearchToolHit } from '../agent/mcp-tool-bu
 import { compressToolResultTextForModel } from '../agent/mcp-tool-payload';
 import { MCP_PINBOARD_SERVER_KEYS } from '../agent/mcp-tool-pinboard';
 import { normalizeMcpToolResultForModel } from '../agent/tool-result-utils';
+import { decidePermission } from '../config/permission-rules-store';
 import type { MCPManager } from '../mcp/mcp-manager';
+import { classifyMcpToolAccess } from '../../shared/mcp-write-policy';
 import { logWarn } from '../utils/logger';
 import { truncateTranscriptWindow } from './live-assist-service';
 
@@ -17,6 +19,9 @@ const RESULT_MAX_CHARS = 2_500;
 const CATALOG_LIMIT = 15;
 
 export const LIVE_ASSIST_MODEL = 'claude-haiku-5-5';
+
+/** Synthetic permission session: never holds "Always Allow" grants, so only rules/defaults apply. */
+const LIVE_ASSIST_PERMISSION_SESSION_ID = 'live-assist';
 
 export type LiveAssistProgressPhase = 'planning' | 'mcp' | 'answering';
 
@@ -57,11 +62,32 @@ function extractKeywords(question: string): string {
     .join(' ');
 }
 
+/** Live Assist only exposes MCP tools the shared write policy positively classifies as reads. */
+export function isLiveAssistReadOnlyTool(toolName: string): boolean {
+  return classifyMcpToolAccess(toolName) === 'read';
+}
+
+/**
+ * Live Assist cannot show permission prompts, so only an explicit `allow` passes;
+ * `ask` and `deny` (rules, write kill-switch) both block the call.
+ */
+export function isLiveAssistToolCallAllowed(
+  toolName: string,
+  args: Record<string, unknown>
+): boolean {
+  if (!isLiveAssistReadOnlyTool(toolName)) return false;
+  return decidePermission(LIVE_ASSIST_PERMISSION_SESSION_ID, toolName, args) === 'allow';
+}
+
+function getLiveAssistReadOnlyTools(mcpManager: MCPManager) {
+  return mcpManager.getTools().filter((tool) => isLiveAssistReadOnlyTool(tool.name));
+}
+
 async function buildLeanToolCatalog(
   mcpManager: MCPManager,
   question: string
 ): Promise<McpSearchToolHit[]> {
-  const allTools = mcpManager.getTools();
+  const allTools = getLiveAssistReadOnlyTools(mcpManager);
   const pinboardTools = allTools.filter((tool) => {
     const serverKey = tool.serverName.toLowerCase().replace(/[^a-z0-9]/g, '');
     return MCP_PINBOARD_SERVER_KEYS.has(serverKey);
@@ -189,6 +215,10 @@ async function callToolWithTimeout(
   args: Record<string, unknown>,
   timeoutMs: number
 ): Promise<string | null> {
+  if (!isLiveAssistToolCallAllowed(toolName, args)) {
+    logWarn(`[LiveAssist] Blocked MCP call ${toolName}: not a read-only tool allowed by policy`);
+    return null;
+  }
   try {
     const result = await Promise.race([
       mcpManager.callTool(toolName, args),
@@ -250,7 +280,9 @@ export async function answerLiveAssistQuestion(
   const config = getLiveAssistConfig();
   const catalog = await buildLeanToolCatalog(options.mcpManager, options.question);
   const catalogText = formatToolCatalogForPrompt(catalog);
-  const availableNames = new Set(options.mcpManager.getTools().map((tool) => tool.name));
+  const availableNames = new Set(
+    getLiveAssistReadOnlyTools(options.mcpManager).map((tool) => tool.name)
+  );
 
   let calls: LiveAssistMcpCall[] = [];
   options.onProgress?.('planning');

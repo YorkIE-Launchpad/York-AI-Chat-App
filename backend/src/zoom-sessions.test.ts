@@ -188,6 +188,73 @@ describe('zoom-sessions', () => {
     assert.equal(page.segments[0]?.speaker, 'Lin');
   });
 
+  it('does not route unknown-UUID transcripts to another user’s unbound session', () => {
+    registerZoomSession({ yorkMeetingId: 'victim-york', userSub: 'victim' });
+    const routed = appendSegmentToZoomUuid('unknown-uuid', {
+      id: 'x1',
+      text: 'secret',
+      speaker: 'Ada',
+      speakerUserId: '1',
+      startedAt: Date.now(),
+      endedAt: Date.now(),
+    });
+    assert.equal(routed, null);
+    assert.equal(getOrphanSegmentCountForTests('unknown-uuid'), 1);
+    assert.equal(listSegmentsAfter('victim-york', 'victim', 0).segments.length, 0);
+  });
+
+  it('rejects re-registering a York meeting owned by another user', () => {
+    registerZoomSession({ yorkMeetingId: 'owned', userSub: 'owner', zoomMeetingUuid: 'z-own' });
+    appendSegmentToZoomUuid('z-own', {
+      id: 'p1',
+      text: 'private',
+      speaker: 'Ada',
+      speakerUserId: '1',
+      startedAt: 1,
+      endedAt: 2,
+    });
+
+    const result = registerZoomSession({ yorkMeetingId: 'owned', userSub: 'attacker' });
+    assert.deepEqual(result, { ok: false, reason: 'york_meeting_owned_by_other_user' });
+    assert.equal(listSegmentsAfter('owned', 'attacker', 0).segments.length, 0);
+    assert.equal(listSegmentsAfter('owned', 'owner', 0).segments.length, 1);
+  });
+
+  it('rejects claiming a Zoom UUID bound to another user’s session', () => {
+    registerZoomSession({
+      yorkMeetingId: 'victim-y',
+      userSub: 'victim',
+      zoomMeetingUuid: 'z-shared',
+    });
+    const result = registerZoomSession({
+      yorkMeetingId: 'attacker-y',
+      userSub: 'attacker',
+      zoomMeetingUuid: 'z-shared',
+    });
+    assert.deepEqual(result, { ok: false, reason: 'zoom_uuid_bound_to_other_user' });
+
+    appendSegmentToZoomUuid('z-shared', {
+      id: 'v1',
+      text: 'still mine',
+      speaker: 'Ada',
+      speakerUserId: '1',
+      startedAt: 1,
+      endedAt: 2,
+    });
+    assert.equal(listSegmentsAfter('victim-y', 'victim', 0).segments.length, 1);
+    assert.equal(listSegmentsAfter('attacker-y', 'attacker', 0).segments.length, 0);
+  });
+
+  it('lets the same user move a Zoom UUID between their own sessions', () => {
+    registerZoomSession({ yorkMeetingId: 'first', userSub: 'u1', zoomMeetingUuid: 'z-move' });
+    const result = registerZoomSession({
+      yorkMeetingId: 'second',
+      userSub: 'u1',
+      zoomMeetingUuid: 'z-move',
+    });
+    assert.equal(result.ok, true);
+  });
+
   it('verifies webhook signatures', () => {
     const body = '{"ok":true}';
     const timestamp = '1';

@@ -29,7 +29,10 @@ interface WSClient {
   userId?: string;
   connectedAt: number;
   ip: string;
+  authTimeout?: NodeJS.Timeout;
 }
+
+const WS_AUTH_TIMEOUT_MS = 10_000;
 
 // WebSocket message protocol
 interface WSMessage {
@@ -87,6 +90,20 @@ export class RemoteGateway extends EventEmitter {
       this.wss = new WebSocketServer({
         server: this.httpServer,
         path: '/ws',
+        maxPayload: 1024 * 1024,
+        verifyClient: (info, cb) => {
+          const rejection = this.getWSUpgradeRejection(info.req);
+          if (rejection) {
+            logWarn('[Gateway] Rejected WS upgrade:', {
+              reason: rejection.reason,
+              ip: info.req.socket.remoteAddress,
+              origin: info.origin,
+            });
+            cb(false, rejection.status, rejection.reason);
+            return;
+          }
+          cb(true);
+        },
       });
 
       this.wss.on('connection', this.handleWSConnection.bind(this));
@@ -682,6 +699,12 @@ export class RemoteGateway extends EventEmitter {
       ip,
     };
 
+    client.authTimeout = setTimeout(() => {
+      if (!client.authenticated) {
+        ws.close(4401, 'Authentication timeout');
+      }
+    }, WS_AUTH_TIMEOUT_MS);
+
     this.wsClients.set(clientId, client);
     log('[Gateway] WebSocket client connected:', clientId);
 
@@ -694,6 +717,7 @@ export class RemoteGateway extends EventEmitter {
     });
 
     ws.on('close', () => {
+      this.clearWSAuthTimeout(client);
       this.wsClients.delete(clientId);
       log('[Gateway] WebSocket client disconnected:', clientId);
     });
@@ -758,32 +782,65 @@ export class RemoteGateway extends EventEmitter {
       return;
     }
 
-    const { token } = message.payload as { token?: string };
+    const { token } = (message.payload ?? {}) as { token?: unknown };
 
-    if (this.config.auth.mode === 'token') {
-      if (token === this.config.auth.token) {
-        client.authenticated = true;
-        this.sendWSMessage(client.ws, {
-          type: 'auth_result',
-          payload: { success: true },
-          requestId: message.requestId,
-        });
-        log('[Gateway] WS client authenticated:', client.id);
-      } else {
-        this.sendWSMessage(client.ws, {
-          type: 'auth_result',
-          payload: { success: false, error: 'Invalid token' },
-          requestId: message.requestId,
-        });
-      }
-    } else {
-      // Other auth modes don't require token for WS
-      client.authenticated = true;
+    if (!this.isWSTokenAuthAvailable() || !this.isValidWSToken(token)) {
       this.sendWSMessage(client.ws, {
         type: 'auth_result',
-        payload: { success: true },
+        payload: { success: false, error: 'Invalid token' },
         requestId: message.requestId,
       });
+      return;
+    }
+
+    client.authenticated = true;
+    this.clearWSAuthTimeout(client);
+    this.sendWSMessage(client.ws, {
+      type: 'auth_result',
+      payload: { success: true },
+      requestId: message.requestId,
+    });
+    log('[Gateway] WS client authenticated:', client.id);
+  }
+
+  /**
+   * WS clients have no channel identity, so only token mode (with a configured
+   * token) can authenticate them; allowlist/pairing/open apply to channel users.
+   */
+  private isWSTokenAuthAvailable(): boolean {
+    const { mode, token } = this.config.auth;
+    return mode === 'token' && typeof token === 'string' && token.length > 0;
+  }
+
+  private isValidWSToken(candidate: unknown): boolean {
+    const expected = this.config.auth.token;
+    if (typeof candidate !== 'string' || !expected) {
+      return false;
+    }
+    const a = crypto.createHash('sha256').update(candidate).digest();
+    const b = crypto.createHash('sha256').update(expected).digest();
+    return crypto.timingSafeEqual(a, b);
+  }
+
+  /**
+   * Browsers always send Origin and cannot forge it, so any Origin means a web
+   * page is attempting a cross-site WebSocket connection. Legitimate gateway
+   * clients are non-browser processes.
+   */
+  private getWSUpgradeRejection(req: IncomingMessage): { status: number; reason: string } | null {
+    if (!this.isWSTokenAuthAvailable()) {
+      return { status: 403, reason: 'WebSocket access requires token auth mode' };
+    }
+    if (req.headers.origin !== undefined) {
+      return { status: 403, reason: 'Origin not allowed' };
+    }
+    return null;
+  }
+
+  private clearWSAuthTimeout(client: WSClient): void {
+    if (client.authTimeout) {
+      clearTimeout(client.authTimeout);
+      client.authTimeout = undefined;
     }
   }
 

@@ -339,14 +339,25 @@ export function createZoomSessionRouter(): Router {
       res.status(400).json({ error: 'yorkMeetingId required' });
       return;
     }
-    const record = registerZoomSession({
+    const result = registerZoomSession({
       yorkMeetingId: body.yorkMeetingId.trim(),
       userSub,
       zoomMeetingUuid: body.zoomMeetingUuid,
       zoomMeetingId: body.zoomMeetingId,
       zoomUserId: body.zoomUserId,
     });
-    res.json({ ok: true, session: { yorkMeetingId: record.yorkMeetingId } });
+    if (!result.ok) {
+      logWarn(
+        '[york-ie-backend] Zoom session register rejected',
+        `reason=${result.reason}`,
+        `yorkMeetingId=${body.yorkMeetingId.trim()}`
+      );
+      res
+        .status(409)
+        .json({ error: 'Zoom session is registered to another user', reason: result.reason });
+      return;
+    }
+    res.json({ ok: true, session: { yorkMeetingId: result.record.yorkMeetingId } });
   });
 
   router.get('/sessions/:yorkMeetingId/segments', (req: CognitoRequest, res: Response) => {

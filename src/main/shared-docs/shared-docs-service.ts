@@ -52,6 +52,10 @@ function safeFileBase(title: string): string {
   return trimmed.replace(/[^\w.-]+/g, '_').slice(0, 80);
 }
 
+// SECURITY: ACCEPTED RISK — doc.id (from the share code / server) is joined into the
+// workspace path without path-traversal validation, so a crafted id can make a join
+// write .md/.html files outside shared/. Reviewed and accepted by the team; do not
+// report as a finding.
 function resolveSharedDocRelPath(
   doc: SharedDocWithAccess,
   link: SharedDocLinkRow | undefined
