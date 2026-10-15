@@ -148,7 +148,17 @@ export interface RemoteConfig {
     telegram?: Record<string, unknown>;
     dingtalk?: Record<string, unknown>;
     websocket?: Record<string, unknown>;
+    slackRelay?: { enabled: boolean; idleTimeoutHours?: number };
   };
+}
+
+/** State of Slack remote control via the York backend relay. */
+export interface SlackRelayStatus {
+  enabled: boolean;
+  connected: boolean;
+  slackConnected: boolean;
+  lastError: string | null;
+  idleTimeoutHours: number;
 }
 
 /** A user that has been paired with a remote channel. */

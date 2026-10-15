@@ -354,7 +354,9 @@ const MATTER_LOOP_CLEANUP_PROMPT = [
   'Rewrite Matter signals into personal loop titles for ONE user.',
   'title: a concrete commitment they can tick off, at most 90 characters.',
   'Remove RE:/FW:, channel names, email subjects, and stack-trace noise. Keep the actual ask.',
-  'notes: one sentence of useful context, or null.',
+  'notes: one sentence of useful context, or null. When the signal holds several distinct asks,',
+  'deliverables, or steps, use a short markdown list instead ("- " bullets, or "1. " when order matters;',
+  'at most 5 items, one line each, no headings). Do not split a single point into a list.',
   'Return one item per input, with the same index. Do not drop items.',
   'Return ONLY JSON: {"items":[{"index":0,"title":"...","notes":null}]}.',
 ].join(' ');

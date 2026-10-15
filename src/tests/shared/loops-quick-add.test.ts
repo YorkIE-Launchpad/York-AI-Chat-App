@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { loopDueBucket, normalizeLoopsRuntimeConfig, parseLoopQuickAdd } from '../../shared/loops';
+import {
+  loopDueBucket,
+  normalizeLoopsRuntimeConfig,
+  parseLoopQuickAdd,
+  parseLoopQuickAddDraft,
+} from '../../shared/loops';
 
 // Wednesday, 2026-09-30 10:00 local
 const NOW = new Date(2026, 8, 30, 10, 0, 0, 0).getTime();
@@ -35,6 +40,31 @@ describe('parseLoopQuickAdd', () => {
   it('parses m/d and rolls past dates into next year', () => {
     expect(ymd(parseLoopQuickAdd('renew licence 10/15', NOW).dueAt)).toBe('2026-10-15');
     expect(ymd(parseLoopQuickAdd('tax filing 3/1', NOW).dueAt)).toBe('2027-3-1');
+  });
+});
+
+describe('parseLoopQuickAddDraft', () => {
+  it('keeps a single line as the title with no notes', () => {
+    const draft = parseLoopQuickAddDraft('send deck to Raj fri', NOW);
+    expect(draft.title).toBe('send deck to Raj');
+    expect(draft.notes).toBeNull();
+    expect(ymd(draft.dueAt)).toBe('2026-10-2');
+  });
+
+  it('keeps following lines as markdown notes, preserving list structure', () => {
+    const draft = parseLoopQuickAddDraft(
+      '\nPrep Acme review tomorrow\n\n- pricing sheet\n  - enterprise tier\n1. send recap\n2. book follow-up\n\n',
+      NOW
+    );
+    expect(draft.title).toBe('Prep Acme review');
+    expect(ymd(draft.dueAt)).toBe('2026-10-1');
+    expect(draft.notes).toBe(
+      '- pricing sheet\n  - enterprise tier\n1. send recap\n2. book follow-up'
+    );
+  });
+
+  it('returns an empty title for blank input', () => {
+    expect(parseLoopQuickAddDraft('  \n \n', NOW)).toEqual({ title: '', notes: null, dueAt: null });
   });
 });
 

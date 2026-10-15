@@ -90,6 +90,16 @@ const alwaysAllowBySession = new Map<string, Set<string>>();
 const autoApproveToolPermissionsBySession = new Set<string>();
 
 /**
+ * Sessions driven from a remote chat (Slack relay). The person approving is on a
+ * phone, so every non-denied tool asks, nothing is remembered, and tools that run
+ * child agents without prompts are blocked outright.
+ */
+const strictRemoteSessions = new Set<string>();
+
+/** Child agents treat `ask` as `allow`, which would bypass remote approval. */
+const STRICT_REMOTE_DENIED_TOOLS = new Set(['spawn_subagent', 'mcp_run']);
+
+/**
  * Sanitize an untrusted rules payload from IPC. Drops entries with empty
  * tool names, coerces invalid `action` values to `'ask'`, and preserves
  * optional string `pattern` fields. Returns null for non-array input.
@@ -223,6 +233,7 @@ export function decidePermission(
 }
 
 export function rememberAlwaysAllow(sessionId: string, toolName: string): void {
+  if (strictRemoteSessions.has(sessionId)) return;
   const set = alwaysAllowBySession.get(sessionId) ?? new Set<string>();
   set.add(toolName.toLowerCase());
   alwaysAllowBySession.set(sessionId, set);
@@ -270,6 +281,20 @@ export function sessionAutoApprovesToolPermissions(sessionId: string): boolean {
   return autoApproveToolPermissionsBySession.has(sessionId);
 }
 
+export function markStrictRemoteSession(sessionId: string): void {
+  strictRemoteSessions.add(sessionId);
+  alwaysAllowBySession.delete(sessionId);
+  autoApproveToolPermissionsBySession.delete(sessionId);
+}
+
+export function unmarkStrictRemoteSession(sessionId: string): void {
+  strictRemoteSessions.delete(sessionId);
+}
+
+export function isStrictRemoteSession(sessionId: string): boolean {
+  return strictRemoteSessions.has(sessionId);
+}
+
 /**
  * Effective permission for the agent tool hook: same as decidePermission, except
  * sessions marked with rememberAutoApproveToolPermissions convert `ask` → `allow`
@@ -281,6 +306,10 @@ export function resolveSessionToolPermission(
   input: Record<string, unknown>
 ): 'allow' | 'deny' | 'ask' {
   const decision = decidePermission(sessionId, toolName, input);
+  if (strictRemoteSessions.has(sessionId)) {
+    if (STRICT_REMOTE_DENIED_TOOLS.has(toolName.toLowerCase())) return 'deny';
+    return decision === 'deny' ? 'deny' : 'ask';
+  }
   if (decision === 'ask' && sessionAutoApprovesToolPermissions(sessionId)) {
     return 'allow';
   }
@@ -297,6 +326,7 @@ export async function resolveSessionToolPermissionAsync(
 ): Promise<'allow' | 'deny' | 'ask'> {
   const decision = resolveSessionToolPermission(sessionId, toolName, input);
   if (decision !== 'ask') return decision;
+  if (strictRemoteSessions.has(sessionId)) return decision;
   if (!toolName.toLowerCase().startsWith('mcp__')) return decision;
   try {
     const { softPermissionAskWithJev } = await import('../jev/permissions-jev');

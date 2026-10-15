@@ -3,12 +3,12 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { CalendarClock, Plus, Settings, UserRound, Users, X } from 'lucide-react';
+import { AlignLeft, CalendarClock, Plus, Settings, UserRound, Users, X } from 'lucide-react';
 import { useAppStore } from '../../store';
 import {
   DEFAULT_LOOPS_RUNTIME,
   loopDueBucket,
-  parseLoopQuickAdd,
+  parseLoopQuickAddDraft,
   type Loop,
   type LoopDueBucket,
   type LoopsRuntimeConfig,
@@ -93,16 +93,20 @@ export function LoopsPage({ onClose }: LoopsPageProps) {
   const update = (id: string, updates: LoopUpdateInput) =>
     api && void run(() => api.update(id, updates));
 
-  const draftPreview = useMemo(() => (draft.trim() ? parseLoopQuickAdd(draft) : null), [draft]);
+  const draftPreview = useMemo(
+    () => (draft.trim() ? parseLoopQuickAddDraft(draft) : null),
+    [draft]
+  );
 
   const submitDraft = () => {
     if (!api) return;
-    const { title, dueAt } = parseLoopQuickAdd(draft);
+    const { title, notes, dueAt } = parseLoopQuickAddDraft(draft);
     if (!title) return;
     setDraft('');
     void run(() =>
       api.create({
         title,
+        notes,
         dueAt,
         owner: waitingDraft ? 'other' : 'me',
         research: researchDraft,
@@ -164,6 +168,7 @@ export function LoopsPage({ onClose }: LoopsPageProps) {
     onSetOwner: (id: string, owner: 'me' | 'other') => update(id, { owner }),
     onReopen: (id: string) => update(id, { status: 'open' }),
     onRename: (id: string, title: string) => update(id, { title }),
+    onSetNotes: (id: string, notes: string | null) => update(id, { notes }),
     onSetDue: (id: string, dueAt: number | null) => update(id, { dueAt }),
     onOpenSource: openSource,
     onResearch: (id: string) => api && void run(() => api.research(id)),
@@ -285,13 +290,20 @@ export function LoopsPage({ onClose }: LoopsPageProps) {
             }}
             className="rounded-[14px] border border-border bg-surface px-3.5 py-3 transition-[border-color,box-shadow] focus-within:border-accent focus-within:ring-[3px] focus-within:ring-accent/15"
           >
-            <div className="flex items-center gap-2">
-              <Plus className="h-4 w-4 shrink-0 text-text-muted" />
-              <input
+            <div className="flex items-start gap-2">
+              <Plus className="mt-1.5 h-4 w-4 shrink-0 text-text-muted" />
+              <textarea
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                    e.preventDefault();
+                    submitDraft();
+                  }
+                }}
+                rows={Math.min(8, draft.split('\n').length)}
                 placeholder={t('followUps.quickAddPlaceholder')}
-                className="min-w-0 flex-1 bg-transparent text-[14px] text-text-primary outline-none placeholder:text-text-muted"
+                className="min-w-0 flex-1 resize-none bg-transparent py-1 text-[14px] leading-5 text-text-primary outline-none placeholder:text-text-muted"
               />
               <button
                 type="submit"
@@ -318,6 +330,12 @@ export function LoopsPage({ onClose }: LoopsPageProps) {
                         })
                       : t('followUps.noDue')}
                   </span>
+                  {draftPreview.notes ? (
+                    <span className="meta-chip">
+                      <AlignLeft className="h-3 w-3" />
+                      {t('followUps.withNotes')}
+                    </span>
+                  ) : null}
                 </span>
               ) : (
                 <span>{t('followUps.quickAddHint')}</span>

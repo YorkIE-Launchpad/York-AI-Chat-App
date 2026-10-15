@@ -31,6 +31,7 @@ import {
   isAtlassianCatalogServerId,
   sortMcpServersByDefaultOrder,
 } from '../../../shared/mcp-defaults';
+import { SlackRemoteControlToggle } from './SlackRemoteControlToggle';
 
 const isElectron = typeof window !== 'undefined' && window.electronAPI !== undefined;
 
@@ -52,9 +53,7 @@ function isLaunchpadMcpServer(server: MCPServerConfig): boolean {
   }
   const args = server.args ?? [];
   const hasMcpRemote = args.some((arg) => arg.includes('mcp-remote'));
-  const hasLaunchpadUrl = args.some((arg) =>
-    /(?:^|\/\/)launchpad\.yorkdevs\.link/i.test(arg)
-  );
+  const hasLaunchpadUrl = args.some((arg) => /(?:^|\/\/)launchpad\.yorkdevs\.link/i.test(arg));
   return hasMcpRemote && hasLaunchpadUrl;
 }
 
@@ -366,10 +365,7 @@ export function SettingsConnectors({ isActive }: { isActive: boolean }) {
     setPresetEnvValues({});
   }
 
-  async function handleSaveServer(
-    server: MCPServerConfig,
-    options?: { busyServerId?: string }
-  ) {
+  async function handleSaveServer(server: MCPServerConfig, options?: { busyServerId?: string }) {
     const busyServerId = options?.busyServerId;
     if (busyServerId) {
       markServerBusy(busyServerId);
@@ -662,6 +658,9 @@ export function SettingsConnectors({ isActive }: { isActive: boolean }) {
                     <Plug className="mt-0.5 h-4 w-4 shrink-0 text-text-muted" />
                   )}
                 </div>
+                {isElectron && connector.connectorId === 'slack' && connector.connected && (
+                  <SlackRemoteControlToggle />
+                )}
                 <div className="mt-auto flex flex-wrap gap-2 pt-4">
                   {connector.connected ? (
                     <button
@@ -701,7 +700,8 @@ export function SettingsConnectors({ isActive }: { isActive: boolean }) {
               );
               const confluence = atlassianPair.find(
                 (s) =>
-                  s.id === DEFAULT_CONFLUENCE_MCP_SERVER_ID || s.name === DEFAULT_CONFLUENCE_MCP_NAME
+                  s.id === DEFAULT_CONFLUENCE_MCP_SERVER_ID ||
+                  s.name === DEFAULT_CONFLUENCE_MCP_NAME
               );
               const primaryAtlassian = jira ?? confluence;
               const atlassianTools = atlassianPair.flatMap((s) => getServerTools(s.id));

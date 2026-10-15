@@ -258,6 +258,17 @@ describe('cleanupMatterLoopDrafts', () => {
     ]);
   });
 
+  it('keeps markdown list notes intact', async () => {
+    const notes = '- Serial number\n- Proof of purchase\n- Photos of the damage';
+    const complete = vi.fn().mockResolvedValue({
+      text: JSON.stringify({
+        items: [{ index: 0, title: 'Send Apple the warranty details', notes }],
+      }),
+    });
+    const drafts = await cleanupMatterLoopDrafts([item], { complete, embed: vi.fn() });
+    expect(drafts[0]?.notes).toBe(notes);
+  });
+
   it('keeps the original wording when the AI call fails', async () => {
     const complete = vi.fn().mockRejectedValue(new Error('offline'));
     const drafts = await cleanupMatterLoopDrafts([item], { complete, embed: vi.fn() });

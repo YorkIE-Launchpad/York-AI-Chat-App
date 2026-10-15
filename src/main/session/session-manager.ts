@@ -49,6 +49,8 @@ import {
   forgetSessionPermissions,
   rememberAutoApproveToolPermissions,
   sessionAutoApprovesToolPermissions,
+  isStrictRemoteSession,
+  markStrictRemoteSession,
 } from '../config/permission-rules-store';
 import { applyPermissionEdits, PERMISSION_AUTO_APPROVE_MS } from '../../shared/permission-policy';
 import {
@@ -465,6 +467,8 @@ export class SessionManager {
       incognito?: boolean;
       autoApproveToolPermissions?: boolean;
       skillsDisabled?: boolean;
+      /** Remote-chat session: must be marked before the first prompt is queued. */
+      strictRemote?: boolean;
     }
   ): Promise<Session> {
     const isIncognito = options?.incognito === true;
@@ -475,8 +479,11 @@ export class SessionManager {
       cwd,
       allowedTools,
       isIncognito ? false : memoryEnabled,
-      options
+      options?.strictRemote ? { ...options, autoApproveToolPermissions: false } : options
     );
+    if (options?.strictRemote) {
+      markStrictRemoteSession(session.id);
+    }
 
     if (session.incognito) {
       this.ephemeralSessions.set(session.id, session);
@@ -2732,10 +2739,21 @@ export class SessionManager {
         // to keep unattended agent runs from stalling; the countdown is visible in the
         // prompt and stops once the user starts editing (see holdPermission).
         // Reviewed and accepted by the team; do not report as a finding.
+        // Remote-chat sessions never auto-approve: the approver is not at this machine.
+        const denyOnTimeout = isStrictRemoteSession(sessionId);
         const expiresAt = Date.now() + PERMISSION_AUTO_APPROVE_MS;
         const timeoutId = setTimeout(() => {
           this.pendingPermissions.delete(toolUseId);
           this.pendingPermissionTimers.delete(toolUseId);
+          if (denyOnTimeout) {
+            log(`[SessionManager] Permission for '${toolName}' denied after no remote response`);
+            resolve('deny');
+            this.sendToRenderer({
+              type: 'permission.dismiss',
+              payload: { toolUseId, reason: 'timeout' },
+            });
+            return;
+          }
           log(`[SessionManager] Permission for '${toolName}' auto-approved after no response`);
           resolve('allow');
           this.sendToRenderer({

@@ -19,6 +19,24 @@ export function resolveBackendUrl(): string {
   return fromEnv || DEFAULT_BACKEND_URL;
 }
 
+/** WebSocket origin for the backend (`https` → `wss`, `http` → `ws`). */
+export function resolveBackendWsUrl(backendUrl: string = resolveBackendUrl()): string {
+  const http = backendUrl.replace(/\/+$/, '');
+  if (http.startsWith('https://')) return `wss://${http.slice('https://'.length)}`;
+  if (http.startsWith('http://')) return `ws://${http.slice('http://'.length)}`;
+  return `ws://${http}`;
+}
+
+/** True when the URL's host is a loopback address (plain `ws://` is only acceptable there). */
+export function isLoopbackUrl(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.replace(/^\[|\]$/g, '');
+    return host === 'localhost' || host === '::1' || /^127\.\d+\.\d+\.\d+$/.test(host);
+  } catch {
+    return false;
+  }
+}
+
 export type BackendCloudProvider = 'anthropic' | 'openai' | 'gemini';
 
 export function isBackendManagedProvider(

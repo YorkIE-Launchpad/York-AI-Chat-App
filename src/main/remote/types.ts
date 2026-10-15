@@ -555,6 +555,23 @@ export interface GatewayStatus {
 // Remote Config Store
 // ============================================================================
 
+/** Slack remote control through the York backend relay (platform bot, DM-only). */
+export interface SlackRelayChannelConfig {
+  enabled: boolean;
+  /** Turn the relay off after this many hours without remote activity. */
+  idleTimeoutHours?: number;
+}
+
+export const DEFAULT_SLACK_RELAY_IDLE_TIMEOUT_HOURS = 12;
+
+export interface SlackRelayStatus {
+  enabled: boolean;
+  connected: boolean;
+  slackConnected: boolean;
+  lastError: string | null;
+  idleTimeoutHours: number;
+}
+
 export interface RemoteConfig {
   gateway: GatewayConfig;
   channels: {
@@ -564,6 +581,7 @@ export interface RemoteConfig {
     dingtalk?: DingtalkChannelConfig;
     websocket?: WebSocketChannelConfig;
     slack?: SlackChannelConfig;
+    slackRelay?: SlackRelayChannelConfig;
   };
 }
 

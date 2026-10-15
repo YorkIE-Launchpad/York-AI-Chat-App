@@ -120,6 +120,12 @@ class ConnectorManager {
     return Boolean(connectorTokenStore.load(connectorId)?.accessToken);
   }
 
+  /** Provider account id of the connected user (Slack: user id `U…`). */
+  getAccountId(connectorId: ConnectorId): string | null {
+    const record = connectorTokenStore.load(connectorId);
+    return record?.accessToken ? (record.accountId ?? null) : null;
+  }
+
   async connect(connectorId: ConnectorId): Promise<ConnectorStatus> {
     const oauth = this.getOauthConfig(connectorId);
     const redirectUri = connectorId === 'zoom' ? authConfig.zoomOauthRedirectUri : undefined;

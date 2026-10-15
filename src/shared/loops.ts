@@ -203,3 +203,23 @@ export function parseLoopQuickAdd(
 
   return { title: text, dueAt: null };
 }
+
+/**
+ * Multi-line quick-add: the first non-empty line is the title (with due hint), the
+ * rest is kept verbatim as markdown notes so bullet / numbered lists survive.
+ */
+export function parseLoopQuickAddDraft(
+  input: string,
+  now = Date.now()
+): { title: string; notes: string | null; dueAt: number | null } {
+  const lines = input.replace(/\r\n?/g, '\n').split('\n');
+  const first = lines.findIndex((line) => line.trim());
+  if (first === -1) return { title: '', notes: null, dueAt: null };
+  const { title, dueAt } = parseLoopQuickAdd(lines[first], now);
+  const rest = lines
+    .slice(first + 1)
+    .join('\n')
+    .replace(/^\s*\n/, '')
+    .trimEnd();
+  return { title, notes: rest.trim() ? rest : null, dueAt };
+}

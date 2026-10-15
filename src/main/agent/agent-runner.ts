@@ -30,6 +30,7 @@ import {
   listSessionAlwaysAllow,
   upsertToolPermission,
   resolveSessionToolPermissionAsync,
+  isStrictRemoteSession,
 } from '../config/permission-rules-store';
 import {
   MCP_WRITE_DISABLED_MESSAGE,
@@ -1364,7 +1365,7 @@ ${hints.join('\n')}
             return { block: true, reason: `User denied permission for '${displayName}'.` };
           }
 
-          if (result === 'allow_always') {
+          if (result === 'allow_always' && !isStrictRemoteSession(sessionId)) {
             rememberAlwaysAllow(sessionId, toolName);
             // Persist as Allow so subsequent turns stop prompting even if
             // session Always Allow memory is cleared or a new pi session starts.

@@ -10,11 +10,15 @@ import { RemoteGateway } from './gateway';
 import { MessageRouter } from './message-router';
 import { FeishuChannel } from './channels/feishu';
 import { SlackChannel } from './channels/slack';
+import { SlackRelayChannel } from './channels/slack/slack-relay-channel';
 import { StdioChannel } from './channels/stdio-channel';
 import { remoteConfigStore } from './remote-config-store';
 import { tunnelManager, TunnelStatus } from './tunnel-manager';
 import { buildRemoteSessionTitle } from './remote-title';
-import { PERMISSION_ASK_TIMEOUT_MS } from '../../shared/permission-policy';
+import {
+  PERMISSION_ASK_TIMEOUT_MS,
+  PERMISSION_AUTO_APPROVE_MS,
+} from '../../shared/permission-policy';
 import { SessionNotFoundError } from '../session/session-errors';
 import type {
   GatewayStatus,
@@ -26,14 +30,41 @@ import type {
   PairedUser,
   PairingRequest,
   RemoteConfig,
+  SlackRelayStatus,
 } from './types';
+import { DEFAULT_SLACK_RELAY_IDLE_TIMEOUT_HOURS } from './types';
 import type { Message, ContentBlock, ServerEvent, Session } from '../../renderer/types/index';
-import { isAutoAllowedWikiTool } from '../config/permission-rules-store';
+import {
+  isAutoAllowedWikiTool,
+  isStrictRemoteSession,
+  markStrictRemoteSession,
+} from '../config/permission-rules-store';
 import { getFeishuWebhookConfigError } from '../../shared/feishu-webhook-config';
+
+/** Credentials and hooks the Slack relay needs from the main process. */
+export interface SlackRelayProvider {
+  isSlackConnected(): boolean;
+  /** Slack user id of the account that connected the Slack integration. */
+  getSlackUserId(): string | null;
+  getSlackUserToken(): Promise<string>;
+  /** Cognito id-token Authorization plus client version headers. */
+  getUpgradeHeaders(): Promise<Record<string, string>>;
+  /** Folders a remote session may switch into. */
+  getAllowedRoots(): string[];
+  notify(title: string, body: string): void;
+}
+
+const SLACK_RELAY_IDLE_CHECK_MS = 5 * 60_000;
+const STRICT_PERMISSION_INPUT_PREVIEW_MAX = 1_500;
 
 // Agent executor interface - exported for use in main process
 export interface AgentExecutor {
-  startSession(title: string, prompt: string, cwd?: string): Promise<Session>;
+  startSession(
+    title: string,
+    prompt: string,
+    cwd?: string,
+    options?: { strictRemote?: boolean }
+  ): Promise<Session>;
   continueSession(
     sessionId: string,
     prompt: string,
@@ -273,9 +304,126 @@ export class RemoteManager extends EventEmitter {
   // Default working directory for remote sessions (when cwd is not specified)
   private defaultWorkingDirectory?: string;
 
+  // Channels under the strict remote policy (currently the Slack relay)
+  private strictChannels: Set<ChannelType> = new Set();
+  private slackRelayProvider?: SlackRelayProvider;
+  private slackRelayChannel?: SlackRelayChannel;
+  private slackRelayLastError: string | null = null;
+  private slackRelayLastActivity = 0;
+  private slackRelayIdleTimer: NodeJS.Timeout | null = null;
+
   constructor() {
     super();
     this.messageRouter = new MessageRouter();
+    this.messageRouter.setAllowedRootsResolver(() => this.getAllowedRemoteRoots());
+  }
+
+  setSlackRelayProvider(provider: SlackRelayProvider): void {
+    this.slackRelayProvider = provider;
+  }
+
+  private getAllowedRemoteRoots(): string[] {
+    const roots = new Set<string>(this.slackRelayProvider?.getAllowedRoots() ?? []);
+    const configured = remoteConfigStore.getGatewayConfig().defaultWorkingDirectory;
+    if (configured) roots.add(configured);
+    if (this.defaultWorkingDirectory) roots.add(this.defaultWorkingDirectory);
+    return [...roots];
+  }
+
+  private isStrictChannel(channelType: ChannelType): boolean {
+    return this.strictChannels.has(channelType);
+  }
+
+  private setStrictChannel(channelType: ChannelType, strict: boolean): void {
+    if (strict) this.strictChannels.add(channelType);
+    else this.strictChannels.delete(channelType);
+    this.messageRouter.setStrictChannel(channelType, strict);
+  }
+
+  // ==========================================================================
+  // Slack relay (backend-routed Slack remote control)
+  // ==========================================================================
+
+  getSlackRelayStatus(): SlackRelayStatus {
+    const config = remoteConfigStore.getSlackRelayConfig();
+    return {
+      enabled: config.enabled,
+      connected: this.slackRelayChannel?.connected ?? false,
+      slackConnected: this.slackRelayProvider?.isSlackConnected() ?? false,
+      lastError: this.slackRelayChannel?.lastError ?? this.slackRelayLastError,
+      idleTimeoutHours: config.idleTimeoutHours ?? DEFAULT_SLACK_RELAY_IDLE_TIMEOUT_HOURS,
+    };
+  }
+
+  async setSlackRelayEnabled(enabled: boolean): Promise<SlackRelayStatus> {
+    if (enabled) {
+      if (
+        !this.slackRelayProvider?.isSlackConnected() ||
+        !this.slackRelayProvider.getSlackUserId()
+      ) {
+        throw new Error('Connect Slack in Settings → Connectors first.');
+      }
+      remoteConfigStore.setSlackRelayConfig({
+        ...remoteConfigStore.getSlackRelayConfig(),
+        enabled: true,
+      });
+      remoteConfigStore.setEnabled(true);
+      this.slackRelayLastError = null;
+      this.slackRelayLastActivity = Date.now();
+      await this.restart();
+    } else {
+      remoteConfigStore.setSlackRelayConfig({
+        ...remoteConfigStore.getSlackRelayConfig(),
+        enabled: false,
+      });
+      const config = remoteConfigStore.getAll();
+      const otherChannelConfigured = Boolean(
+        (config.channels.feishu?.appId && config.channels.feishu?.appSecret) ||
+        config.channels.slack?.botToken
+      );
+      if (!otherChannelConfigured) {
+        remoteConfigStore.setEnabled(false);
+        await this.stop();
+      } else if (this.gateway?.running) {
+        await this.restart();
+      }
+    }
+    return this.getSlackRelayStatus();
+  }
+
+  /** Immediate shutdown on Slack disconnect / sign-out. */
+  async disableSlackRelay(reason: string): Promise<void> {
+    if (!remoteConfigStore.getSlackRelayConfig().enabled && !this.slackRelayChannel) return;
+    logWarn('[RemoteManager] Disabling Slack relay:', reason);
+    await this.setSlackRelayEnabled(false);
+    this.slackRelayLastError = reason;
+  }
+
+  private noteSlackRelayActivity(): void {
+    this.slackRelayLastActivity = Date.now();
+  }
+
+  private startSlackRelayIdleTimer(): void {
+    this.stopSlackRelayIdleTimer();
+    this.slackRelayIdleTimer = setInterval(() => {
+      const hours =
+        remoteConfigStore.getSlackRelayConfig().idleTimeoutHours ??
+        DEFAULT_SLACK_RELAY_IDLE_TIMEOUT_HOURS;
+      if (Date.now() - this.slackRelayLastActivity < hours * 3_600_000) return;
+      void this.disableSlackRelay(`Turned off after ${hours} hours without Slack activity.`).then(
+        () =>
+          this.slackRelayProvider?.notify(
+            'Slack remote control turned off',
+            `No Slack activity for ${hours} hours. Turn it on again in Settings when you need it.`
+          )
+      );
+    }, SLACK_RELAY_IDLE_CHECK_MS);
+    this.slackRelayIdleTimer.unref?.();
+  }
+
+  private stopSlackRelayIdleTimer(): void {
+    if (this.slackRelayIdleTimer) clearInterval(this.slackRelayIdleTimer);
+    this.slackRelayIdleTimer = null;
   }
 
   /**
@@ -348,8 +496,12 @@ export class RemoteManager extends EventEmitter {
     log('[RemoteManager] Starting remote control system...');
 
     try {
-      // Create gateway
-      this.gateway = new RemoteGateway(config.gateway, this.messageRouter);
+      // Create gateway. The relay never needs inbound connections, so keep the local listener loopback-only.
+      const relayEnabled = config.channels.slackRelay?.enabled === true;
+      const gatewayConfig: GatewayConfig = relayEnabled
+        ? { ...config.gateway, bind: '127.0.0.1' }
+        : config.gateway;
+      this.gateway = new RemoteGateway(gatewayConfig, this.messageRouter);
 
       // Set remote default working directory (prefer config, then global default)
       const configuredDefaultWorkingDir =
@@ -379,9 +531,13 @@ export class RemoteManager extends EventEmitter {
 
       // Start gateway
       await this.gateway.start();
+      if (this.slackRelayChannel) {
+        this.slackRelayLastActivity = this.slackRelayLastActivity || Date.now();
+        this.startSlackRelayIdleTimer();
+      }
 
-      // Start tunnel if configured
-      const tunnelUrl = await tunnelManager.start(config.gateway.port);
+      // Start tunnel if configured (never alongside the relay, which must stay off the public internet)
+      const tunnelUrl = relayEnabled ? null : await tunnelManager.start(config.gateway.port);
       if (tunnelUrl) {
         log('[RemoteManager] Tunnel URL:', tunnelUrl);
         log('[RemoteManager] Feishu Webhook URL:', `${tunnelUrl}/webhook/feishu`);
@@ -456,10 +612,16 @@ export class RemoteManager extends EventEmitter {
 
     // Stop tunnel first
     await tunnelManager.stop();
+    this.stopSlackRelayIdleTimer();
 
     try {
       await this.gateway.stop();
       this.gateway = undefined;
+      if (this.slackRelayChannel) {
+        this.slackRelayLastError = this.slackRelayChannel.lastError;
+        this.slackRelayChannel = undefined;
+        this.setStrictChannel('slack', false);
+      }
 
       log('[RemoteManager] Remote control system stopped');
       this.emitStatusUpdate();
@@ -836,9 +998,12 @@ export class RemoteManager extends EventEmitter {
 
     log('[RemoteManager] Handling permission request for remote session:', remoteSessionId);
 
+    const strict =
+      this.isStrictChannel(channelInfo.channelType) || isStrictRemoteSession(actualSessionId);
+
     // Check if auto-approve is enabled for safe tools
     const config = remoteConfigStore.getAll();
-    if (config.gateway.autoApproveSafeTools) {
+    if (!strict && config.gateway.autoApproveSafeTools) {
       const safeTools = [
         // Read-only tools
         'Read',
@@ -878,14 +1043,27 @@ export class RemoteManager extends EventEmitter {
       }
     }
 
+    // Strict sessions must expire together with the session-manager prompt (which denies),
+    // otherwise a later chat message could be swallowed as an answer to a dead prompt.
+    const timeoutMs = strict ? PERMISSION_AUTO_APPROVE_MS : PERMISSION_ASK_TIMEOUT_MS;
+
     // Build permission request message
+    let inputPreview = JSON.stringify(input, null, 2) ?? '';
+    if (strict && inputPreview.length > STRICT_PERMISSION_INPUT_PREVIEW_MAX) {
+      inputPreview = `${inputPreview.slice(0, STRICT_PERMISSION_INPUT_PREVIEW_MAX)}\n… (truncated, review on desktop for full input)`;
+    }
     let messageText = '⚠️ **Needs your authorization**\n\n';
     messageText += `Tool: **${toolName}**\n\n`;
-    messageText += `Parameters:\n\`\`\`json\n${JSON.stringify(input, null, 2)}\n\`\`\`\n\n`;
+    messageText += `Parameters:\n\`\`\`json\n${inputPreview}\n\`\`\`\n\n`;
     messageText += `---\n`;
     messageText += `Reply "Allow" or "y" to approve\n`;
-    messageText += `Reply "Deny" or "n" to reject\n`;
-    messageText += `Reply "Always allow" to remember this approval`;
+    if (strict) {
+      messageText += `Reply "Deny" or "n" to reject\n`;
+      messageText += `No reply within ${Math.round(timeoutMs / 1000)} seconds = denied`;
+    } else {
+      messageText += `Reply "Deny" or "n" to reject\n`;
+      messageText += `Reply "Always allow" to remember this approval`;
+    }
 
     // Store pending interaction
     const interaction: RemoteInteraction = {
@@ -897,7 +1075,7 @@ export class RemoteManager extends EventEmitter {
       toolName,
       input,
       createdAt: Date.now(),
-      expiresAt: Date.now() + 5 * 60 * 1000, // 5 minutes timeout
+      expiresAt: Date.now() + (strict ? timeoutMs : 5 * 60 * 1000),
     };
     await this.withInteractionLock(async () => {
       this.pendingInteractions.set(toolUseId, interaction);
@@ -930,8 +1108,14 @@ export class RemoteManager extends EventEmitter {
         }
         const lowerResponse = response.toLowerCase().trim();
         if (lowerResponse === 'allow' || lowerResponse === 'y' || lowerResponse === 'yes') {
+          if (strict) {
+            this.slackRelayProvider?.notify(
+              'Remote action approved',
+              `Running ${toolName} (approved from ${channelInfo.channelType})`
+            );
+          }
           resolve({ allow: true });
-        } else if (lowerResponse === 'always allow' || lowerResponse === 'always') {
+        } else if (!strict && (lowerResponse === 'always allow' || lowerResponse === 'always')) {
           resolve({ allow: true, remember: true });
         } else {
           resolve({ allow: false });
@@ -948,7 +1132,7 @@ export class RemoteManager extends EventEmitter {
             resolve({ allow: false }); // Deny on timeout
           }
         }).catch((err) => logError('[RemoteManager] Permission timeout lock error:', err));
-      }, PERMISSION_ASK_TIMEOUT_MS);
+      }, timeoutMs);
     });
   }
 
@@ -1342,6 +1526,29 @@ export class RemoteManager extends EventEmitter {
       log('[RemoteManager] Feishu channel registered');
     }
 
+    // Slack relay (platform bot via York backend) takes precedence over manual Slack tokens.
+    const provider = this.slackRelayProvider;
+    const slackUserId = provider?.getSlackUserId() ?? null;
+    if (config.channels.slackRelay?.enabled && provider && slackUserId) {
+      if (!provider.isSlackConnected()) {
+        this.slackRelayLastError = 'Slack is not connected.';
+      } else {
+        const relayChannel = new SlackRelayChannel({
+          getUpgradeHeaders: () => provider.getUpgradeHeaders(),
+          getSlackUserToken: () => provider.getSlackUserToken(),
+          expectedSlackUserId: slackUserId,
+          onActivity: () => this.noteSlackRelayActivity(),
+        });
+        this.slackRelayChannel = relayChannel;
+        this.setStrictChannel('slack', true);
+        this.gateway.addOwnerIdentity('slack', slackUserId);
+        this.gateway.registerChannel(relayChannel);
+        log('[RemoteManager] Slack relay channel registered');
+        return;
+      }
+    }
+    this.setStrictChannel('slack', false);
+
     // Register Slack channel if configured
     const slackConfig = config.channels.slack;
     if (slackConfig && slackConfig.botToken) {
@@ -1423,6 +1630,9 @@ export class RemoteManager extends EventEmitter {
         isNewSession = true;
       } else {
         log('[RemoteManager] Continuing session:', actualSessionId, 'for remote:', sessionId);
+        if (this.isStrictChannel(channelType)) {
+          markStrictRemoteSession(actualSessionId);
+        }
         try {
           this.emitRemoteUserMessage(actualSessionId, content, prompt);
           await this.agentExecutor.continueSession(
@@ -1456,11 +1666,19 @@ export class RemoteManager extends EventEmitter {
 
     if (isNewSession) {
       // Create new session with working directory
+      const strict = this.isStrictChannel(channelType);
       const newSession = await this.agentExecutor.startSession(
         buildRemoteSessionTitle(prompt),
         prompt,
-        workingDirectory
+        workingDirectory,
+        strict ? { strictRemote: true } : undefined
       );
+      if (strict) {
+        this.slackRelayProvider?.notify(
+          'Remote session started',
+          `A ${channelType} message started "${newSession.title}". Every action will need your approval in ${channelType}.`
+        );
+      }
 
       // Map remote session ID to actual session ID
       this.remoteSessionIds.add(sessionId);

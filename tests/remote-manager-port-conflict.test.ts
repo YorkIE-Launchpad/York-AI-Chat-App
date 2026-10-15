@@ -77,6 +77,8 @@ vi.mock('../src/main/remote/message-router', () => ({
     setAgentCallback = vi.fn();
     setWorkingDirectoryValidator = vi.fn();
     setDefaultWorkingDirectory = vi.fn();
+    setAllowedRootsResolver = vi.fn();
+    setStrictChannel = vi.fn();
     getActiveSessionCount = vi.fn(() => 0);
     getAllSessionMappings = vi.fn(() => []);
     clearSession = vi.fn(() => false);

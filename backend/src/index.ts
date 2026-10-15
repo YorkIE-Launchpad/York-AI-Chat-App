@@ -10,7 +10,12 @@ import { createShareDocRouter } from './share/doc-router.js';
 import { attachCollabRelay } from './collab/yjs-relay.js';
 import { listEnabledModels } from './models.js';
 import { proxyToProvider, type ProviderTarget } from './proxy.js';
-import { log } from './safe-log.js';
+import { log, logWarn } from './safe-log.js';
+import { resolveSlackRelayConfig } from './slack-relay/config.js';
+import { createSlackEventsRouter } from './slack-relay/events-router.js';
+import { SlackRelayHub } from './slack-relay/relay-hub.js';
+import { attachSlackRelay } from './slack-relay/relay-ws.js';
+import { createSlackApi } from './slack-relay/slack-api.js';
 import { createYorkLlmRouter, resolveYorkLlmUpstreamOrigin } from './york-llm-router.js';
 import { createZoomSessionRouter, createZoomWebhookRouter } from './zoom-routes.js';
 import {
@@ -67,6 +72,15 @@ app.use('/zoom', zoomJsonWithRawBody, createZoomWebhookRouter());
 // Zoom session register/poll require Cognito (applied inside the router).
 app.use('/zoom', express.json(), createZoomSessionRouter());
 
+// Slack remote-control relay. Events are public but Slack-signed; disabled (503) unless fully configured.
+const slackRelayConfig = resolveSlackRelayConfig();
+const slackRelayApi = slackRelayConfig ? createSlackApi(slackRelayConfig.botToken) : null;
+const slackRelayHub = slackRelayApi ? new SlackRelayHub(slackRelayApi) : null;
+if (!slackRelayConfig) {
+  logWarn('[york-ie-backend] Slack relay disabled (SLACK_RELAY_* env incomplete)');
+}
+app.use('/slack', createSlackEventsRouter({ config: slackRelayConfig, hub: slackRelayHub }));
+
 // All remaining routes require a valid Cognito JWT and a supported client version
 app.use(requireCognito);
 app.use(requireMinClientVersion);
@@ -110,3 +124,5 @@ const server = app.listen(PORT, HOST, () => {
 // Ephemeral Yjs binary fan-out (no server-side docs). Cognito + invite on upgrade.
 attachCollabRelay(server);
 log('[york-ie-backend] collab WS relay attached at /collab/ws');
+
+attachSlackRelay(server, { config: slackRelayConfig, hub: slackRelayHub, api: slackRelayApi });

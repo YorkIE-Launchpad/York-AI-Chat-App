@@ -127,7 +127,9 @@ export function createLoopTools(loopService: LoopService): AgentRuntimeCustomToo
       'Create a Loop the user owns (a commitment to track). Asks before running. Set research=false to skip the source sweep.',
     parameters: Type.Object({
       title: Type.String({ minLength: 1, description: 'What was committed.' }),
-      notes: Type.Optional(Type.String()),
+      notes: Type.Optional(
+        Type.String({ description: 'Extra context as markdown; bullet or numbered lists render.' })
+      ),
       owner: Type.Optional(Type.String({ description: 'me (default) or other.' })),
       counterpart: Type.Optional(Type.String({ description: 'Person this loop is with.' })),
       dueAt: Type.Optional(Type.Number({ description: 'Due time as epoch milliseconds.' })),

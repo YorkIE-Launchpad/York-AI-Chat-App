@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
+  AlignLeft,
   CalendarClock,
   Check,
   ChevronDown,
@@ -30,6 +31,7 @@ interface LoopRowProps {
   onSetOwner: (id: string, owner: LoopOwner) => void;
   onReopen: (id: string) => void;
   onRename: (id: string, title: string) => void;
+  onSetNotes: (id: string, notes: string | null) => void;
   onSetDue: (id: string, dueAt: number | null) => void;
   onOpenSource: (loop: Loop) => void;
   onResearch: (id: string) => void;
@@ -43,6 +45,7 @@ export function LoopRow({
   onSetOwner,
   onReopen,
   onRename,
+  onSetNotes,
   onSetDue,
   onOpenSource,
   onResearch,
@@ -63,6 +66,9 @@ export function LoopRow({
   }, [hasNote, loop.researchedAt]);
 
   const inputRef = useRef<HTMLInputElement>(null);
+  const [editingNotes, setEditingNotes] = useState(false);
+  const [notesDraft, setNotesDraft] = useState(loop.notes || '');
+  const notesRef = useRef<HTMLTextAreaElement>(null);
   const open = loop.status === 'open';
   const bucket = loopDueBucket(loop.dueAt);
 
@@ -73,6 +79,30 @@ export function LoopRow({
   useEffect(() => {
     if (!editing) setDraft(loop.title);
   }, [loop.title, editing]);
+
+  useEffect(() => {
+    if (!editingNotes) setNotesDraft(loop.notes || '');
+  }, [loop.notes, editingNotes]);
+
+  useEffect(() => {
+    if (editingNotes) notesRef.current?.focus();
+  }, [editingNotes]);
+
+  const startEditingNotes = (e?: React.MouseEvent) => {
+    if (!open) return;
+    if (e && (e.target as HTMLElement).closest('a')) return;
+    setEditingNotes(true);
+  };
+
+  const commitNotes = () => {
+    setEditingNotes(false);
+    const next = notesDraft.trimEnd();
+    if (next.trim() === (loop.notes || '').trim()) {
+      setNotesDraft(loop.notes || '');
+      return;
+    }
+    onSetNotes(loop.id, next.trim() ? next : null);
+  };
 
   const commitRename = () => {
     setEditing(false);
@@ -141,8 +171,39 @@ export function LoopRow({
             {loop.title}
           </button>
         )}
-        {loop.notes ? (
-          <p className="mt-0.5 text-[11px] text-text-muted line-clamp-2">{loop.notes}</p>
+        {editingNotes ? (
+          <textarea
+            ref={notesRef}
+            value={notesDraft}
+            onChange={(e) => setNotesDraft(e.target.value)}
+            onBlur={commitNotes}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                commitNotes();
+              }
+              if (e.key === 'Escape') {
+                setNotesDraft(loop.notes || '');
+                setEditingNotes(false);
+              }
+            }}
+            rows={Math.min(10, Math.max(3, notesDraft.split('\n').length))}
+            placeholder={t('loops.notesPlaceholder')}
+            className="mt-1 w-full resize-y rounded-md border border-accent/50 bg-transparent px-2 py-1.5 text-[12px] leading-relaxed text-text-primary outline-none placeholder:text-text-muted"
+          />
+        ) : loop.notes ? (
+          <div
+            role={open ? 'button' : undefined}
+            tabIndex={open ? 0 : undefined}
+            onClick={startEditingNotes}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && e.target === e.currentTarget) startEditingNotes();
+            }}
+            title={open ? t('loops.editNotesHint') : undefined}
+            className={`mt-0.5 text-[12px] leading-relaxed ${open ? 'cursor-text' : ''}`}
+          >
+            <MessageMarkdown normalizedText={loop.notes} tone="thinking" />
+          </div>
         ) : null}
 
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[10px]">
@@ -205,6 +266,16 @@ export function LoopRow({
           ) : null}
           {loop.autoCaptured ? (
             <span className="text-text-muted opacity-70">{t('loops.autoCaptured')}</span>
+          ) : null}
+          {open && !loop.notes && !editingNotes ? (
+            <button
+              type="button"
+              onClick={() => startEditingNotes()}
+              className="inline-flex items-center gap-1 rounded-md border border-border-subtle px-1.5 py-0.5 text-text-muted hover:border-accent/40 hover:text-accent"
+            >
+              <AlignLeft className="w-3 h-3" />
+              {t('loops.addNotes')}
+            </button>
           ) : null}
           {open && loop.owner === 'me' ? (
             <button

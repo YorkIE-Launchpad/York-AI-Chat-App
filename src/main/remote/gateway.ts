@@ -53,6 +53,9 @@ export class RemoteGateway extends EventEmitter {
   private pairingRequests: Map<string, PairingRequest> = new Map();
   private pairedUsers: Map<string, PairedUser> = new Map();
 
+  // Identities proven upstream (e.g. backend-verified Slack relay owner); `channelType:userId`.
+  private ownerIdentities: Set<string> = new Set();
+
   private _running: boolean = false;
 
   // Rate limiting for WebSocket auth
@@ -353,6 +356,10 @@ export class RemoteGateway extends EventEmitter {
    * Check if user is authorized
    */
   private async checkAuthorization(message: RemoteMessage): Promise<boolean> {
+    if (this.ownerIdentities.has(`${message.channelType}:${message.sender.id}`)) {
+      return true;
+    }
+
     const { mode, allowlist } = this.config.auth;
 
     switch (mode) {
@@ -547,6 +554,17 @@ export class RemoteGateway extends EventEmitter {
       return true;
     }
     return false;
+  }
+
+  addOwnerIdentity(channelType: ChannelType, userId: string): void {
+    if (!userId) return;
+    this.ownerIdentities.add(`${channelType}:${userId}`);
+  }
+
+  clearOwnerIdentities(channelType: ChannelType): void {
+    for (const key of this.ownerIdentities) {
+      if (key.startsWith(`${channelType}:`)) this.ownerIdentities.delete(key);
+    }
   }
 
   /**

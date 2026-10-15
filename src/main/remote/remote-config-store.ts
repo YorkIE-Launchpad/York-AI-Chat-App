@@ -17,6 +17,7 @@ import type {
   TelegramChannelConfig,
   DingtalkChannelConfig,
   WebSocketChannelConfig,
+  SlackRelayChannelConfig,
   PairedUser,
 } from './types';
 import { DEFAULT_REMOTE_CONFIG } from './types';
@@ -226,6 +227,20 @@ class RemoteConfigStore {
   setWebSocketConfig(config: WebSocketChannelConfig): void {
     this.store.set('channels.websocket', config);
     log('[RemoteConfig] WebSocket config updated');
+  }
+
+  getSlackRelayConfig(): SlackRelayChannelConfig {
+    return this.store.get('channels.slackRelay') ?? { enabled: false };
+  }
+
+  setSlackRelayConfig(config: SlackRelayChannelConfig): void {
+    this.store.set('channels.slackRelay', {
+      enabled: config.enabled === true,
+      ...(typeof config.idleTimeoutHours === 'number'
+        ? { idleTimeoutHours: config.idleTimeoutHours }
+        : {}),
+    });
+    log('[RemoteConfig] Slack relay enabled:', config.enabled === true);
   }
 
   /**

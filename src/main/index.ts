@@ -291,7 +291,12 @@ import {
 import { eventRequiresSessionManager } from './client-event-utils';
 import { getUnsupportedWorkspacePathReason } from './workspace-path-constraints';
 import { CollabSyncService } from './collab/collab-sync-service';
-import { getBackendAuthHeaders } from './config/backend-auth';
+import {
+  getBackendAuthHeaders,
+  getClientAppVersion,
+  getCognitoAuthHeaders,
+} from './config/backend-auth';
+import { YORK_APP_VERSION_HEADER } from '../shared/client-version';
 import { loadCollabRoomSnapshot, saveCollabRoomSnapshot } from './collab/collab-snapshot-store';
 import { sharedDocsService, setSharedDocsSyncNotifier } from './shared-docs/shared-docs-service';
 import {
@@ -3123,13 +3128,17 @@ app
     // Initialize remote manager
     remoteManager.setRendererCallback(sendToRenderer);
     const agentExecutor: AgentExecutor = {
-      startSession: async (title, prompt, cwd) => {
+      startSession: async (title, prompt, cwd, options) => {
         if (!sessionManager) throw new Error('Session manager not initialized');
         const unsupportedReason = getWorkspacePathUnsupportedReason(cwd);
         if (unsupportedReason) {
           throw new Error(unsupportedReason);
         }
-        return sessionManager.startSession(title, prompt, cwd);
+        return options?.strictRemote
+          ? sessionManager.startSession(title, prompt, cwd, undefined, undefined, undefined, {
+              strictRemote: true,
+            })
+          : sessionManager.startSession(title, prompt, cwd);
       },
       continueSession: async (sessionId, prompt, content, cwd) => {
         if (!sessionManager) throw new Error('Session manager not initialized');
@@ -3161,6 +3170,21 @@ app
       },
     };
     remoteManager.setAgentExecutor(agentExecutor);
+    remoteManager.setSlackRelayProvider({
+      isSlackConnected: () => connectorManager.isConnected('slack'),
+      getSlackUserId: () => connectorManager.getAccountId('slack'),
+      getSlackUserToken: async () =>
+        (await connectorManager.ensureFreshAccessToken('slack')).accessToken,
+      getUpgradeHeaders: async () => ({
+        ...(await getCognitoAuthHeaders()),
+        [YORK_APP_VERSION_HEADER]: getClientAppVersion(),
+      }),
+      getAllowedRoots: () => {
+        const workingDir = getWorkingDir();
+        return workingDir ? [workingDir] : [];
+      },
+      notify: (title, body) => showOsNotification({ title, body, tag: 'SlackRemote' }),
+    });
 
     // Cascade channel-binding cleanup when a session is deleted from the
     // desktop UI, so a deleted channel session cannot leave a stale in-memory
@@ -3587,6 +3611,9 @@ ipcMain.handle('auth.getAvatarDataUrl', async (_event, imageUrl?: string) => {
 });
 
 ipcMain.handle('auth.logout', async () => {
+  await remoteManager
+    .disableSlackRelay('Signed out of York IE.')
+    .catch((err) => logError('[Remote] Failed to disable Slack relay on logout:', err));
   stopAuthRefreshTimer();
   clearHubAllocationsCache();
   clearHubGovernanceModelsCache();
@@ -4862,6 +4889,11 @@ ipcMain.handle('connectors.connect', async (_event, connectorId: ConnectorId) =>
 
 ipcMain.handle('connectors.disconnect', async (_event, connectorId: ConnectorId) => {
   try {
+    if (connectorId === 'slack') {
+      await remoteManager
+        .disableSlackRelay('Slack was disconnected.')
+        .catch((err) => logError('[Remote] Failed to disable Slack relay:', err));
+    }
     connectorManager.disconnect(connectorId);
     await setConnectorMcpEnabled(connectorId, false);
     if (connectorId === 'zoom' && meetingService) {
@@ -6012,6 +6044,30 @@ ipcMain.handle('remote.getStatus', () => {
   }
 });
 
+ipcMain.handle('remote.getSlackRelayStatus', () => {
+  try {
+    return remoteManager.getSlackRelayStatus();
+  } catch (error) {
+    logError('[Remote] Error getting Slack relay status:', error);
+    return null;
+  }
+});
+
+ipcMain.handle('remote.setSlackRelayEnabled', async (_event, enabled: unknown) => {
+  try {
+    if (typeof enabled !== 'boolean') throw new Error('enabled must be a boolean');
+    const status = await remoteManager.setSlackRelayEnabled(enabled);
+    return { success: true, status };
+  } catch (error) {
+    logError('[Remote] Error toggling Slack relay:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      status: remoteManager.getSlackRelayStatus(),
+    };
+  }
+});
+
 ipcMain.handle('remote.setEnabled', async (_event, enabled: boolean) => {
   try {
     remoteConfigStore.setEnabled(enabled);
@@ -6019,6 +6075,7 @@ ipcMain.handle('remote.setEnabled', async (_event, enabled: boolean) => {
     if (enabled) {
       await remoteManager.start();
     } else {
+      await remoteManager.disableSlackRelay('Remote control was turned off.');
       await remoteManager.stop();
     }
 

@@ -3,6 +3,7 @@
  * Routes remote messages to the Agent and Agent responses back to Channels
  */
 
+import { promises as fsp } from 'node:fs';
 import path from 'node:path';
 import { log, logError } from '../utils/logger';
 import { isUncPath, isWindowsDrivePath } from '../../shared/local-file-path';
@@ -59,6 +60,10 @@ export class MessageRouter {
   // Default working directory for new sessions
   private defaultWorkingDirectory?: string;
 
+  // Channels whose working-directory changes are confined to allowed roots
+  private strictChannelTypes: Set<ChannelType> = new Set();
+  private allowedRootsResolver?: () => string[];
+
   // Periodic cleanup timer
   private cleanupInterval: NodeJS.Timeout | null = null;
 
@@ -106,6 +111,38 @@ export class MessageRouter {
 
   setWorkingDirectoryValidator(validator: WorkingDirectoryValidator): void {
     this.workingDirectoryValidator = validator;
+  }
+
+  setStrictChannel(channelType: ChannelType, strict: boolean): void {
+    if (strict) this.strictChannelTypes.add(channelType);
+    else this.strictChannelTypes.delete(channelType);
+  }
+
+  setAllowedRootsResolver(resolver: () => string[]): void {
+    this.allowedRootsResolver = resolver;
+  }
+
+  /** Real-path containment so `..` and symlinks cannot escape an allowed root. */
+  async isWithinAllowedRoots(candidate: string): Promise<boolean> {
+    const roots = (this.allowedRootsResolver?.() ?? []).filter(Boolean);
+    if (roots.length === 0) return false;
+    let real: string;
+    try {
+      real = await fsp.realpath(candidate);
+    } catch {
+      return false;
+    }
+    for (const root of roots) {
+      let realRoot: string;
+      try {
+        realRoot = await fsp.realpath(root);
+      } catch {
+        continue;
+      }
+      const rel = path.relative(realRoot, real);
+      if (rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel))) return true;
+    }
+    return false;
   }
 
   /**
@@ -287,6 +324,23 @@ export class MessageRouter {
         message,
         new Error('Relative working directory requires an existing base directory')
       );
+      return;
+    }
+
+    if (
+      resolvedCwd &&
+      this.strictChannelTypes.has(message.channelType) &&
+      !(await this.isWithinAllowedRoots(resolvedCwd))
+    ) {
+      await this.responseCallback?.({
+        channelType: message.channelType,
+        channelId: message.channelId,
+        content: {
+          type: 'text',
+          text: '❌ That folder is outside the folders allowed for remote control.',
+        },
+        replyTo: message.id,
+      });
       return;
     }
 
