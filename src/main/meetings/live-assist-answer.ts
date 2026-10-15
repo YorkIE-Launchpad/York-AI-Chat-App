@@ -1,4 +1,5 @@
-import { configStore } from '../config/config-store';
+import { BACKEND_PROXY_PLACEHOLDER_KEY, getBackendProxyBaseUrl } from '../../shared/backend-config';
+import { configStore, type AppConfig } from '../config/config-store';
 import { runPiAiOneShot, runPiAiStream } from '../agent/sdk-one-shot';
 import { searchMcpToolsAsync, type McpSearchToolHit } from '../agent/mcp-tool-budget';
 import { compressToolResultTextForModel } from '../agent/mcp-tool-payload';
@@ -15,7 +16,21 @@ export const PIPELINE_TIMEOUT_MS = 180_000;
 const RESULT_MAX_CHARS = 2_500;
 const CATALOG_LIMIT = 15;
 
+export const LIVE_ASSIST_MODEL = 'claude-haiku-5-5';
+
 export type LiveAssistProgressPhase = 'planning' | 'mcp' | 'answering';
+
+/** Live Assist always runs on Haiku via the backend Anthropic proxy, regardless of the chat model. */
+function getLiveAssistConfig(): AppConfig {
+  return {
+    ...configStore.getAll(),
+    provider: 'anthropic',
+    customProtocol: 'anthropic',
+    baseUrl: getBackendProxyBaseUrl('anthropic'),
+    apiKey: BACKEND_PROXY_PLACEHOLDER_KEY,
+    model: LIVE_ASSIST_MODEL,
+  };
+}
 
 export interface LiveAssistAnswerOptions {
   question: string;
@@ -205,11 +220,7 @@ export function buildLiveAssistFarewellPrompt(options: {
   if (options.prepContext?.trim()) {
     sections.push('', 'Meeting prep:', options.prepContext.trim());
   }
-  sections.push(
-    '',
-    'Transcript:',
-    truncateTranscriptWindow(options.transcriptWindow) || '(empty)'
-  );
+  sections.push('', 'Transcript:', truncateTranscriptWindow(options.transcriptWindow) || '(empty)');
   return sections.join('\n');
 }
 
@@ -222,7 +233,7 @@ export async function summarizeLiveAssistMeeting(options: {
     const result = await runPiAiOneShot(
       buildLiveAssistFarewellPrompt(options),
       'Write a concise meeting wrap-up. Do not invent facts.',
-      configStore.getAll(),
+      getLiveAssistConfig(),
       { maxTokens: 512, temperature: 0 }
     );
     const text = result.text.trim();
@@ -236,7 +247,7 @@ export async function summarizeLiveAssistMeeting(options: {
 export async function answerLiveAssistQuestion(
   options: LiveAssistAnswerOptions
 ): Promise<string | null> {
-  const config = configStore.getAll();
+  const config = getLiveAssistConfig();
   const catalog = await buildLeanToolCatalog(options.mcpManager, options.question);
   const catalogText = formatToolCatalogForPrompt(catalog);
   const availableNames = new Set(options.mcpManager.getTools().map((tool) => tool.name));
