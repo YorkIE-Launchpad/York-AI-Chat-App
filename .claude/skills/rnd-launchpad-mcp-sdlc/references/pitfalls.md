@@ -89,7 +89,7 @@ Pass `confirm: true` for destructive tools, including:
 | `spawn_dev_agent` / `create_cursor_agent`                                | `get_agent_status` / `get_cursor_agent`                                                                     |
 | `*_chat_send_message`                                                    | matching `*_get_session`                                                                                    |
 | `start_backend_cloud_deploy`                                             | deploy latest/run                                                                                           |
-| `start_preview`                                                          | `get_preview_status`                                                                                        |
+| `start_preview`                                                          | `get_preview_status` → then `get_preview_snapshot`                                                          |
 | `run_infra_analysis`                                                     | infra latest/result                                                                                         |
 | `generate_understand_graph`                                              | `get_understand_status`                                                                                     |
 | QA generation                                                            | `get_qa_message` / `retry_qa_generation`                                                                    |
@@ -115,16 +115,20 @@ Stop on terminal statuses (`completed`, `failed`, `cancelled`, `ERROR`, locked&&
 
 ## Goal-tick / long-job anti-patterns
 
-| Mistake                                         | Correct                                   |
-| ----------------------------------------------- | ----------------------------------------- |
-| Exit right after migrate/implement “started”    | Poll to terminal; then next step          |
-| Wait for next /goal interval instead of polling | Interval is backstop; in-tick poll        |
-| Treat “Agent not found” as terminal             | Alternate: versions / implement / preview |
-| Park mid-job without RESUME                     | Always durable RESUME line                |
-| Restart seed/journey every tick                 | Resume prior release/revision             |
-| Claim ≥95% parity without screenshots           | Side-by-side or residual + reason         |
-| Stop at preview “loading Login”                 | Mock creds / restart_preview / evidence   |
-| Backend Code for preview parity                 | Platform implement only unless asked      |
+| Mistake                                             | Correct                                                                                               |
+| --------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Exit right after migrate/implement “started”        | Poll to terminal; then next step                                                                      |
+| Wait for next /goal interval instead of polling     | Interval is backstop; in-tick poll                                                                    |
+| Treat “Agent not found” as terminal                 | Alternate: versions / implement / preview                                                             |
+| Park mid-job without RESUME                         | Always durable RESUME line                                                                            |
+| Restart seed/journey every tick                     | Resume prior release/revision                                                                         |
+| Claim ≥95% parity without screenshots               | Side-by-side or residual + reason                                                                     |
+| Report a UI change with no image                    | `get_preview_snapshot` per changed route; images in the reply (or `SNAPSHOT: unavailable (<reason>)`) |
+| `fullPage: true` by default                         | Viewport snapshot first; full page only when the change is below the fold                             |
+| Snapshot while preview is `STARTING`                | Poll `get_preview_status` until ready (409 `PREVIEW_NOT_RUNNING` → `start_preview`)                   |
+| Snapshot after backend-only / infra / planning work | `SNAPSHOT: skipped (no UI change)`                                                                    |
+| Stop at preview “loading Login”                     | Mock creds / restart_preview / evidence                                                               |
+| Backend Code for preview parity                     | Platform implement only unless asked                                                                  |
 
 ## Release / revision mistakes
 

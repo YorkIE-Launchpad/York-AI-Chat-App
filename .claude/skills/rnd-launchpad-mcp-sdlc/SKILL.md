@@ -49,6 +49,7 @@ RELEASE: releaseId=… status=active|locked|… name=…
 REVISION: Rn|none live=…
 NEXT_ACTION: <snake_case_action>
 RESUME: projectId=… releaseId=… runId=… agentId=… step=… next=<tool>
+SNAPSHOT: attached|skipped (no UI change)|unavailable (<reason>)
 GOAL_STATUS: in_progress|complete
 ```
 
@@ -57,6 +58,29 @@ GOAL_STATUS: in_progress|complete
 - Always emit `RESUME:` when parking mid-job; next tick polls `next` **first**.
 
 Pair with **`goal-runner`** when the host uses `/goal` ticks.
+
+### Visual evidence (required, every turn)
+
+Every reply — ordinary chat turns and goal ticks — that reports a change users can see
+**shows that change as images**.
+
+1. **When:** a UI-affecting job reaches terminal success — `start_scope_implement` (platform),
+   `start_feedback_ai_fix`, `start_visual_fix_with_ai`, `migrate_frontend`,
+   `seed_release_from_prior` / `start_first_revision_from_prompt`, `fix_qa_failed_tests`,
+   Cursor/dev agents that touched frontend files, or `update_preview_manifest` /
+   `update_preview_env` that change how the preview renders.
+2. **Preview ready:** `get_preview_status`; if stopped → `start_preview` / `restart_preview` → poll until ready.
+3. **Capture:** `get_preview_snapshot` for each changed route (max 3–5). `desktop` by default;
+   add `mobile` for responsive/layout changes. Viewport shots (`fullPage: false`) unless the change is below the fold.
+4. **Show:** put every image in the reply, each labelled with route, viewport, release/revision (`Rn`)
+   and one line on what changed. Report returned `consoleErrors` as issues.
+5. **No UI change** (backend code, infra, cloud deploy, CI/CD, discovery/planning only):
+   say `SNAPSHOT: skipped (no UI change)`.
+6. **Cannot capture** (preview won't start, `PREVIEW_NOT_RUNNING` after retries, tool not in this
+   MCP profile): say `SNAPSHOT: unavailable (<reason>)` and give `create_preview_direct_link` or
+   `get_client_link` as the fallback. Never call a visual change done without an image or this line.
+
+On ordinary chat turns the `SNAPSHOT:` note is a single sentence in the reply, not the status-lines block.
 
 ---
 
@@ -99,6 +123,7 @@ If the goal mentions **preview**, **LaunchPad UI**, **Client Link**, **visual**,
 | `start_scope_implement` with `target: "platform"`                                             | `target: "development"` unless user named Backend Code / dev repo |
 | Poll implement → `start_preview`                                                              | Backend Code chat for UI polish                                   |
 | Poll preview until ready                                                                      | Stop after start                                                  |
+| `get_preview_snapshot` of changed routes → images in the reply                                | Say the change is done without an image                           |
 | Share with client: `share_client_link_preview` or `create_preview_direct_link` (ECS only)     | Hand out preview host:port                                        |
 | Preview won't boot: `get_preview_manifest` → `update_preview_manifest` / `update_preview_env` | Guess dev commands in chat                                        |
 
@@ -200,6 +225,8 @@ seed NEW active → WORK → … forever
 
 **In-tick rule:** after any start → poll every few–tens of seconds → on success immediately next SDLC step. Do **not** end with “started, wait N minutes” without `RESUME:`.
 
+**Snapshot rule:** when a UI-affecting row above (seed / first revision / implement platform / migrate / preview / feedback AI fix / visual fix / QA fix / FE agents) succeeds, the next step is preview ready → `get_preview_snapshot` per changed route → images in the reply ([Visual evidence](#visual-evidence-required-every-turn)).
+
 Park only for **hours-scale** jobs or poll budget; always durable `RESUME:`.
 
 Full sequences: [workflows.md](references/workflows.md).
@@ -211,9 +238,9 @@ Full sequences: [workflows.md](references/workflows.md).
 | Intent                    | Path                                                                                               |
 | ------------------------- | -------------------------------------------------------------------------------------------------- |
 | Continuous 24×7           | This file + [continuous-loop.md](references/continuous-loop.md)                                    |
-| New feature               | Plan scope → seed → implement platform → preview → QA → lock → seed next                           |
+| New feature               | Plan scope → seed → implement platform → preview → snapshot → QA → lock → seed next                |
 | Greenfield (no prior tag) | active → `start_first_revision_from_prompt` (or `create_empty_react_revision`) → scope → implement |
-| Bug / feedback            | active+Rn → AI fix → poll → preview → optional lock                                                |
+| Bug / feedback            | active+Rn → AI fix → poll → preview → snapshot → optional lock                                     |
 | Production errors         | `set_sentry_integration` / `import_sentry_issues` → `SENTRY` feedback → AI fix                     |
 | QA                        | Validate tools → failures to feedback → Build                                                      |
 | Visual vs Figma           | `list_qa_visual_compare_runs` → `move_visual_run_to_feedback` / `start_visual_fix_with_ai`         |
@@ -233,7 +260,7 @@ Tools: [tool-map.md](references/tool-map.md). Model: [platform-model.md](referen
 3. Epics/stories; ensure **one active** (`create_release` needs `startDate`+`releaseDate`; activate needs **`reason`**).
 4. Empty revisions → `seed_release_from_prior` `{ "mode": "baseline_copy" }` (no prior tag → `start_first_revision_from_prompt` with `promptText`).
 5. `set_release_scope` → `start_scope_implement` `{ "execution": "sequential", "target": "platform", "items":[{...,"sortOrder":1}] }` → **poll hours if needed**.
-6. `start_preview` → poll → Validate as needed.
+6. `start_preview` → poll → `get_preview_snapshot` for the changed routes → show the images → Validate as needed.
 7. `lock_release` `{ "confirm": true }` → poll lock → seed **new** active → continue goal or next scope.
 
 ### Ship end-of-cycle
@@ -248,7 +275,7 @@ Tools: [tool-map.md](references/tool-map.md). Model: [platform-model.md](referen
 
 1. Run QA / list feedback.
 2. Failures → `move_qa_report_to_feedback` or `start_feedback_ai_fix` → poll.
-3. Fix → preview → re-run QA.
+3. Fix → preview → snapshot → re-run QA.
 4. When green and ship asked → Ship branch.
 
 ---
@@ -265,6 +292,7 @@ Tools: [tool-map.md](references/tool-map.md). Model: [platform-model.md](referen
 - Feedback ids are **UUIDs**
 - Backend Code / infra / cloud-debug send: field is **`prompt`**, not `message`. Prefixes are `backend_code_chat_*`, **`infra_chat_*`** (not `infra_analysis_chat_*`), `cloud_debug_chat_*`
 - Cursor agent `model` is server-resolved — do not pass `model`
+- Visual change ⇒ `get_preview_snapshot` images in the reply (or `SNAPSHOT: skipped|unavailable (<reason>)`)
 - OAuth `get_*_connect_url` returns a URL for the **human**; never treat it as connected
 - `create_project_cicd`, `disconnect_*`, `delete_*`, `spawn_deploy_regression_fix_agent`: only with explicit user intent
 - Ask humans only for real forks (platform vs development when ambiguous **and** no preview cue; product secrets; repeated auth failure)
@@ -281,6 +309,7 @@ Exclusions (no MCP): AWS debug MCP, webhooks, OAuth callbacks, multipart ZIP / S
 | Seed empty active (baseline_copy)                      | Destructive delete project / disconnect integrations                   |
 | Run Client Link verify, security review, Sentry import | Create/disable CI/CD pipelines; spawn deploy regression fix agent      |
 | Implement, preview, poll, re-preview                   | Choosing `mode: agent` seed without user prompt intent                 |
+| Start preview + `get_preview_snapshot` after UI change | —                                                                      |
 | Feedback AI fix + approve when goal is fix             | Spending / budget uncertainty when budget tools fail and goal is large |
 | Lock + seed next when goal is ship cycle               | Switching to `development` target without clear user signal            |
 | Create epic/story/scope from goal text                 | 401/403 auth                                                           |

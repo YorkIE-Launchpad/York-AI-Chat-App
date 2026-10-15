@@ -132,7 +132,11 @@ Execute NEXT_ACTION with required fields (see pitfalls). After any **start**, po
 
 ### Step E — Verify + write durable state
 
-Update mental model; write PHASE / NEXT_ACTION / RESUME / GOAL_STATUS.
+Update mental model; write PHASE / NEXT_ACTION / RESUME / SNAPSHOT / GOAL_STATUS.
+
+A UI change counts as **verified only once a snapshot is attached**: preview ready →
+`get_preview_snapshot` for each changed route → images in the reply. Otherwise write
+`SNAPSHOT: skipped (no UI change)` or `SNAPSHOT: unavailable (<reason>)`.
 
 ---
 
@@ -186,6 +190,7 @@ seed_baseline (if needed; greenfield → start_first_revision_from_prompt → PO
 → POLL get_scope_implement_* / list_versions  (can be HOURS)
 → start_preview → POLL get_preview_status
    (won't boot → get_preview_manifest / update_preview_manifest / update_preview_env)
+→ get_preview_snapshot (changed routes) → show images
 → optional fidelity_loop / migrate_frontend
 → optional client share: share_client_link_preview | create_preview_direct_link (ECS)
 → optional client feedback path
@@ -229,7 +234,7 @@ get_qa_config / resolve_qa_config
 → optional Sentry: get_sentry_integration → import_sentry_issues (SENTRY feedback)
 → list_feedback → start_feedback_ai_fix → poll → approve_feedback
 → optional PR: run_security_review → list_security_review_findings
-→ start_preview / re-QA
+→ start_preview → get_preview_snapshot / re-QA
 ```
 
 **Rewind:** open defects with fixable scope → NEXT_ACTION back to Build.

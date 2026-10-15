@@ -104,8 +104,9 @@ while goal_not_complete:
    ```
 3. Poll `get_scope_implement_active` / `get_scope_implement_run` + `list_versions` (hours OK)
 4. `start_preview` → `get_preview_status` (boot failure → `get_preview_manifest` / `update_preview_manifest` / `update_preview_env`)
-5. Optional fidelity: §7
-6. Optional Backend Code (user asked) §6
+5. `get_preview_snapshot` for each changed route → show the images in the reply (see SKILL.md § Visual evidence)
+6. Optional fidelity: §7
+7. Optional Backend Code (user asked) §6
 
 #### V — Validate cycle
 
@@ -158,7 +159,7 @@ publishes a minimal Vite React app as R1 synchronously.
 
 7. `start_scope_implement` with `execution: "sequential"`, `target: "platform"` → poll
 8. `list_versions` → expect new `Rn`
-9. `start_preview`
+9. `start_preview` → poll ready → `get_preview_snapshot` for the routes the stories touched → show the images
 
 ### Validate + close cycle
 
@@ -191,7 +192,7 @@ Seed/list only on the **new** active. Do not implement on the locked release.
 2. `list_feedback` / `get_feedback` — UUID `feedbackId`
 3. `start_feedback_ai_fix` → poll `get_feedback_ai_fix_status`
 4. `approve_feedback` when appropriate
-5. `start_preview`
+5. `start_preview` → poll ready → `get_preview_snapshot` of the fixed screen → show the image
 6. Optional: continue to lock loop when shipping
 
 ---
@@ -255,13 +256,13 @@ Build → Frontend only. Requires **active release + ≥1 revision**. Default **
 2. Zero revisions → seed `baseline_copy`
 3. `start_preview` → poll ready
 4. Authenticate with mock credentials if shown (never park purely on “loading Login”)
-5. Navigate target routes; screenshot preview
+5. `get_preview_snapshot` for each target route (desktop, plus `mobile` for responsive work)
 6. Prod baseline side-by-side when reachable; else residual + continue
 7. Diff → structured correction list
 8. Ensure GitHub ready (`get_cursor_github_readiness` or rely on `migrate_frontend` preflight). On access failure: tell human to accept launchpad invite / fix Integrations — do **not** wait for a browser “Understood” dialog on the server.
 9. `migrate_frontend` (same as UI Build Frontend App) / `start_scope_implement` `target: platform` with fix prompt — **stay in turn**
 10. Poll to terminal (`get_cursor_agent` for migrate — treat `MIGRATE_PLATFORM_SYNC_FAILED` / FAILED / ERROR as terminal failure; versions / implement for scope); agent-not-found → alternate poll paths
-11. Re-preview same pages; re-compare
+11. Re-preview same pages with `get_preview_snapshot`; re-compare; show before/after images
 12. Repeat until criteria met or residual + unblockable reason
 13. Ship only if goal asks
 
@@ -340,6 +341,7 @@ Next tick: poll first — do not re-seed or restart whole compare unless job con
 - [ ] Implement defaulted to `target: "platform"` unless user asked for development
 - [ ] After any start tool, polled to terminal **in-turn** (or RESUME park)
 - [ ] Agent-not-found recovered via versions / implement / preview status
+- [ ] Every UI change shown with `get_preview_snapshot` images in the reply (or `SNAPSHOT: skipped|unavailable (<reason>)`)
 - [ ] After platform lock, polled `get_release_lock_status`; after development implement, skip lock agent
 - [ ] Next cycle seeded on **new** active id
 - [ ] Continuous goals stay `in_progress` until evidence of full criteria
