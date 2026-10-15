@@ -85,6 +85,8 @@ export interface MCPServerConfig {
    * Omitted / true = writes allowed (subject to the global kill-switch).
    */
   writeEnabled?: boolean;
+  /** Turned off only because its connector was disconnected; reconnecting turns it back on. */
+  pausedByConnectorDisconnect?: boolean;
 }
 
 /**

@@ -25,6 +25,8 @@ export interface SlackUserProfile {
   isStranger: boolean;
 }
 
+export type SlackBlock = Record<string, unknown>;
+
 export interface SlackApi {
   /** Resolve the identity behind a user token (xoxp-). */
   authTest(userToken: string): Promise<SlackIdentity>;
@@ -32,8 +34,38 @@ export interface SlackApi {
   usersInfo(userId: string): Promise<SlackUserProfile>;
   /** Open (or fetch) the bot's 1:1 IM with a user. */
   openIm(userId: string): Promise<string>;
-  postMessage(input: { channel: string; text: string; threadTs?: string }): Promise<void>;
+  /** Returns the posted message `ts` (empty when Slack omitted it). */
+  postMessage(input: {
+    channel: string;
+    text: string;
+    threadTs?: string;
+    blocks?: SlackBlock[];
+  }): Promise<{ ts: string }>;
+  updateMessage(input: {
+    channel: string;
+    ts: string;
+    text: string;
+    blocks?: SlackBlock[];
+  }): Promise<void>;
+  addReaction(input: { channel: string; ts: string; name: string }): Promise<void>;
+  removeReaction(input: { channel: string; ts: string; name: string }): Promise<void>;
+  /** POST to an interaction / slash-command `response_url` (hooks.slack.com only). */
+  respond(responseUrl: string, body: Record<string, unknown>): Promise<void>;
 }
+
+/** Slack `response_url`s always live on hooks.slack.com; anything else is refused. */
+export function isSlackResponseUrl(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length > 2_000) return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && url.hostname === 'hooks.slack.com';
+  } catch {
+    return false;
+  }
+}
+
+/** Reactions that are already present / absent are not failures for our purposes. */
+const BENIGN_REACTION_ERRORS = new Set(['already_reacted', 'no_reaction', 'message_not_found']);
 
 export class SlackApiError extends Error {
   constructor(
@@ -131,7 +163,7 @@ export function createSlackApi(botToken: string, fetchFn: FetchFn = fetch): Slac
       return id;
     },
 
-    async postMessage({ channel, text, threadTs }) {
+    async postMessage({ channel, text, threadTs, blocks }) {
       const params: Record<string, string> = {
         channel,
         text,
@@ -142,7 +174,52 @@ export function createSlackApi(botToken: string, fetchFn: FetchFn = fetch): Slac
         mrkdwn: 'true',
       };
       if (threadTs) params.thread_ts = threadTs;
-      await call('chat.postMessage', botToken, params);
+      if (blocks) params.blocks = JSON.stringify(blocks);
+      const payload = await call('chat.postMessage', botToken, params);
+      return { ts: typeof payload.ts === 'string' ? payload.ts : '' };
+    },
+
+    async updateMessage({ channel, ts, text, blocks }) {
+      const params: Record<string, string> = {
+        channel,
+        ts,
+        text,
+        parse: 'none',
+        link_names: 'false',
+        blocks: JSON.stringify(blocks ?? []),
+      };
+      await call('chat.update', botToken, params);
+    },
+
+    async addReaction({ channel, ts, name }) {
+      try {
+        await call('reactions.add', botToken, { channel, timestamp: ts, name });
+      } catch (error) {
+        if (!(error instanceof SlackApiError && BENIGN_REACTION_ERRORS.has(error.code)))
+          throw error;
+      }
+    },
+
+    async removeReaction({ channel, ts, name }) {
+      try {
+        await call('reactions.remove', botToken, { channel, timestamp: ts, name });
+      } catch (error) {
+        if (!(error instanceof SlackApiError && BENIGN_REACTION_ERRORS.has(error.code)))
+          throw error;
+      }
+    },
+
+    async respond(responseUrl, body) {
+      if (!isSlackResponseUrl(responseUrl)) {
+        throw new SlackApiError('response_url', 'invalid_url');
+      }
+      const response = await fetchFn(responseUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+      if (!response.ok) throw new SlackApiError('response_url', `http_${response.status}`);
     },
   };
 }

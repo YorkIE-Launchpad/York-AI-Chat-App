@@ -10,7 +10,9 @@ vi.mock('../src/main/utils/logger', () => ({
 import {
   SlackRelayChannel,
   SLACK_RELAY_CHANNEL_ID,
+  slackRelayReplyHandleOf,
 } from '../src/main/remote/channels/slack/slack-relay-channel';
+import type { SlackRelayAction } from '../src/main/remote/channels/slack/slack-relay-protocol';
 import type { RemoteMessage } from '../src/main/remote/types';
 
 class FakeSocket extends EventEmitter {
@@ -84,7 +86,11 @@ describe('SlackRelayChannel', () => {
   it('sends credentials only in headers and the register frame', async () => {
     const { socket, headersSeen, channel: c } = await connectRegistered();
     expect(headersSeen[0]).toEqual({ Authorization: 'Bearer id-token' });
-    expect(socket.sent[0]).toEqual({ type: 'register', slackUserToken: 'xoxp-user-token' });
+    expect(socket.sent[0]).toEqual({
+      type: 'register',
+      slackUserToken: 'xoxp-user-token',
+      capabilities: ['status', 'approvals', 'commands'],
+    });
     expect(c.connected).toBe(true);
   });
 
@@ -158,5 +164,94 @@ describe('SlackRelayChannel', () => {
     const { socket, channel: c } = await connectRegistered();
     socket.emit('close', 4403, Buffer.from('forbidden'));
     expect(c.lastError).toMatch(/email must match/);
+  });
+
+  it('carries the reply handle on inbound messages', async () => {
+    const { socket, messages } = await connectRegistered();
+    socket.frame({ type: 'event', replyHandle: 'h1', text: 'hi' });
+    expect(slackRelayReplyHandleOf(messages[0])).toBe('h1');
+  });
+
+  it('sends a footer with replies on a specific handle', async () => {
+    const { socket, channel: c } = await connectRegistered();
+    const sending = c.sendReply('h9', 'answer', 'Chat: X');
+    const frame = socket.sent.find((f) => f.type === 'reply')!;
+    expect(frame).toMatchObject({ replyHandle: 'h9', text: 'answer', footer: 'Chat: X' });
+    socket.frame({ type: 'reply_result', requestId: frame.requestId, ok: true });
+    await expect(sending).resolves.toBeUndefined();
+  });
+
+  it('coalesces status steps but sends start and done immediately', async () => {
+    vi.useFakeTimers();
+    try {
+      const { socket, channel: c } = await connectRegistered();
+      const statuses = () => socket.sent.filter((f) => f.type === 'status');
+
+      c.sendStatus('h1', 'start');
+      c.sendStatus('h1', 'step', 'Reading files');
+      c.sendStatus('h1', 'step', 'Running a command');
+      c.sendStatus('h1', 'step', 'Editing files');
+      expect(statuses()).toHaveLength(1);
+
+      await vi.advanceTimersByTimeAsync(1_100);
+      expect(statuses()).toHaveLength(2);
+      expect(statuses()[1]).toMatchObject({ phase: 'step', label: 'Editing files', steps: 3 });
+
+      c.sendStatus('h1', 'step', 'Reading files');
+      c.sendStatus('h1', 'done');
+      expect(statuses().at(-1)).toMatchObject({ phase: 'done', steps: 4 });
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(statuses().at(-1)).toMatchObject({ phase: 'done' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('sends approval, chat list and notice frames only while connected', async () => {
+    const { socket, channel: c } = await connectRegistered();
+    expect(
+      c.sendApproval('h1', {
+        approvalId: 'a'.repeat(24),
+        toolName: 'Bash',
+        summary: 'Command: ls',
+        expiresInSec: 60,
+      })
+    ).toBe(true);
+    expect(c.closeApproval('a'.repeat(24), 'allowed')).toBe(true);
+    expect(c.sendNotice('h1', 'Stopped.')).toBe(true);
+    expect(socket.sent.map((f) => f.type)).toEqual(
+      expect.arrayContaining(['approval', 'approval_closed', 'notice'])
+    );
+
+    socket.emit('close', 1006, Buffer.from(''));
+    expect(c.sendNotice('h1', 'later')).toBe(false);
+  });
+
+  it('relays valid action frames and updates the reply route for commands', async () => {
+    const { socket, channel: c } = await connectRegistered();
+    const actions: SlackRelayAction[] = [];
+    c.onAction((a) => actions.push(a));
+
+    socket.frame({
+      type: 'action',
+      kind: 'approval',
+      approvalId: 'b'.repeat(24),
+      decision: 'allow',
+    });
+    socket.frame({ type: 'action', kind: 'command', name: 'chats', replyHandle: 'h-cmd' });
+    socket.frame({ type: 'action', kind: 'approval', approvalId: 'short', decision: 'allow' });
+    socket.frame({ type: 'action', kind: 'command', name: 'rm-rf', replyHandle: 'h-x' });
+    socket.frame({
+      type: 'action',
+      kind: 'approval',
+      approvalId: 'c'.repeat(24),
+      decision: 'maybe',
+    });
+
+    expect(actions).toEqual([
+      { kind: 'approval', approvalId: 'b'.repeat(24), decision: 'allow' },
+      { kind: 'command', name: 'chats', replyHandle: 'h-cmd' },
+    ]);
+    expect(c.latestHandle).toBe('h-cmd');
   });
 });

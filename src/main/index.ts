@@ -97,6 +97,7 @@ import {
 import { installSiriShortcut } from './voice/siri-shortcut';
 import { normalizeVoiceControlConfig, type VoiceControlConfig } from '../shared/voice-control';
 import { getInitialSessionTitle } from '../shared/session-title';
+import { DEFAULT_SLACK_MCP_SERVER_ID } from '../shared/mcp-defaults';
 import {
   appleMeetingTranscriptionService,
   getMeetingSttProviderConfig,
@@ -1947,12 +1948,19 @@ function sendToRenderer(event: ServerEvent) {
 
     // trace.update reserved; currently mainly use trace.step
 
+    // Live "Thinking…" / "Writing the answer…" status for Slack relay turns
+    if (event.type === 'stream.thinking') {
+      remoteManager.noteSlackTurnActivity(sessionId, 'thinking');
+    } else if (event.type === 'stream.partial') {
+      remoteManager.noteSlackTurnActivity(sessionId, 'writing');
+    }
+
     // Intercept session.status for cleanup
     if (event.type === 'session.status') {
       const status = payload.status as string;
       if (status === 'idle' || status === 'error') {
         // Session ended; clear buffer
-        remoteManager.clearSessionBuffer(sessionId).catch((err: Error) => {
+        remoteManager.clearSessionBuffer(sessionId, status).catch((err: Error) => {
           logError('[Remote] Failed to clear session buffer:', err);
         });
       }
@@ -3168,6 +3176,8 @@ app
         if (!sessionManager) throw new Error('Session manager not initialized');
         return sessionManager.hasSession(sessionId);
       },
+      listSessions: () => sessionManager?.listSessions() ?? [],
+      getSession: (sessionId) => sessionManager?.getSession(sessionId) ?? null,
     };
     remoteManager.setAgentExecutor(agentExecutor);
     remoteManager.setSlackRelayProvider({
@@ -3201,6 +3211,9 @@ app
       remoteManager.start().catch((error) => {
         logError('[App] Failed to start remote control:', error);
       });
+    }
+    if (remoteConfigStore.getSlackRelayConfig().enabled) {
+      void ensureSlackMcpEnabledForRelay();
     }
 
     app.on('activate', () => {
@@ -4693,7 +4706,15 @@ ipcMain.handle('mcp.getServer', (_event, serverId: string) => {
   }
 });
 
-ipcMain.handle('mcp.saveServer', async (_event, config: MCPServerConfig) => {
+/** An explicit on/off choice replaces the "paused by connector disconnect" marker. */
+function withoutDisconnectPause(config: MCPServerConfig): MCPServerConfig {
+  const next = { ...config };
+  delete next.pausedByConnectorDisconnect;
+  return next;
+}
+
+ipcMain.handle('mcp.saveServer', async (_event, incoming: MCPServerConfig) => {
+  const config = withoutDisconnectPause(incoming);
   mcpConfigStore.saveServer(config);
   // Update only this specific server, not all servers
   if (sessionManager) {
@@ -4775,7 +4796,7 @@ ipcMain.handle('mcp.connectServer', async (_event, serverId: string) => {
     if (!config) {
       return { success: false, error: `MCP server not found: ${serverId}` };
     }
-    const updated = { ...config, enabled: true };
+    const updated = { ...withoutDisconnectPause(config), enabled: true };
     mcpConfigStore.saveServer(updated);
     if (sessionManager) {
       const mcpManager = sessionManager.getMCPManager();
@@ -4797,7 +4818,7 @@ ipcMain.handle('mcp.disconnectServer', async (_event, serverId: string) => {
     if (!config) {
       return { success: false, error: `MCP server not found: ${serverId}` };
     }
-    const updated = { ...config, enabled: false };
+    const updated = { ...withoutDisconnectPause(config), enabled: false };
     mcpConfigStore.saveServer(updated);
     if (sessionManager) {
       const mcpManager = sessionManager.getMCPManager();
@@ -4862,18 +4883,67 @@ async function setConnectorMcpEnabled(connectorId: ConnectorId, enabled: boolean
   for (const serverId of mcpServerIdsForConnector(connectorId)) {
     const config = mcpConfigStore.getServer(serverId);
     if (!config) continue;
-    const nextConfig = { ...config, enabled };
+    const nextConfig = { ...withoutDisconnectPause(config), enabled };
     mcpConfigStore.saveServer(nextConfig);
     await sessionManager.getMCPManager().updateServer(nextConfig);
   }
   sessionManager.invalidateMcpServersCache();
 }
 
+/** Disconnect pauses the connector's enabled MCP servers so a reconnect can restore them. */
+async function pauseConnectorMcp(connectorId: ConnectorId): Promise<void> {
+  if (!sessionManager) return;
+  for (const serverId of mcpServerIdsForConnector(connectorId)) {
+    const config = mcpConfigStore.getServer(serverId);
+    if (!config || (!config.enabled && !config.pausedByConnectorDisconnect)) continue;
+    const nextConfig = { ...config, enabled: false, pausedByConnectorDisconnect: true };
+    mcpConfigStore.saveServer(nextConfig);
+    await sessionManager.getMCPManager().updateServer(nextConfig);
+  }
+  sessionManager.invalidateMcpServersCache();
+}
+
+async function resumeConnectorMcp(connectorId: ConnectorId): Promise<void> {
+  if (!sessionManager) return;
+  let resumed = false;
+  for (const serverId of mcpServerIdsForConnector(connectorId)) {
+    const config = mcpConfigStore.getServer(serverId);
+    if (!config?.pausedByConnectorDisconnect) continue;
+    const nextConfig = { ...withoutDisconnectPause(config), enabled: true };
+    mcpConfigStore.saveServer(nextConfig);
+    await sessionManager.getMCPManager().updateServer(nextConfig);
+    resumed = true;
+  }
+  if (resumed) {
+    sessionManager.invalidateMcpServersCache();
+    log(`[Connectors] Re-enabled ${connectorId} MCP after reconnect`);
+  }
+}
+
+/**
+ * Chats driven from Slack should still be able to use the Slack MCP. A Slack
+ * disconnect/reconnect leaves it off, so turning on remote control restores it.
+ */
+async function ensureSlackMcpEnabledForRelay(): Promise<void> {
+  if (!connectorManager.isConnected('slack')) return;
+  const config = mcpConfigStore.getServer(DEFAULT_SLACK_MCP_SERVER_ID);
+  if (!config || config.enabled) return;
+  try {
+    await setConnectorMcpEnabled('slack', true);
+    log('[Remote] Enabled Slack MCP for Slack remote control');
+  } catch (error) {
+    logError('[Remote] Failed to enable Slack MCP:', error);
+  }
+}
+
 ipcMain.handle('connectors.connect', async (_event, connectorId: ConnectorId) => {
   try {
-    // OAuth connect only — do not auto-enable MCP. Fresh installs keep all MCP
-    // off until the user explicitly enables a connector in Settings / Context.
+    // Fresh installs keep all MCP off until the user explicitly enables a
+    // connector in Settings / Context; a reconnect restores what disconnect paused.
     const status = await connectorManager.connect(connectorId);
+    await resumeConnectorMcp(connectorId).catch((err) =>
+      logError('[Connectors] Failed to re-enable MCP after reconnect:', err)
+    );
     if (connectorId === 'zoom' && meetingService) {
       meetingService.syncDetectionPolling();
     }
@@ -4895,7 +4965,7 @@ ipcMain.handle('connectors.disconnect', async (_event, connectorId: ConnectorId)
         .catch((err) => logError('[Remote] Failed to disable Slack relay:', err));
     }
     connectorManager.disconnect(connectorId);
-    await setConnectorMcpEnabled(connectorId, false);
+    await pauseConnectorMcp(connectorId);
     if (connectorId === 'zoom' && meetingService) {
       meetingService.syncDetectionPolling();
     }
@@ -6057,6 +6127,7 @@ ipcMain.handle('remote.setSlackRelayEnabled', async (_event, enabled: unknown) =
   try {
     if (typeof enabled !== 'boolean') throw new Error('enabled must be a boolean');
     const status = await remoteManager.setSlackRelayEnabled(enabled);
+    if (enabled) await ensureSlackMcpEnabledForRelay();
     return { success: true, status };
   } catch (error) {
     logError('[Remote] Error toggling Slack relay:', error);

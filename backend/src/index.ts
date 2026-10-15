@@ -12,7 +12,9 @@ import { listEnabledModels } from './models.js';
 import { proxyToProvider, type ProviderTarget } from './proxy.js';
 import { log, logWarn } from './safe-log.js';
 import { resolveSlackRelayConfig } from './slack-relay/config.js';
+import { createSlackCommandsRouter } from './slack-relay/commands-router.js';
 import { createSlackEventsRouter } from './slack-relay/events-router.js';
+import { createSlackInteractionsRouter } from './slack-relay/interactions-router.js';
 import { SlackRelayHub } from './slack-relay/relay-hub.js';
 import { attachSlackRelay } from './slack-relay/relay-ws.js';
 import { createSlackApi } from './slack-relay/slack-api.js';
@@ -80,6 +82,18 @@ if (!slackRelayConfig) {
   logWarn('[york-ie-backend] Slack relay disabled (SLACK_RELAY_* env incomplete)');
 }
 app.use('/slack', createSlackEventsRouter({ config: slackRelayConfig, hub: slackRelayHub }));
+app.use(
+  '/slack',
+  createSlackInteractionsRouter({
+    config: slackRelayConfig,
+    hub: slackRelayHub,
+    api: slackRelayApi,
+  })
+);
+app.use(
+  '/slack',
+  createSlackCommandsRouter({ config: slackRelayConfig, hub: slackRelayHub, api: slackRelayApi })
+);
 
 // All remaining routes require a valid Cognito JWT and a supported client version
 app.use(requireCognito);

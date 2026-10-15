@@ -24,7 +24,8 @@ type AgentCallback = (
   channelId: string,
   senderId: string,
   onMessage: (message: Message) => void,
-  onPartial: (delta: string) => void
+  onPartial: (delta: string) => void,
+  originalMessage: RemoteMessage
 ) => Promise<void>;
 type WorkingDirectoryValidator = (cwd: string) => Promise<string | null> | string | null;
 
@@ -394,7 +395,8 @@ export class MessageRouter {
         // onPartial callback
         (delta) => {
           this.handlePartialResponse(sessionId, message, delta);
-        }
+        },
+        message
       );
 
       if (resolvedCwd) {
@@ -646,6 +648,32 @@ export class MessageRouter {
    */
   getAllSessionMappings(): RemoteSessionMapping[] {
     return Array.from(this.sessionMappings.values());
+  }
+
+  /**
+   * Point a DM at a remote session id (a fresh one when omitted), replacing the
+   * current binding. Returns the new mapping.
+   */
+  bindDmSession(
+    channelType: ChannelType,
+    channelId: string,
+    userId: string,
+    options: { sessionId?: string; workingDirectory?: string } = {}
+  ): RemoteSessionMapping {
+    const key = `${channelType}:dm:${userId}`;
+    const now = Date.now();
+    const mapping: RemoteSessionMapping = {
+      channelType,
+      channelId,
+      userId,
+      sessionId: options.sessionId ?? this.generateSessionId(),
+      createdAt: now,
+      lastActiveAt: now,
+      ...(options.workingDirectory ? { workingDirectory: options.workingDirectory } : {}),
+    };
+    this.sessionMappings.set(key, mapping);
+    log('[MessageRouter] Bound DM session:', { key, sessionId: mapping.sessionId });
+    return mapping;
   }
 
   /**

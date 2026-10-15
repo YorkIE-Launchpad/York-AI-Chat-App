@@ -6,7 +6,6 @@ import {
   rememberAlwaysAllow,
   rememberAutoApproveToolPermissions,
   resolveSessionToolPermission,
-  resolveSessionToolPermissionAsync,
   sessionAutoApprovesToolPermissions,
   setPermissionRules,
   unmarkStrictRemoteSession,
@@ -21,14 +20,14 @@ afterEach(() => {
 });
 
 describe('strict remote sessions', () => {
-  it('asks for tools that desktop rules or built-ins would auto-allow', async () => {
+  it('resolve tools exactly like desktop chats', () => {
     setPermissionRules([{ tool: 'bash', action: 'allow' }]);
     markStrictRemoteSession(STRICT);
 
-    expect(resolveSessionToolPermission(STRICT, 'bash', { command: 'ls' })).toBe('ask');
-    expect(resolveSessionToolPermission(STRICT, 'read', { path: '/tmp/a' })).toBe('ask');
-    expect(resolveSessionToolPermission(STRICT, 'webfetch', { url: 'https://x' })).toBe('ask');
-    expect(await resolveSessionToolPermissionAsync(STRICT, 'bash', { command: 'ls' })).toBe('ask');
+    expect(resolveSessionToolPermission(STRICT, 'bash', { command: 'ls' })).toBe('allow');
+    expect(resolveSessionToolPermission(STRICT, 'webfetch', { url: 'https://x' })).toBe('allow');
+    expect(resolveSessionToolPermission(STRICT, 'mcp_run', {})).toBe('allow');
+    expect(resolveSessionToolPermission(STRICT, 'write', { path: '/tmp/a' })).toBe('ask');
   });
 
   it('keeps hard deny rules', () => {
@@ -37,22 +36,14 @@ describe('strict remote sessions', () => {
     expect(resolveSessionToolPermission(STRICT, 'bash', { command: 'ls' })).toBe('deny');
   });
 
-  it('denies tools that would bypass per-call approval', () => {
-    markStrictRemoteSession(STRICT);
-    expect(resolveSessionToolPermission(STRICT, 'spawn_subagent', {})).toBe('deny');
-    expect(resolveSessionToolPermission(STRICT, 'mcp_run', {})).toBe('deny');
-  });
-
-  it('never remembers always-allow and clears prior session approvals', () => {
-    rememberAlwaysAllow(STRICT, 'bash');
+  it('keeps Always Allow but never workflow auto-approve', () => {
+    rememberAlwaysAllow(STRICT, 'write');
     rememberAutoApproveToolPermissions(STRICT);
     markStrictRemoteSession(STRICT);
 
     expect(sessionAutoApprovesToolPermissions(STRICT)).toBe(false);
-    expect(resolveSessionToolPermission(STRICT, 'bash', { command: 'ls' })).toBe('ask');
-
-    rememberAlwaysAllow(STRICT, 'bash');
-    expect(resolveSessionToolPermission(STRICT, 'bash', { command: 'ls' })).toBe('ask');
+    expect(resolveSessionToolPermission(STRICT, 'write', { path: '/tmp/a' })).toBe('allow');
+    expect(resolveSessionToolPermission(STRICT, 'edit', { path: '/tmp/a' })).toBe('ask');
   });
 
   it('can be unmarked', () => {

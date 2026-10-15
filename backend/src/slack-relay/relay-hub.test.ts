@@ -79,11 +79,12 @@ describe('SlackRelayHub routing', () => {
     assert.equal(api.posts.length, 1);
   });
 
-  it('closes and alerts on takeover by a new desktop', () => {
+  it('closes and alerts on takeover by a new desktop', async () => {
     const { api, hub, peer } = setup();
     const next = createFakePeer('p-new');
     assert.deepEqual(hub.registerOwner('T1:U1', next, 'D1'), { replaced: true });
     assert.equal(peer.closed?.code, RELAY_CLOSE_CODES.replaced);
+    await hub.drain();
     assert.equal(api.posts.length, 1);
     assert.equal(api.posts[0].channel, 'D1');
   });

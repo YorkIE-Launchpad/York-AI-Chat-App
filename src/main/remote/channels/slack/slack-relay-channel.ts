@@ -13,6 +13,15 @@ import { ChannelBase } from '../channel-base';
 import { log, logWarn } from '../../../utils/logger';
 import { isLoopbackUrl, resolveBackendWsUrl } from '../../../../shared/backend-config';
 import type { RemoteMessage, RemoteResponse } from '../../types';
+import {
+  SLACK_RELAY_CAPABILITIES,
+  parseSlackRelayAction,
+  type SlackRelayAction,
+  type SlackRelayApprovalOutcome,
+  type SlackRelayApprovalRequest,
+  type SlackRelayChatEntry,
+  type SlackRelayStatusPhase,
+} from './slack-relay-protocol';
 
 /** Stable id so the router keeps one session and one pending-approval route per owner. */
 export const SLACK_RELAY_CHANNEL_ID = 'slack-relay-dm';
@@ -24,6 +33,8 @@ const INBOUND_TEXT_MAX = 4_000;
 const MIN_BACKOFF_MS = 1_000;
 const MAX_BACKOFF_MS = 60_000;
 const CLIENT_PING_INTERVAL_MS = 25_000;
+/** Progress labels are coalesced so a burst of tool calls can't trip the relay frame limit. */
+const STATUS_MIN_INTERVAL_MS = 1_000;
 
 const CLOSE_FORBIDDEN = 4403;
 const CLOSE_REPLACED = 4409;
@@ -48,6 +59,19 @@ interface PendingReply {
   timer: NodeJS.Timeout;
 }
 
+interface StatusThrottle {
+  lastSentAt: number;
+  steps: number;
+  pending: { phase: 'thinking' | 'step'; label?: string } | null;
+  timer: NodeJS.Timeout | null;
+}
+
+/** Reply handle carried on inbound relay messages (`RemoteMessage.raw`). */
+export function slackRelayReplyHandleOf(message: RemoteMessage): string | null {
+  const raw = message.raw as { replyHandle?: unknown } | undefined;
+  return typeof raw?.replyHandle === 'string' ? raw.replyHandle : null;
+}
+
 function textOf(response: RemoteResponse): string {
   const { content } = response;
   if (content.type === 'markdown') return content.markdown || '';
@@ -64,6 +88,8 @@ export class SlackRelayChannel extends ChannelBase {
   private backoffMs = MIN_BACKOFF_MS;
   private latestReplyHandle: string | null = null;
   private pendingReplies = new Map<string, PendingReply>();
+  private statusThrottles = new Map<string, StatusThrottle>();
+  private actionHandler?: (action: SlackRelayAction) => void;
   private _lastError: string | null = null;
 
   constructor(private readonly deps: SlackRelayChannelDeps) {
@@ -72,6 +98,16 @@ export class SlackRelayChannel extends ChannelBase {
 
   get lastError(): string | null {
     return this._lastError;
+  }
+
+  /** Reply handle of the most recent owner message or command. */
+  get latestHandle(): string | null {
+    return this.latestReplyHandle;
+  }
+
+  /** Button clicks and `/growth` commands relayed by the backend. */
+  onAction(handler: (action: SlackRelayAction) => void): void {
+    this.actionHandler = handler;
   }
 
   async start(): Promise<void> {
@@ -89,6 +125,7 @@ export class SlackRelayChannel extends ChannelBase {
   async stop(): Promise<void> {
     this.stopped = true;
     this.clearTimers();
+    this.clearStatusThrottles();
     this.latestReplyHandle = null;
     this.failPendingReplies('Slack relay stopped');
     const ws = this.ws;
@@ -106,16 +143,23 @@ export class SlackRelayChannel extends ChannelBase {
   }
 
   async send(response: RemoteResponse): Promise<void> {
+    if (response.channelId !== SLACK_RELAY_CHANNEL_ID) {
+      throw new Error('No active Slack reply route');
+    }
+    await this.sendReply(this.latestReplyHandle, textOf(response));
+  }
+
+  /** Post an answer through a specific reply handle, optionally with a footer line. */
+  async sendReply(replyHandle: string | null, body: string, footer?: string): Promise<void> {
     const ws = this.ws;
-    const handle = this.latestReplyHandle;
     if (!ws || ws.readyState !== WebSocket.OPEN || !this._connected) {
       throw new Error('Slack relay not connected');
     }
-    if (response.channelId !== SLACK_RELAY_CHANNEL_ID || !handle) {
+    if (!replyHandle) {
       throw new Error('No active Slack reply route');
     }
 
-    let text = textOf(response).trim();
+    let text = body.trim();
     if (!text) return;
     if (text.length > REPLY_TEXT_MAX) {
       text = `${text.slice(0, REPLY_TEXT_MAX)}\n\n…(truncated — open York IE to see the full reply)`;
@@ -128,8 +172,106 @@ export class SlackRelayChannel extends ChannelBase {
         reject(new Error('Slack relay reply timed out'));
       }, REPLY_RESULT_TIMEOUT_MS);
       this.pendingReplies.set(requestId, { resolve, reject, timer });
-      ws.send(JSON.stringify({ type: 'reply', replyHandle: handle, text, requestId }));
+      ws.send(
+        JSON.stringify({
+          type: 'reply',
+          replyHandle,
+          text,
+          requestId,
+          ...(footer ? { footer } : {}),
+        })
+      );
     });
+  }
+
+  /**
+   * Live progress for a turn. `start`, `done` and `error` go out immediately;
+   * `thinking` / `step` labels are coalesced to one frame per second (latest wins).
+   */
+  sendStatus(replyHandle: string, phase: SlackRelayStatusPhase, label?: string): void {
+    if (phase === 'start') {
+      this.statusThrottles.set(replyHandle, {
+        lastSentAt: Date.now(),
+        steps: 0,
+        pending: null,
+        timer: null,
+      });
+      this.sendFrame({ type: 'status', replyHandle, phase });
+      return;
+    }
+
+    let throttle = this.statusThrottles.get(replyHandle);
+    if (phase === 'done' || phase === 'error') {
+      if (throttle?.timer) clearTimeout(throttle.timer);
+      this.statusThrottles.delete(replyHandle);
+      this.sendFrame({ type: 'status', replyHandle, phase, steps: throttle?.steps ?? 0 });
+      return;
+    }
+
+    if (!throttle) {
+      throttle = { lastSentAt: 0, steps: 0, pending: null, timer: null };
+      this.statusThrottles.set(replyHandle, throttle);
+    }
+    if (phase === 'step') throttle.steps += 1;
+    throttle.pending = { phase, ...(label ? { label } : {}) };
+    if (throttle.timer) return;
+
+    const wait = throttle.lastSentAt + STATUS_MIN_INTERVAL_MS - Date.now();
+    if (wait <= 0) {
+      this.flushStatus(replyHandle, throttle);
+      return;
+    }
+    const active = throttle;
+    active.timer = setTimeout(() => {
+      active.timer = null;
+      if (this.statusThrottles.get(replyHandle) === active) this.flushStatus(replyHandle, active);
+    }, wait);
+    active.timer.unref?.();
+  }
+
+  sendApproval(replyHandle: string, request: SlackRelayApprovalRequest): boolean {
+    return this.sendFrame({ type: 'approval', replyHandle, ...request });
+  }
+
+  closeApproval(approvalId: string, outcome: SlackRelayApprovalOutcome): boolean {
+    return this.sendFrame({ type: 'approval_closed', approvalId, outcome });
+  }
+
+  sendChatList(replyHandle: string, chats: SlackRelayChatEntry[]): boolean {
+    return this.sendFrame({ type: 'chat_list', replyHandle, chats });
+  }
+
+  sendNotice(replyHandle: string, text: string): boolean {
+    return this.sendFrame({ type: 'notice', replyHandle, text });
+  }
+
+  private flushStatus(replyHandle: string, throttle: StatusThrottle): void {
+    const pending = throttle.pending;
+    if (!pending) return;
+    throttle.pending = null;
+    throttle.lastSentAt = Date.now();
+    this.sendFrame({
+      type: 'status',
+      replyHandle,
+      phase: pending.phase,
+      steps: throttle.steps,
+      ...(pending.label ? { label: pending.label } : {}),
+    });
+  }
+
+  /** Fire-and-forget frame; false when the relay isn't connected. */
+  private sendFrame(frame: Record<string, unknown>): boolean {
+    const ws = this.ws;
+    if (!ws || ws.readyState !== WebSocket.OPEN || !this._connected) return false;
+    ws.send(JSON.stringify(frame));
+    return true;
+  }
+
+  private clearStatusThrottles(): void {
+    for (const throttle of this.statusThrottles.values()) {
+      if (throttle.timer) clearTimeout(throttle.timer);
+    }
+    this.statusThrottles.clear();
   }
 
   private resolveUrl(): string {
@@ -175,7 +317,13 @@ export class SlackRelayChannel extends ChannelBase {
     });
 
     ws.on('open', () => {
-      ws.send(JSON.stringify({ type: 'register', slackUserToken }));
+      ws.send(
+        JSON.stringify({
+          type: 'register',
+          slackUserToken,
+          capabilities: [...SLACK_RELAY_CAPABILITIES],
+        })
+      );
     });
 
     ws.on('message', (data, isBinary) => {
@@ -196,6 +344,7 @@ export class SlackRelayChannel extends ChannelBase {
       this.ws = null;
       this.latestReplyHandle = null;
       this.clearTimers();
+      this.clearStatusThrottles();
       this.failPendingReplies('Slack relay disconnected');
       this.setConnected(false);
       if (this.stopped) return;
@@ -250,8 +399,22 @@ export class SlackRelayChannel extends ChannelBase {
           timestamp: Date.now(),
           isGroup: false,
           isMentioned: true,
+          raw: { replyHandle: handle },
         };
         this.emitMessage(message);
+        return;
+      }
+      case 'action': {
+        if (!this._connected) return;
+        const action = parseSlackRelayAction(frame);
+        if (!action) return;
+        if (action.kind === 'command') this.latestReplyHandle = action.replyHandle;
+        this.deps.onActivity?.();
+        try {
+          this.actionHandler?.(action);
+        } catch (error) {
+          logWarn('[SlackRelay] Action handler failed:', error);
+        }
         return;
       }
       case 'reply_result': {

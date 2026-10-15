@@ -16,6 +16,13 @@ import { verifyCognitoTokenDetailed } from '../cognito-auth.js';
 import { log, logWarn } from '../safe-log.js';
 import { isEmailAllowed, type SlackRelayConfig } from './config.js';
 import {
+  APPROVAL_OUTCOMES,
+  RELAY_CAPABILITIES,
+  STATUS_PHASES,
+  isOneOf,
+  type RelayCapability,
+} from './protocol.js';
+import {
   hashKey,
   ownerKeyOf,
   RELAY_CLOSE_CODES,
@@ -32,7 +39,8 @@ const MAX_PAYLOAD_BYTES = 64 * 1024;
 const MAX_TOTAL_SOCKETS = 2_000;
 const UPGRADES_PER_IP_PER_MINUTE = 60;
 const UPGRADES_PER_USER_PER_MINUTE = 10;
-const FRAMES_PER_SOCKET_PER_MINUTE = 120;
+/** Status steps are coalesced by the desktop and throttled again before reaching Slack. */
+const FRAMES_PER_SOCKET_PER_MINUTE = 300;
 const SLACK_USER_TOKEN_RE = /^(?:xoxp|xoxe\.xoxp)-[A-Za-z0-9-]{10,400}$/;
 
 type VerifyToken = typeof verifyCognitoTokenDetailed;
@@ -226,19 +234,22 @@ function handleConnection(
         return;
       }
       state = 'registering';
-      void registerOwner(frame.slackUserToken, identity, config, hub, api, peer).then((result) => {
-        if (ws.readyState !== ws.OPEN) {
-          hub.unregisterPeer(peer);
-          return;
+      const capabilities = parseCapabilities(frame.capabilities);
+      void registerOwner(frame.slackUserToken, identity, config, hub, api, peer, capabilities).then(
+        (result) => {
+          if (ws.readyState !== ws.OPEN) {
+            hub.unregisterPeer(peer);
+            return;
+          }
+          if (!result.ok) {
+            peer.close(RELAY_CLOSE_CODES.forbidden, result.reason);
+            return;
+          }
+          state = 'registered';
+          clearTimeout(registerTimer);
+          peer.send({ type: 'registered', slackUserId: result.userId, teamId: result.teamId });
         }
-        if (!result.ok) {
-          peer.close(RELAY_CLOSE_CODES.forbidden, result.reason);
-          return;
-        }
-        state = 'registered';
-        clearTimeout(registerTimer);
-        peer.send({ type: 'registered', slackUserId: result.userId, teamId: result.teamId });
-      });
+      );
       return;
     }
     if (state === 'registering') {
@@ -252,11 +263,31 @@ function handleConnection(
         return;
       case 'reply': {
         const requestId = typeof frame.requestId === 'string' ? frame.requestId.slice(0, 64) : null;
-        void hub.handleReply(peer, frame.replyHandle, frame.text).then((result) => {
+        void hub.handleReply(peer, frame.replyHandle, frame.text, frame.footer).then((result) => {
           peer.send({ type: 'reply_result', requestId, ...result });
         });
         return;
       }
+      // Fire-and-forget UI frames: invalid or stale ones are ignored rather than closing the socket.
+      case 'status':
+        if (isOneOf(STATUS_PHASES, frame.phase)) {
+          hub.handleStatus(peer, frame.replyHandle, frame.phase, frame.label, frame.steps);
+        }
+        return;
+      case 'approval':
+        hub.handleApproval(peer, frame);
+        return;
+      case 'approval_closed':
+        if (isOneOf(APPROVAL_OUTCOMES, frame.outcome)) {
+          hub.handleApprovalClosed(peer, frame.approvalId, frame.outcome);
+        }
+        return;
+      case 'chat_list':
+        hub.handleChatList(peer, frame.replyHandle, frame.chats);
+        return;
+      case 'notice':
+        hub.handleNotice(peer, frame.replyHandle, frame.text);
+        return;
       default:
         peer.close(RELAY_CLOSE_CODES.badFrame, 'unknown_frame');
     }
@@ -267,13 +298,19 @@ type RegisterResult =
   | { ok: true; userId: string; teamId: string }
   | { ok: false; reason: 'invalid_slack_token' | 'slack_identity_rejected' };
 
+function parseCapabilities(value: unknown): RelayCapability[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is RelayCapability => isOneOf(RELAY_CAPABILITIES, item));
+}
+
 async function registerOwner(
   slackUserToken: unknown,
   identity: CognitoIdentity,
   config: SlackRelayConfig,
   hub: SlackRelayHub,
   api: SlackApi,
-  peer: RelayPeer
+  peer: RelayPeer,
+  capabilities: RelayCapability[]
 ): Promise<RegisterResult> {
   if (typeof slackUserToken !== 'string' || !SLACK_USER_TOKEN_RE.test(slackUserToken)) {
     return { ok: false, reason: 'invalid_slack_token' };
@@ -301,7 +338,7 @@ async function registerOwner(
       return { ok: false, reason: 'slack_identity_rejected' };
     }
     const imChannel = await api.openIm(slack.userId);
-    hub.registerOwner(ownerKeyOf(slack.teamId, slack.userId), peer, imChannel);
+    hub.registerOwner(ownerKeyOf(slack.teamId, slack.userId), peer, imChannel, capabilities);
     log(`[slack-relay] registered sub=${tag}`);
     return { ok: true, userId: slack.userId, teamId: slack.teamId };
   } catch (error) {
