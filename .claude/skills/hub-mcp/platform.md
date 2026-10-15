@@ -22,20 +22,21 @@ S3, SES). Global API envelope: `{ success, data, statusCode, message?, timestamp
 
 ## Core vocabulary (use these terms)
 
-| Term                | Meaning for tools                                                          |
-| ------------------- | -------------------------------------------------------------------------- |
-| **Employee email**  | Primary identity key for people, timesheets, leave, kudos, allocations     |
-| **Function**        | Product/org unit in the hierarchy                                          |
-| **Squad**           | Team under a function; used in timesheet/calendar/analytics filters        |
-| **Guild**           | Cross-cutting community (skills/culture), not a delivery team              |
-| **Reporting tree**  | Manager hierarchy; drives leave/WFH/timesheet approval routing             |
-| **Project**         | Client-delivery unit with status, client, squad, ownership emails          |
-| **Allocation**      | Staffing of an employee on a project: full / partial / **burst**           |
-| **Bucket**          | Project capacity bucket; compared to worked hours in utilisation analytics |
-| **Bench**           | Employees not fully allocated; AI “bench suggestions” find candidates      |
-| **Work category**   | Timesheet: `PROJECT` \| `MANAGEMENT` \| `BENCH`                            |
-| **Work item**       | Configurable timesheet label (admin-managed configs)                       |
-| **RBAC permission** | Capability flags (e.g. `manage-announcements`, `view-clients`)             |
+| Term                | Meaning for tools                                                                        |
+| ------------------- | ---------------------------------------------------------------------------------------- |
+| **Employee email**  | Primary identity key for people, timesheets, leave, kudos, allocations                   |
+| **Function**        | Product/org unit in the hierarchy                                                        |
+| **Squad**           | Team under a function; used in timesheet/calendar/analytics filters                      |
+| **Guild**           | Cross-cutting community (skills/culture), not a delivery team                            |
+| **Reporting tree**  | Manager hierarchy (`get_org_chart`, `list_reportees`); drives approvals                  |
+| **Team (squad)**    | Squad peers / squad-led roster (`get_employee_team`) — not the same as reportees         |
+| **Project**         | Client-delivery unit with status, client, squad, ownership emails                        |
+| **Allocation**      | Staffing of an employee on a project: full / partial / **burst**                         |
+| **Bucket**          | Project capacity bucket; compared to worked hours in utilisation analytics               |
+| **Bench**           | Under-allocated staffing; KPIs → allocation analytics; search → `send_bench_suggestions` |
+| **Work category**   | Timesheet: `PROJECT` \| `MANAGEMENT` \| `BENCH` (hours logging ≠ staffing bench)         |
+| **Work item**       | Configurable timesheet label (admin-managed configs)                                     |
+| **RBAC permission** | Capability flags (e.g. `manage-announcements`, `view-clients`)                           |
 
 ## Auth, identity, RBAC
 
@@ -43,8 +44,17 @@ S3, SES). Global API envelope: `{ success, data, statusCode, message?, timestamp
   auth/me + logout.
 - Frontend hydrates permissions from `/api/auth/permissions` for nav/routes.
 - **MCP uses the connected employee’s tokens** → same Nest RBAC as Hub UI.
+- **Permission-filtered catalog:** `tools/list` exposes only tools the employee
+  may call (Nest route-config + permissions). Reconnect MCP after Hub permission
+  grants change.
+- **Pre-flight on `tools/call`:** permission-gated tools fail at MCP with a
+  generic unauthorized message before Nest is hit; internal permission names are
+  never exposed.
+- **Strict hybrid routes:** MCP does not apply self-access fallback for Nest
+  `allowSelfOrPermission` routes — the caller must hold a listed permission.
 - Permission failures are normal; explain them; never invent elevated access.
-- Profiles, hierarchy, directory, onboarding status live under Auth/User.
+- Profiles, directory, org chart, and reportees live under Employees +
+  Organization tools; onboarding status is analytics/read surfaces.
 - **Not in MCP:** password flows, exit checklists, farewell PDFs, employee
   document matrix, probation confirmation letters.
 
@@ -64,12 +74,18 @@ benefits catalog, announcements.
 
 ## People (employees)
 
-Employee directory + profile + reporting/squad team.
+Employee directory + profile + org discovery + **two** “team” concepts.
 
 - Resolve people with `list_employees` / `search_organization` **before** any
   tool that needs an email or team context.
 - `get_employee_profile` returns what the caller’s RBAC allows.
-- `get_employee_team` is reporting/squad context for managers and team tools.
+- **Reporting graph:** `get_org_chart` (ancestors, person, nested descendants;
+  optional `max_depth`) and `list_reportees` (flat roster). On 403 for another
+  manager’s reportees, use `get_org_chart.descendants` for hierarchy-only data.
+- **Squad team:** `get_employee_team` — squad peers / squad-led members (pass
+  `email`; use `include_profiles` when names matter). Not the manager reporting
+  tree. For “reportees and team for X”, present **Reportees** and **Team** as
+  separate sections.
 - Hub also has Employee Documents, Confirmations, Transitions — **not MCP**.
 
 ## Timesheets
@@ -112,24 +128,43 @@ vacation** expire automatically; **privilege** remains with manager approval.
 Hub validates balances, date conflicts, and approval routing on apply.
 Reviewers approve/reject (`APPROVED` / `REJECTED`) with optional comment.
 
+Employees may **update** or **delete** their own pending/submitted requests via
+MCP (`update_leave_request`, `delete_leave_request`). Use `check_leave_wfh_conflicts`
+before apply to see approved (blocking) and submitted (warning) overlaps.
+
 Combined surfaces with WFH:
 
 - `get_leave_wfh_calendar` — approved leave+WFH; filters `all` \| `squad` \|
   `team`; month is **0–11**.
 - `list_pending_leave_wfh_requests` — manager’s combined inbox.
+- `list_pending_leave_requests` — leave-only manager inbox.
 
-**Not in MCP:** balance adjustments, festival-leave admin config, absolute
-leave reporting exports, cancel flows if not exposed by tools.
+List tools may filter by balance **adjustment type** (`CREDIT` \| `DEBIT` \|
+`LAPSE`) on historical rows — that is not the HR balance-adjustment admin UI.
+
+**Not in MCP:** HR balance-adjustment mutations, festival-leave admin config,
+absolute leave reporting exports.
 
 ## Work from home (WFH)
 
 Parallel to leave: date-range requests, conflicts, balance/pilot policy,
 manager review, summary + analytics cards.
 
-- Apply requires `reason` (min 10 chars).
+- Apply requires `policy_reason` (enum: senior employee, post-maternity, health,
+  festival period, family health, marriage, graveyard shift, `OTHER`). Free-text
+  `reason` (min 10 chars) is required only when `policy_reason` is `OTHER`.
 - Same day-length enum as leave.
+- Employees may **update** or **delete** own pending/submitted requests;
+  `check_wfh_conflicts` / `check_wfh_leave_conflicts` before apply.
+- Managers: `list_pending_wfh_requests` or combined leave+WFH inbox; HR/managers
+  may list another employee’s WFH via `list_employee_wfh_requests`.
+- **Hybrid pilot:** `toggle_hybrid_wfh_pilot` for a reportee (needs review-leave-wfh
+  or manage-hybrid-wfh-pilot).
+- **Analytics:** `get_wfh_analytics` (charts; optional `includeTablePages`);
+  paginated breakdowns via `get_wfh_analytics_tables` (`perEmployee`, `perProject`,
+  `perSquad`, `perTeam`, `balanceLowest`). WFH analytics `month` is **1–12**
+  (unlike leave/WFH calendar `month` **0–11**).
 - Integrates with timesheet draft generation / attendance expectations.
-- Use WFH-specific pending list **or** the combined leave+WFH inbox.
 
 ## Project management
 
@@ -146,14 +181,31 @@ Engineering Manager), allocations (full/partial/burst), buckets, release notes
 - Selectors: `list_projects` (id/title pairs) vs `list_project_summaries`
   (richer status/client/squad/allocation oversight; `active` filter).
 - Detail: `get_project`.
-- Staffing: `list_project_allocations`; timeline is **employee-scoped** even
-  though the route includes a project id (`get_project_allocation_timeline`).
-- Bench: AI ranked suggestions + optional multi-turn chat
-  (`conversation_id`).
+- Staffing: `list_project_allocations`; org-wide bench strength / utilization →
+  `get_employee_project_allocation_analytics` (not timesheet `BENCH` category).
+- Per-employee allocation timeline: `get_project_allocation_timeline` (needs
+  project id + employee email; report is employee-scoped).
+- Org-wide bench search: `send_bench_suggestions` (natural-language message;
+  optional `conversation_id` for multi-turn York Bot).
+- Hiring role fit: `get_hiring_position_bench_suggestions` (position id).
+- **Zoom meeting notes:** `fetch_project_meeting_notes` → `fetch_project_meeting_note`
+  (use list row `id`, never `zoom_meeting_id`); full text via
+  `fetch_project_meeting_transcript`; recording links via
+  `fetch_project_meeting_artifact_urls`. Registered first in MCP so clients
+  with ~40-tool caps still surface meeting tools.
 - Delivery comms: release notes (`DRAFT` \| `PUBLISHED`); Jira quality metrics.
 
 **Not in MCP:** project create/update/delete, password vault, burst mutation
 workflows, Risk Register (separate module, not exposed).
+
+## Google Workspace calendar (delivery ops)
+
+Service-account calendar access for users with **`manage-projects`**:
+
+- `list_workspace_calendar_events` — impersonate `subject` email; optional window
+  and `q` (often Zoom meeting id digits) to locate a project meeting.
+- `delete_workspace_calendar_event` — remove event by `eventId` from list output
+  (`recurringEventId` for a series); optional `sendUpdates`.
 
 ## Clients & quotations
 
@@ -240,7 +292,8 @@ related). MCP never invents KPI numbers.
 | Report                      | Business use                                                                                  |
 | --------------------------- | --------------------------------------------------------------------------------------------- |
 | Dashboard catalog           | Discover pinable charts the user can see                                                      |
-| Employee project allocation | Utilization + bench staffing decisions                                                        |
+| Employee project allocation | Utilization + bench staffing decisions (org-wide bench strength)                              |
+| Employee project timeline   | Historical/active assignments for one employee, squad, or project (needs ≥1 filter)           |
 | Employee overview           | **India-scoped** (`country = IN`) headcount, churn, tenure, mood, leaves                      |
 | Code quality                | Aggregate + per-employee engineering oversight                                                |
 | Project red flags           | Delivery risk needing attention                                                               |
@@ -260,25 +313,40 @@ Optional `forceFetch` on many analytics tools bypasses cached snapshots.
 
 Risk Register, Policy Center, Orientation, Start Your Day, News, People's
 Corner / Business Network, Spark, Elevate, AI Skills Library, Link Vault,
-Meeting Tracker, Daily Scrum, Notes, Resource Request, Executive Items /
-Generate Reports, Internal Service Management, Backend Audit, Group Management
-admin, York Chatbot UI, FitWalk/Wellness, Floor Plan, Benefits browser.
+Meeting Tracker **UI** (scheduling UX — AI notes/transcripts **are** MCP),
+Daily Scrum, Notes, Resource Request, Executive Items / Generate Reports,
+Internal Service Management, Backend Audit, Group Management admin, York
+Chatbot UI, FitWalk/Wellness, Floor Plan, Benefits browser, generic arbitrary
+file upload/download (except presigned Zoom artifacts on meeting notes).
 
 Prefer Hub UI (or new MCP modules) for those.
 
 ## Architecture reminder
 
 ```text
-MCP tool → BackendClient (user JWT) → Nest DTO + RBAC + service → Postgres
+AI client → OAuth Connect → Hub SPA /mcp/authorize (Allow)
+  → MCP Bearer (AES-sealed Cognito; never shown to LLM)
+  → MCP tool → BackendClient (user JWT) → Nest DTO + RBAC + service → Postgres
 ```
 
-MCP stores only OAuth pending/audit (`mcp_oauth_*`, `mcp_audit_events`). Cognito
-tokens are AES-sealed into the MCP Bearer — never logged, never long-term in DB.
+- **118 tools** across analytics, announcements, employees, organization,
+  projects, meetings, Google calendar, timesheets, leave, WFH, hiring, MBO,
+  inventory, hub requests, kudos, clients, and quotations (see
+  `hub-mcp/src/core/tool-catalog.test.ts`).
+- MCP stores OAuth pending/audit only (`mcp_oauth_*`, `mcp_audit_events`).
+  Cognito tokens are AES-sealed into the MCP Bearer — never logged, never
+  long-term in DB.
+- **Knowledge at runtime:** `hub-mcp/knowledge/` → MCP `initialize.instructions`
+  plus resources `hub://glossary`, `hub://intent-map`, `hub://platform`
+  (`instructions.md`).
 
 Deployed: MCP container :3100 beside Nest :3001; hosts `mcp.*` vs `api.*`.
+Full OAuth and ECS notes: `hub-mcp/README.md`.
 
 ## Keeping this accurate
 
-1. Update `docs/PROJECT_CONTEXT.md` when Hub behavior changes.
-2. Align `hub-mcp` tool `description` strings with that doc.
+1. Update `docs/PROJECT_CONTEXT.md` when Hub product behavior changes.
+2. Align `hub-mcp` tool `description` strings and `hub-mcp/knowledge/` with that doc.
 3. Mirror important semantics here and in [tools.md](tools.md).
+4. Run `hub-mcp` tests after catalog changes (`EXPECTED_TOOL_COUNT` in
+   `tool-catalog.test.ts`).
