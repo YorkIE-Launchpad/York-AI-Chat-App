@@ -99,6 +99,11 @@ import { normalizeVoiceControlConfig, type VoiceControlConfig } from '../shared/
 import { getInitialSessionTitle } from '../shared/session-title';
 import { DEFAULT_SLACK_MCP_SERVER_ID } from '../shared/mcp-defaults';
 import { AUTO_MODEL_ID, isAutoModelId } from '../shared/auto-model';
+import {
+  YORK_LLM_DISPLAY_NAME,
+  YORK_LLM_PROVIDER,
+  isYorkLlmBaseUrl,
+} from '../shared/york-llm-config';
 import { sessionFieldsFromActiveDivision } from '../shared/workspace-division';
 import { modelSelectionConfig } from './remote/channels/slack/slack-relay-choices';
 import {
@@ -3212,6 +3217,14 @@ app
       notify: (title, body) => showOsNotification({ title, body, tag: 'SlackRemote' }),
       listModels: () => fetchBackendModels({ usable: true }),
       getCurrentModel: () => configStore.get('model') || undefined,
+      getCurrentModelLabel: () => {
+        const model = configStore.get('model')?.trim();
+        if (!model || isAutoModelId(model)) return undefined;
+        const yorkLlm =
+          configStore.get('provider') === YORK_LLM_PROVIDER &&
+          (isYorkLlmBaseUrl(configStore.get('baseUrl')) || model.includes('.gguf'));
+        return yorkLlm ? YORK_LLM_DISPLAY_NAME : undefined;
+      },
       selectModel: async (modelId) => {
         let update: Partial<AppConfig>;
         if (isAutoModelId(modelId)) {

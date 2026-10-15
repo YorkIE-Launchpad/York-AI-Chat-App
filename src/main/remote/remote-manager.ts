@@ -90,6 +90,8 @@ export interface SlackRelayProvider {
   listModels?(): Promise<BackendModelInfo[]>;
   /** The app-wide model id. */
   getCurrentModel?(): string | undefined;
+  /** Display name for models outside the catalog (e.g. York LLM). */
+  getCurrentModelLabel?(): string | undefined;
   /** Switch the app-wide model; returns an error message on failure. */
   selectModel?(modelId: string): Promise<string | null>;
   /** Folders and company projects for the workspace picker. */
@@ -2040,9 +2042,16 @@ export class RemoteManager extends EventEmitter {
     this.slackRelayChannel?.sendNotice(handle, 'Stopped.');
   }
 
+  private describeSlackCurrentModel(models: BackendModelInfo[]): string {
+    const provider = this.slackRelayProvider;
+    return (
+      provider?.getCurrentModelLabel?.() || describeModel(provider?.getCurrentModel?.(), models)
+    );
+  }
+
   private slackChatStatus(ownerId: string, handle: string): void {
     const settings = [
-      `Model: ${describeModel(this.slackRelayProvider?.getCurrentModel?.(), [])}`,
+      `Model: ${this.describeSlackCurrentModel([])}`,
       `Workspace: ${describeWorkspace(remoteConfigStore.getSlackRelayWorkspace())}`,
     ];
     const binding = this.currentSlackBinding(ownerId);
@@ -2126,7 +2135,7 @@ export class RemoteManager extends EventEmitter {
     const models = await provider.listModels();
     const choices = buildModelChoices(models);
     const current = provider.getCurrentModel?.();
-    const currentNote = `Current model: ${describeModel(current, models)}.`;
+    const currentNote = `Current model: ${this.describeSlackCurrentModel(models)}.`;
     const pick = (choice: SlackRelayChoice<string>) => ({
       kind: 'model' as const,
       modelId: choice.value,
