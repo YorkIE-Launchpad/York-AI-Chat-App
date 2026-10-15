@@ -77,7 +77,7 @@ function contentTypeForKind(kind: 'html' | 'markdown'): string {
 }
 
 function previewKindFromPath(path: string): 'html' | 'markdown' {
-  return path.toLowerCase().endsWith('.md') ? 'markdown' : 'html';
+  return /\.(md|markdown)$/i.test(path) ? 'markdown' : 'html';
 }
 
 function decodeJwtClaims(idToken: string): { sub?: string; email?: string } {

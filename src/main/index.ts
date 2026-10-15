@@ -295,6 +295,11 @@ import { getBackendAuthHeaders } from './config/backend-auth';
 import { loadCollabRoomSnapshot, saveCollabRoomSnapshot } from './collab/collab-snapshot-store';
 import { sharedDocsService, setSharedDocsSyncNotifier } from './shared-docs/shared-docs-service';
 import {
+  adoptChatDocuments,
+  collectChatDocumentPaths,
+  publishChatDocuments,
+} from './collab/collab-shared-docs';
+import {
   SharedDocLockService,
   setSharedDocLockService,
 } from './shared-docs/shared-doc-lock-service';
@@ -472,6 +477,14 @@ function wireCollabSyncService(): void {
     },
     getWindow: () => mainWindow,
     getRelayHeaders: () => getBackendAuthHeaders(),
+    collectDocumentPaths: collectChatDocumentPaths,
+    publishDocuments: publishChatDocuments,
+    adoptDocuments: adoptChatDocuments,
+    emitDocumentAdopted: (sessionId, localPath) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('sharedDocs:sync', { sessionId, localPath, synced: true });
+      }
+    },
   });
   setSharedDocsSyncNotifier((payload) => {
     if (mainWindow && !mainWindow.isDestroyed()) {

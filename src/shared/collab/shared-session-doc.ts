@@ -51,6 +51,16 @@ export interface CollabPortableMessage {
   authorSub?: string;
 }
 
+/** A chat document published to the room; peers join it with `inviteToken`. */
+export interface CollabSharedDocEntry {
+  docId: string;
+  inviteToken: string;
+  title: string;
+  kind: 'html' | 'markdown';
+  sharedBySub: string;
+  sharedAt: number;
+}
+
 export function getCollabMaps(doc: Y.Doc) {
   return {
     meta: doc.getMap<unknown>('meta'),
@@ -58,7 +68,24 @@ export function getCollabMaps(doc: Y.Doc) {
     messages: doc.getMap<CollabPortableMessage>('messages'),
     messageOrder: doc.getArray<string>('messageOrder'),
     turnLease: doc.getMap<unknown>('turnLease'),
+    sharedDocs: doc.getMap<CollabSharedDocEntry>('sharedDocs'),
   };
+}
+
+/** Insert a shared document entry keyed by docId. Returns false when already present. */
+export function addCollabSharedDoc(doc: Y.Doc, entry: CollabSharedDocEntry): boolean {
+  const map = getCollabMaps(doc).sharedDocs;
+  if (map.has(entry.docId)) return false;
+  map.set(entry.docId, entry);
+  return true;
+}
+
+export function listCollabSharedDocs(doc: Y.Doc): CollabSharedDocEntry[] {
+  const out: CollabSharedDocEntry[] = [];
+  getCollabMaps(doc).sharedDocs.forEach((entry) => {
+    if (entry?.docId && entry.inviteToken) out.push(entry);
+  });
+  return out.sort((a, b) => a.sharedAt - b.sharedAt);
 }
 
 export function stripAttachmentBinaries(content: Message['content']): Message['content'] {

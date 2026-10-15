@@ -25,7 +25,10 @@ import {
   upsertCollabMember,
   upsertCollabMessage,
   isCollabProjectionCopy,
+  addCollabSharedDoc,
+  listCollabSharedDocs,
   type CollabPortableMessage,
+  type CollabSharedDocEntry,
 } from '../../shared/collab/shared-session-doc';
 import type { CollabRoomState } from '../../shared/collab/types';
 import { createCollabRoomId, parseCollabRoomId } from '../../shared/collab/room-id';
@@ -86,6 +89,23 @@ export interface CollabSyncDeps {
   getWindow: () => BrowserWindow | null;
   /** Auth headers for the HTTP long-poll relay (used when WebSocket upgrades are refused). */
   getRelayHeaders?: () => Promise<Record<string, string>>;
+  /** Paths of chat documents (HTML / Markdown) produced in these messages. */
+  collectDocumentPaths?: (messages: Message[]) => string[];
+  /** Share local chat documents to Hub and return invites to publish in the room. */
+  publishDocuments?: (input: {
+    sessionId: string;
+    cwd: string;
+    paths: string[];
+    alreadyPublished: Set<string>;
+  }) => Promise<Array<Pick<CollabSharedDocEntry, 'docId' | 'inviteToken' | 'title' | 'kind'>>>;
+  /** Download room documents missing from this session. Returns new local paths. */
+  adoptDocuments?: (input: {
+    sessionId: string;
+    cwd: string;
+    entries: CollabSharedDocEntry[];
+  }) => Promise<string[]>;
+  /** Tell the renderer a shared document appeared locally. */
+  emitDocumentAdopted?: (sessionId: string, localPath: string) => void;
 }
 
 function decodeJwtPayload(token: string): Record<string, unknown> | null {
@@ -131,6 +151,10 @@ export class CollabSyncService {
   private sessionByRoom = new Map<string, string>();
   private snapshotTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private preferHttpRelay = false;
+  /** Serializes document publish / adopt work per session so uploads never race. */
+  private docTasks = new Map<string, Promise<void>>();
+  /** Document paths written by local agent runs, published when the run ends. */
+  private pendingDocPaths = new Map<string, Set<string>>();
 
   constructor(private deps: CollabSyncDeps) {}
 
@@ -283,6 +307,10 @@ export class CollabSyncService {
 
     const existing = this.roomsBySession.get(sessionId);
     if (existing?.roomId) {
+      this.queuePublishDocuments(
+        sessionId,
+        this.deps.collectDocumentPaths?.(this.deps.getMessages(sessionId)) ?? []
+      );
       // inviteToken kept as alias of roomId for older UI callers
       return { roomId: existing.roomId, inviteToken: existing.roomId };
     }
@@ -307,6 +335,9 @@ export class CollabSyncService {
     this.deps.updateSessionCollab(sessionId, { collabRoomId: roomId, collabRole: 'owner' });
     const updated = this.deps.getSession(sessionId);
     if (updated) this.deps.emitSessionUpdate?.(updated);
+
+    const documentPaths = this.deps.collectDocumentPaths?.(this.deps.getMessages(sessionId)) ?? [];
+    this.queuePublishDocuments(sessionId, documentPaths);
 
     return { roomId, inviteToken: roomId };
   }
@@ -511,7 +542,7 @@ export class CollabSyncService {
     rt.provider = provider;
 
     // Observe remote message commits
-    const { messages, messageOrder, turnLease, members, meta } = getCollabMaps(doc);
+    const { messages, messageOrder, turnLease, members, meta, sharedDocs } = getCollabMaps(doc);
     const onRemoteChange = () => {
       if (rt.applyingRemote) return;
       this.projectRemoteMessages(rt);
@@ -522,6 +553,7 @@ export class CollabSyncService {
     meta.observe(onRemoteChange);
     turnLease.observe(() => this.emitState(input.sessionId));
     members.observe(() => this.emitState(input.sessionId));
+    sharedDocs.observe(() => this.queueAdoptDocuments(input.sessionId));
     doc.on('update', () => this.scheduleSnapshot(rt));
 
     awareness.on('change', () => {
@@ -558,7 +590,59 @@ export class CollabSyncService {
     // mark every past user message as a pending turn.
     this.projectRemoteMessages(rt, { notifyRenderer: false });
     this.emitState(input.sessionId);
+    this.queueAdoptDocuments(input.sessionId);
+    // Linked docs only: rescanning history here could pick up peers' paths.
+    this.queuePublishDocuments(input.sessionId, []);
     log(`[Collab] connected session=${input.sessionId} room=${input.roomId} role=${input.role}`);
+  }
+
+  private queueDocTask(sessionId: string, task: () => Promise<void>): void {
+    const previous = this.docTasks.get(sessionId) ?? Promise.resolve();
+    const next = previous
+      .then(task)
+      .catch((error) => logError('[Collab] shared document sync failed:', error))
+      .finally(() => {
+        if (this.docTasks.get(sessionId) === next) this.docTasks.delete(sessionId);
+      });
+    this.docTasks.set(sessionId, next);
+  }
+
+  private queuePublishDocuments(sessionId: string, paths: string[]): void {
+    const publish = this.deps.publishDocuments;
+    if (!publish) return;
+    this.queueDocTask(sessionId, async () => {
+      const rt = this.roomsBySession.get(sessionId);
+      const cwd = this.deps.getSession(sessionId)?.cwd;
+      if (!rt || !cwd) return;
+      const alreadyPublished = new Set(listCollabSharedDocs(rt.doc).map((entry) => entry.docId));
+      const published = await publish({ sessionId, cwd, paths, alreadyPublished });
+      // The room may have been left while uploads were in flight.
+      const current = this.roomsBySession.get(sessionId);
+      if (!current || published.length === 0) return;
+      const sharedBySub = getCognitoSubFromSession() || '';
+      current.doc.transact(() => {
+        for (const entry of published) {
+          addCollabSharedDoc(current.doc, { ...entry, sharedBySub, sharedAt: Date.now() });
+        }
+      });
+      log(`[Collab] shared ${published.length} document(s) with room=${current.roomId}`);
+    });
+  }
+
+  private queueAdoptDocuments(sessionId: string): void {
+    const adopt = this.deps.adoptDocuments;
+    if (!adopt) return;
+    this.queueDocTask(sessionId, async () => {
+      const rt = this.roomsBySession.get(sessionId);
+      const cwd = this.deps.getSession(sessionId)?.cwd;
+      if (!rt || !cwd) return;
+      const entries = listCollabSharedDocs(rt.doc);
+      if (entries.length === 0) return;
+      const adopted = await adopt({ sessionId, cwd, entries });
+      for (const localPath of adopted) {
+        this.deps.emitDocumentAdopted?.(sessionId, localPath);
+      }
+    });
   }
 
   private projectRemoteMessages(rt: RoomRuntime, options?: { notifyRenderer?: boolean }): void {
@@ -651,6 +735,13 @@ export class CollabSyncService {
     const portable = messageToCollabPortable(message);
     rt.knownFingerprints.set(portable.id, collabMessageFingerprint(portable));
     upsertCollabMessage(rt.doc, portable);
+
+    const documentPaths = this.deps.collectDocumentPaths?.([message]) ?? [];
+    if (documentPaths.length > 0) {
+      const pending = this.pendingDocPaths.get(sessionId) ?? new Set<string>();
+      for (const path of documentPaths) pending.add(path);
+      this.pendingDocPaths.set(sessionId, pending);
+    }
   }
 
   /** Push a local rename into the shared doc so peers see the same title. */
@@ -734,6 +825,13 @@ export class CollabSyncService {
     const sub = getCognitoSubFromSession();
     if (sub) releaseLeaseIfHolder(rt.doc, sub);
     this.emitState(sessionId);
+
+    // Files are on disk once the run ends; share documents the agent created.
+    const pending = this.pendingDocPaths.get(sessionId);
+    if (pending?.size) {
+      this.pendingDocPaths.delete(sessionId);
+      this.queuePublishDocuments(sessionId, [...pending]);
+    }
   }
 
   private startLeaseRefresh(rt: RoomRuntime, sub: string): void {
@@ -762,6 +860,7 @@ export class CollabSyncService {
       this.roomsBySession.delete(sessionId);
       this.sessionByRoom.delete(rt.roomId);
     }
+    if (options?.clearDb) this.pendingDocPaths.delete(sessionId);
     if (options?.clearDb) {
       this.deps.updateSessionCollab(sessionId, { collabRoomId: null, collabRole: null });
     }

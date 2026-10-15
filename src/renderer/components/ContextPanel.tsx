@@ -152,12 +152,19 @@ export function ContextPanel() {
       return;
     }
     let cancelled = false;
-    void listSharedDocs(activeSessionId, currentWorkingDir).then((result) => {
-      if (cancelled) return;
-      setSharedDocItems(result.success && result.docs ? result.docs : []);
+    const refresh = () => {
+      void listSharedDocs(activeSessionId, currentWorkingDir).then((result) => {
+        if (cancelled) return;
+        setSharedDocItems(result.success && result.docs ? result.docs : []);
+      });
+    };
+    refresh();
+    const unsubscribe = window.electronAPI.sharedDocs.onSync?.((payload) => {
+      if (payload.sessionId === activeSessionId && payload.synced) refresh();
     });
     return () => {
       cancelled = true;
+      unsubscribe?.();
     };
   }, [activeSessionId, currentWorkingDir, listSharedDocs]);
   const canShowItemInFolder =
