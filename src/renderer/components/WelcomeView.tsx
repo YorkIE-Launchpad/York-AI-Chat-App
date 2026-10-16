@@ -4,6 +4,7 @@ import { useAppStore } from '../store';
 import { useIPC } from '../hooks/useIPC';
 import type { ContentBlock, Skill } from '../types';
 import { getInitialSessionTitle } from '../../shared/session-title';
+import { isCustomWorkingDir, workingDirLabel } from '../utils/working-dir';
 import { DivisionChooser } from './DivisionChooser';
 import {
   ArrowUp,
@@ -121,7 +122,10 @@ export function WelcomeView() {
   }, []);
   const workingDir = useAppStore((state) => state.workingDir);
   const defaultWorkingDir = useAppStore((state) => state.defaultWorkingDir);
+  const setWorkingDir = useAppStore((state) => state.setWorkingDir);
   const sessionWorkdir = workingDir || defaultWorkingDir || undefined;
+  const customWorkingDir =
+    workingDir && isCustomWorkingDir(workingDir, defaultWorkingDir) ? workingDir : null;
   const activeDivision = useAppStore((state) => state.activeDivision);
   const incognitoDraft = useAppStore((state) => state.incognitoDraft);
   const setIncognitoDraft = useAppStore((state) => state.setIncognitoDraft);
@@ -266,6 +270,10 @@ export function WelcomeView() {
     },
     [clearComposer, incognitoDraft, isElectron, sessionWorkdir, setGlobalNotice, startSession, t]
   );
+
+  const handleResetWorkingDir = () => {
+    setWorkingDir(defaultWorkingDir);
+  };
 
   const handleSelectFolder = async () => {
     try {
@@ -1152,9 +1160,25 @@ export function WelcomeView() {
                     >
                       <FolderOpen className="h-4 w-4 text-text-muted" />
                       <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
-                        {workingDir
-                          ? workingDir.split(/[/\\]/).pop()
+                        {customWorkingDir
+                          ? workingDirLabel(customWorkingDir)
                           : t('welcome.selectWorkingFolder')}
+                      </span>
+                    </button>
+                  )}
+                  {composerMode !== 'image' && customWorkingDir && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setActionsMenuOpen(false);
+                        handleResetWorkingDir();
+                      }}
+                      className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-text-primary transition-colors hover:bg-surface-hover"
+                    >
+                      <X className="h-4 w-4 text-text-muted" />
+                      <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
+                        {t('welcome.resetWorkingFolder')}
                       </span>
                     </button>
                   )}
@@ -1328,12 +1352,20 @@ export function WelcomeView() {
               <span className="truncate">{t('skills.disabledForChatBadge')}</span>
             </button>
           )}
-          {workingDir && composerMode !== 'image' && (
-            <span
-              className="composer-working-dir min-w-0 max-w-[10rem] truncate text-xs text-text-muted"
-              title={workingDir}
-            >
-              {workingDir.split(/[/\\]/).pop()}
+          {customWorkingDir && composerMode !== 'image' && (
+            <span className="composer-working-dir flex h-8 min-w-0 max-w-[12rem] items-center rounded-lg pl-2 text-xs text-text-muted">
+              <span className="truncate" title={customWorkingDir}>
+                {workingDirLabel(customWorkingDir)}
+              </span>
+              <button
+                type="button"
+                onClick={handleResetWorkingDir}
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md hover:bg-surface-hover hover:text-text-primary"
+                title={t('welcome.resetWorkingFolder')}
+                aria-label={t('welcome.resetWorkingFolder')}
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
             </span>
           )}
         </div>
