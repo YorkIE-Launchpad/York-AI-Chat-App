@@ -269,6 +269,7 @@ describe('RemoteManager interactive Slack relay', () => {
       closed: [] as Array<{ approvalId: string; outcome: string }>,
       chatLists: [] as Array<{ handle: string; chats: Array<Record<string, unknown>> }>,
       notices: [] as Array<{ handle: string; text: string }>,
+      alerts: [] as string[],
       questions: [] as Array<{ handle: string; request: Record<string, unknown> }>,
       questionsClosed: [] as Array<{ questionId: string; outcome: string; answers?: string[][] }>,
       pickers: [] as Array<{
@@ -285,6 +286,7 @@ describe('RemoteManager interactive Slack relay', () => {
       connected: true,
       supportsQuestions: true,
       supportsPickers: true,
+      supportsAlerts: true,
       sendPicker: (handle: string, picker: (typeof calls.pickers)[number]['picker']) => {
         calls.pickers.push({ handle, picker });
         return true;
@@ -318,6 +320,10 @@ describe('RemoteManager interactive Slack relay', () => {
       },
       sendNotice: (handle: string, text: string) => {
         calls.notices.push({ handle, text });
+        return true;
+      },
+      sendAlert: (text: string) => {
+        calls.alerts.push(text);
         return true;
       },
     };
@@ -552,12 +558,22 @@ describe('RemoteManager interactive Slack relay', () => {
     expect(relay.calls.questions).toHaveLength(0);
   });
 
+  it('pushes Matter / Follow-up alerts through the GrowthOS bot when alerts are supported', () => {
+    expect(manager.pushOwnerAlert('Matter — opportunity', 'Acme upsell')).toBe(true);
+    expect(relay.calls.alerts).toEqual(['**Matter — opportunity**\nAcme upsell']);
+
+    relay.supportsAlerts = false;
+    expect(manager.pushOwnerAlert('Follow-up', 'Send deck')).toBe(false);
+    expect(relay.calls.alerts).toHaveLength(1);
+  });
+
   it('answers a plain "help" DM and typed /growth commands without running the agent', async () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const intercept = (manager as any).handleSlackRelayTextCommand.bind(manager);
     expect(await intercept(relayMessage('Help', 'h1'))).toBe(true);
     expect(relay.calls.notices.at(-1)).toMatchObject({ handle: 'h1' });
     expect(relay.calls.notices.at(-1)!.text).toContain('Control York IE GrowthOS from Slack');
+    expect(relay.calls.notices.at(-1)!.text).toContain('Follow-ups and Matter opportunities');
 
     expect(await intercept(relayMessage('/growthOS chats', 'h2'))).toBe(true);
     expect(relay.calls.chatLists.at(-1)).toMatchObject({ handle: 'h2' });

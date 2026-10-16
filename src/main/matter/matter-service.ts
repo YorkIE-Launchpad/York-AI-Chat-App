@@ -994,6 +994,7 @@ export class MatterService {
           notifyMatterBrief({
             title: 'Matter — opportunities',
             body: `+${overflow} more opportunities found. Open Matter → Opportunities.`,
+            alsoSlack: true,
           });
         }
       }

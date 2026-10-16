@@ -45,7 +45,7 @@ export type SlackRelayApprovalOutcome = 'allowed' | 'denied' | 'expired';
 export type SlackRelayQuestionOutcome = 'answered' | 'skipped' | 'expired';
 
 /** Backend features announced in `registered`; older backends close the socket on unknown frames. */
-export type SlackRelayServerFeature = 'questions' | 'pickers';
+export type SlackRelayServerFeature = 'questions' | 'pickers' | 'alerts';
 
 /** Backend limits for question cards; larger forms fall back to a text prompt. */
 export const SLACK_RELAY_QUESTION_LIMITS = { questions: 4, options: 6 } as const;

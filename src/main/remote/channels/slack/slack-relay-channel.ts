@@ -121,6 +121,11 @@ export class SlackRelayChannel extends ChannelBase {
     return this._connected && this.serverFeatures.has('pickers');
   }
 
+  /** Whether the backend accepts proactive owner DMs (Matter / Follow-ups). */
+  get supportsAlerts(): boolean {
+    return this._connected && this.serverFeatures.has('alerts');
+  }
+
   /** Button clicks and `/growthos` commands relayed by the backend. */
   onAction(handler: (action: SlackRelayAction) => void): void {
     this.actionHandler = handler;
@@ -285,6 +290,17 @@ export class SlackRelayChannel extends ChannelBase {
     return this.sendFrame({ type: 'notice', replyHandle, text });
   }
 
+  /**
+   * Proactive DM via the GrowthOS bot (no reply handle). Requires `alerts` server feature.
+   * Desktop never names a Slack channel — the backend posts to the registered owner IM.
+   */
+  sendAlert(text: string): boolean {
+    if (!this.supportsAlerts) return false;
+    const body = text.trim().slice(0, 3_000);
+    if (!body) return false;
+    return this.sendFrame({ type: 'alert', text: body });
+  }
+
   private flushStatus(replyHandle: string, throttle: StatusThrottle): void {
     const pending = throttle.pending;
     if (!pending) return;
@@ -424,7 +440,8 @@ export class SlackRelayChannel extends ChannelBase {
         }
         this.serverFeatures = new Set(
           (Array.isArray(frame.features) ? frame.features : []).filter(
-            (f): f is SlackRelayServerFeature => f === 'questions' || f === 'pickers'
+            (f): f is SlackRelayServerFeature =>
+              f === 'questions' || f === 'pickers' || f === 'alerts'
           )
         );
         this.backoffMs = MIN_BACKOFF_MS;

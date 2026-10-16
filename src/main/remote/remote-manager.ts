@@ -448,6 +448,21 @@ export class RemoteManager extends EventEmitter {
     };
   }
 
+  /**
+   * DM the owner via the GrowthOS Slack bot when Slack remote control is connected.
+   * Used for new Matter opportunities and Follow-ups. No-ops when offline / outdated backend.
+   */
+  pushOwnerAlert(title: string, body: string): boolean {
+    if (!remoteConfigStore.getSlackRelayConfig().enabled) return false;
+    const channel = this.slackRelayChannel;
+    if (!channel?.supportsAlerts) return false;
+    const heading = title.trim();
+    const detail = body.trim();
+    if (!heading && !detail) return false;
+    const text = [heading ? `**${heading}**` : '', detail].filter(Boolean).join('\n');
+    return channel.sendAlert(text);
+  }
+
   async setSlackRelayEnabled(enabled: boolean): Promise<SlackRelayStatus> {
     if (enabled) {
       if (

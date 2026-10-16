@@ -406,6 +406,7 @@ export function helpText(command: string = SLASH_COMMAND): string {
     `• \`${c} status\` – show the current chat and whether it's busy`,
     `• \`${c} help\` – show this help`,
     'You can also just send `help` in this DM.',
+    'New Follow-ups and Matter opportunities are also posted here while this is on.',
   ].join('\n');
 }
 

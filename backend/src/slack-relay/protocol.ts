@@ -3,11 +3,11 @@
  * src/main/remote/channels/slack/slack-relay-protocol.ts — keep both in sync).
  *
  * Desktop → backend: register, ping, reply (+footer), status (+label, running step total),
- * approval, approval_closed, question, question_closed, chat_list, picker, notice.
+ * approval, approval_closed, question, question_closed, chat_list, picker, notice, alert.
  * Backend → desktop: registered (+features), pong, event (+images), reply_result, action.
  * New frame types are only sent to peers that declared the matching capability
- * in `register`, and desktops only send `question` / `picker` when `registered.features`
- * lists it, so older peers on either side keep working.
+ * in `register`, and desktops only send `question` / `picker` / `alert` when
+ * `registered.features` lists it, so older peers on either side keep working.
  */
 
 export const RELAY_CAPABILITIES = ['status', 'approvals', 'commands', 'images'] as const;
@@ -20,7 +20,7 @@ export const APPROVAL_OUTCOMES = ['allowed', 'denied', 'expired'] as const;
 export type ApprovalOutcome = (typeof APPROVAL_OUTCOMES)[number];
 
 /** Optional frames this backend accepts; sent in `registered` so newer desktops can feature-detect. */
-export const SERVER_FEATURES = ['questions', 'pickers'] as const;
+export const SERVER_FEATURES = ['questions', 'pickers', 'alerts'] as const;
 
 /** Button lists the desktop can post; a click comes back as the `pick` command. */
 export const PICKER_KINDS = ['model', 'workspace'] as const;

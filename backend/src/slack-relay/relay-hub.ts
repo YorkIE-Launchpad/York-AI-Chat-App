@@ -109,6 +109,8 @@ export const RELAY_LIMITS = {
   replyHandlesPerOwner: 200,
   inboundPerUserPerMinute: 20,
   replyFramesPerPeerPerMinute: 60,
+  /** Proactive owner DMs (Matter / Follow-ups) when Slack remote control is on. */
+  alertsPerOwnerPerMinute: 20,
   dedupeTtlMs: 10 * 60_000,
   dedupeMax: 10_000,
   offlineNoticeIntervalMs: 10 * 60_000,
@@ -253,6 +255,7 @@ export class SlackRelayHub {
   private readonly inboundChains = new Map<string, Promise<unknown>>();
   private readonly inboundLimiter: SlidingWindowLimiter;
   private readonly replyLimiter: SlidingWindowLimiter;
+  private readonly alertLimiter: SlidingWindowLimiter;
   private readonly now: () => number;
 
   constructor(
@@ -267,6 +270,11 @@ export class SlackRelayHub {
     );
     this.replyLimiter = new SlidingWindowLimiter(
       RELAY_LIMITS.replyFramesPerPeerPerMinute,
+      60_000,
+      this.now
+    );
+    this.alertLimiter = new SlidingWindowLimiter(
+      RELAY_LIMITS.alertsPerOwnerPerMinute,
       60_000,
       this.now
     );
@@ -919,6 +927,22 @@ export class SlackRelayHub {
     return true;
   }
 
+  /**
+   * Proactive DM to the registered owner's bot IM (no reply handle / channel id from desktop).
+   * Used for Matter opportunities and new Follow-ups while Slack remote control is connected.
+   */
+  handleAlert(peer: RelayPeer, text: unknown): boolean {
+    const owner = this.ownerForPeer(peer);
+    const body = cleanText(text, PROTOCOL_LIMITS.notice);
+    if (!owner || !body) return false;
+    if (!this.alertLimiter.allow(owner.ownerKey)) return false;
+    const { ownerKey, imChannel } = owner;
+    this.enqueue(ownerKey, async () => {
+      await this.api.postMessage({ channel: imChannel, text: markdownToMrkdwn(body) });
+    });
+    return true;
+  }
+
   /** Can this Slack user run commands right now? Pure read, safe on the ack path. */
   commandAvailability(teamId: string, userId: string): OwnerActionResult {
     const owner = this.owners.get(ownerKeyOf(teamId, userId));
@@ -1063,6 +1087,13 @@ export class SlackRelayHub {
       if (this.queues.get(ownerKey) === next) this.queues.delete(ownerKey);
     });
     return next;
+  }
+
+  private ownerForPeer(peer: RelayPeer): { ownerKey: string; imChannel: string } | null {
+    for (const [ownerKey, entry] of this.owners) {
+      if (entry.peer.id === peer.id) return { ownerKey, imChannel: entry.imChannel };
+    }
+    return null;
   }
 
   private peerHandle(peer: RelayPeer, replyHandle: unknown): ReplyHandle | null {

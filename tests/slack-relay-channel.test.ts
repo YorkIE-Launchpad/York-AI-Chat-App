@@ -278,6 +278,26 @@ describe('SlackRelayChannel', () => {
     expect(c.latestHandle).toBe('h-cmd');
   });
 
+  it('sends alert frames only when the backend advertises the feature', async () => {
+    const old = await connectRegistered();
+    expect(old.channel.supportsAlerts).toBe(false);
+    expect(old.channel.sendAlert('Follow-up\nShip pricing')).toBe(false);
+    await old.channel.stop();
+
+    const ctx = await createChannel();
+    await ctx.channel.start();
+    const socket = ctx.sockets[0];
+    socket.open();
+    socket.frame({ type: 'registered', slackUserId: OWNER, teamId: 'T1', features: ['alerts'] });
+    expect(ctx.channel.supportsAlerts).toBe(true);
+    expect(ctx.channel.sendAlert('  **Follow-up**\nShip pricing  ')).toBe(true);
+    expect(ctx.channel.sendAlert('   ')).toBe(false);
+    expect(socket.sent.at(-1)).toEqual({
+      type: 'alert',
+      text: '**Follow-up**\nShip pricing',
+    });
+  });
+
   it('sends question frames only when the backend advertises the feature', async () => {
     const request = {
       questionId: 'q'.repeat(24),

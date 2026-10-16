@@ -90,6 +90,34 @@ describe('SlackRelayHub routing', () => {
   });
 });
 
+describe('SlackRelayHub alerts', () => {
+  it('posts a proactive DM to the registered owner IM without a reply handle', async () => {
+    const { api, hub, peer } = setup();
+    assert.equal(hub.handleAlert(peer, '*Opportunity*\nAcme upsell'), true);
+    await hub.drain();
+    assert.equal(api.posts.length, 1);
+    assert.equal(api.posts[0].channel, 'D1');
+    assert.match(api.posts[0].text, /Opportunity/);
+    assert.match(api.posts[0].text, /Acme upsell/);
+  });
+
+  it('rejects alerts from unregistered peers and empty text', async () => {
+    const { api, hub } = setup();
+    assert.equal(hub.handleAlert(createFakePeer('stranger'), 'hi'), false);
+    assert.equal(hub.handleAlert(createFakePeer('p1'), '  '), false);
+    await hub.drain();
+    assert.equal(api.posts.length, 0);
+  });
+
+  it('rate limits proactive alerts per owner', async () => {
+    const { hub, peer } = setup();
+    for (let i = 0; i < RELAY_LIMITS.alertsPerOwnerPerMinute; i++) {
+      assert.equal(hub.handleAlert(peer, `alert ${i}`), true);
+    }
+    assert.equal(hub.handleAlert(peer, 'overflow'), false);
+  });
+});
+
 describe('SlackRelayHub replies', () => {
   it('posts sanitized text to the owner IM via a valid handle', async () => {
     const { api, hub, peer } = setup();

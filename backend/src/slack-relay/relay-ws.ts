@@ -306,6 +306,9 @@ function handleConnection(
       case 'notice':
         hub.handleNotice(peer, frame.replyHandle, frame.text);
         return;
+      case 'alert':
+        hub.handleAlert(peer, frame.text);
+        return;
       default:
         peer.close(RELAY_CLOSE_CODES.badFrame, 'unknown_frame');
     }

@@ -35,6 +35,11 @@ import {
 } from './loop-extractor';
 import { researchLoop } from './loop-research';
 
+/** Optional GrowthOS Slack bot DM when "Control from Slack" is connected. */
+type SlackAlerter = (title: string, body: string) => void;
+
+const MAX_FOLLOW_UP_SLACK_ALERTS = 3;
+
 export class LoopService {
   private readonly store: LoopStore;
   private getMainWindow: (() => BrowserWindow | null) | null = null;
@@ -44,11 +49,16 @@ export class LoopService {
   private getMcpManager: () => MCPManager | null = () => null;
   private getMeetingService: () => MeetingService | null = () => null;
   private searchChats: ((query: string, limit: number) => ChatSearchHit[]) | null = null;
+  private slackAlerter: SlackAlerter | null = null;
   private readonly researching = new Set<string>();
 
   constructor(db: DatabaseInstance) {
     this.store = new LoopStore(db);
     this.store.resetStaleResearch();
+  }
+
+  setSlackAlerter(alerter: SlackAlerter | null): void {
+    this.slackAlerter = alerter;
   }
 
   setResearchSources(sources: {
@@ -112,6 +122,7 @@ export class LoopService {
       priority: input.priority,
       autoCaptured: false,
     });
+    this.alertNewFollowUps([loop]);
     const snapshot = input.research === false ? null : this.startResearch(loop.id);
     return snapshot ?? this.changed();
   }
@@ -143,6 +154,7 @@ export class LoopService {
     if (!item) throw new Error('Matter item not found');
     const { loop, created } = this.store.upsertByFingerprint(matterItemToLoop(item, false));
     if (loop.status !== 'open') this.store.update(loop.id, { status: 'open' });
+    if (created) this.alertNewFollowUps([loop]);
     const prepare = created ? () => this.cleanupPromotedTitle(loop.id, item) : undefined;
     const snapshot = this.startResearch(loop.id, prepare);
     return snapshot ?? this.changed();
@@ -228,12 +240,14 @@ export class LoopService {
         await extractMeetingLoops(meeting, profile, { capturePrompt: runtime.capturePrompt }),
         this.store.list()
       );
-      let created = 0;
+      const createdLoops: Loop[] = [];
       for (const candidate of candidates) {
-        if (this.store.upsertByFingerprint(candidate).created) created += 1;
+        const { loop, created } = this.store.upsertByFingerprint(candidate);
+        if (created) createdLoops.push(loop);
       }
-      if (created > 0) {
-        log(`[Loops] Captured ${created} loop(s) from meeting ${meeting.id}`);
+      if (createdLoops.length > 0) {
+        log(`[Loops] Captured ${createdLoops.length} loop(s) from meeting ${meeting.id}`);
+        this.alertNewFollowUps(createdLoops);
         this.changed();
       }
     } catch (error) {
@@ -268,16 +282,40 @@ export class LoopService {
         candidate.title = draft.title;
         if (draft.notes) candidate.notes = draft.notes;
       });
-      let created = 0;
+      const createdLoops: Loop[] = [];
       for (const candidate of candidates) {
-        if (this.store.upsertByFingerprint(candidate).created) created += 1;
+        const { loop, created } = this.store.upsertByFingerprint(candidate);
+        if (created) createdLoops.push(loop);
       }
-      if (created > 0) {
-        log(`[Loops] Captured ${created} loop(s) from Matter scan`);
+      if (createdLoops.length > 0) {
+        log(`[Loops] Captured ${createdLoops.length} loop(s) from Matter scan`);
+        this.alertNewFollowUps(createdLoops);
         this.changed();
       }
     } catch (error) {
       logError('[Loops] Matter capture failed:', error);
+    }
+  }
+
+  /** DM new Follow-ups via the GrowthOS Slack bot when remote control is connected. */
+  private alertNewFollowUps(loops: Loop[]): void {
+    if (!this.slackAlerter || loops.length === 0) return;
+    try {
+      const notable = loops.slice(0, MAX_FOLLOW_UP_SLACK_ALERTS);
+      for (const loop of notable) {
+        const due =
+          loop.dueAt != null
+            ? `\nDue ${new Date(loop.dueAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`
+            : '';
+        const notes = loop.notes?.trim() ? `\n${loop.notes.trim().slice(0, 280)}` : '';
+        this.slackAlerter('Follow-up', `${loop.title}${due}${notes}`);
+      }
+      const overflow = loops.length - notable.length;
+      if (overflow > 0) {
+        this.slackAlerter('Follow-ups', `+${overflow} more captured. Open Follow-ups in GrowthOS.`);
+      }
+    } catch (error) {
+      logWarn('[Loops] Slack alert failed:', error);
     }
   }
 

@@ -117,6 +117,7 @@ export function slackRelayHelpText(): string {
     `• \`${c} stop\` – stop what York IE GrowthOS is doing`,
     `• \`${c} status\` – show the current chat and whether it's busy`,
     `• \`help\` – show this help`,
+    'New Follow-ups and Matter opportunities are also posted here while this is on.',
   ].join('\n');
 }
 

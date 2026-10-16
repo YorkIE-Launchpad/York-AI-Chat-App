@@ -208,6 +208,7 @@ import {
 import { createScheduledTaskStore } from './schedule/scheduled-task-store';
 import { executeScheduledTask } from './schedule/execute-scheduled-task';
 import { MatterService } from './matter/matter-service';
+import { setMatterSlackAlerter } from './matter/matter-notifications';
 import {
   consumeLaunchDeepLinkArgv,
   flushPendingMatterDeepLink,
@@ -3253,6 +3254,12 @@ app
         }
       },
     });
+    // New Matter opportunities + Follow-ups DM via the GrowthOS bot while Slack control is on.
+    const slackOwnerAlert = (title: string, body: string) => {
+      remoteManager.pushOwnerAlert(title, body);
+    };
+    setMatterSlackAlerter(slackOwnerAlert);
+    loopService?.setSlackAlerter(slackOwnerAlert);
 
     // Cascade channel-binding cleanup when a session is deleted from the
     // desktop UI, so a deleted channel session cannot leave a stale in-memory
