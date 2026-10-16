@@ -26,11 +26,14 @@ type PythonExec = { python: string; env: NodeJS.ProcessEnv };
 /**
  * Prefer the app-bundled runtime (ships pypdf in `<root>/site-packages`, see
  * scripts/prepare-python.js); fall back to whatever python3 is on PATH.
+ * MCP subprocesses lack `process.resourcesPath` and get YORK_IE_RESOURCES_PATH instead.
  */
 export function resolvePdfPython(): PythonExec {
   const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
   const roots: string[] = [];
-  const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
+  const resourcesPath =
+    (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath ||
+    process.env.YORK_IE_RESOURCES_PATH;
   if (resourcesPath) roots.push(path.join(resourcesPath, 'python'));
   for (const projectRoot of [path.join(__dirname, '..', '..'), process.cwd()]) {
     roots.push(path.join(projectRoot, 'resources', 'python', `${process.platform}-${arch}`));

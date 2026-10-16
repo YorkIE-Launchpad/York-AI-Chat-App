@@ -19,6 +19,7 @@ import type {
 import { EXTERNAL_REFERENCE_PROMPT_CAP } from '../../shared/external-reference';
 import { DRIVE_FOLDER_MIME, parseExternalReferenceUrl } from '../../shared/external-reference-urls';
 import { logWarn } from '../utils/logger';
+import { OFFICE_MIME_FORMATS } from '../utils/office-text';
 
 function isServerConnected(mcpManager: MCPManager, serverId: string): boolean {
   try {
@@ -172,6 +173,8 @@ const DRIVE_EXPORTABLE_MIMES = new Set([
   'application/vnd.google-apps.document',
   'application/vnd.google-apps.spreadsheet',
   'application/vnd.google-apps.presentation',
+  'application/pdf',
+  ...Object.keys(OFFICE_MIME_FORMATS),
   'application/json',
   'application/xml',
   'application/yaml',

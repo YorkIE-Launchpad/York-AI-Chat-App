@@ -1,4 +1,9 @@
+import { mkdtemp, rm, writeFile } from 'fs/promises';
+import * as os from 'os';
+import * as path from 'path';
 import { startConnectorMcpServer } from './connector-mcp-utils';
+import { OFFICE_MIME_FORMATS, extractOfficeText } from '../utils/office-text';
+import { EMPTY_PDF_TEXT_MESSAGE, extractPdfText } from '../utils/pdf-text';
 
 const accessToken = process.env.GOOGLE_ACCESS_TOKEN?.trim();
 if (!accessToken) {
@@ -9,6 +14,9 @@ const DOCS_MIME = 'application/vnd.google-apps.document';
 const SHEETS_MIME = 'application/vnd.google-apps.spreadsheet';
 const SLIDES_MIME = 'application/vnd.google-apps.presentation';
 const FOLDER_MIME = 'application/vnd.google-apps.folder';
+const GOOGLE_APPS_MIME_PREFIX = 'application/vnd.google-apps.';
+const PDF_MIME = 'application/pdf';
+const MAX_DOWNLOAD_BYTES = 50 * 1024 * 1024;
 
 type DriveFetchOptions = {
   method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
@@ -93,6 +101,51 @@ async function fetchText(url: string): Promise<string> {
     );
   }
   return text;
+}
+
+async function fetchBuffer(url: string): Promise<Buffer> {
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw formatDriveError(
+      response.status,
+      text || response.statusText || 'Drive download request failed',
+      'Drive API request'
+    );
+  }
+  const buffer = Buffer.from(await response.arrayBuffer());
+  if (buffer.length > MAX_DOWNLOAD_BYTES) {
+    throw new Error(`File is too large to read (limit ${MAX_DOWNLOAD_BYTES / 1024 / 1024} MB).`);
+  }
+  return buffer;
+}
+
+function unsupportedTypeMessage(mimeType: string): string {
+  return `Unsupported file type (${mimeType || 'unknown'}). Readable types: Google Docs/Sheets/Slides, PDF, Word (.docx), Excel (.xlsx), PowerPoint (.pptx), and text files.`;
+}
+
+function looksBinary(buffer: Buffer): boolean {
+  return buffer.subarray(0, 8000).includes(0);
+}
+
+async function extractDownloadedText(buffer: Buffer, mimeType: string): Promise<string> {
+  const officeFormat = OFFICE_MIME_FORMATS[mimeType];
+  if (mimeType !== PDF_MIME && !officeFormat) {
+    if (looksBinary(buffer)) throw new Error(unsupportedTypeMessage(mimeType));
+    return buffer.toString('utf8');
+  }
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'york-drive-'));
+  const filePath = path.join(dir, `file.${officeFormat ?? 'pdf'}`);
+  try {
+    await writeFile(filePath, buffer);
+    if (officeFormat) return await extractOfficeText(filePath, officeFormat);
+    const text = await extractPdfText(filePath);
+    return text.trim() ? text : EMPTY_PDF_TEXT_MESSAGE;
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 }
 
 function optionalString(value: unknown): string {
@@ -451,7 +504,7 @@ async function main() {
       {
         name: 'get_document_content',
         description:
-          'Fetch textual content for a Google Doc (plain text), Google Sheet (CSV), or other Drive file.',
+          'Fetch textual content for a Google Doc or Slides (plain text), Google Sheet (CSV), PDF, Word (.docx), Excel (.xlsx), PowerPoint (.pptx), or text file in Drive.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -823,10 +876,15 @@ async function main() {
       get_document_content: async (args) => {
         const fileId = String(args.file_id || '');
         const metadata = await fetchJson(
-          `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?fields=id,name,mimeType,modifiedTime`
+          `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?fields=id,name,mimeType,modifiedTime,size`
         );
         const mimeType = String(metadata.mimeType || '');
         let body = '';
+        if (Number(metadata.size) > MAX_DOWNLOAD_BYTES) {
+          throw new Error(
+            `File is too large to read (${Math.round(Number(metadata.size) / 1024 / 1024)} MB; limit ${MAX_DOWNLOAD_BYTES / 1024 / 1024} MB).`
+          );
+        }
         if (mimeType === FOLDER_MIME) {
           throw new Error(
             'This is a Google Drive folder. List its files with search_files using "\'<folder id>\' in parents and trashed = false".'
@@ -839,10 +897,13 @@ async function main() {
           body = await fetchText(
             `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}/export?mimeType=text/csv`
           );
+        } else if (mimeType.startsWith(GOOGLE_APPS_MIME_PREFIX)) {
+          throw new Error(unsupportedTypeMessage(mimeType));
         } else {
-          body = await fetchText(
+          const buffer = await fetchBuffer(
             `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`
           );
+          body = await extractDownloadedText(buffer, mimeType);
         }
         return buildEnvelope({
           externalId: fileId,
