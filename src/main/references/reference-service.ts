@@ -17,7 +17,7 @@ import type {
   ExternalReferenceSource,
 } from '../../shared/external-reference';
 import { EXTERNAL_REFERENCE_PROMPT_CAP } from '../../shared/external-reference';
-import { parseExternalReferenceUrl } from '../../shared/external-reference-urls';
+import { DRIVE_FOLDER_MIME, parseExternalReferenceUrl } from '../../shared/external-reference-urls';
 import { logWarn } from '../utils/logger';
 
 function isServerConnected(mcpManager: MCPManager, serverId: string): boolean {
@@ -158,11 +158,183 @@ function parseDriveSearch(body: string): ExternalReferenceSearchItem[] {
       externalId: id,
       title: name || id,
       subtitle: mimeType.replace('application/vnd.google-apps.', '') || 'Drive',
-      url: `https://drive.google.com/file/d/${id}/view`,
+      url:
+        mimeType === DRIVE_FOLDER_MIME
+          ? `https://drive.google.com/drive/folders/${id}`
+          : `https://drive.google.com/file/d/${id}/view`,
       meta: { fileId: id, mimeType },
     });
   }
   return items;
+}
+
+const DRIVE_EXPORTABLE_MIMES = new Set([
+  'application/vnd.google-apps.document',
+  'application/vnd.google-apps.spreadsheet',
+  'application/vnd.google-apps.presentation',
+  'application/json',
+  'application/xml',
+  'application/yaml',
+  'application/x-yaml',
+]);
+const DRIVE_FOLDER_MAX_DEPTH = 3;
+const DRIVE_FOLDER_LIST_LIMIT = 200;
+const DRIVE_FOLDER_PROMPT_MAX_FILES = 25;
+const DRIVE_FOLDER_FULL_MAX_FILES = 200;
+const DRIVE_FOLDER_READ_CONCURRENCY = 4;
+const DRIVE_FOLDER_MIN_FILE_CHARS = 1_500;
+const DRIVE_FOLDER_PROMPT_CAP = EXTERNAL_REFERENCE_PROMPT_CAP * 4;
+const DRIVE_FOLDER_SKIPPED_LIST_MAX = 50;
+const DRIVE_ID_RE = /^[a-zA-Z0-9_-]+$/;
+
+function isReadableDriveMime(mimeType: string): boolean {
+  return mimeType.startsWith('text/') || DRIVE_EXPORTABLE_MIMES.has(mimeType);
+}
+
+type DriveFolderEntry = { id: string; path: string };
+
+async function listDriveFolderFiles(
+  mcpManager: MCPManager,
+  searchTool: string,
+  rootId: string,
+  maxFiles: number
+): Promise<{ files: DriveFolderEntry[]; skipped: string[] }> {
+  const files: DriveFolderEntry[] = [];
+  const skipped: string[] = [];
+  const seen = new Set<string>([rootId]);
+  const queue: Array<{ id: string; path: string; depth: number }> = [
+    { id: rootId, path: '', depth: 0 },
+  ];
+  while (queue.length > 0) {
+    const folder = queue.shift()!;
+    const text = await callToolText(mcpManager, searchTool, {
+      query: `'${folder.id}' in parents and trashed = false`,
+      limit: DRIVE_FOLDER_LIST_LIMIT,
+    });
+    const children = parseDriveSearch(envelopeBody(text)).sort((a, b) =>
+      a.title.localeCompare(b.title)
+    );
+    for (const child of children) {
+      const mimeType = child.meta?.mimeType ?? '';
+      const path = `${folder.path}${child.title}`;
+      if (mimeType === DRIVE_FOLDER_MIME) {
+        if (folder.depth + 1 >= DRIVE_FOLDER_MAX_DEPTH) {
+          skipped.push(`${path}/ (nested too deep)`);
+        } else if (!seen.has(child.externalId)) {
+          seen.add(child.externalId);
+          queue.push({ id: child.externalId, path: `${path}/`, depth: folder.depth + 1 });
+        }
+        continue;
+      }
+      if (!isReadableDriveMime(mimeType)) {
+        skipped.push(`${path} (unsupported type)`);
+      } else if (files.length >= maxFiles) {
+        skipped.push(`${path} (over the ${maxFiles}-file limit)`);
+      } else {
+        files.push({ id: child.externalId, path });
+      }
+    }
+  }
+  return { files, skipped };
+}
+
+async function driveFolderName(mcpManager: MCPManager, folderId: string): Promise<string | null> {
+  const tool = findToolName(mcpManager, DEFAULT_GOOGLE_DRIVE_MCP_SERVER_ID, ['get_file_metadata']);
+  if (!tool) return null;
+  try {
+    return envelopeTitle(await callToolText(mcpManager, tool, { file_id: folderId })) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function resolveDriveFolder(
+  mcpManager: MCPManager,
+  reference: Pick<ExternalReferenceContent, 'externalId' | 'title' | 'url' | 'meta'>,
+  full: boolean
+): Promise<ExternalReferenceResolveResult> {
+  const folderId = reference.meta?.fileId || reference.externalId;
+  const url = reference.url || `https://drive.google.com/drive/folders/${folderId}`;
+  const searchTool = findToolName(mcpManager, DEFAULT_GOOGLE_DRIVE_MCP_SERVER_ID, ['search_files']);
+  const contentTool = findToolName(mcpManager, DEFAULT_GOOGLE_DRIVE_MCP_SERVER_ID, [
+    'get_document_content',
+  ]);
+  if (!DRIVE_ID_RE.test(folderId) || !searchTool || !contentTool) {
+    return {
+      text: '',
+      title: reference.title,
+      url,
+      error: DRIVE_ID_RE.test(folderId) ? 'Drive is not available.' : 'Invalid Drive folder id.',
+    };
+  }
+
+  const maxFiles = full ? DRIVE_FOLDER_FULL_MAX_FILES : DRIVE_FOLDER_PROMPT_MAX_FILES;
+  const [title, listing] = await Promise.all([
+    driveFolderName(mcpManager, folderId),
+    listDriveFolderFiles(mcpManager, searchTool, folderId, maxFiles),
+  ]);
+  const { files, skipped } = listing;
+  const perFileChars = full
+    ? FULL_TEXT_CAP
+    : Math.max(
+        DRIVE_FOLDER_MIN_FILE_CHARS,
+        Math.floor(DRIVE_FOLDER_PROMPT_CAP / Math.max(files.length, 1))
+      );
+
+  const sections: string[] = new Array(files.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < files.length) {
+      const index = next++;
+      const file = files[index];
+      try {
+        const raw = envelopeBody(await callToolText(mcpManager, contentTool, { file_id: file.id }));
+        const body = full ? raw.trim() : raw.replace(/\s+/g, ' ').trim();
+        sections[index] = body
+          ? `--- ${file.path} ---\n${body.length > perFileChars ? `${body.slice(0, perFileChars)}…[truncated]` : body}`
+          : '';
+        if (!body) skipped.push(`${file.path} (empty)`);
+      } catch (error) {
+        sections[index] = '';
+        logWarn('[References] drive folder file read failed', file.path, error);
+        skipped.push(`${file.path} (could not be read)`);
+      }
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(DRIVE_FOLDER_READ_CONCURRENCY, files.length) }, worker)
+  );
+
+  const readSections = sections.filter(Boolean);
+  const folderTitle = title || reference.title;
+  if (readSections.length === 0) {
+    return {
+      text: '',
+      title: folderTitle,
+      url,
+      error:
+        skipped.length > 0
+          ? `No readable files in this folder. Skipped: ${skipped.slice(0, 10).join(', ')}`
+          : 'This folder is empty.',
+    };
+  }
+
+  const parts = [
+    `Google Drive folder "${folderTitle}": ${readSections.length} file(s) read${skipped.length ? `, ${skipped.length} skipped` : ''}.`,
+  ];
+  if (skipped.length > 0) {
+    const listed = skipped.slice(0, DRIVE_FOLDER_SKIPPED_LIST_MAX);
+    const more = skipped.length - listed.length;
+    parts.push(`Skipped: ${listed.join('; ')}${more > 0 ? `; and ${more} more` : ''}`);
+  }
+  parts.push(...readSections);
+  const text = parts.join('\n\n');
+  const cap = full ? FULL_TEXT_CAP : DRIVE_FOLDER_PROMPT_CAP;
+  return {
+    text: text.length > cap ? `${text.slice(0, cap)}…[truncated]` : text,
+    title: folderTitle,
+    url,
+  };
 }
 
 const SLACK_LINE_RE = /^([A-Z0-9]+)(?:\|#?([^\s[]+))?\s+\[([^\]]*)\]\s+([^:]+):\s*(.*)$/i;
@@ -440,6 +612,10 @@ export async function searchExternalReferences(
   try {
     if (source === 'drive') {
       const trimmed = query.trim();
+      if (parseExternalReferenceUrl(trimmed)?.source === 'drive') {
+        const lookedUp = await lookupExternalReferenceFromUrl(mcpManager, trimmed);
+        if (lookedUp) return { items: [lookedUp] };
+      }
       const tool = findToolName(mcpManager, DEFAULT_GOOGLE_DRIVE_MCP_SERVER_ID, ['search_files']);
       if (!tool) return { items: [], error: 'Drive search is not available yet.' };
       const text = await callToolText(mcpManager, tool, {
@@ -543,6 +719,10 @@ export async function resolveExternalReference(
   }
 
   try {
+    if (source === 'drive' && reference.meta?.mimeType === DRIVE_FOLDER_MIME) {
+      return await resolveDriveFolder(mcpManager, reference, Boolean(options?.full));
+    }
+
     if (source === 'drive') {
       const fileId = reference.meta?.fileId || reference.externalId;
       const tool =
@@ -663,6 +843,19 @@ export async function lookupExternalReferenceFromUrl(
 ): Promise<ExternalReferenceSearchItem | null> {
   const parsed = parseExternalReferenceUrl(url);
   if (!parsed) return null;
+  if (parsed.source === 'drive' && parsed.meta?.mimeType === DRIVE_FOLDER_MIME) {
+    const name = isServerConnected(mcpManager, DEFAULT_GOOGLE_DRIVE_MCP_SERVER_ID)
+      ? await driveFolderName(mcpManager, parsed.externalId)
+      : null;
+    return {
+      source: parsed.source,
+      externalId: parsed.externalId,
+      title: name || parsed.title || parsed.externalId,
+      url: parsed.url,
+      subtitle: parsed.subtitle,
+      meta: parsed.meta,
+    };
+  }
   const resolved = await resolveExternalReference(mcpManager, {
     source: parsed.source,
     externalId: parsed.externalId,

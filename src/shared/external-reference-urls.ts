@@ -6,6 +6,8 @@ import { parseConfluenceUrl } from './confluence-urls';
 import { jiraIssueKeyFromUrl, DEFAULT_JIRA_SITE_ORIGIN } from './jira-urls';
 import type { ExternalReferenceContent, ExternalReferenceSource } from './external-reference';
 
+export const DRIVE_FOLDER_MIME = 'application/vnd.google-apps.folder';
+
 export interface ParsedExternalReferenceUrl {
   source: ExternalReferenceSource;
   externalId: string;
@@ -18,6 +20,8 @@ export interface ParsedExternalReferenceUrl {
 const DRIVE_FILE_RE =
   /https?:\/\/(?:drive|docs)\.google\.com\/(?:file\/d\/|document\/d\/|spreadsheets\/d\/|presentation\/d\/|open\?id=)([a-zA-Z0-9_-]+)/i;
 const DRIVE_OPEN_RE = /https?:\/\/drive\.google\.com\/open\?[^#]*\bid=([a-zA-Z0-9_-]+)/i;
+const DRIVE_FOLDER_RE =
+  /https?:\/\/drive\.google\.com\/drive\/(?:u\/\d+\/)?folders\/([a-zA-Z0-9_-]+)/i;
 const SLACK_ARCHIVE_RE =
   /https?:\/\/[a-z0-9.-]+\.slack\.com\/archives\/([A-Z0-9]+)\/p(\d{10,})(?:\?([^#\s]+))?/i;
 
@@ -81,6 +85,18 @@ export function parseExternalReferenceUrl(raw: string): ParsedExternalReferenceU
       title: 'Slack message',
       subtitle: channelId,
       meta: { channelId, ts, threadTs },
+    };
+  }
+
+  const driveFolder = candidate.match(DRIVE_FOLDER_RE);
+  if (driveFolder) {
+    return {
+      source: 'drive',
+      externalId: driveFolder[1],
+      url: candidate,
+      title: 'Drive folder',
+      subtitle: 'Google Drive folder',
+      meta: { fileId: driveFolder[1], mimeType: DRIVE_FOLDER_MIME },
     };
   }
 

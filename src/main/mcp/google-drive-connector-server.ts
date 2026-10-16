@@ -7,6 +7,7 @@ if (!accessToken) {
 
 const DOCS_MIME = 'application/vnd.google-apps.document';
 const SHEETS_MIME = 'application/vnd.google-apps.spreadsheet';
+const SLIDES_MIME = 'application/vnd.google-apps.presentation';
 const FOLDER_MIME = 'application/vnd.google-apps.folder';
 
 type DriveFetchOptions = {
@@ -826,7 +827,11 @@ async function main() {
         );
         const mimeType = String(metadata.mimeType || '');
         let body = '';
-        if (mimeType === DOCS_MIME) {
+        if (mimeType === FOLDER_MIME) {
+          throw new Error(
+            'This is a Google Drive folder. List its files with search_files using "\'<folder id>\' in parents and trashed = false".'
+          );
+        } else if (mimeType === DOCS_MIME || mimeType === SLIDES_MIME) {
           body = await fetchText(
             `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}/export?mimeType=text/plain`
           );
