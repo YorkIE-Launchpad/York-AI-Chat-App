@@ -77,6 +77,13 @@ export function MessageQueueList({ messages, onRemove, onClearAll }: MessageQueu
               <p className="flex-1 min-w-0 text-[13px] text-text-primary truncate leading-5">
                 {preview || t('messageCard.emptyMessage')}
               </p>
+              <span
+                className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                  index === 0 ? 'bg-accent-muted text-accent' : 'bg-surface-muted text-text-muted'
+                }`}
+              >
+                {index === 0 ? t('chat.queueStatusNext') : t('chat.queueStatusWaiting')}
+              </span>
               <button
                 type="button"
                 onClick={() => onRemove(message.id)}

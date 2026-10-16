@@ -226,6 +226,20 @@ export function LoopsPage({ onClose }: LoopsPageProps) {
               <input
                 type="checkbox"
                 className="mt-0.5 h-4 w-4 shrink-0 accent-accent"
+                checked={snapshot.settings.morningSlackDigestEnabled}
+                onChange={(e) => void saveSettings({ morningSlackDigestEnabled: e.target.checked })}
+              />
+              <span>
+                {t('loops.morningSlackDigest')}
+                <span className="mt-0.5 block text-[11px] text-text-muted">
+                  {t('loops.morningSlackDigestHint')}
+                </span>
+              </span>
+            </label>
+            <label className="flex items-start gap-2 text-[12px] text-text-secondary">
+              <input
+                type="checkbox"
+                className="mt-0.5 h-4 w-4 shrink-0 accent-accent"
                 checked={snapshot.settings.captureFromMeetings}
                 onChange={(e) => void saveSettings({ captureFromMeetings: e.target.checked })}
               />

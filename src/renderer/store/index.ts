@@ -736,11 +736,18 @@ export const useAppStore = create<AppState>((set, get) => ({
     }),
 
   startExecutionClock: (sessionId, startAt) =>
-    set((state) => ({
-      sessionStates: patchSession(state.sessionStates, sessionId, {
-        executionClock: { startAt, endAt: null },
-      }),
-    })),
+    set((state) => {
+      const ss = getSession(state.sessionStates, sessionId);
+      // A follow-up queued while this turn is still running must not restart it.
+      if (ss.executionClock.startAt !== null && ss.executionClock.endAt === null) {
+        return {};
+      }
+      return {
+        sessionStates: patchSession(state.sessionStates, sessionId, {
+          executionClock: { startAt, endAt: null },
+        }),
+      };
+    }),
 
   finishExecutionClock: (sessionId, endAt) =>
     set((state) => {

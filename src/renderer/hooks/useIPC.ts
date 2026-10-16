@@ -15,6 +15,7 @@ import { clearTurnStateOnServerError } from '../utils/clear-turn-on-error';
 import {
   findLatestUserMessageId,
   isCompactionTraceStep,
+  shouldActivatePendingTurn,
   shouldClearActiveTurnOnStreamMessage,
 } from '../utils/active-turn';
 import {
@@ -267,7 +268,7 @@ export function useIPC() {
               const ss = currentState.sessionStates[event.payload.sessionId];
               const pending = ss?.pendingTurns || [];
               const activeTurn = ss?.activeTurn;
-              if (pending.length > 0) {
+              if (shouldActivatePendingTurn(Boolean(activeTurn)) && pending.length > 0) {
                 store.activateNextTurn(event.payload.sessionId, step.id);
               } else if (activeTurn) {
                 // Bind the real stepId so a mock stepId does not prevent cleanup
@@ -1051,7 +1052,9 @@ export function useIPC() {
         ...sharedChatAuthor(sessionId),
       };
       addMessage(sessionId, userMessage);
-      startExecutionClock(sessionId, userMessage.timestamp);
+      if (!shouldQueue) {
+        startExecutionClock(sessionId, userMessage.timestamp);
+      }
 
       // Browser mode mock
       if (!isElectron) {
@@ -1165,7 +1168,9 @@ export function useIPC() {
           ...sharedChatAuthor(sessionId),
         };
         addMessage(sessionId, userMessage);
-        startExecutionClock(sessionId, userMessage.timestamp);
+        if (!shouldQueue) {
+          startExecutionClock(sessionId, userMessage.timestamp);
+        }
 
         if (!isElectron) {
           updateSession(sessionId, { status: 'running' });

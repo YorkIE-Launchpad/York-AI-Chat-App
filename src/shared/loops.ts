@@ -82,6 +82,13 @@ export interface LoopsRuntimeConfig {
    * Empty means the built-in Jev / screen rules apply alone.
    */
   capturePrompt: string;
+  /**
+   * DM overdue and due-today follow-ups each morning via the GrowthOS Slack bot
+   * when Slack control is connected.
+   */
+  morningSlackDigestEnabled: boolean;
+  /** Local calendar day (`YYYY-M-D`) the morning digest was last sent. */
+  morningDigestSentDay: string;
 }
 
 /** Bump when capture rules tighten so untouched auto-captured loops are re-screened once. */
@@ -93,7 +100,15 @@ export const DEFAULT_LOOPS_RUNTIME: LoopsRuntimeConfig = {
   matterConfidenceThreshold: 0.7,
   screenedVersion: 0,
   capturePrompt: '',
+  morningSlackDigestEnabled: true,
+  morningDigestSentDay: '',
 };
+
+/** First minute the morning digest may send (8:05 local). */
+export const FOLLOW_UP_MORNING_START_MINUTE = 8 * 60 + 5;
+/** Last minute of the catch-up window (11:00 local), for a laptop opened late. */
+export const FOLLOW_UP_MORNING_END_MINUTE = 11 * 60;
+export const FOLLOW_UP_DIGEST_LIMIT = 12;
 
 export function normalizeLoopsRuntimeConfig(raw: unknown): LoopsRuntimeConfig {
   const value = typeof raw === 'object' && raw !== null ? (raw as Partial<LoopsRuntimeConfig>) : {};
@@ -114,6 +129,58 @@ export function normalizeLoopsRuntimeConfig(raw: unknown): LoopsRuntimeConfig {
       typeof value.capturePrompt === 'string'
         ? value.capturePrompt.trim().slice(0, LOOP_CAPTURE_PROMPT_MAX_CHARS)
         : '',
+    morningSlackDigestEnabled: value.morningSlackDigestEnabled !== false,
+    morningDigestSentDay:
+      typeof value.morningDigestSentDay === 'string' &&
+      /^\d{4}-\d{1,2}-\d{1,2}$/.test(value.morningDigestSentDay)
+        ? value.morningDigestSentDay
+        : '',
+  };
+}
+
+/** Local calendar day key, matching Matter's morning-brief day. */
+export function localCalendarDay(now = Date.now()): string {
+  const date = new Date(now);
+  return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
+}
+
+export function isFollowUpMorningWindow(now = Date.now()): boolean {
+  const date = new Date(now);
+  const minute = date.getHours() * 60 + date.getMinutes();
+  return minute >= FOLLOW_UP_MORNING_START_MINUTE && minute <= FOLLOW_UP_MORNING_END_MINUTE;
+}
+
+export interface FollowUpDigestMessage {
+  title: string;
+  body: string;
+  day: string;
+}
+
+/**
+ * Slack body for follow-ups I own that are overdue or due today.
+ * Returns null when there is nothing to remind.
+ */
+export function formatDueFollowUpDigest(
+  loops: Loop[],
+  now = Date.now()
+): FollowUpDigestMessage | null {
+  const due = loops
+    .filter((loop) => isLoopDue(loop, now))
+    .sort((a, b) => (a.dueAt ?? 0) - (b.dueAt ?? 0));
+  if (due.length === 0) return null;
+  const shown = due.slice(0, FOLLOW_UP_DIGEST_LIMIT);
+  const lines = shown.map((loop) => {
+    const when = loopDueBucket(loop.dueAt, now) === 'overdue' ? 'overdue' : 'due today';
+    const who = loop.counterpart?.trim() ? ` · ${loop.counterpart.trim()}` : '';
+    return `• ${loop.title.trim()}${who} (${when})`;
+  });
+  const extra = due.length - shown.length;
+  if (extra > 0) lines.push(`+${extra} more in Follow-ups`);
+  const noun = due.length === 1 ? 'follow-up' : 'follow-ups';
+  return {
+    title: 'Due follow-ups',
+    body: `${due.length} ${noun}\n${lines.join('\n')}`,
+    day: localCalendarDay(now),
   };
 }
 

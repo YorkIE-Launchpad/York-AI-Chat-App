@@ -10,7 +10,10 @@ import type { ChatSearchHit } from '../../shared/chat-search';
 import type { MatterItem } from '../../shared/matter';
 import {
   DEFAULT_LOOPS_RUNTIME,
+  formatDueFollowUpDigest,
+  isFollowUpMorningWindow,
   isLoopDue,
+  localCalendarDay,
   LOOPS_SCREEN_VERSION,
   normalizeLoopsRuntimeConfig,
   type Loop,
@@ -36,9 +39,11 @@ import {
 import { researchLoop } from './loop-research';
 
 /** Optional GrowthOS Slack bot DM when "Control from Slack" is connected. */
-type SlackAlerter = (title: string, body: string) => void;
+type SlackAlerter = (title: string, body: string) => boolean | void;
 
 const MAX_FOLLOW_UP_SLACK_ALERTS = 3;
+const MORNING_DIGEST_TICK_MS = 60_000;
+const MORNING_DIGEST_BOOT_MS = 15_000;
 
 export class LoopService {
   private readonly store: LoopStore;
@@ -51,6 +56,8 @@ export class LoopService {
   private searchChats: ((query: string, limit: number) => ChatSearchHit[]) | null = null;
   private slackAlerter: SlackAlerter | null = null;
   private readonly researching = new Set<string>();
+  private digestTimer: ReturnType<typeof setInterval> | null = null;
+  private digestBootTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(db: DatabaseInstance) {
     this.store = new LoopStore(db);
@@ -294,6 +301,57 @@ export class LoopService {
       }
     } catch (error) {
       logError('[Loops] Matter capture failed:', error);
+    }
+  }
+
+  /**
+   * Once each local morning, DM follow-ups I own that are overdue or due today.
+   * Skips the day when Slack control is off or nothing is due, and retries inside
+   * the catch-up window (8:05–11:00) so a late wake or a newly connected bot still sends.
+   */
+  maybeSendMorningDigest(now = Date.now()): boolean {
+    const runtime = this.getRuntime();
+    if (!runtime.morningSlackDigestEnabled) return false;
+    if (!isFollowUpMorningWindow(now)) return false;
+    const day = localCalendarDay(now);
+    if (runtime.morningDigestSentDay === day) return false;
+    if (!this.slackAlerter) return false;
+    const digest = formatDueFollowUpDigest(this.store.list(), now);
+    if (!digest) return false;
+    try {
+      if (this.slackAlerter(digest.title, digest.body) === false) return false;
+    } catch (error) {
+      logWarn('[Loops] Morning digest failed:', error);
+      return false;
+    }
+    this.updateRuntime({ morningDigestSentDay: day });
+    log(`[Loops] Morning follow-up digest sent (${digest.body.split('\n')[0]})`);
+    return true;
+  }
+
+  startMorningDigest(): void {
+    this.stopMorningDigest();
+    const tick = () => {
+      try {
+        this.maybeSendMorningDigest();
+      } catch (error) {
+        logWarn('[Loops] Morning digest tick failed:', error);
+      }
+    };
+    this.digestBootTimer = setTimeout(tick, MORNING_DIGEST_BOOT_MS);
+    this.digestBootTimer.unref?.();
+    this.digestTimer = setInterval(tick, MORNING_DIGEST_TICK_MS);
+    this.digestTimer.unref?.();
+  }
+
+  private stopMorningDigest(): void {
+    if (this.digestBootTimer) {
+      clearTimeout(this.digestBootTimer);
+      this.digestBootTimer = null;
+    }
+    if (this.digestTimer) {
+      clearInterval(this.digestTimer);
+      this.digestTimer = null;
     }
   }
 

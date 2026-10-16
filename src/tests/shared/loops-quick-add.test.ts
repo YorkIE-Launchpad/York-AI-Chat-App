@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
+  formatDueFollowUpDigest,
+  isFollowUpMorningWindow,
   loopDueBucket,
   normalizeLoopsRuntimeConfig,
   parseLoopQuickAdd,
   parseLoopQuickAddDraft,
+  type Loop,
 } from '../../shared/loops';
 
 // Wednesday, 2026-09-30 10:00 local
@@ -87,6 +90,8 @@ describe('normalizeLoopsRuntimeConfig', () => {
       matterConfidenceThreshold: 0.7,
       screenedVersion: 0,
       capturePrompt: '',
+      morningSlackDigestEnabled: true,
+      morningDigestSentDay: '',
     });
     expect(
       normalizeLoopsRuntimeConfig({ captureFromMatter: false, matterConfidenceThreshold: 4 })
@@ -96,9 +101,81 @@ describe('normalizeLoopsRuntimeConfig', () => {
       matterConfidenceThreshold: 1,
       screenedVersion: 0,
       capturePrompt: '',
+      morningSlackDigestEnabled: true,
+      morningDigestSentDay: '',
     });
     expect(
       normalizeLoopsRuntimeConfig({ capturePrompt: '  only my commitments  ' }).capturePrompt
     ).toBe('only my commitments');
+    expect(
+      normalizeLoopsRuntimeConfig({ morningSlackDigestEnabled: false }).morningSlackDigestEnabled
+    ).toBe(false);
+    expect(
+      normalizeLoopsRuntimeConfig({ morningDigestSentDay: '2026-10-16' }).morningDigestSentDay
+    ).toBe('2026-10-16');
+    expect(
+      normalizeLoopsRuntimeConfig({ morningDigestSentDay: 'yesterday' }).morningDigestSentDay
+    ).toBe('');
+  });
+});
+
+function loop(partial: Partial<Loop>): Loop {
+  return {
+    id: partial.id || 'loop',
+    fingerprint: 'fp',
+    title: partial.title || 'Follow up',
+    notes: null,
+    researchNote: null,
+    researchSources: [],
+    researchStatus: 'idle',
+    researchError: null,
+    researchedAt: null,
+    origin: 'manual',
+    sourceRef: {},
+    owner: 'me',
+    counterpart: null,
+    dueAt: null,
+    priority: 'normal',
+    status: 'open',
+    autoCaptured: false,
+    createdAt: NOW,
+    updatedAt: NOW,
+    closedAt: null,
+    ...partial,
+  };
+}
+
+describe('morning follow-up digest', () => {
+  const morning = new Date(2026, 9, 16, 8, 30, 0, 0).getTime();
+
+  it('is open from 8:05 through 11:00 local', () => {
+    expect(isFollowUpMorningWindow(new Date(2026, 9, 16, 8, 4).getTime())).toBe(false);
+    expect(isFollowUpMorningWindow(new Date(2026, 9, 16, 8, 5).getTime())).toBe(true);
+    expect(isFollowUpMorningWindow(new Date(2026, 9, 16, 11, 0).getTime())).toBe(true);
+    expect(isFollowUpMorningWindow(new Date(2026, 9, 16, 11, 1).getTime())).toBe(false);
+  });
+
+  it('lists only follow-ups I own that are overdue or due today', () => {
+    const digest = formatDueFollowUpDigest(
+      [
+        loop({ id: 'later', title: 'Next month', dueAt: morning + 20 * 24 * 60 * 60 * 1000 }),
+        loop({ id: 'wait', title: 'Waiting', owner: 'other', dueAt: morning - 86_400_000 }),
+        loop({ id: 'today', title: 'Send the deck', counterpart: 'Ava', dueAt: morning + 60_000 }),
+        loop({ id: 'over', title: 'Review the PR', dueAt: morning - 86_400_000 }),
+        loop({ id: 'done', title: 'Closed', status: 'done', dueAt: morning - 86_400_000 }),
+      ],
+      morning
+    );
+    expect(digest).toEqual({
+      title: 'Due follow-ups',
+      day: '2026-10-16',
+      body: ['2 follow-ups', '• Review the PR (overdue)', '• Send the deck · Ava (due today)'].join(
+        '\n'
+      ),
+    });
+  });
+
+  it('returns null when nothing is due', () => {
+    expect(formatDueFollowUpDigest([loop({ title: 'Someday' })], morning)).toBeNull();
   });
 });

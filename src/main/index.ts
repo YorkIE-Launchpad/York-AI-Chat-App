@@ -584,6 +584,7 @@ function wireWikiAndOrchestration(db: ReturnType<typeof initDatabase>): void {
     },
   });
   setTimeout(() => void loopService?.rescreenAutoCaptured(), 30_000).unref?.();
+  loopService.startMorningDigest();
 
   bindConnectorWikiIngest((input) => {
     wikiService?.ingestConnectorArtifact(input);
@@ -3255,9 +3256,8 @@ app
       },
     });
     // New Matter opportunities + Follow-ups DM via the GrowthOS bot while Slack control is on.
-    const slackOwnerAlert = (title: string, body: string) => {
+    const slackOwnerAlert = (title: string, body: string): boolean =>
       remoteManager.pushOwnerAlert(title, body);
-    };
     setMatterSlackAlerter(slackOwnerAlert);
     loopService?.setSlackAlerter(slackOwnerAlert);
 

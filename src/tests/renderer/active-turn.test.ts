@@ -8,6 +8,7 @@ import {
   isCompactionTraceStep,
   isPendingSessionId,
   isPendingStepId,
+  shouldActivatePendingTurn,
   messageHasAssistantText,
   messageHasToolUse,
   resolveActiveTurnStatusLabel,
@@ -92,6 +93,11 @@ describe('active-turn helpers', () => {
     expect(shouldClearActiveTurnOnStreamMessage(textOnly)).toBe(true);
     expect(shouldClearActiveTurnOnStreamMessage(textAndTools)).toBe(false);
     expect(shouldClearActiveTurnOnStreamMessage(toolsOnly)).toBe(false);
+  });
+
+  it('does not promote a queued follow-up while a turn is already running', () => {
+    expect(shouldActivatePendingTurn(true)).toBe(false);
+    expect(shouldActivatePendingTurn(false)).toBe(true);
   });
 
   it('identifies compaction trace steps without binding activeTurn', () => {

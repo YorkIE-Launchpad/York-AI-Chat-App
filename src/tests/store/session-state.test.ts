@@ -267,6 +267,27 @@ describe('SessionState unified store', () => {
       });
     });
 
+    it('should keep a running clock when a later start is requested', () => {
+      useAppStore.getState().addSession(makeSession('s1'));
+      useAppStore.getState().startExecutionClock('s1', 1000);
+      useAppStore.getState().startExecutionClock('s1', 5000);
+      expect(useAppStore.getState().sessionStates['s1'].executionClock).toEqual({
+        startAt: 1000,
+        endAt: null,
+      });
+    });
+
+    it('should start a new clock after the previous one finished', () => {
+      useAppStore.getState().addSession(makeSession('s1'));
+      useAppStore.getState().startExecutionClock('s1', 1000);
+      useAppStore.getState().finishExecutionClock('s1', 2000);
+      useAppStore.getState().startExecutionClock('s1', 3000);
+      expect(useAppStore.getState().sessionStates['s1'].executionClock).toEqual({
+        startAt: 3000,
+        endAt: null,
+      });
+    });
+
     it('should clear execution clock', () => {
       useAppStore.getState().addSession(makeSession('s1'));
       useAppStore.getState().startExecutionClock('s1', 1000);

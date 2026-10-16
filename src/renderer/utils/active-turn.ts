@@ -27,6 +27,15 @@ export function isCompactionTraceStep(step: Pick<TraceStep, 'id' | 'title'>): bo
   return /compacting context/i.test(step.title);
 }
 
+/**
+ * A new thinking step should take the next pending user message only when no
+ * turn is already running. Queued follow-ups stay in the queue until then, so
+ * their preview status and the current turn's timer are left alone.
+ */
+export function shouldActivatePendingTurn(hasActiveTurn: boolean): boolean {
+  return !hasActiveTurn;
+}
+
 /** Optimistic mock step id used before the real thinking step arrives. */
 export function isPendingStepId(stepId: string): boolean {
   return stepId.startsWith('pending-step-');
