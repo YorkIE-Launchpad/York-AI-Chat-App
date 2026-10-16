@@ -161,6 +161,25 @@ export interface SlackRelayStatus {
   idleTimeoutHours: number;
 }
 
+/** Why a Slack remote-control connection log entry was recorded. */
+export type SlackRelayConnectionEventKind =
+  | 'enabled'
+  | 'disabled'
+  | 'connected'
+  | 'disconnected'
+  | 'replaced'
+  | 'error';
+
+/** Local history entry so users can match Slack “connected” DMs to this desktop. */
+export interface SlackRelayConnectionEvent {
+  id: string;
+  at: number;
+  kind: SlackRelayConnectionEventKind;
+  detail?: string;
+  /** Machine hostname when the event was recorded. */
+  hostname?: string;
+}
+
 /** A user that has been paired with a remote channel. */
 export interface PairedUser {
   userId: string;

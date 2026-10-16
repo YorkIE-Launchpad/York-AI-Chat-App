@@ -12,6 +12,7 @@ import {
   User,
   Lightbulb,
   UsersRound,
+  Smartphone,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useWindowSize } from '../hooks/useWindowSize';
@@ -25,6 +26,7 @@ import { SettingsMemory } from './settings/SettingsMemory';
 import { SettingsMeetings } from './settings/SettingsMeetings';
 import { SettingsMatter } from './settings/SettingsMatter';
 import { SettingsTips } from './settings/SettingsTips';
+import { SettingsRemoteControl } from './settings/SettingsRemoteControl';
 import { useUpdaterStatus } from '../hooks/useUpdaterStatus';
 import { ManualInstallerDownload } from './ManualInstallerDownload';
 import {
@@ -38,6 +40,7 @@ interface SettingsPanelProps {
   onClose: () => void;
   initialTab?:
     | 'connectors'
+    | 'remote'
     | 'skills'
     | 'memory'
     | 'meetings'
@@ -52,6 +55,7 @@ interface SettingsPanelProps {
 
 type TabId =
   | 'connectors'
+  | 'remote'
   | 'skills'
   | 'memory'
   | 'meetings'
@@ -65,6 +69,7 @@ type TabId =
 
 const VALID_TABS = new Set<TabId>([
   'connectors',
+  'remote',
   'skills',
   'memory',
   'meetings',
@@ -181,6 +186,12 @@ export function SettingsPanel({ onClose, initialTab = 'connectors' }: SettingsPa
           label: t('settingsNav.appsAndData'),
           icon: Plug,
           description: t('settings.connectorsDesc'),
+        },
+        {
+          id: 'remote',
+          label: t('settingsNav.remoteControl'),
+          icon: Smartphone,
+          description: t('settings.remoteDesc'),
         },
         {
           id: 'meetings',
@@ -442,6 +453,11 @@ export function SettingsPanel({ onClose, initialTab = 'connectors' }: SettingsPa
               <div className={activeTab === 'connectors' ? '' : 'hidden'}>
                 {viewedTabs.has('connectors') && (
                   <SettingsConnectors isActive={activeTab === 'connectors'} />
+                )}
+              </div>
+              <div className={activeTab === 'remote' ? '' : 'hidden'}>
+                {viewedTabs.has('remote') && (
+                  <SettingsRemoteControl isActive={activeTab === 'remote'} />
                 )}
               </div>
               <div className={activeTab === 'skills' ? '' : 'hidden'}>

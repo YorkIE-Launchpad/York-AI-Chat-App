@@ -31,7 +31,7 @@ import {
   isAtlassianCatalogServerId,
   sortMcpServersByDefaultOrder,
 } from '../../../shared/mcp-defaults';
-import { SlackRemoteControlToggle } from './SlackRemoteControlToggle';
+import { useAppStore } from '../../store';
 
 const isElectron = typeof window !== 'undefined' && window.electronAPI !== undefined;
 
@@ -158,6 +158,7 @@ function isAtlassianPairServer(server: MCPServerConfig): boolean {
 
 export function SettingsConnectors({ isActive }: { isActive: boolean }) {
   const { t } = useTranslation();
+  const setSettingsTab = useAppStore((s) => s.setSettingsTab);
   const tRef = useRef(t);
   useEffect(() => {
     tRef.current = t;
@@ -659,7 +660,18 @@ export function SettingsConnectors({ isActive }: { isActive: boolean }) {
                   )}
                 </div>
                 {isElectron && connector.connectorId === 'slack' && connector.connected && (
-                  <SlackRemoteControlToggle />
+                  <div className="mt-3 border-t border-border-subtle pt-3">
+                    <button
+                      type="button"
+                      onClick={() => setSettingsTab('remote')}
+                      className="text-left text-xs font-medium text-accent hover:underline"
+                    >
+                      {t('remote.slackRelayManageLink')}
+                    </button>
+                    <p className="mt-1 text-[11px] leading-4 text-text-muted">
+                      {t('remote.slackRelayManageHint')}
+                    </p>
+                  </div>
                 )}
                 <div className="mt-auto flex flex-wrap gap-2 pt-4">
                   {connector.connected ? (

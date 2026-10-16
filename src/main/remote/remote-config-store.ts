@@ -9,6 +9,8 @@ import {
   createEncryptedStoreWithKeyRotation,
   getLegacyDerivedKeyHexes,
 } from '../utils/store-encryption';
+import { randomUUID } from 'crypto';
+import os from 'os';
 import type {
   RemoteConfig,
   GatewayConfig,
@@ -18,21 +20,25 @@ import type {
   DingtalkChannelConfig,
   WebSocketChannelConfig,
   SlackRelayChannelConfig,
+  SlackRelayConnectionEvent,
+  SlackRelayConnectionEventKind,
   PairedUser,
 } from './types';
-import { DEFAULT_REMOTE_CONFIG } from './types';
+import { DEFAULT_REMOTE_CONFIG, SLACK_RELAY_CONNECTION_LOG_MAX } from './types';
 import { coerceActiveDivision, type ActiveDivision } from '../../shared/workspace-division';
 
+type RemoteStoreShape = RemoteConfig & {
+  pairedUsers: PairedUser[];
+  slackRelayConnectionLog?: SlackRelayConnectionEvent[];
+};
+
 class RemoteConfigStore {
-  private store: Store<RemoteConfig & { pairedUsers: PairedUser[] }>;
+  private store: Store<RemoteStoreShape>;
 
   constructor() {
     // Cast to satisfy the Record<string, unknown> constraint of the encrypted store utility;
-    // RemoteConfig & { pairedUsers: PairedUser[] } is structurally compatible at runtime.
-    type RemoteConfigRecord = RemoteConfig & { pairedUsers: PairedUser[] } & Record<
-        string,
-        unknown
-      >;
+    // RemoteStoreShape is structurally compatible at runtime.
+    type RemoteConfigRecord = RemoteStoreShape & Record<string, unknown>;
     this.store = createEncryptedStoreWithKeyRotation<RemoteConfigRecord>({
       stableKey: 'york-ie-remote-stable-v1',
       legacyKeys: [
@@ -50,12 +56,13 @@ class RemoteConfigStore {
         defaults: {
           ...DEFAULT_REMOTE_CONFIG,
           pairedUsers: [],
+          slackRelayConnectionLog: [],
         },
       },
       logPrefix: '[RemoteConfigStore]',
       log,
       warn: logWarn,
-    }) as unknown as Store<RemoteConfig & { pairedUsers: PairedUser[] }>;
+    }) as unknown as Store<RemoteStoreShape>;
 
     // Migrate: change pairing mode to allowlist (allow everyone by default)
     this.migrateAuthMode();
@@ -254,6 +261,34 @@ class RemoteConfigStore {
     } else {
       this.store.delete('channels.slackRelayWorkspace' as never);
     }
+  }
+
+  getSlackRelayConnectionLog(): SlackRelayConnectionEvent[] {
+    const logEntries = this.store.get('slackRelayConnectionLog') ?? [];
+    return Array.isArray(logEntries) ? logEntries : [];
+  }
+
+  appendSlackRelayConnectionEvent(
+    kind: SlackRelayConnectionEventKind,
+    detail?: string
+  ): SlackRelayConnectionEvent {
+    const event: SlackRelayConnectionEvent = {
+      id: randomUUID(),
+      at: Date.now(),
+      kind,
+      ...(detail?.trim() ? { detail: detail.trim().slice(0, 500) } : {}),
+      hostname: os.hostname(),
+    };
+    const next = [event, ...this.getSlackRelayConnectionLog()].slice(
+      0,
+      SLACK_RELAY_CONNECTION_LOG_MAX
+    );
+    this.store.set('slackRelayConnectionLog', next);
+    return event;
+  }
+
+  clearSlackRelayConnectionLog(): void {
+    this.store.set('slackRelayConnectionLog', []);
   }
 
   /**

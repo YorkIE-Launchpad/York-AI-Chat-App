@@ -582,6 +582,24 @@ export interface SlackRelayStatus {
   idleTimeoutHours: number;
 }
 
+export type SlackRelayConnectionEventKind =
+  | 'enabled'
+  | 'disabled'
+  | 'connected'
+  | 'disconnected'
+  | 'replaced'
+  | 'error';
+
+export interface SlackRelayConnectionEvent {
+  id: string;
+  at: number;
+  kind: SlackRelayConnectionEventKind;
+  detail?: string;
+  hostname?: string;
+}
+
+export const SLACK_RELAY_CONNECTION_LOG_MAX = 100;
+
 export interface RemoteConfig {
   gateway: GatewayConfig;
   channels: {

@@ -406,11 +406,11 @@ export class SlackRelayChannel extends ChannelBase {
       this.clearTimers();
       this.clearStatusThrottles();
       this.failPendingReplies('Slack relay disconnected');
-      this.setConnected(false);
       if (this.stopped) return;
 
       const reason = reasonBuf.toString();
       if (code === CLOSE_FORBIDDEN) {
+        // Set error before clearing connected so the state change classifies as error/replaced.
         this.halt(
           'Slack rejected this desktop. Your Slack account email must match your York IE GrowthOS sign-in, and guest accounts are not allowed.'
         );
@@ -419,6 +419,7 @@ export class SlackRelayChannel extends ChannelBase {
           'Another York IE GrowthOS desktop took over Slack remote control for your account.'
         );
       } else {
+        this.setConnected(false);
         if (reason) log('[SlackRelay] Disconnected:', { code, reason });
         this.scheduleReconnect(code === CLOSE_RATE_LIMITED ? MAX_BACKOFF_MS : undefined);
       }
@@ -533,7 +534,14 @@ export class SlackRelayChannel extends ChannelBase {
   /** Stop permanently (until re-enabled) for errors a retry cannot fix. */
   private halt(message: string): void {
     this.setError(message);
-    void this.stop();
+    const wasConnected = this._connected;
+    void this.stop().then(() => {
+      // stop() only notifies on a true→false transition; surface terminal errors
+      // that happen before the first successful register as well.
+      if (!wasConnected) {
+        this.deps.onStateChange?.({ connected: false, lastError: this._lastError });
+      }
+    });
   }
 
   private clearTimers(): void {
@@ -554,12 +562,12 @@ export class SlackRelayChannel extends ChannelBase {
   private setConnected(connected: boolean): void {
     if (this._connected === connected) return;
     this._connected = connected;
+    // Connection transitions carry lastError so callers can classify replaced/error/disconnect.
     this.deps.onStateChange?.({ connected, lastError: this._lastError });
   }
 
   private setError(message: string): void {
     this._lastError = message;
     logWarn('[SlackRelay]', message);
-    this.deps.onStateChange?.({ connected: this._connected, lastError: message });
   }
 }

@@ -85,6 +85,7 @@ import type {
   PairingRequest,
   RemoteSessionMapping,
   SlackRelayStatus,
+  SlackRelayConnectionEvent,
 } from '../shared/ipc-types';
 import type { AuthStatusResponse, AuthUser, AuthOAuthDebugInfo } from '../shared/auth-types';
 import type { AllocatedHubProject, PersonalFolder } from '../shared/workspace-division';
@@ -864,6 +865,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
       enabled: boolean
     ): Promise<{ success: boolean; error?: string; status: SlackRelayStatus }> =>
       ipcRenderer.invoke('remote.setSlackRelayEnabled', enabled),
+    getSlackRelayConnectionLog: (): Promise<SlackRelayConnectionEvent[]> =>
+      ipcRenderer.invoke('remote.getSlackRelayConnectionLog'),
+    clearSlackRelayConnectionLog: (): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('remote.clearSlackRelayConnectionLog'),
   },
 
   schedule: {
@@ -1893,6 +1898,8 @@ declare global {
         setSlackRelayEnabled: (
           enabled: boolean
         ) => Promise<{ success: boolean; error?: string; status: SlackRelayStatus }>;
+        getSlackRelayConnectionLog: () => Promise<SlackRelayConnectionEvent[]>;
+        clearSlackRelayConnectionLog: () => Promise<{ success: boolean; error?: string }>;
       };
       schedule: {
         list: () => Promise<ScheduleTask[]>;

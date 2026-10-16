@@ -52,6 +52,7 @@ import type {
   PairedUser,
   PairingRequest,
   RemoteConfig,
+  SlackRelayConnectionEvent,
   SlackRelayStatus,
 } from './types';
 import { DEFAULT_SLACK_RELAY_IDLE_TIMEOUT_HOURS } from './types';
@@ -389,6 +390,8 @@ export class RemoteManager extends EventEmitter {
   private slackRelayLastError: string | null = null;
   private slackRelayLastActivity = 0;
   private slackRelayIdleTimer: NodeJS.Timeout | null = null;
+  /** Suppress disconnect log when we already recorded enabled/disabled. */
+  private slackRelayQuietDisconnect = false;
 
   // Slack relay interactivity: actual session id -> active turn
   private slackTurns: Map<string, SlackTurn> = new Map();
@@ -448,6 +451,57 @@ export class RemoteManager extends EventEmitter {
     };
   }
 
+  getSlackRelayConnectionLog(): SlackRelayConnectionEvent[] {
+    return remoteConfigStore.getSlackRelayConnectionLog();
+  }
+
+  clearSlackRelayConnectionLog(): void {
+    remoteConfigStore.clearSlackRelayConnectionLog();
+  }
+
+  private noteSlackRelayConnectionEvent(
+    kind: SlackRelayConnectionEvent['kind'],
+    detail?: string
+  ): void {
+    remoteConfigStore.appendSlackRelayConnectionEvent(kind, detail);
+  }
+
+  private handleSlackRelayStateChange(state: {
+    connected: boolean;
+    lastError: string | null;
+  }): void {
+    if (state.connected) {
+      this.slackRelayQuietDisconnect = false;
+      this.slackRelayLastError = null;
+      this.noteSlackRelayConnectionEvent(
+        'connected',
+        'Registered with Slack. You should get a Slack DM around this time.'
+      );
+      return;
+    }
+
+    if (this.slackRelayQuietDisconnect) {
+      this.slackRelayQuietDisconnect = false;
+      return;
+    }
+
+    const error = state.lastError?.trim() || null;
+    if (error?.includes('took over')) {
+      this.slackRelayLastError = error;
+      this.noteSlackRelayConnectionEvent('replaced', error);
+      return;
+    }
+    if (error) {
+      this.slackRelayLastError = error;
+      this.noteSlackRelayConnectionEvent('error', error);
+      return;
+    }
+    this.noteSlackRelayConnectionEvent(
+      'disconnected',
+      'Connection dropped; will retry if still on.'
+    );
+  }
+
   /**
    * DM the owner via the GrowthOS Slack bot when Slack remote control is connected.
    * Used for new Matter opportunities and Follow-ups. No-ops when offline / outdated backend.
@@ -463,13 +517,13 @@ export class RemoteManager extends EventEmitter {
     return channel.sendAlert(text);
   }
 
-  async setSlackRelayEnabled(enabled: boolean): Promise<SlackRelayStatus> {
+  async setSlackRelayEnabled(enabled: boolean, disableReason?: string): Promise<SlackRelayStatus> {
     if (enabled) {
       if (
         !this.slackRelayProvider?.isSlackConnected() ||
         !this.slackRelayProvider.getSlackUserId()
       ) {
-        throw new Error('Connect Slack in Settings → Connectors first.');
+        throw new Error('Connect Slack in Settings → Apps & data first.');
       }
       remoteConfigStore.setSlackRelayConfig({
         ...remoteConfigStore.getSlackRelayConfig(),
@@ -478,12 +532,20 @@ export class RemoteManager extends EventEmitter {
       remoteConfigStore.setEnabled(true);
       this.slackRelayLastError = null;
       this.slackRelayLastActivity = Date.now();
+      this.noteSlackRelayConnectionEvent('enabled', 'Turned on from this computer.');
       await this.restart();
     } else {
+      const wasEnabled = remoteConfigStore.getSlackRelayConfig().enabled;
       remoteConfigStore.setSlackRelayConfig({
         ...remoteConfigStore.getSlackRelayConfig(),
         enabled: false,
       });
+      if (wasEnabled) {
+        this.slackRelayQuietDisconnect = true;
+        const detail = disableReason?.trim() || 'Turned off from this computer.';
+        this.noteSlackRelayConnectionEvent('disabled', detail);
+        this.slackRelayLastError = detail;
+      }
       const config = remoteConfigStore.getAll();
       const otherChannelConfigured = Boolean(
         (config.channels.feishu?.appId && config.channels.feishu?.appSecret) ||
@@ -503,8 +565,7 @@ export class RemoteManager extends EventEmitter {
   async disableSlackRelay(reason: string): Promise<void> {
     if (!remoteConfigStore.getSlackRelayConfig().enabled && !this.slackRelayChannel) return;
     logWarn('[RemoteManager] Disabling Slack relay:', reason);
-    await this.setSlackRelayEnabled(false);
-    this.slackRelayLastError = reason;
+    await this.setSlackRelayEnabled(false, reason.trim() || 'Turned off.');
   }
 
   private noteSlackRelayActivity(): void {
@@ -2357,6 +2418,7 @@ export class RemoteManager extends EventEmitter {
           getSlackUserToken: () => provider.getSlackUserToken(),
           expectedSlackUserId: slackUserId,
           onActivity: () => this.noteSlackRelayActivity(),
+          onStateChange: (state) => this.handleSlackRelayStateChange(state),
         });
         relayChannel.onAction((action) => {
           this.handleSlackRelayAction(action).catch((err) =>

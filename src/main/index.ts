@@ -6204,6 +6204,28 @@ ipcMain.handle('remote.setSlackRelayEnabled', async (_event, enabled: unknown) =
   }
 });
 
+ipcMain.handle('remote.getSlackRelayConnectionLog', () => {
+  try {
+    return remoteManager.getSlackRelayConnectionLog();
+  } catch (error) {
+    logError('[Remote] Error reading Slack relay connection log:', error);
+    return [];
+  }
+});
+
+ipcMain.handle('remote.clearSlackRelayConnectionLog', () => {
+  try {
+    remoteManager.clearSlackRelayConnectionLog();
+    return { success: true };
+  } catch (error) {
+    logError('[Remote] Error clearing Slack relay connection log:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
+});
+
 ipcMain.handle('remote.setEnabled', async (_event, enabled: boolean) => {
   try {
     remoteConfigStore.setEnabled(enabled);
