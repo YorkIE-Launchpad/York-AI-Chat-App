@@ -28,7 +28,11 @@ function isServerConnected(mcpManager: MCPManager, serverId: string): boolean {
   }
 }
 
-function findToolName(mcpManager: MCPManager, serverId: string, candidates: string[]): string | null {
+function findToolName(
+  mcpManager: MCPManager,
+  serverId: string,
+  candidates: string[]
+): string | null {
   try {
     const tools = mcpManager.getTools().filter((t) => t.serverId === serverId);
     for (const hint of candidates) {
@@ -161,8 +165,7 @@ function parseDriveSearch(body: string): ExternalReferenceSearchItem[] {
   return items;
 }
 
-const SLACK_LINE_RE =
-  /^([A-Z0-9]+)(?:\|#?([^\s[]+))?\s+\[([^\]]*)\]\s+([^:]+):\s*(.*)$/i;
+const SLACK_LINE_RE = /^([A-Z0-9]+)(?:\|#?([^\s[]+))?\s+\[([^\]]*)\]\s+([^:]+):\s*(.*)$/i;
 
 function parseSlackSearch(body: string): ExternalReferenceSearchItem[] {
   const items: ExternalReferenceSearchItem[] = [];
@@ -287,8 +290,7 @@ function parseConfluenceSearch(text: string): ExternalReferenceSearchItem[] {
         (typeof obj.id === 'number' && String(obj.id)) ||
         (typeof obj.pageId === 'number' && String(obj.pageId));
       const title =
-        (typeof obj.title === 'string' && obj.title) ||
-        (typeof obj.name === 'string' && obj.name);
+        (typeof obj.title === 'string' && obj.title) || (typeof obj.name === 'string' && obj.name);
       if (id && title) {
         bag.push(obj);
         return;
@@ -415,7 +417,9 @@ function confluenceTitleFromResult(text: string, fallback: string): string {
   return envelopeTitle(text) || fallback;
 }
 
-export function getExternalReferenceStatus(mcpManager: MCPManager): ExternalReferenceConnectorStatus {
+export function getExternalReferenceStatus(
+  mcpManager: MCPManager
+): ExternalReferenceConnectorStatus {
   return {
     drive: isServerConnected(mcpManager, DEFAULT_GOOGLE_DRIVE_MCP_SERVER_ID),
     slack: isServerConnected(mcpManager, DEFAULT_SLACK_MCP_SERVER_ID),
@@ -450,7 +454,11 @@ export async function searchExternalReferences(
       if (!trimmed) return { items: [] };
       const tool = findToolName(mcpManager, DEFAULT_SLACK_MCP_SERVER_ID, ['search_messages']);
       if (!tool) return { items: [], error: 'Slack search is not available yet.' };
-      const text = await callToolText(mcpManager, tool, { query: trimmed, limit: 20, sort: 'score' });
+      const text = await callToolText(mcpManager, tool, {
+        query: trimmed,
+        limit: 20,
+        sort: 'score',
+      });
       return { items: parseSlackSearch(envelopeBody(text)).slice(0, 20) };
     }
 
@@ -509,10 +517,21 @@ function capPrompt(text: string): string {
   return `${trimmed.slice(0, EXTERNAL_REFERENCE_PROMPT_CAP)}…[truncated]`;
 }
 
+export function capExternalReferenceText(text: string): string {
+  return capPrompt(text);
+}
+
+const FULL_TEXT_CAP = 2_000_000;
+
 export async function resolveExternalReference(
   mcpManager: MCPManager,
-  reference: Pick<ExternalReferenceContent, 'source' | 'externalId' | 'title' | 'url' | 'meta'>
+  reference: Pick<ExternalReferenceContent, 'source' | 'externalId' | 'title' | 'url' | 'meta'>,
+  /** `full` keeps whitespace and skips the prompt cap (knowledge base indexing). */
+  options?: { full?: boolean }
 ): Promise<ExternalReferenceResolveResult> {
+  const capPrompt = options?.full
+    ? (text: string) => text.trim().slice(0, FULL_TEXT_CAP)
+    : capExternalReferenceText;
   const source = reference.source;
   if (!isServerConnected(mcpManager, serverIdForSource(source))) {
     return {
@@ -529,7 +548,13 @@ export async function resolveExternalReference(
       const tool =
         findToolName(mcpManager, DEFAULT_GOOGLE_DRIVE_MCP_SERVER_ID, ['get_document_content']) ||
         findToolName(mcpManager, DEFAULT_GOOGLE_DRIVE_MCP_SERVER_ID, ['get_file_metadata']);
-      if (!tool) return { text: '', title: reference.title, url: reference.url, error: 'Drive is not available.' };
+      if (!tool)
+        return {
+          text: '',
+          title: reference.title,
+          url: reference.url,
+          error: 'Drive is not available.',
+        };
       const text = await callToolText(mcpManager, tool, { file_id: fileId });
       return {
         text: capPrompt(envelopeBody(text)),
@@ -603,7 +628,12 @@ export async function resolveExternalReference(
       'getVisibleJiraIssue',
     ]);
     if (!tool) {
-      return { text: '', title: reference.title, url: reference.url, error: 'Jira is not available.' };
+      return {
+        text: '',
+        title: reference.title,
+        url: reference.url,
+        error: 'Jira is not available.',
+      };
     }
     const text = await callToolText(mcpManager, tool, {
       issueIdOrKey: issueKey,

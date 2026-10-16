@@ -48,6 +48,13 @@ import type {
   ExternalReferenceSearchResult,
   ExternalReferenceSource,
 } from '../shared/external-reference';
+import type {
+  KnowledgeAddFilesPayload,
+  KnowledgeAddReferencePayload,
+  KnowledgeScopeRef,
+  KnowledgeSource,
+  KnowledgeSourcesChangedEvent,
+} from '../shared/knowledge-base';
 import type { ManualUpdateDownloadResult, UpdaterStatus } from '../shared/updater-types';
 import type { WhatsNewPayload } from '../shared/whats-new-types';
 import type {
@@ -1215,6 +1222,24 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('references.lookupUrl', url),
   },
 
+  knowledge: {
+    list: (refs: KnowledgeScopeRef[]): Promise<KnowledgeSource[]> =>
+      ipcRenderer.invoke('knowledge.list', refs),
+    addFiles: (payload: KnowledgeAddFilesPayload): Promise<KnowledgeSource[]> =>
+      ipcRenderer.invoke('knowledge.addFiles', payload),
+    addReference: (payload: KnowledgeAddReferencePayload): Promise<KnowledgeSource> =>
+      ipcRenderer.invoke('knowledge.addReference', payload),
+    refresh: (id: string): Promise<KnowledgeSource | null> =>
+      ipcRenderer.invoke('knowledge.refresh', id),
+    remove: (id: string): Promise<boolean> => ipcRenderer.invoke('knowledge.remove', id),
+    onChanged: (callback: (event: KnowledgeSourcesChangedEvent) => void): (() => void) => {
+      const listener = (_: Electron.IpcRendererEvent, event: KnowledgeSourcesChangedEvent) =>
+        callback(event);
+      ipcRenderer.on('knowledge:changed', listener);
+      return () => ipcRenderer.removeListener('knowledge:changed', listener);
+    },
+  },
+
   dictation: {
     createRealtimeSession: (payload?: {
       targetLanguage?: string;
@@ -2134,6 +2159,14 @@ declare global {
           meta?: Record<string, string>;
         }) => Promise<ExternalReferenceResolveResult>;
         lookupUrl: (url: string) => Promise<ExternalReferenceSearchItem | null>;
+      };
+      knowledge: {
+        list: (refs: KnowledgeScopeRef[]) => Promise<KnowledgeSource[]>;
+        addFiles: (payload: KnowledgeAddFilesPayload) => Promise<KnowledgeSource[]>;
+        addReference: (payload: KnowledgeAddReferencePayload) => Promise<KnowledgeSource>;
+        refresh: (id: string) => Promise<KnowledgeSource | null>;
+        remove: (id: string) => Promise<boolean>;
+        onChanged: (callback: (event: KnowledgeSourcesChangedEvent) => void) => () => void;
       };
       dictation: {
         createRealtimeSession: (payload?: {

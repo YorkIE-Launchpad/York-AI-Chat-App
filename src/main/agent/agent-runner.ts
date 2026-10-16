@@ -113,10 +113,16 @@ import {
 import { enableLongAnthropicPromptCache } from './prompt-cache';
 import {
   injectAnthropicContextEditing,
-  pruneMessagesForLiveTurn,
   supportsAnthropicContextEditing,
   withAnthropicContextManagementBeta,
 } from './live-context-prune';
+import {
+  PER_TURN_CONTEXT_TAG,
+  applyContextHygiene,
+  compactionSettingsForWindow,
+  effectiveContextWindow,
+} from './context-hygiene';
+import { buildColdStartRecap } from './cold-start-recap';
 import { formatAutoRouteLabel, resolveAutoModelIfNeeded } from './auto-model-resolve';
 import {
   buildDivisionActiveProjectContext,
@@ -327,9 +333,13 @@ export function serializeMessageContentForHistory(content: ContentBlock[]): stri
         break;
       }
       case 'image':
-      case 'file_attachment':
         // Skip — not representable as XML text in a history preamble.
         break;
+      case 'file_attachment': {
+        const filename = (block as { filename?: string }).filename || 'file';
+        parts.push(`[Attached file: ${filename}]`);
+        break;
+      }
       case 'meeting_attachment': {
         const title = (block as { title?: string }).title || 'Meeting';
         const id = (block as { meetingId?: string }).meetingId || '';
@@ -790,6 +800,11 @@ interface AgentRunnerOptions {
     input: Record<string, unknown>,
     canonicalToolName?: string
   ) => Promise<'allow' | 'deny' | 'allow_always' | 'timeout'>;
+  /** Persisted compaction summaries, used to recover older turns on cold start. */
+  contextSummaries?: {
+    get: (sessionId: string) => { summary: string; updatedAt: number } | null;
+    save: (sessionId: string, summary: string) => void;
+  };
 }
 
 interface CachedPiSession {
@@ -825,6 +840,7 @@ export class CoworkAgentRunner {
     input: Record<string, unknown>,
     canonicalToolName?: string
   ) => Promise<'allow' | 'deny' | 'allow_always' | 'timeout'>;
+  private contextSummaries?: AgentRunnerOptions['contextSummaries'];
   private pathResolver: PathResolver;
   private mcpManager?: MCPManager;
   private _pluginRuntimeService?: PluginRuntimeService;
@@ -1172,6 +1188,7 @@ ${hints.join('\n')}
     this.saveMessage = options.saveMessage;
     this.requestSudoPassword = options.requestSudoPassword;
     this.requestPermission = options.requestPermission;
+    this.contextSummaries = options.contextSummaries;
     this.pathResolver = pathResolver;
     this.mcpManager = mcpManager;
     this._pluginRuntimeService = pluginRuntimeService;
@@ -1216,7 +1233,8 @@ ${hints.join('\n')}
       return;
     }
 
-    // Live prune: shrink old tool_result text before each model call.
+    // Live context hygiene on a per-request copy: drop stale per-turn context
+    // from older turns and shorten old tool dumps once the context is large.
     const previousTransform = agent.transformContext;
     agent.transformContext = async (
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1228,7 +1246,13 @@ ${hints.join('\n')}
         next = await previousTransform.call(agent, messages, signal);
       }
       if (Array.isArray(next)) {
-        pruneMessagesForLiveTurn(next);
+        const hygiene = applyContextHygiene(next, agent.state?.model?.contextWindow);
+        next = hygiene.messages;
+        if (hygiene.trimmedCount > 0) {
+          log(
+            `[CoworkAgentRunner] Context hygiene: stripped ${hygiene.strippedCount} stale turn blocks, trimmed ${hygiene.trimmedCount} old tool outputs`
+          );
+        }
       }
       return next;
     };
@@ -1259,7 +1283,13 @@ ${hints.join('\n')}
         }
       }
       if (nextPayload && typeof nextPayload === 'object') {
-        injectAnthropicContextEditing(nextPayload);
+        // Clearing old tool uses too early is a main cause of vague follow-ups
+        // (data fetched a few turns ago vanishes), so scale with the window.
+        const effective = effectiveContextWindow(agent.state?.model?.contextWindow);
+        injectAnthropicContextEditing(nextPayload, {
+          triggerTokens: Math.max(50_000, Math.floor(effective * 0.5)),
+          keepToolUses: 8,
+        });
       }
       return nextPayload;
     };
@@ -2753,8 +2783,21 @@ ${hints.join('\n')}
 
           if (historyItems.length > 0) {
             const trimmedCount = historyMessages.length - historyItems.length;
-            const historyNote =
-              trimmedCount > 0 ? `[${trimmedCount} older messages omitted]\n` : '';
+            let historyNote = '';
+            if (trimmedCount > 0) {
+              let storedSummary: string | null = null;
+              try {
+                storedSummary = this.contextSummaries?.get(session.id)?.summary ?? null;
+              } catch (error) {
+                logWarn('[CoworkAgentRunner] Failed to load compaction summary:', error);
+              }
+              const recap = buildColdStartRecap({
+                omitted: historyMessages.slice(0, trimmedCount),
+                summary: storedSummary,
+                charBudget: Math.min(16_000, Math.floor(historyCharBudget * 0.25)),
+              });
+              historyNote = recap ? `${recap}\n` : `[${trimmedCount} older messages omitted]\n`;
+            }
             const preamble = `<conversation_history>\n${historyNote}${historyItems.join('\n')}\n</conversation_history>`;
             contextualPrompt = `${preamble}\n\n${expandedUserPrompt}`;
             log(
@@ -2777,7 +2820,7 @@ ${hints.join('\n')}
         logCtx('[CoworkAgentRunner] Reusing existing SDK session for:', session.id);
       }
       if (extensionResult.promptPrefix?.trim()) {
-        contextualPrompt = `${extensionResult.promptPrefix.trim()}\n\n${contextualPrompt}`;
+        contextualPrompt = `<${PER_TURN_CONTEXT_TAG}>\n${extensionResult.promptPrefix.trim()}\n</${PER_TURN_CONTEXT_TAG}>\n\n${contextualPrompt}`;
       }
 
       logTiming('before building MCP servers config', runStartTime);
@@ -3223,6 +3266,14 @@ ${
               customInstructions: sessionCompactInstructions,
               pruneToolOutputAbove: 500,
               keepRecentToolResults: 3,
+              onCompacted: (summary) => {
+                if (session.incognito) return;
+                try {
+                  this.contextSummaries?.save(session.id, summary);
+                } catch (error) {
+                  logWarn('[CoworkAgentRunner] Failed to persist compaction summary:', error);
+                }
+              },
             }),
           ],
         });
@@ -3257,7 +3308,7 @@ ${
             JSON.stringify(compactionSettings)
           );
         } else {
-          compactionSettings = { enabled: true };
+          compactionSettings = compactionSettingsForWindow(contextWindow);
         }
 
         const { session: newPiSession } = await createAgentSession({

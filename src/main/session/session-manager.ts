@@ -29,6 +29,8 @@ import type {
 } from '../../renderer/types';
 import type { DatabaseInstance, TraceStepRow } from '../db/database';
 import type { MeetingService } from '../meetings/meeting-service';
+import type { KnowledgeBaseService } from '../knowledge-base/knowledge-base-service';
+import { ContextSummaryStore } from '../agent/context-summary-store';
 import { PathResolver } from '../sandbox/path-resolver';
 import { SessionNotFoundError } from './session-errors';
 import {
@@ -83,7 +85,10 @@ import { filterChatSearchHitsByDivision, type ChatSearchScope } from '../../shar
 import { prepareImageFollowUp } from '../images/image-follow-up';
 import { runGptImageGeneration } from '../images/image-generation-service';
 import type { ActiveDivision } from '../../shared/workspace-division';
-import { resolveExternalReference } from '../references/reference-service';
+import {
+  capExternalReferenceText,
+  resolveExternalReference,
+} from '../references/reference-service';
 import {
   attachSharedChatAuthor,
   collabProjectionMessageId,
@@ -148,6 +153,8 @@ export class SessionManager {
   private messageCache: Map<string, Message[]> = new Map();
   private static readonly MAX_CACHE_SIZE = 100;
   private meetingService: MeetingService | null = null;
+  private knowledgeBaseService: KnowledgeBaseService | null = null;
+  private contextSummaryStore?: ContextSummaryStore;
   /** In-memory-only sessions (incognito). Never written to SQLite. */
   private ephemeralSessions: Map<string, Session> = new Map();
   private collabHooks: {
@@ -167,6 +174,11 @@ export class SessionManager {
     askUserQuestionExtension?: AskUserQuestionExtension
   ) {
     this.db = db;
+    try {
+      this.contextSummaryStore = new ContextSummaryStore(db);
+    } catch (error) {
+      logWarn('[SessionManager] Context summary store unavailable:', error);
+    }
     this.sendToRenderer = (event) => {
       if (event.type === 'trace.step') {
         this.saveTraceStep(event.payload.sessionId, event.payload.step);
@@ -205,6 +217,15 @@ export class SessionManager {
 
   setMeetingService(service: MeetingService | null): void {
     this.meetingService = service;
+  }
+
+  setKnowledgeBaseService(service: KnowledgeBaseService | null): void {
+    this.knowledgeBaseService = service;
+  }
+
+  /** Incognito chats never persist attachments into the knowledge base. */
+  private knowledgeBaseFor(session: Session): KnowledgeBaseService | null {
+    return session.incognito ? null : this.knowledgeBaseService;
   }
 
   setCollabHooks(
@@ -329,6 +350,7 @@ export class SessionManager {
           input: Record<string, unknown>,
           canonicalToolName?: string
         ) => this.requestPermission(sessionId, toolUseId, toolName, input, canonicalToolName),
+        contextSummaries: this.contextSummaryStore,
       },
       this.pathResolver,
       this.mcpManager,
@@ -1333,8 +1355,11 @@ export class SessionManager {
   // Helper: Copy files to session's .tmp directory and sync to sandbox if needed
   private async processFileAttachments(
     session: Session,
-    content: ContentBlock[]
+    content: ContentBlock[],
+    /** Receives one promise per non-image file being indexed into the chat's sources. */
+    knowledgeIndexing?: Promise<unknown>[]
   ): Promise<ContentBlock[]> {
+    const knowledgeBase = this.knowledgeBaseFor(session);
     const processedContent: ContentBlock[] = [];
     const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp']);
     const mimeByExt: Record<string, 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'> = {
@@ -1454,6 +1479,19 @@ export class SessionManager {
             continue;
           }
 
+          if (knowledgeBase) {
+            const indexing = knowledgeBase
+              .addFile({ scope: 'chat', scopeId: session.id }, destPath, {
+                title: destFilename,
+                originPath: sourcePath && fs.existsSync(sourcePath) ? sourcePath : destPath,
+                mimeType: fileBlock.mimeType,
+              })
+              .catch((error) =>
+                logError('[SessionManager] Knowledge base indexing failed:', destFilename, error)
+              );
+            knowledgeIndexing?.push(indexing);
+          }
+
           // Update the content block with the new relative path and actual size
           const relativePathFromCwd = path.join('.tmp', destFilename);
           const restFileBlock = { ...fileBlock };
@@ -1519,7 +1557,13 @@ export class SessionManager {
               : [{ type: 'text', text: prompt } as TextContent];
 
           // Process file attachments - copy to .tmp directory
-          messageContent = await this.processFileAttachments(session, messageContent);
+          const knowledgeBase = this.knowledgeBaseFor(session);
+          const knowledgeIndexing: Promise<unknown>[] = [];
+          messageContent = await this.processFileAttachments(
+            session,
+            messageContent,
+            knowledgeIndexing
+          );
 
           logCtx(
             '[SessionManager] Final message content types:',
@@ -1539,9 +1583,11 @@ export class SessionManager {
                   `- ${f.filename} (${(f.size / 1024).toFixed(1)} KB) at path: ${f.relativePath}`
               )
               .join('\n');
-            const readHint = hasPdf
-              ? '[Attached files - use Read tool to access them. PDFs return extracted text, not raw binary]:'
-              : '[Attached files - use Read tool to access them]:';
+            const readHint = knowledgeBase
+              ? "[Attached files - saved to this chat's knowledge sources (sources_search / sources_read work on later turns too); the Read tool also works on these paths]:"
+              : hasPdf
+                ? '[Attached files - use Read tool to access them. PDFs return extracted text, not raw binary]:'
+                : '[Attached files - use Read tool to access them]:';
             enhancedPrompt = `${enhancedPrompt}\n\n${readHint}\n${fileInfo}`;
             logCtx('[SessionManager] Enhanced prompt with file info:', enhancedPrompt);
           }
@@ -1579,7 +1625,29 @@ export class SessionManager {
             const referenceBlocks: string[] = [];
             for (const attachment of externalReferences) {
               try {
-                const resolved = await resolveExternalReference(this.mcpManager, attachment);
+                const resolved = await resolveExternalReference(this.mcpManager, attachment, {
+                  full: Boolean(knowledgeBase),
+                });
+                if (knowledgeBase && !resolved.error && resolved.text.trim()) {
+                  knowledgeIndexing.push(
+                    knowledgeBase
+                      .addReference(
+                        {
+                          scope: 'chat',
+                          scopeId: session.id,
+                          source: attachment.source,
+                          externalId: attachment.externalId,
+                          title: resolved.title || attachment.title,
+                          url: resolved.url || attachment.url,
+                          meta: attachment.meta,
+                        },
+                        resolved.text
+                      )
+                      .catch((error) =>
+                        logCtxError('[SessionManager] Knowledge base reference save failed:', error)
+                      )
+                  );
+                }
                 const header = [
                   attachment.source.toUpperCase(),
                   attachment.title,
@@ -1589,7 +1657,8 @@ export class SessionManager {
                   .join(' — ');
                 const body = resolved.error
                   ? `(Could not load content: ${resolved.error})`
-                  : resolved.text || '(No content returned)';
+                  : (knowledgeBase ? capExternalReferenceText(resolved.text) : resolved.text) ||
+                    '(No content returned)';
                 referenceBlocks.push(`- ${header}\n${body}`);
               } catch (error) {
                 referenceBlocks.push(
@@ -1600,9 +1669,21 @@ export class SessionManager {
               }
             }
             if (referenceBlocks.length > 0) {
-              enhancedPrompt = `${enhancedPrompt}\n\n[Attached references — use only for this request]:\n${referenceBlocks.join('\n\n')}`;
+              const referenceHint = knowledgeBase
+                ? "[Attached references — also saved to this chat's knowledge sources]"
+                : '[Attached references — use only for this request]';
+              enhancedPrompt = `${enhancedPrompt}\n\n${referenceHint}:\n${referenceBlocks.join('\n\n')}`;
               logCtx('[SessionManager] Enhanced prompt with external references');
             }
+          }
+
+          // Let fresh attachments finish indexing so this turn's source list
+          // includes them; large files keep indexing in the background.
+          if (knowledgeIndexing.length > 0) {
+            await Promise.race([
+              Promise.allSettled(knowledgeIndexing),
+              new Promise((resolve) => setTimeout(resolve, 15_000)),
+            ]);
           }
 
           // Save user message to database for persistence

@@ -105,7 +105,7 @@ describe('serializeMessageContentForHistory', () => {
     );
   });
 
-  it('skips image and file_attachment blocks (binary / oversized)', () => {
+  it('skips image blocks and stubs file_attachment blocks by filename', () => {
     const blocks: ContentBlock[] = [
       { type: 'text', text: 'before' },
       {
@@ -120,7 +120,9 @@ describe('serializeMessageContentForHistory', () => {
       },
       { type: 'text', text: 'after' },
     ];
-    expect(serializeMessageContentForHistory(blocks)).toBe('before\nafter');
+    expect(serializeMessageContentForHistory(blocks)).toBe(
+      'before\n[Attached file: data.bin]\nafter'
+    );
   });
 
   it('preserves block ordering for a typical assistant turn (thinking → text → tool_use)', () => {
@@ -179,12 +181,6 @@ describe('serializeMessageContentForHistory', () => {
       {
         type: 'image',
         source: { type: 'base64', media_type: 'image/jpeg', data: 'AAAA' },
-      },
-      {
-        type: 'file_attachment',
-        filename: 'a.bin',
-        relativePath: 'a.bin',
-        size: 1,
       },
     ];
     expect(serializeMessageContentForHistory(blocks)).toBe('');

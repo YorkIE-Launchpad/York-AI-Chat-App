@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { BookOpen } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { TurnSources } from '../../utils/session-sources';
@@ -8,9 +8,11 @@ import { MemorySourceDetailPanel } from '../message/MemorySourceDetailPanel';
 
 interface SessionSourcesPaneProps {
   turns: TurnSources[];
+  /** Knowledge base section rendered above the cited-sources list. */
+  knowledge?: ReactNode;
 }
 
-export function SessionSourcesPane({ turns }: SessionSourcesPaneProps) {
+export function SessionSourcesPane({ turns, knowledge }: SessionSourcesPaneProps) {
   const { t } = useTranslation();
   const [memoryId, setMemoryId] = useState<string | null>(null);
 
@@ -24,7 +26,7 @@ export function SessionSourcesPane({ turns }: SessionSourcesPaneProps) {
     if (/^https?:/i.test(url)) void window.electronAPI?.openExternal?.(url);
   };
 
-  if (turns.length === 0) {
+  if (turns.length === 0 && !knowledge) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
         <BookOpen className="h-5 w-5 text-text-muted" />
@@ -36,6 +38,12 @@ export function SessionSourcesPane({ turns }: SessionSourcesPaneProps) {
 
   return (
     <div className="flex-1 space-y-4 overflow-y-auto px-3 py-3">
+      {knowledge}
+      {knowledge && turns.length > 0 && (
+        <p className="border-t border-border-muted px-1.5 pt-3 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-text-muted">
+          {t('inspector.citations')}
+        </p>
+      )}
       {[...turns].reverse().map((turn) => (
         <section key={turn.userMessageId}>
           <p

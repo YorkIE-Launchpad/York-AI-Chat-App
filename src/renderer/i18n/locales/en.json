@@ -2480,6 +2480,26 @@
     "files": "Files",
     "noSources": "No sources yet",
     "noSourcesHint": "Links the assistant cites in this chat show up here, grouped by question.",
-    "untitledQuestion": "Question"
+    "untitledQuestion": "Question",
+    "citations": "Cited in answers"
+  },
+  "knowledge": {
+    "chatSources": "Chat knowledge",
+    "folderSources": "Folder: {{name}}",
+    "chatHint": "Files and docs here are searchable on every message. Attachments are added automatically.",
+    "folderHint": "Shared with every chat in this folder.",
+    "add": "Add source",
+    "addFiles": "Upload files",
+    "addDrive": "Google Drive",
+    "addConfluence": "Confluence",
+    "empty": "No sources yet",
+    "indexing": "Indexing…",
+    "failed": "Failed",
+    "words": "~{{count}} words",
+    "refresh": "Refresh",
+    "remove": "Remove",
+    "open": "Open",
+    "addFailed": "Couldn't add source",
+    "disabledIncognito": "Knowledge sources are off in incognito chats."
   }
 }

@@ -11,11 +11,15 @@
  * preparation data and sets custom instructions, then lets the SDK's
  * default compaction path run on the cleaned input.
  */
+import { compact } from '@mariozechner/pi-coding-agent';
 import type {
   ExtensionFactory,
   ExtensionAPI,
+  ExtensionContext,
   SessionBeforeCompactEvent,
 } from '@mariozechner/pi-coding-agent';
+import { logWarn } from '../utils/logger';
+import { stripStaleTurnContext, summaryReserveTokens, trimOldToolResults } from './context-hygiene';
 
 /**
  * Configuration for the custom compaction extension.
@@ -40,6 +44,9 @@ export interface CompactionConfig {
    * Default: 3
    */
   keepRecentToolResults?: number;
+
+  /** Called with the summary after this extension generates a compaction. */
+  onCompacted?: (summary: string) => void;
 }
 
 /**
@@ -47,14 +54,17 @@ export interface CompactionConfig {
  * to focus on decisions rather than raw tool data.
  */
 export const DEFAULT_COMPACTION_INSTRUCTIONS = `Focus on preserving:
-- Key decisions made during the conversation
+- What the user is ultimately trying to achieve, and every question they asked (answered or still open)
+- Key decisions made during the conversation, and the answers/conclusions already given
+- Concrete facts the answers relied on: names, numbers, dates, amounts, IDs, statuses, people, clients, projects — quote them exactly
+- Documents, sources, files, and records referenced (title + what they contained that mattered)
 - Important file paths and what was done to them
 - Current goals and next steps
 - Error context that hasn't been resolved
-- User preferences and constraints mentioned
+- User preferences, tone, format requests, and constraints mentioned
 
 Aggressively summarize:
-- File contents that were read (just note the filename and purpose)
+- File contents that were read (just note the filename and purpose, plus any facts used in an answer)
 - Long command outputs (just note what command ran and the outcome)
 - Exploratory steps that didn't lead anywhere
 - Redundant back-and-forth about resolved issues`;
@@ -177,30 +187,72 @@ export function createCompactionExtensionFactory(config: CompactionConfig = {}):
   const keepRecent = config.keepRecentToolResults ?? 3;
 
   return (api: ExtensionAPI): void => {
-    api.on('session_before_compact', async (event: SessionBeforeCompactEvent) => {
-      const { preparation } = event;
+    api.on(
+      'session_before_compact',
+      async (event: SessionBeforeCompactEvent, ctx?: ExtensionContext) => {
+        const { preparation } = event;
 
-      // Phase 1: Pre-prune verbose tool outputs in messagesToSummarize.
-      // This reduces token count the summarizer model needs to process,
-      // leading to faster and cheaper compaction without losing key context.
-      pruneToolOutputs(preparation.messagesToSummarize, threshold, keepRecent);
+        // Phase 1: Pre-prune verbose tool outputs in messagesToSummarize.
+        // This reduces token count the summarizer model needs to process,
+        // leading to faster and cheaper compaction without losing key context.
+        pruneToolOutputs(preparation.messagesToSummarize, threshold, keepRecent);
+        preparation.messagesToSummarize = cleanMessagesForSummary(preparation.messagesToSummarize);
+        preparation.turnPrefixMessages = cleanMessagesForSummary(preparation.turnPrefixMessages);
 
-      // Phase 2: Inject custom instructions for the summarizer.
-      // The SDK reads event.customInstructions after extension handlers return.
-      // If no instructions were already set (e.g., from a manual compact() call),
-      // inject our defaults. If instructions already exist (user-triggered compact
-      // with explicit instructions), merge them with ours.
-      const builtInstructions = buildCustomInstructions(config);
-      if (!event.customInstructions) {
-        event.customInstructions = builtInstructions;
-      } else {
-        // Merge: user's explicit instructions take priority (listed first)
-        event.customInstructions = `${event.customInstructions}\n\n${builtInstructions}`;
+        // Phase 2: Inject custom instructions for the summarizer.
+        // If no instructions were already set (e.g., from a manual compact() call),
+        // inject our defaults. If instructions already exist (user-triggered compact
+        // with explicit instructions), merge them with ours.
+        const builtInstructions = buildCustomInstructions(config);
+        if (!event.customInstructions) {
+          event.customInstructions = builtInstructions;
+        } else {
+          // Merge: user's explicit instructions take priority (listed first)
+          event.customInstructions = `${event.customInstructions}\n\n${builtInstructions}`;
+        }
+
+        // Phase 3: The SDK's auto-compaction ignores event.customInstructions,
+        // so summarize here and hand back the result. reserveTokens may be
+        // inflated to trigger compaction early on huge windows; the summary
+        // itself uses a normal output budget.
+        const model = ctx?.model;
+        if (!model) return {};
+        // Also applies to the SDK default path below, which reuses this preparation.
+        preparation.settings = {
+          ...preparation.settings,
+          reserveTokens: summaryReserveTokens(model.maxTokens),
+        };
+        try {
+          const apiKey = await ctx.modelRegistry.getApiKey(model);
+          if (!apiKey) return {};
+          const result = await compact(
+            preparation,
+            model,
+            apiKey,
+            event.customInstructions,
+            event.signal
+          );
+          config.onCompacted?.(result.summary);
+          return { compaction: result };
+        } catch (error) {
+          if (event.signal?.aborted) return { cancel: true };
+          logWarn('[Compaction] Custom summary failed, falling back to SDK default:', error);
+          return {};
+        }
       }
-
-      // Return empty object — let the SDK run its default summarization
-      // on the now-pruned messages with our custom instructions injected.
-      return {};
-    });
+    );
   };
+}
+
+/** Drop stale per-turn context and shorten big tool dumps before summarizing. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function cleanMessagesForSummary(messages: any[]): any[] {
+  if (!Array.isArray(messages) || messages.length === 0) return messages;
+  const stripped = stripStaleTurnContext(messages, 0).messages;
+  return trimOldToolResults(stripped, {
+    budgetChars: 0,
+    keepRecentUserTurns: 0,
+    minChars: 6000,
+    excerptChars: 3000,
+  }).messages;
 }

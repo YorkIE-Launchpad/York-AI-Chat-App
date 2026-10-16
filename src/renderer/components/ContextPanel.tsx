@@ -56,6 +56,8 @@ import { getMcpToolDisplayName } from './message/toolHelpers';
 import { SharedDocsPanelControls } from './SharedDocsPanelControls';
 import { InspectorTabs, resolveInspectorTab } from './inspector/InspectorTabs';
 import { SessionSourcesPane } from './inspector/SessionSourcesPane';
+import { KnowledgeSourcesSection, useKnowledgeSources } from './inspector/KnowledgeSourcesSection';
+import type { KnowledgeScopeRef } from '../../shared/knowledge-base';
 import { collectSessionSources } from '../utils/session-sources';
 import {
   DEFAULT_CONFLUENCE_MCP_SERVER_ID,
@@ -424,7 +426,17 @@ export function ContextPanel() {
     hasPreview
   );
   const sessionSources = useMemo(() => collectSessionSources(messages), [messages]);
-  const sourceCount = sessionSources.reduce((sum, turn) => sum + turn.sources.length, 0);
+  const knowledgeFolderId =
+    activeSession?.division === 'folder' ? activeSession.folderId || null : null;
+  const knowledgeScopes = useMemo<KnowledgeScopeRef[]>(() => {
+    if (!activeSessionId || activeSession?.incognito) return [];
+    const scopes: KnowledgeScopeRef[] = [{ scope: 'chat', scopeId: activeSessionId }];
+    if (knowledgeFolderId) scopes.push({ scope: 'folder', scopeId: knowledgeFolderId });
+    return scopes;
+  }, [activeSessionId, activeSession?.incognito, knowledgeFolderId]);
+  const { sources: knowledgeSources } = useKnowledgeSources(knowledgeScopes);
+  const sourceCount =
+    sessionSources.reduce((sum, turn) => sum + turn.sources.length, 0) + knowledgeSources.length;
 
   if (contextPanelCollapsed) {
     return (
@@ -830,7 +842,21 @@ export function ContextPanel() {
         </div>
       )}
 
-      {tab === 'sources' && <SessionSourcesPane turns={sessionSources} />}
+      {tab === 'sources' && (
+        <SessionSourcesPane
+          turns={sessionSources}
+          knowledge={
+            activeSessionId ? (
+              <KnowledgeSourcesSection
+                scopes={knowledgeScopes}
+                sources={knowledgeSources}
+                folderName={activeSession?.folderName}
+                incognito={activeSession?.incognito}
+              />
+            ) : undefined
+          }
+        />
+      )}
     </div>
   );
 }

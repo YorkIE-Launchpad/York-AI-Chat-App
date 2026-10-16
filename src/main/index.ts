@@ -122,6 +122,13 @@ import { WebSearchExtension } from './tools/web-search-extension';
 import { AskUserQuestionExtension } from './tools/ask-user-question-extension';
 import { WikiService } from './wiki/wiki-service';
 import { WikiExtension } from './wiki/wiki-extension';
+import { KnowledgeBaseService } from './knowledge-base/knowledge-base-service';
+import { KnowledgeBaseExtension } from './knowledge-base/knowledge-base-extension';
+import type {
+  KnowledgeAddFilesPayload,
+  KnowledgeAddReferencePayload,
+  KnowledgeScopeRef,
+} from '../shared/knowledge-base';
 import { SummaryTreeService } from './summary-tree/summary-tree-service';
 import { SummaryTreeExtension } from './summary-tree/summary-tree-extension';
 import { SuperContextExtension } from './supercontext/supercontext-extension';
@@ -444,6 +451,7 @@ let memoryService: MemoryService | null = null;
 let meetingService: MeetingService | null = null;
 let liveAssistService: LiveAssistService | null = null;
 let wikiService: WikiService | null = null;
+let knowledgeBaseService: KnowledgeBaseService | null = null;
 let summaryTreeService: SummaryTreeService | null = null;
 let checkpointService: CheckpointService | null = null;
 let workflowService: WorkflowService | null = null;
@@ -563,6 +571,18 @@ async function executeTaskMaybeWorkflow(task: {
 
 function wireWikiAndOrchestration(db: ReturnType<typeof initDatabase>): void {
   wikiService = new WikiService(db);
+  knowledgeBaseService = new KnowledgeBaseService(db, {
+    getMcpManager: () => sessionManager?.getMCPManager() ?? null,
+    resolveFolderId: (sessionId) => {
+      const row = db.sessions.get(sessionId);
+      return row?.division === 'folder' ? row.folder_id || null : null;
+    },
+    onChanged: (event) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('knowledge:changed', event);
+      }
+    },
+  });
   summaryTreeService = new SummaryTreeService(db);
   checkpointService = new CheckpointService(db);
   workflowService = new WorkflowService(db, checkpointService);
@@ -617,13 +637,15 @@ function buildExtensionList(
     !wikiService ||
     !meetingService ||
     !workflowService ||
-    !summaryTreeService
+    !summaryTreeService ||
+    !knowledgeBaseService
   ) {
     throw new Error('Core services not ready for extension list');
   }
   return [
     new MemoryExtension(memoryService),
     new WikiExtension(wikiService),
+    new KnowledgeBaseExtension(knowledgeBaseService),
     new SummaryTreeExtension(summaryTreeService),
     new SuperContextExtension(() => ({
       wikiService,
@@ -2218,6 +2240,7 @@ app
         headlessAskUserQuestionExtension
       );
       sessionManager.setMeetingService(meetingService);
+      sessionManager.setKnowledgeBaseService(knowledgeBaseService);
       wireCollabSyncService();
       initLiveAssistService();
 
@@ -2710,6 +2733,7 @@ app
       askUserQuestionExtension
     );
     sessionManager.setMeetingService(meetingService);
+    sessionManager.setKnowledgeBaseService(knowledgeBaseService);
     wireCollabSyncService();
     initLiveAssistService();
     skillsManager = new SkillsManager(db, {
@@ -3899,6 +3923,7 @@ ipcMain.handle('folders.delete', async (_event, id: string) => {
   try {
     const manager = getFolderManager();
     const deleted = manager.delete(id);
+    if (deleted) knowledgeBaseService?.deleteScope({ scope: 'folder', scopeId: id });
     return { success: deleted, error: deleted ? undefined : 'Folder not found' };
   } catch (error) {
     logError('[Folders] delete failed:', error);
@@ -7391,6 +7416,43 @@ ipcMain.handle('references.lookupUrl', async (_event, url: string) => {
     throw new Error('Session manager not initialized');
   }
   return lookupExternalReferenceFromUrl(sessionManager.getMCPManager(), url);
+});
+
+function requireKnowledgeBase(): KnowledgeBaseService {
+  if (!knowledgeBaseService) {
+    throw new Error('Knowledge base not initialized');
+  }
+  return knowledgeBaseService;
+}
+
+function assertKnowledgeScope(ref: KnowledgeScopeRef): KnowledgeScopeRef {
+  if ((ref?.scope !== 'chat' && ref?.scope !== 'folder') || !ref.scopeId) {
+    throw new Error('Invalid knowledge base scope');
+  }
+  return { scope: ref.scope, scopeId: String(ref.scopeId) };
+}
+
+ipcMain.handle('knowledge.list', (_event, refs: KnowledgeScopeRef[]) => {
+  return requireKnowledgeBase().list((refs || []).map(assertKnowledgeScope));
+});
+
+ipcMain.handle('knowledge.addFiles', async (_event, payload: KnowledgeAddFilesPayload) => {
+  const ref = assertKnowledgeScope(payload);
+  const paths = (payload.paths || []).filter((p) => typeof p === 'string' && p.trim());
+  return requireKnowledgeBase().addFiles(ref, paths);
+});
+
+ipcMain.handle('knowledge.addReference', async (_event, payload: KnowledgeAddReferencePayload) => {
+  const ref = assertKnowledgeScope(payload);
+  return requireKnowledgeBase().addReference({ ...payload, ...ref });
+});
+
+ipcMain.handle('knowledge.refresh', async (_event, id: string) => {
+  return requireKnowledgeBase().refresh(String(id));
+});
+
+ipcMain.handle('knowledge.remove', (_event, id: string) => {
+  return requireKnowledgeBase().remove(String(id));
 });
 
 ipcMain.handle('meetings.delete', (_event, id: string) => {
