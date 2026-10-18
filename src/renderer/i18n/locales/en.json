@@ -1760,7 +1760,7 @@
     "openSlack": "Open Slack API",
     "slackRelayTitle": "Control York IE GrowthOS from Slack",
     "slackRelayDesc": "DM the York IE GrowthOS bot from your phone to run tasks on this computer. Only your own Slack account can use it. Tools follow the same permissions as on this computer, and anything that asks shows Allow/Deny buttons in Slack. New Follow-ups and Matter opportunities are also sent to this DM.",
-    "slackRelayNotice": "Works only while this app is open and you are signed in. Turns off automatically after {{hours}} hours without Slack activity, when you sign out, or when Slack is disconnected.",
+    "slackRelayNotice": "Stays on until you turn it off. It only works while this app is open and you are signed in, and it turns off if you sign out or disconnect Slack.",
     "slackRelayConnected": "Connected. Send the York IE GrowthOS bot a direct message.",
     "slackRelayConnecting": "Connecting…",
     "slackRelayOff": "Off",

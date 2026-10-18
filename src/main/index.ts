@@ -102,7 +102,9 @@ import { AUTO_MODEL_ID, isAutoModelId } from '../shared/auto-model';
 import {
   YORK_LLM_DISPLAY_NAME,
   YORK_LLM_PROVIDER,
+  YORK_LLM_SLACK_MODEL_ID,
   isYorkLlmBaseUrl,
+  yorkLlmSelectionPayload,
 } from '../shared/york-llm-config';
 import { sessionFieldsFromActiveDivision } from '../shared/workspace-division';
 import { modelSelectionConfig } from './remote/channels/slack/slack-relay-choices';
@@ -3255,6 +3257,16 @@ app
         let update: Partial<AppConfig>;
         if (isAutoModelId(modelId)) {
           update = { model: AUTO_MODEL_ID };
+        } else if (modelId === YORK_LLM_SLACK_MODEL_ID) {
+          try {
+            const yorkModels = await listYorkLlmModels();
+            const yorkModel = yorkModels[0];
+            if (!yorkModel?.id) return 'York LLM is unavailable right now.';
+            update = yorkLlmSelectionPayload(yorkModel.id);
+          } catch (error) {
+            logWarn('[SlackRelay] York LLM model lookup failed:', error);
+            return 'York LLM is unavailable right now.';
+          }
         } else {
           const model = (await fetchBackendModels({ usable: true })).find((m) => m.id === modelId);
           if (!model) return 'That model is no longer available.';

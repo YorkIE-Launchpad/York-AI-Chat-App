@@ -21,6 +21,7 @@ import {
   type ActiveDivision,
   type PersonalFolder,
 } from '../../../../shared/workspace-division';
+import { YORK_LLM_DISPLAY_NAME, YORK_LLM_SLACK_MODEL_ID } from '../../../../shared/york-llm-config';
 
 export interface SlackRelayChoice<T> {
   key: string;
@@ -49,6 +50,12 @@ export function buildModelChoices(models: BackendModelInfo[]): SlackRelayChoice<
       detail: 'Picks a model for each message',
       value: AUTO_MODEL_ID,
     },
+    {
+      key: YORK_LLM_SLACK_MODEL_ID,
+      label: YORK_LLM_DISPLAY_NAME,
+      detail: 'Free shared server',
+      value: YORK_LLM_SLACK_MODEL_ID,
+    },
   ];
   for (const model of models) {
     if (isGptImage25ModelId(model.id) || model.hasBudget === false) continue;
@@ -73,10 +80,22 @@ export function modelSelectionConfig(model: BackendModelInfo) {
   });
 }
 
+/** Picker key for the active model, mapping a York LLM selection onto the York option. */
+export function slackCurrentModelKey(
+  modelId: string | undefined,
+  label?: string
+): string | undefined {
+  if (label === YORK_LLM_DISPLAY_NAME || modelId === YORK_LLM_SLACK_MODEL_ID) {
+    return YORK_LLM_SLACK_MODEL_ID;
+  }
+  return modelId;
+}
+
 /** Display name for the configured model id, even when it is not in the catalog. */
 export function describeModel(modelId: string | undefined, models: BackendModelInfo[]): string {
   if (!modelId) return 'Not set';
   if (isAutoModelId(modelId)) return 'Auto';
+  if (modelId === YORK_LLM_SLACK_MODEL_ID) return YORK_LLM_DISPLAY_NAME;
   const model = models.find((m) => m.id === modelId);
   return model ? modelLabel(model) : modelId;
 }

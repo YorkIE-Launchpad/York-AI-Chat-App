@@ -3,6 +3,8 @@ import { BACKEND_PROXY_PLACEHOLDER_KEY } from './backend-config';
 export const DEFAULT_YORK_LLM_BASE_URL = 'http://llm.yorkdevs.link:2222/v1';
 export const DEFAULT_YORK_LLM_MAX_CONCURRENT = 4;
 export const YORK_LLM_DISPLAY_NAME = 'York LLM V1';
+/** Slack model-picker value; the real gguf id is resolved when the user selects it. */
+export const YORK_LLM_SLACK_MODEL_ID = 'york-llm';
 export const YORK_LLM_SESSION_HEADER = 'X-York-Llm-Session-Id';
 /** Provider key used when York LLM is selected in the model picker. */
 export const YORK_LLM_PROVIDER = 'ollama' as const;

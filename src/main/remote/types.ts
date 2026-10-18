@@ -567,19 +567,15 @@ export interface GatewayStatus {
 
 /** Slack remote control through the York backend relay (platform bot, DM-only). */
 export interface SlackRelayChannelConfig {
+  /** Stays as the user left it until they turn it on or off. */
   enabled: boolean;
-  /** Turn the relay off after this many hours without remote activity. */
-  idleTimeoutHours?: number;
 }
-
-export const DEFAULT_SLACK_RELAY_IDLE_TIMEOUT_HOURS = 12;
 
 export interface SlackRelayStatus {
   enabled: boolean;
   connected: boolean;
   slackConnected: boolean;
   lastError: string | null;
-  idleTimeoutHours: number;
 }
 
 export type SlackRelayConnectionEventKind =

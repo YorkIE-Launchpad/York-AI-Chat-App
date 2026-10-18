@@ -131,7 +131,7 @@ export function SettingsRemoteControl({ isActive }: { isActive: boolean }) {
           {error && <p className="mt-2 text-xs text-error">{error}</p>}
 
           <p className="mt-3 text-[11px] leading-4 text-text-muted">
-            {t('remote.slackRelayNotice', { hours: status.idleTimeoutHours })}
+            {t('remote.slackRelayNotice')}
           </p>
         </div>
       </SettingsContentSection>

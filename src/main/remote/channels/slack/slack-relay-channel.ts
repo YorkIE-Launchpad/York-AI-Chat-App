@@ -55,8 +55,6 @@ export interface SlackRelayChannelDeps {
   wsUrl?: string;
   createSocket?: (url: string, headers: Record<string, string>) => WebSocket;
   onStateChange?: (state: { connected: boolean; lastError: string | null }) => void;
-  /** Called for every inbound owner message (used for idle tracking / notifications). */
-  onActivity?: () => void;
 }
 
 interface PendingReply {
@@ -459,7 +457,6 @@ export class SlackRelayChannel extends ChannelBase {
         const images = parseSlackRelayImages(frame.images);
         if (!handle || handle.length > 64 || (!text && images.length === 0)) return;
         this.latestReplyHandle = handle;
-        this.deps.onActivity?.();
         const message: RemoteMessage = {
           id: this.generateMessageId(),
           channelType: 'slack',
@@ -483,7 +480,6 @@ export class SlackRelayChannel extends ChannelBase {
         const action = parseSlackRelayAction(frame);
         if (!action) return;
         if (action.kind === 'command') this.latestReplyHandle = action.replyHandle;
-        this.deps.onActivity?.();
         try {
           this.actionHandler?.(action);
         } catch (error) {

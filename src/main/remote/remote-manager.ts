@@ -55,7 +55,6 @@ import type {
   SlackRelayConnectionEvent,
   SlackRelayStatus,
 } from './types';
-import { DEFAULT_SLACK_RELAY_IDLE_TIMEOUT_HOURS } from './types';
 import type { Message, ContentBlock, ServerEvent, Session } from '../../renderer/types/index';
 import {
   isAutoAllowedWikiTool,
@@ -72,6 +71,7 @@ import {
   describeModel,
   describeWorkspace,
   matchChoices,
+  slackCurrentModelKey,
   workspaceKey,
   type SlackRelayChoice,
 } from './channels/slack/slack-relay-choices';
@@ -103,7 +103,6 @@ export interface SlackRelayProvider {
   }>;
 }
 
-const SLACK_RELAY_IDLE_CHECK_MS = 5 * 60_000;
 const STRICT_PERMISSION_INPUT_PREVIEW_MAX = 1_500;
 const SLACK_CHAT_LIST_SIZE = 8;
 const REMOTE_QUESTION_TIMEOUT_MS = 5 * 60 * 1000;
@@ -388,8 +387,6 @@ export class RemoteManager extends EventEmitter {
   private slackRelayProvider?: SlackRelayProvider;
   private slackRelayChannel?: SlackRelayChannel;
   private slackRelayLastError: string | null = null;
-  private slackRelayLastActivity = 0;
-  private slackRelayIdleTimer: NodeJS.Timeout | null = null;
   /** Suppress disconnect log when we already recorded enabled/disabled. */
   private slackRelayQuietDisconnect = false;
 
@@ -447,7 +444,6 @@ export class RemoteManager extends EventEmitter {
       connected: this.slackRelayChannel?.connected ?? false,
       slackConnected: this.slackRelayProvider?.isSlackConnected() ?? false,
       lastError: this.slackRelayChannel?.lastError ?? this.slackRelayLastError,
-      idleTimeoutHours: config.idleTimeoutHours ?? DEFAULT_SLACK_RELAY_IDLE_TIMEOUT_HOURS,
     };
   }
 
@@ -531,7 +527,6 @@ export class RemoteManager extends EventEmitter {
       });
       remoteConfigStore.setEnabled(true);
       this.slackRelayLastError = null;
-      this.slackRelayLastActivity = Date.now();
       this.noteSlackRelayConnectionEvent('enabled', 'Turned on from this computer.');
       await this.restart();
     } else {
@@ -566,33 +561,6 @@ export class RemoteManager extends EventEmitter {
     if (!remoteConfigStore.getSlackRelayConfig().enabled && !this.slackRelayChannel) return;
     logWarn('[RemoteManager] Disabling Slack relay:', reason);
     await this.setSlackRelayEnabled(false, reason.trim() || 'Turned off.');
-  }
-
-  private noteSlackRelayActivity(): void {
-    this.slackRelayLastActivity = Date.now();
-  }
-
-  private startSlackRelayIdleTimer(): void {
-    this.stopSlackRelayIdleTimer();
-    this.slackRelayIdleTimer = setInterval(() => {
-      const hours =
-        remoteConfigStore.getSlackRelayConfig().idleTimeoutHours ??
-        DEFAULT_SLACK_RELAY_IDLE_TIMEOUT_HOURS;
-      if (Date.now() - this.slackRelayLastActivity < hours * 3_600_000) return;
-      void this.disableSlackRelay(`Turned off after ${hours} hours without Slack activity.`).then(
-        () =>
-          this.slackRelayProvider?.notify(
-            'Slack remote control turned off',
-            `No Slack activity for ${hours} hours. Turn it on again in Settings when you need it.`
-          )
-      );
-    }, SLACK_RELAY_IDLE_CHECK_MS);
-    this.slackRelayIdleTimer.unref?.();
-  }
-
-  private stopSlackRelayIdleTimer(): void {
-    if (this.slackRelayIdleTimer) clearInterval(this.slackRelayIdleTimer);
-    this.slackRelayIdleTimer = null;
   }
 
   /**
@@ -703,10 +671,6 @@ export class RemoteManager extends EventEmitter {
 
       // Start gateway
       await this.gateway.start();
-      if (this.slackRelayChannel) {
-        this.slackRelayLastActivity = this.slackRelayLastActivity || Date.now();
-        this.startSlackRelayIdleTimer();
-      }
 
       // Start tunnel if configured (never alongside the relay, which must stay off the public internet)
       const tunnelUrl = relayEnabled ? null : await tunnelManager.start(config.gateway.port);
@@ -784,7 +748,6 @@ export class RemoteManager extends EventEmitter {
 
     // Stop tunnel first
     await tunnelManager.stop();
-    this.stopSlackRelayIdleTimer();
 
     try {
       await this.gateway.stop();
@@ -2210,7 +2173,10 @@ export class RemoteManager extends EventEmitter {
     }
     const models = await provider.listModels();
     const choices = buildModelChoices(models);
-    const current = provider.getCurrentModel?.();
+    const current = slackCurrentModelKey(
+      provider.getCurrentModel?.(),
+      provider.getCurrentModelLabel?.()
+    );
     const currentNote = `Current model: ${this.describeSlackCurrentModel(models)}.`;
     const pick = (choice: SlackRelayChoice<string>) => ({
       kind: 'model' as const,
@@ -2238,7 +2204,11 @@ export class RemoteManager extends EventEmitter {
     const provider = this.slackRelayProvider;
     const notice = (text: string) => this.slackRelayChannel?.sendNotice(handle, text);
     if (!provider?.selectModel) return;
-    if (provider.getCurrentModel?.() === modelId) {
+    const current = slackCurrentModelKey(
+      provider.getCurrentModel?.(),
+      provider.getCurrentModelLabel?.()
+    );
+    if (current === modelId) {
       notice(`Already using ${label}.`);
       return;
     }
@@ -2417,7 +2387,6 @@ export class RemoteManager extends EventEmitter {
           getUpgradeHeaders: () => provider.getUpgradeHeaders(),
           getSlackUserToken: () => provider.getSlackUserToken(),
           expectedSlackUserId: slackUserId,
-          onActivity: () => this.noteSlackRelayActivity(),
           onStateChange: (state) => this.handleSlackRelayStateChange(state),
         });
         relayChannel.onAction((action) => {

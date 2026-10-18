@@ -678,20 +678,21 @@ describe('RemoteManager interactive Slack relay', () => {
     expect(picker.note).toBe('Current model: Claude Sonnet.');
     expect(picker.items.map((i) => [i.label, i.current])).toEqual([
       ['Auto', false],
+      ['York LLM V1', false],
       ['Claude Sonnet', true],
       ['Claude Opus', false],
       ['GPT-5', false],
     ]);
 
-    await command('pick', picker.items[3].token);
+    await command('pick', picker.items[4].token);
     expect(selectModel).toHaveBeenCalledWith('gpt-5');
     expect(relay.calls.notices.at(-1)!.text).toBe(
       'Model switched to GPT-5. This also applies on your computer.'
     );
 
-    await command('pick', picker.items[3].token);
+    await command('pick', picker.items[4].token);
     expect(relay.calls.notices.at(-1)!.text).toContain('That list has expired');
-    await command('pick', picker.items[1].token);
+    await command('pick', picker.items[2].token);
     expect(selectModel).toHaveBeenCalledTimes(1);
   });
 

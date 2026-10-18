@@ -238,15 +238,21 @@ class RemoteConfigStore {
   }
 
   getSlackRelayConfig(): SlackRelayChannelConfig {
-    return this.store.get('channels.slackRelay') ?? { enabled: false };
+    const stored = this.store.get('channels.slackRelay') as
+      | (SlackRelayChannelConfig & { idleTimeoutHours?: number })
+      | undefined;
+    if (!stored) return { enabled: false };
+    const enabled = stored.enabled === true;
+    // Drop the retired idle-timeout field so the saved preference is only on/off.
+    if (typeof stored.idleTimeoutHours === 'number') {
+      this.store.set('channels.slackRelay', { enabled });
+    }
+    return { enabled };
   }
 
   setSlackRelayConfig(config: SlackRelayChannelConfig): void {
     this.store.set('channels.slackRelay', {
       enabled: config.enabled === true,
-      ...(typeof config.idleTimeoutHours === 'number'
-        ? { idleTimeoutHours: config.idleTimeoutHours }
-        : {}),
     });
     log('[RemoteConfig] Slack relay enabled:', config.enabled === true);
   }

@@ -21,6 +21,7 @@ describe('model choices', () => {
   it('offers Auto plus chat models with budget', () => {
     expect(buildModelChoices(MODELS).map((c) => [c.label, c.detail])).toEqual([
       ['Auto', 'Picks a model for each message'],
+      ['York LLM V1', 'Free shared server'],
       ['Claude Sonnet', 'Anthropic'],
       ['gpt-5', 'OpenAI'],
     ]);
@@ -28,6 +29,7 @@ describe('model choices', () => {
 
   it('describes the configured model', () => {
     expect(describeModel('auto', MODELS)).toBe('Auto');
+    expect(describeModel('york-llm', MODELS)).toBe('York LLM V1');
     expect(describeModel('anthropic/claude-sonnet', MODELS)).toBe('Claude Sonnet');
     expect(describeModel('custom-local', MODELS)).toBe('custom-local');
     expect(describeModel(undefined, MODELS)).toBe('Not set');

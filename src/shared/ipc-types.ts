@@ -148,7 +148,7 @@ export interface RemoteConfig {
     telegram?: Record<string, unknown>;
     dingtalk?: Record<string, unknown>;
     websocket?: Record<string, unknown>;
-    slackRelay?: { enabled: boolean; idleTimeoutHours?: number };
+    slackRelay?: { enabled: boolean };
   };
 }
 
@@ -158,7 +158,6 @@ export interface SlackRelayStatus {
   connected: boolean;
   slackConnected: boolean;
   lastError: string | null;
-  idleTimeoutHours: number;
 }
 
 /** Why a Slack remote-control connection log entry was recorded. */
