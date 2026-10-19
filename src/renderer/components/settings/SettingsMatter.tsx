@@ -3,7 +3,8 @@ import { useTranslation } from 'react-i18next';
 import {
   DEFAULT_MATTER_RUNTIME,
   MATTER_SOURCE_IDS,
-  OPPORTUNITY_TARGETS,
+  OPPORTUNITY_PLATFORM_TARGETS,
+  OPPORTUNITY_SERVICE_TARGETS,
   OPPORTUNITY_TARGET_LABELS,
   type MatterConfigurableSource,
   type MatterOpportunitiesConfig,
@@ -100,11 +101,13 @@ function SourcePromptField({
 function RouteField({
   target,
   value,
+  placeholder,
   disabled,
   onSave,
 }: {
   target: OpportunityTarget;
   value: string;
+  placeholder: string;
   disabled?: boolean;
   onSave: (value: string) => void;
 }) {
@@ -115,12 +118,18 @@ function RouteField({
   }, [value]);
 
   return (
-    <label className="grid grid-cols-[minmax(9rem,40%)_1fr] items-center gap-3">
-      <span className="text-sm text-text-primary">{OPPORTUNITY_TARGET_LABELS[target]}</span>
+    <label className="grid grid-cols-[minmax(11rem,42%)_1fr] items-center gap-3">
+      <span className="min-w-0">
+        <span className="block text-sm text-text-primary">{OPPORTUNITY_TARGET_LABELS[target]}</span>
+        <span className="mt-0.5 block text-xs text-text-muted">
+          {t(`matter.opportunitiesRoutingHint.${target}`)}
+        </span>
+      </span>
       <input
         value={local}
         disabled={disabled}
-        placeholder={t('matter.opportunitiesRoutingPlaceholder')}
+        placeholder={placeholder}
+        aria-label={OPPORTUNITY_TARGET_LABELS[target]}
         onChange={(event) => setLocal(event.target.value)}
         onBlur={() => {
           const next = local.trim();
@@ -129,6 +138,48 @@ function RouteField({
         className="w-full rounded-lg border border-border-muted bg-background px-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted"
       />
     </label>
+  );
+}
+
+function RouteGroup({
+  title,
+  hint,
+  targets,
+  placeholder,
+  routing,
+  disabled,
+  onSave,
+}: {
+  title: string;
+  hint: string;
+  targets: readonly OpportunityTarget[];
+  placeholder: string;
+  routing: MatterOpportunitiesConfig['routing'];
+  disabled?: boolean;
+  onSave: (target: OpportunityTarget, value: string) => void;
+}) {
+  return (
+    <div className="space-y-2 border-t border-border-muted pt-3">
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-[0.12em] text-text-secondary">
+          {title}
+        </p>
+        <p className="mt-0.5 text-xs text-text-muted">{hint}</p>
+      </div>
+      {targets.map((target) => {
+        const route = routing[target] || {};
+        return (
+          <RouteField
+            key={target}
+            target={target}
+            value={route.slackChannel || route.slackUserId || ''}
+            placeholder={placeholder}
+            disabled={disabled}
+            onSave={(value) => onSave(target, value)}
+          />
+        );
+      })}
+    </div>
   );
 }
 
@@ -440,30 +491,43 @@ export function SettingsMatter() {
               {t('matter.opportunitiesMinConfidenceHint')}
             </span>
           </label>
-          <div className="rounded-lg border border-border-muted bg-background/70 px-3 py-2.5 space-y-2">
-            <p className="text-sm text-text-primary">{t('matter.opportunitiesRouting')}</p>
-            <p className="text-xs text-text-muted">{t('matter.opportunitiesRoutingDesc')}</p>
-            <div className="space-y-2 pt-1">
-              {OPPORTUNITY_TARGETS.map((target) => {
-                const route = draft.opportunities.routing[target] || {};
-                return (
-                  <RouteField
-                    key={target}
-                    target={target}
-                    value={route.slackChannel || route.slackUserId || ''}
-                    disabled={saving}
-                    onSave={(value) =>
-                      patchOpportunities({
-                        routing: {
-                          ...draft.opportunities.routing,
-                          [target]: value ? { slackChannel: value } : {},
-                        },
-                      })
-                    }
-                  />
-                );
-              })}
+          <div className="rounded-lg border border-border-muted bg-background/70 px-3 py-2.5 space-y-3">
+            <div>
+              <p className="text-sm text-text-primary">{t('matter.opportunitiesRouting')}</p>
+              <p className="mt-1 text-xs text-text-muted">{t('matter.opportunitiesRoutingDesc')}</p>
             </div>
+            <RouteGroup
+              title={t('matter.opportunitiesRoutingPlatforms')}
+              hint={t('matter.opportunitiesRoutingPlatformsHint')}
+              targets={OPPORTUNITY_PLATFORM_TARGETS}
+              placeholder={t('matter.opportunitiesRoutingChannelPlaceholder')}
+              routing={draft.opportunities.routing}
+              disabled={saving}
+              onSave={(target, value) =>
+                patchOpportunities({
+                  routing: {
+                    ...draft.opportunities.routing,
+                    [target]: value ? { slackChannel: value } : {},
+                  },
+                })
+              }
+            />
+            <RouteGroup
+              title={t('matter.opportunitiesRoutingServices')}
+              hint={t('matter.opportunitiesRoutingServicesHint')}
+              targets={OPPORTUNITY_SERVICE_TARGETS}
+              placeholder={t('matter.opportunitiesRoutingPersonPlaceholder')}
+              routing={draft.opportunities.routing}
+              disabled={saving}
+              onSave={(target, value) =>
+                patchOpportunities({
+                  routing: {
+                    ...draft.opportunities.routing,
+                    [target]: value ? { slackChannel: value } : {},
+                  },
+                })
+              }
+            />
           </div>
         </div>
       </SettingsContentSection>
