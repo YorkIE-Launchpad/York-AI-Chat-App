@@ -110,6 +110,12 @@ function buildCheckList(platform, arch) {
         relPath: `resources/tools/darwin-${arch}/York GrowthOS.app`,
         type: 'dir',
         severity: 'warn',
+      },
+      {
+        label: `Apple Local LLM helper for macOS ${arch} (york-apple-llm)`,
+        relPath: `resources/tools/darwin-${arch}/bin/york-apple-llm`,
+        type: 'file',
+        severity: 'warn',
       }
     );
   } else if (platform === 'win32') {

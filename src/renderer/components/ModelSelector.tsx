@@ -29,6 +29,12 @@ import {
   yorkLlmDisplayName,
 } from '../hooks/useYorkLlmModels';
 import { YORK_LLM_PROVIDER, yorkLlmSelectionPayload } from '../../shared/york-llm-config';
+import {
+  appleLlmDisplayName,
+  appleLlmSelectionPayload,
+  isAppleLlmSelection,
+  useAppleLlmModels,
+} from '../hooks/useAppleLlmModels';
 import { isGptImage25ModelId } from '../../shared/image-generation';
 import { useMenuPlacement } from '../hooks/useMenuPlacement';
 
@@ -84,6 +90,15 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
     isUnavailable: isYorkLlmUnavailable,
     loadModels: loadYorkLlmModels,
   } = useYorkLlmModels();
+  const {
+    models: appleLlmModels,
+    status: appleLlmStatus,
+    isLoading: isAppleLlmLoading,
+    isStarting: isAppleLlmStarting,
+    startError: appleLlmStartError,
+    loadModels: loadAppleLlmModels,
+    ensureServer: ensureAppleLlmServer,
+  } = useAppleLlmModels();
 
   const hubUsage = useAppStore((state) => state.hubUsage);
   const activeBudgetSource = hubUsage?.activeSource ?? null;
@@ -147,6 +162,7 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
     // Refresh catalog when opening in case backend keys changed.
     loadModels({ silent: true });
     loadYorkLlmModels(true);
+    loadAppleLlmModels(true);
 
     const handlePointerDown = (event: MouseEvent) => {
       if (!rootRef.current?.contains(event.target as Node)) {
@@ -165,7 +181,7 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
       document.removeEventListener('mousedown', handlePointerDown);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isOpen, loadModels, loadYorkLlmModels]);
+  }, [isOpen, loadModels, loadYorkLlmModels, loadAppleLlmModels]);
 
   const groupedModels = useMemo(() => {
     return chatCatalogModels.reduce<Record<BackendCloudProvider, BackendModelInfo[]>>(
@@ -202,6 +218,17 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
     );
   }, [appConfig?.baseUrl, appConfig?.model, appConfig?.provider, yorkLlmModels]);
 
+  const selectedAppleLlmModel = useMemo(() => {
+    if (!appConfig?.model || isAutoModelId(appConfig.model)) return null;
+    if (!isAppleLlmSelection(appConfig.provider, appConfig.baseUrl, appConfig.model)) return null;
+    return (
+      appleLlmModels.find((model) => model.id === appConfig.model) ?? {
+        id: appConfig.model,
+        name: appleLlmDisplayName(appConfig.model),
+      }
+    );
+  }, [appConfig?.baseUrl, appConfig?.model, appConfig?.provider, appleLlmModels]);
+
   const selectedModel = useMemo(() => {
     if (!appConfig?.model || isAutoModelId(appConfig.model)) return null;
     if (isBackendManagedProvider(appConfig.provider)) {
@@ -235,6 +262,18 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
       setIsOpen(false);
     },
     [saveConfig]
+  );
+
+  const handleSelectAppleLlm = useCallback(
+    async (modelId: string) => {
+      void modelId;
+      // First selection starts `fm serve`; later turns re-ensure in the runner.
+      const started = await ensureAppleLlmServer();
+      if (!started) return;
+      await saveConfig(appleLlmSelectionPayload());
+      setIsOpen(false);
+    },
+    [ensureAppleLlmServer, saveConfig]
   );
 
   const handleSelectAuto = useCallback(async () => {
@@ -280,17 +319,19 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
     ? t('workspace.models.autoShort', 'Auto')
     : selectedModel
       ? shortModelName(selectedModel.name, selectedModel.id)
-      : selectedYorkLlmModel
-        ? yorkLlmDisplayName(selectedYorkLlmModel.id, selectedYorkLlmModel.name)
-        : isLoading
-          ? 'Loading…'
-          : appConfig?.model &&
-              !isBackendManagedProvider(appConfig.provider) &&
-              !isAutoModelId(appConfig.model)
-            ? shortModelName(appConfig.model, appConfig.model)
-            : appConfig?.provider === YORK_LLM_PROVIDER
-              ? 'York LLM'
-              : 'Select model';
+      : selectedAppleLlmModel
+        ? appleLlmDisplayName(selectedAppleLlmModel.id, selectedAppleLlmModel.name)
+        : selectedYorkLlmModel
+          ? yorkLlmDisplayName(selectedYorkLlmModel.id, selectedYorkLlmModel.name)
+          : isLoading
+            ? 'Loading…'
+            : appConfig?.model &&
+                !isBackendManagedProvider(appConfig.provider) &&
+                !isAutoModelId(appConfig.model)
+              ? shortModelName(appConfig.model, appConfig.model)
+              : appConfig?.provider === YORK_LLM_PROVIDER
+                ? 'York LLM'
+                : 'Select model';
 
   const triggerTitle = selectedAuto
     ? t('workspace.models.autoBlurb', 'Auto · York for everyday, frontier when hard')
@@ -457,6 +498,78 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
                 </div>
               </div>
             )}
+
+            {appleLlmStatus?.reason !== 'unsupported-platform' &&
+              appleLlmStatus?.reason !== 'fm-missing' && (
+                <div className="px-1.5 py-1">
+                  <div className="px-2.5 pb-1 pt-1.5 text-[11px] font-medium tracking-[0.04em] text-text-muted">
+                    {t('workspace.models.appleLocalLlmTitle', 'Apple Local LLM (offline)')}
+                  </div>
+                  {isAppleLlmLoading && appleLlmModels.length === 0 ? (
+                    <div className="px-2.5 py-2 text-[12px] text-text-muted">
+                      {t('workspace.models.appleLocalLlmLoading', 'Checking this Mac…')}
+                    </div>
+                  ) : appleLlmModels.length === 0 ? (
+                    <div className="px-2.5 py-2 text-[11px] leading-snug text-text-muted">
+                      {appleLlmStatus?.message ||
+                        t(
+                          'workspace.models.appleLocalLlmUnavailable',
+                          'Unavailable — requires macOS 27 with Apple Intelligence enabled.'
+                        )}
+                    </div>
+                  ) : (
+                    <div className="space-y-0.5">
+                      {appleLlmModels.map((model) => {
+                        const isSelected = selectedAppleLlmModel?.id === model.id;
+                        return (
+                          <button
+                            key={model.id}
+                            type="button"
+                            role="option"
+                            aria-selected={isSelected}
+                            disabled={isAppleLlmStarting}
+                            onClick={() => {
+                              void handleSelectAppleLlm(model.id);
+                            }}
+                            className={`flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left transition-colors disabled:opacity-50 ${
+                              isSelected
+                                ? 'bg-accent-muted text-accent'
+                                : 'text-text-primary hover:bg-surface-hover'
+                            }`}
+                          >
+                            <span className="min-w-0 flex-1 truncate whitespace-nowrap text-[13px] font-medium">
+                              {appleLlmDisplayName(model.id, model.name)}
+                            </span>
+                            {isAppleLlmStarting && !isSelected && (
+                              <span className="shrink-0 text-[10px] text-text-muted">
+                                {t('workspace.models.appleLocalLlmStarting', 'Starting…')}
+                              </span>
+                            )}
+                            {isSelected && <Check className="h-3.5 w-3.5 shrink-0" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {appleLlmStartError && (
+                    <div className="px-2.5 pt-1 text-[10px] leading-snug text-red-500">
+                      {appleLlmStartError}
+                    </div>
+                  )}
+                  <div className="px-2.5 pt-1 text-[10px] leading-snug text-text-muted">
+                    {t(
+                      'workspace.models.appleLocalLlmUseCase',
+                      'Best for quick summarizing, extracting, classifying, rewriting'
+                    )}
+                  </div>
+                  <div className="px-2.5 pt-0.5 text-[10px] leading-snug text-text-muted">
+                    {t(
+                      'workspace.models.appleLocalLlmFooter',
+                      'Very small model (~4K context). Chat only — no tool calls, connectors, files, or web. Free, private, runs offline on this Mac; knowledge may be dated.'
+                    )}
+                  </div>
+                </div>
+              )}
 
             {PROVIDER_ORDER.map((provider) => {
               const items = groupedModels[provider];

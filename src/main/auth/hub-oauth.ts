@@ -6,11 +6,7 @@ import { APP_DATA_ENV_VAR } from '../../shared/app-data-env';
 import { parseHubAuthResponse } from './hub-parse';
 import { log } from '../utils/logger';
 import type { AuthOAuthDebugInfo } from '../../shared/auth-types';
-import {
-  closeOAuthBrowserWindow,
-  openOAuthBrowserWindow,
-  showOAuthBrowserHtml,
-} from './oauth-browser-window';
+import { openOAuthInExternalBrowser } from './oauth-external-browser';
 import {
   ensureOAuthCodeRelayServer,
   getOAuthRelayBaseUrl,
@@ -82,7 +78,7 @@ function redirectUrlUsesViteDevServer(redirectUrl: string): boolean {
   }
 }
 
-/** Success page for loopback OAuth — tries hard to close (works in Electron; best-effort in system browsers). */
+/** Success page for loopback OAuth — best-effort close (system browsers block window.close() on tabs they script-opened via the OS). */
 export function buildOAuthSuccessHtml(title: string, body: string): string {
   return `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>${title}</title></head>
@@ -242,7 +238,7 @@ export function createOAuthCallbackServer(
       response.end(
         buildOAuthSuccessHtml(
           'Completing sign-in…',
-          'Exchanging credentials with York Hub. This window will close when sign-in succeeds.'
+          'Exchanging credentials with York Hub. You can close this tab and return to York GrowthOS once sign-in succeeds.'
         )
       );
       resolveCode(authorizationCode);
@@ -400,18 +396,10 @@ async function finishHubOAuthAfterCode(
   code: string,
   redirectUrl: string
 ): Promise<HubOAuthCallbackResult> {
-  try {
-    const parsed = await exchangeHubAuthCode(code, redirectUrl);
-    closeOAuthBrowserWindow();
-    return { parsed, redirectUri: redirectUrl };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Sign-in failed';
-    showOAuthBrowserHtml(
-      'Sign-in failed',
-      `${message} Close this window and try again from York GrowthOS.`
-    );
-    throw error;
-  }
+  // The browser tab belongs to the user's browser and cannot be closed or
+  // rewritten from here; failures are surfaced in-app by the login caller.
+  const parsed = await exchangeHubAuthCode(code, redirectUrl);
+  return { parsed, redirectUri: redirectUrl };
 }
 
 function resolveOAuthExchangeRedirectUri(authUrl: string, fallbackRedirect: string): string {
@@ -433,7 +421,7 @@ export async function runHubGoogleOAuthFlow(): Promise<HubOAuthCallbackResult> {
     ensureOAuthCodeRelayServer();
     const authUrl = await fetchHubGoogleAuthUrl(redirectUrl);
     const exchangeRedirect = resolveOAuthExchangeRedirectUri(authUrl, redirectUrl);
-    openOAuthBrowserWindow(authUrl);
+    await openOAuthInExternalBrowser(authUrl);
     const code = await waitForViteOAuthCode(redirectUrl);
     return await finishHubOAuthAfterCode(code, exchangeRedirect);
   }
@@ -442,18 +430,9 @@ export async function runHubGoogleOAuthFlow(): Promise<HubOAuthCallbackResult> {
   try {
     const authUrl = await fetchHubGoogleAuthUrl(listener.redirectUrl);
     const exchangeRedirect = resolveOAuthExchangeRedirectUri(authUrl, listener.redirectUrl);
-    openOAuthBrowserWindow(withOAuthState(authUrl, listener.state));
+    await openOAuthInExternalBrowser(withOAuthState(authUrl, listener.state));
     const code = await listener.waitForCode();
     return await finishHubOAuthAfterCode(code, exchangeRedirect);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Sign-in failed';
-    if (message.includes('OAuth sign-in timed out')) {
-      showOAuthBrowserHtml(
-        'Sign-in timed out',
-        `${message} Close this window and try again from York GrowthOS.`
-      );
-    }
-    throw error;
   } finally {
     await listener.close();
   }

@@ -112,7 +112,8 @@ jobs:
             "node/bin/node" \
             "lima-agent/index.js" \
             "skills" \
-            "tools/York GrowthOS.app/Contents/MacOS/meeting-speech-transcriber"; do
+            "tools/York GrowthOS.app/Contents/MacOS/meeting-speech-transcriber" \
+            "tools/bin/york-apple-llm"; do
             if [ -e "$RESOURCES/$check" ]; then
               echo "  OK: $check"
             else

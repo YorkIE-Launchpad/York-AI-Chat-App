@@ -617,6 +617,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('config.listBackendModels', options),
     listYorkLlmModels: (): Promise<ProviderModelInfo[]> =>
       ipcRenderer.invoke('config.listYorkLlmModels'),
+    listAppleLlmModels: (): Promise<ProviderModelInfo[]> =>
+      ipcRenderer.invoke('config.listAppleLlmModels'),
+    getAppleLlmStatus: (): Promise<import('../shared/apple-llm-config').AppleLlmStatus> =>
+      ipcRenderer.invoke('config.getAppleLlmStatus'),
+    ensureAppleLlmServer: (): Promise<import('../shared/apple-llm-config').AppleLlmStatus> =>
+      ipcRenderer.invoke('config.ensureAppleLlmServer'),
     diagnose: (input: DiagnosticInput): Promise<DiagnosticResult> =>
       ipcRenderer.invoke('config.diagnose', input),
     discoverLocal: (payload?: { baseUrl?: string }): Promise<LocalOllamaDiscoveryResult> =>
@@ -1732,6 +1738,9 @@ declare global {
           forceRefresh?: boolean;
         }) => Promise<import('../shared/backend-config').BackendModelInfo[]>;
         listYorkLlmModels: () => Promise<ProviderModelInfo[]>;
+        listAppleLlmModels: () => Promise<ProviderModelInfo[]>;
+        getAppleLlmStatus: () => Promise<import('../shared/apple-llm-config').AppleLlmStatus>;
+        ensureAppleLlmServer: () => Promise<import('../shared/apple-llm-config').AppleLlmStatus>;
         diagnose: (input: DiagnosticInput) => Promise<DiagnosticResult>;
         discoverLocal: (payload?: { baseUrl?: string }) => Promise<LocalOllamaDiscoveryResult>;
       };

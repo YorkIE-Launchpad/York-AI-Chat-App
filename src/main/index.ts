@@ -170,6 +170,13 @@ import {
 import { runConfigApiTest } from './config/config-test-routing';
 import { listOllamaModels } from './config/ollama-api';
 import { listYorkLlmModels } from './config/york-llm-api';
+import {
+  ensureAppleLlmServer,
+  getAppleLlmStatus,
+  listAppleLlmModels,
+  stopAppleLlmServer,
+} from './apple-llm/apple-fm-service';
+import type { AppleLlmStatus } from '../shared/apple-llm-config';
 import { bootstrapYorkLlmDefault } from './config/york-llm-default-bootstrap';
 import { fetchBackendModels } from './config/backend-client';
 import { installYorkLlmFetchGate } from './york-llm/york-llm-fetch-gate';
@@ -3573,6 +3580,7 @@ squirrelAutoUpdater.on('before-quit-for-update', () => {
 });
 
 app.on('before-quit', async (event) => {
+  stopAppleLlmServer();
   // Update install: sync teardown only, then force-exit. ShipIt is a separate
   // process and needs this PID gone; lingering here causes "App Still Running"
   // and a Dock zombie with no automatic relaunch.
@@ -4731,6 +4739,33 @@ ipcMain.handle('config.listYorkLlmModels', async () => {
     logWarn('[Config] York LLM model listing failed:', error);
     return [];
   }
+});
+
+ipcMain.handle('config.listAppleLlmModels', async () => {
+  try {
+    return await listAppleLlmModels();
+  } catch (error) {
+    logWarn('[Config] Apple LLM model listing failed:', error);
+    return [];
+  }
+});
+
+ipcMain.handle('config.getAppleLlmStatus', async (): Promise<AppleLlmStatus> => {
+  try {
+    return await getAppleLlmStatus();
+  } catch (error) {
+    logWarn('[Config] Apple LLM status check failed:', error);
+    return {
+      available: false,
+      serverRunning: false,
+      reason: 'unknown',
+      message: error instanceof Error ? error.message : String(error),
+    };
+  }
+});
+
+ipcMain.handle('config.ensureAppleLlmServer', async (): Promise<AppleLlmStatus> => {
+  return ensureAppleLlmServer();
 });
 
 ipcMain.handle('yorkLlm.getQueueSnapshot', () => getYorkLlmGateSnapshot());

@@ -72,6 +72,7 @@ import {
   succinctTitleFromPrompt,
 } from './session-title-utils';
 import { generateTitleWithSdk } from '../agent/sdk-one-shot';
+import { isAppleLlmSelection } from '../../shared/apple-llm-config';
 import { buildScheduledTaskTitle } from '../../shared/schedule/task-title';
 import {
   normalizeSessionDivision,
@@ -1880,8 +1881,17 @@ export class SessionManager {
   }
 
   private async generateTitleWithConfig(titlePrompt: string): Promise<string | null> {
+    const config = configStore.getAll();
+    // Apple Local LLM is too small for title generation: it copies the
+    // few-shot examples in buildTitlePrompt (a "hey" chat came back titled
+    // "Time Zone Conversion"). Returning null makes the callers fall back
+    // to the deterministic local succinct title from the first prompt.
+    if (isAppleLlmSelection(config.provider, config.baseUrl, config.model)) {
+      log('[SessionTitle] Skipping model title generation for Apple Local LLM');
+      return null;
+    }
     // Always use pi-ai SDK for title generation
-    return normalizeGeneratedTitle(await generateTitleWithSdk(titlePrompt, configStore.getAll()));
+    return normalizeGeneratedTitle(await generateTitleWithSdk(titlePrompt, config));
   }
 
   private enqueuePrompt(

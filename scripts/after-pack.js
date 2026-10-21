@@ -112,6 +112,14 @@ module.exports = async function afterPack(context) {
     } else {
       console.log('  ✓ On-device speech helper present in Resources/tools');
     }
+    const appleLlmHelper = path.join(resourcesDir, 'tools', 'bin', 'york-apple-llm');
+    if (!fs.existsSync(appleLlmHelper)) {
+      console.warn(
+        '  ⚠ Apple Local LLM helper missing at Contents/Resources/tools/bin/york-apple-llm — run npm run build:apple-llm before packaging (Apple Local LLM will fall back to the fm CLI, which needs sudo on Jamf Macs)'
+      );
+    } else {
+      console.log('  ✓ Apple Local LLM helper present in Resources/tools/bin');
+    }
   } else {
     resourcesDir = path.join(appOutDir, 'resources');
   }

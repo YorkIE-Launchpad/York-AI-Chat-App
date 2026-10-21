@@ -14,6 +14,7 @@ import {
 import { isPreviewablePath, previewKindFromPath } from '../utils/html-preview';
 import { useIPC } from '../hooks/useIPC';
 import { isYorkLlmSelection, yorkLlmDisplayName } from '../hooks/useYorkLlmModels';
+import { appleLlmDisplayName, isAppleLlmSelection } from '../hooks/useAppleLlmModels';
 import {
   ChevronDown,
   ChevronUp,
@@ -183,7 +184,9 @@ export function ContextPanel() {
   const modelName = rawModelName
     ? isYorkLlmSelection(appConfig?.provider, appConfig?.baseUrl, rawModelName)
       ? yorkLlmDisplayName(rawModelName)
-      : rawModelName
+      : isAppleLlmSelection(appConfig?.provider, appConfig?.baseUrl, rawModelName)
+        ? appleLlmDisplayName(rawModelName)
+        : rawModelName
     : '—';
 
   const mcpToolDisplayNames = useMemo(() => {

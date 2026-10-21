@@ -6,10 +6,8 @@ vi.mock('../src/main/utils/logger', () => ({
   logError: vi.fn(),
 }));
 
-vi.mock('../src/main/auth/oauth-browser-window', () => ({
-  closeOAuthBrowserWindow: vi.fn(),
-  openOAuthBrowserWindow: vi.fn(),
-  showOAuthBrowserHtml: vi.fn(),
+vi.mock('../src/main/auth/oauth-external-browser', () => ({
+  openOAuthInExternalBrowser: vi.fn(),
 }));
 
 import { createOAuthCallbackServer, withOAuthState } from '../src/main/auth/hub-oauth';

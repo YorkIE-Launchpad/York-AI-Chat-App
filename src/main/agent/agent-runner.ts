@@ -187,6 +187,14 @@ import {
   type OnLaunchPadProgressRecord,
 } from './launchpad-turn-progress';
 import { fetchOllamaModelInfo } from '../config/ollama-api';
+import {
+  APPLE_LLM_CONTEXT_WINDOW,
+  APPLE_LLM_MAX_RESPONSE_TOKENS,
+  APPLE_LLM_SYSTEM_PROMPT,
+  APPLE_LLM_ZERO_COST,
+  isAppleLlmBaseUrl,
+} from '../../shared/apple-llm-config';
+import { ensureAppleLlmServer } from '../apple-llm/apple-fm-service';
 import { getYorkLlmModelContextWindow } from '../config/york-llm-api';
 import { acquireYorkLlmSlot, subscribeYorkLlmQueue } from '../york-llm/york-llm-gate';
 import {
@@ -2284,6 +2292,22 @@ ${hints.join('\n')}
       // For Ollama: query actual context window from /api/show if user hasn't configured one
       const provider = resolvedProvider || 'anthropic';
       const yorkLlmActive = isYorkLlmBaseUrl(effectiveBaseUrl || runtimeConfig.baseUrl);
+      const appleLlmActive = isAppleLlmBaseUrl(effectiveBaseUrl || runtimeConfig.baseUrl);
+      if (appleLlmActive) {
+        // `fm serve` is spawned on demand and dies with the app — re-ensure
+        // it on every turn so a persisted Apple selection just works.
+        await ensureAppleLlmServer();
+        activePiModel = {
+          ...activePiModel,
+          // On-device and free — never price tokens against Hub budget.
+          cost: { ...APPLE_LLM_ZERO_COST },
+          contextWindow: APPLE_LLM_CONTEXT_WINDOW,
+          // 4K window total — cap replies so input keeps most of it.
+          // The helper also budget-fits input (slim instructions, oldest
+          // history dropped) so long GrowthOS chats degrade, not error.
+          maxTokens: APPLE_LLM_MAX_RESPONSE_TOKENS,
+        } as typeof activePiModel;
+      }
       if (yorkLlmActive) {
         const yorkLlmApiKey = resolveYorkLlmApiKey();
         if (yorkLlmApiKey) {
@@ -2299,7 +2323,7 @@ ${hints.join('\n')}
           },
         } as typeof activePiModel;
       }
-      if (provider === 'ollama' && !runtimeConfig.contextWindow) {
+      if (provider === 'ollama' && !runtimeConfig.contextWindow && !appleLlmActive) {
         const ollamaBaseUrl =
           activePiModel.baseUrl || runtimeConfig.baseUrl || 'http://localhost:11434/v1';
         if (yorkLlmActive) {
@@ -3023,6 +3047,15 @@ This folder is for local files only. LaunchPad implement/preview and other remot
       // Per-turn dynamism stays out of the cached system prefix.
       contextualPrompt = `${turnRuntimeContext}\n\n${contextualPrompt}`;
 
+      if (appleLlmActive) {
+        // The 4K on-device model cannot tell scaffolding from the question:
+        // with turn_context (workspace listing), memory, skill bodies and
+        // cold-start history prepended, it answered "hi" by echoing the
+        // listing. Apple turns carry only the user's own text; the helper
+        // also strips these blocks from replayed history.
+        contextualPrompt = prompt.trim() || contextualPrompt;
+      }
+
       const promptOptions = turnImages.length > 0 ? { images: turnImages } : undefined;
       if (turnImages.length > 0 && !prompt.trim()) {
         const imageLabel = turnImages.length === 1 ? 'an image' : `${turnImages.length} images`;
@@ -3260,7 +3293,17 @@ ${
           cwd: effectiveCwd,
           additionalSkillPaths: skillPaths,
           noSkills: skillsDisabled,
-          appendSystemPrompt: coworkAppendPrompt,
+          // Apple Local LLM: replace the coding-agent base prompt + full
+          // cowork append with a slim chat persona. The coding persona makes
+          // the small tool-less model emit HTML/code files as chat text, and
+          // neither prompt fits its 4K window anyway. (Hot-swapped sessions
+          // keep their original prompt; the helper adds a format guard.)
+          ...(appleLlmActive
+            ? {
+                systemPromptOverride: () => APPLE_LLM_SYSTEM_PROMPT,
+                appendSystemPrompt: '',
+              }
+            : { appendSystemPrompt: coworkAppendPrompt }),
           extensionFactories: [
             createCompactionExtensionFactory({
               customInstructions: sessionCompactInstructions,
@@ -3363,8 +3406,9 @@ ${
           injectedSkillBodies: pendingInjectedSkills,
         });
 
-        // Ollama (non-York): wrap _onPayload to inject num_ctx into every request
-        if (provider === 'ollama' && !yorkLlmActive) {
+        // Ollama (non-York, non-Apple): wrap _onPayload to inject num_ctx into every request.
+        // `fm serve` is OpenAI-compatible but not Ollama — num_ctx would be an unknown field.
+        if (provider === 'ollama' && !yorkLlmActive && !appleLlmActive) {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const agent = piSession.agent as any;
           // Guard: only patch if the SDK exposes _onPayload (private API)

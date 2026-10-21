@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { authConfig } from '../../shared/auth-config';
-import { closeOAuthBrowserWindow, openOAuthBrowserWindow } from '../auth/oauth-browser-window';
+import { openOAuthInExternalBrowser } from '../auth/oauth-external-browser';
 
 function toBase64Url(input: Buffer): string {
   return input.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
@@ -11,7 +11,7 @@ function sha256Base64Url(input: string): string {
   return toBase64Url(createHash('sha256').update(input).digest());
 }
 
-/** Success page for loopback OAuth — tries hard to close (works in Electron; best-effort in system browsers). */
+/** Success page for loopback OAuth — best-effort close (system browsers block window.close() on tabs opened via the OS). */
 function buildSuccessHtml(title: string, body: string): string {
   return `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>${title}</title></head>
@@ -110,27 +110,19 @@ export async function runDesktopOAuthFlow(options: {
       authUrl.searchParams.set(key, value);
     }
 
-    let settled = false;
     try {
-      // Prefer an Electron window so we can auto-close after success.
-      // System browsers block window.close() on tabs not opened by script.
-      openOAuthBrowserWindow(authUrl.toString(), 'Connect', {
-        onClosed: () => {
-          if (!settled) {
-            listener.cancel(new Error('OAuth window closed before authorization completed'));
-          }
-        },
-      });
+      // Open in the user's default browser (a new tab in their existing
+      // Chrome/browser window) instead of a separate Electron window. The
+      // app cannot detect that tab being closed, so abandonment is handled
+      // by the waitForCode timeout below.
+      await openOAuthInExternalBrowser(authUrl.toString());
       const code = await listener.waitForCode(state, timeoutMs);
-      settled = true;
       return {
         code,
         codeVerifier,
         redirectUri: providerRedirectUri,
       };
     } finally {
-      settled = true;
-      closeOAuthBrowserWindow();
       if (activeListener === listener) {
         activeListener = null;
       }
@@ -187,7 +179,6 @@ async function createOAuthListener(providerRedirectUri: string): Promise<ActiveO
         res.end(buildSuccessHtml('OAuth failed', `Authorization failed: ${error}`));
       }
       settleReject(new Error(`OAuth authorization failed: ${error}`));
-      closeOAuthBrowserWindow();
       return;
     }
 
@@ -200,7 +191,6 @@ async function createOAuthListener(providerRedirectUri: string): Promise<ActiveO
         res.end(buildSuccessHtml('OAuth failed', 'Missing authorization code.'));
       }
       settleReject(new Error('OAuth callback missing authorization code or state'));
-      closeOAuthBrowserWindow();
       return;
     }
 
@@ -213,10 +203,9 @@ async function createOAuthListener(providerRedirectUri: string): Promise<ActiveO
       res.end(JSON.stringify({ ok: true }));
     } else {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(buildSuccessHtml('Connected', 'You can close this window and return to York.'));
+      res.end(buildSuccessHtml('Connected', 'You can close this tab and return to York.'));
     }
     settleResolve({ code, state });
-    closeOAuthBrowserWindow();
   };
 
   const port = authConfig.connectorOauthCallbackPort;

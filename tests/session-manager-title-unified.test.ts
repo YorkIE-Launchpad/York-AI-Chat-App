@@ -144,4 +144,21 @@ describe('SessionManager unified title generation', () => {
       })
     );
   });
+  it('skips model title generation for Apple Local LLM (small model copies prompt examples)', async () => {
+    configStore.set('provider', 'ollama');
+    configStore.set('customProtocol', 'openai');
+    configStore.set('apiKey', '');
+    configStore.set('baseUrl', 'http://127.0.0.1:1976/v1');
+    configStore.set('model', 'system');
+
+    const proto = SessionManager.prototype as unknown as {
+      generateTitleWithConfig(titlePrompt: string): Promise<string | null>;
+    };
+
+    const title = await proto.generateTitleWithConfig.call({}, 'Please generate title');
+
+    // Null → callers fall back to the deterministic local succinct title.
+    expect(title).toBeNull();
+    expect(mockedGenerateTitleWithClaudeSdk).not.toHaveBeenCalled();
+  });
 });

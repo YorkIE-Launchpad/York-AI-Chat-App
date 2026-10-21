@@ -119,6 +119,8 @@ describe('pre-build-check: runChecks', () => {
     populateDarwinArtifacts(tmpDir, 'x64');
     makeDir(path.join(tmpDir, 'resources/python/darwin-x64'));
     makeDir(path.join(tmpDir, 'resources/tools/darwin-x64'));
+    makeDir(path.join(tmpDir, 'resources/tools/darwin-x64/York GrowthOS.app'));
+    makeFile(path.join(tmpDir, 'resources/tools/darwin-x64/bin/york-apple-llm'));
 
     const result = runChecks(tmpDir, 'darwin', 'x64', NOTARIZE_ENV);
 
