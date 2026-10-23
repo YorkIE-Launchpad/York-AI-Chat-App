@@ -12,7 +12,7 @@ import type { LoopOwner } from '../../shared/loops';
 import type { WelcomeProfile } from '../../shared/welcome-actions';
 import { choice, noul, runJevDecision, type EntryType, type Questions } from './jev-client';
 import { loopCaptureRuleClause } from '../loops/loop-capture-prompt';
-import { log } from '../utils/logger';
+import { log, logWarn } from '../utils/logger';
 
 export interface LoopJevCandidate {
   text: string;
@@ -145,7 +145,7 @@ export async function runLoopActionJev(options: {
       capturePrompt
     );
     if (!decided) {
-      log('[Jev/Loops] batch failed; falling back to LLM screen');
+      logWarn('[Jev/Loops] batch failed; falling back to LLM screen');
       return null;
     }
     all.push(...decided);

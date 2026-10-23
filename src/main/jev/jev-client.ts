@@ -57,7 +57,10 @@ async function getClient(): Promise<TypeSafeClient | null> {
   }
   if (!apiKey) return null;
 
-  const fingerprint = `${apiKey.slice(0, 12)}:${getTypesafeProxyBaseUrl()}`;
+  // Cognito JWTs share a header, so the first characters never change when the
+  // session refreshes. Key the cache on the whole token or a refreshed JWT is
+  // ignored and every later call keeps sending the expired one.
+  const fingerprint = `${getTypesafeProxyBaseUrl()}\n${apiKey}`;
   if (cachedClient && cachedKeyFingerprint === fingerprint) {
     return cachedClient;
   }
@@ -107,8 +110,8 @@ export async function runJevDecision<const Q extends Questions>(
   }
 
   const label = options.label ?? 'jev';
-  try {
-    const result = await client.systemOne(
+  const run = (active: TypeSafeClient) =>
+    active.systemOne(
       {
         state,
         questions,
@@ -119,17 +122,34 @@ export async function runJevDecision<const Q extends Questions>(
         timeout: options.timeoutMs,
       }
     );
+
+  try {
+    const result = await run(client);
     log(
       `[Jev] ${label} ok model=${result.model} in=${result.usage.input_tokens} out=${result.usage.output_tokens}`
     );
     return result;
   } catch (error) {
     logWarn(`[Jev] ${label} failed:`, error);
-    if (isCognitoAuthRejection(error)) {
-      resetJevClient();
-      void noteAuthenticationRejected();
+    if (!isCognitoAuthRejection(error)) return null;
+
+    // The cached client was built with a token the backend has already rejected.
+    // Refresh the session and retry once with whatever credential is current.
+    resetJevClient();
+    await noteAuthenticationRejected();
+    const retryClient = await getClient();
+    if (!retryClient) return null;
+    try {
+      const result = await run(retryClient);
+      log(
+        `[Jev] ${label} ok after auth refresh model=${result.model} in=${result.usage.input_tokens} out=${result.usage.output_tokens}`
+      );
+      return result;
+    } catch (retryError) {
+      logWarn(`[Jev] ${label} failed after auth refresh:`, retryError);
+      if (isCognitoAuthRejection(retryError)) resetJevClient();
+      return null;
     }
-    return null;
   }
 }
 

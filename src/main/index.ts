@@ -613,6 +613,7 @@ function wireWikiAndOrchestration(db: ReturnType<typeof initDatabase>): void {
     },
   });
   setTimeout(() => void loopService?.rescreenAutoCaptured(), 30_000).unref?.();
+  setTimeout(() => void loopService?.catchUpRecentMeetings(), 20_000).unref?.();
   loopService.startMorningDigest();
 
   bindConnectorWikiIngest((input) => {

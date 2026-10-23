@@ -24,6 +24,7 @@ import {
 } from '../../shared/loops';
 import type { WelcomeProfile } from '../../shared/welcome-actions';
 import { configStore } from '../config/config-store';
+import { meetingActionFingerprint } from '../matter/matter-collector';
 import { log, logError, logWarn } from '../utils/logger';
 import { LoopStore } from './loop-store';
 import {
@@ -37,6 +38,10 @@ import {
   selectMatterLoopCandidates,
 } from './loop-extractor';
 import { researchLoop } from './loop-research';
+
+/** Re-judge meetings whose notes landed while capture could not run. */
+const MEETING_CATCH_UP_MS = 7 * 24 * 60 * 60 * 1000;
+const MEETING_CATCH_UP_LIMIT = 10;
 
 /** Optional GrowthOS Slack bot DM when "Control from Slack" is connected. */
 type SlackAlerter = (title: string, body: string) => boolean | void;
@@ -238,13 +243,22 @@ export class LoopService {
     this.changed();
   }
 
-  async captureFromMeeting(meeting: MeetingSession): Promise<void> {
+  async captureFromMeeting(
+    meeting: MeetingSession,
+    options: { notify?: boolean } = {}
+  ): Promise<void> {
     const runtime = this.getRuntime();
     if (!runtime.captureFromMeetings) return;
     try {
+      const pending = this.pendingMeetingActions(meeting);
+      if (pending.length === 0) return;
       const profile = await this.resolveProfile().catch(() => null);
       const candidates = omitDuplicateLoopCandidates(
-        await extractMeetingLoops(meeting, profile, { capturePrompt: runtime.capturePrompt }),
+        await extractMeetingLoops(
+          { ...meeting, notes: { ...meeting.notes!, actionItems: pending } },
+          profile,
+          { capturePrompt: runtime.capturePrompt }
+        ),
         this.store.list()
       );
       const createdLoops: Loop[] = [];
@@ -254,12 +268,45 @@ export class LoopService {
       }
       if (createdLoops.length > 0) {
         log(`[Loops] Captured ${createdLoops.length} loop(s) from meeting ${meeting.id}`);
-        this.alertNewFollowUps(createdLoops);
+        if (options.notify !== false) this.alertNewFollowUps(createdLoops);
         this.changed();
       }
     } catch (error) {
       logError('[Loops] Meeting capture failed:', error);
     }
+  }
+
+  /**
+   * Meetings finalized while the loop judge was down (expired sign-in) never get
+   * another chance. Re-run capture for recent notes that still have uncaptured actions.
+   * Does not Slack-alert the backlog.
+   */
+  async catchUpRecentMeetings(now = Date.now()): Promise<void> {
+    if (!this.getRuntime().captureFromMeetings) return;
+    const meetings = this.getMeetingService();
+    if (!meetings) return;
+    const cutoff = now - MEETING_CATCH_UP_MS;
+    const recent = meetings
+      .list()
+      .filter((item) => item.status === 'ready' && item.startedAt >= cutoff)
+      .sort((a, b) => b.startedAt - a.startedAt)
+      .slice(0, MEETING_CATCH_UP_LIMIT);
+    for (const item of recent) {
+      const meeting = meetings.get(item.id);
+      if (!meeting || this.pendingMeetingActions(meeting).length === 0) continue;
+      await this.captureFromMeeting(meeting, { notify: false });
+    }
+  }
+
+  /** Action items not already stored as loops. */
+  private pendingMeetingActions(meeting: MeetingSession): string[] {
+    const actions = (meeting.notes?.actionItems || [])
+      .map((action) => String(action).trim())
+      .filter((text) => text && !prescreenAction(text));
+    if (actions.length === 0) return [];
+    const fingerprints = actions.map((text) => meetingActionFingerprint(meeting.id, text));
+    const known = this.store.knownFingerprints(fingerprints);
+    return actions.filter((_, index) => !known.has(fingerprints[index]!));
   }
 
   async captureFromMatter(items: MatterItem[]): Promise<void> {

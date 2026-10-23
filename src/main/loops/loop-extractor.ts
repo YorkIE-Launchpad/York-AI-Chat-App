@@ -297,7 +297,10 @@ export async function extractMeetingLoops(
     deps
   );
   // Err toward silence: an unscreened action item is not captured.
-  if (!screened) return [];
+  if (!screened) {
+    logWarn(`[Loops] Skipped capture for meeting ${meeting.id}; judge unavailable`);
+    return [];
+  }
   return actions
     .map((text, i) => ({ text, screen: screened[i] }))
     .filter(({ screen }) => screen.keep)
