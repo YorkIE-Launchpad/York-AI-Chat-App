@@ -154,6 +154,9 @@ export const TodayItemRow = forwardRef<HTMLDivElement, TodayItemRowProps>(functi
               {tag}
             </span>
           ) : null}
+          {item.projectName ? (
+            <span className="truncate font-medium text-text-secondary">{item.projectName}</span>
+          ) : null}
           <span className="truncate">{sourceLine}</span>
           {tracked ? (
             <span className="inline-flex items-center gap-1 text-accent-text">

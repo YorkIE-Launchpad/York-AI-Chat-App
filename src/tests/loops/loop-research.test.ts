@@ -22,6 +22,7 @@ function makeLoop(overrides: Partial<Loop> = {}): Loop {
     sourceRef: { meetingId: 'm1', label: 'Acme sync' },
     owner: 'me',
     counterpart: 'Priya',
+    projectName: null,
     dueAt: null,
     priority: 'normal',
     status: 'open',

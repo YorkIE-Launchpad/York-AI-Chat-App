@@ -134,6 +134,7 @@ function loop(partial: Partial<Loop>): Loop {
     sourceRef: {},
     owner: 'me',
     counterpart: null,
+    projectName: null,
     dueAt: null,
     priority: 'normal',
     status: 'open',

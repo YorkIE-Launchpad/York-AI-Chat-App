@@ -241,7 +241,7 @@ export function TodayRail({
               <li key={loop.id} className="text-[13px]">
                 <p className="truncate font-medium text-text-primary">{loop.title}</p>
                 <p className="text-[12px] text-text-muted">
-                  {[loop.counterpart, relativeAgo(t, loop.createdAt, now)]
+                  {[loop.projectName, loop.counterpart, relativeAgo(t, loop.createdAt, now)]
                     .filter(Boolean)
                     .join(' · ')}
                 </p>

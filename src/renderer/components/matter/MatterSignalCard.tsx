@@ -209,6 +209,14 @@ export function MatterSignalCard({
             <span className="rounded-md bg-surface px-1.5 py-0.5 text-text-muted border border-border-subtle">
               {item.severity}
             </span>
+            {item.projectName ? (
+              <span
+                title={t('matter.project')}
+                className="rounded-md bg-surface px-1.5 py-0.5 text-text-secondary border border-border-subtle normal-case tracking-normal font-medium"
+              >
+                {item.projectName}
+              </span>
+            ) : null}
             <span className="rounded-md bg-surface px-1.5 py-0.5 text-text-muted border border-border-subtle">
               {item.category}
             </span>

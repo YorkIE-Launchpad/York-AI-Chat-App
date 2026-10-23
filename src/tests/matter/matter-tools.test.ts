@@ -27,6 +27,7 @@ function item(partial: Partial<MatterItem> = {}): MatterItem {
     reminderNotifiedAt: null,
     expiredNotifiedAt: null,
     rankScore: 90,
+    projectName: null,
     createdAt: 1,
     updatedAt: 1,
     lastSeenAt: 1,

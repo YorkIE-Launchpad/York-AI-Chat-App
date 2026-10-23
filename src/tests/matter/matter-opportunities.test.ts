@@ -45,6 +45,7 @@ describe('parseOpportunityResponse', () => {
             summary: 'Pipeline down 30%.',
             evidence: 'pipeline dropped 30%',
             clientName: 'Acme',
+            projectName: 'Portal',
             suggestedPitch: 'Offer a GTM pod.',
             confidence: 0.8,
           },
@@ -66,11 +67,14 @@ describe('parseOpportunityResponse', () => {
       target: 'gtm_services',
       source: 'slack',
       clientName: 'Acme',
+      projectName: 'Portal',
+      title: 'Portal — Acme needs outbound help',
       sourceRef: { url: 'https://slack.example/p1' },
     });
     expect(drafts[1]).toMatchObject({
       kind: 'platform_issue',
       clientName: null,
+      projectName: null,
       suggestedPitch: null,
       confidence: 1,
     });
@@ -137,6 +141,7 @@ describe('buildOpportunityReport', () => {
       source: 'gmail',
       sourceRef: { label: 'Gmail', url: 'https://mail.example/1' },
       clientName: 'Acme',
+      projectName: 'Coachmetrix',
       suggestedPitch: 'Propose a phase-2 pod.',
       confidence: 0.9,
       status: 'new',
@@ -149,6 +154,7 @@ describe('buildOpportunityReport', () => {
     const text = buildOpportunityReport(opp, 'Kalrav');
     expect(text).toContain('Upsell opportunity — R&D / Software Development');
     expect(text).toContain('Client: Acme');
+    expect(text).toContain('Project: Coachmetrix');
     expect(text).toContain('> can we extend the team for phase 2?');
     expect(text).toContain('<https://mail.example/1|Gmail>');
     expect(text).toContain('Suggested opener: Propose a phase-2 pod.');

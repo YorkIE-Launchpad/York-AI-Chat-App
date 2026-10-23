@@ -148,6 +148,8 @@ export interface MatterItem {
   /** Set after the expiry OS notification was shown (dedupe). */
   expiredNotifiedAt: number | null;
   rankScore: number;
+  /** Client or internal project named by the source. */
+  projectName: string | null;
   createdAt: number;
   updatedAt: number;
   lastSeenAt: number;
@@ -343,6 +345,8 @@ export interface MatterOpportunity {
   source: MatterSource;
   sourceRef: MatterSourceRef;
   clientName: string | null;
+  /** Client or internal project named by the source. */
+  projectName: string | null;
   /** Sales only — how to open the conversation. */
   suggestedPitch: string | null;
   confidence: number;

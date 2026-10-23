@@ -1067,7 +1067,7 @@ export class MatterService {
       '',
       '---',
       'Matter opportunity context (use york-os / connected tools as needed; wait for my guidance — do not take action unless I ask; do not invent sources):',
-      `Kind: ${opp.kind} · Target: ${opp.target}${opp.clientName ? ` · Client: ${opp.clientName}` : ''}`,
+      `Kind: ${opp.kind} · Target: ${opp.target}${opp.clientName ? ` · Client: ${opp.clientName}` : ''}${opp.projectName ? ` · Project: ${opp.projectName}` : ''}`,
       `Title: ${opp.title}`,
       `Summary: ${opp.summary}`,
       `Evidence: ${opp.evidence}`,
@@ -1092,7 +1092,7 @@ export class MatterService {
         : selected
             .map(
               (i, idx) =>
-                `${idx + 1}. [${i.severity}/${i.source}] ${i.title}\n   Why: ${i.whyItMatters}\n   Suggested: ${i.suggestedAction || 'n/a'}\n   Ref: ${JSON.stringify(i.sourceRef)}\n   Raw: ${(i.rawDetails || '').slice(0, 800)}`
+                `${idx + 1}. [${i.severity}/${i.source}] ${i.title}${i.projectName ? `\n   Project: ${i.projectName}` : ''}\n   Why: ${i.whyItMatters}\n   Suggested: ${i.suggestedAction || 'n/a'}\n   Ref: ${JSON.stringify(i.sourceRef)}\n   Raw: ${(i.rawDetails || '').slice(0, 800)}`
             )
             .join('\n');
 

@@ -254,6 +254,7 @@ describe('cleanupMatterLoopDrafts', () => {
       {
         title: 'Send the MacBook serial number to Apple support',
         notes: 'Warranty claim is waiting on the serial.',
+        projectName: null,
       },
     ]);
   });

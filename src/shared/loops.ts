@@ -1,3 +1,5 @@
+import { mentionsProject } from './project-mention';
+
 /**
  * Shared Loops types — persistent, user-owned commitments ("open loops").
  *
@@ -44,6 +46,8 @@ export interface Loop {
   /** `other` = I'm waiting on someone. */
   owner: LoopOwner;
   counterpart: string | null;
+  /** Client or internal project named by the source. */
+  projectName: string | null;
   dueAt: number | null;
   priority: LoopPriority;
   status: LoopStatus;
@@ -60,12 +64,16 @@ export interface LoopCreateInput {
   research?: boolean;
   owner?: LoopOwner;
   counterpart?: string | null;
+  projectName?: string | null;
   dueAt?: number | null;
   priority?: LoopPriority;
 }
 
 export type LoopUpdateInput = Partial<
-  Pick<Loop, 'title' | 'notes' | 'owner' | 'counterpart' | 'dueAt' | 'priority' | 'status'>
+  Pick<
+    Loop,
+    'title' | 'notes' | 'owner' | 'counterpart' | 'projectName' | 'dueAt' | 'priority' | 'status'
+  >
 >;
 
 export const LOOP_CAPTURE_PROMPT_MAX_CHARS = 2000;
@@ -172,7 +180,11 @@ export function formatDueFollowUpDigest(
   const lines = shown.map((loop) => {
     const when = loopDueBucket(loop.dueAt, now) === 'overdue' ? 'overdue' : 'due today';
     const who = loop.counterpart?.trim() ? ` · ${loop.counterpart.trim()}` : '';
-    return `• ${loop.title.trim()}${who} (${when})`;
+    const project =
+      loop.projectName && !mentionsProject(loop.title, loop.projectName)
+        ? ` · ${loop.projectName}`
+        : '';
+    return `• ${loop.title.trim()}${project}${who} (${when})`;
   });
   const extra = due.length - shown.length;
   if (extra > 0) lines.push(`+${extra} more in Follow-ups`);

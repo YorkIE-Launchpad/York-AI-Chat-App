@@ -32,6 +32,7 @@ export function formatMatterSignal(item: MatterItem, detailed = false): string {
     `  orbit: ${item.orbit}`,
     `  category: ${item.category}`,
     `  source: ${item.source}`,
+    item.projectName ? `  project: ${item.projectName}` : '',
     `  status: ${item.status}`,
     `  summary: ${clip(item.summary, detailed ? 1200 : 280)}`,
   ];
@@ -42,7 +43,7 @@ export function formatMatterSignal(item: MatterItem, detailed = false): string {
   if (detailed && item.rawDetails) {
     lines.push(`  rawDetails: ${clip(item.rawDetails, 4000)}`);
   }
-  return lines.join('\n');
+  return lines.filter(Boolean).join('\n');
 }
 
 export function formatMatterMeeting(meeting: MatterMeeting, detailed = false): string {
@@ -274,6 +275,7 @@ export function createMatterTools(matterService: MatterService): AgentRuntimeCus
               `  target: ${o.target}`,
               `  title: ${o.title}`,
               o.clientName ? `  client: ${o.clientName}` : '',
+              o.projectName ? `  project: ${o.projectName}` : '',
               `  summary: ${clip(o.summary, 400)}`,
               `  evidence: ${clip(o.evidence, 300)}`,
               o.suggestedPitch ? `  suggestedPitch: ${clip(o.suggestedPitch, 300)}` : '',

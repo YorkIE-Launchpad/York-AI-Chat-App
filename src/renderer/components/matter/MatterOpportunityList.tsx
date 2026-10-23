@@ -103,6 +103,14 @@ export function MatterOpportunityList({
                             {opp.clientName}
                           </span>
                         ) : null}
+                        {opp.projectName ? (
+                          <span
+                            title={t('matter.project')}
+                            className="rounded-md border border-border-subtle px-1.5 py-0.5 text-[9px] font-medium normal-case tracking-normal text-text-secondary"
+                          >
+                            {opp.projectName}
+                          </span>
+                        ) : null}
                         <span className="rounded-md border border-border-subtle px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-text-muted">
                           {opp.source} · {Math.round(opp.confidence * 100)}%
                         </span>

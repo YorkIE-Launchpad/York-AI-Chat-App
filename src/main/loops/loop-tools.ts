@@ -37,6 +37,7 @@ export function formatLoop(loop: Loop, detailed = false): string {
     `  dueNow: ${isLoopDue(loop)}`,
   ];
   if (loop.counterpart) lines.push(`  counterpart: ${loop.counterpart}`);
+  if (loop.projectName) lines.push(`  project: ${loop.projectName}`);
   if (loop.notes) lines.push(`  notes: ${clip(loop.notes, detailed ? 1200 : 280)}`);
   lines.push(`  researchStatus: ${loop.researchStatus}`);
   if (detailed && loop.researchNote) {

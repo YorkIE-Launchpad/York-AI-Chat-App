@@ -18,6 +18,7 @@ function loop(partial: Partial<Loop> = {}): Loop {
     sourceRef: {},
     owner: 'me',
     counterpart: 'Ava',
+    projectName: null,
     dueAt: null,
     priority: 'high',
     status: 'open',

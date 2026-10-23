@@ -45,6 +45,7 @@ function row(partial: Partial<LoopRow> & Pick<LoopRow, 'id' | 'title' | 'due_at'
     source_ref: '{}',
     owner: 'me',
     counterpart: null,
+    project_name: null,
     priority: 'normal',
     status: 'open',
     auto_captured: 0,

@@ -29,6 +29,7 @@ export interface LoopRow {
   source_ref: string;
   owner: string;
   counterpart: string | null;
+  project_name: string | null;
   due_at: number | null;
   priority: string;
   status: string;
@@ -46,6 +47,7 @@ export interface LoopUpsertInput {
   sourceRef?: LoopSourceRef;
   owner?: LoopOwner;
   counterpart?: string | null;
+  projectName?: string | null;
   dueAt?: number | null;
   priority?: LoopPriority;
   autoCaptured: boolean;
@@ -111,6 +113,7 @@ export function mapLoopRow(row: LoopRow): Loop {
     sourceRef: parseSourceRef(row.source_ref),
     owner: row.owner === 'other' ? 'other' : 'me',
     counterpart: row.counterpart,
+    projectName: row.project_name ?? null,
     dueAt: row.due_at,
     priority: row.priority === 'high' || row.priority === 'low' ? row.priority : 'normal',
     status: row.status as LoopStatus,
@@ -173,14 +176,31 @@ export class LoopStore {
     const existing = this.getByFingerprint(input.fingerprint);
     const now = Date.now();
     if (existing) {
+      const fillProject =
+        existing.status === 'open' && !existing.projectName && input.projectName
+          ? input.projectName
+          : null;
       if (
         existing.status === 'open' &&
         !existing.sourceRef.matterItemId &&
         input.sourceRef?.matterItemId
       ) {
         this.db
-          .prepare('UPDATE loops SET source_ref = ?, updated_at = ? WHERE id = ?')
-          .run(JSON.stringify({ ...existing.sourceRef, ...input.sourceRef }), now, existing.id);
+          .prepare(
+            'UPDATE loops SET source_ref = ?, project_name = COALESCE(project_name, ?), updated_at = ? WHERE id = ?'
+          )
+          .run(
+            JSON.stringify({ ...existing.sourceRef, ...input.sourceRef }),
+            fillProject,
+            now,
+            existing.id
+          );
+        return { loop: this.get(existing.id)!, created: false };
+      }
+      if (fillProject) {
+        this.db
+          .prepare('UPDATE loops SET project_name = ?, updated_at = ? WHERE id = ?')
+          .run(fillProject, now, existing.id);
         return { loop: this.get(existing.id)!, created: false };
       }
       return { loop: existing, created: false };
@@ -189,9 +209,9 @@ export class LoopStore {
     this.db
       .prepare(
         `INSERT INTO loops
-         (id, fingerprint, title, notes, origin, source_ref, owner, counterpart, due_at,
+         (id, fingerprint, title, notes, origin, source_ref, owner, counterpart, project_name, due_at,
           priority, status, auto_captured, created_at, updated_at, closed_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, NULL)`
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, NULL)`
       )
       .run(
         id,
@@ -202,6 +222,7 @@ export class LoopStore {
         JSON.stringify(input.sourceRef || {}),
         input.owner || 'me',
         input.counterpart ?? null,
+        input.projectName ?? null,
         input.dueAt ?? null,
         input.priority || 'normal',
         input.autoCaptured ? 1 : 0,
@@ -217,6 +238,7 @@ export class LoopStore {
     if (updates.notes !== undefined) columns.notes = updates.notes;
     if (updates.owner !== undefined) columns.owner = updates.owner;
     if (updates.counterpart !== undefined) columns.counterpart = updates.counterpart;
+    if (updates.projectName !== undefined) columns.project_name = updates.projectName;
     if (updates.dueAt !== undefined) columns.due_at = updates.dueAt;
     if (updates.priority !== undefined) columns.priority = updates.priority;
     if (updates.status !== undefined) {

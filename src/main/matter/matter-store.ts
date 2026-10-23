@@ -93,6 +93,7 @@ export function mapMatterItemRow(row: MatterItemRow): MatterItem {
     reminderNotifiedAt: row.reminder_notified_at ?? null,
     expiredNotifiedAt: row.expired_notified_at ?? null,
     rankScore: row.rank_score,
+    projectName: row.project_name ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     lastSeenAt: row.last_seen_at,
@@ -158,6 +159,7 @@ export function mapMatterOpportunityRow(row: MatterOpportunityRow): MatterOpport
     source: row.source as MatterOpportunity['source'],
     sourceRef: mapSourceRef(row.source_ref),
     clientName: row.client_name,
+    projectName: row.project_name ?? null,
     suggestedPitch: row.suggested_pitch,
     confidence: row.confidence,
     status: row.status as OpportunityStatus,
@@ -180,6 +182,7 @@ export type OpportunityDraft = Pick<
   | 'source'
   | 'sourceRef'
   | 'clientName'
+  | 'projectName'
   | 'suggestedPitch'
   | 'confidence'
 >;
@@ -441,6 +444,7 @@ export function createMatterStore(db: DatabaseInstance): MatterStore {
             ...(dueChanged || remindChanged ? { reminder_notified_at: null } : {}),
             ...(dueChanged || expiresChanged ? { expired_notified_at: null } : {}),
             rank_score: incoming.rankScore,
+            project_name: incoming.projectName || existing.project_name,
             last_seen_at: now,
             // Keep / repair snooze window while still snoozed
             ...(stillSnoozed ? { snooze_until: repairedSnoozeUntil } : {}),
@@ -473,6 +477,7 @@ export function createMatterStore(db: DatabaseInstance): MatterStore {
             reminder_notified_at: null,
             expired_notified_at: null,
             rank_score: incoming.rankScore,
+            project_name: incoming.projectName,
             created_at: now,
             updated_at: now,
             last_seen_at: now,
@@ -574,6 +579,7 @@ export function createMatterStore(db: DatabaseInstance): MatterStore {
         mapped.expired_notified_at = updates.expiredNotifiedAt;
       }
       if (updates.rankScore !== undefined) mapped.rank_score = updates.rankScore;
+      if (updates.projectName !== undefined) mapped.project_name = updates.projectName;
       if (updates.lastSeenAt !== undefined) mapped.last_seen_at = updates.lastSeenAt;
       if (updates.resolvedAt !== undefined) mapped.resolved_at = updates.resolvedAt;
       db.matterItems.update(id, mapped);
@@ -754,6 +760,7 @@ export function createMatterStore(db: DatabaseInstance): MatterStore {
             summary: draft.summary,
             evidence: draft.evidence,
             client_name: draft.clientName,
+            project_name: draft.projectName,
             suggested_pitch: draft.suggestedPitch,
             confidence: draft.confidence,
             source_ref: JSON.stringify(draft.sourceRef || {}),
@@ -771,6 +778,7 @@ export function createMatterStore(db: DatabaseInstance): MatterStore {
           source: draft.source,
           source_ref: JSON.stringify(draft.sourceRef || {}),
           client_name: draft.clientName,
+          project_name: draft.projectName,
           suggested_pitch: draft.suggestedPitch,
           confidence: draft.confidence,
           status: 'new',

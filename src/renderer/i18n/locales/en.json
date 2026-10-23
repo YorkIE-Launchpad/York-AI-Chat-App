@@ -1008,6 +1008,7 @@
     "addToLoops": "Add to Loops",
     "addToLoopsHint": "Track this as a commitment until you close it",
     "tracked": "Tracked",
+    "project": "Project",
     "settings": "Loops settings",
     "settingsTitle": "Auto-capture",
     "morningSlackDigest": "Remind me of due follow-ups every morning on Slack",
@@ -1071,6 +1072,7 @@
       "summary": "Summary",
       "evidence": "Evidence",
       "client": "Client",
+      "project": "Project",
       "pitch": "Suggested opener",
       "target": "Route to",
       "confidence": "Confidence",
@@ -1191,6 +1193,7 @@
       "meeting": "e.g. Only action items assigned to me.",
       "launchpad": "e.g. Keep blocked releases; drop healthy ones."
     },
+    "project": "Project",
     "detailTitle": "Signal detail",
     "detailSummary": "Summary",
     "detailWhy": "Why it matters",

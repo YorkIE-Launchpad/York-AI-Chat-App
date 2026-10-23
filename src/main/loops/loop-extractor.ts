@@ -14,6 +14,7 @@ import { collapseSameAskItems, omitSameAskAs } from '../matter/matter-same-ask';
 import { runLoopActionJev } from '../jev/loops-jev';
 import { logWarn } from '../utils/logger';
 import type { LoopUpsertInput } from './loop-store';
+import { cleanProjectName, withProjectMention } from '../../shared/project-mention';
 import { withLoopCaptureOverride } from './loop-capture-prompt';
 
 /** Most loops a single meeting may auto-capture. */
@@ -73,6 +74,7 @@ export interface ActionScreen {
   owner: LoopOwner;
   counterpart: string | null;
   dueAt: number | null;
+  projectName: string | null;
 }
 
 export interface MeetingContext {
@@ -122,7 +124,8 @@ const SCREEN_PROMPT = [
   'owner: "me" if the user must do it, "other" if a named person owes it to the user.',
   'counterpart: the other named person, or null.',
   'due: ISO 8601 only if the item states an explicit deadline, resolved against the meeting date; else null.',
-  'Return ONLY JSON: {"items":[{"index":0,"keep":false,"owner":"me","counterpart":null,"due":null}]}.',
+  'project: the client or internal project name when the item or meeting title names one; else null. Do not invent.',
+  'Return ONLY JSON: {"items":[{"index":0,"keep":false,"owner":"me","counterpart":null,"due":null,"project":null}]}.',
 ].join(' ');
 
 const FIELDS_PROMPT = [
@@ -130,7 +133,8 @@ const FIELDS_PROMPT = [
   'owner: "me" if the user must do it, "other" if a named person owes it to the user;',
   'counterpart: the other named person, or null;',
   'due: ISO 8601 only if the item states an explicit deadline, resolved against the meeting date; else null.',
-  'Return ONLY JSON: {"items":[{"index":0,"owner":"me","counterpart":null,"due":null}]}.',
+  'project: the client or internal project name when the item or meeting title names one; else null. Do not invent.',
+  'Return ONLY JSON: {"items":[{"index":0,"owner":"me","counterpart":null,"due":null,"project":null}]}.',
 ].join(' ');
 
 export async function screenMeetingActions(
@@ -146,6 +150,7 @@ export async function screenMeetingActions(
     owner: 'me',
     counterpart: null,
     dueAt: null,
+    projectName: null,
   }));
   if (actions.length === 0) return rejected;
   try {
@@ -183,6 +188,7 @@ export async function screenMeetingActions(
             ? item.counterpart.trim()
             : null,
         dueAt: parseDue(item.due),
+        projectName: cleanProjectName(item.project),
       };
     }
     return out;
@@ -234,6 +240,7 @@ export async function judgeMeetingActions(
     owner: d.owner,
     counterpart: null,
     dueAt: null,
+    projectName: null,
   }));
   const kept = decisions.flatMap((d, i) => (d.keep ? [i] : []));
   if (kept.length === 0) return out;
@@ -250,6 +257,7 @@ export async function judgeMeetingActions(
       owner: decisions[i].owner,
       counterpart: fields?.[k]?.counterpart ?? null,
       dueAt: fields?.[k]?.dueAt ?? null,
+      projectName: fields?.[k]?.projectName ?? null,
     };
   });
   return out;
@@ -307,8 +315,9 @@ export async function extractMeetingLoops(
     .slice(0, MAX_LOOPS_PER_MEETING)
     .map(({ text, screen }) => ({
       fingerprint: meetingActionFingerprint(meeting.id, text),
-      title: text,
+      title: withProjectMention(text, screen.projectName, 90),
       notes: null,
+      projectName: screen.projectName,
       origin: 'meeting' as const,
       sourceRef: { meetingId: meeting.id, label: meeting.title || 'Meeting' },
       owner: screen.owner,
@@ -334,11 +343,12 @@ export function matterItemToLoop(item: MatterItem, autoCaptured: boolean): LoopU
   const suggestion = item.suggestedAction?.trim();
   return {
     fingerprint: item.fingerprint,
-    title: item.title,
+    title: withProjectMention(item.title, item.projectName, 90),
     notes:
       (suggestion && !GENERIC_SUGGESTION.test(suggestion) ? suggestion : null) ||
       item.summary ||
       null,
+    projectName: item.projectName,
     origin: item.source === 'meeting' ? 'meeting' : 'matter',
     sourceRef: {
       matterItemId: item.id,
@@ -360,13 +370,16 @@ const MATTER_LOOP_CLEANUP_PROMPT = [
   'notes: one sentence of useful context, or null. When the signal holds several distinct asks,',
   'deliverables, or steps, use a short markdown list instead ("- " bullets, or "1. " when order matters;',
   'at most 5 items, one line each, no headings). Do not split a single point into a list.',
+  'project: the client or internal project when the signal names one; else null. Do not invent.',
+  'When project is set, mention it in the title if the title does not already.',
   'Return one item per input, with the same index. Do not drop items.',
-  'Return ONLY JSON: {"items":[{"index":0,"title":"...","notes":null}]}.',
+  'Return ONLY JSON: {"items":[{"index":0,"title":"...","notes":null,"project":null}]}.',
 ].join(' ');
 
 export interface MatterLoopDraft {
   title: string;
   notes: string | null;
+  projectName: string | null;
 }
 
 /**
@@ -384,7 +397,11 @@ export async function cleanupMatterLoopDrafts(
       (suggestion && !GENERIC_SUGGESTION.test(suggestion) ? suggestion : null) ||
       item.summary?.trim() ||
       null;
-    return { title: item.title, notes };
+    return {
+      title: withProjectMention(item.title, item.projectName, 90),
+      notes,
+      projectName: item.projectName ?? null,
+    };
   });
   if (items.length === 0) return [];
   try {
@@ -396,6 +413,7 @@ export async function cleanupMatterLoopDrafts(
           title: item.title,
           summary: item.summary || null,
           suggestedAction: item.suggestedAction || null,
+          project: item.projectName,
         })),
       }),
       temperature: 0,
@@ -416,7 +434,12 @@ export async function cleanupMatterLoopDrafts(
       if (!title) continue;
       const notes =
         typeof row.notes === 'string' && row.notes.trim() ? row.notes.trim() : out[index].notes;
-      out[index] = { title: title.slice(0, 90), notes };
+      const projectName = cleanProjectName(row.project) || out[index].projectName;
+      out[index] = {
+        title: withProjectMention(title, projectName, 90),
+        notes,
+        projectName,
+      };
     }
     return out;
   } catch (error) {

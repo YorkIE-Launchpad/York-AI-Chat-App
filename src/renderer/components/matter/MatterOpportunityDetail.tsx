@@ -77,6 +77,7 @@ export function MatterOpportunityDetail({
           </span>
           <Chip label={OPPORTUNITY_TARGET_LABELS[opp.target]} />
           {opp.clientName ? <Chip label={opp.clientName} /> : null}
+          {opp.projectName ? <Chip label={opp.projectName} plain /> : null}
           <Chip label={`${opp.source} · ${Math.round(opp.confidence * 100)}%`} />
         </div>
 
@@ -255,9 +256,13 @@ function ReportModal({
   );
 }
 
-function Chip({ label }: { label: string }) {
+function Chip({ label, plain = false }: { label: string; plain?: boolean }) {
   return (
-    <span className="rounded-md border border-border-subtle bg-background/60 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+    <span
+      className={`rounded-md border border-border-subtle bg-background/60 px-1.5 py-0.5 text-[10px] font-semibold text-text-muted ${
+        plain ? 'normal-case tracking-normal' : 'uppercase tracking-wide'
+      }`}
+    >
       {label}
     </span>
   );

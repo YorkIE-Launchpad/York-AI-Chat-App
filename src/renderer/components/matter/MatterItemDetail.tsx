@@ -93,6 +93,7 @@ export function MatterItemDetail({
           />
           <MetaChip label={item.orbit} />
           <MetaChip label={item.category} />
+          {item.projectName ? <MetaChip label={item.projectName} plain /> : null}
           {hasSourceUrl ? (
             <button
               type="button"
@@ -316,12 +317,20 @@ export function MatterItemDetail({
   );
 }
 
-function MetaChip({ label, className }: { label: string; className?: string }) {
+function MetaChip({
+  label,
+  className,
+  plain = false,
+}: {
+  label: string;
+  className?: string;
+  plain?: boolean;
+}) {
   return (
     <span
-      className={`rounded-md border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
-        className || 'text-text-muted border-border-subtle bg-background/60'
-      }`}
+      className={`rounded-md border px-1.5 py-0.5 text-[10px] font-semibold ${
+        plain ? 'normal-case tracking-normal' : 'uppercase tracking-wide'
+      } ${className || 'text-text-muted border-border-subtle bg-background/60'}`}
     >
       {label}
     </span>

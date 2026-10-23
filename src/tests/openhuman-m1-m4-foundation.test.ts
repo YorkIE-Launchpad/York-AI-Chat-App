@@ -28,6 +28,7 @@ function sampleMatterItem(overrides: Partial<MatterItem> = {}): MatterItem {
     reminderNotifiedAt: null,
     expiredNotifiedAt: null,
     rankScore: 72,
+    projectName: null,
     createdAt: 1,
     updatedAt: 1,
     lastSeenAt: 1,

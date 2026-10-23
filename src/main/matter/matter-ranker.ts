@@ -18,6 +18,7 @@ import {
   orbitFromRankScore,
   urgencyFromDueAt,
 } from '../../shared/matter-time';
+import { extractProjectName, withProjectMention } from '../../shared/project-mention';
 import type { RawMatterSignal } from './matter-collector';
 import {
   isAllDayCalendarEvent,
@@ -140,6 +141,7 @@ Rules:
 - rankScore and confidence MUST be JSON numbers (e.g. 60, 0.7), never words like "sixty".
 - orbit MUST match rankScore bands so high-rank items sit closer to the radar center: rankScore >= 75 → now (inner), >= 50 → today, >= 25 → week, else watching (outer). Imminent due dates still use now even if score is lower.
 - Never use JSON keys, schema fragments, or path arrays as titles.
+- When a signal names a client or internal project, mention that project in the title. Do not invent a project name.
 - If nothing needs action, return empty items and a calm pulse.`;
 
 /**
@@ -421,31 +423,34 @@ export function heuristicRank(
           urgency?.orbit || s.orbitHint || (severity === 'critical' ? 'now' : 'today');
         const rankBoost = urgency?.rankBoost ?? 0;
         const rankScore = (severityBoost[severity] ?? 10) + rankBoost * 0.25;
-        return {
-          fingerprint: s.fingerprint,
-          title: s.title.slice(0, 90),
-          summary: s.summary,
-          whyItMatters:
-            s.whyHint ||
-            (profile?.title
-              ? `Needs your action as ${profile.title}.`
-              : 'Needs your action from connected work tools.'),
-          severity,
-          orbit: orbitFromRankScore(rankScore, {
+        return stampProject(
+          {
+            fingerprint: s.fingerprint,
+            title: s.title.slice(0, 90),
+            summary: s.summary,
+            whyItMatters:
+              s.whyHint ||
+              (profile?.title
+                ? `Needs your action as ${profile.title}.`
+                : 'Needs your action from connected work tools.'),
+            severity,
+            orbit: orbitFromRankScore(rankScore, {
+              dueAt: times.dueAt,
+              fallbackOrbit: hintOrbit,
+            }),
+            category: s.categoryHint || 'comms',
+            source: s.source,
+            confidence: MATTER_UNSCORED_CONFIDENCE,
+            suggestedAction: s.suggestedAction || null,
+            rankScore,
+            sourceRef: enrichSourceRef(s.sourceRef || {}, s.rawDetails || s.rawExcerpt),
+            rawDetails: s.rawDetails || s.rawExcerpt || null,
             dueAt: times.dueAt,
-            fallbackOrbit: hintOrbit,
-          }),
-          category: s.categoryHint || 'comms',
-          source: s.source,
-          confidence: MATTER_UNSCORED_CONFIDENCE,
-          suggestedAction: s.suggestedAction || null,
-          rankScore,
-          sourceRef: enrichSourceRef(s.sourceRef || {}, s.rawDetails || s.rawExcerpt),
-          rawDetails: s.rawDetails || s.rawExcerpt || null,
-          dueAt: times.dueAt,
-          remindAt: times.remindAt,
-          expiresAt: times.expiresAt,
-        };
+            remindAt: times.remindAt,
+            expiresAt: times.expiresAt,
+          },
+          s.rawDetails || s.rawExcerpt
+        );
       })
       .sort((a, b) => b.rankScore - a.rankScore),
     maxItems
@@ -576,6 +581,18 @@ async function clusterSameAskPool(
     logWarn('[Matter] Same-ask cluster failed:', error);
     return { pool: signals, alsoSeenIn: new Map() };
   }
+}
+
+function stampProject<T extends { title: string; rawDetails?: string | null }>(
+  item: T,
+  raw?: string | null
+): T & { projectName: string | null } {
+  const projectName = extractProjectName(raw ?? item.rawDetails ?? null);
+  return {
+    ...item,
+    projectName,
+    title: withProjectMention(item.title, projectName, 120),
+  };
 }
 
 function finishRanked(
@@ -768,7 +785,7 @@ async function rankMatterSignalsViaJev(options: {
         !looksLikeJunkTitle(narr.title)
           ? narr.title.trim().slice(0, 120)
           : baseItem.title;
-      return {
+      return stampProject({
         ...baseItem,
         title,
         summary:
@@ -783,7 +800,7 @@ async function rankMatterSignalsViaJev(options: {
           typeof narr.suggestedAction === 'string'
             ? narr.suggestedAction
             : baseItem.suggestedAction,
-      };
+      });
     }),
     allSignals
   );
@@ -825,31 +842,34 @@ function buildItemsFromJevDecisions(
       source: s.source,
     });
     const rankScore = d.rankScore;
-    return {
-      fingerprint: s.fingerprint,
-      title: s.title.slice(0, 90),
-      summary: s.summary,
-      whyItMatters:
-        s.whyHint ||
-        (profile?.title
-          ? `Needs your action as ${profile.title}.`
-          : 'Needs your action from connected work tools.'),
-      severity: d.severity,
-      orbit: orbitFromRankScore(rankScore, {
+    return stampProject(
+      {
+        fingerprint: s.fingerprint,
+        title: s.title.slice(0, 90),
+        summary: s.summary,
+        whyItMatters:
+          s.whyHint ||
+          (profile?.title
+            ? `Needs your action as ${profile.title}.`
+            : 'Needs your action from connected work tools.'),
+        severity: d.severity,
+        orbit: orbitFromRankScore(rankScore, {
+          dueAt: times.dueAt,
+          fallbackOrbit: d.orbit,
+        }),
+        category: d.category,
+        source: s.source,
+        confidence: d.confidence,
+        suggestedAction: s.suggestedAction || null,
+        rankScore,
+        sourceRef: enrichSourceRef(s.sourceRef || {}, s.rawDetails || s.rawExcerpt),
+        rawDetails: s.rawDetails || s.rawExcerpt || null,
         dueAt: times.dueAt,
-        fallbackOrbit: d.orbit,
-      }),
-      category: d.category,
-      source: s.source,
-      confidence: d.confidence,
-      suggestedAction: s.suggestedAction || null,
-      rankScore,
-      sourceRef: enrichSourceRef(s.sourceRef || {}, s.rawDetails || s.rawExcerpt),
-      rawDetails: s.rawDetails || s.rawExcerpt || null,
-      dueAt: times.dueAt,
-      remindAt: times.remindAt,
-      expiresAt: times.expiresAt,
-    };
+        remindAt: times.remindAt,
+        expiresAt: times.expiresAt,
+      },
+      s.rawDetails || s.rawExcerpt
+    );
   });
 
   return capRankedItemsBySource(
@@ -894,6 +914,7 @@ async function rankMatterSignalsViaLlm(options: {
           orbitHint: s.orbitHint,
           categoryHint: s.categoryHint,
           sourceRef: s.sourceRef,
+          projectName: extractProjectName(s.rawDetails || s.rawExcerpt),
           dueAt: actionDueAt(s),
           expiresAt: s.expiresAt ?? null,
         })),
@@ -957,7 +978,7 @@ async function rankMatterSignalsViaLlm(options: {
           ? item.rankScore
           : baseItem.rankScore;
       const overlayOrbit = item.orbit != null ? asOrbit(item.orbit) : baseItem.orbit;
-      return {
+      return stampProject({
         ...baseItem,
         title,
         summary:
@@ -990,7 +1011,7 @@ async function rankMatterSignalsViaLlm(options: {
         dueAt: baseItem.dueAt,
         remindAt: baseItem.remindAt,
         expiresAt: baseItem.expiresAt,
-      };
+      });
     });
 
     if (items.length === 0) {

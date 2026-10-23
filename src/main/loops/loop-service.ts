@@ -130,6 +130,7 @@ export class LoopService {
       origin: 'manual',
       owner: input.owner,
       counterpart: input.counterpart ?? null,
+      projectName: input.projectName ?? null,
       dueAt: input.dueAt ?? null,
       priority: input.priority,
       autoCaptured: false,
@@ -335,6 +336,7 @@ export class LoopService {
         if (!draft?.title.trim()) return;
         candidate.title = draft.title;
         if (draft.notes) candidate.notes = draft.notes;
+        if (draft.projectName) candidate.projectName = draft.projectName;
       });
       const createdLoops: Loop[] = [];
       for (const candidate of candidates) {
@@ -413,7 +415,11 @@ export class LoopService {
             ? `\nDue ${new Date(loop.dueAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`
             : '';
         const notes = loop.notes?.trim() ? `\n${loop.notes.trim().slice(0, 280)}` : '';
-        this.slackAlerter('Follow-up', `${loop.title}${due}${notes}`);
+        const project =
+          loop.projectName && !loop.title.toLowerCase().includes(loop.projectName.toLowerCase())
+            ? `\nProject: ${loop.projectName}`
+            : '';
+        this.slackAlerter('Follow-up', `${loop.title}${project}${due}${notes}`);
       }
       const overflow = loops.length - notable.length;
       if (overflow > 0) {

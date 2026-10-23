@@ -242,6 +242,7 @@ export interface MatterItemRow {
   reminder_notified_at: number | null;
   expired_notified_at: number | null;
   rank_score: number;
+  project_name: string | null;
   created_at: number;
   updated_at: number;
   last_seen_at: number;
@@ -300,6 +301,7 @@ export interface MatterOpportunityRow {
   source: string;
   source_ref: string;
   client_name: string | null;
+  project_name: string | null;
   suggested_pitch: string | null;
   confidence: number;
   status: string;
@@ -676,6 +678,7 @@ function initializeSchema(database: Database.Database): void {
     ensureColumn(database, 'matter_items', 'remind_at', 'remind_at INTEGER');
     ensureColumn(database, 'matter_items', 'reminder_notified_at', 'reminder_notified_at INTEGER');
     ensureColumn(database, 'matter_items', 'expired_notified_at', 'expired_notified_at INTEGER');
+    ensureColumn(database, 'matter_items', 'project_name', 'project_name TEXT');
 
     database.exec(`
     CREATE INDEX IF NOT EXISTS idx_matter_items_status_rank
@@ -776,6 +779,7 @@ function initializeSchema(database: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_matter_opportunities_status
     ON matter_opportunities(status, updated_at DESC)
   `);
+    ensureColumn(database, 'matter_opportunities', 'project_name', 'project_name TEXT');
 
     // Memory Wiki pages (M1) — SQLite primary; Markdown vault is mirrored on disk
     database.exec(`
@@ -915,6 +919,7 @@ function initializeSchema(database: Database.Database): void {
     )
   `);
 
+    ensureColumn(database, 'loops', 'project_name', 'project_name TEXT');
     ensureColumn(database, 'loops', 'research_note', 'research_note TEXT');
     ensureColumn(
       database,
@@ -1327,8 +1332,8 @@ export function initDatabase(): DatabaseInstance {
       id, fingerprint, title, summary, why_it_matters, raw_details, severity, orbit, category, source,
       source_ref, confidence, suggested_action, status, pinned, snooze_until, due_at, remind_at,
       expires_at, reminder_notified_at, expired_notified_at,
-      rank_score, created_at, updated_at, last_seen_at, resolved_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      rank_score, project_name, created_at, updated_at, last_seen_at, resolved_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const getMatterItemStmt = rawDb.prepare(`SELECT * FROM matter_items WHERE id = ?`);
@@ -1390,9 +1395,9 @@ export function initDatabase(): DatabaseInstance {
   const insertMatterOpportunity = rawDb.prepare(`
     INSERT OR REPLACE INTO matter_opportunities (
       id, fingerprint, kind, target, title, summary, evidence, source, source_ref,
-      client_name, suggested_pitch, confidence, status, snooze_until, reported_at,
+      client_name, project_name, suggested_pitch, confidence, status, snooze_until, reported_at,
       reported_to, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const getMatterOpportunityStmt = rawDb.prepare(`SELECT * FROM matter_opportunities WHERE id = ?`);
   const getMatterOpportunityByFingerprintStmt = rawDb.prepare(
@@ -1770,6 +1775,7 @@ export function initDatabase(): DatabaseInstance {
           item.reminder_notified_at ?? null,
           item.expired_notified_at ?? null,
           item.rank_score,
+          item.project_name ?? null,
           item.created_at,
           item.updated_at,
           item.last_seen_at,
@@ -1967,6 +1973,7 @@ export function initDatabase(): DatabaseInstance {
           row.source,
           row.source_ref,
           row.client_name,
+          row.project_name ?? null,
           row.suggested_pitch,
           row.confidence,
           row.status,

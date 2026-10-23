@@ -39,6 +39,7 @@ import {
 } from './matter-collector';
 import { extractJsonObject, matterOneShotConfig } from './matter-ranker';
 import type { OpportunityDraft } from './matter-store';
+import { extractProjectName, withProjectMention } from '../../shared/project-mention';
 
 const MAX_CONTEXT_ITEMS = 40;
 const MAX_ITEM_CHARS = 1200;
@@ -317,12 +318,14 @@ ${services}
 Rules:
 - Every opportunity MUST cite one input ref and quote a short evidence excerpt (verbatim, <= 240 chars) from that item.
 - Skip vague chatter, internal banter, already-resolved issues, and generic newsletters.
-- Never invent clients, people, or needs not in the input. If unsure of the client, set clientName null.
+- Never invent clients, people, projects, or needs not in the input. If unsure of the client, set clientName null.
+- projectName: the client or internal project the evidence is about, when the input names one. Null if unknown.
+- When projectName is set, mention that project in the title and summary.
 - At most ${MAX_OPPORTUNITIES_PER_SCAN} opportunities; fewer is fine; none is fine.
 - confidence 0–1: how clearly the evidence supports the opportunity.
 
 Return ONLY valid JSON:
-{"opportunities":[{"ref":"<input ref>","kind":"platform_issue|cross_sell|upsell","target":"<id>","title":"<= 90 chars","summary":"1-2 sentences","evidence":"quoted excerpt","clientName":null,"suggestedPitch":null,"confidence":0.0}]}`;
+{"opportunities":[{"ref":"<input ref>","kind":"platform_issue|cross_sell|upsell","target":"<id>","title":"<= 90 chars","summary":"1-2 sentences","evidence":"quoted excerpt","clientName":null,"projectName":null,"suggestedPitch":null,"confidence":0.0}]}`;
 }
 
 function asKind(v: unknown): OpportunityKind | null {
@@ -366,15 +369,17 @@ export function parseOpportunityResponse(
       typeof raw.confidence === 'number' && Number.isFinite(raw.confidence)
         ? Math.max(0, Math.min(1, raw.confidence))
         : 0.5;
+    const projectName = asText(raw.projectName, 120) || extractProjectName(item.text);
     out.push({
       fingerprint,
       kind,
       target,
-      title,
+      title: withProjectMention(title, projectName, 140),
       summary: asText(raw.summary, 500),
       evidence: asText(raw.evidence, 400) || item.text.slice(0, 240),
       source: item.source,
       sourceRef: item.sourceRef,
+      projectName,
       clientName: kind === 'platform_issue' ? null : asText(raw.clientName, 120) || null,
       suggestedPitch: kind === 'platform_issue' ? null : asText(raw.suggestedPitch, 400) || null,
       confidence,
@@ -435,6 +440,7 @@ export function buildOpportunityReport(
     `*${opp.title}*`,
   ];
   if (opp.clientName) lines.push(`Client: ${opp.clientName}`);
+  if (opp.projectName) lines.push(`Project: ${opp.projectName}`);
   if (opp.summary) lines.push(opp.summary);
   if (opp.evidence) lines.push(`> ${opp.evidence.replace(/\n+/g, ' ')}`);
   const link = opp.sourceRef.url;

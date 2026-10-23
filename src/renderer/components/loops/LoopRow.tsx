@@ -238,6 +238,14 @@ export function LoopRow({
               }}
             />
           ) : null}
+          {loop.projectName ? (
+            <span
+              title={t('loops.project')}
+              className="inline-flex items-center rounded-md border border-border-subtle px-1.5 py-0.5 font-medium text-text-secondary"
+            >
+              {loop.projectName}
+            </span>
+          ) : null}
           {loop.counterpart ? (
             <span className="inline-flex items-center gap-1 rounded-md border border-border-subtle px-1.5 py-0.5 text-text-muted">
               <Users className="w-3 h-3" />
