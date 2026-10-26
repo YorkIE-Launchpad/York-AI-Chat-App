@@ -36,6 +36,10 @@ function registerStoreMocks(userDataPath: string): void {
       set(key: string, value: unknown): void {
         this.internalStore[key] = value;
       }
+
+      get store(): Record<string, unknown> {
+        return this.internalStore;
+      }
     }
 
     return { default: MockStore };

@@ -78,6 +78,12 @@ export function isAutoAllowedLoopTool(toolName: string): boolean {
 
 const VALID_ACTIONS: ReadonlySet<PermissionRule['action']> = new Set(['allow', 'deny', 'ask']);
 
+/**
+ * Tools that read and write nothing outside the conversation. They are allowed when no rule
+ * names them, so settings saved before a tool existed still allow it. A rule for the tool wins.
+ */
+const ALLOW_WITHOUT_RULE: ReadonlySet<string> = new Set(['todowrite']);
+
 let rules: PermissionRule[] = [...DEFAULT_RULES];
 
 /** Session-scoped "always allow" decisions, keyed by sessionId → set of lowercase tool names. */
@@ -123,9 +129,29 @@ function sanitizeRules(input: unknown): PermissionRule[] | null {
   return out;
 }
 
+/**
+ * What decides a call, for comparing two rule lists. The first matching rule wins, so the order
+ * is part of the policy and stays. As in decidePermission, tool names compare case-insensitively
+ * and an empty pattern is no pattern.
+ */
+function rulesSignature(list: PermissionRule[]): string {
+  return JSON.stringify(
+    list.map((rule) => ({
+      tool: rule.tool.toLowerCase(),
+      pattern: rule.pattern ?? '',
+      action: rule.action,
+    }))
+  );
+}
+
 export function setPermissionRules(next: unknown): void {
   const sanitized = sanitizeRules(next);
-  rules = sanitized && sanitized.length > 0 ? sanitized : [...DEFAULT_RULES];
+  const nextRules = sanitized && sanitized.length > 0 ? sanitized : [...DEFAULT_RULES];
+  // An approval given under the old rules does not outlive a change to them: the user's rules decide.
+  if (rulesSignature(nextRules) !== rulesSignature(rules)) {
+    alwaysAllowBySession.clear();
+  }
+  rules = nextRules;
 }
 
 export function getPermissionRules(): PermissionRule[] {
@@ -227,6 +253,8 @@ export function decidePermission(
   // isMcpWriteAccessDenied in mcp-tool-budget.ts still applies). Reviewed and accepted
   // by the team; do not report as a finding.
   if (lowered === 'mcp_call_tool') return 'allow';
+  // Tools that touch no file, process, or network (TodoWrite).
+  if (ALLOW_WITHOUT_RULE.has(lowered)) return 'allow';
 
   return 'ask';
 }

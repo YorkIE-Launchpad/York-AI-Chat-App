@@ -230,6 +230,9 @@
     "rebuildAllSuccess": "Rebuilt all memory: {{sessionCount}} sessions, {{workspaceCount}} source workspaces",
     "clearWorkspaceSuccess": "Workspace memory cleared",
     "clearCoreSuccess": "Core memory cleared",
+    "forgetSession": "Forget this conversation",
+    "forgetSessionConfirm": "Forget this conversation? The memory taken from it is removed, and memory is turned off for it, so it is not learned from again, even when memory is rebuilt. The conversation stays. Core memory does not change; edit or forget its entries under Core memory entries.",
+    "forgetSessionSuccess": "Conversation forgotten; memory is off for it",
     "coreEditorTitle": "Core memory entries",
     "coreEditorDescription": "Facts included in every conversation. Edit or forget the wrong ones; extraction and rebuilding memory keep your changes.",
     "coreEditorEmpty": "No core memory yet.",
@@ -740,6 +743,7 @@
     "envValuePlaceholder": "Enter value",
     "removeVar": "Remove",
     "loadServersFailed": "Failed to load connectors",
+    "configNeedsRepair": "The MCP configuration could not be read. Your existing configuration has been preserved. Repair mcp-config.json before saving changes.",
     "saveServerFailed": "Failed to save connector",
     "deleteServerFailed": "Failed to delete connector",
     "deleteConnectorConfirm": "Delete this connector?",
@@ -759,7 +763,10 @@
     "allowWrites": "Allow writes",
     "serverWriteAccessDesc": "Allow the AI to use write/mutate tools from this connector",
     "serverWriteOverriddenByGlobal": "Blocked by the global write setting above",
-    "writeAccessSaveFailed": "Failed to update connector write access"
+    "writeAccessSaveFailed": "Failed to update connector write access",
+    "pageErrorTitle": "MCP Connectors failed to render",
+    "pageErrorDescription": "Your connector config is still on disk. Retry this tab, or check mcp-config.json for unexpected shapes (for example Claude-style mcpServers maps).",
+    "pageErrorRetry": "Retry"
   },
   "credentials": {
     "envVars": "Environment Variables",

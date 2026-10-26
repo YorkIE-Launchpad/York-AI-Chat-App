@@ -18,6 +18,7 @@ import type { MCPManager } from '../mcp/mcp-manager';
 import { log, logError } from '../utils/logger';
 import { resolveWritableSessionCwd } from '../session/resolve-session-cwd';
 import { annotateReadToolForPdfs, createPdfAwareReadOptions } from '../utils/pdf-text';
+import { wrapReadToolForImageResizeErrors } from './image-resize-packaging';
 import { agentShellSpawnHook } from '../utils/agent-shell-env';
 import type { CheckpointService } from '../orchestration/checkpoint-service';
 
@@ -555,19 +556,21 @@ export async function runChildAgentSession(
     let customTools: ToolDefinition[] = [];
     const toolFilter = input.toolFilter ?? (() => true);
     const codingTools = includeCodingTools
-      ? [
-          ...new Map(
-            [
-              ...annotateReadToolForPdfs(
-                createCodingTools(cwd, {
-                  bash: { spawnHook: agentShellSpawnHook },
-                  read: createPdfAwareReadOptions(),
-                })
-              ),
-              ...(input.includeReadOnlyTools ? createReadOnlyTools(cwd) : []),
-            ].map((tool) => [tool.name, tool])
-          ).values(),
-        ].filter((tool) => toolFilter(tool.name))
+      ? wrapReadToolForImageResizeErrors(
+          [
+            ...new Map(
+              [
+                ...annotateReadToolForPdfs(
+                  createCodingTools(cwd, {
+                    bash: { spawnHook: agentShellSpawnHook },
+                    read: createPdfAwareReadOptions(),
+                  })
+                ),
+                ...(input.includeReadOnlyTools ? createReadOnlyTools(cwd) : []),
+              ].map((tool) => [tool.name, tool])
+            ).values(),
+          ].filter((tool) => toolFilter(tool.name))
+        )
       : [];
     const onProjectScopeViolation = createProjectScopeViolationReporter({
       sessionId: input.parentSessionId,

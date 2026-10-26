@@ -102,6 +102,34 @@ describe('session title utils', () => {
     expect(normalizeGeneratedTitle('Title: API Key Check')).toBe('API Key Check');
   });
 
+  it('prefers the last TITLE:: marker regardless of surrounding reasoning', () => {
+    expect(normalizeGeneratedTitle('TITLE:: 我的标题')).toBe('我的标题');
+    expect(normalizeGeneratedTitle('let me think...\nTITLE:: 我的标题')).toBe('我的标题');
+    expect(normalizeGeneratedTitle('TITLE:: first guess\nTITLE:: 最终标题')).toBe('最终标题');
+  });
+
+  it('uses the marker even when inline reasoning tags are present', () => {
+    const raw = '你好' + '<' + '/think>' + '你好\nTITLE:: 我的标题';
+    expect(normalizeGeneratedTitle(raw)).toBe('我的标题');
+  });
+
+  it('only treats the exact marker at the beginning of a line as a title', () => {
+    expect(normalizeGeneratedTitle('Actual title\nI think a title: leaked reasoning')).toBe(
+      'Actual title'
+    );
+    expect(
+      normalizeGeneratedTitle('TITLE:: Correct title\nreasoning mentions TITLE:: example')
+    ).toBe('Correct title');
+    expect(normalizeGeneratedTitle('TITLE:: Correct title\ntitle: wrong')).toBe('Correct title');
+    expect(normalizeGeneratedTitle('TITLE:: Correct title\ntitle:: wrong')).toBe('Correct title');
+    expect(normalizeGeneratedTitle('  TITLE:: 标题\r\nmore reasoning')).toBe('标题');
+  });
+
+  it('does not fall back to the marker itself when the last marker is empty', () => {
+    expect(normalizeGeneratedTitle('TITLE::\nActual title')).toBeNull();
+    expect(normalizeGeneratedTitle('TITLE:: First title\nTITLE::   ')).toBeNull();
+  });
+
   it('drops synthetic empty placeholder titles', () => {
     expect(normalizeGeneratedTitle('(no content)')).toBeNull();
     expect(normalizeGeneratedTitle('(empty content)')).toBeNull();

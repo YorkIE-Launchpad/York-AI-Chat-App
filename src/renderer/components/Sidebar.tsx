@@ -38,6 +38,7 @@ import {
   Download,
   FileText,
   FileJson,
+  Loader2,
 } from 'lucide-react';
 import type { Session } from '../types';
 import {
@@ -1615,6 +1616,12 @@ export function Sidebar() {
                                             )}
                                           </span>
                                         )}
+                                        {session.status === 'running' && !isRenaming && (
+                                          <Loader2
+                                            className="h-3 w-3 flex-shrink-0 animate-spin text-accent"
+                                            aria-hidden="true"
+                                          />
+                                        )}
                                         <div className="min-w-0 flex-1">
                                           {isRenaming ? (
                                             <input
@@ -1802,6 +1809,12 @@ export function Sidebar() {
                               />
                             )}
                           </span>
+                        )}
+                        {session.status === 'running' && !isRenaming && (
+                          <Loader2
+                            className="h-3 w-3 flex-shrink-0 animate-spin text-accent"
+                            aria-hidden="true"
+                          />
                         )}
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">

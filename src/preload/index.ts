@@ -644,6 +644,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // MCP methods
   mcp: {
     getServers: (): Promise<McpServerConfig[]> => ipcRenderer.invoke('mcp.getServers'),
+    getServersForSettings: (): Promise<McpServerConfig[]> =>
+      ipcRenderer.invoke('mcp.getServersForSettings'),
     getServer: (serverId: string): Promise<McpServerConfig | undefined> =>
       ipcRenderer.invoke('mcp.getServer', serverId),
     saveServer: (config: McpServerConfig): Promise<{ success: boolean; error?: string }> =>
@@ -991,6 +993,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('memory.writeCoreEntry', combinedKey, value),
     forgetCoreEntry: (combinedKey: string): Promise<CoreMemoryListEntry[]> =>
       ipcRenderer.invoke('memory.forgetCoreEntry', combinedKey),
+    forgetSession: (sessionId: string): Promise<void> =>
+      ipcRenderer.invoke('memory.forgetSession', sessionId),
     rebuildAll: (): Promise<{ success: boolean; workspaceCount: number; sessionCount: number }> =>
       ipcRenderer.invoke('memory.rebuildAll'),
     listFiles: (): Promise<MemoryDebugFileInfo[]> => ipcRenderer.invoke('memory.listFiles'),
@@ -1754,6 +1758,7 @@ declare global {
       };
       mcp: {
         getServers: () => Promise<McpServerConfig[]>;
+        getServersForSettings: () => Promise<McpServerConfig[]>;
         getServer: (serverId: string) => Promise<McpServerConfig | undefined>;
         saveServer: (config: McpServerConfig) => Promise<{ success: boolean; error?: string }>;
         deleteServer: (serverId: string) => Promise<{ success: boolean; error?: string }>;
@@ -1996,6 +2001,7 @@ declare global {
         getCoreEntries: () => Promise<CoreMemoryListEntry[]>;
         writeCoreEntry: (combinedKey: string, value: string) => Promise<CoreMemoryListEntry[]>;
         forgetCoreEntry: (combinedKey: string) => Promise<CoreMemoryListEntry[]>;
+        forgetSession: (sessionId: string) => Promise<void>;
         rebuildAll: () => Promise<{
           success: boolean;
           workspaceCount: number;

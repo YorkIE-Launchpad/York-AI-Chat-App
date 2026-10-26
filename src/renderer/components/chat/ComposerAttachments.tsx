@@ -41,7 +41,7 @@ export function ComposerAttachments({
   if (!images.length && !files.length && !meetings.length && !references.length) return null;
 
   return (
-    <div className="mb-2.5 space-y-2">
+    <div className="mb-2.5 max-h-[28vh] space-y-2 overflow-y-auto p-1 [scrollbar-gutter:stable]">
       {images.length > 0 ? (
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
           {images.map((img, index) => (

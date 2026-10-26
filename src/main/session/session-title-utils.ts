@@ -42,17 +42,26 @@ export function shouldGenerateTitle(input: TitleDecisionInput): boolean {
   return isAutomaticSessionTitle(input.currentTitle, input.prompt);
 }
 
+// The model self-identifies its answer as `TITLE:: <title>`. The gateway inlines
+// chain-of-thought into the content, so read the text after the last marker and
+// ignore whatever precedes it; fall back to the first non-empty line when the
+// marker is absent. An empty last marker does not fall back.
+const TITLE_MARKER_RE = /^[ \t]*TITLE::[ \t]*([^\r\n]*)/gm;
+
 export function normalizeGeneratedTitle(
   value: string | null | undefined,
   sourcePrompt?: string
 ): string | null {
   if (!value) return null;
-  const firstLine = value
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .find(Boolean);
-  if (!firstLine) return null;
-  const normalized = firstLine
+
+  const marked = [...value.matchAll(TITLE_MARKER_RE)].pop();
+  const rawCandidate = marked
+    ? marked[1]
+    : (value
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .find(Boolean) ?? '');
+  const normalized = rawCandidate
     .replace(/^["'`]+|["'`]+$/g, '')
     .replace(/^(?:title\s*:\s*)/i, '')
     .trim();
@@ -109,7 +118,7 @@ export function buildTitlePrompt(prompt: string): string {
     '- English titles use Title Case',
     languageRule,
     '- Do not add quotes, numbering, a "Title:" prefix, or trailing punctuation',
-    '- Output only the title text, nothing else',
+    '- Output format (strict): a single line "TITLE:: <title>" and nothing else',
     '',
     examples,
     '',

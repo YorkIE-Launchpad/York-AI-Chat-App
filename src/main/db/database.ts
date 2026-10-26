@@ -26,6 +26,12 @@ export interface DatabaseInstance {
     get: (id: string) => SessionRow | undefined;
     getAll: () => SessionRow[];
     delete: (id: string) => void;
+    /**
+     * Sets every session still marked `running` to `idle` and returns how many there were.
+     * Meant for startup: a run does not outlive its process, so a `running` row left by the
+     * previous launch belongs to a run that is gone. `updated_at` is kept so the list order holds.
+     */
+    markRunningIdle: () => number;
   };
 
   folders: {
@@ -1258,6 +1264,10 @@ export function initDatabase(): DatabaseInstance {
     SELECT * FROM sessions ORDER BY pinned DESC, updated_at DESC
   `);
 
+  const markRunningIdleStmt = rawDb.prepare(`
+    UPDATE sessions SET status = 'idle' WHERE status = 'running'
+  `);
+
   const deleteSessionStmt = rawDb.prepare(`
     DELETE FROM sessions WHERE id = ?
   `);
@@ -1476,9 +1486,12 @@ export function initDatabase(): DatabaseInstance {
 
         if (setClauses.length === 0) return;
 
-        // Always update updated_at
-        setClauses.push('updated_at = ?');
-        values.push(Date.now());
+        // Bump updated_at unless the caller supplied an explicit value (a second
+        // assignment would otherwise silently override it).
+        if (updates.updated_at === undefined) {
+          setClauses.push('updated_at = ?');
+          values.push(Date.now());
+        }
         values.push(id);
 
         const sql = `UPDATE sessions SET ${setClauses.join(', ')} WHERE id = ?`;
@@ -1501,6 +1514,8 @@ export function initDatabase(): DatabaseInstance {
         // Messages will be deleted automatically due to ON DELETE CASCADE
         deleteSessionStmt.run(id);
       },
+
+      markRunningIdle: (): number => markRunningIdleStmt.run().changes,
     },
 
     folders: {

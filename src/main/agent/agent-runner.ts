@@ -19,6 +19,7 @@ import {
   createCodingTools,
   type BashToolOptions,
   type AgentSession as PiAgentSession,
+  type CreateAgentSessionOptions,
   type ToolDefinition,
 } from '@mariozechner/pi-coding-agent';
 import { Type, type TSchema } from '@sinclair/typebox';
@@ -65,6 +66,7 @@ import { getSandboxAdapter } from '../sandbox/sandbox-adapter';
 import { pathConverter } from '../sandbox/wsl-bridge';
 import { SandboxSync } from '../sandbox/sandbox-sync';
 import { extractArtifactsFromText, buildArtifactTraceSteps } from '../utils/artifact-parser';
+import { wrapReadToolForImageResizeErrors } from './image-resize-packaging';
 import { getDefaultShell } from '../utils/shell-resolver';
 import { PluginRuntimeService } from '../skills/plugin-runtime-service';
 import type { SkillsAdapter } from '../skills/skills-adapter';
@@ -208,11 +210,9 @@ import {
 } from '../../shared/york-llm-config';
 import { createWindowsBashOperations } from './windows-bash-operations';
 import { agentShellSpawnHook } from '../utils/agent-shell-env';
+import { createLimaSandboxCodingTools, VIRTUAL_WORKSPACE_PATH } from './lima-sandbox-operations';
 import { createCompactionExtensionFactory } from './compaction-extension';
 import { remapCoworkVirtualPath, remapCoworkVirtualPathsInCommand } from './cowork-path-remap';
-
-// Virtual workspace path shown to the model (hides real sandbox path)
-const VIRTUAL_WORKSPACE_PATH = '/workspace';
 
 /**
  * Estimate chars-per-token ratio based on content language.
@@ -1471,9 +1471,11 @@ ${hints.join('\n')}
   private wrapBashToolForSudo(
     tools: ToolDefinition[],
     sessionId: string,
-    effectiveCwd: string
+    effectiveCwd: string,
+    useLimaSandbox: boolean
   ): ToolDefinition[] {
-    if (!this.requestSudoPassword) return tools;
+    // Lima commands, including sudo, stay in the guest tool backend.
+    if (useLimaSandbox || !this.requestSudoPassword) return tools;
 
     const requestSudoPassword = this.requestSudoPassword;
 
@@ -3167,23 +3169,36 @@ ${
       // executed via Pi SDK's Bash tool can find bundled and user-installed executables.
       await enrichProcessPathForBuild();
 
+      // Lima creates the session directory inside the VM. Host bash checks that
+      // path with existsSync, fails, and the UI then rewrites it to /workspace.
+      // Run the coding tools in the guest and keep those implementations: the
+      // SDK otherwise rebuilds host-local tools from cwd.
+      const guestSandboxPath =
+        useSandboxIsolation && sandbox.isLima && sandboxPath ? sandboxPath : null;
       const bashOptions: BashToolOptions = {
         spawnHook: agentShellSpawnHook,
         ...(process.platform === 'win32' ? { operations: createWindowsBashOperations() } : {}),
       };
-      const codingTools = annotateReadToolForPdfs(
-        createCodingTools(effectiveCwd, {
-          bash: bashOptions,
-          read: createPdfAwareReadOptions(),
-        })
-      );
+      const rawCodingTools = (
+        guestSandboxPath
+          ? createLimaSandboxCodingTools(guestSandboxPath)
+          : createCodingTools(effectiveCwd, {
+              bash: bashOptions,
+              read: createPdfAwareReadOptions(),
+            })
+      ) as ToolDefinition[];
+      // The guest read tool resizes images on the host like the local one, so both get the wrapper.
+      const codingTools = wrapReadToolForImageResizeErrors(annotateReadToolForPdfs(rawCodingTools));
 
-      // Remap Cowork virtual roots onto the session workspace before other wrappers
-      const withCoworkPaths = CoworkAgentRunner.wrapToolsForCoworkPathRemap(
-        codingTools as ToolDefinition[],
-        effectiveCwd,
-        session.id
-      );
+      // Remap Cowork virtual roots onto the session workspace before other wrappers.
+      // Lima tools already run in the guest; remapping them would point at the host.
+      const withCoworkPaths = guestSandboxPath
+        ? codingTools
+        : CoworkAgentRunner.wrapToolsForCoworkPathRemap(
+            codingTools as ToolDefinition[],
+            effectiveCwd,
+            session.id
+          );
 
       // Inject a default 120s timeout for bash commands when the model omits one
       const withTimeout = CoworkAgentRunner.wrapBashToolWithDefaultTimeout(withCoworkPaths);
@@ -3192,7 +3207,12 @@ ${
       // Note: wrapBashToolForSudo returns ToolDefinition[] (5-param execute) but
       // createAgentSession.tools expects Tool[] (4-param execute). The extra ctx
       // parameter is simply not passed by the session runner — safe to cast.
-      const wrappedTools = this.wrapBashToolForSudo(withTimeout, session.id, effectiveCwd);
+      const wrappedTools = this.wrapBashToolForSudo(
+        withTimeout,
+        session.id,
+        effectiveCwd,
+        Boolean(guestSandboxPath)
+      );
 
       // Re-select with the real built-in count in case wrappers ever diverge from 4.
       let effectiveToolsSignature = toolsSignature;
@@ -3360,9 +3380,19 @@ ${
           authStorage,
           modelRegistry,
           tools: wrappedTools as unknown as ReturnType<typeof createCodingTools>,
-          // The SDK only reads names from `tools` and rebuilds the built-ins internally;
-          // same-named custom tools replace them, so the wrappers above actually run.
-          customTools: [...(wrappedTools as unknown as typeof customTools), ...customTools],
+          ...(guestSandboxPath
+            ? {
+                baseToolsOverride: Object.fromEntries(
+                  wrappedTools.map((tool) => [tool.name, tool])
+                ) as CreateAgentSessionOptions['baseToolsOverride'],
+              }
+            : {}),
+          // Host path: the SDK only reads names from `tools` and rebuilds the
+          // built-ins internally; same-named custom tools replace them, so the
+          // wrappers above actually run. Lima keeps its guest tools via baseToolsOverride.
+          customTools: guestSandboxPath
+            ? customTools
+            : [...(wrappedTools as unknown as typeof customTools), ...customTools],
           sessionManager: PiSessionManager.inMemory(),
           settingsManager: PiSettingsManager.inMemory({
             compaction: compactionSettings,

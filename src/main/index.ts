@@ -14,6 +14,7 @@
  */
 // Must be first: sets userData before configStore / DB import side effects.
 import './bootstrap-app-data';
+import './agent/install-image-resize-reporting';
 import {
   app,
   BrowserWindow,
@@ -116,6 +117,7 @@ import {
 import { createRealtimeTranscriptionSession } from './meetings/meeting-realtime-transcription-service';
 import { ConfigExtension } from './config/config-extension';
 import { SubagentExtension } from './agent/subagent-extension';
+import { TodoExtension } from './agent/todo-extension';
 import { AgentRuntimeExtensionManager } from './extensions/agent-runtime-extension-manager';
 import { fetchWebPage } from './tools/web-fetch';
 import { WebFetchExtension } from './tools/web-fetch-extension';
@@ -668,6 +670,7 @@ function buildExtensionList(
     new LoopExtension(() => loopService),
     new WorkflowExtension(workflowService),
     new ConfigExtension(configStore),
+    new TodoExtension(),
     new WebFetchExtension(),
     new WebSearchExtension(),
     askUserQuestionExtension,
@@ -2699,6 +2702,18 @@ app
 
     // Initialize database
     const db = initDatabase();
+    // A run does not outlive its process, so a session still marked running was left by an earlier
+    // launch, but only when no other process can be running it. A dev run takes no single-instance
+    // lock, and a second instance that lost the lock is on its way out but still reaches this point.
+    if (!isDev && hasSingleInstanceLock) {
+      const interruptedSessions = db.sessions.markRunningIdle();
+      if (interruptedSessions > 0) {
+        log(
+          '[App] Marked sessions left running by the previous launch as idle:',
+          interruptedSessions
+        );
+      }
+    }
 
     void warmupJwksCache();
     setAuthRendererNotifier((win) => {
@@ -4827,11 +4842,15 @@ ipcMain.handle('config.getPublicPath', () => {
 
 // MCP Server IPC handlers
 ipcMain.handle('mcp.getServers', () => {
+  return mcpConfigStore.getServers();
+});
+
+ipcMain.handle('mcp.getServersForSettings', () => {
   try {
-    return mcpConfigStore.getServers();
+    return mcpConfigStore.getServersForSettings();
   } catch (error) {
     logError('[MCP] Error getting servers:', error);
-    return [];
+    throw error;
   }
 });
 
@@ -6835,6 +6854,13 @@ ipcMain.handle('memory.forgetCoreEntry', (_event, combinedKey: string) => {
     throw new Error('Memory service not initialized');
   }
   return memoryService.forgetCoreEntry(combinedKey);
+});
+
+ipcMain.handle('memory.forgetSession', (_event, sessionId: string) => {
+  if (!memoryService) {
+    throw new Error('Memory service not initialized');
+  }
+  return memoryService.forgetSession(sessionId);
 });
 
 ipcMain.handle('memory.rebuildAll', async () => {

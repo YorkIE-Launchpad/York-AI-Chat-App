@@ -278,9 +278,9 @@ york-ie/
 
 See our full **[ROADMAP.md](ROADMAP.md)** for detailed plans.
 
-**Completed:** Core installers · Filesystem sandboxing · VM isolation (WSL2/Lima) · Skills (PPTX/DOCX/PDF/XLSX) · MCP connectors · Multi-model support · Rich input
+**Completed:** Core installers · Filesystem sandboxing · VM isolation (WSL2/Lima) · Skills (PPTX/DOCX/PDF/XLSX) · MCP connectors · Multi-model support · Rich input · GUI operation
 
-**Coming next:** Memory optimization · Linux support · Plugin system · Computer use · Stable release
+**Coming next:** Memory optimization · Linux support · Plugin system · Stable release
 
 ---
 

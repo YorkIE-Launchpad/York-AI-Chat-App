@@ -231,6 +231,7 @@ function createDatabaseInstance(db: Database.Database): DatabaseInstance {
         () => db.prepare('SELECT * FROM sessions ORDER BY created_at ASC').all() as SessionRow[]
       ),
       delete: vi.fn(),
+      markRunningIdle: vi.fn(),
     },
     folders: {
       create: vi.fn(),

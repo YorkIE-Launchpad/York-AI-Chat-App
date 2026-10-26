@@ -34,6 +34,7 @@ import {
   shouldShowUpdateReadyMessage,
   isUpdateStagingForInstall,
 } from '../../shared/updater-types';
+import { PanelErrorBoundary } from './PanelErrorBoundary';
 import { SettingsSubagents } from './settings/SettingsSubagents';
 
 interface SettingsPanelProps {
@@ -82,6 +83,24 @@ const VALID_TABS = new Set<TabId>([
   'tips',
 ]);
 
+function SettingsConnectorsFallback({ onRetry }: { onRetry: () => void }) {
+  const { t } = useTranslation();
+  return (
+    <div className="rounded-lg border border-error/20 bg-error/5 p-6 space-y-3 text-center">
+      <AlertCircle className="w-8 h-8 mx-auto text-error" />
+      <h3 className="text-sm font-medium text-text-primary">{t('mcp.pageErrorTitle')}</h3>
+      <p className="text-sm text-text-muted">{t('mcp.pageErrorDescription')}</p>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="px-4 py-2 rounded-lg bg-accent text-white text-sm font-medium hover:bg-accent/90"
+      >
+        {t('mcp.pageErrorRetry')}
+      </button>
+    </div>
+  );
+}
+
 export function SettingsPanel({ onClose, initialTab = 'connectors' }: SettingsPanelProps) {
   const { t } = useTranslation();
   const { width } = useWindowSize();
@@ -98,6 +117,7 @@ export function SettingsPanel({ onClose, initialTab = 'connectors' }: SettingsPa
   const [activeTab, setActiveTab] = useState<TabId>(resolvedInitial);
   // Track which tabs have been viewed at least once (for lazy loading)
   const [viewedTabs, setViewedTabs] = useState<Set<TabId>>(new Set([resolvedInitial]));
+  const [connectorsResetKey, setConnectorsResetKey] = useState(0);
   const [appVersion, setAppVersion] = useState('');
   const {
     status: updaterStatus,
@@ -452,7 +472,17 @@ export function SettingsPanel({ onClose, initialTab = 'connectors' }: SettingsPa
             <div className="">
               <div className={activeTab === 'connectors' ? '' : 'hidden'}>
                 {viewedTabs.has('connectors') && (
-                  <SettingsConnectors isActive={activeTab === 'connectors'} />
+                  <PanelErrorBoundary
+                    name="SettingsConnectors"
+                    resetKey={`connectors:${connectorsResetKey}`}
+                    fallback={
+                      <SettingsConnectorsFallback
+                        onRetry={() => setConnectorsResetKey((key) => key + 1)}
+                      />
+                    }
+                  >
+                    <SettingsConnectors isActive={activeTab === 'connectors'} />
+                  </PanelErrorBoundary>
                 )}
               </div>
               <div className={activeTab === 'remote' ? '' : 'hidden'}>
