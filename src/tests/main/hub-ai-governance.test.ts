@@ -940,7 +940,7 @@ describe('reportMcpVisionUsageViaEnv', () => {
   });
 
   it('loads Hub catalog prices then POSTs mcp_vision usage', async () => {
-    const fetchFn = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const fetchFn = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
       const url = String(input);
       if (url.endsWith('/api/ai-governance/models')) {
         return {
