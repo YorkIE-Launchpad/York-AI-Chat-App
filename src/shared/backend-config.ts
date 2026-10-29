@@ -108,6 +108,14 @@ export interface BackendModelInfo {
    * false → paid model while over/unset; not usable until budget is restored.
    */
   hasBudget?: boolean;
+  /** USD per 1M input tokens from Hub catalog; null when unset. */
+  inputPrice?: number | null;
+  /** USD per 1M output tokens from Hub catalog; null when unset. */
+  outputPrice?: number | null;
+  /** USD per 1M cache-read tokens from Hub catalog; null when unset. */
+  cacheReadPrice?: number | null;
+  /** USD per 1M cache-write tokens from Hub catalog; null when unset. */
+  cacheWritePrice?: number | null;
 }
 
 const PROFILE_KEY_TO_BACKEND_PROVIDER: Record<string, BackendCloudProvider> = {

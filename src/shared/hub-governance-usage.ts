@@ -3,11 +3,76 @@
  * Safe to import from MCP subprocesses.
  */
 
-import { computeModelUsageCost, DEFAULT_MODEL_PRICING, resolveModelPricing } from './model-pricing';
+import {
+  computeModelUsageCost,
+  replaceHubModelPricingFromPayload,
+  resolveModelPricing,
+} from './model-pricing';
 
 export const HUB_USAGE_SOURCE = 'vecos';
 export const HUB_USAGE_FEATURE_DEFAULT = 'chat';
 export const HUB_USAGE_PATH = '/api/ai-governance/usage';
+export const HUB_MODELS_PATH = '/api/ai-governance/models';
+
+const HUB_PRICING_CACHE_TTL_MS = 5 * 60 * 1000;
+let hubPricingFetchedAt = 0;
+let hubPricingInflight: Promise<void> | null = null;
+
+/**
+ * Lazily GET Hub catalog prices into the in-memory map (MCP / bearer-token path).
+ * Cached for a few minutes; failures are swallowed so usage POST can still proceed.
+ */
+export async function ensureHubModelPricingLoaded(input: {
+  hubApiUrl: string;
+  accessToken: string;
+  fetchFn?: typeof fetch;
+  forceRefresh?: boolean;
+}): Promise<void> {
+  const token = (input.accessToken || '').trim();
+  const base = (input.hubApiUrl || '').replace(/\/$/, '');
+  if (!token || !base) return;
+  if (!input.forceRefresh && Date.now() - hubPricingFetchedAt < HUB_PRICING_CACHE_TTL_MS) {
+    return;
+  }
+  if (hubPricingInflight) {
+    await hubPricingInflight;
+    return;
+  }
+
+  const fetchFn = input.fetchFn ?? fetch;
+  hubPricingInflight = (async () => {
+    try {
+      const res = await fetchFn(`${base}${HUB_MODELS_PATH}`, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/json',
+        },
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!res.ok) return;
+      let json: unknown = null;
+      try {
+        json = await res.json();
+      } catch {
+        return;
+      }
+      replaceHubModelPricingFromPayload(json);
+      hubPricingFetchedAt = Date.now();
+    } catch {
+      /* swallow — usage POST may still send tokens without cost */
+    } finally {
+      hubPricingInflight = null;
+    }
+  })();
+  await hubPricingInflight;
+}
+
+/** Reset MCP pricing fetch cache (tests). */
+export function clearHubModelPricingFetchCache(): void {
+  hubPricingFetchedAt = 0;
+  hubPricingInflight = null;
+}
 
 /** Request body for POST /api/ai-governance/usage (apidoc sample). */
 export interface HubGovernanceUsagePayload {
@@ -168,7 +233,8 @@ export function buildHubUsagePayloadFromPiUsage(
       : undefined);
 
   // Hub budgets sum `cost` only; synthetic pi models (not in the registry) report 0.
-  let costSource: 'list_price' | 'default_price' | undefined;
+  // Prefer Hub catalog rates; omit cost when the model has no catalog price.
+  let costSource: 'hub_price' | undefined;
   const billableTokens =
     (promptTokens ?? 0) +
     (completionTokens ?? 0) +
@@ -176,19 +242,21 @@ export function buildHubUsagePayloadFromPiUsage(
     (cacheWrite ?? 0) +
     (imageInputTokens ?? 0);
   if (!(totalCost !== undefined && totalCost > 0) && billableTokens > 0) {
-    const listPricing = resolveModelPricing(provider, modelId);
-    const computed = computeModelUsageCost(listPricing ?? DEFAULT_MODEL_PRICING, {
-      input: promptTokens,
-      output: completionTokens,
-      cacheRead,
-      cacheWrite,
-      imageInput: imageInputTokens,
-    });
-    totalCost = computed.total;
-    inputCost = computed.input;
-    outputCost = computed.output;
-    cachedCost = computed.cached > 0 ? computed.cached : undefined;
-    costSource = listPricing ? 'list_price' : 'default_price';
+    const hubPricing = resolveModelPricing(provider, modelId);
+    if (hubPricing) {
+      const computed = computeModelUsageCost(hubPricing, {
+        input: promptTokens,
+        output: completionTokens,
+        cacheRead,
+        cacheWrite,
+        imageInput: imageInputTokens,
+      });
+      totalCost = computed.total;
+      inputCost = computed.input;
+      outputCost = computed.output;
+      cachedCost = computed.cached > 0 ? computed.cached : undefined;
+      costSource = 'hub_price';
+    }
   }
 
   const hasTokens =
@@ -303,6 +371,7 @@ export function extractVisionApiUsage(raw: unknown): Record<string, number> | nu
 
 /**
  * Fire-and-forget Hub usage POST using an explicit bearer token (MCP-safe).
+ * Loads Hub catalog prices first so synthetic zero-cost models can be priced.
  * No-ops when token/url missing or payload cannot be built.
  */
 export function reportHubUsageWithBearerToken(input: {
@@ -315,20 +384,26 @@ export function reportHubUsageWithBearerToken(input: {
   const base = (input.hubApiUrl || '').replace(/\/$/, '');
   if (!token || !base) return;
 
-  const payload = buildHubUsagePayloadFromPiUsage(input.build);
-  if (!payload) return;
-
   const fetchFn = input.fetchFn ?? fetch;
-  void fetchFn(`${base}${HUB_USAGE_PATH}`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(payload),
-    signal: AbortSignal.timeout(8000),
-  }).catch(() => {
+  void (async () => {
+    await ensureHubModelPricingLoaded({
+      hubApiUrl: base,
+      accessToken: token,
+      fetchFn,
+    });
+    const payload = buildHubUsagePayloadFromPiUsage(input.build);
+    if (!payload) return;
+    await fetchFn(`${base}${HUB_USAGE_PATH}`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(8000),
+    });
+  })().catch(() => {
     /* swallow — never block callers */
   });
 }

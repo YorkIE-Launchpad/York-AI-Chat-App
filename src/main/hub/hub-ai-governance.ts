@@ -26,6 +26,7 @@ import {
   type HubGovernanceUsageIngestResult,
   type HubGovernanceUsagePayload,
 } from '../../shared/hub-governance-usage';
+import { replaceHubModelPricing } from '../../shared/model-pricing';
 import { ensureAuthenticatedSession } from '../auth/session';
 import { log, logWarn } from '../utils/logger';
 
@@ -98,6 +99,8 @@ interface AllowedCacheEntry {
 
 const modelsCache = new Map<string, ModelsCacheEntry>();
 const allowedCacheMap = new Map<string, AllowedCacheEntry>();
+/** Last non-empty full Hub catalog (pre-allowlist), for pricing soft-fail. */
+let lastGoodCatalog: BackendModelInfo[] = [];
 let userBudgetCache: {
   email: string;
   data: HubUserAiBudgetSnapshot;
@@ -120,8 +123,28 @@ function allowedCacheKey(email: string, usable: boolean): string {
 export function clearHubGovernanceModelsCache(): void {
   modelsCache.clear();
   allowedCacheMap.clear();
+  lastGoodCatalog = [];
   userBudgetCache = null;
   projectBudgetCache = null;
+}
+
+/** Index Hub catalog rates for usage cost (full catalog, before allowlist join). */
+function indexHubCatalogPricing(catalog: BackendModelInfo[]): void {
+  if (catalog.length > 0) {
+    lastGoodCatalog = catalog;
+  }
+  const source = catalog.length > 0 ? catalog : lastGoodCatalog;
+  if (source.length === 0) return;
+  replaceHubModelPricing(
+    source.map((m) => ({
+      id: m.id,
+      provider: m.provider,
+      inputPrice: m.inputPrice,
+      outputPrice: m.outputPrice,
+      cacheReadPrice: m.cacheReadPrice,
+      cacheWritePrice: m.cacheWritePrice,
+    }))
+  );
 }
 
 /** Last non-empty cached picker list (any usable key), for soft-fail on Hub errors. */
@@ -162,6 +185,20 @@ function booleanField(row: Record<string, unknown>, ...keys: string[]): boolean 
   for (const key of keys) {
     const value = row[key];
     if (typeof value === 'boolean') return value;
+  }
+  return undefined;
+}
+
+/** number | null when a key is present; undefined when none of the keys exist. */
+function nullableNumberField(
+  row: Record<string, unknown>,
+  ...keys: string[]
+): number | null | undefined {
+  for (const key of keys) {
+    if (!(key in row)) continue;
+    const value = row[key];
+    if (value === null) return null;
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
   }
   return undefined;
 }
@@ -212,6 +249,10 @@ export function parseHubGovernanceModels(payload: unknown): BackendModelInfo[] {
 
     const isFree = booleanField(row, 'is_free', 'isFree');
     const isDefaultActive = booleanField(row, 'is_default_active', 'isDefaultActive');
+    const inputPrice = nullableNumberField(row, 'input_price', 'inputPrice');
+    const outputPrice = nullableNumberField(row, 'output_price', 'outputPrice');
+    const cacheReadPrice = nullableNumberField(row, 'cache_read_price', 'cacheReadPrice');
+    const cacheWritePrice = nullableNumberField(row, 'cache_write_price', 'cacheWritePrice');
 
     models.push({
       id,
@@ -219,6 +260,10 @@ export function parseHubGovernanceModels(payload: unknown): BackendModelInfo[] {
       provider: providerRaw,
       ...(isFree !== undefined ? { isFree } : {}),
       ...(isDefaultActive !== undefined ? { isDefaultActive } : {}),
+      ...(inputPrice !== undefined ? { inputPrice } : {}),
+      ...(outputPrice !== undefined ? { outputPrice } : {}),
+      ...(cacheReadPrice !== undefined ? { cacheReadPrice } : {}),
+      ...(cacheWritePrice !== undefined ? { cacheWritePrice } : {}),
     });
   }
 
@@ -431,7 +476,14 @@ export async function fetchHubGovernanceModelsForToken(input: {
   }
 
   if (result.ok && isSuccessEnvelope(result.json)) {
-    return parseHubGovernanceModels(result.json);
+    const models = parseHubGovernanceModels(result.json);
+    indexHubCatalogPricing(models);
+    return models;
+  }
+
+  // Soft-fail pricing: keep last-good catalog rates indexed when Hub is unreachable.
+  if (lastGoodCatalog.length > 0) {
+    indexHubCatalogPricing(lastGoodCatalog);
   }
 
   throw new HubAiGovernanceError(
@@ -668,6 +720,8 @@ export async function fetchHubGovernanceModels(options?: {
   const key = modelsCacheKey(usable);
   const cached = modelsCache.get(key);
   if (!options?.forceRefresh && cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
+    // Keep pricing map warm even when the picker list is served from cache.
+    if (lastGoodCatalog.length > 0) indexHubCatalogPricing(lastGoodCatalog);
     return cached.models;
   }
 
@@ -845,14 +899,20 @@ function logUsagePostFailure(error: unknown): void {
 const unpricedModelsWarned = new Set<string>();
 
 function warnIfUnpriced(payload: HubGovernanceUsagePayload): void {
-  if (payload.metadata?.cost_source !== 'default_price') return;
+  const billable =
+    (payload.prompt_tokens ?? 0) +
+    (payload.completion_tokens ?? 0) +
+    (payload.cached_tokens ?? 0) +
+    (payload.image_tokens ?? 0);
+  if (billable <= 0) return;
+  if (payload.cost !== undefined && payload.cost !== null) return;
   const key = `${payload.provider}/${payload.model_id}`;
   if (unpricedModelsWarned.has(key)) return;
   unpricedModelsWarned.add(key);
   logWarn(
-    '[HubAiGovernance] No list price for',
+    '[HubAiGovernance] No Hub catalog price for',
     key,
-    '— charging default claude-opus-4.5 rates; add it to PRICING_SNAPSHOT'
+    '— posting tokens without cost; set rates on the org AI model in Hub'
   );
 }
 

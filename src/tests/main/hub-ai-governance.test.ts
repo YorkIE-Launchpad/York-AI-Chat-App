@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   buildHubUsagePayloadFromPiUsage,
   clearHubGovernanceModelsCache,
@@ -18,6 +18,8 @@ import {
   postHubGovernanceUsageForToken,
   reportMcpVisionUsageViaEnv,
 } from '../../main/hub/hub-ai-governance';
+import { clearHubModelPricing, replaceHubModelPricing } from '../../shared/model-pricing';
+import { clearHubModelPricingFetchCache } from '../../shared/hub-governance-usage';
 
 vi.mock('../../shared/auth-config', () => ({
   authConfig: {
@@ -45,6 +47,10 @@ describe('parseHubGovernanceModels', () => {
             provider: 'openai',
             is_default_active: true,
             is_free: false,
+            input_price: 2.5,
+            output_price: 10,
+            cache_read_price: 0.25,
+            cache_write_price: null,
           },
           {
             id: 'claude-sonnet-4',
@@ -52,6 +58,10 @@ describe('parseHubGovernanceModels', () => {
             provider: 'anthropic',
             is_default_active: false,
             is_free: true,
+            input_price: null,
+            output_price: null,
+            cache_read_price: null,
+            cache_write_price: null,
           },
         ],
       },
@@ -66,6 +76,10 @@ describe('parseHubGovernanceModels', () => {
         provider: 'openai',
         isFree: false,
         isDefaultActive: true,
+        inputPrice: 2.5,
+        outputPrice: 10,
+        cacheReadPrice: 0.25,
+        cacheWritePrice: null,
       },
       {
         id: 'claude-sonnet-4',
@@ -73,6 +87,10 @@ describe('parseHubGovernanceModels', () => {
         provider: 'anthropic',
         isFree: true,
         isDefaultActive: false,
+        inputPrice: null,
+        outputPrice: null,
+        cacheReadPrice: null,
+        cacheWritePrice: null,
       },
     ]);
   });
@@ -367,6 +385,7 @@ describe('joinCatalogWithAllowedModels', () => {
 describe('fetchHubGovernanceModelsForToken', () => {
   afterEach(() => {
     clearHubGovernanceModelsCache();
+    clearHubModelPricing();
   });
 
   it('fetches and parses models via Hub GET', async () => {
@@ -376,7 +395,17 @@ describe('fetchHubGovernanceModelsForToken', () => {
       json: async () => ({
         success: true,
         data: {
-          models: [{ id: 'gpt-4o', name: 'GPT-4o', provider: 'openai' }],
+          models: [
+            {
+              id: 'gpt-4o',
+              name: 'GPT-4o',
+              provider: 'openai',
+              input_price: 2.5,
+              output_price: 10,
+              cache_read_price: 0.25,
+              cache_write_price: null,
+            },
+          ],
         },
       }),
     })) as unknown as typeof fetch;
@@ -386,7 +415,17 @@ describe('fetchHubGovernanceModelsForToken', () => {
       fetchFn,
     });
 
-    expect(models).toEqual([{ id: 'gpt-4o', name: 'GPT-4o', provider: 'openai' }]);
+    expect(models).toEqual([
+      {
+        id: 'gpt-4o',
+        name: 'GPT-4o',
+        provider: 'openai',
+        inputPrice: 2.5,
+        outputPrice: 10,
+        cacheReadPrice: 0.25,
+        cacheWritePrice: null,
+      },
+    ]);
     expect(fetchFn).toHaveBeenCalledWith(
       'https://api.hub.test/api/ai-governance/models',
       expect.objectContaining({
@@ -650,6 +689,31 @@ describe('fetchProjectAiBudgetForToken', () => {
 });
 
 describe('buildHubUsagePayloadFromPiUsage', () => {
+  beforeEach(() => {
+    clearHubModelPricing();
+    replaceHubModelPricing([
+      {
+        id: 'claude-opus-4.8',
+        provider: 'anthropic',
+        inputPrice: 5,
+        outputPrice: 25,
+        cacheReadPrice: 0.5,
+        cacheWritePrice: 6.25,
+      },
+      {
+        id: 'gpt-image-2.5-sunburst',
+        provider: 'openai',
+        inputPrice: 5,
+        outputPrice: 30,
+        cacheReadPrice: 1.25,
+      },
+    ]);
+  });
+
+  afterEach(() => {
+    clearHubModelPricing();
+  });
+
   it('maps tokens, cost, session, and project from pi-ai usage', () => {
     const payload = buildHubUsagePayloadFromPiUsage({
       modelId: 'claude-sonnet-4',
@@ -731,9 +795,11 @@ describe('buildHubUsagePayloadFromPiUsage', () => {
       total_tokens: 15,
       metadata: { workspace: 'general' },
     });
+    // No Hub catalog price → tokens only, no invented cost.
+    expect(payload?.cost).toBeUndefined();
   });
 
-  it('prices synthetic-model usage (cost 0) from list prices', () => {
+  it('prices synthetic-model usage (cost 0) from Hub catalog rates', () => {
     const payload = buildHubUsagePayloadFromPiUsage({
       modelId: 'claude-opus-4-8',
       provider: 'anthropic',
@@ -751,20 +817,10 @@ describe('buildHubUsagePayloadFromPiUsage', () => {
     expect(payload?.output_cost).toBeCloseTo(2.5);
     expect(payload?.cached_cost).toBeCloseTo(0.5);
     expect(payload?.cost).toBeCloseTo(8);
-    expect(payload?.metadata).toMatchObject({ cost_source: 'list_price' });
+    expect(payload?.metadata).toMatchObject({ cost_source: 'hub_price' });
   });
 
-  it('applies long-context tier', () => {
-    const long = buildHubUsagePayloadFromPiUsage({
-      modelId: 'gpt-5.6-luna',
-      provider: 'openai',
-      sessionId: 's1',
-      usage: { input: 300_000, output: 0 },
-    });
-    expect(long?.cost).toBeCloseTo(0.12);
-  });
-
-  it('prices gpt-image-2.5 edits with separate text/image input rates', () => {
+  it('prices gpt-image edits with image tokens at the Hub input rate', () => {
     const payload = buildHubUsagePayloadFromPiUsage({
       modelId: 'gpt-image-2.5-sunburst-2026-09-08',
       provider: 'openai',
@@ -783,22 +839,25 @@ describe('buildHubUsagePayloadFromPiUsage', () => {
       completion_tokens: 100_000,
       total_tokens: 1_600_000,
     });
-    // text 0.5M×$5 + image 1M×$8 + output 0.1M×$30
-    expect(payload?.input_cost).toBeCloseTo(10.5);
+    // text 0.5M×$5 + image 1M×$5 + output 0.1M×$30
+    expect(payload?.input_cost).toBeCloseTo(7.5);
     expect(payload?.output_cost).toBeCloseTo(3);
-    expect(payload?.cost).toBeCloseTo(13.5);
+    expect(payload?.cost).toBeCloseTo(10.5);
+    expect(payload?.metadata).toMatchObject({ cost_source: 'hub_price' });
   });
 
-  it('charges unknown models at default claude-opus-4.5 rates', () => {
+  it('omits cost for unknown models with no Hub catalog price', () => {
     const payload = buildHubUsagePayloadFromPiUsage({
       modelId: 'mystery-model-9',
       provider: 'custom',
       sessionId: 's1',
       usage: { input: 1_000_000, output: 100_000, cacheRead: 1_000_000, cacheWrite: 100_000 },
     });
-    // 1M×$5 + 0.1M×$25 + 1M×$0.5 + 0.1M×$6.25
-    expect(payload?.cost).toBeCloseTo(8.625);
-    expect(payload?.metadata).toMatchObject({ cost_source: 'default_price' });
+    expect(payload?.prompt_tokens).toBe(1_000_000);
+    expect(payload?.completion_tokens).toBe(100_000);
+    expect(payload?.cost).toBeUndefined();
+    expect(payload?.input_cost).toBeUndefined();
+    expect(payload?.metadata?.cost_source).toBeUndefined();
   });
 
   it('keeps pi-reported cost when non-zero', () => {
@@ -875,15 +934,42 @@ describe('extractVisionApiUsage', () => {
 });
 
 describe('reportMcpVisionUsageViaEnv', () => {
-  it('POSTs mcp_vision usage when token and hub url are provided', async () => {
-    const fetchFn = vi.fn(
-      async (_input: RequestInfo | URL, _init?: RequestInit) =>
-        ({
+  afterEach(() => {
+    clearHubModelPricing();
+    clearHubModelPricingFetchCache();
+  });
+
+  it('loads Hub catalog prices then POSTs mcp_vision usage', async () => {
+    const fetchFn = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/api/ai-governance/models')) {
+        return {
           ok: true,
           status: 200,
-          json: async () => ({ success: true }),
-        }) as Response
-    );
+          json: async () => ({
+            success: true,
+            data: {
+              models: [
+                {
+                  id: 'claude-sonnet-4-6',
+                  name: 'Claude Sonnet 4.6',
+                  provider: 'anthropic',
+                  input_price: 3,
+                  output_price: 15,
+                  cache_read_price: 0.3,
+                  cache_write_price: 3.75,
+                },
+              ],
+            },
+          }),
+        } as Response;
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ success: true }),
+      } as Response;
+    });
 
     reportMcpVisionUsageViaEnv({
       modelId: 'claude-sonnet-4-6',
@@ -896,7 +982,21 @@ describe('reportMcpVisionUsageViaEnv', () => {
       fetchFn,
     });
 
-    await vi.waitFor(() => expect(fetchFn).toHaveBeenCalled());
+    await vi.waitFor(() =>
+      expect(fetchFn).toHaveBeenCalledWith(
+        'https://api.hub.test/api/ai-governance/usage',
+        expect.anything()
+      )
+    );
+    expect(fetchFn).toHaveBeenCalledWith(
+      'https://api.hub.test/api/ai-governance/models',
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer vision-token',
+        }),
+      })
+    );
     expect(fetchFn).toHaveBeenCalledWith(
       'https://api.hub.test/api/ai-governance/usage',
       expect.objectContaining({
@@ -906,7 +1006,10 @@ describe('reportMcpVisionUsageViaEnv', () => {
         }),
       })
     );
-    const requestInit = fetchFn.mock.calls[0]?.[1] as unknown as { body: string };
+    const usageCall = fetchFn.mock.calls.find(([url]) =>
+      String(url).endsWith('/api/ai-governance/usage')
+    );
+    const requestInit = usageCall?.[1] as unknown as { body: string };
     const body = JSON.parse(requestInit.body);
     expect(body).toMatchObject({
       feature: 'mcp_vision',
@@ -914,8 +1017,10 @@ describe('reportMcpVisionUsageViaEnv', () => {
       provider: 'anthropic',
       prompt_tokens: 40,
       completion_tokens: 8,
-      metadata: { vision_function: 'planGUIActions' },
+      metadata: { vision_function: 'planGUIActions', cost_source: 'hub_price' },
     });
+    // 40×$3/1M + 8×$15/1M
+    expect(body.cost).toBeCloseTo(0.00024);
   });
 });
 
