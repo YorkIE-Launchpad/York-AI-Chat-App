@@ -10,7 +10,7 @@ import { log, logWarn } from '../utils/logger';
 export function getClientAppVersion(): string {
   try {
     // Lazy require avoids hard failure in unit tests without electron.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
     const { app } = require('electron') as typeof import('electron');
     if (app && typeof app.getVersion === 'function') {
       const v = app.getVersion()?.trim();
