@@ -125,6 +125,7 @@ export async function maybeIngestConnectorToolResult(
         typeof payload.coreValue === 'string' && payload.coreValue.trim()
           ? payload.coreValue
           : undefined,
+      sessionId: logStorage.getStore()?.sessionId,
     });
     try {
       wikiIngest?.({

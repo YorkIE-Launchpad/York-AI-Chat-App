@@ -43,14 +43,19 @@ const mockConfigState = vi.hoisted(() => ({
   } as Record<string, unknown>,
 }));
 
-vi.mock('electron', () => ({
-  app: {
-    isPackaged: false,
-    getPath: () => '/tmp',
-    getVersion: () => '0.0.0-test',
-    getAppPath: () => '/tmp/york-ie-test-app',
-  },
-}));
+vi.mock('electron', () => {
+  const electron = {
+    app: {
+      isPackaged: false,
+      getPath: () => '/tmp',
+      getVersion: () => '0.0.0-test',
+      getAppPath: () => '/tmp/york-ie-test-app',
+    },
+    ipcMain: { handle: () => undefined, on: () => undefined },
+    shell: { openExternal: async () => true },
+  };
+  return { ...electron, default: electron };
+});
 
 vi.mock('../../main/config/config-store', () => {
   const configStore = {
@@ -335,6 +340,9 @@ describe('memory smoke harness', () => {
         title: 'Gateway implementation',
         status: 'idle',
         cwd: workspaceA,
+        division: 'project',
+        hubProjectId: 'project-a',
+        hubProjectName: 'Workspace A',
         mountedPaths: [],
         allowedTools: [],
         memoryEnabled: true,
@@ -364,6 +372,9 @@ describe('memory smoke harness', () => {
         title: 'Other workspace',
         status: 'idle',
         cwd: workspaceB,
+        division: 'project',
+        hubProjectId: 'project-b',
+        hubProjectName: 'Workspace B',
         mountedPaths: [],
         allowedTools: [],
         memoryEnabled: true,
@@ -378,19 +389,19 @@ describe('memory smoke harness', () => {
     });
 
     const sameWorkspacePrompt = await service.buildPromptPrefix(
-      { cwd: workspaceA },
+      { division: 'project', hubProjectId: 'project-a', hubProjectName: 'Workspace A' },
       'Continue gateway token rotation'
     );
     const otherWorkspacePrompt = await service.buildPromptPrefix(
-      { cwd: workspaceB },
+      { division: 'project', hubProjectId: 'project-b', hubProjectName: 'Workspace B' },
       'Continue gateway token rotation'
     );
 
     expect(sameWorkspacePrompt).toContain('gateway token rotation');
     expect(sameWorkspacePrompt).toContain('<experience_memory');
-    expect(otherWorkspacePrompt).toContain('workspace A');
-    expect(otherWorkspacePrompt).toContain('source=/repo/workspace-a');
-    expect(otherWorkspacePrompt).toContain('<core_memory>');
+    expect(sameWorkspacePrompt).toContain('source=vecos://project/project-a');
+    expect(otherWorkspacePrompt).not.toContain('workspace A');
+    expect(otherWorkspacePrompt).not.toContain('source=vecos://project/project-a');
   });
 
   it('keeps the manual live checklist alongside deterministic smoke coverage', async () => {

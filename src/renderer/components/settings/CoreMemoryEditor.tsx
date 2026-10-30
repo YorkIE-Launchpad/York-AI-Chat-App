@@ -7,12 +7,14 @@ import { SettingsContentSection } from './shared';
 
 export function CoreMemoryEditor({
   overview,
+  workspaceKey,
   disabled,
   onChanged,
   onStatus,
 }: {
   /** A new overview means core memory may have changed elsewhere (clear, rebuild). */
   overview: MemoryOverview | null;
+  workspaceKey: string;
   disabled: boolean;
   /** Called after a saved change; refreshing the rest of the page is the caller's job. */
   onChanged: () => void;
@@ -36,7 +38,7 @@ export function CoreMemoryEditor({
 
   useEffect(() => {
     let cancelled = false;
-    window.electronAPI.memory.getCoreEntries().then(
+    window.electronAPI.memory.getCoreEntries(workspaceKey).then(
       (next) => {
         if (cancelled) return;
         setEntries(next);
@@ -49,7 +51,7 @@ export function CoreMemoryEditor({
     return () => {
       cancelled = true;
     };
-  }, [overview, errorText]);
+  }, [overview, errorText, workspaceKey]);
 
   const run = async (action: () => Promise<CoreMemoryListEntry[]>, success: string) => {
     setIsSaving(true);
@@ -115,7 +117,12 @@ export function CoreMemoryEditor({
                     <button
                       onClick={() => {
                         void run(
-                          () => window.electronAPI.memory.writeCoreEntry(entry.combinedKey, draft),
+                          () =>
+                            window.electronAPI.memory.writeCoreEntry(
+                              entry.combinedKey,
+                              draft,
+                              workspaceKey
+                            ),
                           t('memory.coreSaved')
                         );
                       }}
@@ -155,7 +162,11 @@ export function CoreMemoryEditor({
                           return;
                         }
                         void run(
-                          () => window.electronAPI.memory.forgetCoreEntry(entry.combinedKey),
+                          () =>
+                            window.electronAPI.memory.forgetCoreEntry(
+                              entry.combinedKey,
+                              workspaceKey
+                            ),
                           t('memory.coreForgotten')
                         );
                       }}

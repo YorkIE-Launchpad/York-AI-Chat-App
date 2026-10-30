@@ -90,7 +90,11 @@ const DEFAULT_EVAL_CASES: MemoryEvalCase[] = [
         prompt:
           'Continue gateway token rotation and remind me of the key constraints from last time.',
         workspace: '/eval/workspace-a',
-        expectedHits: ['gateway token rotation', 'remote gateway', 'source=/eval/workspace-a'],
+        expectedHits: [
+          'gateway token rotation',
+          'remote gateway',
+          'source=vecos://folder/eval-workspace-a',
+        ],
       },
       {
         id: 'query-a2',
@@ -126,6 +130,20 @@ const DEFAULT_EVAL_CASES: MemoryEvalCase[] = [
     ],
   },
 ];
+
+function folderFieldsForWorkspace(workspace?: string): {
+  division: 'folder';
+  folderId: string;
+  folderName: string;
+} {
+  const folderId =
+    (workspace || 'general').replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, '') || 'general';
+  return {
+    division: 'folder',
+    folderId,
+    folderName: workspace || folderId,
+  };
+}
 
 function createMessages(sessionId: string, messages: MemoryEvalMessage[]) {
   return messages.map((item, index) => ({
@@ -196,6 +214,7 @@ export class MemoryEvalHarness {
           title: testCase.sessionTitle,
           status: 'idle',
           cwd: testCase.workspace,
+          ...folderFieldsForWorkspace(testCase.workspace),
           mountedPaths: [],
           allowedTools: [],
           memoryEnabled: true,
@@ -209,7 +228,7 @@ export class MemoryEvalHarness {
       const queryResults: MemoryEvalQueryResult[] = [];
       for (const query of testCase.queries) {
         const promptPrefix = await this.service.buildPromptPrefix(
-          { cwd: query.workspace || testCase.workspace },
+          folderFieldsForWorkspace(query.workspace || testCase.workspace),
           query.prompt
         );
         const scoring = scorePromptPrefix(

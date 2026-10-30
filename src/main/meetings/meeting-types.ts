@@ -2,12 +2,7 @@ import type { MeetingSttProvider } from '../../shared/meetings/meeting-stt-provi
 
 export type MeetingStatus = 'recording' | 'finalizing' | 'ready' | 'error';
 
-export type RealtimeTranscriptionDelay =
-  | 'minimal'
-  | 'low'
-  | 'medium'
-  | 'high'
-  | 'xhigh';
+export type RealtimeTranscriptionDelay = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
 
 export type MeetingSegmentSource = 'zoom-rtms' | 'local-stt';
 
@@ -40,6 +35,8 @@ export interface MeetingLiveAssist {
 export interface MeetingStartOptions {
   liveAssist?: boolean;
   liveAssistInstructions?: string;
+  /** Division key for the workspace that started capture. */
+  memoryWorkspaceKey?: string;
 }
 
 export interface MeetingLiveAssistStatus {
@@ -67,6 +64,8 @@ export interface MeetingSession {
   zoomMeetingId?: string | null;
   calendarEventId?: string | null;
   liveAssist?: MeetingLiveAssist;
+  /** Workspace division key captured when the meeting started. */
+  memoryWorkspaceKey?: string | null;
 }
 
 export interface MeetingListItem {

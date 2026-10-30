@@ -1,6 +1,7 @@
 /**
  * Workspace divisions: General / Hub / Project / Client / Folder.
- * Chats + experience memory are isolated per division; core memory stays global.
+ * Core memory and experience memory are isolated per division. General is one
+ * workspace, not a shared pool for the others.
  */
 
 import {
@@ -491,6 +492,51 @@ export function divisionMemoryKey(
     return `vecos://client/${clientCanonicalKey(normalized.clientName).replace(/^client:/, '')}`;
   }
   return 'vecos://general';
+}
+
+/** Experience and core memory key for a session, including client identity. */
+export function divisionMemoryKeyFromSession(
+  session: Partial<SessionDivisionFields> | null | undefined
+): string {
+  return divisionMemoryKey({
+    division: parseDivisionKind(session?.division),
+    hubProjectId: session?.hubProjectId,
+    hubProjectName: session?.hubProjectName,
+    launchpadProjectId: session?.launchpadProjectId,
+    launchpadProjectName: session?.launchpadProjectName,
+    folderId: session?.folderId,
+    folderName: session?.folderName,
+    canonicalKey: session?.canonicalKey,
+    clientName: session?.clientName,
+    clientProjectIds: session?.clientProjectIds,
+  });
+}
+
+/** Experience and core memory key for a persisted sessions row. */
+export function divisionMemoryKeyFromSessionRow(row: {
+  division?: string | null;
+  hub_project_id?: string | null;
+  hub_project_name?: string | null;
+  launchpad_project_id?: number | null;
+  launchpad_project_name?: string | null;
+  folder_id?: string | null;
+  folder_name?: string | null;
+  project_canonical_key?: string | null;
+  client_name?: string | null;
+  client_project_ids?: string | null;
+}): string {
+  return divisionMemoryKeyFromSession({
+    division: parseDivisionKind(row.division),
+    hubProjectId: row.hub_project_id,
+    hubProjectName: row.hub_project_name,
+    launchpadProjectId: row.launchpad_project_id,
+    launchpadProjectName: row.launchpad_project_name,
+    folderId: row.folder_id,
+    folderName: row.folder_name,
+    canonicalKey: row.project_canonical_key,
+    clientName: row.client_name,
+    clientProjectIds: row.client_project_ids,
+  });
 }
 
 export function activeDivisionFromSession(

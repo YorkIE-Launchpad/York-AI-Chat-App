@@ -26,7 +26,7 @@ function parseSearchId(id: string): { kind: string; recordId: string } | null {
 export class MemoryRetriever {
   constructor(
     private readonly deps: {
-      getCoreEntries: () => CoreMemoryEntry[];
+      getCoreEntries: (scope: string) => CoreMemoryEntry[];
       getCoreFilePath: () => string;
       getExperienceStore: () => ExperienceMemoryStore;
       getExperienceFilePath: () => string;
@@ -40,21 +40,17 @@ export class MemoryRetriever {
       return [];
     }
 
-    const defaultWorkspace = normalizeWorkspaceKey(params.workspaceKey ?? params.cwd ?? null);
-    const explicitSourceWorkspace =
-      params.sourceWorkspace !== undefined ? normalizeWorkspaceKey(params.sourceWorkspace) : null;
-    const scope = params.scope || (defaultWorkspace ? 'workspace' : 'all');
-    const experienceWorkspace =
-      explicitSourceWorkspace ?? (scope === 'workspace' ? defaultWorkspace : null);
+    const workspace = normalizeWorkspaceKey(
+      params.sourceWorkspace ?? params.workspaceKey ?? params.cwd ?? null
+    );
     const limit = Math.min(Math.max(params.limit || 8, 1), 50);
-    const results: MemorySearchResult[] = [];
-
-    if (scope !== 'workspace') {
-      results.push(...this.searchCore(query));
+    if (!workspace) {
+      return [];
     }
-    if (scope !== 'global') {
-      results.push(...this.searchExperience(query, experienceWorkspace));
-    }
+    const results: MemorySearchResult[] = [
+      ...this.searchCore(query, workspace),
+      ...this.searchExperience(query, workspace),
+    ];
 
     return results
       .sort(
@@ -69,7 +65,15 @@ export class MemoryRetriever {
       return null;
     }
     if (parsed.kind === 'core') {
-      return this.readCore(parsed.recordId);
+      const scopeSeparator = parsed.recordId.indexOf('|');
+      const scope =
+        scopeSeparator > 0 ? decodeURIComponent(parsed.recordId.slice(0, scopeSeparator)) : '';
+      const combinedKey =
+        scopeSeparator > 0 ? parsed.recordId.slice(scopeSeparator + 1) : parsed.recordId;
+      if (!scope) {
+        return null;
+      }
+      return this.readCore(combinedKey, scope);
     }
 
     const store = this.deps.getExperienceStore();
@@ -141,16 +145,16 @@ export class MemoryRetriever {
     };
   }
 
-  private searchCore(query: string): MemorySearchResult[] {
+  private searchCore(query: string, scope: string): MemorySearchResult[] {
     return this.deps
-      .getCoreEntries()
+      .getCoreEntries(scope)
       .map((entry): MemorySearchResult | null => {
         const score = lexicalScore(query, `${entry.combinedKey} ${entry.value}`);
         if (score <= 0) {
           return null;
         }
         return {
-          id: buildSearchId('core', entry.combinedKey),
+          id: buildSearchId('core', `${encodeURIComponent(scope)}|${entry.combinedKey}`),
           recordId: entry.combinedKey,
           kind: 'core',
           title: entry.combinedKey,
@@ -166,12 +170,12 @@ export class MemoryRetriever {
       .filter((item): item is MemorySearchResult => Boolean(item));
   }
 
-  private searchExperience(query: string, sourceWorkspace: string | null): MemorySearchResult[] {
+  private searchExperience(query: string, sourceWorkspace: string): MemorySearchResult[] {
     const store = this.deps.getExperienceStore();
     const results: MemorySearchResult[] = [];
 
     for (const item of store.sessions) {
-      if (sourceWorkspace && item.sourceWorkspace !== sourceWorkspace) {
+      if (item.sourceWorkspace !== sourceWorkspace) {
         continue;
       }
       const score = lexicalScore(query, [item.summary, ...item.keywords].join(' '));
@@ -182,7 +186,7 @@ export class MemoryRetriever {
     }
 
     for (const item of store.chunks) {
-      if (sourceWorkspace && item.sourceWorkspace !== sourceWorkspace) {
+      if (item.sourceWorkspace !== sourceWorkspace) {
         continue;
       }
       const score = lexicalScore(
@@ -243,13 +247,13 @@ export class MemoryRetriever {
     };
   }
 
-  private readCore(combinedKey: string): MemoryReadResult | null {
-    const entry = this.deps.getCoreEntries().find((item) => item.combinedKey === combinedKey);
+  private readCore(combinedKey: string, scope: string): MemoryReadResult | null {
+    const entry = this.deps.getCoreEntries(scope).find((item) => item.combinedKey === combinedKey);
     if (!entry) {
       return null;
     }
     return {
-      id: buildSearchId('core', entry.combinedKey),
+      id: buildSearchId('core', `${encodeURIComponent(scope)}|${entry.combinedKey}`),
       recordId: entry.combinedKey,
       kind: 'core',
       title: entry.combinedKey,

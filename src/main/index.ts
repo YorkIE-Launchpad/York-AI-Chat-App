@@ -6828,32 +6828,35 @@ ipcMain.handle('memory.clearWorkspace', (_event, cwd: string) => {
   return memoryService.clearWorkspace(cwd);
 });
 
-ipcMain.handle('memory.clearCoreMemory', () => {
+ipcMain.handle('memory.clearCoreMemory', (_event, workspaceKey?: string) => {
   if (!memoryService) {
     throw new Error('Memory service not initialized');
   }
-  return memoryService.clearCoreMemory();
+  return memoryService.clearCoreMemory(workspaceKey);
 });
 
-ipcMain.handle('memory.getCoreEntries', () => {
+ipcMain.handle('memory.getCoreEntries', (_event, workspaceKey?: string) => {
   if (!memoryService) {
     throw new Error('Memory service not initialized');
   }
-  return memoryService.getCoreEntries();
+  return memoryService.getCoreEntries(workspaceKey);
 });
 
-ipcMain.handle('memory.writeCoreEntry', (_event, combinedKey: string, value: string) => {
-  if (!memoryService) {
-    throw new Error('Memory service not initialized');
+ipcMain.handle(
+  'memory.writeCoreEntry',
+  (_event, combinedKey: string, value: string, workspaceKey?: string) => {
+    if (!memoryService) {
+      throw new Error('Memory service not initialized');
+    }
+    return memoryService.writeCoreEntry(combinedKey, value, workspaceKey);
   }
-  return memoryService.writeCoreEntry(combinedKey, value);
-});
+);
 
-ipcMain.handle('memory.forgetCoreEntry', (_event, combinedKey: string) => {
+ipcMain.handle('memory.forgetCoreEntry', (_event, combinedKey: string, workspaceKey?: string) => {
   if (!memoryService) {
     throw new Error('Memory service not initialized');
   }
-  return memoryService.forgetCoreEntry(combinedKey);
+  return memoryService.forgetCoreEntry(combinedKey, workspaceKey);
 });
 
 ipcMain.handle('memory.forgetSession', (_event, sessionId: string) => {
@@ -7218,7 +7221,7 @@ ipcMain.handle(
   async (
     _event,
     title?: string,
-    options?: { liveAssist?: boolean; liveAssistInstructions?: string }
+    options?: { liveAssist?: boolean; liveAssistInstructions?: string; memoryWorkspaceKey?: string }
   ) => {
     if (!meetingService) {
       throw new Error('Meeting service not initialized');

@@ -1142,6 +1142,7 @@ export interface MeetingLiveAssist {
 export interface MeetingStartOptions {
   liveAssist?: boolean;
   liveAssistInstructions?: string;
+  memoryWorkspaceKey?: string;
 }
 
 export interface MeetingLiveAssistStatus {

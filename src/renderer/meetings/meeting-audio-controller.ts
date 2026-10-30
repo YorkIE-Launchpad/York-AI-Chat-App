@@ -1,4 +1,9 @@
 import type { MeetingSession, MeetingStartOptions } from '../types';
+import { useAppStore } from '../store';
+import {
+  divisionMemoryKey,
+  sessionFieldsFromActiveDivision,
+} from '../../shared/workspace-division';
 import { MeetingAudioCapture, type MeetingAudioLevelListener } from './MeetingAudioCapture';
 
 const capture = new MeetingAudioCapture();
@@ -63,7 +68,14 @@ export async function startMeetingCapture(
   }
   startInFlight = true;
   try {
-    const meeting = await window.electronAPI.meetings.start(title, options);
+    const activeDivision = useAppStore.getState().activeDivision;
+    const memoryWorkspaceKey = activeDivision
+      ? divisionMemoryKey(sessionFieldsFromActiveDivision(activeDivision))
+      : undefined;
+    const meeting = await window.electronAPI.meetings.start(title, {
+      ...options,
+      memoryWorkspaceKey: options?.memoryWorkspaceKey ?? memoryWorkspaceKey,
+    });
     await capture.start(meeting.id);
 
     clearRealtimeListeners();

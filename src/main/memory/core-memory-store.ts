@@ -11,17 +11,29 @@ import {
   saveJsonFile,
 } from './memory-utils';
 
+/** Core memory for a chat with no division fields. Not a shared pool. */
+export const DEFAULT_CORE_MEMORY_SCOPE = 'vecos://general';
+
 /**
- * core_memory.json. Entries and the user's corrections from Settings are
- * saved together in one atomic write: written entries keep the user's value,
- * and forgotten keys are not extracted again. Before version 2 the file held
- * only the entries.
+ * core_memory.json version 3. Each workspace division has its own entries,
+ * user-written corrections, and forgotten keys. Version 2 was one global map
+ * and is not loaded: those entries had no workspace and cannot be split.
  */
-interface CoreMemoryFile {
-  version: 2;
+interface CoreMemoryScopeFile {
   entries: Record<string, string>;
   written: Record<string, string>;
   forgotten: string[];
+}
+
+interface CoreMemoryFile {
+  version: 3;
+  scopes: Record<string, CoreMemoryScopeFile>;
+}
+
+interface ScopeBucket {
+  memory: Record<string, string>;
+  written: Record<string, string>;
+  forgotten: Set<string>;
 }
 
 /** The file can be edited by hand, so keys and values are trimmed and blank ones dropped. */
@@ -45,39 +57,60 @@ function normalizeKeys(value: unknown): string[] {
     : [];
 }
 
+function emptyBucket(): ScopeBucket {
+  return { memory: {}, written: {}, forgotten: new Set() };
+}
+
 export class CoreMemoryStore {
-  private readonly memory: Record<string, string>;
-  private readonly written: Record<string, string>;
-  private readonly forgotten: Set<string>;
+  private readonly scopes = new Map<string, ScopeBucket>();
 
   constructor(
     private readonly filePath: string,
     private readonly maxItems = 24
   ) {
     const raw = loadJsonFile<Record<string, unknown>>(filePath, {});
-    const file = raw['version'] === 2 ? raw : { entries: raw };
-    this.memory = normalizeValues(file['entries']);
-    this.written = normalizeValues(file['written']);
-    this.forgotten = new Set(normalizeKeys(file['forgotten']));
-    // Every write keeps forgotten keys out of the entries and the written
-    // values in them; a hand-edited file may not, and forgetting wins.
-    for (const key of this.forgotten) {
-      delete this.memory[key];
-      delete this.written[key];
+    if (raw['version'] !== 3 || typeof raw['scopes'] !== 'object' || raw['scopes'] === null) {
+      return;
     }
-    Object.assign(this.memory, this.written);
+    for (const [scope, value] of Object.entries(raw['scopes'] as Record<string, unknown>)) {
+      const key = scope.trim();
+      if (!key || typeof value !== 'object' || value === null) {
+        continue;
+      }
+      const file = value as Record<string, unknown>;
+      const bucket = emptyBucket();
+      bucket.memory = normalizeValues(file['entries']);
+      bucket.written = normalizeValues(file['written']);
+      bucket.forgotten = new Set(normalizeKeys(file['forgotten']));
+      // Every write keeps forgotten keys out of the entries and the written
+      // values in them; a hand-edited file may not, and forgetting wins.
+      for (const forgottenKey of bucket.forgotten) {
+        delete bucket.memory[forgottenKey];
+        delete bucket.written[forgottenKey];
+      }
+      Object.assign(bucket.memory, bucket.written);
+      this.scopes.set(key, bucket);
+    }
   }
 
   getPath(): string {
     return this.filePath;
   }
 
-  getRaw(): Record<string, string> {
-    return { ...this.memory };
+  listScopes(): string[] {
+    return [...this.scopes.keys()];
   }
 
-  getEntries(): CoreMemoryEntry[] {
-    return Object.entries(this.memory).map(([combinedKey, value]) => {
+  getRaw(scope = DEFAULT_CORE_MEMORY_SCOPE): Record<string, string> {
+    return { ...(this.peek(scope)?.memory ?? {}) };
+  }
+
+  getEntries(scope = DEFAULT_CORE_MEMORY_SCOPE): CoreMemoryEntry[] {
+    const bucket = this.peek(scope);
+    if (!bucket) {
+      return [];
+    }
+    return Object.entries(bucket.memory).map(([combinedKey, value]) => {
       const parsed = parseCoreCombinedKey(combinedKey);
       return {
         ...parsed,
@@ -86,19 +119,25 @@ export class CoreMemoryStore {
     });
   }
 
-  isUserWritten(combinedKey: string): boolean {
-    return Object.prototype.hasOwnProperty.call(this.written, combinedKey);
+  isUserWritten(combinedKey: string, scope = DEFAULT_CORE_MEMORY_SCOPE): boolean {
+    const bucket = this.peek(scope);
+    return Boolean(bucket && Object.prototype.hasOwnProperty.call(bucket.written, combinedKey));
   }
 
   /** Extraction results; they never touch forgotten keys or user-written entries. */
-  applyActions(actions: CoreMemoryActionInput[]): AppliedCoreMemoryAction[] {
-    const result = applyCoreMemoryActions(this.memory, actions);
-    const nextMemory = { ...result.nextMemory, ...this.written };
-    for (const key of this.forgotten) {
+  applyActions(
+    actions: CoreMemoryActionInput[],
+    scope = DEFAULT_CORE_MEMORY_SCOPE
+  ): AppliedCoreMemoryAction[] {
+    const bucket = this.bucket(scope);
+    const result = applyCoreMemoryActions(bucket.memory, actions);
+    const nextMemory = { ...result.nextMemory, ...bucket.written };
+    for (const key of bucket.forgotten) {
       delete nextMemory[key];
     }
     const applied = result.applied.filter(
-      (action) => !this.forgotten.has(action.combinedKey) && !this.isUserWritten(action.combinedKey)
+      (action) =>
+        !bucket.forgotten.has(action.combinedKey) && !this.isUserWritten(action.combinedKey, scope)
     );
     const appliedKeys = new Set(
       applied
@@ -108,67 +147,102 @@ export class CoreMemoryStore {
     );
     // User-written entries come first so the size limit never drops them.
     const orderedKeys = [
-      ...Object.keys(this.written),
+      ...Object.keys(bucket.written),
       ...appliedKeys,
-      ...Object.keys(nextMemory).filter((key) => !appliedKeys.has(key) && !this.isUserWritten(key)),
+      ...Object.keys(nextMemory).filter(
+        (key) => !appliedKeys.has(key) && !this.isUserWritten(key, scope)
+      ),
     ].slice(0, this.maxItems);
-    for (const key of Object.keys(this.memory)) {
-      delete this.memory[key];
+    for (const key of Object.keys(bucket.memory)) {
+      delete bucket.memory[key];
     }
     for (const key of orderedKeys) {
-      this.memory[key] = nextMemory[key];
+      if (nextMemory[key] !== undefined) {
+        bucket.memory[key] = nextMemory[key];
+      }
     }
     this.save();
     return applied;
   }
 
   /** The user's own value for an entry; extraction and rebuild keep it. */
-  writeEntry(combinedKey: string, value: string): void {
-    this.memory[combinedKey] = value;
-    this.written[combinedKey] = value;
-    this.forgotten.delete(combinedKey);
+  writeEntry(combinedKey: string, value: string, scope = DEFAULT_CORE_MEMORY_SCOPE): void {
+    const bucket = this.bucket(scope);
+    bucket.memory[combinedKey] = value;
+    bucket.written[combinedKey] = value;
+    bucket.forgotten.delete(combinedKey);
     this.save();
   }
 
   /** Removes an entry and keeps extraction from adding it back. */
-  forgetEntry(combinedKey: string): void {
-    delete this.memory[combinedKey];
-    delete this.written[combinedKey];
-    this.forgotten.add(combinedKey);
+  forgetEntry(combinedKey: string, scope = DEFAULT_CORE_MEMORY_SCOPE): void {
+    const bucket = this.bucket(scope);
+    delete bucket.memory[combinedKey];
+    delete bucket.written[combinedKey];
+    bucket.forgotten.add(combinedKey);
     this.save();
   }
 
   /** Drops extracted entries before a rebuild; the user's corrections stay. */
-  clearExtracted(): void {
-    for (const key of Object.keys(this.memory)) {
-      if (!this.isUserWritten(key)) {
-        delete this.memory[key];
+  clearExtracted(scope?: string): void {
+    const scopes = scope ? [this.bucket(scope)] : [...this.scopes.values()];
+    for (const bucket of scopes) {
+      for (const key of Object.keys(bucket.memory)) {
+        if (!Object.prototype.hasOwnProperty.call(bucket.written, key)) {
+          delete bucket.memory[key];
+        }
       }
     }
     this.save();
   }
 
-  clear(): void {
-    for (const key of Object.keys(this.memory)) {
-      delete this.memory[key];
+  /** Clears one workspace, or every workspace when scope is omitted. */
+  clear(scope?: string): void {
+    if (scope) {
+      this.scopes.delete(scope.trim() || DEFAULT_CORE_MEMORY_SCOPE);
+    } else {
+      this.scopes.clear();
     }
-    for (const key of Object.keys(this.written)) {
-      delete this.written[key];
-    }
-    this.forgotten.clear();
     this.save();
   }
 
-  toPromptBlock(): string {
-    return coreMemoryToPromptBlock(this.memory);
+  toPromptBlock(scope = DEFAULT_CORE_MEMORY_SCOPE): string {
+    return coreMemoryToPromptBlock(this.peek(scope)?.memory ?? {});
   }
 
   save(): void {
+    const scopes: Record<string, CoreMemoryScopeFile> = {};
+    for (const [scope, bucket] of this.scopes) {
+      if (
+        !Object.keys(bucket.memory).length &&
+        !Object.keys(bucket.written).length &&
+        bucket.forgotten.size === 0
+      ) {
+        continue;
+      }
+      scopes[scope] = {
+        entries: bucket.memory,
+        written: bucket.written,
+        forgotten: [...bucket.forgotten],
+      };
+    }
     saveJsonFile(this.filePath, {
-      version: 2,
-      entries: this.memory,
-      written: this.written,
-      forgotten: [...this.forgotten],
+      version: 3,
+      scopes,
     } satisfies CoreMemoryFile);
+  }
+
+  private peek(scope?: string): ScopeBucket | undefined {
+    return this.scopes.get(scope?.trim() || DEFAULT_CORE_MEMORY_SCOPE);
+  }
+
+  private bucket(scope?: string): ScopeBucket {
+    const key = scope?.trim() || DEFAULT_CORE_MEMORY_SCOPE;
+    let bucket = this.scopes.get(key);
+    if (!bucket) {
+      bucket = emptyBucket();
+      this.scopes.set(key, bucket);
+    }
+    return bucket;
   }
 }

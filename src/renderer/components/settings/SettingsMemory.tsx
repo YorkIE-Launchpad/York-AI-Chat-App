@@ -8,16 +8,18 @@ import type {
   MemoryReadResult,
   MemoryRuntimeConfig,
   MemorySearchResult,
-  MemorySearchScope,
 } from '../../types';
 import { useAppStore } from '../../store';
 import { stripIpcErrorPrefix } from '../../../shared/ipc-error';
+import {
+  divisionMemoryKeyFromSession,
+  sessionFieldsFromActiveDivision,
+  divisionMemoryKey,
+} from '../../../shared/workspace-division';
 import { CoreMemoryEditor } from './CoreMemoryEditor';
 import { SettingsContentSection } from './shared';
 import { SettingsMemoryWiki } from './SettingsMemoryWiki';
 import { SettingsSummaryTree } from './SettingsSummaryTree';
-
-type SearchMode = 'workspace' | 'all' | 'global';
 
 const DEFAULT_MEMORY_RUNTIME: MemoryRuntimeConfig = {
   llm: {
@@ -70,17 +72,19 @@ export function SettingsMemory() {
   const { t } = useTranslation();
   const activeSessionId = useAppStore((state) => state.activeSessionId);
   const sessions = useAppStore((state) => state.sessions);
-  const workingDir = useAppStore((state) => state.workingDir);
+  const activeDivision = useAppStore((state) => state.activeDivision);
   const appConfig = useAppStore((state) => state.appConfig);
 
   const currentSession = sessions.find((session) => session.id === activeSessionId);
-  const currentWorkspace = currentSession?.cwd || workingDir || '';
+  const currentWorkspace = currentSession
+    ? divisionMemoryKeyFromSession(currentSession)
+    : activeDivision
+      ? divisionMemoryKey(sessionFieldsFromActiveDivision(activeDivision))
+      : divisionMemoryKeyFromSession({ division: 'general' });
   const hasWorkspace = Boolean(currentWorkspace);
 
   const [overview, setOverview] = useState<MemoryOverview | null>(null);
   const [query, setQuery] = useState('');
-  const [scope, setScope] = useState<SearchMode>(currentWorkspace ? 'workspace' : 'all');
-  const [sourceWorkspaceFilter, setSourceWorkspaceFilter] = useState<string>('');
   const [results, setResults] = useState<MemorySearchResult[]>([]);
   const [selected, setSelected] = useState<MemoryReadResult | null>(null);
   const [inspectedSession, setInspectedSession] = useState<MemoryInspectSessionResult | null>(null);
@@ -107,12 +111,6 @@ export function SettingsMemory() {
   useEffect(() => {
     setRuntimeDraft(cloneRuntimeConfig(appConfig?.memoryRuntime));
   }, [appConfig?.memoryRuntime]);
-
-  useEffect(() => {
-    if (!hasWorkspace && scope === 'workspace') {
-      setScope('all');
-    }
-  }, [hasWorkspace, scope]);
 
   const refreshOverview = async () => {
     const nextOverview = await window.electronAPI.memory.getOverview(currentWorkspace || undefined);
@@ -182,12 +180,9 @@ export function SettingsMemory() {
     try {
       const nextResults = await window.electronAPI.memory.search({
         query: trimmed,
-        cwd: hasWorkspace ? currentWorkspace : undefined,
-        scope: scope as MemorySearchScope,
-        sourceWorkspace:
-          scope === 'workspace' && hasWorkspace
-            ? currentWorkspace
-            : sourceWorkspaceFilter || undefined,
+        cwd: currentWorkspace,
+        scope: 'workspace',
+        sourceWorkspace: currentWorkspace,
         limit: 20,
       });
       setResults(nextResults);
@@ -359,7 +354,7 @@ export function SettingsMemory() {
     setIsBusy(true);
     setStatus(null);
     try {
-      await window.electronAPI.memory.clearCoreMemory();
+      await window.electronAPI.memory.clearCoreMemory(currentWorkspace);
       setResults([]);
       setSelected(null);
       await Promise.all([refreshOverview(), refreshFiles()]);
@@ -441,13 +436,8 @@ export function SettingsMemory() {
               label={t('memory.currentWorkspace', 'Current workspace')}
               value={currentWorkspace || t('memory.noWorkspace', 'No workspace')}
               secondary={
-                overview?.topSourceWorkspaces?.length
-                  ? `Top sources: ${overview.topSourceWorkspaces
-                      .slice(0, 3)
-                      .map(
-                        (item) => `${item.workspaceKey} (${item.sessionCount}/${item.chunkCount})`
-                      )
-                      .join(' · ')}`
+                overview?.currentWorkspace
+                  ? `${overview.currentWorkspace.experienceSessionCount} sessions / ${overview.currentWorkspace.experienceChunkCount} chunks`
                   : undefined
               }
             />
@@ -457,6 +447,7 @@ export function SettingsMemory() {
 
       <CoreMemoryEditor
         overview={overview}
+        workspaceKey={currentWorkspace}
         disabled={isBusy}
         onChanged={() => {
           void Promise.all([refreshOverview(), refreshFiles()]).catch((error: unknown) => {
@@ -715,27 +706,6 @@ export function SettingsMemory() {
               placeholder={t('memory.searchPlaceholder')}
               className="min-w-0 w-full flex-1 rounded-lg border border-border bg-background px-3 py-2.5 text-sm text-text-primary outline-none transition-colors focus:border-accent sm:min-w-[12rem]"
             />
-            <select
-              value={scope}
-              onChange={(event) => setScope(event.target.value as SearchMode)}
-              className="min-w-0 w-full shrink-0 rounded-lg border border-border bg-background px-3 py-2.5 text-sm text-text-primary outline-none sm:w-auto sm:max-w-[11rem]"
-            >
-              {hasWorkspace && <option value="workspace">{t('memory.scopeWorkspace')}</option>}
-              <option value="all">{t('memory.scopeAll')}</option>
-              <option value="global">{t('memory.scopeGlobal')}</option>
-            </select>
-            <select
-              value={sourceWorkspaceFilter}
-              onChange={(event) => setSourceWorkspaceFilter(event.target.value)}
-              className="min-w-0 w-full shrink rounded-lg border border-border bg-background px-3 py-2.5 text-sm text-text-primary outline-none sm:w-auto sm:max-w-[14rem]"
-            >
-              <option value="">{t('memory.allSources', 'All sources')}</option>
-              {overview?.topSourceWorkspaces?.map((item) => (
-                <option key={item.workspaceKey} value={item.workspaceKey}>
-                  {item.workspaceKey}
-                </option>
-              ))}
-            </select>
             <button
               onClick={() => {
                 void handleSearch();

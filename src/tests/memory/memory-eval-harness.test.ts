@@ -48,14 +48,19 @@ const mockConfigState = vi.hoisted(() => ({
   } as Record<string, unknown>,
 }));
 
-vi.mock('electron', () => ({
-  app: {
-    isPackaged: false,
-    getPath: () => '/tmp',
-    getVersion: () => '0.0.0-test',
-    getAppPath: () => '/tmp/york-ie-test-app',
-  },
-}));
+vi.mock('electron', () => {
+  const electron = {
+    app: {
+      isPackaged: false,
+      getPath: () => '/tmp',
+      getVersion: () => '0.0.0-test',
+      getAppPath: () => '/tmp/york-ie-test-app',
+    },
+    ipcMain: { handle: () => undefined, on: () => undefined },
+    shell: { openExternal: async () => true },
+  };
+  return { ...electron, default: electron };
+});
 
 vi.mock('../../main/config/config-store', () => {
   const configStore = {

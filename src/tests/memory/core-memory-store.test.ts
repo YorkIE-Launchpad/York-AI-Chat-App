@@ -119,20 +119,23 @@ describe('CoreMemoryStore', () => {
 
     expect(fs.readdirSync(tempRoot)).toEqual(['core_memory.json']);
     expect(JSON.parse(fs.readFileSync(filePath, 'utf8'))).toEqual({
-      version: 2,
-      entries: { 'identity.name': 'Jackson' },
-      written: { 'identity.name': 'Jackson' },
-      forgotten: ['skills.python'],
+      version: 3,
+      scopes: {
+        'vecos://general': {
+          entries: { 'identity.name': 'Jackson' },
+          written: { 'identity.name': 'Jackson' },
+          forgotten: ['skills.python'],
+        },
+      },
     });
   });
 
-  it('reads a core memory file saved before corrections existed', () => {
+  it('ignores a core memory file saved before workspace scopes existed', () => {
     fs.writeFileSync(filePath, JSON.stringify({ 'identity.name': 'Jack', 'skills.go': '  ' }));
 
     const store = new CoreMemoryStore(filePath);
 
-    expect(store.getEntries().map((entry) => entry.combinedKey)).toEqual(['identity.name']);
-    expect(valueOf(store, 'identity.name')).toBe('Jack');
+    expect(store.getEntries()).toEqual([]);
     expect(store.isUserWritten('identity.name')).toBe(false);
   });
 
@@ -140,10 +143,18 @@ describe('CoreMemoryStore', () => {
     fs.writeFileSync(
       filePath,
       JSON.stringify({
-        version: 2,
-        entries: { 'identity.name': 'Jack', 'skills.python': '偏好 Python' },
-        written: { 'identity.name': 'Jackson', 'skills.python': '只用 Python', 'skills.go': 'Go' },
-        forgotten: ['skills.python'],
+        version: 3,
+        scopes: {
+          'vecos://general': {
+            entries: { 'identity.name': 'Jack', 'skills.python': '偏好 Python' },
+            written: {
+              'identity.name': 'Jackson',
+              'skills.python': '只用 Python',
+              'skills.go': 'Go',
+            },
+            forgotten: ['skills.python'],
+          },
+        },
       })
     );
 
@@ -157,21 +168,45 @@ describe('CoreMemoryStore', () => {
     expect(store.toPromptBlock()).not.toContain('python');
     expect(store.toPromptBlock()).not.toContain('undefined');
     expect(JSON.parse(fs.readFileSync(filePath, 'utf8'))).toEqual({
-      version: 2,
-      entries: { 'identity.name': 'Jackson', 'skills.go': 'Go' },
-      written: { 'identity.name': 'Jackson', 'skills.go': 'Go' },
-      forgotten: ['skills.python'],
+      version: 3,
+      scopes: {
+        'vecos://general': {
+          entries: { 'identity.name': 'Jackson', 'skills.go': 'Go' },
+          written: { 'identity.name': 'Jackson', 'skills.go': 'Go' },
+          forgotten: ['skills.python'],
+        },
+      },
     });
+  });
+
+  it('ignores a version 2 global core file', () => {
+    fs.writeFileSync(
+      filePath,
+      JSON.stringify({
+        version: 2,
+        entries: { 'identity.name': 'Delphi contact' },
+        written: { 'identity.name': 'Delphi contact' },
+        forgotten: [],
+      })
+    );
+
+    const store = new CoreMemoryStore(filePath);
+    expect(store.getEntries()).toEqual([]);
+    expect(store.toPromptBlock()).toBe('None');
   });
 
   it('keeps only valid corrections from a hand-edited core memory file', () => {
     fs.writeFileSync(
       filePath,
       JSON.stringify({
-        version: 2,
-        entries: { 'identity.name': 'Jackson' },
-        written: { 'identity.name': ' Jackson ', 'skills.go': 3 },
-        forgotten: 'skills.python',
+        version: 3,
+        scopes: {
+          'vecos://general': {
+            entries: { 'identity.name': 'Jackson' },
+            written: { 'identity.name': ' Jackson ', 'skills.go': 3 },
+            forgotten: 'skills.python',
+          },
+        },
       })
     );
 
@@ -182,10 +217,14 @@ describe('CoreMemoryStore', () => {
     expect(store.isUserWritten('skills.go')).toBe(false);
     expect(store.toPromptBlock()).not.toContain('skills.go');
     expect(JSON.parse(fs.readFileSync(filePath, 'utf8'))).toEqual({
-      version: 2,
-      entries: { 'identity.name': 'Jackson' },
-      written: { 'identity.name': 'Jackson' },
-      forgotten: [],
+      version: 3,
+      scopes: {
+        'vecos://general': {
+          entries: { 'identity.name': 'Jackson' },
+          written: { 'identity.name': 'Jackson' },
+          forgotten: [],
+        },
+      },
     });
   });
 
@@ -193,10 +232,14 @@ describe('CoreMemoryStore', () => {
     fs.writeFileSync(
       filePath,
       JSON.stringify({
-        version: 2,
-        entries: { 'identity.name': 'Jack' },
-        written: { 'identity.name': '   ' },
-        forgotten: [' skills.python ', '  ', 7],
+        version: 3,
+        scopes: {
+          'vecos://general': {
+            entries: { 'identity.name': 'Jack' },
+            written: { 'identity.name': '   ' },
+            forgotten: [' skills.python ', '  ', 7],
+          },
+        },
       })
     );
 
@@ -209,7 +252,9 @@ describe('CoreMemoryStore', () => {
     expect(store.isUserWritten('identity.name')).toBe(false);
     expect(valueOf(store, 'identity.name')).toBe('Jackson');
     expect(valueOf(store, 'skills.python')).toBeUndefined();
-    expect(JSON.parse(fs.readFileSync(filePath, 'utf8')).forgotten).toEqual(['skills.python']);
+    expect(
+      JSON.parse(fs.readFileSync(filePath, 'utf8')).scopes['vecos://general'].forgotten
+    ).toEqual(['skills.python']);
   });
 
   it('clears edits and forgotten keys with the rest of core memory', () => {

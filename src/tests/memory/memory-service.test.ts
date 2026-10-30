@@ -43,14 +43,19 @@ const mockConfigState = vi.hoisted(() => ({
   } as Record<string, unknown>,
 }));
 
-vi.mock('electron', () => ({
-  app: {
-    isPackaged: false,
-    getPath: () => '/tmp',
-    getVersion: () => '0.0.0-test',
-    getAppPath: () => '/tmp/york-ie-test-app',
-  },
-}));
+vi.mock('electron', () => {
+  const electron = {
+    app: {
+      isPackaged: false,
+      getPath: () => '/tmp',
+      getVersion: () => '0.0.0-test',
+      getAppPath: () => '/tmp/york-ie-test-app',
+    },
+    ipcMain: { handle: () => undefined, on: () => undefined },
+    shell: { openExternal: async () => true },
+  };
+  return { ...electron, default: electron };
+});
 
 vi.mock('../../main/config/config-store', () => {
   const configStore = {
@@ -81,6 +86,10 @@ import type {
 import { MemoryService } from '../../main/memory/memory-service';
 import { configStore } from '../../main/config/config-store';
 import { CORE_MEMORY_ERRORS } from '../../shared/core-memory';
+import {
+  divisionMemoryKeyFromSession,
+  serializeClientDivisionProjects,
+} from '../../shared/workspace-division';
 
 class MockMemoryLLMClient implements MemoryLLMClientLike {
   async complete(request: MemoryCompletionRequest): Promise<{ text: string }> {
@@ -102,6 +111,14 @@ class MockMemoryLLMClient implements MemoryLLMClientLike {
           value: 'prefer concise English answers',
         });
       }
+      if (request.userPrompt.includes('中文')) {
+        actions.push({
+          op: 'upsert',
+          category: 'preferences',
+          key: 'response_language',
+          value: '中文',
+        });
+      }
       return { text: JSON.stringify({ actions }) };
     }
 
@@ -110,6 +127,38 @@ class MockMemoryLLMClient implements MemoryLLMClientLike {
       request.systemPrompt.includes('memory extraction system')
     ) {
       const transcript = request.userPrompt;
+      if (transcript.includes('Pool Co revenue')) {
+        return {
+          text: JSON.stringify({
+            session_summary: 'Pool Co maintenance contracts are the revenue driver',
+            session_keywords: ['Pool', 'maintenance'],
+            chunks: [
+              {
+                summary: 'Pool Co maintenance contracts',
+                details: 'Pool Co revenue comes from maintenance contracts.',
+                keywords: ['Pool', 'maintenance'],
+                source_turns: [1, 2],
+              },
+            ],
+          }),
+        };
+      }
+      if (transcript.includes('Keenan cancellation')) {
+        return {
+          text: JSON.stringify({
+            session_summary: 'Delphi Keenan cancellation warning signs',
+            session_keywords: ['Delphi', 'Keenan'],
+            chunks: [
+              {
+                summary: 'Delphi Keenan cancellation warning',
+                details: 'Delphi recorded Keenan cancellation warning signs.',
+                keywords: ['Delphi', 'Keenan'],
+                source_turns: [1, 2],
+              },
+            ],
+          }),
+        };
+      }
       if (transcript.includes('gateway token rotation')) {
         return {
           text: JSON.stringify({
@@ -191,6 +240,16 @@ function createSchema(db: Database.Database): void {
       allowed_tools TEXT NOT NULL DEFAULT '[]',
       memory_enabled INTEGER NOT NULL DEFAULT 1,
       model TEXT,
+      division TEXT NOT NULL DEFAULT 'general',
+      hub_project_id TEXT,
+      hub_project_name TEXT,
+      launchpad_project_id INTEGER,
+      launchpad_project_name TEXT,
+      folder_id TEXT,
+      folder_name TEXT,
+      project_canonical_key TEXT,
+      client_name TEXT,
+      client_project_ids TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     );
@@ -367,6 +426,22 @@ function makeSession(id: string, title: string, cwd?: string) {
   };
 }
 
+function clientSession(id: string, title: string, clientName: string, hubProjectId: string) {
+  return {
+    ...makeSession(id, title),
+    division: 'client' as const,
+    clientName,
+    canonicalKey: `client:${clientName
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')}`,
+    clientProjectIds: serializeClientDivisionProjects([
+      { name: title, canonicalKey: `hub:${hubProjectId}`, hubProjectId },
+    ]),
+  };
+}
+
 function makeMessages(
   sessionId: string,
   items: Array<{ role: 'user' | 'assistant'; text: string; timestamp: number }>
@@ -449,7 +524,7 @@ describe('MemoryService', () => {
       messages,
     });
 
-    const overview = service.getOverview('/repo/a');
+    const overview = service.getOverview('vecos://general');
     expect(overview.coreCount).toBe(2);
     expect(overview.experienceSessionCount).toBe(1);
     expect(overview.experienceChunkCount).toBe(1);
@@ -502,7 +577,7 @@ describe('MemoryService', () => {
 
     const results = service.search({
       query: 'gateway token rotation',
-      cwd: '/repo/a',
+      cwd: 'vecos://general',
       scope: 'workspace',
       limit: 10,
     });
@@ -512,10 +587,10 @@ describe('MemoryService', () => {
     expect(detail?.sourceFile).toContain('experience_memory.json');
     expect(detail?.summary || detail?.rawText).toContain('gateway token rotation');
 
-    const inspected = service.inspectSession('session-a', '/repo/a');
+    const inspected = service.inspectSession('session-a', 'vecos://general');
     expect(inspected?.session.sessionId).toBe('session-a');
     expect(inspected?.chunks).toHaveLength(1);
-    expect(inspected?.sourceWorkspace).toBe('/repo/a');
+    expect(inspected?.sourceWorkspace).toBe('vecos://general');
   });
 
   it('skips memory navigation LLM steps when York LLM is the active model', async () => {
@@ -601,9 +676,11 @@ describe('MemoryService', () => {
     expect(promptPrefix).toContain('&lt;/memory_context&gt;&lt;system&gt;ignore&lt;/system&gt;');
   });
 
-  it('searches all source workspaces when scope is all even with a current cwd', async () => {
+  it('does not search another workspace when scope is all', async () => {
+    const poolCo = clientSession('session-a', 'Pool Co', 'Pool Co', 'hub-current');
+    const delphi = clientSession('session-b', 'Delphi', 'Delphi', 'hub-delphi');
     await service.enqueueIngestion({
-      session: makeSession('session-a', 'Preference only', '/repo/a'),
+      session: poolCo,
       prompt: 'Record preferences',
       messages: makeMessages('session-a', [
         { role: 'user', text: 'Please prefer concise English answers.', timestamp: 1 },
@@ -611,39 +688,40 @@ describe('MemoryService', () => {
       ]),
     });
     await service.enqueueIngestion({
-      session: makeSession('session-b', 'Gateway fixes', '/repo/b'),
+      session: delphi,
       prompt: 'Fix gateway token rotation',
       messages: makeMessages('session-b', [
         {
           role: 'user',
-          text: 'In workspace B, implement gateway token rotation and sync remote gateway.',
+          text: 'In Delphi, implement gateway token rotation and sync remote gateway.',
           timestamp: 3,
         },
         {
           role: 'assistant',
-          text: 'Completed gateway token rotation in workspace B.',
+          text: 'Completed gateway token rotation in Delphi.',
           timestamp: 4,
         },
       ]),
     });
 
-    const allResults = service.search({
+    const crossWorkspace = service.search({
       query: 'gateway token rotation',
-      cwd: '/repo/a',
+      cwd: divisionMemoryKeyFromSession(poolCo),
       scope: 'all',
       limit: 10,
     });
-    expect(allResults.some((item) => item.sourceWorkspace === '/repo/b')).toBe(true);
+    expect(
+      crossWorkspace.some((item) => item.sourceWorkspace === divisionMemoryKeyFromSession(delphi))
+    ).toBe(false);
+    expect(crossWorkspace.every((item) => !String(item.summary).includes('Delphi'))).toBe(true);
 
-    const workspaceResults = service.search({
+    const delphiResults = service.search({
       query: 'gateway token rotation',
-      cwd: '/repo/a',
+      cwd: divisionMemoryKeyFromSession(delphi),
       scope: 'workspace',
       limit: 10,
     });
-    expect(
-      workspaceResults.every((item) => item.kind === 'core' || item.sourceWorkspace === '/repo/a')
-    ).toBe(true);
+    expect(delphiResults.some((item) => item.kind === 'experience_chunk')).toBe(true);
   });
 
   it('rebuilds all memory from persisted sessions and messages', async () => {
@@ -679,7 +757,7 @@ describe('MemoryService', () => {
     expect(result.success).toBe(true);
     expect(result.sessionCount).toBe(1);
 
-    const overview = service.getOverview('/repo/a');
+    const overview = service.getOverview('vecos://general');
     expect(overview.coreCount).toBeGreaterThan(0);
     expect(overview.experienceSessionCount).toBe(1);
     expect(overview.sourceWorkspaceCount).toBe(1);
@@ -795,7 +873,12 @@ describe('MemoryService', () => {
 
     expect(service.inspectSession(sessionId, '/repo/a')).toBeNull();
     expect(
-      service.search({ query: 'gateway token rotation', scope: 'all', limit: 10 })
+      service.search({
+        query: 'gateway token rotation',
+        cwd: 'vecos://general',
+        scope: 'workspace',
+        limit: 10,
+      })
     ).toHaveLength(0);
   });
 
@@ -824,7 +907,12 @@ describe('MemoryService', () => {
     const forgotten = () => {
       expect(service.inspectSession('session-a')).toBeNull();
       expect(
-        service.search({ query: 'gateway token rotation', scope: 'all', limit: 10 })
+        service.search({
+          query: 'gateway token rotation',
+          cwd: 'vecos://general',
+          scope: 'workspace',
+          limit: 10,
+        })
       ).toHaveLength(0);
     };
     forgotten();
@@ -888,7 +976,12 @@ describe('MemoryService', () => {
 
       expect(service.inspectSession('session-a')).toBeNull();
       expect(
-        service.search({ query: 'gateway token rotation', scope: 'all', limit: 10 })
+        service.search({
+          query: 'gateway token rotation',
+          cwd: 'vecos://general',
+          scope: 'workspace',
+          limit: 10,
+        })
       ).toHaveLength(0);
       expect(service.getCoreEntries()).toEqual([]);
     }
@@ -947,7 +1040,12 @@ describe('MemoryService', () => {
 
       expect(service.inspectSession('session-a')).toBeNull();
       expect(
-        service.search({ query: 'gateway token rotation', scope: 'all', limit: 10 })
+        service.search({
+          query: 'gateway token rotation',
+          cwd: 'vecos://general',
+          scope: 'workspace',
+          limit: 10,
+        })
       ).toHaveLength(0);
       expect(service.getCoreEntries().map((entry) => entry.value)).toEqual(coreValues);
       const { storageRoot: memoryRoot } = service.getOverview();
@@ -981,7 +1079,12 @@ describe('MemoryService', () => {
     const stillForgotten = () => {
       expect(service.inspectSession('session-a')).toBeNull();
       expect(
-        service.search({ query: 'gateway token rotation', scope: 'all', limit: 10 })
+        service.search({
+          query: 'gateway token rotation',
+          cwd: 'vecos://general',
+          scope: 'workspace',
+          limit: 10,
+        })
       ).toHaveLength(0);
       expect(db.sessions.get('session-a')?.memory_enabled).toBe(0);
       expect(service.inspectSession('session-b')).not.toBeNull();
@@ -1003,7 +1106,7 @@ describe('MemoryService', () => {
       stillForgotten();
     }
 
-    await service.rebuildWorkspace('/repo/a');
+    await service.rebuildWorkspace('vecos://general');
     stillForgotten();
     await service.rebuildAll();
     stillForgotten();
@@ -1266,5 +1369,212 @@ describe('MemoryService', () => {
     expect(fs.existsSync(outsideArtifactsDir)).toBe(false);
 
     fs.rmSync(outsideDir, { recursive: true, force: true });
+  });
+
+  it('keeps Pool Co and Delphi memory in separate workspaces', async () => {
+    const poolCo = clientSession('pool', 'Current', 'Pool Co', 'hub-current');
+    const delphi = clientSession('delphi', 'Delphi', 'Delphi', 'hub-delphi');
+    await service.enqueueIngestion({
+      session: poolCo,
+      prompt: 'Pool Co platform',
+      messages: makeMessages('pool', [
+        { role: 'user', text: 'Pool Co revenue comes from maintenance contracts.', timestamp: 1 },
+        { role: 'assistant', text: 'Noted Pool Co maintenance revenue.', timestamp: 2 },
+      ]),
+    });
+    await service.enqueueIngestion({
+      session: delphi,
+      prompt: 'Delphi platform',
+      messages: makeMessages('delphi', [
+        {
+          role: 'user',
+          text: 'Delphi Keenan cancellation warning signs and gateway token rotation.',
+          timestamp: 3,
+        },
+        { role: 'assistant', text: 'Recorded the Delphi cancellation warning.', timestamp: 4 },
+      ]),
+    });
+
+    const poolKey = divisionMemoryKeyFromSession(poolCo);
+    const delphiKey = divisionMemoryKeyFromSession(delphi);
+    expect(poolKey).toBe('vecos://client/pool-co');
+    expect(delphiKey).toBe('vecos://client/delphi');
+    expect(service.inspectSession('delphi')?.sourceWorkspace).toBe(delphiKey);
+
+    const poolPrompt = await service.buildPromptPrefix(poolCo, 'Pool Co maintenance contracts');
+    expect(poolPrompt).toContain('Pool Co');
+    expect(poolPrompt).not.toContain('Delphi');
+    expect(poolPrompt).not.toContain('Keenan');
+
+    const delphiPrompt = await service.buildPromptPrefix(delphi, 'Keenan cancellation');
+    expect(delphiPrompt).toContain('Delphi');
+    expect(delphiPrompt).not.toContain('maintenance contracts');
+
+    await service.ingestMeeting({
+      id: 'pool-meeting',
+      title: 'Pool Co standup',
+      startedAt: 10,
+      transcriptText: 'Pool Co only standup notes.',
+      sourceWorkspace: poolKey,
+      notes: {
+        title: 'Pool Co standup',
+        summary: 'Pool Co standup stayed on maintenance.',
+        actionItems: [],
+        keyTopics: ['maintenance'],
+      },
+    });
+    await service.ingestConnectorArtifact({
+      connectorId: 'slack',
+      externalId: 'pool-slack',
+      title: 'Pool Co slack',
+      summary: 'Pool Co slack revenue note',
+      content: 'Pool Co slack says maintenance contracts grew.',
+      occurredAt: 11,
+      sourceWorkspace: poolKey,
+    });
+
+    const poolAfter = await service.buildPromptPrefix(
+      poolCo,
+      'What did the standup and slack say?'
+    );
+    const delphiAfter = await service.buildPromptPrefix(
+      delphi,
+      'What did the standup and slack say?'
+    );
+    const generalAfter = await service.buildPromptPrefix(
+      { division: 'general' },
+      'What did the standup and slack say about Pool Co?'
+    );
+    expect(poolAfter).toContain('Pool Co standup');
+    expect(poolAfter).toContain('Pool Co slack');
+    expect(delphiAfter).not.toContain('standup');
+    expect(delphiAfter).not.toContain('slack');
+    expect(generalAfter).not.toContain('Pool Co standup');
+    expect(generalAfter).not.toContain('Pool Co slack');
+  });
+
+  it('retags mixed experience memory once and leaves it alone on the next launch', async () => {
+    const memoryRoot = path.join(storageRoot, 'memory-root');
+    fs.mkdirSync(memoryRoot, { recursive: true });
+    insertSession(rawDb, { id: 'pool-chat', title: 'Pool', cwd: '/repo/pool' });
+    rawDb
+      .prepare(
+        `UPDATE sessions SET division = 'client', client_name = 'Pool Co', client_project_ids = ?, project_canonical_key = 'client:pool-co' WHERE id = 'pool-chat'`
+      )
+      .run(
+        serializeClientDivisionProjects([
+          { name: 'Current', canonicalKey: 'hub:current', hubProjectId: 'hub-current' },
+        ])
+      );
+    fs.writeFileSync(
+      path.join(memoryRoot, 'experience_memory.json'),
+      JSON.stringify({
+        sessions: [
+          {
+            id: 's1',
+            session_id: 'pool-chat',
+            source_workspace: 'vecos://general',
+            summary: 'Pool Co platform overview',
+            keywords: [],
+            chunk_ids: ['c1'],
+            raw_session: [],
+            session_date: '2026-01-01',
+            created_at: '2026-01-01T00:00:00.000Z',
+            ingested_at: '2026-01-01T00:00:00.000Z',
+            embedding: [],
+          },
+          {
+            id: 's2',
+            session_id: 'meeting:old',
+            source_workspace: null,
+            summary: 'Unscoped meeting',
+            keywords: [],
+            chunk_ids: [],
+            raw_session: [],
+            session_date: '2026-01-01',
+            created_at: '2026-01-01T00:00:00.000Z',
+            ingested_at: '2026-01-01T00:00:00.000Z',
+            embedding: [],
+          },
+        ],
+        chunks: [
+          {
+            id: 'c1',
+            session_id: 'pool-chat',
+            source_workspace: 'vecos://general',
+            summary: 'Pool Co platform overview',
+            details: 'details',
+            keywords: [],
+            source_turns: [],
+            raw_text: '',
+            session_date: '2026-01-01',
+            created_at: '2026-01-01T00:00:00.000Z',
+            ingested_at: '2026-01-01T00:00:00.000Z',
+            embedding: [],
+          },
+        ],
+      })
+    );
+    fs.writeFileSync(
+      path.join(memoryRoot, 'core_memory.json'),
+      JSON.stringify({
+        version: 2,
+        entries: { 'identity.name': 'Delphi contact' },
+        written: {},
+        forgotten: [],
+      })
+    );
+    fs.writeFileSync(
+      path.join(memoryRoot, 'session_state.json'),
+      JSON.stringify({
+        sessions: {
+          'pool-chat': {
+            sessionId: 'pool-chat',
+            sourceWorkspace: 'vecos://general',
+            lastProcessedMessageCount: 4,
+            createdAt: 1,
+            updatedAt: 1,
+          },
+          'meeting:old': {
+            sessionId: 'meeting:old',
+            sourceWorkspace: null,
+            lastProcessedMessageCount: 1,
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        },
+      })
+    );
+
+    service.getOverview();
+    const experience = JSON.parse(
+      fs.readFileSync(path.join(memoryRoot, 'experience_memory.json'), 'utf8')
+    ) as { sessions: Array<{ session_id: string; source_workspace: string }>; chunks: unknown[] };
+    expect(experience.sessions.map((item) => item.session_id)).toEqual(['pool-chat']);
+    expect(experience.sessions[0].source_workspace).toBe('vecos://client/pool-co');
+    expect(experience.chunks).toHaveLength(1);
+    const core = JSON.parse(fs.readFileSync(path.join(memoryRoot, 'core_memory.json'), 'utf8')) as {
+      version: number;
+      scopes: Record<string, unknown>;
+    };
+    expect(core.version).toBe(3);
+    expect(core.scopes).toEqual({});
+    const state = JSON.parse(
+      fs.readFileSync(path.join(memoryRoot, 'session_state.json'), 'utf8')
+    ) as {
+      sessions: Record<string, { sourceWorkspace?: string; lastProcessedMessageCount?: number }>;
+    };
+    expect(state.sessions['pool-chat'].sourceWorkspace).toBe('vecos://client/pool-co');
+    expect(state.sessions['pool-chat'].lastProcessedMessageCount).toBe(4);
+    expect(state.sessions['meeting:old']).toBeUndefined();
+
+    experience.sessions[0].summary = 'kept after second launch';
+    fs.writeFileSync(path.join(memoryRoot, 'experience_memory.json'), JSON.stringify(experience));
+    service = new MemoryService(db, { llmClient: new MockMemoryLLMClient() });
+    service.getOverview();
+    const second = JSON.parse(
+      fs.readFileSync(path.join(memoryRoot, 'experience_memory.json'), 'utf8')
+    ) as { sessions: Array<{ summary: string }> };
+    expect(second.sessions[0].summary).toBe('kept after second launch');
   });
 });

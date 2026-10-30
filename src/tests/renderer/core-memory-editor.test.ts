@@ -10,6 +10,7 @@ describe('CoreMemoryEditor', () => {
     const markup = renderToStaticMarkup(
       createElement(CoreMemoryEditor, {
         overview: null,
+        workspaceKey: 'vecos://general',
         disabled: false,
         onChanged: () => {},
         onStatus: () => {},

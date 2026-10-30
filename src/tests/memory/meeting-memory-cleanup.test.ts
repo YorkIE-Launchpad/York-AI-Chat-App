@@ -120,7 +120,10 @@ describe('meeting memory cleanup', () => {
       },
     };
 
-    await service.ingestMeeting(meeting);
+    await service.ingestMeeting({
+      ...meeting,
+      sourceWorkspace: 'vecos://client/pool-co',
+    });
 
     const sessionId = `meeting:${meeting.id}`;
     expect(service.inspectSession(sessionId)).toBeTruthy();
@@ -142,6 +145,7 @@ describe('meeting memory cleanup', () => {
       id: 'mtg-a',
       title: 'Alpha',
       startedAt,
+      sourceWorkspace: 'vecos://client/pool-co',
       transcriptText: 'Talked about alpha.',
       notes: {
         title: 'Alpha',
@@ -154,6 +158,7 @@ describe('meeting memory cleanup', () => {
       id: 'mtg-b',
       title: 'Beta',
       startedAt: startedAt + 60_000,
+      sourceWorkspace: 'vecos://client/pool-co',
       transcriptText: 'Talked about beta.',
       notes: {
         title: 'Beta',
@@ -167,9 +172,9 @@ describe('meeting memory cleanup', () => {
     const overview = service.getOverview();
     const corePath = overview.coreFilePath;
     const existing = JSON.parse(fs.readFileSync(corePath, 'utf8')) as {
-      entries: Record<string, string>;
+      scopes: Record<string, { entries: Record<string, string> }>;
     };
-    existing.entries['identity.name'] = 'Jack';
+    existing.scopes['vecos://client/pool-co'].entries['identity.name'] = 'Jack';
     fs.writeFileSync(corePath, JSON.stringify(existing, null, 2), 'utf8');
 
     // Force store reload by creating a fresh service against the same root

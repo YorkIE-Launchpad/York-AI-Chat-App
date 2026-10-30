@@ -6,7 +6,7 @@ import { configStore } from '../config/config-store';
 import type { DatabaseInstance, SessionRow } from '../db/database';
 import { log, logError, logWarn } from '../utils/logger';
 import { CORE_MEMORY_ERRORS, MAX_CORE_MEMORY_VALUE_LENGTH } from '../../shared/core-memory';
-import { CoreMemoryStore } from './core-memory-store';
+import { CoreMemoryStore, DEFAULT_CORE_MEMORY_SCOPE } from './core-memory-store';
 import { CoreMemoryExtractor } from './core-memory-extractor';
 import { ExperienceMemoryExtractor } from './experience-memory-extractor';
 import { ExperienceMemoryStore } from './experience-memory-store';
@@ -43,12 +43,14 @@ import {
   messagesToTranscript,
   normalizeWorkspaceKey,
   safeRemoveFile,
+  saveJsonFile,
 } from './memory-utils';
 import { createMemoryTools } from './memory-tools';
 import type { ConnectorId } from '../connectors/connector-types';
 import { isYorkLlmBaseUrl } from '../../shared/york-llm-config';
 import {
-  divisionMemoryKey,
+  divisionMemoryKeyFromSession,
+  divisionMemoryKeyFromSessionRow,
   normalizeSessionDivision,
   parseDivisionKind,
 } from '../../shared/workspace-division';
@@ -156,6 +158,16 @@ function assertSafeMemoryPaths(storageRoot: string, artifactsDir: string): void 
   }
 }
 
+const MEMORY_ISOLATION_EPOCH = 1;
+
+function isUnscopedCapturedSession(sessionId: string): boolean {
+  return (
+    sessionId.startsWith('meeting:') ||
+    sessionId.startsWith('slack:') ||
+    sessionId.startsWith('google:')
+  );
+}
+
 function escapeMemoryContextText(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
@@ -196,7 +208,7 @@ export class MemoryService {
     );
     this.navigator = new MemoryNavigator(this.llmClient, promptSet.memoryNavigationPrompt);
     this.retriever = new MemoryRetriever({
-      getCoreEntries: () => this.getCoreStore().getEntries(),
+      getCoreEntries: (scope) => this.getCoreStore().getEntries(scope),
       getCoreFilePath: () => this.getPaths().coreFilePath,
       getExperienceStore: () => this.getExperienceStore(),
       getExperienceFilePath: () => this.getPaths().experienceFilePath,
@@ -215,14 +227,15 @@ export class MemoryService {
   }
 
   /**
-   * Ingest a finalized meeting into global experience + compact core memory.
-   * No-op when memory is disabled.
+   * Ingest a finalized meeting into the workspace that was active when capture started.
+   * No-op when memory is disabled or the meeting has no workspace.
    */
   async ingestMeeting(meeting: {
     id: string;
     title: string;
     startedAt: number;
     transcriptText: string;
+    sourceWorkspace?: string | null;
     notes: {
       title: string;
       summary: string;
@@ -231,6 +244,10 @@ export class MemoryService {
     };
   }): Promise<void> {
     if (!this.isEnabled()) {
+      return;
+    }
+    const sourceWorkspace = normalizeWorkspaceKey(meeting.sourceWorkspace);
+    if (!sourceWorkspace) {
       return;
     }
 
@@ -256,7 +273,7 @@ export class MemoryService {
     const mergedKeywords = [...new Set([...keyTopics, ...keywords])].slice(0, 24);
 
     await this.storeExperienceSession({
-      sourceWorkspace: null,
+      sourceWorkspace,
       sessionId,
       sessionTitle: title,
       sessionDate,
@@ -297,17 +314,20 @@ export class MemoryService {
       .join('. ')
       .slice(0, 500);
 
-    this.getCoreStore().applyActions([
-      {
-        op: 'upsert',
-        category: 'interests',
-        key: coreKey,
-        value: coreValue,
-        reason: 'Auto-ingested from meeting capture',
-      },
-    ]);
+    this.getCoreStore().applyActions(
+      [
+        {
+          op: 'upsert',
+          category: 'interests',
+          key: coreKey,
+          value: coreValue,
+          reason: 'Auto-ingested from meeting capture',
+        },
+      ],
+      sourceWorkspace
+    );
 
-    log(`[Memory] Ingested meeting ${meeting.id} into global memory`);
+    log(`[Memory] Ingested meeting ${meeting.id} into ${sourceWorkspace}`);
   }
 
   /**
@@ -320,18 +340,25 @@ export class MemoryService {
     notes?: { title?: string } | null;
   }): Promise<void> {
     const sessionId = `meeting:${meeting.id}`;
+    const existing = this.getExperienceStore().getSession(sessionId);
+    const sourceWorkspace = existing?.sourceWorkspace ?? null;
     await this.deleteSession(sessionId);
 
     const title = (meeting.notes?.title || meeting.title || 'Meeting').trim();
     const key = meetingCoreMemoryKey(title, meeting.startedAt);
-    this.getCoreStore().applyActions([
-      {
-        op: 'delete',
-        category: 'interests',
-        key,
-        reason: 'Meeting deleted',
-      },
-    ]);
+    if (sourceWorkspace) {
+      this.getCoreStore().applyActions(
+        [
+          {
+            op: 'delete',
+            category: 'interests',
+            key,
+            reason: 'Meeting deleted',
+          },
+        ],
+        sourceWorkspace
+      );
+    }
 
     log(`[Memory] Deleted memories for meeting ${meeting.id}`);
   }
@@ -354,24 +381,30 @@ export class MemoryService {
       store.save();
     }
 
-    const meetingCoreKeys = this.getCoreStore()
-      .getEntries()
-      .filter((entry) => entry.category === 'interests' && entry.key.startsWith('meeting_'))
-      .map((entry) => entry.key);
-
-    if (meetingCoreKeys.length > 0) {
-      this.getCoreStore().applyActions(
-        meetingCoreKeys.map((key) => ({
+    const coreStore = this.getCoreStore();
+    let meetingCoreKeys = 0;
+    for (const scope of coreStore.listScopes()) {
+      const keys = coreStore
+        .getEntries(scope)
+        .filter((entry) => entry.category === 'interests' && entry.key.startsWith('meeting_'))
+        .map((entry) => entry.key);
+      if (!keys.length) {
+        continue;
+      }
+      meetingCoreKeys += keys.length;
+      coreStore.applyActions(
+        keys.map((key) => ({
           op: 'delete' as const,
           category: 'interests' as const,
           key,
           reason: 'All meetings cleared',
-        }))
+        })),
+        scope
       );
     }
 
     log(
-      `[Memory] Deleted all meeting memories (${meetingSessionIds.length} sessions, ${meetingCoreKeys.length} core keys)`
+      `[Memory] Deleted all meeting memories (${meetingSessionIds.length} sessions, ${meetingCoreKeys} core keys)`
     );
     return { success: true, deletedSessions: meetingSessionIds.length };
   }
@@ -386,8 +419,17 @@ export class MemoryService {
     keywords?: string[];
     coreKey?: string;
     coreValue?: string;
+    /** Chat that ran the connector tool. Used when sourceWorkspace is omitted. */
+    sessionId?: string | null;
+    sourceWorkspace?: string | null;
   }): Promise<void> {
     if (!this.isEnabled()) {
+      return;
+    }
+    const sourceWorkspace =
+      normalizeWorkspaceKey(input.sourceWorkspace) ||
+      (input.sessionId ? this.workspaceKeyForSessionId(input.sessionId) : null);
+    if (!sourceWorkspace) {
       return;
     }
 
@@ -405,7 +447,7 @@ export class MemoryService {
     ];
 
     await this.storeExperienceSession({
-      sourceWorkspace: null,
+      sourceWorkspace,
       sessionId,
       sessionTitle: input.title,
       sessionDate,
@@ -426,15 +468,18 @@ export class MemoryService {
     });
 
     if (input.coreKey && input.coreValue) {
-      this.getCoreStore().applyActions([
-        {
-          op: 'upsert',
-          category: 'interests',
-          key: input.coreKey,
-          value: input.coreValue.slice(0, 500),
-          reason: `Auto-ingested from ${input.connectorId} connector`,
-        },
-      ]);
+      this.getCoreStore().applyActions(
+        [
+          {
+            op: 'upsert',
+            category: 'interests',
+            key: input.coreKey,
+            value: input.coreValue.slice(0, 500),
+            reason: `Auto-ingested from ${input.connectorId} connector`,
+          },
+        ],
+        sourceWorkspace
+      );
     }
   }
 
@@ -452,11 +497,27 @@ export class MemoryService {
 
   getOverview(cwd?: string): MemoryOverview {
     const paths = this.getPaths();
-    const coreEntries = this.getCoreStore().getEntries();
     const experienceStore = this.getExperienceStore();
     const stateRecords = this.getStateStore().getAll();
     const currentWorkspace = normalizeWorkspaceKey(cwd);
     const topSourceWorkspaces = experienceStore.getStatsBySourceWorkspace();
+    const scopedSessions = currentWorkspace
+      ? experienceStore.sessions.filter((item) => item.sourceWorkspace === currentWorkspace)
+      : experienceStore.sessions;
+    const scopedChunks = currentWorkspace
+      ? experienceStore.chunks.filter((item) => item.sourceWorkspace === currentWorkspace)
+      : experienceStore.chunks;
+    const scopedState = currentWorkspace
+      ? stateRecords.filter((record) => record.sourceWorkspace === currentWorkspace)
+      : stateRecords;
+    const coreEntries = currentWorkspace
+      ? this.getCoreStore().getEntries(currentWorkspace)
+      : this.getCoreStore()
+          .listScopes()
+          .flatMap((scope) => this.getCoreStore().getEntries(scope));
+    const visibleSources = currentWorkspace
+      ? topSourceWorkspaces.filter((item) => item.workspaceKey === currentWorkspace)
+      : topSourceWorkspaces;
 
     return {
       enabled: this.isEnabled(),
@@ -465,33 +526,30 @@ export class MemoryService {
       experienceFilePath: paths.experienceFilePath,
       stateFilePath: paths.stateFilePath,
       coreCount: coreEntries.length,
-      experienceSessionCount: experienceStore.sessions.length,
-      experienceChunkCount: experienceStore.chunks.length,
-      sourceWorkspaceCount: topSourceWorkspaces.filter((item) => item.workspaceKey !== '(none)')
-        .length,
-      failedSessionCount: stateRecords.filter((record) => Boolean(record.lastError)).length,
-      latestIngestionAt: stateRecords.reduce<number | null>((latest, record) => {
+      experienceSessionCount: scopedSessions.length,
+      experienceChunkCount: scopedChunks.length,
+      sourceWorkspaceCount: currentWorkspace
+        ? visibleSources.length
+        : topSourceWorkspaces.filter((item) => item.workspaceKey !== '(none)').length,
+      failedSessionCount: scopedState.filter((record) => Boolean(record.lastError)).length,
+      latestIngestionAt: scopedState.reduce<number | null>((latest, record) => {
         if (!record.lastIngestedAt) {
           return latest;
         }
         return latest === null ? record.lastIngestedAt : Math.max(latest, record.lastIngestedAt);
       }, null),
       latestError:
-        stateRecords
+        scopedState
           .filter((record) => record.lastError)
           .sort((a, b) => b.updatedAt - a.updatedAt)[0]?.lastError || null,
       currentWorkspace: currentWorkspace
         ? {
             workspaceKey: currentWorkspace,
-            experienceSessionCount: experienceStore.sessions.filter(
-              (item) => item.sourceWorkspace === currentWorkspace
-            ).length,
-            experienceChunkCount: experienceStore.chunks.filter(
-              (item) => item.sourceWorkspace === currentWorkspace
-            ).length,
+            experienceSessionCount: scopedSessions.length,
+            experienceChunkCount: scopedChunks.length,
           }
         : undefined,
-      topSourceWorkspaces,
+      topSourceWorkspaces: visibleSources,
     };
   }
 
@@ -603,6 +661,8 @@ export class MemoryService {
       folderId?: string | null;
       folderName?: string | null;
       canonicalKey?: string | null;
+      clientName?: string | null;
+      clientProjectIds?: string | null;
     },
     prompt: string
   ): Promise<string> {
@@ -611,24 +671,13 @@ export class MemoryService {
     }
 
     const sections: string[] = [];
-    const corePromptBlock = this.getCoreStore().toPromptBlock();
+    const workspaceKey = divisionMemoryKeyFromSession(session);
+    const corePromptBlock = this.getCoreStore().toPromptBlock(workspaceKey);
     if (corePromptBlock !== 'None') {
       sections.push(`<core_memory>\n${escapeMemoryContextText(corePromptBlock)}\n</core_memory>`);
     }
 
-    const experienceContext = await this.buildExperienceContext(
-      prompt,
-      divisionMemoryKey({
-        division: parseDivisionKind(session.division),
-        hubProjectId: session.hubProjectId,
-        hubProjectName: session.hubProjectName,
-        launchpadProjectId: session.launchpadProjectId,
-        launchpadProjectName: session.launchpadProjectName,
-        folderId: session.folderId,
-        folderName: session.folderName,
-        canonicalKey: session.canonicalKey,
-      })
-    );
+    const experienceContext = await this.buildExperienceContext(prompt, workspaceKey);
     if (experienceContext.trim()) {
       sections.push(
         `<experience_memory>\n${escapeMemoryContextText(experienceContext)}\n</experience_memory>`
@@ -672,7 +721,7 @@ export class MemoryService {
       .getAll()
       .filter(
         (session) =>
-          normalizeWorkspaceKey(session.cwd) === workspaceKey && session.memory_enabled === 1
+          session.memory_enabled === 1 && divisionMemoryKeyFromSessionRow(session) === workspaceKey
       )
       .sort((a, b) => a.created_at - b.created_at);
 
@@ -714,15 +763,20 @@ export class MemoryService {
     return { success: true, workspaceKey };
   }
 
-  getCoreEntries(): CoreMemoryListEntry[] {
+  getCoreEntries(scope = DEFAULT_CORE_MEMORY_SCOPE): CoreMemoryListEntry[] {
     const store = this.getCoreStore();
-    return store
-      .getEntries()
-      .map((entry) => ({ ...entry, userWritten: store.isUserWritten(entry.combinedKey) }));
+    return store.getEntries(scope).map((entry) => ({
+      ...entry,
+      userWritten: store.isUserWritten(entry.combinedKey, scope),
+    }));
   }
 
   /** Called over IPC, where the value's type is not checked at runtime. */
-  writeCoreEntry(combinedKey: string, value: unknown): CoreMemoryListEntry[] {
+  writeCoreEntry(
+    combinedKey: string,
+    value: unknown,
+    scope = DEFAULT_CORE_MEMORY_SCOPE
+  ): CoreMemoryListEntry[] {
     const trimmed = typeof value === 'string' ? value.trim() : '';
     if (!trimmed) {
       throw new Error(CORE_MEMORY_ERRORS.emptyValue);
@@ -730,19 +784,19 @@ export class MemoryService {
     if (trimmed.length > MAX_CORE_MEMORY_VALUE_LENGTH) {
       throw new Error(CORE_MEMORY_ERRORS.valueTooLong);
     }
-    this.requireCoreEntry(combinedKey);
-    this.getCoreStore().writeEntry(combinedKey, trimmed);
-    return this.getCoreEntries();
+    this.requireCoreEntry(combinedKey, scope);
+    this.getCoreStore().writeEntry(combinedKey, trimmed, scope);
+    return this.getCoreEntries(scope);
   }
 
-  forgetCoreEntry(combinedKey: string): CoreMemoryListEntry[] {
-    this.requireCoreEntry(combinedKey);
-    this.getCoreStore().forgetEntry(combinedKey);
-    return this.getCoreEntries();
+  forgetCoreEntry(combinedKey: string, scope = DEFAULT_CORE_MEMORY_SCOPE): CoreMemoryListEntry[] {
+    this.requireCoreEntry(combinedKey, scope);
+    this.getCoreStore().forgetEntry(combinedKey, scope);
+    return this.getCoreEntries(scope);
   }
 
-  clearCoreMemory(): { success: boolean } {
-    this.getCoreStore().clear();
+  clearCoreMemory(scope?: string): { success: boolean } {
+    this.getCoreStore().clear(scope);
     return { success: true };
   }
 
@@ -802,16 +856,7 @@ export class MemoryService {
       return;
     }
 
-    const sourceWorkspace = divisionMemoryKey({
-      division: parseDivisionKind(session.division),
-      hubProjectId: session.hubProjectId,
-      hubProjectName: session.hubProjectName,
-      launchpadProjectId: session.launchpadProjectId,
-      launchpadProjectName: session.launchpadProjectName,
-      folderId: session.folderId,
-      folderName: session.folderName,
-      canonicalKey: session.canonicalKey,
-    });
+    const sourceWorkspace = divisionMemoryKeyFromSession(session);
     const stateStore = this.getStateStore();
     const previousState = stateStore.get(session.id);
     const lastProcessedMessageCount = previousState?.lastProcessedMessageCount || 0;
@@ -825,7 +870,7 @@ export class MemoryService {
     const sessionDate = this.resolveSessionDate(session, messages);
 
     try {
-      await this.updateCoreMemory(session.id, sessionDate, deltaTurns);
+      await this.updateCoreMemory(session.id, sessionDate, deltaTurns, sourceWorkspace);
       if (this.deletedSessionIds.has(session.id)) {
         stateStore.delete(session.id);
         return;
@@ -880,7 +925,12 @@ export class MemoryService {
     if (this.isMemoryTurnedOff(bundle.session.id)) {
       return;
     }
-    await this.updateCoreMemory(bundle.session.id, bundle.sessionDate, bundle.fullTurns);
+    await this.updateCoreMemory(
+      bundle.session.id,
+      bundle.sessionDate,
+      bundle.fullTurns,
+      bundle.sourceWorkspace || DEFAULT_CORE_MEMORY_SCOPE
+    );
     if (bundle.fullTurns.length) {
       await this.storeExperienceSession({
         sourceWorkspace: bundle.sourceWorkspace,
@@ -910,16 +960,7 @@ export class MemoryService {
       const fullMessages = this.getMessagesForSession(sessionRow.id);
       const fullTurns = messagesToTranscript(fullMessages);
       const sessionDate = this.resolveSessionDate(session, fullMessages);
-      const sourceWorkspace = divisionMemoryKey({
-        division: parseDivisionKind(session.division),
-        hubProjectId: session.hubProjectId,
-        hubProjectName: session.hubProjectName,
-        launchpadProjectId: session.launchpadProjectId,
-        launchpadProjectName: session.launchpadProjectName,
-        folderId: session.folderId,
-        folderName: session.folderName,
-        canonicalKey: session.canonicalKey,
-      });
+      const sourceWorkspace = divisionMemoryKeyFromSession(session);
       const extracted = fullTurns.length
         ? await this.experienceExtractor.extractSession({
             sessionId: session.id,
@@ -954,7 +995,8 @@ export class MemoryService {
   private async updateCoreMemory(
     sessionId: string,
     sessionDate: string,
-    turns: MemoryTranscriptTurn[]
+    turns: MemoryTranscriptTurn[],
+    scope: string
   ): Promise<void> {
     if (!turns.length) {
       return;
@@ -964,11 +1006,11 @@ export class MemoryService {
       sessionId,
       sessionDate,
       turns,
-      existingCorePromptBlock: coreStore.toPromptBlock(),
+      existingCorePromptBlock: coreStore.toPromptBlock(scope),
     });
     // The conversation can be forgotten while the extractor runs.
     if (actions.length && !this.isMemoryTurnedOff(sessionId)) {
-      coreStore.applyActions(actions);
+      coreStore.applyActions(actions, scope);
     }
   }
 
@@ -1080,7 +1122,7 @@ export class MemoryService {
       for (const action of decision.actions) {
         if (action.type === 'expand_chunk' && action.chunkId) {
           const chunk = store.getChunk(action.chunkId);
-          if (chunk) {
+          if (chunk && chunk.sourceWorkspace === currentWorkspace) {
             expandedChunks.set(action.chunkId, {
               rawText: chunk.rawText,
               keywords: chunk.keywords,
@@ -1091,7 +1133,7 @@ export class MemoryService {
         }
         if (action.type === 'expand_session' && action.sessionId) {
           const session = store.getSession(action.sessionId);
-          if (session) {
+          if (session && session.sourceWorkspace === currentWorkspace) {
             expandedSessions.set(action.sessionId, {
               summary: session.summary,
               keywords: session.keywords,
@@ -1108,7 +1150,7 @@ export class MemoryService {
         }
         if (action.type === 'get_raw_session' && action.sessionId) {
           const session = store.getSession(action.sessionId);
-          if (session) {
+          if (session && session.sourceWorkspace === currentWorkspace) {
             rawSessions.set(
               action.sessionId,
               `[Raw Session ${action.sessionId} | Date: ${session.sessionDate} | Source: ${session.sourceWorkspace || 'global'}]\n${JSON.stringify(
@@ -1269,6 +1311,8 @@ export class MemoryService {
       folderId: row.folder_id,
       folderName: row.folder_name,
       canonicalKey: row.project_canonical_key,
+      clientName: row.client_name,
+      clientProjectIds: row.client_project_ids,
     });
     return {
       id: row.id,
@@ -1287,6 +1331,8 @@ export class MemoryService {
       folderId: divisionFields.folderId,
       folderName: divisionFields.folderName,
       canonicalKey: divisionFields.canonicalKey,
+      clientName: divisionFields.clientName,
+      clientProjectIds: divisionFields.clientProjectIds,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       claudeSessionId: row.claude_session_id || undefined,
@@ -1342,6 +1388,127 @@ export class MemoryService {
     };
   }
 
+  /**
+   * One-time split of mixed memory. Chat rows are retagged from the session
+   * that produced them. Meetings and connector rows with no workspace are
+   * dropped. Global core is replaced because those entries have no chat id.
+   */
+  private migrateIsolationIfNeeded(paths: MemoryPaths): void {
+    const markerPath = path.join(paths.storageRoot, 'isolation-epoch.json');
+    const marker = loadJsonFile<{ epoch?: number }>(markerPath, {});
+    if ((marker.epoch ?? 0) >= MEMORY_ISOLATION_EPOCH) {
+      return;
+    }
+    try {
+      this.retagExperienceFile(paths.experienceFilePath);
+      this.retagStateFile(paths.stateFilePath);
+    } catch (error) {
+      logWarn('[Memory] Workspace isolation migration deferred:', error);
+      return;
+    }
+    saveJsonFile(paths.coreFilePath, { version: 3, scopes: {} });
+    saveJsonFile(markerPath, { epoch: MEMORY_ISOLATION_EPOCH });
+  }
+
+  private retagExperienceFile(filePath: string): void {
+    if (!fs.existsSync(filePath)) {
+      return;
+    }
+    const raw = loadJsonFile<{ sessions?: unknown[]; chunks?: unknown[] }>(filePath, {});
+    const sessions = Array.isArray(raw.sessions) ? raw.sessions : [];
+    const chunks = Array.isArray(raw.chunks) ? raw.chunks : [];
+    const kept = new Map<string, string>();
+    const nextSessions: unknown[] = [];
+
+    for (const item of sessions) {
+      if (!item || typeof item !== 'object') {
+        continue;
+      }
+      const record = item as Record<string, unknown>;
+      const sessionId = typeof record.session_id === 'string' ? record.session_id : '';
+      if (!sessionId || isUnscopedCapturedSession(sessionId)) {
+        continue;
+      }
+      const workspaceKey = this.workspaceKeyForSessionId(sessionId);
+      if (workspaceKey === undefined) {
+        nextSessions.push(record);
+        kept.set(
+          sessionId,
+          typeof record.source_workspace === 'string' ? record.source_workspace : ''
+        );
+        continue;
+      }
+      if (!workspaceKey) {
+        continue;
+      }
+      record.source_workspace = workspaceKey;
+      nextSessions.push(record);
+      kept.set(sessionId, workspaceKey);
+    }
+
+    const nextChunks: unknown[] = [];
+    for (const item of chunks) {
+      if (!item || typeof item !== 'object') {
+        continue;
+      }
+      const record = item as Record<string, unknown>;
+      const sessionId = typeof record.session_id === 'string' ? record.session_id : '';
+      if (!kept.has(sessionId)) {
+        continue;
+      }
+      const workspaceKey = kept.get(sessionId);
+      if (workspaceKey) {
+        record.source_workspace = workspaceKey;
+      }
+      nextChunks.push(record);
+    }
+
+    saveJsonFile(filePath, { sessions: nextSessions, chunks: nextChunks });
+  }
+
+  private retagStateFile(filePath: string): void {
+    if (!fs.existsSync(filePath)) {
+      return;
+    }
+    const raw = loadJsonFile<{ sessions?: Record<string, { sourceWorkspace?: string | null }> }>(
+      filePath,
+      { sessions: {} }
+    );
+    const sessions = raw.sessions && typeof raw.sessions === 'object' ? raw.sessions : {};
+    for (const sessionId of Object.keys(sessions)) {
+      if (isUnscopedCapturedSession(sessionId)) {
+        delete sessions[sessionId];
+        continue;
+      }
+      const workspaceKey = this.workspaceKeyForSessionId(sessionId);
+      if (workspaceKey === undefined) {
+        continue;
+      }
+      if (!workspaceKey) {
+        delete sessions[sessionId];
+        continue;
+      }
+      sessions[sessionId].sourceWorkspace = workspaceKey;
+    }
+    saveJsonFile(filePath, { sessions });
+  }
+
+  /**
+   * `undefined` means the session database cannot be read, so existing rows
+   * must be left in place. `null` means the chat is gone.
+   */
+  private workspaceKeyForSessionId(sessionId: string): string | null | undefined {
+    const get = this.db?.sessions?.get;
+    if (typeof get !== 'function') {
+      return undefined;
+    }
+    const row = get.call(this.db.sessions, sessionId);
+    if (!row) {
+      return null;
+    }
+    return divisionMemoryKeyFromSessionRow(row);
+  }
+
   private ensureStores(): void {
     const paths = this.getPaths();
     const pathsKey = `${paths.storageRoot}::${paths.artifactsDir}`;
@@ -1356,6 +1523,7 @@ export class MemoryService {
     fs.mkdirSync(paths.storageRoot, { recursive: true });
     fs.mkdirSync(paths.artifactsDir, { recursive: true });
     assertSafeMemoryPaths(paths.storageRoot, paths.artifactsDir);
+    this.migrateIsolationIfNeeded(paths);
     this.currentPathsKey = pathsKey;
     this.coreStore = new CoreMemoryStore(paths.coreFilePath);
     this.stateStore = new MemorySessionStateStore(paths.stateFilePath);
@@ -1369,8 +1537,8 @@ export class MemoryService {
     this.experienceStore = null;
   }
 
-  private requireCoreEntry(combinedKey: string): void {
-    if (!Object.prototype.hasOwnProperty.call(this.getCoreStore().getRaw(), combinedKey)) {
+  private requireCoreEntry(combinedKey: string, scope = DEFAULT_CORE_MEMORY_SCOPE): void {
+    if (!Object.prototype.hasOwnProperty.call(this.getCoreStore().getRaw(scope), combinedKey)) {
       throw new Error(CORE_MEMORY_ERRORS.entryNotFound);
     }
   }

@@ -985,14 +985,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('memory.rebuildWorkspace', cwd),
     clearWorkspace: (cwd: string): Promise<{ success: boolean; workspaceKey: string }> =>
       ipcRenderer.invoke('memory.clearWorkspace', cwd),
-    clearCoreMemory: (): Promise<{ success: boolean }> =>
-      ipcRenderer.invoke('memory.clearCoreMemory'),
-    getCoreEntries: (): Promise<CoreMemoryListEntry[]> =>
-      ipcRenderer.invoke('memory.getCoreEntries'),
-    writeCoreEntry: (combinedKey: string, value: string): Promise<CoreMemoryListEntry[]> =>
-      ipcRenderer.invoke('memory.writeCoreEntry', combinedKey, value),
-    forgetCoreEntry: (combinedKey: string): Promise<CoreMemoryListEntry[]> =>
-      ipcRenderer.invoke('memory.forgetCoreEntry', combinedKey),
+    clearCoreMemory: (workspaceKey?: string): Promise<{ success: boolean }> =>
+      ipcRenderer.invoke('memory.clearCoreMemory', workspaceKey),
+    getCoreEntries: (workspaceKey?: string): Promise<CoreMemoryListEntry[]> =>
+      ipcRenderer.invoke('memory.getCoreEntries', workspaceKey),
+    writeCoreEntry: (
+      combinedKey: string,
+      value: string,
+      workspaceKey?: string
+    ): Promise<CoreMemoryListEntry[]> =>
+      ipcRenderer.invoke('memory.writeCoreEntry', combinedKey, value, workspaceKey),
+    forgetCoreEntry: (combinedKey: string, workspaceKey?: string): Promise<CoreMemoryListEntry[]> =>
+      ipcRenderer.invoke('memory.forgetCoreEntry', combinedKey, workspaceKey),
     forgetSession: (sessionId: string): Promise<void> =>
       ipcRenderer.invoke('memory.forgetSession', sessionId),
     rebuildAll: (): Promise<{ success: boolean; workspaceCount: number; sessionCount: number }> =>
@@ -1082,7 +1086,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('meetings.setEnabled', enabled),
     start: (
       title?: string,
-      options?: { liveAssist?: boolean; liveAssistInstructions?: string }
+      options?: {
+        liveAssist?: boolean;
+        liveAssistInstructions?: string;
+        memoryWorkspaceKey?: string;
+      }
     ): Promise<MeetingSession> => ipcRenderer.invoke('meetings.start', title, options),
     setLiveAssist: (payload: {
       enabled: boolean;
@@ -1997,10 +2005,17 @@ declare global {
         read: (id: string) => Promise<MemoryReadResult | null>;
         rebuildWorkspace: (cwd: string) => Promise<{ success: boolean; workspaceKey: string }>;
         clearWorkspace: (cwd: string) => Promise<{ success: boolean; workspaceKey: string }>;
-        clearCoreMemory: () => Promise<{ success: boolean }>;
-        getCoreEntries: () => Promise<CoreMemoryListEntry[]>;
-        writeCoreEntry: (combinedKey: string, value: string) => Promise<CoreMemoryListEntry[]>;
-        forgetCoreEntry: (combinedKey: string) => Promise<CoreMemoryListEntry[]>;
+        clearCoreMemory: (workspaceKey?: string) => Promise<{ success: boolean }>;
+        getCoreEntries: (workspaceKey?: string) => Promise<CoreMemoryListEntry[]>;
+        writeCoreEntry: (
+          combinedKey: string,
+          value: string,
+          workspaceKey?: string
+        ) => Promise<CoreMemoryListEntry[]>;
+        forgetCoreEntry: (
+          combinedKey: string,
+          workspaceKey?: string
+        ) => Promise<CoreMemoryListEntry[]>;
         forgetSession: (sessionId: string) => Promise<void>;
         rebuildAll: () => Promise<{
           success: boolean;
@@ -2087,7 +2102,11 @@ declare global {
         setEnabled: (enabled: boolean) => Promise<{ success: boolean; enabled: boolean }>;
         start: (
           title?: string,
-          options?: { liveAssist?: boolean; liveAssistInstructions?: string }
+          options?: {
+            liveAssist?: boolean;
+            liveAssistInstructions?: string;
+            memoryWorkspaceKey?: string;
+          }
         ) => Promise<MeetingSession>;
         setLiveAssist: (payload: {
           enabled: boolean;

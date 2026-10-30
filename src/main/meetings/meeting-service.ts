@@ -668,10 +668,7 @@ export class MeetingService {
     };
   }
 
-  setLiveAssist(options: {
-    enabled: boolean;
-    instructions?: string;
-  }): MeetingSession | null {
+  setLiveAssist(options: { enabled: boolean; instructions?: string }): MeetingSession | null {
     if (!this.activeMeetingId) {
       return null;
     }
@@ -814,6 +811,7 @@ export class MeetingService {
       attendees: calendar?.attendees?.length ? calendar.attendees : undefined,
       zoomMeetingId: calendar?.zoomMeetingId ?? undefined,
       calendarEventId: calendar?.eventId || undefined,
+      memoryWorkspaceKey: options?.memoryWorkspaceKey?.trim() || undefined,
     };
 
     if (options?.liveAssist) {
@@ -821,9 +819,7 @@ export class MeetingService {
       meeting.liveAssist = {
         enabled: true,
         instructions:
-          options.liveAssistInstructions?.trim() ||
-          defaults.liveAssistInstructions?.trim() ||
-          '',
+          options.liveAssistInstructions?.trim() || defaults.liveAssistInstructions?.trim() || '',
         sessionId: null,
       };
     }
@@ -1437,8 +1433,7 @@ export class MeetingService {
       current.segments = Array.isArray(current.segments) ? current.segments : [];
 
       const notes = await this.notes.generateNotes(current);
-      const storedTitle =
-        current.title?.trim() || notes.title?.trim() || 'Untitled meeting';
+      const storedTitle = current.title?.trim() || notes.title?.trim() || 'Untitled meeting';
       // Always persist notes object on ready — never leave notes undefined.
       current.notes = {
         title: storedTitle,
@@ -1507,6 +1502,7 @@ export class MeetingService {
         title: meeting.title,
         startedAt: meeting.startedAt,
         transcriptText: meeting.transcriptText,
+        sourceWorkspace: meeting.memoryWorkspaceKey,
         notes: meeting.notes,
       });
       try {
