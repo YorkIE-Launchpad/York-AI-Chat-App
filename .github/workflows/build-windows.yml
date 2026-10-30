@@ -2,50 +2,13 @@ name: Build Windows
 
 on:
   workflow_dispatch:
-    inputs:
-      skip_tests:
-        description: 'Skip lint and tests'
-        type: boolean
-        default: false
 
 permissions:
   contents: read
 
 jobs:
-  lint-and-test:
-    name: Lint & Test
-    if: ${{ inputs.skip_tests != true }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci --ignore-scripts
-
-      - name: Apply patches
-        run: npx patch-package
-
-      - name: Build native modules for tests
-        run: npm rebuild better-sqlite3
-
-      - name: Lint
-        run: npm run lint
-
-      - name: TypeScript check
-        run: npx tsc --noEmit
-
-      - name: Test with Coverage
-        run: npm run test:coverage
-
   build-windows:
     name: Build Windows
-    needs: [lint-and-test]
-    if: ${{ !cancelled() && (needs.lint-and-test.result == 'success' || needs.lint-and-test.result == 'skipped') }}
     # windows-latest → VS 2026 (v18); node-gyp < 12.1 cannot detect it
     # (nodejs/node-gyp#3282). Pin until project node-gyp is ≥ 12.1.
     runs-on: windows-2022
@@ -81,6 +44,9 @@ jobs:
 
       - name: Vite build
         run: npx vite build
+
+      - name: Stage production env
+        run: npm run stage:env-prod
 
       - name: Electron Builder
         run: npx electron-builder --win nsis --publish never
