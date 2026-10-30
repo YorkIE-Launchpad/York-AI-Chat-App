@@ -496,7 +496,10 @@ export function divisionMemoryKey(
 
 /** Experience and core memory key for a session, including client identity. */
 export function divisionMemoryKeyFromSession(
-  session: Partial<SessionDivisionFields> | null | undefined
+  session:
+    | (Omit<Partial<SessionDivisionFields>, 'division'> & { division?: string | null })
+    | null
+    | undefined
 ): string {
   return divisionMemoryKey({
     division: parseDivisionKind(session?.division),

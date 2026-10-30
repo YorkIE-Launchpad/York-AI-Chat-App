@@ -1549,7 +1549,10 @@ describe('MemoryService', () => {
     service.getOverview();
     const experience = JSON.parse(
       fs.readFileSync(path.join(memoryRoot, 'experience_memory.json'), 'utf8')
-    ) as { sessions: Array<{ session_id: string; source_workspace: string }>; chunks: unknown[] };
+    ) as {
+      sessions: Array<{ session_id: string; source_workspace: string; summary?: string }>;
+      chunks: unknown[];
+    };
     expect(experience.sessions.map((item) => item.session_id)).toEqual(['pool-chat']);
     expect(experience.sessions[0].source_workspace).toBe('vecos://client/pool-co');
     expect(experience.chunks).toHaveLength(1);
