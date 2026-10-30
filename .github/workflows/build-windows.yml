@@ -45,6 +45,21 @@ jobs:
       - name: Vite build
         run: npx vite build
 
+      # Writes repo secret ENV_PROD → .env.prod (gitignored). Public config only —
+      # stage-env-prod rejects SECRET / API_KEY / TOKEN keys. Falls back to
+      # .env.prod.example if the secret is unset.
+      - name: Write production env
+        shell: pwsh
+        env:
+          ENV_PROD: ${{ secrets.ENV_PROD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:ENV_PROD)) {
+            Write-Host "::warning::Secret ENV_PROD is not set — staging will use .env.prod.example"
+            exit 0
+          }
+          Set-Content -Path .env.prod -Value $env:ENV_PROD -NoNewline -Encoding utf8
+          Write-Host "Wrote .env.prod from secret ENV_PROD"
+
       - name: Stage production env
         run: npm run stage:env-prod
 
