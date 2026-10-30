@@ -1,15 +1,20 @@
 #!/usr/bin/env node
 
 /**
- * Upload macOS release artifacts (DMG + zipped .app) to S3,
- * publish electron-updater feed metadata (latest-mac.yml),
- * generate release notes from the previous git tag, upload them,
+ * Upload release artifacts to S3:
+ *   - macOS: DMG + zipped .app + latest-mac.yml
+ *   - Windows: NSIS .exe + latest-win.yml
+ * then generate release notes from the previous git tag, upload them,
  * then create and push an annotated v{version} tag (skip create if already present).
  *
  * Layout:
  *   s3://york-internal-apps/york-workos/{version}/{filename}
  *   s3://york-internal-apps/york-workos/latest/{stable-filename}
  *   s3://york-internal-apps/york-workos/latest/latest-mac.yml
+ *   s3://york-internal-apps/york-workos/latest/latest-win.yml
+ *
+ * Env:
+ *   YORK_S3_SKIP_TAG=1  — skip creating/pushing the git tag (CI / Windows-only uploads)
  *
  * Usage:
  *   npm run upload:s3
@@ -205,6 +210,13 @@ function generateReleaseNotes(outPath) {
  * @returns {void}
  */
 function createReleaseTag() {
+  if (process.env.YORK_S3_SKIP_TAG === '1') {
+    console.log(
+      `\n[upload-s3] YORK_S3_SKIP_TAG=1 — skipping create/push of ${TAG_NAME}`
+    );
+    return;
+  }
+
   if (tagExists(TAG_NAME)) {
     console.log(`\n[upload-s3] Tag ${TAG_NAME} already exists — skipping create.`);
   } else {
@@ -251,6 +263,40 @@ function discoverDmgs() {
           versionedKey: `${PREFIX}/${VERSION}/${filename}`,
           latestKey: `${PREFIX}/latest/${stable}`,
           label: filename,
+        },
+      ];
+    });
+}
+
+/**
+ * Discover Windows NSIS installers matching electron-builder artifactName.
+ * @returns {{ localPath: string; versionedKey: string; latestKey: string; label: string; stableFilename: string; arch: string }[]}
+ */
+function discoverExes() {
+  if (!fs.existsSync(RELEASE_DIR)) return [];
+
+  const versionToken = `-${VERSION}-`;
+  return fs
+    .readdirSync(RELEASE_DIR)
+    .filter((f) => f.endsWith('.exe') && !/uninstall/i.test(f))
+    .flatMap((filename) => {
+      if (!filename.includes(versionToken) || !filename.includes('-win-')) {
+        console.warn(
+          `[upload-s3] Skipping exe not matching v${VERSION} Windows installer: ${filename}`
+        );
+        return [];
+      }
+      const archMatch = filename.match(/-win-([^.]+)\.exe$/);
+      const arch = archMatch ? archMatch[1] : 'x64';
+      const stable = `York-GrowthOS-win-${arch}.exe`;
+      return [
+        {
+          localPath: path.join(RELEASE_DIR, filename),
+          versionedKey: `${PREFIX}/${VERSION}/${filename}`,
+          latestKey: `${PREFIX}/latest/${stable}`,
+          label: filename,
+          stableFilename: stable,
+          arch,
         },
       ];
     });
@@ -382,11 +428,12 @@ function main() {
   try {
     const dmgs = discoverDmgs();
     const apps = discoverAndZipApps(tmpDir);
-    const all = [...dmgs, ...apps];
+    const exes = discoverExes();
+    const all = [...dmgs, ...apps, ...exes];
 
     if (all.length === 0) {
       console.error(
-        'ERROR: No .dmg or .app artifacts found in release/. Run npm run build first.'
+        'ERROR: No .dmg, .app, or Windows .exe artifacts found in release/. Run npm run build first.'
       );
       process.exit(1);
     }
@@ -434,10 +481,36 @@ function main() {
       uploadFile(ymlPath, ymlLatestKey);
       urls.push(publicUrl(ymlVersionedKey));
       urls.push(publicUrl(ymlLatestKey));
-    } else {
+    } else if (dmgs.length > 0 || process.platform === 'darwin') {
       console.warn(
         '\n[upload-s3] WARNING: No mac zip artifacts — skipped latest-mac.yml (auto-update feed unchanged).'
       );
+    }
+
+    if (exes.length > 0) {
+      const ymlPath = path.join(tmpDir, 'latest-win.yml');
+      const yml = buildLatestMacYml({
+        version: VERSION,
+        files: exes.map((exe) => {
+          const digest = fileDigest(exe.localPath);
+          return {
+            url: exe.stableFilename,
+            sha512: digest.sha512,
+            size: digest.size,
+          };
+        }),
+        releaseDate: new Date().toISOString(),
+      });
+      fs.writeFileSync(ymlPath, yml, 'utf8');
+
+      const ymlVersionedKey = `${PREFIX}/${VERSION}/latest-win.yml`;
+      const ymlLatestKey = `${PREFIX}/latest/latest-win.yml`;
+
+      console.log(`\n[upload-s3] latest-win.yml (v${VERSION})`);
+      uploadFile(ymlPath, ymlVersionedKey);
+      uploadFile(ymlPath, ymlLatestKey);
+      urls.push(publicUrl(ymlVersionedKey));
+      urls.push(publicUrl(ymlLatestKey));
     }
 
     createReleaseTag();
@@ -450,6 +523,18 @@ function main() {
       console.log(`  ${url}`);
     }
     console.log('');
+
+    if (process.env.GITHUB_STEP_SUMMARY) {
+      const lines = [
+        `## York GrowthOS v${VERSION} — S3 upload`,
+        '',
+        '### Public URLs',
+        '',
+        ...urls.map((url) => `- ${url}`),
+        '',
+      ];
+      fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, lines.join('\n'), 'utf8');
+    }
   } finally {
     try {
       fs.rmSync(tmpDir, { recursive: true, force: true });
