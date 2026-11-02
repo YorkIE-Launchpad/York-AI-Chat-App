@@ -60,7 +60,7 @@ const SLACK_SEARCH_LIMIT = 20;
 /** Unread Slack messages older than this are not Matter signals. */
 export const MATTER_SLACK_LOOKBACK_DAYS = 30;
 const MATTER_SLACK_LOOKBACK_MS = MATTER_SLACK_LOOKBACK_DAYS * 24 * 60 * 60 * 1000;
-/** Hub inboxes (kudos, drafts, approvals, announcements) share this cap. */
+/** Hub inboxes (kudos, announcements) share this cap. */
 const MAX_HUB_PER_SCAN = 16;
 /** Drop Hub awareness items (kudos / announcements) older than this. */
 const HUB_AWARENESS_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
@@ -1372,15 +1372,10 @@ async function collectJira(
     .filter((s): s is RawMatterSignal => !!s);
 }
 
-// ── Hub: kudos, drafts, pending inboxes (approvals, requests, announcements) ─
+// ── Hub: kudos and announcements ─
+// Leave, WFH, timesheet drafts, and timesheet reviews stay in Hub.
 
-export type HubInboxKind =
-  | 'kudos'
-  | 'timesheet_draft'
-  | 'leave'
-  | 'timesheet'
-  | 'request'
-  | 'announcement';
+export type HubInboxKind = 'kudos' | 'request' | 'announcement';
 
 /** Kudos / announcements are awareness — age-filter. Action inboxes are not. */
 const HUB_AWARENESS_KINDS = new Set<HubInboxKind>(['kudos', 'announcement']);
@@ -1418,7 +1413,7 @@ export function hubRecordNewestTimestampMs(raw: unknown): number | null {
 
 /**
  * Awareness kinds older than 30 days are stale. Missing dates are kept so sparse
- * Hub rows are not dropped. Action kinds (drafts / approvals) always pass.
+ * Hub rows are not dropped. Other kinds always pass.
  */
 export function hubAwarenessRecordIsFresh(
   kind: HubInboxKind,
@@ -1531,45 +1526,9 @@ async function collectHub(
   if (!serverId) return [];
   const email = profile?.email || '';
 
-  // Action inboxes first so the per-scan cap keeps drafts/approvals over kudos.
-  // Do not call list_hub_requests here — product-feedback board, not an action inbox.
+  // Do not call list_hub_requests — product-feedback board, not an action inbox.
+  // Do not call leave, WFH, timesheet draft, or timesheet review tools.
   const batches = await Promise.all([
-    collectHubInbox(mcpManager, {
-      serverId,
-      kind: 'timesheet_draft',
-      tools: ['list_my_timesheet_drafts'],
-      args: { limit: 8 },
-      category: 'admin',
-      severity: 'warning',
-      orbitHint: 'today',
-      whyHint: 'Unsubmitted Hub timesheet draft waiting on you.',
-      suggestedAction: 'Review and submit your timesheet in Hub.',
-      limit: 6,
-    }),
-    collectHubInbox(mcpManager, {
-      serverId,
-      kind: 'leave',
-      tools: ['list_pending_leave_wfh_requests', 'list_pending_wfh_requests'],
-      args: { limit: 12 },
-      category: 'people',
-      severity: 'warning',
-      orbitHint: 'today',
-      whyHint: 'Leave or WFH request waiting on your approval.',
-      suggestedAction: 'Approve or reject in Hub.',
-      limit: 6,
-    }),
-    collectHubInbox(mcpManager, {
-      serverId,
-      kind: 'timesheet',
-      tools: ['list_pending_timesheet_reviews'],
-      args: { limit: 12 },
-      category: 'admin',
-      severity: 'warning',
-      orbitHint: 'today',
-      whyHint: 'Timesheet review waiting on you.',
-      suggestedAction: 'Review and approve in Hub.',
-      limit: 6,
-    }),
     collectHubKudos(mcpManager, serverId, email),
     collectHubInbox(mcpManager, {
       serverId,

@@ -134,7 +134,7 @@ describe('extractHubInboxRecords', () => {
 });
 
 describe('collectMatterSignals Hub inbox', () => {
-  it('collects kudos, timesheet drafts, leave inbox, and announcements via real Hub tools', async () => {
+  it('collects kudos and announcements, and skips leave, WFH, and timesheet tools', async () => {
     const { mcp, calls } = mockHubMcp({
       list_kudos: () =>
         hubEnvelope([{ id: 'k-1', message: 'Great collab', sender_name: 'Jay', unread: true }]),
@@ -144,6 +144,12 @@ describe('collectMatterSignals Hub inbox', () => {
         hubEnvelope([
           { id: '4821', employee_name: 'Ada', leaveType: 'PRIVILEGE', status: 'PENDING' },
         ]),
+      list_pending_wfh_requests: () =>
+        hubEnvelope([{ id: 'wfh-1', employee_name: 'Ada', wfhType: 'WFH', status: 'PENDING' }]),
+      list_pending_leave_requests: () =>
+        hubEnvelope([{ id: '4822', employee_name: 'Ada', leaveType: 'SICK', status: 'PENDING' }]),
+      get_leave_wfh_calendar: () =>
+        hubEnvelope([{ id: 'cal-1', employee_name: 'Ada', leaveType: 'PRIVILEGE' }]),
       list_pending_timesheet_reviews: () =>
         hubEnvelope([{ id: 'ts-9', title: 'Sam timesheet week of Aug 10', status: 'SUBMITTED' }]),
       list_announcements: () =>
@@ -160,27 +166,26 @@ describe('collectMatterSignals Hub inbox', () => {
     const toolsCalled = calls.map((c) => c.name.split('__').pop());
     expect(toolsCalled).not.toContain('list_notifications');
     expect(toolsCalled).not.toContain('list_hub_requests');
+    expect(toolsCalled).not.toContain('list_pending_leave_wfh_requests');
+    expect(toolsCalled).not.toContain('list_pending_wfh_requests');
+    expect(toolsCalled).not.toContain('list_pending_leave_requests');
+    expect(toolsCalled).not.toContain('get_leave_wfh_calendar');
+    expect(toolsCalled).not.toContain('list_my_timesheet_drafts');
+    expect(toolsCalled).not.toContain('list_pending_timesheet_reviews');
     expect(toolsCalled).toContain('list_kudos');
-    expect(toolsCalled).toContain('list_my_timesheet_drafts');
-    expect(toolsCalled).toContain('list_pending_leave_wfh_requests');
-    expect(toolsCalled).toContain('list_pending_timesheet_reviews');
     expect(toolsCalled).toContain('list_announcements');
     expect(
       calls.some((c) => c.name.includes('list_announcements') && 'time_sensitive' in (c.args || {}))
     ).toBe(false);
-    expect(
-      calls.some(
-        (c) => c.name.includes('list_pending_timesheet_reviews') && 'approved_by' in (c.args || {})
-      )
-    ).toBe(false);
 
     const hub = result.signals.filter((s) => s.source === 'hub');
     expect(hub.some((s) => s.fingerprint === 'hub:kudos:k-1')).toBe(true);
-    expect(hub.some((s) => s.fingerprint === 'hub:timesheet_draft:td-1')).toBe(true);
-    expect(hub.some((s) => s.fingerprint.includes('leave') && s.title.match(/Ada/))).toBe(true);
-    expect(hub.some((s) => s.fingerprint === 'hub:timesheet:ts-9')).toBe(true);
+    expect(
+      hub.some(
+        (s) => /leave|wfh|timesheet/i.test(s.fingerprint) || /leave|wfh|timesheet/i.test(s.title)
+      )
+    ).toBe(false);
     expect(hub.some((s) => s.fingerprint === 'hub:announcement:a-1')).toBe(true);
-    expect(hub.find((s) => s.fingerprint === 'hub:timesheet_draft:td-1')?.orbitHint).toBe('today');
     expect(hub.find((s) => s.fingerprint === 'hub:kudos:k-1')?.orbitHint).toBe('week');
     expect(result.sourcesChecked).toContain('hub');
   });
@@ -190,9 +195,6 @@ describe('collectMatterSignals Hub inbox', () => {
       {
         list_kudos: () => hubEnvelope([{ id: 'k-2', message: 'Nice work', sender_name: 'Sam' }]),
         list_announcements: () => envelopeResult(''),
-        list_my_timesheet_drafts: () => envelopeResult(''),
-        list_pending_leave_wfh_requests: () => envelopeResult(''),
-        list_pending_timesheet_reviews: () => envelopeResult(''),
       },
       { serverId: 'migrated-hub-id', name: DEFAULT_HUB_MCP_NAME }
     );
@@ -293,17 +295,15 @@ describe('Hub awareness recency', () => {
     expect(hubAwarenessRecordIsFresh('kudos', recent, now)).toBe(true);
   });
 
-  it('never age-filters action inboxes even when timestamps are old', () => {
-    const oldDraft: HubInboxRecord = {
-      id: 'td-old',
-      title: 'Timesheet DRAFT',
-      summary: 'unsubmitted',
+  it('never age-filters non-awareness kinds even when timestamps are old', () => {
+    const oldRequest: HubInboxRecord = {
+      id: 'req-old',
+      title: 'Hub request',
+      summary: 'still open',
       unread: true,
-      raw: { id: 'td-old', status: 'DRAFT', created_at: '2026-01-01T00:00:00.000Z' },
+      raw: { id: 'req-old', status: 'open', created_at: '2026-01-01T00:00:00.000Z' },
     };
-    expect(hubAwarenessRecordIsFresh('timesheet_draft', oldDraft, now)).toBe(true);
-    expect(hubAwarenessRecordIsFresh('leave', oldDraft, now)).toBe(true);
-    expect(hubAwarenessRecordIsFresh('timesheet', oldDraft, now)).toBe(true);
+    expect(hubAwarenessRecordIsFresh('request', oldRequest, now)).toBe(true);
   });
 
   it('omits stale kudos/announcements from collectMatterSignals', async () => {
@@ -351,8 +351,8 @@ describe('Hub awareness recency', () => {
             created_at: staleIso,
           },
         ]),
-      list_pending_leave_wfh_requests: () => envelopeResult(''),
-      list_pending_timesheet_reviews: () => envelopeResult(''),
+      list_pending_timesheet_reviews: () =>
+        hubEnvelope([{ id: 'ts-old', title: 'Old timesheet review', status: 'SUBMITTED' }]),
     });
 
     const result = await collectMatterSignals({
@@ -367,8 +367,8 @@ describe('Hub awareness recency', () => {
     expect(fps).not.toContain('hub:kudos:k-stale');
     expect(fps).toContain('hub:announcement:a-fresh');
     expect(fps).not.toContain('hub:announcement:a-stale');
-    // Action inbox stays even when old.
-    expect(fps).toContain('hub:timesheet_draft:td-old');
+    expect(fps).not.toContain('hub:timesheet_draft:td-old');
+    expect(fps.some((fp) => fp.startsWith('hub:timesheet:'))).toBe(false);
     // Scan contract: MatterService.runScan → reconcileAbsentItems(collected fingerprints).
     // Stale kudos omitted here leave the seen-set, so prior active rows expire after the grace.
     expect(fps.filter((fp) => fp.startsWith('hub:kudos:'))).toEqual(['hub:kudos:k-fresh']);
@@ -393,16 +393,16 @@ describe('heuristicRank Hub notifications', () => {
     expect(ranked.items[0]?.source).toBe('hub');
   });
 
-  it('places Hub action items on today, not watching', () => {
+  it('places Hub items with a today hint on today, not watching', () => {
     const signal: RawMatterSignal = {
-      fingerprint: 'hub:timesheet_draft:td-1',
+      fingerprint: 'hub:announcement:a-1',
       source: 'hub',
-      title: 'Timesheet DRAFT (2026-08-10)',
-      summary: 'Unsubmitted draft',
-      rawExcerpt: 'DRAFT',
+      title: 'Office closed Friday',
+      summary: 'Read the announcement',
+      rawExcerpt: 'Office closed Friday',
       severityHint: 'warning',
       orbitHint: 'today',
-      categoryHint: 'admin',
+      categoryHint: 'people',
       muteKeys: ['source:hub'],
     };
     const ranked = heuristicRank([signal], null, 10);

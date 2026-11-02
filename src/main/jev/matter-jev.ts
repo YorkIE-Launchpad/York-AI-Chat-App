@@ -55,11 +55,11 @@ const ORBIT_CRITERIA = {
 
 const CATEGORY_CRITERIA = {
   delivery: 'Delivery / engineering / LaunchPad / Jira work',
-  people: 'People, leave, kudos, team',
+  people: 'People, kudos, team',
   client: 'Client-facing',
   comms: 'Slack / email communication',
   time: 'Calendar / meeting prep / schedule',
-  admin: 'Admin / Hub timesheet / approvals',
+  admin: 'Admin / approvals',
 } as const;
 
 const LENS_STATUS_CRITERIA = {

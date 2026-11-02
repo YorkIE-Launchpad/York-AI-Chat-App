@@ -90,7 +90,7 @@ const SYSTEM_PROMPT = `You are Matter Ranker for York IE VECOS — personal ACTI
 Given the employee's Hub profile and raw signals, keep ONLY items that need THIS person's action now.
 People triage their own unreads / feeds in Gmail and Calendar — Matter is not those inboxes.
 Exception — Slack: KEEP each individual unread DM or channel message as a comms item. Do not drop Slack unreads because they are also visible in Slack.
-Exception — Hub: KEEP Hub kudos, unsubmitted timesheet drafts, pending leave/WFH/timesheet approvals, and announcements as individual items. Do not drop them as native-app triage.
+Exception — Hub: KEEP Hub kudos and announcements as individual items. Do not drop them as native-app triage. Drop leave, WFH, timesheet drafts, and timesheet reviews — those are not Matter signals.
 
 Return ONLY valid JSON (no markdown):
 {
@@ -124,7 +124,8 @@ Return ONLY valid JSON (no markdown):
 Rules:
 - KEEP only action-needed items: reply/approve/unblock/prep-for-imminent-meeting/complete assigned work.
 - KEEP distinct Slack unread DMs and channel messages as individual comms items (open or mark handled).
-- KEEP Hub kudos, timesheet drafts, and Hub inbox items (leave/WFH/timesheet approvals, requests, announcements) as individual items.
+- KEEP Hub kudos and announcements as individual items.
+- DROP leave, WFH, timesheet drafts, and timesheet reviews. Matter does not surface those Hub inboxes.
 - DROP awareness-only for other sources: unread counts, FYI, OOO lists, "on your calendar this week", generic triage.
 - DROP personal calendar holds: Break, block, focus/OOO/lunch/PTO and similar solo holds — Matter is not a calendar reminder for free time.
 - DROP daily recurring series (daily standup/sync, RRULE FREQ=DAILY) — not one-off action items.

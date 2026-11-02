@@ -24,7 +24,6 @@ import {
   parseSlackHistoryBody,
   parseSlackSearchBody,
   scoreChannelName,
-  summarizeHubLeaveCalendar,
   titleSearchTokens,
   type ParsedSlackSearchMessage,
 } from '../matter-calendar-enrichment';
@@ -36,7 +35,6 @@ import {
   isServerConnected,
   mapWithConcurrency,
   parseJsonLoose,
-  resolveHubServerId,
   safeCallTool,
 } from './connectors';
 import type {
@@ -555,7 +553,8 @@ async function gatherChannelContext(
 
 /**
  * Shared context sweep for both meeting kinds: people + topic across Slack,
- * Gmail, the best shared channel, Drive, delivery tools, invite links, Hub leave.
+ * Gmail, the best shared channel, Drive, delivery tools, and invite links.
+ * Leave and WFH calendars stay in Hub and are not queried here.
  */
 export async function gatherMeetingContext(input: {
   deps: GatherDeps;
@@ -656,27 +655,6 @@ export async function gatherMeetingContext(input: {
         }
       })()
     );
-  }
-
-  const hubId = resolveHubServerId(deps.mcp);
-  if (hubId) {
-    deps.connectors.mark('hub', 'Hub', 'checked');
-    const leaveTool = findToolName(deps.mcp, hubId, ['get_leave_wfh_calendar', 'list_leave_wfh']);
-    if (leaveTool) {
-      tasks.push(
-        (async () => {
-          const text = await safeCallTool(deps.mcp, leaveTool, {});
-          const emailsAll = people.map((a) => a.email).filter(Boolean);
-          const summary = text ? summarizeHubLeaveCalendar(text, emailsAll) : null;
-          if (summary && /^Attendees out/.test(summary)) {
-            deps.pool.add({ source: 'hub', title: 'Hub leave / WFH calendar', excerpt: summary });
-            deps.connectors.hit('hub');
-          }
-        })()
-      );
-    }
-  } else {
-    deps.connectors.mark('hub', 'Hub', 'skipped', 'disconnected');
   }
 
   if (includeLocalMeetings && meetingService) {
