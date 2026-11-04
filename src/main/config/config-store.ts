@@ -53,6 +53,11 @@ import {
   normalizeVoiceControlConfig,
   type VoiceControlConfig,
 } from '../../shared/voice-control';
+import {
+  DEFAULT_VOICE_BUTTONS_CONFIG,
+  normalizeVoiceButtonsConfig,
+  type VoiceButtonsConfig,
+} from '../../shared/voice-buttons';
 import { normalizeMatterRuntimeConfig } from '../matter/matter-config';
 import {
   applyBackendManagedCredentials,
@@ -213,6 +218,9 @@ export interface AppConfig {
 
   /** Hands-free voice control (Siri trigger, hotkey). */
   voiceControl?: VoiceControlConfig;
+
+  /** In-app voice buttons (dictation presets). Off until the user enables them. */
+  voiceButtons?: VoiceButtonsConfig;
 
   // Enable thinking mode (show thinking steps)
   enableThinking: boolean;
@@ -513,6 +521,7 @@ const defaultConfig: AppConfig = {
   },
   loopsRuntime: { ...DEFAULT_LOOPS_RUNTIME },
   voiceControl: { ...DEFAULT_VOICE_CONTROL },
+  voiceButtons: { ...DEFAULT_VOICE_BUTTONS_CONFIG },
   enableThinking: false,
   profileDosPrompt: '',
   profileDontsPrompt: '',
@@ -1352,6 +1361,7 @@ export class ConfigStore {
       })(),
       loopsRuntime: normalizeLoopsRuntimeConfig(raw.loopsRuntime),
       voiceControl: normalizeVoiceControlConfig(raw.voiceControl),
+      voiceButtons: normalizeVoiceButtonsConfig(raw.voiceButtons),
       subagent,
       ...(subagentConfigError ? { subagentConfigError } : {}),
       enableThinking: projected.enableThinking,
@@ -1843,6 +1853,13 @@ export class ConfigStore {
               ...updates.voiceControl,
             })
           : normalizeVoiceControlConfig(current.voiceControl),
+      voiceButtons:
+        updates.voiceButtons !== undefined
+          ? normalizeVoiceButtonsConfig({
+              ...normalizeVoiceButtonsConfig(current.voiceButtons),
+              ...updates.voiceButtons,
+            })
+          : normalizeVoiceButtonsConfig(current.voiceButtons),
       autoModelPreference:
         updates.autoModelPreference !== undefined
           ? normalizeAutoModelPreference(updates.autoModelPreference)

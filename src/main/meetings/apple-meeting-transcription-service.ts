@@ -8,7 +8,10 @@ import * as path from 'node:path';
 
 import { resolveMeetingSttProviderFromEnv } from '../../shared/meetings/meeting-stt-provider';
 import type { MeetingSttProviderConfig } from '../../shared/meetings/meeting-stt-config';
-import { DICTATION_APPLE_SESSION_ID } from '../dictation/dictation-apple-sink';
+import {
+  DICTATION_APPLE_SESSION_ID,
+  VOICE_BUTTONS_APPLE_SESSION_ID,
+} from '../dictation/dictation-apple-sink';
 import { listMacBundledToolsSearchRoots } from '../utils/macos-bundled-tools';
 import { log, logWarn } from '../utils/logger';
 
@@ -17,7 +20,9 @@ export type AppleTranscriptionErrorListener = (message: string) => void;
 
 let dictationAppleErrorListener: AppleTranscriptionErrorListener | null = null;
 
-export function setDictationAppleErrorListener(listener: AppleTranscriptionErrorListener | null): void {
+export function setDictationAppleErrorListener(
+  listener: AppleTranscriptionErrorListener | null
+): void {
   dictationAppleErrorListener = listener;
 }
 
@@ -82,9 +87,7 @@ export function parseAppleHelperEventLine(line: string): AppleHelperEvent | null
     if (!text.trim()) {
       return null;
     }
-    return type === 'partial'
-      ? { type: 'partial', itemId, text }
-      : { type: 'final', itemId, text };
+    return type === 'partial' ? { type: 'partial', itemId, text } : { type: 'final', itemId, text };
   }
   return null;
 }
@@ -255,10 +258,7 @@ export class AppleMeetingTranscriptionService {
         } catch (openError) {
           // Direct exec still embeds NSSpeechRecognitionUsageDescription; use when `open`
           // fails under App Translocation or a mismatched Mach-O minos.
-          logWarn(
-            '[Meetings] open(speech helper) failed; falling back to direct exec',
-            openError
-          );
+          logWarn('[Meetings] open(speech helper) failed; falling back to direct exec', openError);
           await execFileAsync(helperPath, ['--authorize-only'], {
             timeout: 120_000,
             maxBuffer: 256_000,
@@ -288,6 +288,11 @@ export class AppleMeetingTranscriptionService {
 
   isRunning(): boolean {
     return Boolean(this.helperSocket && this.meetingId);
+  }
+
+  /** Session id while a helper start is in flight or running. */
+  getActiveMeetingId(): string | null {
+    return this.meetingId;
   }
 
   /** macOS TCC requires launching the helper via `open` (not direct spawn) for Speech APIs. */
@@ -351,10 +356,7 @@ export class AppleMeetingTranscriptionService {
             fail(new Error(formatSpeechHelperLaunchError(openError, appBundle)));
             return;
           }
-          logWarn(
-            '[Meetings] open(speech helper) failed; spawning helper directly',
-            openError
-          );
+          logWarn('[Meetings] open(speech helper) failed; spawning helper directly', openError);
           try {
             const child = spawn(helperPath, ['--socket', socketPath], {
               detached: true,
@@ -438,9 +440,7 @@ export class AppleMeetingTranscriptionService {
       socket.once('close', () => {
         if (!this.ready && !settled) {
           finish(
-            new Error(
-              this.lastHelperError || 'Apple transcription helper closed before ready'
-            )
+            new Error(this.lastHelperError || 'Apple transcription helper closed before ready')
           );
         }
       });
@@ -557,7 +557,10 @@ export class AppleMeetingTranscriptionService {
       if (!this.ready && this.pendingStartFinish) {
         this.pendingStartFinish(new Error(event.message));
       }
-      if (meetingId === DICTATION_APPLE_SESSION_ID) {
+      if (
+        meetingId === DICTATION_APPLE_SESSION_ID ||
+        meetingId === VOICE_BUTTONS_APPLE_SESSION_ID
+      ) {
         dictationAppleErrorListener?.(event.message);
       }
       return;

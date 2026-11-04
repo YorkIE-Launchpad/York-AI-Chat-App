@@ -25,6 +25,7 @@ import { GlobalNoticeToast } from './components/GlobalNoticeToast';
 import { WhatsNewModal } from './components/WhatsNewModal';
 import { TipsHost } from './components/tips';
 import { AskGrowthOSPopup } from './components/AskGrowthOSPopup';
+import { VoiceButtonWidget } from './voice-buttons/VoiceButtonWidget';
 import { CommandPalette, useAppShortcuts } from './components/CommandPalette';
 import { InspectorTabs } from './components/inspector/InspectorTabs';
 import { useNavigationHistoryTracker } from './hooks/useNavigationHistory';
@@ -511,6 +512,7 @@ function AuthenticatedApp() {
 
       {/* Ask Growth OS global popup */}
       <AskGrowthOSPopup />
+      <VoiceButtonWidget />
 
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
 

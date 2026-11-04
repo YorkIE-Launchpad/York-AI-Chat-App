@@ -1246,6 +1246,7 @@ export interface AppConfig {
   matterRuntime?: import('../../shared/matter').MatterRuntimeConfig;
   loopsRuntime?: import('../../shared/loops').LoopsRuntimeConfig;
   voiceControl?: import('../../shared/voice-control').VoiceControlConfig;
+  voiceButtons?: import('../../shared/voice-buttons').VoiceButtonsConfig;
   enableThinking?: boolean;
   /** User profile MUST instructions for chat + subagents. */
   profileDosPrompt?: string;

@@ -84,6 +84,9 @@ import {
   DICTATION_APPLE_SESSION_ID,
 } from './dictation/dictation-apple-sink';
 import { createRealtimeTranslationSession } from './dictation/dictation-service';
+import { registerVoiceButtonIpc } from './voice-buttons/register-voice-buttons-ipc';
+import { VoiceButtonsController } from './voice-buttons/voice-buttons-controller';
+import { normalizeVoiceButtonsConfig, type VoiceButtonsConfig } from '../shared/voice-buttons';
 import { ScreenSnapController, SNAP_WRITE_SYSTEM_PROMPT } from './snap/screen-snap';
 import { SCREEN_PERMISSION_RELAUNCH_FLAG } from './snap/screen-permission';
 import { DEFAULT_SCREEN_SNAP_WIGGLE } from '../shared/screen-snap';
@@ -1069,6 +1072,16 @@ function updateVoiceControlConfig(partial: Partial<VoiceControlConfig>): VoiceCo
   configStore.update({ voiceControl: next });
   return next;
 }
+
+function getVoiceButtonsConfig(): VoiceButtonsConfig {
+  return normalizeVoiceButtonsConfig(configStore.get('voiceButtons'));
+}
+
+const voiceButtonsController = new VoiceButtonsController({
+  preloadPath: join(__dirname, '../preload/index.js'),
+  getConfig: getVoiceButtonsConfig,
+  loadOverlay: (win) => loadRendererHash(win, 'voice-buttons'),
+});
 
 const voiceController = new VoiceController({
   preloadPath: join(__dirname, '../preload/index.js'),
@@ -2792,6 +2805,8 @@ app
     }
     voiceController.registerIpc();
     voiceController.registerHotkey(getVoiceControlConfig().hotkey);
+    voiceButtonsController.registerIpc();
+    voiceButtonsController.syncFromConfig();
     setVoiceDeepLinkHandler((action) => voiceController.handleDeepLink(action));
     buildMacMenu();
     setupTray();
@@ -3446,6 +3461,7 @@ function stopBackgroundServicesForQuit(): void {
     logError('[App] Error stopping meeting capture:', error);
   });
   voiceController.dispose();
+  voiceButtonsController.dispose();
   try {
     globalShortcut.unregisterAll();
   } catch {
@@ -4669,6 +4685,10 @@ ipcMain.handle('config.save', async (_event, newConfig: Partial<AppConfig>) => {
     (newConfig.meetingsEnabled !== undefined || newConfig.meetingsRuntime !== undefined)
   ) {
     meetingService.syncDetectionPolling();
+  }
+
+  if (newConfig.voiceButtons !== undefined) {
+    voiceButtonsController.syncFromConfig();
   }
 
   return { success: true, config: updatedConfig };
@@ -7419,6 +7439,15 @@ ipcMain.handle('dictation.appleTranscription.start', async (event) => {
 ipcMain.handle('dictation.appleTranscription.stop', async () => {
   await appleMeetingTranscriptionService.stop();
   return { success: true };
+});
+
+registerVoiceButtonIpc({
+  setCaptureTarget: (contents) => {
+    dictationTarget = contents;
+  },
+  onConfigChanged: () => {
+    voiceButtonsController.syncFromConfig();
+  },
 });
 
 ipcMain.handle('meetings.list', () => {

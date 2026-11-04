@@ -78,6 +78,15 @@ import type {
   VoiceSessionCredentials,
 } from '../shared/voice-control';
 import type {
+  VoiceButton,
+  VoiceButtonDraft,
+  VoiceButtonsConfig,
+  VoiceDictionaryEntry,
+  VoiceHistoryEntry,
+  VoiceProcessResult,
+  VoiceSnippet,
+} from '../shared/voice-buttons';
+import type {
   McpServerConfig,
   McpTool,
   McpServerStatus,
@@ -1291,6 +1300,65 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
   },
 
+  voiceButtons: {
+    getConfig: (): Promise<VoiceButtonsConfig> => ipcRenderer.invoke('voiceButtons.getConfig'),
+    updateConfig: (partial: Partial<VoiceButtonsConfig>): Promise<VoiceButtonsConfig> =>
+      ipcRenderer.invoke('voiceButtons.updateConfig', partial),
+    list: (): Promise<VoiceButton[]> => ipcRenderer.invoke('voiceButtons.list'),
+    save: (draft: VoiceButtonDraft): Promise<VoiceButton> =>
+      ipcRenderer.invoke('voiceButtons.save', draft),
+    delete: (id: string): Promise<{ success: boolean }> =>
+      ipcRenderer.invoke('voiceButtons.delete', id),
+    reorder: (ids: string[]): Promise<VoiceButton[]> =>
+      ipcRenderer.invoke('voiceButtons.reorder', ids),
+    duplicate: (id: string): Promise<VoiceButton> =>
+      ipcRenderer.invoke('voiceButtons.duplicate', id),
+    listDictionary: (): Promise<VoiceDictionaryEntry[]> =>
+      ipcRenderer.invoke('voiceButtons.dictionary.list'),
+    replaceDictionary: (
+      entries: Array<Pick<VoiceDictionaryEntry, 'term' | 'replacement'>>
+    ): Promise<VoiceDictionaryEntry[]> =>
+      ipcRenderer.invoke('voiceButtons.dictionary.replace', entries),
+    listSnippets: (): Promise<VoiceSnippet[]> => ipcRenderer.invoke('voiceButtons.snippets.list'),
+    replaceSnippets: (
+      entries: Array<Pick<VoiceSnippet, 'trigger' | 'expansion'>>
+    ): Promise<VoiceSnippet[]> => ipcRenderer.invoke('voiceButtons.snippets.replace', entries),
+    listHistory: (): Promise<VoiceHistoryEntry[]> =>
+      ipcRenderer.invoke('voiceButtons.history.list'),
+    clearHistory: (): Promise<{ success: boolean }> =>
+      ipcRenderer.invoke('voiceButtons.history.clear'),
+    process: (payload: {
+      buttonId: string;
+      rawText: string;
+      audioMs: number;
+    }): Promise<VoiceProcessResult> => ipcRenderer.invoke('voiceButtons.process', payload),
+    appleStart: (): Promise<{ success: boolean }> => ipcRenderer.invoke('voiceButtons.appleStart'),
+    appleStop: (): Promise<{ success: boolean }> => ipcRenderer.invoke('voiceButtons.appleStop'),
+    systemPaste: (
+      text: string
+    ): Promise<{ success: true } | { success: false; reason: 'accessibility' | 'failed' }> =>
+      ipcRenderer.invoke('voiceButtons.system.paste', text),
+    systemSessionEnded: (): Promise<{ success: boolean }> =>
+      ipcRenderer.invoke('voiceButtons.system.sessionEnded'),
+    getSystemStatus: (): Promise<{
+      supported: boolean;
+      holdToTalk: boolean;
+      active: boolean;
+      helperRunning: boolean;
+    }> => ipcRenderer.invoke('voiceButtons.system.getStatus'),
+    onSystemStart: (callback: (payload: { mode: 'hold' | 'toggle' }) => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, payload: { mode: 'hold' | 'toggle' }) =>
+        callback(payload);
+      ipcRenderer.on('voiceButtons:systemStart', listener);
+      return () => ipcRenderer.removeListener('voiceButtons:systemStart', listener);
+    },
+    onSystemStop: (callback: () => void): (() => void) => {
+      const listener = () => callback();
+      ipcRenderer.on('voiceButtons:systemStop', listener);
+      return () => ipcRenderer.removeListener('voiceButtons:systemStop', listener);
+    },
+  },
+
   snap: {
     getPendingState: (): Promise<ScreenSnapComposerState | null> =>
       ipcRenderer.invoke('snap.getPendingState'),
@@ -2214,6 +2282,44 @@ declare global {
         onApplePartial: (callback: (payload: { text: string }) => void) => () => void;
         onAppleFinal: (callback: (payload: { text: string }) => void) => () => void;
         onAppleError: (callback: (payload: { message: string }) => void) => () => void;
+      };
+      voiceButtons: {
+        getConfig: () => Promise<VoiceButtonsConfig>;
+        updateConfig: (partial: Partial<VoiceButtonsConfig>) => Promise<VoiceButtonsConfig>;
+        list: () => Promise<VoiceButton[]>;
+        save: (draft: VoiceButtonDraft) => Promise<VoiceButton>;
+        delete: (id: string) => Promise<{ success: boolean }>;
+        reorder: (ids: string[]) => Promise<VoiceButton[]>;
+        duplicate: (id: string) => Promise<VoiceButton>;
+        listDictionary: () => Promise<VoiceDictionaryEntry[]>;
+        replaceDictionary: (
+          entries: Array<Pick<VoiceDictionaryEntry, 'term' | 'replacement'>>
+        ) => Promise<VoiceDictionaryEntry[]>;
+        listSnippets: () => Promise<VoiceSnippet[]>;
+        replaceSnippets: (
+          entries: Array<Pick<VoiceSnippet, 'trigger' | 'expansion'>>
+        ) => Promise<VoiceSnippet[]>;
+        listHistory: () => Promise<VoiceHistoryEntry[]>;
+        clearHistory: () => Promise<{ success: boolean }>;
+        process: (payload: {
+          buttonId: string;
+          rawText: string;
+          audioMs: number;
+        }) => Promise<VoiceProcessResult>;
+        appleStart: () => Promise<{ success: boolean }>;
+        appleStop: () => Promise<{ success: boolean }>;
+        systemPaste: (
+          text: string
+        ) => Promise<{ success: true } | { success: false; reason: 'accessibility' | 'failed' }>;
+        systemSessionEnded: () => Promise<{ success: boolean }>;
+        getSystemStatus: () => Promise<{
+          supported: boolean;
+          holdToTalk: boolean;
+          active: boolean;
+          helperRunning: boolean;
+        }>;
+        onSystemStart: (callback: (payload: { mode: 'hold' | 'toggle' }) => void) => () => void;
+        onSystemStop: (callback: () => void) => () => void;
       };
       snap: {
         getPendingState: () => Promise<ScreenSnapComposerState | null>;

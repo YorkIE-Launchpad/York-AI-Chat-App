@@ -5,6 +5,7 @@ import { AuthProvider } from './auth/AuthProvider';
 import { AuthCallbackPage } from './components/AuthCallbackPage';
 import { SnapComposer } from './components/SnapComposer';
 import { VoiceOverlay } from './voice/VoiceOverlay';
+import { VoiceButtonsOverlay } from './voice-buttons/VoiceButtonsOverlay';
 import './styles/globals.css';
 import 'katex/dist/katex.min.css';
 import 'highlight.js/styles/github-dark-dimmed.min.css';
@@ -93,6 +94,10 @@ function Root() {
 
   if (typeof window !== 'undefined' && window.location.hash === '#voice') {
     return <VoiceOverlay />;
+  }
+
+  if (typeof window !== 'undefined' && window.location.hash === '#voice-buttons') {
+    return <VoiceButtonsOverlay />;
   }
 
   return (

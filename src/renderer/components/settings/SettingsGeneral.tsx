@@ -5,6 +5,7 @@ import { useAppStore } from '../../store';
 import { HubBudgetUsageCard } from './HubBudgetUsageCard';
 import { ScreenSnapShortcutSetting } from './ScreenSnapShortcutSetting';
 import { VoiceControlSetting } from './VoiceControlSetting';
+import { VoiceButtonsSetting } from './VoiceButtonsSetting';
 import {
   notifyBackendModelsCatalogRefreshed,
   refreshBackendModelsCatalog,
@@ -123,6 +124,8 @@ export function SettingsGeneral() {
         </div>
         {modelsRefreshMessage && <p className="text-xs text-text-muted">{modelsRefreshMessage}</p>}
       </div>
+
+      <VoiceButtonsSetting />
     </div>
   );
 }
