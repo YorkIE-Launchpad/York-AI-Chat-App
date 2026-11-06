@@ -87,8 +87,11 @@ while goal_not_complete:
 
 #### B — Build cycle (platform default)
 
-1. Seed if empty (`baseline_copy`)
-2. `start_scope_implement`:
+1. **New user implement/fix/build ask:** AskUserQuestion first for any missing or
+   ambiguous product/UX/acceptance details — **do not assume**. Skip this only when
+   the ask is fully specified or you are resuming/polling an in-flight job.
+2. Seed if empty (`baseline_copy`)
+3. `start_scope_implement`:
    ```json
    {
      "projectId": 12,
@@ -102,11 +105,11 @@ while goal_not_complete:
      ]
    }
    ```
-3. Poll `get_scope_implement_active` / `get_scope_implement_run` + `list_versions` (hours OK)
-4. `start_preview` → `get_preview_status` (boot failure → `get_preview_manifest` / `update_preview_manifest` / `update_preview_env`)
-5. `get_preview_snapshot` for each changed route → show the images in the reply (see SKILL.md § Visual evidence)
-6. Optional fidelity: §7
-7. Optional Backend Code (user asked) §6
+4. Poll `get_scope_implement_active` / `get_scope_implement_run` + `list_versions` (hours OK)
+5. `start_preview` → `get_preview_status` (boot failure → `get_preview_manifest` / `update_preview_manifest` / `update_preview_env`)
+6. `get_preview_snapshot` for each changed route → show the images in the reply (see SKILL.md § Visual evidence)
+7. Optional fidelity: §7
+8. Optional Backend Code (user asked) §6
 
 #### V — Validate cycle
 

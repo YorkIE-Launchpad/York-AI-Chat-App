@@ -1,5 +1,14 @@
 // Utility functions for tool use/result display
-import { Terminal, FileCode, FileText, Pencil, Search, Globe, FolderSearch } from 'lucide-react';
+import {
+  Terminal,
+  FileCode,
+  FileText,
+  Pencil,
+  Search,
+  Globe,
+  FolderSearch,
+  Clock,
+} from 'lucide-react';
 
 /** Map a tool name to a small icon element */
 export function getToolIcon(name: string) {
@@ -12,6 +21,7 @@ export function getToolIcon(name: string) {
   if (n === 'glob') return <FolderSearch className="w-3.5 h-3.5" />;
   if (n === 'websearch') return <Globe className="w-3.5 h-3.5" />;
   if (n === 'webfetch') return <Globe className="w-3.5 h-3.5" />;
+  if (n === 'sleep') return <Clock className="w-3.5 h-3.5" />;
   return <Terminal className="w-3.5 h-3.5" />;
 }
 
@@ -75,6 +85,13 @@ export function getToolLabel(
   if (nameLower === 'webfetch') {
     const url = String(inp.url || '');
     return url ? `Fetch ${url.length > 50 ? url.substring(0, 47) + '...' : url}` : 'Fetch URL';
+  }
+  if (nameLower === 'sleep') {
+    const sec = inp.seconds ?? inp.duration_seconds ?? inp.durationSeconds ?? inp.duration;
+    const ms = inp.duration_ms ?? inp.durationMs ?? inp.ms;
+    if (typeof sec === 'number' && Number.isFinite(sec)) return `Sleep ${sec}s`;
+    if (typeof ms === 'number' && Number.isFinite(ms)) return `Sleep ${Math.round(ms / 1000)}s`;
+    return 'Sleep';
   }
   return name;
 }

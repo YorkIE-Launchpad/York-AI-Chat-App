@@ -127,6 +127,7 @@ import { WebFetchExtension } from './tools/web-fetch-extension';
 import { searchWeb } from './tools/web-search';
 import { WebSearchExtension } from './tools/web-search-extension';
 import { AskUserQuestionExtension } from './tools/ask-user-question-extension';
+import { SleepToolExtension } from './tools/sleep-tool-extension';
 import { WikiService } from './wiki/wiki-service';
 import { WikiExtension } from './wiki/wiki-extension';
 import { KnowledgeBaseService } from './knowledge-base/knowledge-base-service';
@@ -645,7 +646,8 @@ function wireWikiAndOrchestration(db: ReturnType<typeof initDatabase>): void {
 }
 
 function buildExtensionList(
-  askUserQuestionExtension: AskUserQuestionExtension
+  askUserQuestionExtension: AskUserQuestionExtension,
+  sleepToolExtension: SleepToolExtension
 ): import('./extensions/agent-runtime-extension').AgentRuntimeExtension[] {
   if (
     !memoryService ||
@@ -677,6 +679,7 @@ function buildExtensionList(
     new WebFetchExtension(),
     new WebSearchExtension(),
     askUserQuestionExtension,
+    sleepToolExtension,
     new SubagentExtension(
       () => sessionManager?.getMCPManager() ?? null,
       sendToRenderer,
@@ -2250,8 +2253,9 @@ app
       const headlessAskUserQuestionExtension = new AskUserQuestionExtension(
         headlessSendWithPermission
       );
+      const headlessSleepToolExtension = new SleepToolExtension(sendToRenderer);
       const headlessExtensionManager = new AgentRuntimeExtensionManager(
-        buildExtensionList(headlessAskUserQuestionExtension)
+        buildExtensionList(headlessAskUserQuestionExtension, headlessSleepToolExtension)
       );
 
       // Set the global event sender so handleClientEvent's sendToRenderer calls
@@ -2757,8 +2761,9 @@ app
       target?.send('dictation:appleError', { message });
     });
     const askUserQuestionExtension = new AskUserQuestionExtension(sendToRenderer);
+    const sleepToolExtension = new SleepToolExtension(sendToRenderer);
     const extensionManager = new AgentRuntimeExtensionManager(
-      buildExtensionList(askUserQuestionExtension)
+      buildExtensionList(askUserQuestionExtension, sleepToolExtension)
     );
 
     // Initialize session manager before creating an interactive window.
@@ -7916,6 +7921,9 @@ async function handleClientEvent(event: ClientEvent): Promise<unknown> {
 
     case 'question.response':
       return sm.handleQuestionResponse(event.payload.questionId, event.payload.answer);
+
+    case 'sleep.skip':
+      return sm.handleSleepSkip(event.payload.sleepId);
 
     case 'sudo.password.response':
       return sm.handleSudoPasswordResponse(event.payload.toolUseId, event.payload.password);

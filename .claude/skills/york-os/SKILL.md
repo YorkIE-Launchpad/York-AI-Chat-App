@@ -130,6 +130,14 @@ cloud/CI/CD deploys go **only through R&D Launchpad MCP** — load
 exports/drafts/notes the user asked for — never product code. No environments →
 skip deploy (`n/a`); never invent a side-channel deploy.
 
+## Hard rule — LaunchPad implement clarifications
+
+When the user asks to **implement / build / add / change / fix** via R&D Launchpad:
+**AskUserQuestion first — do not assume** missing product, UX, or acceptance details.
+Bundle open forks in one AskUserQuestion form, then call LaunchPad implement/fix
+tools. Do not invent product decisions. Exception: resume/poll of in-flight jobs or
+a fully specified ask with no open forks.
+
 ## Confluence document creation
 
 When the user asks to create, write, or publish a Confluence page, wiki page, or

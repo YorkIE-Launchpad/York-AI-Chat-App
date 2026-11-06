@@ -352,6 +352,12 @@ export function useIPC() {
           case 'question.dismiss':
             store.clearPendingQuestion(event.payload.sessionId, event.payload.questionId);
             break;
+          case 'sleep.request':
+            store.setPendingSleep(event.payload);
+            break;
+          case 'sleep.dismiss':
+            store.clearPendingSleep(event.payload.sessionId, event.payload.sleepId);
+            break;
 
           case 'stream.executionTime':
             store.updateMessage(event.payload.sessionId, event.payload.messageId, {
@@ -1699,6 +1705,18 @@ export function useIPC() {
     [send, clearPendingQuestion]
   );
 
+  const skipSleep = useCallback(
+    (sessionId: string, sleepId: string) => {
+      send({
+        type: 'sleep.skip',
+        payload: { sleepId },
+      });
+      clearPendingSleep(sessionId, sleepId);
+      lastServerEventAt[sessionId] = Date.now();
+    },
+    [send, clearPendingSleep]
+  );
+
   const setPendingSudoPassword = useAppStore((s) => s.setPendingSudoPassword);
 
   const respondToSudoPassword = useCallback(
@@ -1783,6 +1801,7 @@ export function useIPC() {
     respondToPermission,
     holdPermission,
     respondToQuestion,
+    skipSleep,
     respondToSudoPassword,
     selectFolder,
     getWorkingDir,

@@ -6,6 +6,7 @@ import type {
   PermissionRequest,
   SudoPasswordRequest,
   UserQuestionRequest,
+  SleepRequest,
   Settings,
   AppConfig,
   SandboxSetupProgress,
@@ -167,6 +168,7 @@ export interface AppState {
 
   // AskUserQuestion — keyed by sessionId so concurrent sessions cannot clobber each other
   pendingQuestionsBySessionId: Record<string, UserQuestionRequest>;
+  pendingSleepBySessionId: Record<string, SleepRequest>;
 
   // Sudo password
   pendingSudoPassword: SudoPasswordRequest | null;
@@ -321,6 +323,8 @@ export interface AppState {
 
   setPendingQuestion: (question: UserQuestionRequest) => void;
   clearPendingQuestion: (sessionId: string, questionId?: string) => void;
+  setPendingSleep: (sleep: SleepRequest) => void;
+  clearPendingSleep: (sessionId: string, sleepId?: string) => void;
 
   setPendingSudoPassword: (request: SudoPasswordRequest | null) => void;
 
@@ -445,6 +449,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   sessionAlwaysAllowBySession: {},
   askedPermissionToolsBySession: {},
   pendingQuestionsBySessionId: {},
+  pendingSleepBySessionId: {},
   pendingSudoPassword: null,
   settings: defaultSettings,
   appConfig: null,
@@ -1190,6 +1195,27 @@ export const useAppStore = create<AppState>((set, get) => ({
       const next = { ...state.pendingQuestionsBySessionId };
       delete next[sessionId];
       return { pendingQuestionsBySessionId: next };
+    }),
+
+  setPendingSleep: (sleep) =>
+    set((state) => ({
+      pendingSleepBySessionId: {
+        ...state.pendingSleepBySessionId,
+        [sleep.sessionId]: sleep,
+      },
+    })),
+  clearPendingSleep: (sessionId, sleepId) =>
+    set((state) => {
+      const current = state.pendingSleepBySessionId[sessionId];
+      if (!current) {
+        return state;
+      }
+      if (sleepId && current.sleepId !== sleepId) {
+        return state;
+      }
+      const next = { ...state.pendingSleepBySessionId };
+      delete next[sessionId];
+      return { pendingSleepBySessionId: next };
     }),
 
   // Sudo password actions

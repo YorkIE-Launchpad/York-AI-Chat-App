@@ -10,6 +10,7 @@ import {
 } from '../../utils/tool-result-summary';
 import type { ToolUseContent, ToolResultContent, ContentBlock, Message } from '../../types';
 import { AskUserQuestionBlock } from './AskUserQuestionBlock';
+import { SleepBlock } from './SleepBlock';
 import { TodoWriteBlock } from './TodoWriteBlock';
 import { getToolIcon, getToolLabel } from './toolHelpers';
 import { AttachmentImageThumb } from '../attachments';
@@ -44,6 +45,9 @@ export const ToolUseBlock = memo(function ToolUseBlock({
   // Special-case tool UIs
   if (block.name === 'AskUserQuestion') {
     return <AskUserQuestionBlock block={block} message={message} />;
+  }
+  if (block.name === 'Sleep' || block.name === 'sleep') {
+    return <SleepBlock block={block} message={message} />;
   }
   if (block.name === 'TodoWrite') {
     return <TodoWriteBlock block={block} />;

@@ -667,6 +667,20 @@ export interface UserQuestionResponse {
   answer: string; // JSON string of Record<number, string[]> (questionIndex -> selected labels / free text)
 }
 
+/** Skippable Sleep tool — pause between polls; Skip completes the wait. */
+export interface SleepRequest {
+  sleepId: string;
+  sessionId: string;
+  toolUseId: string;
+  durationMs: number;
+  startedAt: number;
+  endsAt: number;
+}
+
+export interface SleepSkipResponse {
+  sleepId: string;
+}
+
 export interface PermissionRule {
   tool: string;
   pattern?: string;
@@ -787,6 +801,7 @@ export type ClientEvent =
     }
   | { type: 'permission.hold'; payload: { toolUseId: string } }
   | { type: 'question.response'; payload: UserQuestionResponse }
+  | { type: 'sleep.skip'; payload: SleepSkipResponse }
   | { type: 'sudo.password.response'; payload: { toolUseId: string; password: string | null } }
   | { type: 'settings.update'; payload: Record<string, unknown> }
   | { type: 'folder.select'; payload: Record<string, never> }
@@ -863,6 +878,8 @@ export type ServerEvent =
     }
   | { type: 'question.request'; payload: UserQuestionRequest }
   | { type: 'question.dismiss'; payload: { questionId: string; sessionId: string } }
+  | { type: 'sleep.request'; payload: SleepRequest }
+  | { type: 'sleep.dismiss'; payload: { sleepId: string; sessionId: string } }
   | { type: 'sudo.password.request'; payload: SudoPasswordRequest }
   | { type: 'sudo.password.dismiss'; payload: { toolUseId: string } }
   | { type: 'trace.step'; payload: { sessionId: string; step: TraceStep } }

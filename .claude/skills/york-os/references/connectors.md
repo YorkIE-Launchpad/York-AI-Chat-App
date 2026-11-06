@@ -29,6 +29,7 @@ Load `rnd-launchpad-mcp-sdlc` for release loop / Build / Validate.
 **Code edits & deploy:** never patch product source or deploy from the GrowthOS
 workspace — only via LaunchPad MCP (implement / feedback AI fix / migrate /
 `get_deploy_map` → deploy/CI). Never deploy via AWS/CLI/kubectl/Vercel/Bash.
+**Implement asks:** AskUserQuestion first for ambiguous requirements — do not assume.
 
 | Tools (primary)                                                            | Join keys out           | Typical next                |
 | -------------------------------------------------------------------------- | ----------------------- | --------------------------- |
