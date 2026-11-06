@@ -3014,14 +3014,14 @@ Your current workspace is located at: ${VIRTUAL_WORKSPACE_PATH}
 This is an isolated sandbox environment. Use ${VIRTUAL_WORKSPACE_PATH} as the root path for local file operations.
 Prefer relative paths under this workspace (e.g. outputs/my-file.md). Do not invent other absolute roots outside ${VIRTUAL_WORKSPACE_PATH}.
 Do not write to /mnt/user-data or other absolute mount paths — save generated documents under this workspace (e.g. outputs/).
-This folder is for local files only. LaunchPad implement/preview and other remote connector work use MCP tools — not this folder — and do not require a separate "implementation workspace".
+This folder is for local files only (exports, drafts, notes). Never edit application/product source code here, and never deploy from here. LaunchPad implement/preview/fixes/deploy and other remote connector work use R&D LaunchPad MCP tools — not this folder — and do not require a separate "implementation workspace".
 </workspace_info>`
           : workingDir
             ? `<workspace_info>
 Your current workspace is: ${workingDir}
 Use this folder (or relative paths under it) for local file reads and writes. Prefer relative paths like outputs/my-file.md.
 Do NOT use /workspace, /mnt/user-data, /mnt/workspace, or any other absolute virtual roots — they are not the workspace. Do not invent absolute directories outside this folder.
-This folder is for local files only. LaunchPad implement/preview and other remote connector work use MCP tools — not this folder — and do not require a separate "implementation workspace".
+This folder is for local files only (exports, drafts, notes). Never edit application/product source code here, and never deploy from here. LaunchPad implement/preview/fixes/deploy and other remote connector work use R&D LaunchPad MCP tools — not this folder — and do not require a separate "implementation workspace".
 </workspace_info>`
             : '';
 
@@ -3105,10 +3105,12 @@ This folder is for local files only. LaunchPad implement/preview and other remot
 5. Follow any <skill> block already injected in this turn. Do not skip it or re-Read the same SKILL.md.
 6. Named York people: Hub-resolve email first. Calendar create/update/delete: call the tool (approval UI may prompt) — do not hand a copy-paste invite.
 7. Research: websearch first to find URLs, then webfetch the best pages. Chrome MCP is only for interactive login/click/screenshot flows. For relative time windows like "within two days", assume the most recent two relevant publication days unless the user specifies otherwise. For complex or multi-part tasks, research completely BEFORE building: run several distinct queries covering official docs/specs, current versions, limits/pricing, and known pitfalls; fetch 2–4 authoritative pages; and gather every detail the deliverable depends on in that first pass so later turns don't need rework. Run independent searches/fetches in parallel.
-8. Improvement / follow-up requests: change only what was asked. Reuse the research, files, and tool results already in this conversation — do not re-research, regenerate the whole deliverable, or re-run unaffected steps. Edit in place, verify the changed part, and reply with what changed. If you find a real issue while doing this, say so plainly and propose the fix.${workspaceScopeRule}${
+8. Improvement / follow-up requests: change only what was asked. Reuse the research, files, and tool results already in this conversation — do not re-research, regenerate the whole deliverable, or re-run unaffected steps. Edit in place (local deliverables only), verify the changed part, and reply with what changed. If you find a real issue while doing this, say so plainly and propose the fix.
+9. CODE EDITS: GrowthOS must NEVER edit application/product source code itself (Write/Edit/Bash against app repos, cloning to patch locally, or hand-editing generated project trees). All client SaaS / LaunchPad code changes go ONLY through R&D LaunchPad MCP — load and follow skill rnd-launchpad-mcp-sdlc (e.g. start_scope_implement, create_feedback → start_feedback_ai_fix, migrate_frontend, visual fix). Local Write/Edit is allowed only for workspace files the user asked for (exports, drafts, notes under outputs/) — never product code.
+10. DEPLOY: GrowthOS must NEVER deploy directly (no AWS/CLI/kubectl/Vercel/Bash deploys, no raw cloud console, no pushing prod yourself). All cloud/CI/CD deploys go ONLY through R&D LaunchPad MCP — load and follow skill rnd-launchpad-mcp-sdlc (get_deploy_map → preflight → start_backend_cloud_deploy / run_project_cicd, then monitors). If no environments, skip deploy (n/a) — do not invent a side-channel deploy.${workspaceScopeRule}${
           process.platform === 'darwin'
             ? `
-9. macOS privacy: Never scan the entire home directory, and do not read ~/Music, ~/Pictures, or ~/Movies — that triggers system permission prompts (including a spurious Apple Music / media-library dialog). Prefer the workspace, MCP/Drive, or a user-specified folder; only touch Desktop/Downloads/Documents when the request clearly needs those folders.`
+11. macOS privacy: Never scan the entire home directory, and do not read ~/Music, ~/Pictures, or ~/Movies — that triggers system permission prompts (including a spurious Apple Music / media-library dialog). Prefer the workspace, MCP/Drive, or a user-specified folder; only touch Desktop/Downloads/Documents when the request clearly needs those folders.`
             : ''
         }`,
         `<draft_format>

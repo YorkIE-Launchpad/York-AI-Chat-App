@@ -12,7 +12,7 @@ description: >-
 
 # LaunchPad / GrowthOS debugging
 
-Work **only through LaunchPad MCP**. Prefer evidence (status, logs, snapshots,
+Work **only through LaunchPad MCP** — never edit product source code locally with Write/Edit/Bash, and never deploy directly outside LaunchPad MCP deploy/CI tools. Prefer evidence (status, logs, snapshots,
 Sentry, monitors) over guessing. Pair with `rnd-launchpad-mcp-sdlc` for Ship /
 Validate / env-gated Deploy after a fix.
 

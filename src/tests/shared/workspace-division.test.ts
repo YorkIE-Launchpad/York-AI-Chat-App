@@ -185,6 +185,8 @@ describe('workspace-division', () => {
     });
     expect(dualPrompt).toContain('DEFAULT SUBJECT');
     expect(dualPrompt).toContain('MANDATORY SKILL: rnd-launchpad-mcp-sdlc');
+    expect(dualPrompt).toContain('CODE EDITS: Never edit application/product source code');
+    expect(dualPrompt).toContain('DEPLOY: Never deploy directly');
     expect(dualPrompt).toContain('launchpad project id: 42');
 
     const lpOnlyPrompt = buildDivisionSystemPrompt({
@@ -193,6 +195,8 @@ describe('workspace-division', () => {
       launchpadProjectName: 'Solo LP',
     });
     expect(lpOnlyPrompt).toContain('DEFAULT SUBJECT');
+    expect(lpOnlyPrompt).toContain('CODE EDITS: Never edit application/product source code');
+    expect(lpOnlyPrompt).toContain('DEPLOY: Never deploy directly');
     expect(lpOnlyPrompt).toContain('Solo LP');
 
     const folderPrompt = buildDivisionSystemPrompt(

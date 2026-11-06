@@ -119,6 +119,17 @@ Full map: [connectors.md](references/connectors.md).
 **List vs prep:** listing the calendar is Calendar-only. Preparing agendas,
 briefing, or enriching meetings is **never** Calendar-alone — run enrichment.
 
+## Hard rule — code edits & deploy (GrowthOS)
+
+GrowthOS **never** edits application/product source code itself (local Write/Edit/Bash,
+cloning to patch, or hand-editing project trees), and **never deploys directly**
+(AWS/CLI/kubectl/Vercel/Bash/cloud console). All client SaaS code changes and
+cloud/CI/CD deploys go **only through R&D Launchpad MCP** — load
+`rnd-launchpad-mcp-sdlc` (implement, feedback AI fix, migrate, visual fix,
+`get_deploy_map` → LaunchPad deploy/CI). Local Write/Edit is only for workspace
+exports/drafts/notes the user asked for — never product code. No environments →
+skip deploy (`n/a`); never invent a side-channel deploy.
+
 ## Confluence document creation
 
 When the user asks to create, write, or publish a Confluence page, wiki page, or

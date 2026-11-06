@@ -26,6 +26,9 @@ Load `hub-mcp` for deep workflows. Identity key is usually **email**.
 ## R&D Launchpad
 
 Load `rnd-launchpad-mcp-sdlc` for release loop / Build / Validate.
+**Code edits & deploy:** never patch product source or deploy from the GrowthOS
+workspace — only via LaunchPad MCP (implement / feedback AI fix / migrate /
+`get_deploy_map` → deploy/CI). Never deploy via AWS/CLI/kubectl/Vercel/Bash.
 
 | Tools (primary)                                                            | Join keys out           | Typical next                |
 | -------------------------------------------------------------------------- | ----------------------- | --------------------------- |
