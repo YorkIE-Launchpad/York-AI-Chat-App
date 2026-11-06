@@ -46,18 +46,18 @@ On the first tick (or when the goal changes), classify into one primary type.
 State it briefly once, then execute — do not re-debate every tick unless reality
 disagrees.
 
-| Type             | Signals in the goal text                                                              | Done means                                                                 |
-| ---------------- | ------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| **fix**          | bug, error, broken, regression, crash, wrong behavior                                 | Root cause addressed; verification shows symptom gone                      |
-| **tests-ci**     | tests pass, CI green, flake, coverage                                                 | Relevant suite/CI green (or clearly scoped failing subset fixed)           |
-| **implement**    | implement, add feature, build, create, ship (local/non-LaunchPad)                     | Behavior exists, code/docs wired, basic check passes                       |
-| **refactor**     | cleanup, rename, restructure, simplify                                                | Structure changed; behavior preserved (tests or smoke)                     |
-| **research**     | investigate, why, find out, diagnose, analyze                                         | Findings written; open questions listed if any remain                      |
-| **ops-status**   | check, status, deploy, health, outage, monitor                                        | Current factual state + next action if unhealthy                           |
-| **content-docs** | write, document, PRD, README, summary                                                 | Artifact exists at the expected path/place                                 |
-| **verify**       | confirm, validate, ensure, smoke test                                                 | Pass/fail with evidence; no more changes unless fail                       |
+| Type             | Signals in the goal text                                                                | Done means                                                                 |
+| ---------------- | --------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| **fix**          | bug, error, broken, regression, crash, wrong behavior                                   | Root cause addressed; verification shows symptom gone                      |
+| **tests-ci**     | tests pass, CI green, flake, coverage                                                   | Relevant suite/CI green (or clearly scoped failing subset fixed)           |
+| **implement**    | implement, add feature, build, create, ship (local/non-LaunchPad)                       | Behavior exists, code/docs wired, basic check passes                       |
+| **refactor**     | cleanup, rename, restructure, simplify                                                  | Structure changed; behavior preserved (tests or smoke)                     |
+| **research**     | investigate, why, find out, diagnose, analyze                                           | Findings written; open questions listed if any remain                      |
+| **ops-status**   | check, status, deploy, health, outage, monitor                                          | Current factual state + next action if unhealthy                           |
+| **content-docs** | write, document, PRD, README, summary                                                   | Artifact exists at the expected path/place                                 |
+| **verify**       | confirm, validate, ensure, smoke test                                                   | Pass/fail with evidence; no more changes unless fail                       |
 | **launchpad**    | LaunchPad, release, migrate, conversion, preview, fidelity, Client Link, active release | Observable LaunchPad outcome (preview/QA/ship/fidelity) with tool evidence |
-| **multi**        | several independent outcomes in one goal                                              | Each sub-goal done; complete only when all are done                        |
+| **multi**        | several independent outcomes in one goal                                                | Each sub-goal done; complete only when all are done                        |
 
 If the goal mixes LaunchPad ship/fidelity with other work, prefer **`launchpad`**
 (or **`multi`** with a LaunchPad checklist) over plain implement.
@@ -90,18 +90,24 @@ implement / lock / preview / AI fix, CI, agents, deploys, etc.).
 ### In-tick (default)
 
 1. Call the start tool.
-2. **Keep the turn alive.** Poll status tools every few–tens of seconds until
-   terminal (`completed` / `failed` / `cancelled` / `locked && !agentActive` /
-   `done >= total` / equivalent).
+2. **Keep the turn alive.** Poll status tools about every **5–15s** (backoff to
+   ~30s for long jobs) until terminal (`completed` / `failed` / `cancelled` /
+   `locked && !agentActive` / `done >= total` / equivalent). **Never** bash
+   `sleep` or “check back in N minutes.”
 3. On terminal **success**, immediately run the next SDLC step in the same tick
    (e.g. `start_preview` → open pages → compare → correct again).
 4. On terminal **failure**, recover (see matrix) or re-run with a fixed prompt;
    do not end after a single failed status lookup.
+5. On host **`Error: aborted` / timeout**: treat as transient. The Cowork
+   platform also silent-auto-continues the session (up to 3 attempts). Still
+   re-poll the same status tool up to **2–3×** in this tick. Do **not** ask the
+   user to type `continue`. Abort ≠ job failed; check whether the job is still
+   running.
 
 ### Cross-tick park (only when necessary)
 
-Park only if the job is **hours-scale** (multi-item implement) or you hit a hard
-in-tick poll budget while the job is still legitimately running.
+Park only if you hit a hard in-tick poll budget while the job is still
+legitimately running. Long wall-clock jobs are fine; sleep theater is not.
 
 When parking, end with **one durable line** (before `GOAL_STATUS: in_progress`):
 
@@ -118,15 +124,17 @@ Next tick:
 
 ### Recovery matrix
 
-| Symptom                                         | Do this (same tick)                                                                                                      |
-| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Agent / conversion id “not found for project”   | Do **not** stop. Use alternates: `list_versions`, implement run status, preview status; if new `Rn` exists, continue.    |
-| Opaque agent id but migration was started       | Poll versions + preview until revision appears or failure is confirmed; then verify.                                     |
-| Preview stuck on “loading Login”                | Retry auth with displayed mock credentials; alternate login path; hard-refresh / restart preview; capture error evidence. |
-| Production auth HTTP 400 / unreachable          | Continue compare with preview-only + recorded residual; do not claim 95% from imagination.                               |
-| Active release has zero revisions               | `seed_release_from_prior` `{ mode: "baseline_copy" }` then resume work.                                                  |
-| Lock agent still running after long poll        | Keep polling `get_release_lock_status`; if must park, `RESUME:` with step=poll_lock.                                     |
-| Status says failed / cancelled                  | Read error; re-start with corrected prompt only if the goal still requires the fix; else report residual.                |
+| Symptom                                       | Do this (same tick)                                                                                                       |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `Error: aborted` / `Request timed out`        | Re-poll same status tool 2–3×. Do **not** ask user to type `continue`. If still flaky: `RESUME:` + poll first next tick.  |
+| Urge to bash `sleep` / wait N minutes         | Forbidden — short MCP poll cadence or durable `RESUME:` only.                                                             |
+| Agent / conversion id “not found for project” | Do **not** stop. Use alternates: `list_versions`, implement run status, preview status; if new `Rn` exists, continue.     |
+| Opaque agent id but migration was started     | Poll versions + preview until revision appears or failure is confirmed; then verify.                                      |
+| Preview stuck on “loading Login”              | Retry auth with displayed mock credentials; alternate login path; hard-refresh / restart preview; capture error evidence. |
+| Production auth HTTP 400 / unreachable        | Continue compare with preview-only + recorded residual; do not claim 95% from imagination.                                |
+| Active release has zero revisions             | `seed_release_from_prior` `{ mode: "baseline_copy" }` then resume work.                                                   |
+| Lock agent still running after long poll      | Keep polling `get_release_lock_status`; if must park, `RESUME:` with step=poll_lock.                                      |
+| Status says failed / cancelled                | Read error; re-start with corrected prompt only if the goal still requires the fix; else report residual.                 |
 
 Ending `in_progress` with only “waiting for next tick / migration started” and
 no `RESUME:` line and no alternate poll is an **anti-pattern**.
@@ -212,12 +220,12 @@ When the multi goal is **visual fidelity / migrate + compare** (or similar):
 
 ## Cross-skill routing
 
-| Goal domain                                   | Also load / follow                                                    |
-| --------------------------------------------- | --------------------------------------------------------------------- |
-| Company data, people, calendar, slack         | `york-os` (+ hub/launchpad skills as routed)                          |
-| LaunchPad release / ship / migrate / fidelity | **`rnd-launchpad-mcp-sdlc`** (required every launchpad tick)          |
-| HTML deck / one-pager                         | `html-artifact`                                                       |
-| Office docs                                   | `docx` / `pptx` / `xlsx` / `pdf` as named                             |
+| Goal domain                                   | Also load / follow                                           |
+| --------------------------------------------- | ------------------------------------------------------------ |
+| Company data, people, calendar, slack         | `york-os` (+ hub/launchpad skills as routed)                 |
+| LaunchPad release / ship / migrate / fidelity | **`rnd-launchpad-mcp-sdlc`** (required every launchpad tick) |
+| HTML deck / one-pager                         | `html-artifact`                                              |
+| Office docs                                   | `docx` / `pptx` / `xlsx` / `pdf` as named                    |
 
 Detect type **first**, then lean on the domain skill for tools — do not skip
 the status contract. LaunchPad domain work must keep the SDLC skill in play

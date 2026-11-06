@@ -41,6 +41,13 @@ import {
 } from '../sandbox/sandbox-adapter';
 import { SandboxSync } from '../sandbox/sandbox-sync';
 import { CoworkAgentRunner } from '../agent/agent-runner';
+import {
+  type AgentRunOutcome,
+  AUTO_CONTINUE_MAX_ATTEMPTS,
+  buildAutoContinuePrompt,
+  buildTransientInterruptSoftMessage,
+  HOST_TIMEOUT_EXHAUSTED_MESSAGE,
+} from '../agent/agent-runner-message-end';
 import { configStore } from '../config/config-store';
 import { MCPManager } from '../mcp/mcp-manager';
 import { mcpConfigStore } from '../mcp/mcp-config-store';
@@ -100,7 +107,7 @@ import { getCognitoSubFromSession } from '../collab/collab-sync-service';
 import { MAX_RENAMED_SESSION_TITLE_LENGTH } from '../../shared/session-title';
 
 interface AgentRunner {
-  run(session: Session, prompt: string, existingMessages: Message[]): Promise<void>;
+  run(session: Session, prompt: string, existingMessages: Message[]): Promise<AgentRunOutcome>;
   cancel(sessionId: string): void;
   clearSdkSession?(sessionId: string): void;
   clearAllSdkSessions?(): void;
@@ -135,6 +142,8 @@ export class SessionManager {
   private askUserQuestionExtension?: AskUserQuestionExtension;
   private sleepToolExtension?: SleepToolExtension;
   private activeSessions: Map<string, AbortController> = new Map();
+  /** Silent auto-continues after transient abort/timeout (per session; reset on success/cancel). */
+  private autoContinueAttempts: Map<string, number> = new Map();
   private promptQueues: Map<
     string,
     Array<{ prompt: string; content?: ContentBlock[]; broadcastUserMessage?: boolean }>
@@ -1746,7 +1755,67 @@ export class SessionManager {
           }
 
           // Run the agent
-          await this.agentRunner.run(session, enhancedPrompt, messagesForContext);
+          const runOutcome = await this.agentRunner.run(
+            session,
+            enhancedPrompt,
+            messagesForContext
+          );
+
+          if (runOutcome.kind === 'transient_interrupt') {
+            const nextAttempt = (this.autoContinueAttempts.get(session.id) ?? 0) + 1;
+            if (nextAttempt <= AUTO_CONTINUE_MAX_ATTEMPTS) {
+              this.autoContinueAttempts.set(session.id, nextAttempt);
+              logCtx(
+                `[SessionManager] Transient ${runOutcome.reason} — auto-continue ${nextAttempt}/${AUTO_CONTINUE_MAX_ATTEMPTS}`
+              );
+              const resumeNotice: Message = {
+                id: uuidv4(),
+                sessionId: session.id,
+                role: 'assistant',
+                content: [
+                  {
+                    type: 'text',
+                    text: buildTransientInterruptSoftMessage(
+                      nextAttempt,
+                      AUTO_CONTINUE_MAX_ATTEMPTS
+                    ),
+                  },
+                ],
+                timestamp: Date.now(),
+              };
+              this.saveMessage(resumeNotice);
+              this.sendToRenderer({
+                type: 'stream.message',
+                payload: { sessionId: session.id, message: resumeNotice },
+              });
+              // Silent queue item — no user bubble; processQueue picks it up next.
+              this.enqueuePrompt(
+                session,
+                buildAutoContinuePrompt(nextAttempt, AUTO_CONTINUE_MAX_ATTEMPTS),
+                undefined,
+                { broadcastUserMessage: false }
+              );
+            } else {
+              this.autoContinueAttempts.delete(session.id);
+              logCtx(
+                `[SessionManager] Transient ${runOutcome.reason} — auto-continue exhausted (${AUTO_CONTINUE_MAX_ATTEMPTS})`
+              );
+              const exhaustedMsg: Message = {
+                id: uuidv4(),
+                sessionId: session.id,
+                role: 'assistant',
+                content: [{ type: 'text', text: HOST_TIMEOUT_EXHAUSTED_MESSAGE }],
+                timestamp: Date.now(),
+              };
+              this.saveMessage(exhaustedMsg);
+              this.sendToRenderer({
+                type: 'stream.message',
+                payload: { sessionId: session.id, message: exhaustedMsg },
+              });
+            }
+          } else {
+            this.autoContinueAttempts.delete(session.id);
+          }
 
           if (this.extensionManager) {
             const stableMessages = this.getMessages(session.id);
@@ -2042,6 +2111,7 @@ export class SessionManager {
       controller.abort();
     }
     this.promptQueues.delete(sessionId);
+    this.autoContinueAttempts.delete(sessionId);
     // Preserve in-memory history for incognito — there is no DB to reload from.
     if (!this.ephemeralSessions.has(sessionId)) {
       this.messageCache.delete(sessionId);

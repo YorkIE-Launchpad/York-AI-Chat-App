@@ -32,9 +32,12 @@ No envs → do not ask to deploy; stay on preview / platform / backend chat.
 - Prefixes: `backend_code_chat_*`, **`infra_chat_*`** (not `infra_analysis_chat_*`), `cloud_debug_chat_*`.
 - **New** GrowthOS fix ask → `create_feedback` → AI fix. Never `update_feedback` an unrelated old UUID.
 - After UI fix: preview ready → `get_preview_snapshot` → images in the reply.
-- Poll chats/jobs **in-turn**; park only with durable `RESUME:`.
+- Poll chats/jobs **in-turn** on a **short cadence** (~5–15s); park only with durable `RESUME:`.
+- **Never** bash `sleep`, long shell waits, or “check back in N minutes” — poll MCP status tools or `RESUME:`.
+- **Abort/timeout** (`Error: aborted`, `Request timed out`, …): self-continue same turn (re-poll up to 2–3×). Do **not** ask the user to type `continue`. Abort ≠ job failed — check if the job is still running.
 - Live AWS logs / runtime: use **cloud debug chat** (not raw `aws_command` / `get_deploy_context`).
 - Max **2** auto-retries per tactic, then residual + different lane or ask.
+- **Minutes behavior** (any topic): match the ask / minimal slice; one AskUserQuestion for open forks; no expand-while-blocked; no blocker re-essays; user override wins. Stay in the MCP lane — prefer LaunchPad tools over ad-hoc bash/subagents for product fixes. Full contract: `rnd-launchpad-mcp-sdlc` / `rnd-launchpad-mcp-debug`.
 
 ---
 

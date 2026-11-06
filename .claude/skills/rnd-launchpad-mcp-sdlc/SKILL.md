@@ -21,8 +21,9 @@ MCP (implement, feedback AI fix, migrate, visual fix). **Never deploy directly**
 (AWS/CLI/kubectl/Vercel/Bash/cloud console) — cloud/CI/CD only via LaunchPad MCP
 (`get_deploy_map` → preflight → deploy/CI tools). **New implement/fix/build asks:
 AskUserQuestion first — do not assume** missing product/UX/acceptance details; then
-start → poll → next step. Prefer progress + evidence over plans and narration once
-requirements are clear.
+start → **short-cadence poll** → next step. Prefer progress + evidence over plans
+and narration once requirements are clear. Follow the **Minutes behavior** contract
+below on every topic.
 
 **Complete SDLC every cycle** unless the user explicitly narrows scope: Discover
 (as needed) → Plan → Build → Validate (QA Chat) → Ship (lock + seed). **Deploy
@@ -50,9 +51,45 @@ Make **material progress** on the assigned project goal:
 1. **Sense** project state (tools, not memory alone).
 2. **Decide** phase / step (`NEXT_ACTION`).
 3. **Act** (start or continue work).
-4. **Poll** long jobs to terminal **in-turn** when feasible.
+4. **Poll** long jobs to terminal **in-turn** on a short cadence (see Minutes behavior).
 5. **Record** durable state + end with status lines (see below).
-6. **Loop** — do not wait for a human unless blocked on a real fork (credentials, product choice, auth failure after retries).
+6. **Loop** — do not wait for a human unless blocked on a real fork (credentials, product choice, auth failure after retries). Self-continue past abort/timeout — never ask the user to type `continue` for transport glitches.
+
+### Minutes behavior (any topic — hard rules)
+
+Topic-agnostic speed contract. Next ask may be unrelated; these rules still apply.
+
+**Match the ask / minimal slice**
+
+- Ship the **smallest slice** that satisfies the user’s words. Adjacent improvements wait until that slice is verified green.
+- **Read-only stays read-only** until the user asks to implement/fix (e.g. “list features” ≠ “build all of them”).
+- Before large scope writes or `start_scope_implement` on many items: clarify open forks, then prefer a **small sequential slice** (typically a few stories), not a giant batch of ambiguous work.
+
+**Clarify once**
+
+- **Forks → one AskUserQuestion** before write paths (implement, feedback fix, Backend Code change, scope/epic/story writes driven by a new ask). Bundle product/UX forks and any required human inputs. Do not invent the answers.
+- **Do not expand while blocked** on credentials, admin actions, or product choices. Ask once → park with `RESUME:` → resume when unblocked. Do not start multi-job rewrites that cannot ship without those inputs.
+
+**Anti-sleep / poll**
+
+- **Never** use shell `sleep`, long bash waits, or “check back in N minutes” as the poll strategy.
+- After any start tool: poll the matching status tool about every **5–15s** (backoff to ~30s only for clearly long jobs). Stay in-turn until terminal, or park with durable `RESUME:` — do **not** end on “I’ll wait 5 minutes.”
+- Jobs may take a long wall-clock time; that does **not** justify sleep theater. Tight poll loops or `RESUME:` only.
+- On park / next user message / bare `continue` / goal tick: **poll `RESUME: next=` first**, then act — no re-diagnosis essay.
+
+**Abort / timeout → self-continue**
+
+- Treat `Error: aborted`, `Request timed out`, “operation was aborted”, and similar host/transport failures as **transient**, not stop conditions and not “job failed.”
+- **Platform:** Cowork host auto-resumes the session (silent continue, up to 3 attempts) on transient abort/timeout — do not wait for the user to type `continue`.
+- **Agent:** Also continue in-turn when possible: re-call the same poll/status tool (or `RESUME: next=`) up to **2–3** immediate retries.
+- If still aborting after platform resumes: emit durable `RESUME:`, keep work unfinished / `GOAL_STATUS: in_progress`. Next message or tick: poll first — never restart Discover/Plan or re-ask forks already answered.
+- After abort: check whether the LaunchPad job is still running; if yes, keep polling; if terminal, read the result and take the next SDLC step.
+- Distinguish: abort/timeout = agent/host glitch → self-continue. Real product/auth/admin blocker = park once for a human.
+
+**Blockers and overrides**
+
+- **No blocker re-essays.** Unchanged blockers → one line + re-check only what the user claimed to fix.
+- **User override wins.** Explicit “just deploy / do it / ship” → execute after a one-line risk note; do not invent new prerequisites after the override.
 
 ### Status lines (goal ticks only)
 
@@ -229,7 +266,7 @@ seed NEW active → WORK → … forever
 | One active            | Never juggle two actives for normal shipping                                                 |
 | Empty active          | Seed `baseline_copy` before Build/Validate; greenfield (no prior tag) → first-revision tools |
 | Write target          | Default `platform` (frontend/preview)                                                        |
-| Poll after start      | Mandatory in-turn; minutes–hours OK                                                          |
+| Poll after start      | Mandatory in-turn; short cadence (5–15s); park with `RESUME:` only — never bash sleep        |
 | Post-lock             | Only work on **new** active id                                                               |
 | Development implement | Lock with `skipLockAgentOperations: true`                                                    |
 
@@ -260,11 +297,11 @@ seed NEW active → WORK → … forever
 | `run_infra_analysis`                                         | `get_infra_analysis_latest`                                                                                                                                                         | completed                                   | retry once                                                                                                                                         |
 | `generate_understand_graph`                                  | `get_understand_status`                                                                                                                                                             | ready                                       | retry / residual                                                                                                                                   |
 
-**In-tick rule:** after any start → poll every few–tens of seconds → on success immediately next SDLC step. Do **not** end with “started, wait N minutes” without `RESUME:`.
+**In-tick rule:** after any start → poll about every **5–15s** (backoff to ~30s for long jobs) → on success immediately next SDLC step. Do **not** end with “started, wait N minutes”, bash `sleep`, or “I’ll check in 5 min.” Without a terminal result: keep polling **or** emit `RESUME:` and poll first next turn. Host `aborted` / timeout → self-continue (Minutes behavior), not user `continue`.
 
 **Snapshot rule:** when a UI-affecting row above (seed / first revision / implement platform / migrate / preview / feedback AI fix / visual fix / QA fix / FE agents) succeeds, the next step is preview ready → `get_preview_snapshot` per changed route → images in the reply ([Visual evidence](#visual-evidence-required-every-turn)).
 
-Park only for **hours-scale** jobs or poll budget; always durable `RESUME:`.
+Park only when the job is still running and in-tick poll budget is exhausted; always durable `RESUME:`. Long wall-clock jobs are fine — sleep theater is not.
 
 Full sequences: [workflows.md](references/workflows.md).
 
@@ -298,7 +335,7 @@ Tools: [tool-map.md](references/tool-map.md). Model: [platform-model.md](referen
 2. Optional Discover if product unknowns block scope.
 3. Epics/stories; ensure **one active** (`create_release` needs `startDate`+`releaseDate`; activate needs **`reason`**).
 4. Empty revisions → `seed_release_from_prior` `{ "mode": "baseline_copy" }` (no prior tag → `start_first_revision_from_prompt` with `promptText`).
-5. `set_release_scope` → `start_scope_implement` `{ "execution": "sequential", "target": "platform", "items":[{...,"sortOrder":1}] }` → **poll hours if needed**.
+5. `set_release_scope` → `start_scope_implement` `{ "execution": "sequential", "target": "platform", "items":[{...,"sortOrder":1}] }` → **short-cadence poll** to terminal (or `RESUME:` park — never sleep). Prefer a small clarified slice over a giant ambiguous batch.
 6. `start_preview` → poll → `get_preview_snapshot` for the changed routes → show the images → Validate as needed.
 7. `lock_release` `{ "confirm": true }` → poll lock → seed **new** active → continue goal or next scope.
 
@@ -350,9 +387,11 @@ implement/fix/build asks.
 ## MCP golden rules
 
 - Destructive: `confirm: true`
-- Long-running: start → poll (never SSE)
-- Goal ticks: poll in-tick; park only with `RESUME:`
+- Long-running: start → short-cadence poll (never SSE; never bash `sleep` / “wait N minutes”)
+- Abort/timeout: self-continue (2–3 retries) or `RESUME:` — never ask the user to type `continue` for transport glitches
+- Goal ticks: poll in-tick; park only with `RESUME:`; next tick poll `next` first
 - Complete SDLC: Build alone is not done — Validate + Ship. Deploy **only if envs**.
+- Minutes behavior: match the ask; minimal slice; one AskUserQuestion for forks; no expand-while-blocked; no blocker re-essays; user override wins
 - New fix ask → `create_feedback` (new UUID); never rewrite an unrelated old feedback via `update_feedback`
 - Prefer website **`qa_chat_*`** for GrowthOS testing; Mac `send_qa_chat_message` is legacy module chat
 - `create_release`: `startDate` + `releaseDate`
@@ -366,7 +405,7 @@ implement/fix/build asks.
 - OAuth `get_*_connect_url` returns a URL for the **human**; never treat it as connected
 - `create_project_cicd`, `disconnect_*`, `delete_*`, `spawn_deploy_regression_fix_agent`: only with explicit user intent
 - Ask humans for: **new implement/fix/build asks** (AskUserQuestion — do not assume product details); deploy yes/no **only when environments exist** but readiness is unclear; platform vs development when ambiguous **and** no preview cue; product secrets; repeated auth failure
-- Auto-continue every other step **after** implement clarifications are answered (or ask was fully specified)
+- Auto-continue every other step **after** implement clarifications are answered (or ask was fully specified); auto-continue past abort/timeout without re-asking
 
 Exclusions (no MCP): AWS debug MCP, webhooks, OAuth callbacks, multipart ZIP / S3 presign uploads, SSE, internal deploy secrets, stakeholder-email-only chat mutations.
 
@@ -381,14 +420,18 @@ Exclusions (no MCP): AWS debug MCP, webhooks, OAuth callbacks, multipart ZIP / S
 | Preview, poll, re-preview **after** scope is clear       | **New implement/build/fix ask** — AskUserQuestion; do not assume        |
 | Start preview + `get_preview_snapshot` after UI change   | Choosing `mode: agent` seed without user prompt intent                  |
 | Implement / `create_feedback` **after** clarifications   | Ambiguous new feature/fix — clarify before tools                        |
+| Self-continue after abort/timeout (poll first)           | Asking the user to type `continue` after transport abort/timeout        |
+| Honor explicit “just deploy / ship / do it” override     | Inventing extra prerequisites after a user override                     |
 | Website QA Chat full loop when validating                | Spending / budget uncertainty when budget tools fail and goal is large  |
 | Lock + seed next when cycle ready                        | Switching to `development` target without clear user signal             |
 | Cloud deploy / CI when `get_deploy_map` has envs + ready | Ask about deploy when **no** environments exist                         |
 | Discover enrich when data empty and feature needs it     | 401/403 auth; inventing deploy for env-less projects                    |
 | Retry failed jobs once with adjusted prompt              | Create epic/story/scope from underspecified user ask without clarifying |
+|                                                          | Expanding beyond the stated ask before the slice is verified            |
+|                                                          | Bash `sleep` / “poll in 5 min” instead of MCP status polls              |
 |                                                          | Repeated lock/seed failures after 2 retries; confirm-required deletes   |
 
-Max auto-retries per job type per tick: **2** (then park with residual evidence + `in_progress`, or block).
+Max auto-retries per job type per tick: **2** (then park with residual evidence + `in_progress`, or block). Abort/timeout self-retries: **2–3** then `RESUME:` (still not a human `continue` ask).
 
 ---
 

@@ -267,6 +267,79 @@ export function shouldPreserveExistingTrace(disposition: AbortDisposition): bool
   return disposition === 'loop_guard' || disposition === 'stream_error';
 }
 
+/** Max host-level silent auto-continues after transient abort/timeout (not user cancel). */
+export const AUTO_CONTINUE_MAX_ATTEMPTS = 3;
+
+export type TransientInterruptReason = 'timeout' | 'aborted' | 'upstream';
+
+export type AgentRunOutcome =
+  | { kind: 'completed' }
+  | { kind: 'cancelled' }
+  | { kind: 'failed' }
+  | { kind: 'transient_interrupt'; reason: TransientInterruptReason };
+
+export const TRANSIENT_INTERRUPT_SOFT_MESSAGE =
+  '**Interrupted** by a transient timeout/abort. Resuming automatically…';
+
+export const HOST_TIMEOUT_EXHAUSTED_MESSAGE =
+  '**Request timed out**: No response for a long time; the operation was aborted after automatic retries.';
+
+/**
+ * True when the failure is a host/transport glitch the platform should
+ * auto-continue (silent resume), instead of asking the user to type "continue".
+ * Excludes auth, usage limits, client-outdated, and context overflow.
+ */
+export function isTransientInterruptError(errorText: string): boolean {
+  const raw = (errorText || '').trim();
+  if (!raw) return false;
+  if (isUsageLimitError(errorText)) return false;
+  if (isClientOutdatedError(errorText)) return false;
+  if (isContextOverflowError(errorText) && !isRateLimitError(errorText)) return false;
+  if (/\b(401|403)\b/.test(errorText) || /unauthorized|forbidden/i.test(errorText)) {
+    return false;
+  }
+
+  const lower = raw.toLowerCase();
+  if (
+    lower === 'aborted' ||
+    lower === 'abort' ||
+    lower === 'timeout' ||
+    lower.includes('operation was aborted') ||
+    lower.includes('request timed out') ||
+    lower.includes('the operation was aborted')
+  ) {
+    return true;
+  }
+  if (isUpstreamIdleOrResponseTimeout(errorText)) return true;
+  if (isSdkRetryableTransientError(errorText)) return true;
+  return false;
+}
+
+export function classifyTransientInterruptReason(errorText: string): TransientInterruptReason {
+  if (isUpstreamIdleOrResponseTimeout(errorText) || /timed?\s*out|timeout/i.test(errorText)) {
+    return 'timeout';
+  }
+  if (/^aborted$/i.test(errorText.trim()) || /operation was aborted/i.test(errorText)) {
+    return 'aborted';
+  }
+  return 'upstream';
+}
+
+/** Silent continuation prompt enqueued by SessionManager after a transient interrupt. */
+export function buildAutoContinuePrompt(attempt: number, maxAttempts: number): string {
+  return [
+    '[System] The previous turn was interrupted by a transient timeout or abort.',
+    `This is automatic resume ${attempt}/${maxAttempts} — the user did not type "continue".`,
+    'Continue the same task from where you left off.',
+    'If a RESUME: line or in-flight LaunchPad job exists, poll that status tool first.',
+    'Do not ask the user to type continue. Do not restart discovery or re-ask forks already answered.',
+  ].join(' ');
+}
+
+export function buildTransientInterruptSoftMessage(attempt: number, maxAttempts: number): string {
+  return `**Interrupted** by a transient timeout/abort. Resuming automatically (${attempt}/${maxAttempts})…`;
+}
+
 export function resolveMessageEndPayload(
   options: ResolveMessageEndPayloadOptions
 ): ResolvedMessageEndPayload {

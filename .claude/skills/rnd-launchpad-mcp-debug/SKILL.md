@@ -47,9 +47,22 @@ No envs → do not ask to deploy; stay on preview / platform / backend chat.
 - Prefixes: `backend_code_chat_*`, **`infra_chat_*`** (not `infra_analysis_chat_*`), `cloud_debug_chat_*`.
 - **New** GrowthOS fix ask → `create_feedback` → AI fix. Never `update_feedback` an unrelated old UUID.
 - After UI fix: preview ready → `get_preview_snapshot` → images in the reply.
-- Poll chats/jobs **in-turn**; park only with durable `RESUME:`.
+- Poll chats/jobs **in-turn** on a **short cadence** (~5–15s); park only with durable `RESUME:`.
+- **Never** bash `sleep`, long shell waits, or “check back in N minutes” — poll MCP status tools or `RESUME:`.
+- **Abort/timeout** (`Error: aborted`, `Request timed out`, …): platform auto-resumes the session (silent continue, up to 3 attempts); also self-continue in-turn (re-poll up to 2–3×). Do **not** ask the user to type `continue`. Abort ≠ job failed — check if the job is still running.
 - Live AWS logs / runtime: use **cloud debug chat** (not raw `aws_command` / `get_deploy_context`).
 - Max **2** auto-retries per tactic, then residual + different lane or ask.
+
+## Minutes behavior (any topic — hard rules)
+
+Same contract as `rnd-launchpad-mcp-sdlc` — apply on every debug/fix ask, any product:
+
+- **Match the ask / minimal slice.** Fix the reported symptom first; do not expand into adjacent systems until that symptom is verified green.
+- **One AskUserQuestion** before write paths when product/UX forks or human credentials/admin actions are open. Bundle them once.
+- **Do not expand while blocked** on secrets/admin/product choice — ask once, park with `RESUME:`, resume when unblocked.
+- **No blocker re-essays.** Unchanged blockers → one line + re-check only the claimed unblock.
+- **User override wins.** “just deploy / do it / ship” → execute after a one-line risk note; do not invent new prerequisites.
+- Stay in the chosen **MCP lane** (cloud debug → Backend Code → feedback/deploy). Prefer LaunchPad tools over ad-hoc bash/subagents for product fixes.
 
 ---
 

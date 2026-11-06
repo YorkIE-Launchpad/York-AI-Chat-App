@@ -31,7 +31,7 @@ Continuous decision tree: [continuous-loop.md](continuous-loop.md).
    ```json
    lock_release({ "releaseId": <activeReleaseId>, "confirm": true })
    ```
-   Then poll until ready (up to **~30 minutes**; never SSE):
+   Then short-cadence poll until ready (never SSE; never bash sleep — park with `RESUME:` if poll budget hit):
    ```json
    get_release_lock_status({ "releaseId": <sameId> })
    ```
@@ -88,7 +88,8 @@ while goal_not_complete:
 #### B — Build cycle (platform default)
 
 1. **New user implement/fix/build ask:** AskUserQuestion first for any missing or
-   ambiguous product/UX/acceptance details — **do not assume**. Skip this only when
+   ambiguous product/UX/acceptance details — **do not assume**. Prefer a **small
+   clarified slice** over a giant ambiguous batch. Skip AskUserQuestion only when
    the ask is fully specified or you are resuming/polling an in-flight job.
 2. Seed if empty (`baseline_copy`)
 3. `start_scope_implement`:
@@ -105,7 +106,7 @@ while goal_not_complete:
      ]
    }
    ```
-4. Poll `get_scope_implement_active` / `get_scope_implement_run` + `list_versions` (hours OK)
+4. Short-cadence poll `get_scope_implement_active` / `get_scope_implement_run` + `list_versions` (5–15s; park with `RESUME:` if poll budget hit — never bash sleep)
 5. `start_preview` → `get_preview_status` (boot failure → `get_preview_manifest` / `update_preview_manifest` / `update_preview_env`)
 6. `get_preview_snapshot` for each changed route → show the images in the reply (see SKILL.md § Visual evidence)
 7. Optional fidelity: §7
@@ -384,7 +385,9 @@ Next tick: poll first — do not re-seed or restart whole compare unless job con
 - [ ] Empty active seeded with `mode: "baseline_copy"` before work (greenfield → first-revision tools)
 - [ ] Build writes only on active
 - [ ] Implement defaulted to `target: "platform"` unless user asked for development
-- [ ] After any start tool, polled to terminal **in-turn** (or RESUME park)
+- [ ] After any start tool, polled to terminal **in-turn** on short cadence (or RESUME park) — no bash sleep
+- [ ] Abort/timeout self-continued (re-poll / RESUME) — did not ask user to type `continue`
+- [ ] New implement ask used minimal clarified slice (AskUserQuestion for forks); did not expand while blocked
 - [ ] Agent-not-found recovered via versions / implement / preview status
 - [ ] Every UI change shown with `get_preview_snapshot` images in the reply (or `SNAPSHOT: skipped|unavailable (<reason>)`)
 - [ ] After platform lock, polled `get_release_lock_status`; after development implement, skip lock agent

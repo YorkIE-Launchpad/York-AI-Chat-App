@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  AUTO_CONTINUE_MAX_ATTEMPTS,
+  buildAutoContinuePrompt,
   buildTerminalErrorEmissionDetails,
   buildTerminalErrorMessage,
+  buildTransientInterruptSoftMessage,
+  classifyTransientInterruptReason,
+  isTransientInterruptError,
   resolveAbortDisposition,
   resolveAssistantStreamErrorText,
   resolveMessageEndPayload,
@@ -549,5 +554,39 @@ describe('shouldPreserveExistingTrace', () => {
     expect(shouldPreserveExistingTrace('stream_error')).toBe(true);
     expect(shouldPreserveExistingTrace('timeout')).toBe(false);
     expect(shouldPreserveExistingTrace('user')).toBe(false);
+  });
+});
+
+describe('isTransientInterruptError (platform auto-continue)', () => {
+  it('treats abort / host timeout as transient', () => {
+    expect(isTransientInterruptError('aborted')).toBe(true);
+    expect(isTransientInterruptError('Abort')).toBe(true);
+    expect(isTransientInterruptError('The operation was aborted.')).toBe(true);
+    expect(
+      isTransientInterruptError(
+        'Request timed out: No response for a long time; the operation was aborted.'
+      )
+    ).toBe(true);
+    expect(isTransientInterruptError('upstream idle timeout exceeded')).toBe(true);
+    expect(isTransientInterruptError('connection reset')).toBe(true);
+  });
+
+  it('does not auto-continue auth, usage, overflow, or outdated client', () => {
+    expect(isTransientInterruptError(USAGE_LIMIT_USER_MESSAGE)).toBe(false);
+    expect(isTransientInterruptError(CONTEXT_OVERFLOW_USER_MESSAGE)).toBe(false);
+    expect(isTransientInterruptError(CLIENT_OUTDATED_USER_MESSAGE)).toBe(false);
+    expect(isTransientInterruptError('401 Unauthorized')).toBe(false);
+    expect(isTransientInterruptError('403 Forbidden')).toBe(false);
+  });
+
+  it('classifies reasons and builds resume prompts', () => {
+    expect(classifyTransientInterruptReason('aborted')).toBe('aborted');
+    expect(classifyTransientInterruptReason('Request timed out')).toBe('timeout');
+    expect(classifyTransientInterruptReason('connection reset')).toBe('upstream');
+    expect(AUTO_CONTINUE_MAX_ATTEMPTS).toBe(3);
+    const prompt = buildAutoContinuePrompt(2, 3);
+    expect(prompt).toContain('automatic resume 2/3');
+    expect(prompt).toContain('Do not ask the user to type continue');
+    expect(buildTransientInterruptSoftMessage(1, 3)).toContain('(1/3)');
   });
 });

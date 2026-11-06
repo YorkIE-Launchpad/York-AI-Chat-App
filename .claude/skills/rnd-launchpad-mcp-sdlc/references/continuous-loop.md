@@ -307,27 +307,29 @@ For goals like “keep shipping improvements”:
 
 ## 6. Recovery matrix
 
-| Symptom                                  | Action                                                                                                    |
-| ---------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| Agent / conversion not found             | Poll `list_versions`, implement active, preview — continue if Rn advanced                                 |
-| Implement failed mid-queue               | Inspect run; re-run remaining items with sortOrder; don't re-seed                                         |
-| Preview stuck / login load               | Mock creds; restart_preview; hard retry; capture evidence                                                 |
-| Seed failed                              | Retry once; no prior tagged baseline → `start_first_revision_from_prompt` / `create_empty_react_revision` |
-| Preview won't boot (wrong command/port)  | `get_preview_manifest` → `update_preview_manifest`; last resort `redetect_preview_manifest` (`confirm`)   |
-| Client Link build check failed           | Read `failedCommand` + log tail → fix in Build → re-run verify                                            |
-| Development implement off-schema         | `get_scope_schema_alignment_report` → fix duplicates/missing FKs before lock                              |
-| Deploy monitor `regression`              | `get_deploy_monitor`; with user intent `spawn_deploy_regression_fix_agent` (`confirm`)                    |
-| Lock agent stuck                         | Keep poll lock status; RESUME poll_lock; do not work locked id                                            |
-| Double active (anomaly)                  | Prefer locking/clarifying; don't create third                                                             |
-| 401/403                                  | blocked_auth                                                                                              |
-| Budget exceeded                          | Report spend tools; stop expensive agents                                                                 |
-| Scope empty after lock                   | Expand plan / suggestions before implementing blank                                                       |
-| QA timeout                               | retry_qa_generation                                                                                       |
-| Feedback AI fix failed                   | clarify_feedback_ai_fix or residual note + continue other work                                            |
-| New bug asked but agent updated old UUID | Stop; `create_feedback` with the new description; fix the new UUID                                        |
-| Cursor not ready                         | get_cursor_status / sync; blocked if required                                                             |
-| No environments on deploy map            | `DEPLOY: n/a` — do not ask; continue without deploy                                                       |
-| Has envs but readiness unclear           | Ask once; record asked/skipped                                                                            |
+| Symptom                                  | Action                                                                                                                                                                                                     |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Error: aborted` / request timed out     | Transient — re-poll same status tool same turn (2–3×). Do **not** ask user to type `continue`. If still flaky: `RESUME:` + poll first next tick. Abort ≠ job failed — check if LaunchPad job still running |
+| Bash sleep / “wait N minutes” urge       | Forbidden — short MCP poll cadence (5–15s) or durable `RESUME:` only                                                                                                                                       |
+| Agent / conversion not found             | Poll `list_versions`, implement active, preview — continue if Rn advanced                                                                                                                                  |
+| Implement failed mid-queue               | Inspect run; re-run remaining items with sortOrder; don't re-seed                                                                                                                                          |
+| Preview stuck / login load               | Mock creds; restart_preview; hard retry; capture evidence                                                                                                                                                  |
+| Seed failed                              | Retry once; no prior tagged baseline → `start_first_revision_from_prompt` / `create_empty_react_revision`                                                                                                  |
+| Preview won't boot (wrong command/port)  | `get_preview_manifest` → `update_preview_manifest`; last resort `redetect_preview_manifest` (`confirm`)                                                                                                    |
+| Client Link build check failed           | Read `failedCommand` + log tail → fix in Build → re-run verify                                                                                                                                             |
+| Development implement off-schema         | `get_scope_schema_alignment_report` → fix duplicates/missing FKs before lock                                                                                                                               |
+| Deploy monitor `regression`              | `get_deploy_monitor`; with user intent `spawn_deploy_regression_fix_agent` (`confirm`)                                                                                                                     |
+| Lock agent stuck                         | Keep poll lock status; RESUME poll_lock; do not work locked id                                                                                                                                             |
+| Double active (anomaly)                  | Prefer locking/clarifying; don't create third                                                                                                                                                              |
+| 401/403                                  | blocked_auth                                                                                                                                                                                               |
+| Budget exceeded                          | Report spend tools; stop expensive agents                                                                                                                                                                  |
+| Scope empty after lock                   | Expand plan / suggestions before implementing blank                                                                                                                                                        |
+| QA timeout                               | retry_qa_generation                                                                                                                                                                                        |
+| Feedback AI fix failed                   | clarify_feedback_ai_fix or residual note + continue other work                                                                                                                                             |
+| New bug asked but agent updated old UUID | Stop; `create_feedback` with the new description; fix the new UUID                                                                                                                                         |
+| Cursor not ready                         | get_cursor_status / sync; blocked if required                                                                                                                                                              |
+| No environments on deploy map            | `DEPLOY: n/a` — do not ask; continue without deploy                                                                                                                                                        |
+| Has envs but readiness unclear           | Ask once; record asked/skipped                                                                                                                                                                             |
 
 Retries: **max 2** automatic per action family per cycle, then residual + different tactic or ask.
 
@@ -335,19 +337,21 @@ Retries: **max 2** automatic per action family per cycle, then residual + differ
 
 ## 7. Poll budgets
 
-| Job class                  | In-tick preference                | Cross-tick park            |
-| -------------------------- | --------------------------------- | -------------------------- |
-| Preview start              | Always poll to ready              | Rare                       |
-| Feedback AI fix            | Always poll                       | Rare                       |
-| Seed                       | Poll versions until Rn            | Rare                       |
-| Lock agent                 | Poll up to tens of minutes        | RESUME poll_lock if needed |
-| Scope implement multi-item | Poll long; park if hours + budget | RESUME poll_implement      |
-| Cloud deploy / CI/CD run   | Poll to terminal                  | RESUME poll_deploy         |
-| Client Link verify         | Poll 1–10 min                     | Rare                       |
-| QA import / export         | Poll job status                   | RESUME poll_qa             |
-| Migrate/fidelity           | Poll then re-compare in-tick      | RESUME poll_migrate        |
+Jobs may take long wall-clock time. That is fine. **Sleep theater is not** — never bash `sleep`, never “I’ll check in 5 minutes.” Use short MCP polls or park with `RESUME:`.
 
-Poll interval: **5–30s** depending on job; exponential backoff after first minute for long jobs (still keep going).
+| Job class                  | In-tick preference                         | Cross-tick park            |
+| -------------------------- | ------------------------------------------ | -------------------------- |
+| Preview start              | Always poll to ready                       | Rare                       |
+| Feedback AI fix            | Always poll                                | Rare                       |
+| Seed                       | Poll versions until Rn                     | Rare                       |
+| Lock agent                 | Keep short-cadence polling while running   | RESUME poll_lock if needed |
+| Scope implement multi-item | Keep polling; park only if poll budget hit | RESUME poll_implement      |
+| Cloud deploy / CI/CD run   | Poll to terminal                           | RESUME poll_deploy         |
+| Client Link verify         | Poll to terminal                           | Rare                       |
+| QA import / export         | Poll job status                            | RESUME poll_qa             |
+| Migrate/fidelity           | Poll then re-compare in-tick               | RESUME poll_migrate        |
+
+Poll interval: **5–15s** by default; backoff to ~30s after the first minute for long jobs (still keep going). Never end a turn with idle wait and no `RESUME:`.
 
 ---
 
@@ -364,9 +368,9 @@ Next tick: parse → call `next` → continue state machine (do **not** reset Di
 ## 9. Example full night loop (agent narration strip)
 
 1. Sense: active=1.0.4, Rn none → seed baseline → R1
-2. Scope 3 stories → sequential implement → poll 90m → R2 R3
+2. Scope 3 clarified stories → sequential implement → short-cadence poll (or `RESUME:`) → R2 R3
 3. Preview ready → QA chat → 2 fails → feedback AI fix → poll → re-preview
-4. Green → lock → poll 25m → active 1.0.5 empty → seed
+4. Green → lock → short-cadence poll → active 1.0.5 empty → seed
 5. New stories from suggestions → implement…
 
 Status ends each tick with `GOAL_STATUS: in_progress` until goal says stop.

@@ -43,33 +43,41 @@
 
 ## Continuous agent anti-patterns
 
-| Mistake                                                              | Correct                                                                  |
-| -------------------------------------------------------------------- | ------------------------------------------------------------------------ | ----- | -------- |
-| End tick with “started implement; wait”                              | Poll in-tick **or** emit `RESUME:` + poll next tick first                |
-| Restart Discover every 2m goal tick                                  | Resume from active release / `RESUME:` / incomplete phase                |
-| Mark `GOAL_STATUS: complete` after one lock mid multi-release goal   | Complete only when full goal criteria evidenced                          |
-| Stop after preview/AI fix without Validate + Ship                    | Complete SDLC: Validate + Ship; Deploy only if envs                      |
-| Skip Validate always                                                 | Default Validate (website `qa_chat_*`) before Ship                       |
-| Never go back after QA fails                                         | Rewind to Build; re-Validate                                             |
-| `update_feedback` on old UUID for a **new** GrowthOS fix ask         | `create_feedback` → new UUID → `start_feedback_ai_fix`                   |
-| Keep re-running AI fix on the same ticket for unrelated bugs         | New ask = new feedback row                                               |
-| Use Mac `send_qa_chat_message` when user wants website QA Chat       | Prefer `qa_chat_*` / `qa_browser_*` ([qa-chat.md](qa-chat.md))           |
-| Implement on locked release                                          | Work only on **new active**                                              |
-| Seed `mode: agent` without intent                                    | Default `baseline_copy`                                                  |
-| Park without durable ids                                             | Always `RESUME: projectId=… releaseId=… step=… next=…`                   |
-| Busy-loop 100ms polls                                                | 5–30s intervals; backoff for long jobs                                   |
-| Infinite retry same failed call                                      | Max **2** auto-retries; then residual or different tactic                |
-| Invent product facts in stories                                      | Drop back to Discover sensors                                            |
-| Spend without budget check on large agents                           | Optional `get_budget` / cost tools when available                        |
-| Choose `development` for “fix preview UI”                            | `platform` implement                                                     |
-| Retry `seed_release_from_prior` on a project with no tagged revision | `start_first_revision_from_prompt` or `create_empty_react_revision`      |
-| Call `infra_analysis_chat_*`                                         | Real prefix is **`infra_chat_*`**                                        |
-| Treat `get_*_connect_url` as “connected”                             | It returns a URL the human must open; re-check `get_integrations_status` |
-| `create_preview_direct_link` on EC2/docker-compose                   | ECS only (409); use `share_client_link_preview` + `get_client_link`      |
-| `create_project_cicd` without asking                                 | Creates real infrastructure — user confirm first                         |
-| Ask “should I deploy?” when project has no environments              | `get_deploy_map` empty → `DEPLOY: n/a`; never ask                        |
-| Has environments after Ship but never sense deploy                   | Run when ready, or ask once; set `DEPLOY: done                           | asked | skipped` |
-| Development implement without schema context                         | `get_project_schema_inventory` first; check alignment report after       |
+| Mistake                                                                           | Correct                                                                              |
+| --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| End tick with “started implement; wait”                                           | Poll in-tick **or** emit `RESUME:` + poll next tick first                            |
+| Bash `sleep` / long shell wait / “poll again in ~5 min”                           | MCP status poll every **5–15s** (backoff ~30s); or park with `RESUME:`               |
+| Stop after `Error: aborted` / `Request timed out` and ask user to type `continue` | Self-continue: re-poll same tool 2–3× same turn; else `RESUME:` — abort ≠ job failed |
+| Restart Discover every 2m goal tick                                               | Resume from active release / `RESUME:` / incomplete phase                            |
+| Mark `GOAL_STATUS: complete` after one lock mid multi-release goal                | Complete only when full goal criteria evidenced                                      |
+| Stop after preview/AI fix without Validate + Ship                                 | Complete SDLC: Validate + Ship; Deploy only if envs                                  |
+| Skip Validate always                                                              | Default Validate (website `qa_chat_*`) before Ship                                   |
+| Never go back after QA fails                                                      | Rewind to Build; re-Validate                                                         |
+| `update_feedback` on old UUID for a **new** GrowthOS fix ask                      | `create_feedback` → new UUID → `start_feedback_ai_fix`                               |
+| Keep re-running AI fix on the same ticket for unrelated bugs                      | New ask = new feedback row                                                           |
+| Use Mac `send_qa_chat_message` when user wants website QA Chat                    | Prefer `qa_chat_*` / `qa_browser_*` ([qa-chat.md](qa-chat.md))                       |
+| Implement on locked release                                                       | Work only on **new active**                                                          |
+| Seed `mode: agent` without intent                                                 | Default `baseline_copy`                                                              |
+| Park without durable ids                                                          | Always `RESUME: projectId=… releaseId=… step=… next=…`                               |
+| Busy-loop 100ms polls                                                             | 5–15s intervals; backoff to ~30s for long jobs                                       |
+| Infinite retry same failed call                                                   | Max **2** auto-retries; then residual or different tactic                            |
+| Invent product facts in stories                                                   | Drop back to Discover sensors                                                        |
+| Large implement/scope batch before clarifying open forks                          | One AskUserQuestion; then small clarified slice                                      |
+| Expand beyond stated ask before symptom/slice is verified                         | Minimal slice first; adjacent work after verify                                      |
+| Code/rewrite while blocked on secrets or admin actions                            | Ask once → park `RESUME:` → resume when unblocked                                    |
+| Re-paste the same blocker checklist every `continue`                              | One line + re-check only the claimed unblock                                         |
+| Treat list/summarize asks as full SDLC auto-run                                   | Read-only until user asks to implement/fix                                           |
+| Ignore “just deploy / do it / ship” and invent more prerequisites                 | User override wins after one-line risk note                                          |
+| Spend without budget check on large agents                                        | Optional `get_budget` / cost tools when available                                    |
+| Choose `development` for “fix preview UI”                                         | `platform` implement                                                                 |
+| Retry `seed_release_from_prior` on a project with no tagged revision              | `start_first_revision_from_prompt` or `create_empty_react_revision`                  |
+| Call `infra_analysis_chat_*`                                                      | Real prefix is **`infra_chat_*`**                                                    |
+| Treat `get_*_connect_url` as “connected”                                          | It returns a URL the human must open; re-check `get_integrations_status`             |
+| `create_preview_direct_link` on EC2/docker-compose                                | ECS only (409); use `share_client_link_preview` + `get_client_link`                  |
+| `create_project_cicd` without asking                                              | Creates real infrastructure — user confirm first                                     |
+| Ask “should I deploy?” when project has no environments                           | `get_deploy_map` empty → `DEPLOY: n/a`; never ask                                    |
+| Has environments after Ship but never sense deploy                                | Run when ready, or ask once; set `DEPLOY: done` / `asked` / `skipped`                |
+| Development implement without schema context                                      | `get_project_schema_inventory` first; check alignment report after                   |
 
 ## Model router (Cursor agents)
 
@@ -91,29 +99,31 @@ Pass `confirm: true` for destructive tools, including:
 
 ## Polling (no SSE)
 
-| Start                                                                    | Poll                                                                                                        |
-| ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
-| `lock_release`                                                           | Platform: `get_release_lock_status` (~30 min). Dev implement: `skipLockAgentOperations: true`               |
-| `start_scope_implement`                                                  | `get_scope_implement_*` + `list_versions` for **hours**                                                     |
-| `start_feedback_ai_fix`                                                  | `get_feedback_ai_fix_status`                                                                                |
-| `spawn_dev_agent` / `create_cursor_agent`                                | `get_agent_status` / `get_cursor_agent`                                                                     |
-| `*_chat_send_message`                                                    | matching `*_get_session`                                                                                    |
-| `start_backend_cloud_deploy`                                             | deploy latest/run                                                                                           |
-| `start_preview`                                                          | `get_preview_status` → then `get_preview_snapshot`                                                          |
-| `run_infra_analysis`                                                     | infra latest/result                                                                                         |
-| `generate_understand_graph`                                              | `get_understand_status`                                                                                     |
-| QA generation (Mac)                                                      | `get_qa_message` / `retry_qa_generation`                                                                    |
-| `qa_chat_send_message`                                                   | `qa_chat_get` / `qa_chat_agent_status`                                                                      |
-| `qa_chat_run_tests`                                                      | `qa_chat_test_run_status` until `done`                                                                      |
-| `generate_qa_tests` / `run_qa_tests`                                     | `get_qa_generation_status` / `get_qa_test_run_status`                                                       |
-| `migrate_frontend`                                                       | `get_cursor_agent` (pipeline / `MIGRATE_PLATFORM_SYNC_FAILED` = terminal). Tool preflights GitHub readiness |
-| `start_first_revision_from_prompt` / `spawn_deploy_regression_fix_agent` | `get_cursor_agent`                                                                                          |
-| `run_client_link_verify`                                                 | `get_client_link_verify_status` (`idle\|running\|passed\|failed\|skipped`)                                  |
-| `create_project_cicd` / `enable_project_cicd`                            | `get_project_cicd`                                                                                          |
-| `run_project_cicd`                                                       | `get_backend_cloud_deploy_run` (`runId`)                                                                    |
-| `start_visual_fix_with_ai`                                               | `get_visual_run_fix_status`                                                                                 |
-| `start_qa_test_import`                                                   | `get_qa_import_job_status` (`jobId`)                                                                        |
-| `start_qa_tests_export` / `start_qa_export_pr`                           | `get_qa_tests_export_status` / `get_qa_export_pr_status`                                                    |
+Cadence: **5–15s** (backoff ~30s for long jobs). Never bash `sleep` / “wait N minutes.” Abort/timeout → re-poll same tool 2–3× (self-continue), else `RESUME:`.
+
+| Start                                                                    | Poll                                                                                                              |
+| ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
+| `lock_release`                                                           | Platform: `get_release_lock_status` (short cadence while running). Dev implement: `skipLockAgentOperations: true` |
+| `start_scope_implement`                                                  | `get_scope_implement_*` + `list_versions` until terminal (or `RESUME:` park)                                      |
+| `start_feedback_ai_fix`                                                  | `get_feedback_ai_fix_status`                                                                                      |
+| `spawn_dev_agent` / `create_cursor_agent`                                | `get_agent_status` / `get_cursor_agent`                                                                           |
+| `*_chat_send_message`                                                    | matching `*_get_session`                                                                                          |
+| `start_backend_cloud_deploy`                                             | deploy latest/run                                                                                                 |
+| `start_preview`                                                          | `get_preview_status` → then `get_preview_snapshot`                                                                |
+| `run_infra_analysis`                                                     | infra latest/result                                                                                               |
+| `generate_understand_graph`                                              | `get_understand_status`                                                                                           |
+| QA generation (Mac)                                                      | `get_qa_message` / `retry_qa_generation`                                                                          |
+| `qa_chat_send_message`                                                   | `qa_chat_get` / `qa_chat_agent_status`                                                                            |
+| `qa_chat_run_tests`                                                      | `qa_chat_test_run_status` until `done`                                                                            |
+| `generate_qa_tests` / `run_qa_tests`                                     | `get_qa_generation_status` / `get_qa_test_run_status`                                                             |
+| `migrate_frontend`                                                       | `get_cursor_agent` (pipeline / `MIGRATE_PLATFORM_SYNC_FAILED` = terminal). Tool preflights GitHub readiness       |
+| `start_first_revision_from_prompt` / `spawn_deploy_regression_fix_agent` | `get_cursor_agent`                                                                                                |
+| `run_client_link_verify`                                                 | `get_client_link_verify_status` (`idle\|running\|passed\|failed\|skipped`)                                        |
+| `create_project_cicd` / `enable_project_cicd`                            | `get_project_cicd`                                                                                                |
+| `run_project_cicd`                                                       | `get_backend_cloud_deploy_run` (`runId`)                                                                          |
+| `start_visual_fix_with_ai`                                               | `get_visual_run_fix_status`                                                                                       |
+| `start_qa_test_import`                                                   | `get_qa_import_job_status` (`jobId`)                                                                              |
+| `start_qa_tests_export` / `start_qa_export_pr`                           | `get_qa_tests_export_status` / `get_qa_export_pr_status`                                                          |
 
 Stop on terminal statuses (`completed`, `failed`, `cancelled`, `ERROR`, locked&&!agentActive, `MIGRATE_PLATFORM_SYNC_FAILED`, etc.).
 
@@ -132,6 +142,8 @@ Stop on terminal statuses (`completed`, `failed`, `cancelled`, `ERROR`, locked&&
 | --------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
 | Exit right after migrate/implement “started”        | Poll to terminal; then next step                                                                      |
 | Wait for next /goal interval instead of polling     | Interval is backstop; in-tick poll                                                                    |
+| Bash `sleep` / “I’ll check in N minutes”            | Short MCP poll cadence or durable `RESUME:` — never sleep theater                                     |
+| Stop on abort/timeout and wait for user `continue`  | Self-continue re-poll 2–3×; else `RESUME:` + poll first next tick                                     |
 | Treat “Agent not found” as terminal                 | Alternate: versions / implement / preview                                                             |
 | Park mid-job without RESUME                         | Always durable RESUME line                                                                            |
 | Restart seed/journey every tick                     | Resume prior release/revision                                                                         |
@@ -145,19 +157,19 @@ Stop on terminal statuses (`completed`, `failed`, `cancelled`, `ERROR`, locked&&
 
 ## Release / revision mistakes
 
-| Mistake                                     | Correct                         |
-| ------------------------------------------- | ------------------------------- |
-| Activate without `reason`                   | Always pass reason              |
-| Implement on locked release                 | New active only                 |
-| Preview with zero revisions                 | Seed baseline_copy first        |
-| Seed without `mode`                         | Always pass mode                |
-| Skip lock poll                              | Platform poll ~30 min           |
-| Default development target                  | Default **platform**            |
-| Lock after development implement with agent | `skipLockAgentOperations: true` |
-| Stop implement poll after minutes           | Hours OK for sequential queues  |
-| Second concurrent active                    | Prefer lock first               |
-| `switch_version` expecting live             | Use `activate_version`          |
-| Confuse release `1.0.0` with revision       | Revisions are R1, R2, …         |
+| Mistake                                          | Correct                                                                   |
+| ------------------------------------------------ | ------------------------------------------------------------------------- |
+| Activate without `reason`                        | Always pass reason                                                        |
+| Implement on locked release                      | New active only                                                           |
+| Preview with zero revisions                      | Seed baseline_copy first                                                  |
+| Seed without `mode`                              | Always pass mode                                                          |
+| Skip lock poll                                   | Platform short-cadence poll (or `RESUME:`)                                |
+| Default development target                       | Default **platform**                                                      |
+| Lock after development implement with agent      | `skipLockAgentOperations: true`                                           |
+| Stop implement poll early / sleep between checks | Keep short-cadence MCP polls; park with `RESUME:` only if poll budget hit |
+| Second concurrent active                         | Prefer lock first                                                         |
+| `switch_version` expecting live                  | Use `activate_version`                                                    |
+| Confuse release `1.0.0` with revision            | Revisions are R1, R2, …                                                   |
 
 ## Backend Code chat mistakes
 

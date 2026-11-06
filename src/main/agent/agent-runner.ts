@@ -98,15 +98,19 @@ import {
 import { withAppVersionHeader } from '../../shared/client-version';
 import { reportHubGovernanceUsageFromCompletion } from '../hub/hub-ai-governance';
 import {
+  type AgentRunOutcome,
   buildTerminalErrorEmissionDetails,
   buildTerminalErrorMessage,
+  classifyTransientInterruptReason,
   isSdkRecoverableContextOverflowError,
   isSdkRetryableTransientError,
+  isTransientInterruptError,
   resolveAbortDisposition,
   resolveAssistantStreamErrorText,
   resolveMessageEndPayload,
   shouldPreserveExistingTrace,
   toUserFacingErrorText,
+  TRANSIENT_INTERRUPT_SOFT_MESSAGE,
 } from './agent-runner-message-end';
 import {
   buildSyntheticPiModelFromRuntimeConfig,
@@ -1747,9 +1751,14 @@ ${hints.join('\n')}
     return model;
   }
 
-  async run(session: Session, prompt: string, existingMessages: Message[]): Promise<void> {
+  async run(
+    session: Session,
+    prompt: string,
+    existingMessages: Message[]
+  ): Promise<AgentRunOutcome> {
     const runStartTime = Date.now();
     logCtx('[CoworkAgentRunner] run() started');
+    let runOutcome: AgentRunOutcome = { kind: 'completed' };
 
     const controller = new AbortController();
     try {
@@ -1786,6 +1795,8 @@ ${hints.join('\n')}
     // The catch block consults this flag to avoid overwriting the published
     // 'Request failed' trace state with a generic 'Cancelled' update.
     let abortedByStreamError = false;
+    // Hoisted so AbortError catch can classify transient stream failures for auto-continue.
+    let terminalErrorText: string | undefined;
 
     try {
       this.pathResolver.registerSession(session.id, session.mountedPaths);
@@ -3525,7 +3536,6 @@ ${
       let streamedText = '';
       let compactionStepId: string | undefined;
       let hasEmittedError = false;
-      let terminalErrorText: string | undefined;
       // SDK-retryable transient errors (idle timeout, network, 5xx): defer terminal
       // emit until auto_retry_end fails or prompt() returns with no recovery.
       let pendingRetryableError: string | undefined;
@@ -3683,6 +3693,7 @@ ${
 
       const emitTerminalError = (errorText: string, options: { abort?: boolean } = {}): void => {
         terminalErrorText = errorText;
+        const transient = isTransientInterruptError(errorText);
 
         const emission = buildTerminalErrorEmissionDetails({
           errorText,
@@ -3690,7 +3701,13 @@ ${
         });
 
         const partialText = emission.partialText ? sanitizeOutputPaths(emission.partialText) : '';
-        const messageText = buildTerminalErrorMessage(errorText, partialText);
+        // Soft copy for transient abort/timeout — SessionManager will silent auto-continue.
+        // Hard "Please retry" only for non-transient failures.
+        const messageText = transient
+          ? partialText
+            ? `${partialText}\n\n${TRANSIENT_INTERRUPT_SOFT_MESSAGE}`
+            : TRANSIENT_INTERRUPT_SOFT_MESSAGE
+          : buildTerminalErrorMessage(errorText, partialText);
         streamedText = '';
         this.sendToRenderer({
           type: 'stream.partial',
@@ -3710,7 +3727,7 @@ ${
 
         this.sendTraceUpdate(session.id, thinkingStepId, {
           status: 'error',
-          title: 'Request failed',
+          title: transient ? 'Interrupted — will auto-resume' : 'Request failed',
         });
 
         if (options.abort && !controller.signal.aborted) {
@@ -4473,24 +4490,13 @@ ${
       // If the SDK swallowed the AbortError and returned void, detect timeout here
       if (controller.signal.aborted && abortedByTimeout) {
         logCtx('[CoworkAgentRunner] Aborted due to timeout (detected after prompt returned)');
-        const errorMsg: Message = {
-          id: uuidv4(),
-          sessionId: session.id,
-          role: 'assistant',
-          content: [
-            {
-              type: 'text',
-              text: '**Request timed out**: No response for a long time; the operation was aborted.',
-            },
-          ],
-          timestamp: Date.now(),
-        };
-        this.sendMessage(session.id, errorMsg);
+        // Soft user-facing notice + silent re-queue happen in SessionManager.
         this.sendTraceUpdate(session.id, thinkingStepId, {
           status: 'error',
-          title: 'Request timed out',
+          title: 'Interrupted — will auto-resume',
         });
-        return;
+        runOutcome = { kind: 'transient_interrupt', reason: 'timeout' };
+        return runOutcome;
       }
       // If the SDK swallowed the AbortError after a loop-guard abort, preserve
       // the 'error' trace status that handleLoopGuardDecision already published.
@@ -4505,13 +4511,33 @@ ${
         logCtx(
           `[CoworkAgentRunner] Aborted by ${abortDisposition === 'loop_guard' ? 'loop guard' : 'stream error'} (detected after prompt returned)`
         );
-        return;
+        if (
+          abortDisposition === 'stream_error' &&
+          terminalErrorText &&
+          isTransientInterruptError(terminalErrorText)
+        ) {
+          runOutcome = {
+            kind: 'transient_interrupt',
+            reason: classifyTransientInterruptReason(terminalErrorText),
+          };
+        } else {
+          runOutcome = { kind: 'failed' };
+        }
+        return runOutcome;
       }
       // Complete - update the initial thinking step
       this.sendTraceUpdate(session.id, thinkingStepId, {
         status: terminalErrorText ? 'error' : 'completed',
         title: terminalErrorText ? 'Request failed' : 'Task completed',
       });
+      if (terminalErrorText && isTransientInterruptError(terminalErrorText)) {
+        runOutcome = {
+          kind: 'transient_interrupt',
+          reason: classifyTransientInterruptReason(terminalErrorText),
+        };
+      } else if (terminalErrorText) {
+        runOutcome = { kind: 'failed' };
+      }
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
         const abortDisposition = resolveAbortDisposition({
@@ -4521,38 +4547,37 @@ ${
         });
         if (abortDisposition === 'timeout') {
           logCtx('[CoworkAgentRunner] Aborted due to timeout');
-          const errorMsg: Message = {
-            id: uuidv4(),
-            sessionId: session.id,
-            role: 'assistant',
-            content: [
-              {
-                type: 'text',
-                text: '**Request timed out**: No response for a long time; the operation was aborted.',
-              },
-            ],
-            timestamp: Date.now(),
-          };
-          this.sendMessage(session.id, errorMsg);
+          // Soft user-facing notice + silent re-queue happen in SessionManager.
           this.sendTraceUpdate(session.id, thinkingStepId, {
             status: 'error',
-            title: 'Request timed out',
+            title: 'Interrupted — will auto-resume',
           });
+          runOutcome = { kind: 'transient_interrupt', reason: 'timeout' };
         } else if (abortDisposition === 'loop_guard') {
           // Loop guard already published the user-facing assistant message and
           // an 'error' trace step with the loop-detected title. Do NOT overwrite
           // them here with a 'completed/Cancelled' state.
           logCtx('[CoworkAgentRunner] Aborted by loop guard');
+          runOutcome = { kind: 'failed' };
         } else if (abortDisposition === 'stream_error') {
           // Stream-error handling already published the user-facing assistant
           // message and the 'Request failed' trace state. Preserve them.
           logCtx('[CoworkAgentRunner] Aborted by stream error');
+          if (terminalErrorText && isTransientInterruptError(terminalErrorText)) {
+            runOutcome = {
+              kind: 'transient_interrupt',
+              reason: classifyTransientInterruptReason(terminalErrorText),
+            };
+          } else {
+            runOutcome = { kind: 'failed' };
+          }
         } else {
           logCtx('[CoworkAgentRunner] Aborted by user');
           this.sendTraceUpdate(session.id, thinkingStepId, {
             status: 'completed',
             title: 'Cancelled',
           });
+          runOutcome = { kind: 'cancelled' };
         }
       } else {
         logCtxError('[CoworkAgentRunner] Error:', error);
@@ -4579,6 +4604,12 @@ ${
         if (error instanceof Error) {
           (error as Error & { alreadyReportedToUser?: boolean }).alreadyReportedToUser = true;
         }
+        runOutcome = isTransientInterruptError(errorText)
+          ? {
+              kind: 'transient_interrupt',
+              reason: classifyTransientInterruptReason(errorText),
+            }
+          : { kind: 'failed' };
       }
     } finally {
       this.activeControllers.delete(session.id);
@@ -4624,6 +4655,8 @@ ${
         }
       }
     }
+
+    return runOutcome;
   }
 
   /**

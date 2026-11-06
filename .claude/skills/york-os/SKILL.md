@@ -138,6 +138,13 @@ Bundle open forks in one AskUserQuestion form, then call LaunchPad implement/fix
 tools. Do not invent product decisions. Exception: resume/poll of in-flight jobs or
 a fully specified ask with no open forks.
 
+Follow **Minutes behavior** in `rnd-launchpad-mcp-sdlc` / `rnd-launchpad-mcp-debug`
+on every topic: minimal slice matching the ask; no bash sleep / “wait N minutes”
+polling; self-continue past abort/timeout (never ask the user to type `continue`
+for transport glitches); no expand-while-blocked; no blocker re-essays; honor
+explicit “just deploy / ship / do it” overrides. Read-only asks stay read-only
+until the user asks to implement/fix.
+
 ## Confluence document creation
 
 When the user asks to create, write, or publish a Confluence page, wiki page, or
