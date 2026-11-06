@@ -16,6 +16,7 @@ import {
   peekLastGoodHubModels,
   postHubGovernanceUsage,
   postHubGovernanceUsageForToken,
+  reportHubGovernanceUsageFromCompletion,
   reportMcpVisionUsageViaEnv,
 } from '../../main/hub/hub-ai-governance';
 import { clearHubModelPricing, replaceHubModelPricing } from '../../shared/model-pricing';
@@ -1163,5 +1164,93 @@ describe('postHubGovernanceUsage', () => {
     })!;
 
     await expect(postHubGovernanceUsage(payload, { fetchFn })).resolves.toBeUndefined();
+  });
+});
+
+describe('reportHubGovernanceUsageFromCompletion', () => {
+  beforeEach(() => {
+    clearHubModelPricing();
+    clearHubGovernanceModelsCache();
+    clearHubModelPricingFetchCache();
+  });
+
+  afterEach(() => {
+    clearHubModelPricing();
+    clearHubGovernanceModelsCache();
+    clearHubModelPricingFetchCache();
+    vi.unstubAllGlobals();
+  });
+
+  it('loads Hub catalog prices before posting when picker catalog was never fetched', async () => {
+    const posts: Array<Record<string, unknown>> = [];
+    const fetchFn = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/api/ai-governance/models')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            success: true,
+            data: {
+              models: [
+                {
+                  id: 'claude-opus-4.8',
+                  name: 'Claude Opus 4.8',
+                  provider: 'anthropic',
+                  input_price: 5,
+                  output_price: 25,
+                  cache_read_price: 0.5,
+                  cache_write_price: null,
+                },
+              ],
+            },
+          }),
+        };
+      }
+      if (url.endsWith('/api/ai-governance/usage')) {
+        posts.push(JSON.parse(String(init?.body || '{}')) as Record<string, unknown>);
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            success: true,
+            data: {
+              id: 'u1',
+              user_budget_percent: 10,
+              project_budget_percent: null,
+              total_tokens: 1_100_000,
+            },
+          }),
+        };
+      }
+      return { ok: false, status: 404, json: async () => ({}) };
+    });
+    vi.stubGlobal('fetch', fetchFn);
+
+    reportHubGovernanceUsageFromCompletion({
+      modelId: 'claude-opus-4-8',
+      provider: 'anthropic',
+      sessionId: 'sess_cold',
+      usage: {
+        input: 1_000_000,
+        output: 100_000,
+        cost: { input: 0, output: 0, total: 0 },
+      },
+      occurredAt: new Date('2026-08-12T12:00:00.000Z'),
+    });
+
+    await vi.waitFor(() => {
+      expect(posts).toHaveLength(1);
+    });
+
+    expect(posts[0]).toMatchObject({
+      model_id: 'claude-opus-4-8',
+      cost: 7.5,
+      metadata: { cost_source: 'hub_price' },
+    });
+    expect(fetchFn).toHaveBeenCalledWith(
+      'https://api.hub.test/api/ai-governance/models',
+      expect.objectContaining({ method: 'GET' })
+    );
   });
 });

@@ -20,6 +20,7 @@ import {
 } from '../../shared/fe-budget-gate';
 import {
   buildHubUsagePayloadFromPiUsage,
+  ensureHubModelPricingLoaded,
   extractVisionApiUsage,
   parseHubGovernanceUsageResponse,
   type BuildHubUsageInput,
@@ -931,6 +932,24 @@ export async function postHubGovernanceUsage(
 }
 
 /**
+ * Ensure Hub catalog rates are in memory before pricing a usage event.
+ * Prefer the last full picker catalog (already normalized); otherwise GET /models
+ * like the MCP bearer path — chat turns must not post tokens without cost just
+ * because the model picker never ran this session.
+ */
+async function ensureUsagePricingReady(accessToken: string, fetchFn?: FetchFn): Promise<void> {
+  if (lastGoodCatalog.length > 0) {
+    indexHubCatalogPricing(lastGoodCatalog);
+    return;
+  }
+  await ensureHubModelPricingLoaded({
+    hubApiUrl: authConfig.hubApiUrl,
+    accessToken,
+    fetchFn,
+  });
+}
+
+/**
  * Build + post usage from pi-ai message_end context. Fire-and-forget safe.
  * No-ops when payload cannot be built (no tokens/cost).
  */
@@ -940,6 +959,7 @@ export function reportHubGovernanceUsageFromCompletion(input: BuildHubUsageInput
   void (async () => {
     try {
       const auth = await resolveAccessToken();
+      await ensureUsagePricingReady(auth.token);
       const payload = buildHubUsagePayloadFromPiUsage({ ...input, occurredAt });
       if (!payload) return;
       warnIfUnpriced(payload);
