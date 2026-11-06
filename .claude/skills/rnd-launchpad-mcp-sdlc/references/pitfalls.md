@@ -34,18 +34,26 @@
 | `switch_version`                               | top-level `versionId`                                                                        |
 | `install_feedback_snippet`                     | `enabled` boolean                                                                            |
 | `start_feedback_ai_fix_batch`                  | `feedbackIds` — **string UUIDs**, min 2                                                      |
+| `create_feedback`                              | `projectId`, **`description`** (new UUID every call)                                         |
+| `qa_chat_send_message`                         | `chatId`, **`prompt`**; `createTests` needs env + persona                                    |
+| `qa_chat_run_tests`                            | `chatId`, **`messageId`** (assistant turn that created specs)                                |
+| `qa_browser_set_selection`                     | `chatId`, `environmentId`, `personaId`, **`confirm: true`**                                  |
 | `lock_release`                                 | `confirm: true`                                                                              |
 | PAT tools                                      | named token fields                                                                           |
 
 ## Continuous agent anti-patterns
 
 | Mistake                                                              | Correct                                                                  |
-| -------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------ | ----- | -------- |
 | End tick with “started implement; wait”                              | Poll in-tick **or** emit `RESUME:` + poll next tick first                |
 | Restart Discover every 2m goal tick                                  | Resume from active release / `RESUME:` / incomplete phase                |
 | Mark `GOAL_STATUS: complete` after one lock mid multi-release goal   | Complete only when full goal criteria evidenced                          |
-| Skip Validate always                                                 | If goal mentions quality/QA/test, run Validate before ship               |
+| Stop after preview/AI fix without Validate + Ship                    | Complete SDLC: Validate + Ship; Deploy only if envs                      |
+| Skip Validate always                                                 | Default Validate (website `qa_chat_*`) before Ship                       |
 | Never go back after QA fails                                         | Rewind to Build; re-Validate                                             |
+| `update_feedback` on old UUID for a **new** GrowthOS fix ask         | `create_feedback` → new UUID → `start_feedback_ai_fix`                   |
+| Keep re-running AI fix on the same ticket for unrelated bugs         | New ask = new feedback row                                               |
+| Use Mac `send_qa_chat_message` when user wants website QA Chat       | Prefer `qa_chat_*` / `qa_browser_*` ([qa-chat.md](qa-chat.md))           |
 | Implement on locked release                                          | Work only on **new active**                                              |
 | Seed `mode: agent` without intent                                    | Default `baseline_copy`                                                  |
 | Park without durable ids                                             | Always `RESUME: projectId=… releaseId=… step=… next=…`                   |
@@ -59,6 +67,8 @@
 | Treat `get_*_connect_url` as “connected”                             | It returns a URL the human must open; re-check `get_integrations_status` |
 | `create_preview_direct_link` on EC2/docker-compose                   | ECS only (409); use `share_client_link_preview` + `get_client_link`      |
 | `create_project_cicd` without asking                                 | Creates real infrastructure — user confirm first                         |
+| Ask “should I deploy?” when project has no environments              | `get_deploy_map` empty → `DEPLOY: n/a`; never ask                        |
+| Has environments after Ship but never sense deploy                   | Run when ready, or ask once; set `DEPLOY: done                           | asked | skipped` |
 | Development implement without schema context                         | `get_project_schema_inventory` first; check alignment report after       |
 
 ## Model router (Cursor agents)
@@ -92,7 +102,10 @@ Pass `confirm: true` for destructive tools, including:
 | `start_preview`                                                          | `get_preview_status` → then `get_preview_snapshot`                                                          |
 | `run_infra_analysis`                                                     | infra latest/result                                                                                         |
 | `generate_understand_graph`                                              | `get_understand_status`                                                                                     |
-| QA generation                                                            | `get_qa_message` / `retry_qa_generation`                                                                    |
+| QA generation (Mac)                                                      | `get_qa_message` / `retry_qa_generation`                                                                    |
+| `qa_chat_send_message`                                                   | `qa_chat_get` / `qa_chat_agent_status`                                                                      |
+| `qa_chat_run_tests`                                                      | `qa_chat_test_run_status` until `done`                                                                      |
+| `generate_qa_tests` / `run_qa_tests`                                     | `get_qa_generation_status` / `get_qa_test_run_status`                                                       |
 | `migrate_frontend`                                                       | `get_cursor_agent` (pipeline / `MIGRATE_PLATFORM_SYNC_FAILED` = terminal). Tool preflights GitHub readiness |
 | `start_first_revision_from_prompt` / `spawn_deploy_regression_fix_agent` | `get_cursor_agent`                                                                                          |
 | `run_client_link_verify`                                                 | `get_client_link_verify_status` (`idle\|running\|passed\|failed\|skipped`)                                  |

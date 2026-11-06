@@ -1,7 +1,9 @@
 # Continuous LaunchPad SDLC agent
 
 Design for an agent that **never idle-waits** when tools can advance state:
-Discover → Plan → Build → Validate → Ship → next release → repeat, with rewinds.
+Discover → Plan → Build → Validate → Ship → (Deploy **only if environments**) →
+next release → repeat, with rewinds. Complete SDLC every shippable cycle;
+deploy is optional and env-gated.
 
 Use with goal ticks (`goal-runner`) or long single turns. Always re-sense reality
 via MCP; prior chat is hints only.
@@ -23,10 +25,13 @@ implement_run             ← get_scope_implement_active
 preview_status            ← get_preview_status
 lock_status               ← get_release_lock_status (if recently locked)
 feedback_open             ← list_feedback (open/unfixed; includes SENTRY / VISUAL_TEST sources)
+qa_chat                   ← qa_chat_list / qa_chat_get (website QA Chat preferred)
 qa_reports_recent         ← list_qa_reports
 client_link_build         ← get_client_link_verify_status (optional)
-cicd                      ← get_project_cicd (only if cloud/CI in goal)
+has_environments          ← get_deploy_map has ≥1 environment (else deploy is N/A)
+cicd                      ← get_project_cicd (only when has_environments)
 deploy_health             ← list_deploy_monitors (only after deploys)
+deploy_gate               ← n/a | done | asked | skipped | pending
 integrations              ← get_integrations_status / get_cursor_status
 memory_hint               ← get_project_memory (optional; poll knowledgeRefresh if busy)
 RESUME_*                  ← last durable line from thread
@@ -63,12 +68,19 @@ NEXT_ACTION: start_scope_implement
          │    │            │ build_done_for_goal
          │    │            ▼
          │    │     ┌──────────────┐
-         └────┴─────│  VALIDATE    │
+         └────┴─────│  VALIDATE    │  qa_chat_* / runner
                     └──────┬───────┘
                            │ green_or_accepted_residual
                            ▼
                     ┌──────────────┐
                     │    SHIP      │  lock + wait + list + seed
+                    └──────┬───────┘
+                           │
+                           │
+                           │  only if get_deploy_map has environments
+                           ▼
+                    ┌──────────────┐
+                    │   DEPLOY     │  cloud/CI or ask once; else skip (n/a)
                     └──────┬───────┘
                            │
                            └──► PLAN/BUILD on NEW active (forever)
@@ -103,28 +115,29 @@ If no projectId, auth failed, or releases never listed this session → prefligh
 
 Evaluate in order; take the **first true** rule.
 
-| Prio | Condition                                                      | NEXT_ACTION               | Primary tools                                                                                                |
-| ---- | -------------------------------------------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| 0    | Auth failure                                                   | `blocked_auth`            | stop                                                                                                         |
-| 1    | RESUME poll unfinished                                         | `poll_job`                | status tools from matrix                                                                                     |
-| 2    | Zero projects / wrong project                                  | `resolve_project`         | `list_project_names`                                                                                         |
-| 3    | Goal needs discovery AND capture/profiles empty                | `discover_intake`         | discovery tools                                                                                              |
-| 4    | Feature goal AND no epics/stories covering it                  | `plan_backlog`            | backlog + suggestions                                                                                        |
-| 5    | No release **active**                                          | `ensure_active_release`   | create/activate (reason)                                                                                     |
-| 6    | Active has **0** revisions                                     | `seed_baseline`           | `seed_release_from_prior`; no prior tag → `start_first_revision_from_prompt` / `create_empty_react_revision` |
-| 7    | Active scope items pending implement                           | `implement_scope`         | `start_scope_implement`                                                                                      |
-| 8    | Implement running                                              | `poll_implement`          | implement status                                                                                             |
-| 9    | New Rn but preview not ready                                   | `start_or_fix_preview`    | preview tools                                                                                                |
-| 10   | Goal is visual parity / fidelity residual                      | `fidelity_loop`           | migrate / platform implement + screenshots                                                                   |
-| 11   | Open feedback bugs (incl. Sentry / visual) and goal is quality | `fix_feedback`            | feedback AI fix / `start_visual_fix_with_ai`                                                                 |
-| 12   | Goal includes QA and no recent green run                       | `run_qa`                  | QA chat/reports, `run_client_link_verify`                                                                    |
-| 13   | QA failed items open                                           | `qa_to_feedback_or_fix`   | move / `fix_qa_failed_tests` / fix                                                                           |
-| 14   | Backend architecture in goal + code ready                      | `backend_or_architecture` | schema inventory + backend chat / understand / infra                                                         |
-| 15   | Cloud deploy in goal + env ready                               | `cloud_deploy`            | deploy map + cloud deploy or CI/CD run → deploy monitors                                                     |
-| 16   | Ship criteria met (or goal says lock when ready)               | `ship_lock`               | lock + poll                                                                                                  |
-| 17   | Just locked / next active empty                                | `seed_next_cycle`         | list + seed                                                                                                  |
-| 18   | Idle with remaining goal work                                  | `expand_scope_or_plan`    | suggestions / new stories                                                                                    |
-| 19   | Goal fully evidenced                                           | `complete`                | GOAL_STATUS complete                                                                                         |
+| Prio | Condition                                                | NEXT_ACTION               | Primary tools                                                                                                |
+| ---- | -------------------------------------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| 0    | Auth failure                                             | `blocked_auth`            | stop                                                                                                         |
+| 1    | RESUME poll unfinished                                   | `poll_job`                | status tools from matrix                                                                                     |
+| 2    | Zero projects / wrong project                            | `resolve_project`         | `list_project_names`                                                                                         |
+| 3    | Goal needs discovery AND capture/profiles empty          | `discover_intake`         | discovery tools                                                                                              |
+| 4    | Feature goal AND no epics/stories covering it            | `plan_backlog`            | backlog + suggestions                                                                                        |
+| 5    | No release **active**                                    | `ensure_active_release`   | create/activate (reason)                                                                                     |
+| 6    | Active has **0** revisions                               | `seed_baseline`           | `seed_release_from_prior`; no prior tag → `start_first_revision_from_prompt` / `create_empty_react_revision` |
+| 7    | Active scope items pending implement                     | `implement_scope`         | `start_scope_implement`                                                                                      |
+| 8    | Implement running                                        | `poll_implement`          | implement status                                                                                             |
+| 9    | New Rn but preview not ready                             | `start_or_fix_preview`    | preview tools                                                                                                |
+| 10   | Goal is visual parity / fidelity residual                | `fidelity_loop`           | migrate / platform implement + screenshots                                                                   |
+| 11   | User/GrowthOS asked a **new** fix (not same UUID retry)  | `create_and_fix_feedback` | `create_feedback` → `start_feedback_ai_fix` (never overwrite old ticket)                                     |
+| 12   | Open feedback bugs (incl. Sentry / visual) needing fix   | `fix_feedback`            | `start_feedback_ai_fix` / `start_visual_fix_with_ai` on **that** UUID                                        |
+| 13   | No recent green QA this cycle                            | `run_qa`                  | website `qa_chat_*` ([qa-chat.md](qa-chat.md)), or Mac runner; `run_client_link_verify`                      |
+| 14   | QA failed items open                                     | `qa_to_feedback_or_fix`   | `create_feedback` / move / `fix_qa_failed_tests` / fix                                                       |
+| 15   | Backend architecture in goal + code ready                | `backend_or_architecture` | schema inventory + backend chat / understand / infra                                                         |
+| 16   | Validate green; not locked this cycle                    | `ship_lock`               | lock + poll                                                                                                  |
+| 17   | Just locked / next active empty                          | `seed_next_cycle`         | list + seed                                                                                                  |
+| 18   | Seeded/shipped; **has environments**; deploy not settled | `cloud_deploy_or_ask`     | deploy/CI → monitors, or ask once. **No envs → skip this row** (`DEPLOY: n/a`)                               |
+| 19   | Idle with remaining goal work                            | `expand_scope_or_plan`    | suggestions / new stories                                                                                    |
+| 20   | Goal fully evidenced (DEPLOY n/a or settled if envs)     | `complete`                | GOAL_STATUS complete                                                                                         |
 
 ### Step D — Act + poll
 
@@ -222,20 +235,23 @@ get_deploy_map / prepare_deploy_map / patch_deploy_map
 → optional cloud_debug_chat_* / infra_chat_*
 ```
 
-### 4.4 Validate — QA + feedback + rewind
+### 4.4 Validate — QA Chat + feedback + rewind
+
+Prefer website QA Chat ([qa-chat.md](qa-chat.md)):
 
 ```
-get_qa_config / resolve_qa_config
-→ create_qa_topic / create_qa_chat if needed
-→ send_qa_chat_message → poll get_qa_message / retry_qa_generation
-→ list_qa_reports → move_qa_report_to_feedback on fails (or fix_qa_failed_tests to heal tests)
-→ optional visual: list_qa_visual_compare_runs → move_visual_run_to_feedback / start_visual_fix_with_ai
-→ optional build check: run_client_link_verify → POLL get_client_link_verify_status
-→ optional Sentry: get_sentry_integration → import_sentry_issues (SENTRY feedback)
-→ list_feedback → start_feedback_ai_fix → poll → approve_feedback
-→ optional PR: run_security_review → list_security_review_findings
+qa_chat_workspace → qa_chat_create → qa_browser_set_selection
+→ qa_chat_send_message(createTests?) → POLL qa_chat_get / qa_chat_agent_status
+→ qa_chat_run_tests(mode, autoHeal?) → POLL qa_chat_test_run_status
+→ fails → create_feedback OR move_qa_report_to_feedback → start_feedback_ai_fix
+→ optional visual / Client Link verify / Sentry import
 → start_preview → get_preview_snapshot / re-QA
 ```
+
+Mac alternate: `generate_qa_tests` → `run_qa_tests`.
+
+**New GrowthOS fix ask:** always `create_feedback` (new UUID). Do **not**
+`update_feedback` an unrelated old row.
 
 **Rewind:** open defects with fixable scope → NEXT_ACTION back to Build.
 
@@ -246,17 +262,28 @@ lock_release(confirm=true [, skipLockAgentOperations])
 → get_release_lock_status until locked && !agentActive  (~30 min)
 → list_releases → identify NEW active
 → seed_release_from_prior(mode=baseline_copy) on NEW id
-→ NEXT_ACTION implement or plan more work for continuous goals
+→ if has_environments: NEXT_ACTION cloud_deploy_or_ask; else continue Build/Plan
 ```
 
 Never implement/seed on locked id.
 
+### 4.6 Deploy — only when environments exist
+
+```
+get_deploy_map
+→ no environments? → DEPLOY: n/a  (stop — do not ask, do not run deploy tools)
+→ has environments + ready → preflight → start_backend_cloud_deploy | run_project_cicd
+   → POLL → list_deploy_monitors → DEPLOY: done
+→ has environments + unclear → ASK once → DEPLOY: asked | skipped
+```
+
 Continuous product goals rarely `complete` at ship — only when the **user goal**
-ends (e.g. “ship 1.2.0 and stop”). Otherwise:
+ends (e.g. “ship 1.2.0 and stop”). Deploy gate matters only when envs exist.
+Otherwise:
 
 ```
 GOAL_STATUS: in_progress
-NEXT_ACTION: seed_next_cycle | implement_scope | plan_backlog
+NEXT_ACTION: seed_next_cycle | implement_scope | plan_backlog | cloud_deploy_or_ask
 ```
 
 ---
@@ -280,24 +307,27 @@ For goals like “keep shipping improvements”:
 
 ## 6. Recovery matrix
 
-| Symptom                                 | Action                                                                                                    |
-| --------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| Agent / conversion not found            | Poll `list_versions`, implement active, preview — continue if Rn advanced                                 |
-| Implement failed mid-queue              | Inspect run; re-run remaining items with sortOrder; don't re-seed                                         |
-| Preview stuck / login load              | Mock creds; restart_preview; hard retry; capture evidence                                                 |
-| Seed failed                             | Retry once; no prior tagged baseline → `start_first_revision_from_prompt` / `create_empty_react_revision` |
-| Preview won't boot (wrong command/port) | `get_preview_manifest` → `update_preview_manifest`; last resort `redetect_preview_manifest` (`confirm`)   |
-| Client Link build check failed          | Read `failedCommand` + log tail → fix in Build → re-run verify                                            |
-| Development implement off-schema        | `get_scope_schema_alignment_report` → fix duplicates/missing FKs before lock                              |
-| Deploy monitor `regression`             | `get_deploy_monitor`; with user intent `spawn_deploy_regression_fix_agent` (`confirm`)                    |
-| Lock agent stuck                        | Keep poll lock status; RESUME poll_lock; do not work locked id                                            |
-| Double active (anomaly)                 | Prefer locking/clarifying; don't create third                                                             |
-| 401/403                                 | blocked_auth                                                                                              |
-| Budget exceeded                         | Report spend tools; stop expensive agents                                                                 |
-| Scope empty after lock                  | Expand plan / suggestions before implementing blank                                                       |
-| QA timeout                              | retry_qa_generation                                                                                       |
-| Feedback AI fix failed                  | clarify_feedback_ai_fix or residual note + continue other work                                            |
-| Cursor not ready                        | get_cursor_status / sync; blocked if required                                                             |
+| Symptom                                  | Action                                                                                                    |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Agent / conversion not found             | Poll `list_versions`, implement active, preview — continue if Rn advanced                                 |
+| Implement failed mid-queue               | Inspect run; re-run remaining items with sortOrder; don't re-seed                                         |
+| Preview stuck / login load               | Mock creds; restart_preview; hard retry; capture evidence                                                 |
+| Seed failed                              | Retry once; no prior tagged baseline → `start_first_revision_from_prompt` / `create_empty_react_revision` |
+| Preview won't boot (wrong command/port)  | `get_preview_manifest` → `update_preview_manifest`; last resort `redetect_preview_manifest` (`confirm`)   |
+| Client Link build check failed           | Read `failedCommand` + log tail → fix in Build → re-run verify                                            |
+| Development implement off-schema         | `get_scope_schema_alignment_report` → fix duplicates/missing FKs before lock                              |
+| Deploy monitor `regression`              | `get_deploy_monitor`; with user intent `spawn_deploy_regression_fix_agent` (`confirm`)                    |
+| Lock agent stuck                         | Keep poll lock status; RESUME poll_lock; do not work locked id                                            |
+| Double active (anomaly)                  | Prefer locking/clarifying; don't create third                                                             |
+| 401/403                                  | blocked_auth                                                                                              |
+| Budget exceeded                          | Report spend tools; stop expensive agents                                                                 |
+| Scope empty after lock                   | Expand plan / suggestions before implementing blank                                                       |
+| QA timeout                               | retry_qa_generation                                                                                       |
+| Feedback AI fix failed                   | clarify_feedback_ai_fix or residual note + continue other work                                            |
+| New bug asked but agent updated old UUID | Stop; `create_feedback` with the new description; fix the new UUID                                        |
+| Cursor not ready                         | get_cursor_status / sync; blocked if required                                                             |
+| No environments on deploy map            | `DEPLOY: n/a` — do not ask; continue without deploy                                                       |
+| Has envs but readiness unclear           | Ask once; record asked/skipped                                                                            |
 
 Retries: **max 2** automatic per action family per cycle, then residual + different tactic or ask.
 
@@ -349,5 +379,7 @@ Status ends each tick with `GOAL_STATUS: in_progress` until goal says stop.
 | ------------------------------ | ----------------- |
 | Tool names by phase            | tool-map.md       |
 | Exact sequences + JSON samples | workflows.md      |
+| Website QA Chat / GrowthOS QA  | qa-chat.md        |
+| Debugging / diagnose / fix     | debugging.md      |
 | Release/revision theory        | platform-model.md |
 | Validation gotchas             | pitfalls.md       |

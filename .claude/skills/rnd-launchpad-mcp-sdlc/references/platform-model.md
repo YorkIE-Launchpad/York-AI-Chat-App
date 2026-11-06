@@ -36,37 +36,44 @@ seed again → work → lock → …  (continuous agents never “idle complete�
 
 ---
 
-## Four phases (10 stages)
+## Journey phases (stages)
 
-| Phase        | Stages                              | Purpose                                            |
-| ------------ | ----------------------------------- | -------------------------------------------------- |
-| **Discover** | Capture, Profiles, Documents, Brief | Client context, notes, docs, PRD                   |
-| **Plan**     | Backlog, Releases                   | Epics/stories; release lines and scope             |
-| **Build**    | Frontend, Backend, Cloud            | Revisions, implement, migrate, preview, deploy     |
-| **Validate** | QA                                  | QA chats/reports; feedback loop (rewinds to Build) |
+| Phase        | Stages                              | Purpose                                                                      |
+| ------------ | ----------------------------------- | ---------------------------------------------------------------------------- |
+| **Discover** | Capture, Profiles, Documents, Brief | Client context, notes, docs, PRD                                             |
+| **Plan**     | Backlog, Releases                   | Epics/stories; release lines and scope                                       |
+| **Build**    | Frontend, Backend, Cloud            | Revisions, implement, migrate, preview                                       |
+| **Validate** | QA                                  | Website QA Chat (`qa_chat_*`) / Mac runner; feedback loop (rewinds to Build) |
+| **Ship**     | Lock / next                         | Lock active → seed next empty active                                         |
+| **Deploy**   | Cloud / CI                          | Only if deploy map has environments — else ignore                            |
 
 UI journey maps stages onto URL `section`/`area`. MCP agents do not need URLs —
 they use phase + tool map instead.
 
 ### Stage completion heuristics (agent sensors)
 
-| Stage             | Prefer tools                                                                  | “Done enough” heuristic                                  |
-| ----------------- | ----------------------------------------------------------------------------- | -------------------------------------------------------- |
-| Capture           | notes, questionnaire, ingest                                                  | Materials exist for goal context                         |
-| Profiles          | client details / enrich                                                       | Non-empty client/product fields                          |
-| Documents / Brief | docs, PRD, summary                                                            | Artifact exists or explicit skip                         |
-| Backlog           | epics/stories/suggestions                                                     | Stories cover current goal increment                     |
-| Releases          | list/create/activate/scope                                                    | One active + scope for increment                         |
-| Frontend          | seed, implement platform, preview, migrate                                    | New Rn + preview ready                                   |
-| Backend           | backend code chat / understand                                                | Only if goal requires; session progressed                |
-| Cloud             | deploy map + cloud deploy / CI/CD + deploy monitors                           | Only if goal requires; deploy terminal + monitor verdict |
-| QA                | QA chat/reports/feedback, visual compare, Client Link verify, Sentry feedback | Run evidence or accepted residual                        |
+| Stage             | Prefer tools                                                                           | “Done enough” heuristic                                         |
+| ----------------- | -------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| Capture           | notes, questionnaire, ingest                                                           | Materials exist for goal context                                |
+| Profiles          | client details / enrich                                                                | Non-empty client/product fields                                 |
+| Documents / Brief | docs, PRD, summary                                                                     | Artifact exists or explicit skip                                |
+| Backlog           | epics/stories/suggestions                                                              | Stories cover current goal increment                            |
+| Releases          | list/create/activate/scope                                                             | One active + scope for increment                                |
+| Frontend          | seed, implement platform, preview, migrate                                             | New Rn + preview ready                                          |
+| Backend           | backend code chat / understand                                                         | Only if goal requires; session progressed                       |
+| Cloud             | deploy map + cloud deploy / CI/CD + deploy monitors                                    | Only when environments exist; else N/A                          |
+| QA                | Website `qa_chat_*` / Mac runner, reports/feedback, visual, Client Link verify, Sentry | Run evidence or accepted residual                               |
+| Deploy            | deploy map + cloud deploy / CI/CD + deploy monitors                                    | **Gate:** ≥1 env. Then done / asked / skipped. No envs → ignore |
 
-Cadence inside Plan→Build→Validate→Ship:
+Cadence inside Plan→Build→Validate→Ship→(Deploy if envs):
 
 ```
-ensure active → seed if empty → scope → implement → preview → validate → lock → wait → seed next
+ensure active → seed if empty → scope → implement → preview → validate (qa_chat_*)
+→ lock → wait → seed next → [get_deploy_map has envs? deploy/ask : skip]
 ```
+
+**Feedback rule:** a new GrowthOS/user fix request files a **new** feedback UUID
+(`create_feedback`). Do not rewrite an old feedback description into a different bug.
 
 ---
 

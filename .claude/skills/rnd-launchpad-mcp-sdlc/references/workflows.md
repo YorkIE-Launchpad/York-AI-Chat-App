@@ -110,14 +110,20 @@ while goal_not_complete:
 
 #### V — Validate cycle
 
-1. `get_qa_config` / topics / `send_qa_chat_message` → poll message
-2. `list_qa_reports` → `move_qa_report_to_feedback` on fails
+1. Website QA Chat ([qa-chat.md](qa-chat.md)) or Mac `generate_qa_tests` / `run_qa_tests`
+2. Failures → `create_feedback` / `move_qa_report_to_feedback` (new UUID for new bugs)
 3. Feedback path §3
 4. Rewind to Build until green or residual accepted
 
 #### S — Ship cycle
 
 Identical to release loop steps 5–7.
+
+#### D — Deploy cycle (only if environments exist)
+
+1. `get_deploy_map` — if **no environments**, set `DEPLOY: n/a` and skip (do not ask)
+2. Has envs + ready → §8 / §9 → `list_deploy_monitors`
+3. Has envs + unclear → ask user once; record asked/skipped
 
 ---
 
@@ -186,23 +192,44 @@ Seed/list only on the **new** active. Do not implement on the locked release.
 
 ---
 
-## 3. Bug from client feedback
+## 3. Bug from client feedback / GrowthOS fix ask
+
+### 3a. New fix request (default)
+
+User/GrowthOS describes a bug that is **not** an explicit retry of an existing UUID:
 
 1. Preflight; active must have a live revision (seed first if empty)
-2. `list_feedback` / `get_feedback` — UUID `feedbackId`
-3. `start_feedback_ai_fix` → poll `get_feedback_ai_fix_status`
-4. `approve_feedback` when appropriate
-5. `start_preview` → poll ready → `get_preview_snapshot` of the fixed screen → show the image
-6. Optional: continue to lock loop when shipping
+2. **`create_feedback`** with the full description (always a **new** UUID)
+3. `start_feedback_ai_fix` on that UUID → poll `get_feedback_ai_fix_status`
+4. `start_preview` → poll ready → `get_preview_snapshot` of the fixed screen → show the image
+5. Re-Validate (QA Chat) → Ship (lock + seed) → Deploy **only if environments**
+6. `approve_feedback` only when filing to Jira / clearing the queue after acceptance
+
+**Never** `update_feedback` on an old ticket to swap in a different bug, then re-fix it.
+
+### 3b. Retry the same filed item
+
+1. `list_feedback` / `get_feedback` — confirmed same UUID
+2. Optional `update_feedback` to refine repro only
+3. `start_feedback_ai_fix` → poll → preview snapshot → re-Validate → Ship/Deploy
+
+### 3c. Existing client/QA/Sentry row
+
+1. `list_feedback` / `get_feedback` — UUID from move/import/submit
+2. Same as 3b (do not create a duplicate for the same QA failureIndex / visual runId / Sentry issue)
 
 ---
 
-## 4. Full Validate (QA)
+## 4. Full Validate (QA) from GrowthOS
 
-1. Active + revision required
-2. `get_qa_config` → topics / chats / `send_qa_chat_message` → poll
-3. `list_qa_reports` → optional `move_qa_report_to_feedback` → §3
-4. Failures rewind to Build; success → Ship or next Plan
+Prefer website QA Chat — full sequence in [qa-chat.md](qa-chat.md).
+
+1. Active + revision required; preview healthy for UI flows
+2. `qa_chat_workspace` → `qa_chat_create` → `qa_browser_set_selection` → `qa_chat_send_message` (`createTests` as needed) → poll → `qa_chat_run_tests` → poll
+3. Failures → `create_feedback` or `move_qa_report_to_feedback` → §3
+4. Rewind to Build until green; success → Ship → Deploy only if envs
+
+Mac/module alternate: `generate_qa_tests` → `run_qa_tests` (see qa-chat.md).
 
 ---
 
@@ -212,6 +239,16 @@ Seed/list only on the **new** active. Do not implement on the locked release.
 | -------------------------- | ----------------------------------------------- |
 | Peek without changing live | `switch_version`                                |
 | Make live                  | `activate_version` (on **active** release only) |
+
+---
+
+## 5b. Debugging (preview / cloud / Sentry / chats)
+
+Full triage: [debugging.md](debugging.md) (GrowthOS skill `rnd-launchpad-mcp-debug`).
+
+Quick: preview → manifest/env → snapshot; new GrowthOS bug → `create_feedback` → AI fix;
+backend → `backend_code_chat_*`; cloud (envs only) → `cloud_debug_chat_readiness` then chat;
+Sentry → import → AI fix; deploy regression → monitors (confirm for fix agent).
 
 ---
 
@@ -276,17 +313,22 @@ Next tick: poll first — do not re-seed or restart whole compare unless job con
 
 ---
 
-## 8. Cloud deploy cycle
+## 8. Cloud deploy cycle (env-gated)
 
-1. `get_deploy_map` / `prepare_deploy_map` / `patch_deploy_map` as needed
-2. `backend_cloud_deploy_preflight`
-3. `start_backend_cloud_deploy` → poll latest/run
-4. Failures → preflight again or cloud_debug chat; do not invent AWS MCP tools
-5. If deploy monitoring is on: `list_deploy_monitors` → `get_deploy_monitor` on the new run
+**Gate:** `get_deploy_map` must show ≥1 environment. Otherwise skip entirely
+(`DEPLOY: n/a`) — most preview/QA-only projects never deploy.
+
+1. `get_deploy_map` — empty? stop here
+2. `prepare_deploy_map` / `patch_deploy_map` as needed
+3. `backend_cloud_deploy_preflight`
+4. `start_backend_cloud_deploy` → poll latest/run
+5. Failures → preflight again or cloud_debug chat; do not invent AWS MCP tools
+6. If deploy monitoring is on: `list_deploy_monitors` → `get_deploy_monitor` on the new run
+7. Has envs but readiness unclear → **ask once** “Deploy this cycle?”
 
 ---
 
-## 9. CI/CD pipeline (optional)
+## 9. CI/CD pipeline
 
 1. `get_project_cicd` — if already `active`, skip to step 5
 2. `enable_project_cicd` — adopts an existing pipeline, or returns `needsChoice` / `needsCreate`
@@ -346,5 +388,9 @@ Next tick: poll first — do not re-seed or restart whole compare unless job con
 - [ ] Next cycle seeded on **new** active id
 - [ ] Continuous goals stay `in_progress` until evidence of full criteria
 - [ ] QA failures rewind to Build before claiming ship
+- [ ] New GrowthOS fix asks used `create_feedback` (not overwrite via `update_feedback`)
+- [ ] Validate used website `qa_chat_*` (or Mac runner) with evidence
+- [ ] After green Validate: Ship; Deploy only when `get_deploy_map` has environments
+- [ ] No environments → `DEPLOY: n/a` (never ask about deploy)
 - [ ] Destructive calls use `confirm: true`
-- [ ] Durable PHASE / NEXT_ACTION / RESUME lines on autonomous ticks
+- [ ] Durable PHASE / NEXT_ACTION / RESUME lines; `DEPLOY:` only when relevant
