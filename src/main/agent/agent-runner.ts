@@ -2273,7 +2273,8 @@ ${hints.join('\n')}
           status: 'error',
           title: 'Model provider unavailable',
         });
-        return;
+        runOutcome = { kind: 'failed' };
+        return runOutcome;
       }
 
       const configProtocol = resolvePiRouteProtocol(resolvedProvider, resolvedCustomProtocol);
