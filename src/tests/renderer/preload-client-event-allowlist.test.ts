@@ -47,6 +47,10 @@ describe('preload ClientEvent allowlist', () => {
     expect(readAllowlist().has('question.response')).toBe(true);
   });
 
+  it('allows sleep.skip so Sleep Skip reaches main', () => {
+    expect(readAllowlist().has('sleep.skip')).toBe(true);
+  });
+
   it('allows every event type the renderer sends', () => {
     const allowlist = readAllowlist();
     const sent = collectRendererSentTypes();

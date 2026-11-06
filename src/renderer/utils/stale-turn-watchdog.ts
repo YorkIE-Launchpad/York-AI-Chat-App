@@ -23,6 +23,7 @@ export type StaleTurnStore = {
   clearPendingTurns: (sessionId: string) => void;
   clearQueuedMessages: (sessionId: string) => void;
   clearPendingQuestion: (sessionId: string) => void;
+  clearPendingSleep: (sessionId: string) => void;
   addMessage: (sessionId: string, message: Message) => void;
 };
 
@@ -34,6 +35,7 @@ export function clearTurnStateForSession(store: StaleTurnStore, sessionId: strin
   store.clearPendingTurns(sessionId);
   store.clearQueuedMessages(sessionId);
   store.clearPendingQuestion(sessionId);
+  store.clearPendingSleep(sessionId);
 }
 
 export type StaleTurnDecision =

@@ -37,6 +37,7 @@ import {
   isMcpWriteAccessDenied,
 } from '../config/mcp-write-access-store';
 import type { AskUserQuestionExtension } from '../tools/ask-user-question-extension';
+import { parseBashSleepCommandMs, type SleepToolExtension } from '../tools/sleep-tool-extension';
 import { PathResolver } from '../sandbox/path-resolver';
 import { MCPManager } from '../mcp/mcp-manager';
 import { mcpConfigStore } from '../mcp/mcp-config-store';
@@ -855,6 +856,7 @@ export class CoworkAgentRunner {
   private _skillsAdapter?: SkillsAdapter;
   private extensionManager?: AgentRuntimeExtensionManager;
   private askUserQuestionExtension?: AskUserQuestionExtension;
+  private sleepToolExtension?: SleepToolExtension;
   private activeControllers: Map<string, AbortController> = new Map();
   private piSessions: Map<string, CachedPiSession> = new Map();
   private toolDisplayNameCache: Map<string, string> = new Map();
@@ -1190,7 +1192,8 @@ ${hints.join('\n')}
     pluginRuntimeService?: PluginRuntimeService,
     skillsAdapter?: SkillsAdapter,
     extensionManager?: AgentRuntimeExtensionManager,
-    askUserQuestionExtension?: AskUserQuestionExtension
+    askUserQuestionExtension?: AskUserQuestionExtension,
+    sleepToolExtension?: SleepToolExtension
   ) {
     this.sendToRenderer = options.sendToRenderer;
     this.saveMessage = options.saveMessage;
@@ -1203,6 +1206,7 @@ ${hints.join('\n')}
     this._skillsAdapter = skillsAdapter;
     this.extensionManager = extensionManager;
     this.askUserQuestionExtension = askUserQuestionExtension;
+    this.sleepToolExtension = sleepToolExtension;
 
     log('[CoworkAgentRunner] Initialized with York IE agent SDK');
     log('[CoworkAgentRunner] Skills enabled: settingSources=[user, project], Skill tool enabled');
@@ -1669,6 +1673,37 @@ ${hints.join('\n')}
     } catch {
       return '';
     }
+  }
+
+  /**
+   * Route pure `bash sleep N` through SleepToolExtension so the UI can Skip
+   * and the agent sees a successful sleep completion.
+   */
+  private wrapBashSleepAsSkippable(tools: ToolDefinition[], sessionId: string): ToolDefinition[] {
+    const sleepExt = this.sleepToolExtension;
+    if (!sleepExt) return tools;
+
+    return tools.map((tool) => {
+      if (tool.name.toLowerCase() !== 'bash') return tool;
+      const originalExecute = tool.execute;
+      return {
+        ...tool,
+        execute: async (
+          toolCallId: string,
+          params: { command: string; timeout?: number },
+          signal: AbortSignal | undefined,
+          onUpdate: ((update: unknown) => void) | undefined,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          ctx: any
+        ) => {
+          const sleepMs = parseBashSleepCommandMs(String(params?.command ?? ''));
+          if (sleepMs == null) {
+            return originalExecute(toolCallId, params, signal, onUpdate, ctx);
+          }
+          return sleepExt.executeSleep(sessionId, toolCallId, sleepMs, signal);
+        },
+      } as ToolDefinition;
+    });
   }
 
   private static wrapBashToolWithDefaultTimeout(tools: ToolDefinition[]): ToolDefinition[] {
@@ -3207,12 +3242,15 @@ ${
       // Inject a default 120s timeout for bash commands when the model omits one
       const withTimeout = CoworkAgentRunner.wrapBashToolWithDefaultTimeout(withCoworkPaths);
 
+      // Pure `sleep N` bash → skippable Sleep tool (Skip = completed)
+      const withSkippableSleep = this.wrapBashSleepAsSkippable(withTimeout, session.id);
+
       // Wrap the bash tool to intercept sudo commands and request passwords
       // Note: wrapBashToolForSudo returns ToolDefinition[] (5-param execute) but
       // createAgentSession.tools expects Tool[] (4-param execute). The extra ctx
       // parameter is simply not passed by the session runner — safe to cast.
       const wrappedTools = this.wrapBashToolForSudo(
-        withTimeout,
+        withSkippableSleep,
         session.id,
         effectiveCwd,
         Boolean(guestSandboxPath)
@@ -3617,7 +3655,10 @@ ${
         if (activityTimeoutId) clearTimeout(activityTimeoutId);
         activityTimeoutId = setTimeout(() => {
           // Waiting on AskUserQuestion is intentional idle — keep the turn alive.
-          if (this.askUserQuestionExtension?.hasPending(session.id)) {
+          if (
+            this.askUserQuestionExtension?.hasPending(session.id) ||
+            this.sleepToolExtension?.hasPending(session.id)
+          ) {
             resetActivityTimeout();
             return;
           }

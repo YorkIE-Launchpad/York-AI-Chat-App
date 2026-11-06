@@ -2253,7 +2253,7 @@ app
       const headlessAskUserQuestionExtension = new AskUserQuestionExtension(
         headlessSendWithPermission
       );
-      const headlessSleepToolExtension = new SleepToolExtension(sendToRenderer);
+      const headlessSleepToolExtension = new SleepToolExtension(headlessSendWithPermission);
       const headlessExtensionManager = new AgentRuntimeExtensionManager(
         buildExtensionList(headlessAskUserQuestionExtension, headlessSleepToolExtension)
       );
@@ -2267,7 +2267,8 @@ app
         headlessSendWithPermission,
         pluginRuntimeService,
         headlessExtensionManager,
-        headlessAskUserQuestionExtension
+        headlessAskUserQuestionExtension,
+        headlessSleepToolExtension
       );
       sessionManager.setMeetingService(meetingService);
       sessionManager.setKnowledgeBaseService(knowledgeBaseService);
@@ -2773,7 +2774,8 @@ app
       sendToRenderer,
       pluginRuntimeService,
       extensionManager,
-      askUserQuestionExtension
+      askUserQuestionExtension,
+      sleepToolExtension
     );
     sessionManager.setMeetingService(meetingService);
     sessionManager.setKnowledgeBaseService(knowledgeBaseService);

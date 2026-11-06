@@ -11,6 +11,7 @@ export function clearTurnStateOnServerError(store: {
   clearPendingTurns: (sessionId: string) => void;
   clearQueuedMessages: (sessionId: string) => void;
   clearPendingQuestion: (sessionId: string) => void;
+  clearPendingSleep: (sessionId: string) => void;
 }): void {
   store.setLoading(false);
   const sessionIds = new Set<string>();
@@ -26,5 +27,6 @@ export function clearTurnStateOnServerError(store: {
     store.clearPendingTurns(sessionId);
     store.clearQueuedMessages(sessionId);
     store.clearPendingQuestion(sessionId);
+    store.clearPendingSleep(sessionId);
   }
 }

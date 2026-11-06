@@ -23,6 +23,13 @@ function parseSecondsFromInput(input: Record<string, unknown> | undefined): numb
     const n = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
     if (Number.isFinite(n) && n >= 0) return n / 1000;
   }
+  if (typeof input.command === 'string') {
+    const match = /^(?:\/usr\/bin\/)?sleep\s+(\d+(?:\.\d+)?)\s*$/i.exec(input.command.trim());
+    if (match) {
+      const seconds = Number(match[1]);
+      if (Number.isFinite(seconds) && seconds >= 0) return seconds;
+    }
+  }
   return null;
 }
 

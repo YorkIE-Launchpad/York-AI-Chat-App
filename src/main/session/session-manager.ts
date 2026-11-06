@@ -47,6 +47,7 @@ import { mcpConfigStore } from '../mcp/mcp-config-store';
 import { PluginRuntimeService } from '../skills/plugin-runtime-service';
 import { AgentRuntimeExtensionManager } from '../extensions/agent-runtime-extension-manager';
 import type { AskUserQuestionExtension } from '../tools/ask-user-question-extension';
+import type { SleepToolExtension } from '../tools/sleep-tool-extension';
 import {
   forgetSessionPermissions,
   rememberAutoApproveToolPermissions,
@@ -132,6 +133,7 @@ export class SessionManager {
   private pluginRuntimeService?: PluginRuntimeService;
   private extensionManager?: AgentRuntimeExtensionManager;
   private askUserQuestionExtension?: AskUserQuestionExtension;
+  private sleepToolExtension?: SleepToolExtension;
   private activeSessions: Map<string, AbortController> = new Map();
   private promptQueues: Map<
     string,
@@ -172,7 +174,8 @@ export class SessionManager {
     sendToRenderer: (event: ServerEvent) => void,
     pluginRuntimeService?: PluginRuntimeService,
     extensionManager?: AgentRuntimeExtensionManager,
-    askUserQuestionExtension?: AskUserQuestionExtension
+    askUserQuestionExtension?: AskUserQuestionExtension,
+    sleepToolExtension?: SleepToolExtension
   ) {
     this.db = db;
     try {
@@ -205,6 +208,7 @@ export class SessionManager {
     this.pluginRuntimeService = pluginRuntimeService;
     this.extensionManager = extensionManager;
     this.askUserQuestionExtension = askUserQuestionExtension;
+    this.sleepToolExtension = sleepToolExtension;
 
     // Initialize MCP Manager
     this.mcpManager = new MCPManager();
@@ -358,7 +362,8 @@ export class SessionManager {
       this.pluginRuntimeService,
       undefined,
       this.extensionManager,
-      this.askUserQuestionExtension
+      this.askUserQuestionExtension,
+      this.sleepToolExtension
     );
   }
 
@@ -2021,6 +2026,7 @@ export class SessionManager {
     // Unblock AskUserQuestion first, then abort the pi agent so it does not
     // continue after a cancelled "proceed with assumptions" tool result.
     this.askUserQuestionExtension?.dismissSessionQuestions(sessionId, 'session stopped');
+    this.sleepToolExtension?.dismissSessionSleeps(sessionId, 'session stopped');
     this.agentRunner.cancel(sessionId);
     // Cancel any pending sudo password requests for this session
     for (const [toolUseId, entry] of this.pendingSudoPasswords) {
@@ -2084,6 +2090,15 @@ export class SessionManager {
       return false;
     }
     return this.askUserQuestionExtension.cancelQuestion(questionId, reason);
+  }
+
+  /** User skipped an in-flight Sleep — resolve as sleep completed. */
+  handleSleepSkip(sleepId: string): boolean {
+    if (!this.sleepToolExtension) {
+      logWarn('[SessionManager] No Sleep tool extension registered');
+      return false;
+    }
+    return this.sleepToolExtension.skipSleep(sleepId);
   }
 
   // Delete a session

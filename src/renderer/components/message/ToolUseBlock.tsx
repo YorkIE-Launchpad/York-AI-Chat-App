@@ -49,6 +49,16 @@ export const ToolUseBlock = memo(function ToolUseBlock({
   if (block.name === 'Sleep' || block.name === 'sleep') {
     return <SleepBlock block={block} message={message} />;
   }
+  // Pure `bash sleep N` is routed to the skippable Sleep engine — same Skip UI.
+  if (
+    block.name.toLowerCase() === 'bash' &&
+    typeof (block.input as Record<string, unknown>)?.command === 'string' &&
+    /^(?:\/usr\/bin\/)?sleep\s+\d+(?:\.\d+)?\s*$/i.test(
+      String((block.input as Record<string, unknown>).command).trim()
+    )
+  ) {
+    return <SleepBlock block={block} message={message} />;
+  }
   if (block.name === 'TodoWrite') {
     return <TodoWriteBlock block={block} />;
   }

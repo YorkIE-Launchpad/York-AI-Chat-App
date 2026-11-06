@@ -116,6 +116,7 @@ describe('stale-turn-watchdog', () => {
       clearPendingTurns: vi.fn(),
       clearQueuedMessages: vi.fn(),
       clearPendingQuestion: vi.fn(),
+      clearPendingSleep: vi.fn(),
       addMessage: vi.fn(),
     };
     applyStaleTurnDecision(store, 's1', { action: 'clear_idle' });
@@ -134,6 +135,7 @@ describe('stale-turn-watchdog', () => {
       clearPendingTurns: vi.fn(),
       clearQueuedMessages: vi.fn(),
       clearPendingQuestion: vi.fn(),
+      clearPendingSleep: vi.fn(),
       addMessage: vi.fn(),
     };
     applyStaleTurnDecision(

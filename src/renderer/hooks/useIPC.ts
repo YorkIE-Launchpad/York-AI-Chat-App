@@ -208,6 +208,7 @@ export function useIPC() {
               store.clearPendingTurns(event.payload.sessionId);
               store.clearQueuedMessages(event.payload.sessionId);
               store.clearPendingQuestion(event.payload.sessionId);
+              store.clearPendingSleep(event.payload.sessionId);
             }
             break;
 
@@ -715,6 +716,7 @@ export function useIPC() {
   const setLoading = useAppStore((s) => s.setLoading);
   const dequeuePermission = useAppStore((s) => s.dequeuePermission);
   const clearPendingQuestion = useAppStore((s) => s.clearPendingQuestion);
+  const clearPendingSleep = useAppStore((s) => s.clearPendingSleep);
   const clearActiveTurn = useAppStore((s) => s.clearActiveTurn);
   const activateNextTurn = useAppStore((s) => s.activateNextTurn);
   const clearPendingTurns = useAppStore((s) => s.clearPendingTurns);
@@ -1327,6 +1329,7 @@ export function useIPC() {
       clearActiveTurn(sessionId);
       finishExecutionClock(sessionId);
       clearPendingQuestion(sessionId);
+      clearPendingSleep(sessionId);
       if (!isElectron) {
         updateSession(sessionId, { status: 'idle' });
         setLoading(false);
@@ -1344,6 +1347,7 @@ export function useIPC() {
       clearActiveTurn,
       finishExecutionClock,
       clearPendingQuestion,
+      clearPendingSleep,
     ]
   );
 
