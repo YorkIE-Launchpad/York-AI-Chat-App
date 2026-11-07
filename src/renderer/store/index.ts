@@ -277,6 +277,11 @@ export interface AppState {
   cancelQueuedMessages: (sessionId: string) => void;
   /** Remove a single queued message from the transcript queue and pending turns. */
   removeQueuedMessage: (sessionId: string, messageId: string) => number | null;
+  /**
+   * Promote a queued message into the live transcript (clear localStatus) and
+   * drop it from pendingTurns. Returns its FIFO queue index for the backend.
+   */
+  promoteQueuedMessage: (sessionId: string, messageId: string) => number | null;
 
   addTraceStep: (sessionId: string, step: TraceStep) => void;
   updateTraceStep: (sessionId: string, stepId: string, updates: Partial<TraceStep>) => void;
@@ -949,6 +954,27 @@ export const useAppStore = create<AppState>((set, get) => ({
       return {
         sessionStates: patchSession(state.sessionStates, sessionId, {
           messages: current.messages.filter((message) => message.id !== messageId),
+          pendingTurns: current.pendingTurns.filter((id) => id !== messageId),
+        }),
+      };
+    });
+    return queueIndex;
+  },
+
+  promoteQueuedMessage: (sessionId, messageId) => {
+    const ss = getSession(get().sessionStates, sessionId);
+    const queueIndex = ss.messages
+      .filter((message) => message.localStatus === 'queued')
+      .findIndex((message) => message.id === messageId);
+    if (queueIndex < 0) return null;
+
+    set((state) => {
+      const current = getSession(state.sessionStates, sessionId);
+      return {
+        sessionStates: patchSession(state.sessionStates, sessionId, {
+          messages: current.messages.map((message) =>
+            message.id === messageId ? { ...message, localStatus: undefined } : message
+          ),
           pendingTurns: current.pendingTurns.filter((id) => id !== messageId),
         }),
       };

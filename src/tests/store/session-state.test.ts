@@ -502,6 +502,43 @@ describe('SessionState unified store', () => {
       expect(next.pendingTurns).toEqual(['msg2']);
       expect(useAppStore.getState().removeQueuedMessage('s1', 'missing')).toBeNull();
     });
+
+    it('should promote a queued message for send-now without removing it', () => {
+      useAppStore.getState().addSession(makeSession('s1'));
+      useAppStore.getState().setMessages('s1', [
+        {
+          id: 'msg1',
+          sessionId: 's1',
+          role: 'user',
+          content: [{ type: 'text', text: 'a' }],
+          timestamp: 1,
+          localStatus: 'queued',
+        },
+        {
+          id: 'msg2',
+          sessionId: 's1',
+          role: 'user',
+          content: [{ type: 'text', text: 'b' }],
+          timestamp: 2,
+          localStatus: 'queued',
+        },
+      ]);
+      const ss = useAppStore.getState().sessionStates['s1'];
+      useAppStore.setState({
+        sessionStates: {
+          s1: { ...ss, pendingTurns: ['msg1', 'msg2'] },
+        },
+      });
+
+      const index = useAppStore.getState().promoteQueuedMessage('s1', 'msg2');
+      expect(index).toBe(1);
+      const next = useAppStore.getState().sessionStates['s1'];
+      expect(next.messages.map((m) => m.id)).toEqual(['msg1', 'msg2']);
+      expect(next.messages[1].localStatus).toBeUndefined();
+      expect(next.messages[0].localStatus).toBe('queued');
+      expect(next.pendingTurns).toEqual(['msg1']);
+      expect(useAppStore.getState().promoteQueuedMessage('s1', 'missing')).toBeNull();
+    });
   });
 
   describe('trace steps', () => {

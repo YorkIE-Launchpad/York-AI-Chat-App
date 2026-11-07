@@ -109,6 +109,8 @@ import { MAX_RENAMED_SESSION_TITLE_LENGTH } from '../../shared/session-title';
 interface AgentRunner {
   run(session: Session, prompt: string, existingMessages: Message[]): Promise<AgentRunOutcome>;
   cancel(sessionId: string): void;
+  /** Inject a follow-up into the live turn (deliverAs: steer). */
+  steer?(sessionId: string, prompt: string, content?: ContentBlock[]): boolean;
   clearSdkSession?(sessionId: string): void;
   clearAllSdkSessions?(): void;
   compact?(
@@ -2143,6 +2145,81 @@ export class SessionManager {
       remaining: queue.length,
     });
     return true;
+  }
+
+  /**
+   * Promote a queued follow-up into the live agent turn (steer), or prioritize
+   * it to the front of the FIFO queue when steer is unavailable.
+   *
+   * Returns:
+   * - `steered` — injected into the active turn via sendUserMessage(steer)
+   * - `prioritized` — moved to front; runs after the current turn
+   * - `missing` — no such queue index
+   */
+  steerQueuedPrompt(sessionId: string, queueIndex: number): 'steered' | 'prioritized' | 'missing' {
+    const queue = this.promptQueues.get(sessionId);
+    if (!queue || queueIndex < 0 || queueIndex >= queue.length) {
+      log('[SessionManager] steerQueuedPrompt: index out of range', {
+        sessionId,
+        queueIndex,
+        length: queue?.length ?? 0,
+      });
+      return 'missing';
+    }
+
+    const [item] = queue.splice(queueIndex, 1);
+    if (!item) {
+      return 'missing';
+    }
+
+    const steered =
+      typeof this.agentRunner.steer === 'function' &&
+      this.agentRunner.steer(sessionId, item.prompt, item.content);
+
+    if (steered) {
+      // Persist so history matches the optimistic UI bubble (processPrompt skipped).
+      const messageContent: ContentBlock[] =
+        item.content && item.content.length > 0
+          ? item.content
+          : [{ type: 'text', text: item.prompt }];
+      const userMessage: Message = {
+        id: uuidv4(),
+        sessionId,
+        role: 'user',
+        content: messageContent,
+        timestamp: Date.now(),
+      };
+      this.saveMessage(userMessage);
+      if (queue.length === 0) {
+        this.promptQueues.delete(sessionId);
+      }
+      log('[SessionManager] Steered queued prompt into live turn:', {
+        sessionId,
+        queueIndex,
+        remaining: queue.length,
+      });
+      return 'steered';
+    }
+
+    // Can't inject mid-turn — run this prompt next when the current turn ends.
+    queue.unshift(item);
+    this.promptQueues.set(sessionId, queue);
+    log('[SessionManager] Prioritized queued prompt (steer unavailable):', {
+      sessionId,
+      queueIndex,
+      remaining: queue.length,
+    });
+
+    // If the session already went idle, kick the queue so the promoted item runs.
+    if (!this.activeSessions.has(sessionId)) {
+      const session = this.loadSession(sessionId);
+      if (session) {
+        this.processQueue(session).catch((err) => {
+          logError('[SessionManager] Queue restart after prioritize error:', err);
+        });
+      }
+    }
+    return 'prioritized';
   }
 
   /** Resolve a pending AskUserQuestion from the renderer / remote channel. */

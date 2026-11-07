@@ -397,6 +397,37 @@ export function userTurnImagesForPiPrompt(content: ContentBlock[] | undefined): 
   return images;
 }
 
+/**
+ * Payload for AgentSession.sendUserMessage(..., { deliverAs: 'steer' }).
+ * Prefers text + inline images; falls back to the prompt string.
+ */
+export function buildSteerUserMessagePayload(
+  prompt: string,
+  content?: ContentBlock[]
+): string | PiPromptImage[] | Array<{ type: 'text'; text: string } | PiPromptImage> {
+  const images = userTurnImagesForPiPrompt(content);
+  const text =
+    prompt.trim() ||
+    (Array.isArray(content)
+      ? content
+          .filter(
+            (b): b is { type: 'text'; text: string } =>
+              b.type === 'text' && typeof (b as { text?: unknown }).text === 'string'
+          )
+          .map((b) => b.text.trim())
+          .filter(Boolean)
+          .join('\n')
+      : '');
+
+  if (images.length === 0) {
+    return text || prompt;
+  }
+  if (!text) {
+    return images;
+  }
+  return [{ type: 'text', text }, ...images];
+}
+
 // Bundled node/npx paths never change at runtime — resolve once.
 let cachedBundledNodePaths: { node: string; npx: string } | null | undefined = undefined;
 
@@ -4744,6 +4775,45 @@ ${
       void cached.session.abort().catch((err) => {
         logWarn('[CoworkAgentRunner] piSession.abort failed:', err);
       });
+    }
+  }
+
+  /**
+   * Inject a queued follow-up into the live turn at the next safe boundary
+   * (pi-coding-agent deliverAs: 'steer'). Returns false when no live session
+   * can accept the message (caller should keep / re-prioritize the queue item).
+   */
+  steer(sessionId: string, prompt: string, content?: ContentBlock[]): boolean {
+    const cached = this.piSessions.get(sessionId);
+    if (!cached) {
+      logWarn('[CoworkAgentRunner] steer: no cached pi session', sessionId);
+      return false;
+    }
+    const payload = buildSteerUserMessagePayload(prompt, content);
+    if (
+      (typeof payload === 'string' && !payload.trim()) ||
+      (Array.isArray(payload) && payload.length === 0)
+    ) {
+      logWarn('[CoworkAgentRunner] steer: empty payload', sessionId);
+      return false;
+    }
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const sessionAny = cached.session as any;
+      if (typeof sessionAny.sendUserMessage !== 'function') {
+        logWarn('[CoworkAgentRunner] steer: sendUserMessage unavailable', sessionId);
+        return false;
+      }
+      Promise.resolve(sessionAny.sendUserMessage(payload, { deliverAs: 'steer' })).catch(
+        (err: unknown) => {
+          logWarn('[CoworkAgentRunner] sendUserMessage(steer) failed:', err);
+        }
+      );
+      log('[CoworkAgentRunner] Steered live session:', sessionId);
+      return true;
+    } catch (err) {
+      logWarn('[CoworkAgentRunner] steer threw:', err);
+      return false;
     }
   }
 

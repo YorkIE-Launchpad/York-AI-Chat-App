@@ -1405,6 +1405,8 @@
     "queueListAria_one": "{{count}} message waiting to send",
     "queueListAria_other": "{{count}} messages waiting to send",
     "queueRemove": "Remove from queue",
+    "queueSendNow": "Send now",
+    "queueSendNowHint": "Steer the agent toward this message at the next tool call",
     "queueClearAll": "Clear all",
     "queueStatusNext": "Next",
     "queueStatusWaiting": "Waiting",

@@ -722,6 +722,7 @@ export function useIPC() {
   const clearPendingTurns = useAppStore((s) => s.clearPendingTurns);
   const cancelQueuedMessages = useAppStore((s) => s.cancelQueuedMessages);
   const removeQueuedMessageFromStore = useAppStore((s) => s.removeQueuedMessage);
+  const promoteQueuedMessageFromStore = useAppStore((s) => s.promoteQueuedMessage);
   const startExecutionClock = useAppStore((s) => s.startExecutionClock);
   const finishExecutionClock = useAppStore((s) => s.finishExecutionClock);
 
@@ -1364,6 +1365,20 @@ export function useIPC() {
     [removeQueuedMessageFromStore, send]
   );
 
+  /** Send a queued follow-up now — steers the live agent turn toward it. */
+  const steerQueuedMessage = useCallback(
+    (sessionId: string, messageId: string) => {
+      const queueIndex = promoteQueuedMessageFromStore(sessionId, messageId);
+      if (queueIndex === null) return;
+      if (!isElectron) return;
+      send({
+        type: 'session.steer-queued',
+        payload: { sessionId, queueIndex },
+      });
+    },
+    [promoteQueuedMessageFromStore, send]
+  );
+
   const deleteSession = useCallback(
     (sessionId: string) => {
       useAppStore.getState().removeSession(sessionId);
@@ -1781,6 +1796,7 @@ export function useIPC() {
     sendImageTurn,
     stopSession,
     removeQueuedMessage,
+    steerQueuedMessage,
     deleteSession,
     renameSession,
     batchDeleteSessions,

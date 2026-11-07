@@ -134,6 +134,7 @@ const ALLOWED_CLIENT_EVENTS: ReadonlySet<string> = new Set<ClientEvent['type']>(
   'session.imageTurn',
   'session.stop',
   'session.dequeue',
+  'session.steer-queued',
   'session.delete',
   'session.rename',
   'session.batchDelete',

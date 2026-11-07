@@ -17,6 +17,7 @@ function makeEvent(type: ClientEvent['type']): ClientEvent {
     case 'session.getContextUsage':
       return { type, payload: { sessionId: 'session-1' } };
     case 'session.dequeue':
+    case 'session.steer-queued':
       return { type, payload: { sessionId: 'session-1', queueIndex: 0 } };
     case 'session.batchDelete':
       return { type, payload: { sessionIds: ['session-1'] } };
@@ -59,6 +60,7 @@ describe('eventRequiresSessionManager', () => {
       'session.continue',
       'session.stop',
       'session.dequeue',
+      'session.steer-queued',
       'session.delete',
       'session.batchDelete',
       'session.setPinned',

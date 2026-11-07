@@ -764,6 +764,7 @@ export type ClientEvent =
     }
   | { type: 'session.stop'; payload: { sessionId: string } }
   | { type: 'session.dequeue'; payload: { sessionId: string; queueIndex: number } }
+  | { type: 'session.steer-queued'; payload: { sessionId: string; queueIndex: number } }
   | { type: 'session.delete'; payload: { sessionId: string } }
   | { type: 'session.rename'; payload: { sessionId: string; title: string } }
   | { type: 'session.batchDelete'; payload: { sessionIds: string[] } }

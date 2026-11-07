@@ -1,11 +1,12 @@
 // Compact queue list above the composer (Cursor-style).
 import { useTranslation } from 'react-i18next';
-import { X, ListOrdered } from 'lucide-react';
+import { X, ListOrdered, Send } from 'lucide-react';
 import type { Message, ContentBlock } from '../types';
 
 interface MessageQueueListProps {
   messages: Message[];
   onRemove: (messageId: string) => void;
+  onSendNow: (messageId: string) => void;
   onClearAll: () => void;
 }
 
@@ -37,7 +38,12 @@ function previewText(message: Message): string {
   return '';
 }
 
-export function MessageQueueList({ messages, onRemove, onClearAll }: MessageQueueListProps) {
+export function MessageQueueList({
+  messages,
+  onRemove,
+  onSendNow,
+  onClearAll,
+}: MessageQueueListProps) {
   const { t } = useTranslation();
   if (messages.length === 0) return null;
 
@@ -84,6 +90,16 @@ export function MessageQueueList({ messages, onRemove, onClearAll }: MessageQueu
               >
                 {index === 0 ? t('chat.queueStatusNext') : t('chat.queueStatusWaiting')}
               </span>
+              <button
+                type="button"
+                onClick={() => onSendNow(message.id)}
+                className="shrink-0 inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-accent hover:bg-accent-muted transition-colors opacity-80 group-hover:opacity-100"
+                title={t('chat.queueSendNowHint')}
+                aria-label={t('chat.queueSendNow')}
+              >
+                <Send className="w-3 h-3" aria-hidden />
+                {t('chat.queueSendNow')}
+              </button>
               <button
                 type="button"
                 onClick={() => onRemove(message.id)}

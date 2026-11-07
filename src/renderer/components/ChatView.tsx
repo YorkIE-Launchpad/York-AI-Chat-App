@@ -103,6 +103,7 @@ export function ChatView() {
     sendImageTurn,
     stopSession,
     removeQueuedMessage,
+    steerQueuedMessage,
     setSessionSkillsDisabled,
     changeWorkingDir,
     isElectron,
@@ -800,6 +801,14 @@ export function ChatView() {
     [activeSessionId, removeQueuedMessage]
   );
 
+  const handleSendQueuedMessageNow = useCallback(
+    (messageId: string) => {
+      if (!activeSessionId) return;
+      steerQueuedMessage(activeSessionId, messageId);
+    },
+    [activeSessionId, steerQueuedMessage]
+  );
+
   const handleClearQueuedMessages = useCallback(() => {
     if (!activeSessionId) return;
     // Remove each so backend queue indices stay correct (front-to-back).
@@ -1015,6 +1024,7 @@ export function ChatView() {
             <MessageQueueList
               messages={queuedMessages}
               onRemove={handleRemoveQueuedMessage}
+              onSendNow={handleSendQueuedMessageNow}
               onClearAll={handleClearQueuedMessages}
             />
           )}

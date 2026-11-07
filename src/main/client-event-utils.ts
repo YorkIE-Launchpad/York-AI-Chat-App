@@ -8,6 +8,7 @@ export function eventRequiresSessionManager(event: ClientEvent): boolean {
     case 'session.imageTurn':
     case 'session.stop':
     case 'session.dequeue':
+    case 'session.steer-queued':
     case 'session.delete':
     case 'session.rename':
     case 'session.batchDelete':

@@ -31,6 +31,7 @@ vi.mock('../../main/agent/shared-auth', () => ({
 
 import type { ContentBlock } from '../../renderer/types';
 import {
+  buildSteerUserMessagePayload,
   serializeMessageContentForHistory,
   userTurnImagesForPiPrompt,
 } from '../../main/agent/agent-runner';
@@ -301,5 +302,34 @@ describe('userTurnImagesForPiPrompt', () => {
         },
       ])
     ).toEqual([]);
+  });
+});
+
+describe('buildSteerUserMessagePayload', () => {
+  it('returns the prompt string for text-only turns', () => {
+    expect(
+      buildSteerUserMessagePayload('focus on auth', [{ type: 'text', text: 'focus on auth' }])
+    ).toBe('focus on auth');
+  });
+
+  it('combines text and images for multimodal steer', () => {
+    expect(
+      buildSteerUserMessagePayload('look at this', [
+        { type: 'text', text: 'look at this' },
+        {
+          type: 'image',
+          source: { type: 'base64', media_type: 'image/png', data: 'imgbytes' },
+        },
+      ])
+    ).toEqual([
+      { type: 'text', text: 'look at this' },
+      { type: 'image', data: 'imgbytes', mimeType: 'image/png' },
+    ]);
+  });
+
+  it('falls back to content text when prompt is empty', () => {
+    expect(buildSteerUserMessagePayload('', [{ type: 'text', text: 'from content' }])).toBe(
+      'from content'
+    );
   });
 });
