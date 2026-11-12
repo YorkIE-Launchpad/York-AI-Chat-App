@@ -2761,7 +2761,21 @@ app
             : null;
       target?.send('dictation:appleError', { message });
     });
-    const askUserQuestionExtension = new AskUserQuestionExtension(sendToRenderer);
+    const askUserQuestionExtension = new AskUserQuestionExtension(sendToRenderer, (notice) => {
+      if (remoteManager.isRemoteSession(notice.sessionId)) {
+        return;
+      }
+      const primary = notice.questions[0]?.question?.trim() || 'A question is waiting in chat.';
+      const extra = notice.questions.length > 1 ? ` (+${notice.questions.length - 1} more)` : '';
+      showOsNotification({
+        tag: 'AskUserQuestion',
+        title: notice.reminder ? 'Still waiting for your answer' : 'York needs an answer',
+        body: truncateNotifyBody(`${primary}${extra}`),
+        onClick: () => {
+          focusAndNavigate('session', { sessionId: notice.sessionId, win: mainWindow });
+        },
+      });
+    });
     const sleepToolExtension = new SleepToolExtension(sendToRenderer);
     const extensionManager = new AgentRuntimeExtensionManager(
       buildExtensionList(askUserQuestionExtension, sleepToolExtension)

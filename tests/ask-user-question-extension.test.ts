@@ -2,9 +2,11 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import {
   AskUserQuestionExtension,
   ASK_USER_QUESTION_MAX_PER_RUN,
+  ASK_USER_QUESTION_REMINDER_MS,
   sanitizeAskUserQuestions,
   normalizeAskUserAnswers,
   getInvalidAskUserQuestionRootKeys,
+  type AskUserQuestionNotice,
 } from '../src/main/tools/ask-user-question-extension';
 import type { ServerEvent, Session } from '../src/renderer/types';
 
@@ -251,5 +253,79 @@ describe('AskUserQuestionExtension', () => {
     expect(result.content[0].text).toContain('aborted');
     expect(events.filter((e) => e.type === 'question.request')).toHaveLength(0);
     expect(extension.hasPending(session.id)).toBe(false);
+  });
+
+  it('notifies when a question opens and reminds once after one minute if unanswered', async () => {
+    vi.useFakeTimers();
+    const notices: AskUserQuestionNotice[] = [];
+    const session = makeSession();
+    const notifying = new AskUserQuestionExtension(
+      (event) => {
+        events.push(event);
+      },
+      (notice) => {
+        notices.push(notice);
+      }
+    );
+    await notifying.beforeSessionRun({
+      session,
+      prompt: 'hi',
+      existingMessages: [],
+      isColdStart: true,
+    });
+
+    const pending = notifying.executeAsk(session.id, 'tool-notify', {
+      questions: [{ question: 'Which layout?', options: [{ label: 'A', recommended: true }] }],
+    });
+
+    expect(notices).toHaveLength(1);
+    expect(notices[0].reminder).toBe(false);
+    expect(notices[0].questions[0].question).toBe('Which layout?');
+
+    await vi.advanceTimersByTimeAsync(ASK_USER_QUESTION_REMINDER_MS - 1);
+    expect(notices).toHaveLength(1);
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(notices).toHaveLength(2);
+    expect(notices[1].reminder).toBe(true);
+    expect(notices[1].questionId).toBe(notices[0].questionId);
+
+    await vi.advanceTimersByTimeAsync(ASK_USER_QUESTION_REMINDER_MS);
+    expect(notices).toHaveLength(2);
+
+    notifying.handleQuestionResponse(notices[0].questionId, JSON.stringify({ 0: ['A'] }));
+    await pending;
+  });
+
+  it('sends only the first notification when the user answers within a minute', async () => {
+    vi.useFakeTimers();
+    const notices: AskUserQuestionNotice[] = [];
+    const session = makeSession();
+    const notifying = new AskUserQuestionExtension(
+      (event) => {
+        events.push(event);
+      },
+      (notice) => {
+        notices.push(notice);
+      }
+    );
+    await notifying.beforeSessionRun({
+      session,
+      prompt: 'hi',
+      existingMessages: [],
+      isColdStart: true,
+    });
+
+    const pending = notifying.executeAsk(session.id, 'tool-answered', {
+      questions: [{ question: 'Ship it?', options: [{ label: 'Yes', recommended: true }] }],
+    });
+    expect(notices).toHaveLength(1);
+
+    notifying.handleQuestionResponse(notices[0].questionId, JSON.stringify({ 0: ['Yes'] }));
+    await pending;
+
+    await vi.advanceTimersByTimeAsync(ASK_USER_QUESTION_REMINDER_MS + 5_000);
+    expect(notices).toHaveLength(1);
+    expect(notices[0].reminder).toBe(false);
   });
 });

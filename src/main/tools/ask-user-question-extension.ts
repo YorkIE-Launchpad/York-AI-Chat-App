@@ -22,6 +22,8 @@ import { log, logWarn } from '../utils/logger';
 
 export const ASK_USER_QUESTION_MAX_PER_RUN = 2;
 export const ASK_USER_QUESTION_TIMEOUT_MS = 5 * 60 * 1000;
+/** Second OS notification if the question is still unanswered. */
+export const ASK_USER_QUESTION_REMINDER_MS = 60 * 1000;
 
 const INVALID_ROOT_KEYS = new Set(['type', 'header', 'multiSelect']);
 
@@ -32,9 +34,22 @@ type PendingQuestion = {
   /** Settle the wait Promise exactly once (answer / cancel / timeout / abort). */
   settle: (result: AskResult) => void;
   timeout: NodeJS.Timeout;
+  /** Fires once if the question is still open after ASK_USER_QUESTION_REMINDER_MS. */
+  reminder?: NodeJS.Timeout;
   abortHandler?: () => void;
   signal?: AbortSignal;
 };
+
+export type AskUserQuestionNotice = {
+  questionId: string;
+  sessionId: string;
+  toolUseId: string;
+  questions: QuestionItem[];
+  /** True for the one-minute follow-up. False for the notification sent when the question opens. */
+  reminder: boolean;
+};
+
+export type AskUserQuestionNotifier = (notice: AskUserQuestionNotice) => void;
 
 type AskResult =
   | { kind: 'answered'; answersJson: string }
@@ -235,7 +250,10 @@ export class AskUserQuestionExtension implements AgentRuntimeExtension {
   private readonly pending = new Map<string, PendingQuestion>();
   private readonly asksThisRun = new Map<string, number>();
 
-  constructor(private readonly sendToRenderer: AskUserQuestionSendEvent) {}
+  constructor(
+    private readonly sendToRenderer: AskUserQuestionSendEvent,
+    private readonly notify?: AskUserQuestionNotifier
+  ) {}
 
   async beforeSessionRun(context: BeforeSessionRunContext): Promise<BeforeSessionRunResult> {
     this.asksThisRun.set(context.session.id, 0);
@@ -316,6 +334,9 @@ export class AskUserQuestionExtension implements AgentRuntimeExtension {
         const pending = this.pending.get(questionId);
         if (pending) {
           clearTimeout(pending.timeout);
+          if (pending.reminder) {
+            clearTimeout(pending.reminder);
+          }
           if (pending.signal && pending.abortHandler) {
             pending.signal.removeEventListener('abort', pending.abortHandler);
           }
@@ -345,12 +366,20 @@ export class AskUserQuestionExtension implements AgentRuntimeExtension {
         settle({ kind: 'cancelled', reason: 'aborted' });
       };
 
+      const reminder = setTimeout(() => {
+        if (!this.pending.has(questionId)) {
+          return;
+        }
+        this.emitQuestionNotice(request, true);
+      }, ASK_USER_QUESTION_REMINDER_MS);
+
       this.pending.set(questionId, {
         questionId,
         sessionId,
         toolUseId,
         settle,
         timeout,
+        reminder,
         abortHandler,
         signal,
       });
@@ -361,6 +390,7 @@ export class AskUserQuestionExtension implements AgentRuntimeExtension {
         type: 'question.request',
         payload: request,
       });
+      this.emitQuestionNotice(request, false);
 
       log(`[AskUserQuestion] Waiting for answer: ${questionId} (session=${sessionId})`);
     });
@@ -401,6 +431,16 @@ export class AskUserQuestionExtension implements AgentRuntimeExtension {
       ],
       details: undefined,
     };
+  }
+
+  private emitQuestionNotice(request: UserQuestionRequest, reminder: boolean): void {
+    this.notify?.({
+      questionId: request.questionId,
+      sessionId: request.sessionId,
+      toolUseId: request.toolUseId,
+      questions: request.questions,
+      reminder,
+    });
   }
 
   /** True while this session has an unanswered AskUserQuestion wait. */
