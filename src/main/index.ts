@@ -44,6 +44,11 @@ import { config } from 'dotenv';
 import { initDatabase, closeDatabase } from './db/database';
 import { SessionManager } from './session/session-manager';
 import {
+  boundMessagesForRenderer,
+  slimServerEventForRenderer,
+  slimTraceSteps,
+} from '../shared/renderer-payload-budget';
+import {
   emitSessionDivisionDemotionNotice,
   resolveValidatedSessionDivisionOptions,
   validateSessionDivisionAgainstAllocations,
@@ -2093,13 +2098,15 @@ function sendToRenderer(event: ServerEvent) {
     }
   }
 
-  // Send to local UI (or headless JSONL sender)
+  // Headless JSONL keeps the full payload. The GUI renderer (York GrowthOS Helper)
+  // only receives a bounded copy so screenshots and tool dumps cannot accumulate there.
+  const uiEvent = eventSender ? event : slimServerEventForRenderer(event);
   if (eventSender) {
     eventSender(event);
   } else if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('server-event', event);
+    mainWindow.webContents.send('server-event', uiEvent);
   }
-  screenSnap.forwardSessionEvent(event);
+  screenSnap.forwardSessionEvent(uiEvent);
 }
 
 // Initialize app
@@ -7903,10 +7910,10 @@ async function handleClientEvent(event: ClientEvent): Promise<unknown> {
     }
 
     case 'session.getMessages':
-      return sm.getMessages(event.payload.sessionId);
+      return boundMessagesForRenderer(sm.getMessages(event.payload.sessionId));
 
     case 'session.getTraceSteps':
-      return sm.getTraceSteps(event.payload.sessionId);
+      return slimTraceSteps(sm.getTraceSteps(event.payload.sessionId));
 
     case 'session.compact':
       return sm.compactSession(event.payload.sessionId, event.payload.customInstructions);

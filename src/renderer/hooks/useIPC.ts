@@ -18,6 +18,7 @@ import {
   shouldActivatePendingTurn,
   shouldClearActiveTurnOnStreamMessage,
 } from '../utils/active-turn';
+import { clearSteerAnchor, consumeSteerAnchor, rememberSteerAnchor } from '../utils/steer-anchor';
 import {
   STALE_TURN_WATCHDOG_INTERVAL_MS,
   applyStaleTurnDecision,
@@ -181,7 +182,9 @@ export function useIPC() {
 
     const cleanup = window.electronAPI.on((event: ServerEvent) => {
       const store = useAppStore.getState();
-      console.log('[useIPC] Received event:', event.type);
+      if (event.type !== 'stream.partial' && event.type !== 'stream.thinking') {
+        console.log('[useIPC] Received event:', event.type);
+      }
 
       const eventSessionId = sessionIdFromServerEvent(event);
       if (eventSessionId) {
@@ -202,6 +205,7 @@ export function useIPC() {
                 : {}),
             });
             if (event.payload.status !== 'running') {
+              clearSteerAnchor(event.payload.sessionId);
               store.finishExecutionClock(event.payload.sessionId);
               store.setLoading(false);
               store.clearActiveTurn(event.payload.sessionId);
@@ -220,8 +224,9 @@ export function useIPC() {
             console.log(
               '[useIPC] stream.message received:',
               event.payload.message.role,
-              'content:',
-              JSON.stringify(event.payload.message.content)
+              Array.isArray(event.payload.message.content)
+                ? event.payload.message.content.map((block) => block.type).join(',')
+                : ''
             );
             // Clear pending partial buffer to prevent RAF from appending stale chunks
             delete pendingPartials[event.payload.sessionId];
@@ -255,6 +260,16 @@ export function useIPC() {
           case 'stream.partial':
             bufferPartial(event.payload.sessionId, event.payload.delta);
             break;
+
+          case 'stream.userDelivered': {
+            const sessionId = event.payload.sessionId;
+            const messageId = consumeSteerAnchor(sessionId);
+            if (!messageId) break;
+            delete pendingPartials[sessionId];
+            delete pendingThinking[sessionId];
+            store.rebindActiveTurn(sessionId, messageId);
+            break;
+          }
 
           case 'stream.thinking':
             bufferThinking(event.payload.sessionId, event.payload.delta);
@@ -1370,7 +1385,13 @@ export function useIPC() {
     (sessionId: string, messageId: string) => {
       const queueIndex = promoteQueuedMessageFromStore(sessionId, messageId);
       if (queueIndex === null) return;
-      if (!isElectron) return;
+      if (!isElectron) {
+        useAppStore.getState().rebindActiveTurn(sessionId, messageId);
+        return;
+      }
+      // Rebind only once the backend delivers this follow-up. Doing it now would
+      // attach the previous turn's in-flight reply to the new bubble.
+      rememberSteerAnchor(sessionId, messageId);
       send({
         type: 'session.steer-queued',
         payload: { sessionId, queueIndex },

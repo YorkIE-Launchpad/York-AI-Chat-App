@@ -240,6 +240,54 @@ describe('SessionState unified store', () => {
       useAppStore.getState().clearPartialThinking('s1');
       expect(useAppStore.getState().sessionStates['s1'].partialThinking).toBe('');
     });
+
+    it('should stop appending once the partial stream reaches the memory cap', () => {
+      useAppStore.getState().addSession(makeSession('s1'));
+      useAppStore.getState().setPartialMessage('s1', 'x'.repeat(1_000_000));
+      useAppStore.getState().setPartialMessage('s1', 'y'.repeat(50_000));
+      const partial = useAppStore.getState().sessionStates['s1'].partialMessage;
+      expect(partial.length).toBeLessThan(1_000_100);
+      expect(partial.endsWith('y'.repeat(50_000))).toBe(false);
+    });
+  });
+
+  describe('renderer transcript retention', () => {
+    const textMessage = (id: string, sessionId: string) => ({
+      id,
+      sessionId,
+      role: 'user' as const,
+      content: [{ type: 'text' as const, text: 'hello' }],
+      timestamp: 1,
+    });
+
+    it('releases an idle transcript when the user leaves that chat', () => {
+      useAppStore.getState().addSession(makeSession('s1'));
+      useAppStore.getState().addSession(makeSession('s2'));
+      useAppStore.getState().setActiveSession('s1');
+      useAppStore.getState().setMessages('s1', [textMessage('m1', 's1')]);
+      useAppStore.getState().setActiveSession('s2');
+      expect(useAppStore.getState().sessionStates['s1'].messages).toEqual([]);
+      expect(useAppStore.getState().activeSessionId).toBe('s2');
+    });
+
+    it('keeps a running chat in memory when the user switches away', () => {
+      useAppStore.getState().addSession(makeSession('s1'));
+      useAppStore.getState().addSession(makeSession('s2'));
+      useAppStore.getState().updateSession('s1', { status: 'running' });
+      useAppStore.getState().setActiveSession('s1');
+      useAppStore.getState().setMessages('s1', [textMessage('m1', 's1')]);
+      useAppStore.getState().setActiveSession('s2');
+      expect(useAppStore.getState().sessionStates['s1'].messages).toHaveLength(1);
+    });
+
+    it('keeps an incognito transcript when the user switches away', () => {
+      useAppStore.getState().addSession({ ...makeSession('s1'), incognito: true });
+      useAppStore.getState().addSession(makeSession('s2'));
+      useAppStore.getState().setActiveSession('s1');
+      useAppStore.getState().setMessages('s1', [textMessage('m1', 's1')]);
+      useAppStore.getState().setActiveSession('s2');
+      expect(useAppStore.getState().sessionStates['s1'].messages).toHaveLength(1);
+    });
   });
 
   describe('execution clock', () => {
@@ -538,6 +586,81 @@ describe('SessionState unified store', () => {
       expect(next.messages[0].localStatus).toBe('queued');
       expect(next.pendingTurns).toEqual(['msg1']);
       expect(useAppStore.getState().promoteQueuedMessage('s1', 'missing')).toBeNull();
+    });
+
+    it('should attach assistant replies to a send-now message after rebind', () => {
+      useAppStore.getState().addSession(makeSession('s1'));
+      useAppStore.getState().setMessages('s1', [
+        {
+          id: 'user-prev',
+          sessionId: 's1',
+          role: 'user',
+          content: [{ type: 'text', text: 'earlier' }],
+          timestamp: 1,
+        },
+        {
+          id: 'asst-prev',
+          sessionId: 's1',
+          role: 'assistant',
+          content: [{ type: 'text', text: 'working' }],
+          timestamp: 2,
+        },
+        {
+          id: 'user-now',
+          sessionId: 's1',
+          role: 'user',
+          content: [{ type: 'text', text: 'do this instead' }],
+          timestamp: 3,
+          localStatus: 'queued',
+        },
+      ]);
+      const ss = useAppStore.getState().sessionStates['s1'];
+      useAppStore.setState({
+        sessionStates: {
+          s1: {
+            ...ss,
+            pendingTurns: ['user-now'],
+            activeTurn: { stepId: 'step-prev', userMessageId: 'user-prev' },
+            partialMessage: 'still the old answer',
+          },
+        },
+      });
+
+      useAppStore.getState().promoteQueuedMessage('s1', 'user-now');
+      useAppStore.getState().addMessage('s1', {
+        id: 'asst-old',
+        sessionId: 's1',
+        role: 'assistant',
+        content: [{ type: 'text', text: 'finishing previous' }],
+        timestamp: 4,
+      });
+      expect(useAppStore.getState().sessionStates['s1'].messages.map((m) => m.id)).toEqual([
+        'user-prev',
+        'asst-prev',
+        'asst-old',
+        'user-now',
+      ]);
+
+      useAppStore.getState().rebindActiveTurn('s1', 'user-now');
+      const rebound = useAppStore.getState().sessionStates['s1'];
+      expect(rebound.activeTurn).toEqual({ stepId: 'step-prev', userMessageId: 'user-now' });
+      expect(rebound.partialMessage).toBe('');
+      expect(rebound.messages.find((m) => m.id === 'user-now')?.localStatus).toBeUndefined();
+
+      useAppStore.getState().addMessage('s1', {
+        id: 'asst-new',
+        sessionId: 's1',
+        role: 'assistant',
+        content: [{ type: 'text', text: 'answering send now' }],
+        timestamp: 5,
+      });
+      expect(useAppStore.getState().sessionStates['s1'].messages.map((m) => m.id)).toEqual([
+        'user-prev',
+        'asst-prev',
+        'asst-old',
+        'user-now',
+        'asst-new',
+      ]);
     });
   });
 

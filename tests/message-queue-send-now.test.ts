@@ -24,5 +24,8 @@ describe('queued message Send now wiring', () => {
     expect(agentRunner).toContain("deliverAs: 'steer'");
     expect(queueList).toContain('onSendNow');
     expect(queueList).toContain('queueSendNow');
+    expect(agentRunner).toContain("type: 'stream.userDelivered'");
+    expect(sessionManager).toContain('pendingLiveUserDelivery');
+    expect(types).toContain("type: 'stream.userDelivered'");
   });
 });

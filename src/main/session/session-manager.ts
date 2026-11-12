@@ -144,6 +144,11 @@ export class SessionManager {
   private askUserQuestionExtension?: AskUserQuestionExtension;
   private sleepToolExtension?: SleepToolExtension;
   private activeSessions: Map<string, AbortController> = new Map();
+  /**
+   * Send-now could not steer the live turn, so the next processPrompt should
+   * tell the renderer to anchor replies to that user message.
+   */
+  private pendingLiveUserDelivery: Set<string> = new Set();
   /** Silent auto-continues after transient abort/timeout (per session; reset on success/cancel). */
   private autoContinueAttempts: Map<string, number> = new Map();
   private promptQueues: Map<
@@ -1552,6 +1557,12 @@ export class SessionManager {
       { sessionId: session.id, traceId, incognito: session.incognito === true },
       async () => {
         logCtx('[SessionManager] Processing prompt for session:', session.id, 'traceId:', traceId);
+        if (this.pendingLiveUserDelivery.delete(session.id)) {
+          this.sendToRenderer({
+            type: 'stream.userDelivered',
+            payload: { sessionId: session.id },
+          });
+        }
         logCtx(
           '[SessionManager] Received content:',
           content
@@ -2113,6 +2124,7 @@ export class SessionManager {
       controller.abort();
     }
     this.promptQueues.delete(sessionId);
+    this.pendingLiveUserDelivery.delete(sessionId);
     this.autoContinueAttempts.delete(sessionId);
     // Preserve in-memory history for incognito — there is no DB to reload from.
     if (!this.ephemeralSessions.has(sessionId)) {
@@ -2204,6 +2216,7 @@ export class SessionManager {
     // Can't inject mid-turn — run this prompt next when the current turn ends.
     queue.unshift(item);
     this.promptQueues.set(sessionId, queue);
+    this.pendingLiveUserDelivery.add(sessionId);
     log('[SessionManager] Prioritized queued prompt (steer unavailable):', {
       sessionId,
       queueIndex,

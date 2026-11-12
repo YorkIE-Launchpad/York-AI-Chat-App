@@ -853,6 +853,7 @@ export type ServerEvent =
   | { type: 'stream.message'; payload: { sessionId: string; message: Message; remote?: boolean } }
   | { type: 'stream.messageUpdate'; payload: { sessionId: string; message: Message } }
   | { type: 'stream.partial'; payload: { sessionId: string; delta: string } }
+  | { type: 'stream.userDelivered'; payload: { sessionId: string } }
   | { type: 'stream.thinking'; payload: { sessionId: string; delta: string } }
   | {
       type: 'stream.executionTime';

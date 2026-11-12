@@ -894,6 +894,11 @@ export class CoworkAgentRunner {
   private sleepToolExtension?: SleepToolExtension;
   private activeControllers: Map<string, AbortController> = new Map();
   private piSessions: Map<string, CachedPiSession> = new Map();
+  /**
+   * Send-now steers waiting for the SDK to inject them (message_start role=user
+   * after the prompt's own user message). Loop-guard steers do not increment this.
+   */
+  private steerDeliveriesPending: Map<string, number> = new Map();
   private toolDisplayNameCache: Map<string, string> = new Map();
   /** Per-session LaunchPad MCP progress for the active prompt turn (wait/continue). */
   private launchPadProgressBySession: Map<string, LaunchPadTurnProgress> = new Map();
@@ -3566,6 +3571,8 @@ ${
 
       // Accumulate streamed text deltas in case message_end.content is empty (pi SDK streaming behaviour)
       let streamedText = '';
+      // The prompt's own user message_start is not a send-now delivery.
+      let sawInitialUserMessage = false;
       let compactionStepId: string | undefined;
       let hasEmittedError = false;
       // SDK-retryable transient errors (idle timeout, network, 5xx): defer terminal
@@ -3794,6 +3801,19 @@ ${
               '[CoworkAgentRunner] Event: message_start',
               safeStringify(summarizeMessageForLog(event.message), 2)
             );
+            const startedRole = (event.message as { role?: unknown }).role;
+            if (startedRole === 'user') {
+              if (!sawInitialUserMessage) {
+                sawInitialUserMessage = true;
+              } else if (this.takeSteerDelivery(session.id)) {
+                // Steer is injected after the previous assistant message ends.
+                // Tell the renderer to anchor the next reply to the send-now bubble.
+                this.sendToRenderer({
+                  type: 'stream.userDelivered',
+                  payload: { sessionId: session.id },
+                });
+              }
+            }
           } else if (event.type === 'message_end') {
             log(
               '[CoworkAgentRunner] Event: message_end',
@@ -4766,6 +4786,7 @@ ${
   }
 
   cancel(sessionId: string): void {
+    this.steerDeliveriesPending.delete(sessionId);
     const controller = this.activeControllers.get(sessionId);
     if (controller) controller.abort();
     // Host AbortController only silences subscribe handlers — abort the real
@@ -4804,17 +4825,42 @@ ${
         logWarn('[CoworkAgentRunner] steer: sendUserMessage unavailable', sessionId);
         return false;
       }
+      this.noteSteerQueued(sessionId);
       Promise.resolve(sessionAny.sendUserMessage(payload, { deliverAs: 'steer' })).catch(
         (err: unknown) => {
+          this.noteSteerFailed(sessionId);
           logWarn('[CoworkAgentRunner] sendUserMessage(steer) failed:', err);
         }
       );
       log('[CoworkAgentRunner] Steered live session:', sessionId);
       return true;
     } catch (err) {
+      this.noteSteerFailed(sessionId);
       logWarn('[CoworkAgentRunner] steer threw:', err);
       return false;
     }
+  }
+
+  private noteSteerQueued(sessionId: string): void {
+    this.steerDeliveriesPending.set(
+      sessionId,
+      (this.steerDeliveriesPending.get(sessionId) ?? 0) + 1
+    );
+  }
+
+  private noteSteerFailed(sessionId: string): void {
+    const next = (this.steerDeliveriesPending.get(sessionId) ?? 0) - 1;
+    if (next <= 0) this.steerDeliveriesPending.delete(sessionId);
+    else this.steerDeliveriesPending.set(sessionId, next);
+  }
+
+  /** True when this user message_start is a send-now steer we queued. */
+  private takeSteerDelivery(sessionId: string): boolean {
+    const pending = this.steerDeliveriesPending.get(sessionId) ?? 0;
+    if (pending <= 0) return false;
+    if (pending === 1) this.steerDeliveriesPending.delete(sessionId);
+    else this.steerDeliveriesPending.set(sessionId, pending - 1);
+    return true;
   }
 
   private sendTraceStep(sessionId: string, step: TraceStep): void {

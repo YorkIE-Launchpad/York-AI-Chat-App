@@ -27,6 +27,13 @@ import {
   sessionMatchesActiveDivision,
   activeDivisionFromSession,
 } from '../../shared/workspace-division';
+import {
+  appendCappedPartial,
+  boundMessagesForRenderer,
+  slimMessageForRenderer,
+  slimTraceStep,
+  slimTraceSteps,
+} from '../../shared/renderer-payload-budget';
 
 export type GlobalNoticeType = 'info' | 'warning' | 'error' | 'success';
 
@@ -96,6 +103,38 @@ function patchSession(
     ...states,
     [sessionId]: { ...current, ...updates },
   };
+}
+
+function sessionCanReleaseTranscript(session: Session | undefined, ss: SessionState): boolean {
+  if (!session || session.incognito) return false;
+  if (session.status === 'running') return false;
+  if (ss.activeTurn || ss.pendingTurns.length > 0) return false;
+  if (ss.messages.some((message) => message.localStatus)) return false;
+  return ss.messages.length > 0 || ss.traceSteps.length > 0;
+}
+
+/** Drop transcripts the user is not looking at so the renderer helper can release them. */
+function releaseIdleTranscripts(
+  sessions: Session[],
+  sessionStates: Record<string, SessionState>,
+  keepSessionId: string | null
+): Record<string, SessionState> | null {
+  let changed = false;
+  const next: Record<string, SessionState> = { ...sessionStates };
+  for (const [id, ss] of Object.entries(sessionStates)) {
+    if (id === keepSessionId) continue;
+    const session = sessions.find((item) => item.id === id);
+    if (!sessionCanReleaseTranscript(session, ss)) continue;
+    next[id] = {
+      ...ss,
+      messages: [],
+      traceSteps: [],
+      partialMessage: '',
+      partialThinking: '',
+    };
+    changed = true;
+  }
+  return changed ? next : null;
 }
 
 // Helper to get a session's state with safe defaults
@@ -282,6 +321,11 @@ export interface AppState {
    * drop it from pendingTurns. Returns its FIFO queue index for the backend.
    */
   promoteQueuedMessage: (sessionId: string, messageId: string) => number | null;
+  /**
+   * Point the live turn at a send-now user message so later assistant output
+   * is inserted after that bubble instead of the previous turn.
+   */
+  rebindActiveTurn: (sessionId: string, userMessageId: string) => void;
 
   addTraceStep: (sessionId: string, step: TraceStep) => void;
   updateTraceStep: (sessionId: string, stepId: string, updates: Partial<TraceStep>) => void;
@@ -641,13 +685,17 @@ export const useAppStore = create<AppState>((set, get) => ({
             activeHtmlPreview: null,
             ...(switching && nextWorkingDir ? { workingDir: nextWorkingDir } : {}),
           };
-      if (!sessionId || state.sessionStates[sessionId]) {
-        return base;
+      const released = switching
+        ? releaseIdleTranscripts(state.sessions, state.sessionStates, sessionId)
+        : null;
+      const sessionStates = released ?? state.sessionStates;
+      if (!sessionId || sessionStates[sessionId]) {
+        return released ? { ...base, sessionStates } : base;
       }
       return {
         ...base,
         sessionStates: {
-          ...state.sessionStates,
+          ...sessionStates,
           [sessionId]: { ...DEFAULT_SESSION_STATE },
         },
       };
@@ -725,7 +773,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const shouldClearPartial = message.role === 'assistant';
       return {
         sessionStates: patchSession(state.sessionStates, sessionId, {
-          messages: updatedMessages,
+          messages: boundMessagesForRenderer(updatedMessages),
           pendingTurns: updatedPendingTurns,
           ...(shouldClearPartial ? { partialMessage: '', partialThinking: '' } : {}),
         }),
@@ -737,11 +785,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       const ss = getSession(state.sessionStates, sessionId);
       const idx = ss.messages.findIndex((m) => m.id === messageId);
       if (idx === -1) return {};
-      const updatedMessages = ss.messages.map((m) =>
-        m.id === messageId ? { ...m, ...updates } : m
-      );
+      const updatedMessages = ss.messages.map((m) => {
+        if (m.id !== messageId) return m;
+        const merged = { ...m, ...updates };
+        return updates.content ? slimMessageForRenderer(merged) : merged;
+      });
       return {
-        sessionStates: patchSession(state.sessionStates, sessionId, { messages: updatedMessages }),
+        sessionStates: patchSession(state.sessionStates, sessionId, {
+          messages: updates.content ? boundMessagesForRenderer(updatedMessages) : updatedMessages,
+        }),
       };
     }),
 
@@ -782,16 +834,18 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setMessages: (sessionId, messages) =>
     set((state) => ({
-      sessionStates: patchSession(state.sessionStates, sessionId, { messages }),
+      sessionStates: patchSession(state.sessionStates, sessionId, {
+        messages: boundMessagesForRenderer(messages),
+      }),
     })),
 
   setPartialMessage: (sessionId, partial) =>
     set((state) => {
       const ss = getSession(state.sessionStates, sessionId);
+      const partialMessage = appendCappedPartial(ss.partialMessage, partial);
+      if (partialMessage === ss.partialMessage) return {};
       return {
-        sessionStates: patchSession(state.sessionStates, sessionId, {
-          partialMessage: ss.partialMessage + partial,
-        }),
+        sessionStates: patchSession(state.sessionStates, sessionId, { partialMessage }),
       };
     }),
 
@@ -803,10 +857,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   setPartialThinking: (sessionId, delta) =>
     set((state) => {
       const ss = getSession(state.sessionStates, sessionId);
+      const partialThinking = appendCappedPartial(ss.partialThinking, delta);
+      if (partialThinking === ss.partialThinking) return {};
       return {
-        sessionStates: patchSession(state.sessionStates, sessionId, {
-          partialThinking: ss.partialThinking + delta,
-        }),
+        sessionStates: patchSession(state.sessionStates, sessionId, { partialThinking }),
       };
     }),
 
@@ -982,13 +1036,44 @@ export const useAppStore = create<AppState>((set, get) => ({
     return queueIndex;
   },
 
+  rebindActiveTurn: (sessionId, userMessageId) =>
+    set((state) => {
+      const ss = getSession(state.sessionStates, sessionId);
+      const index = ss.messages.findIndex(
+        (message) => message.id === userMessageId && message.role === 'user'
+      );
+      if (index < 0) return {};
+
+      const message = { ...ss.messages[index], localStatus: undefined };
+      const without = ss.messages.filter((item) => item.id !== userMessageId);
+      const firstQueued = without.findIndex((item) => item.localStatus === 'queued');
+      const insertAt = firstQueued === -1 ? without.length : firstQueued;
+      const messages = [...without.slice(0, insertAt), message, ...without.slice(insertAt)];
+      const stepId = ss.activeTurn?.stepId ?? `steer-${userMessageId}`;
+      const sameAnchor = ss.activeTurn?.userMessageId === userMessageId;
+      const sameOrder = ss.messages[index]?.id === messages[insertAt]?.id && index === insertAt;
+      if (sameAnchor && sameOrder && ss.partialMessage === '' && ss.partialThinking === '') {
+        return {};
+      }
+
+      return {
+        sessionStates: patchSession(state.sessionStates, sessionId, {
+          messages,
+          pendingTurns: ss.pendingTurns.filter((id) => id !== userMessageId),
+          activeTurn: { stepId, userMessageId },
+          partialMessage: '',
+          partialThinking: '',
+        }),
+      };
+    }),
+
   // Trace actions
   addTraceStep: (sessionId, step) =>
     set((state) => {
       const ss = getSession(state.sessionStates, sessionId);
       return {
         sessionStates: patchSession(state.sessionStates, sessionId, {
-          traceSteps: [...ss.traceSteps, step],
+          traceSteps: slimTraceSteps([...ss.traceSteps, slimTraceStep(step)]),
         }),
       };
     }),
@@ -999,7 +1084,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       return {
         sessionStates: patchSession(state.sessionStates, sessionId, {
           traceSteps: ss.traceSteps.map((step) =>
-            step.id === stepId ? { ...step, ...updates } : step
+            step.id === stepId ? slimTraceStep({ ...step, ...updates }) : step
           ),
         }),
       };
@@ -1007,7 +1092,9 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setTraceSteps: (sessionId, steps) =>
     set((state) => ({
-      sessionStates: patchSession(state.sessionStates, sessionId, { traceSteps: steps }),
+      sessionStates: patchSession(state.sessionStates, sessionId, {
+        traceSteps: slimTraceSteps(steps),
+      }),
     })),
 
   // UI actions

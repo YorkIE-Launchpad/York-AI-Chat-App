@@ -32,59 +32,69 @@ export class MeetingAudioCapture {
     await this.stop();
     this.meetingId = meetingId;
 
-    this.micStream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-      },
-      video: false,
-    });
-
     try {
-      this.displayStream = await navigator.mediaDevices.getDisplayMedia({
+      this.micStream = await navigator.mediaDevices.getUserMedia({
         audio: {
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false,
-        } as MediaTrackConstraints,
-        video: true,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+        video: false,
       });
-      for (const track of this.displayStream.getVideoTracks()) {
-        track.stop();
-      }
-      if (this.displayStream.getAudioTracks().length === 0) {
-        for (const track of this.displayStream.getTracks()) {
+
+      try {
+        this.displayStream = await navigator.mediaDevices.getDisplayMedia({
+          audio: {
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false,
+          } as MediaTrackConstraints,
+          // Video is required by getDisplayMedia; tracks are stopped immediately
+          // so the GPU helper does not keep a live screen capture.
+          video: true,
+        });
+        for (const track of this.displayStream.getVideoTracks()) {
           track.stop();
         }
-        this.displayStream = null;
+        if (this.displayStream.getAudioTracks().length === 0) {
+          for (const track of this.displayStream.getTracks()) {
+            track.stop();
+          }
+          this.displayStream = null;
+        }
+      } catch (error) {
+        console.warn('[Meetings] System audio unavailable; continuing with microphone only', error);
+        if (this.displayStream) {
+          for (const track of this.displayStream.getTracks()) track.stop();
+          this.displayStream = null;
+        }
       }
+
+      this.audioContext = new AudioContext();
+      if (this.audioContext.state === 'suspended') {
+        await this.audioContext.resume();
+      }
+      this.destination = this.audioContext.createMediaStreamDestination();
+      this.analyser = this.audioContext.createAnalyser();
+      this.analyser.fftSize = 2048;
+
+      const micSource = this.audioContext.createMediaStreamSource(this.micStream);
+      micSource.connect(this.destination);
+      micSource.connect(this.analyser);
+
+      const systemAudioTracks = this.displayStream?.getAudioTracks() || [];
+      if (systemAudioTracks.length > 0) {
+        const systemStream = new MediaStream(systemAudioTracks);
+        const systemSource = this.audioContext.createMediaStreamSource(systemStream);
+        systemSource.connect(this.destination);
+        systemSource.connect(this.analyser);
+      }
+
+      this.startLevelMeter();
     } catch (error) {
-      console.warn('[Meetings] System audio unavailable; continuing with microphone only', error);
-      this.displayStream = null;
+      await this.stop();
+      throw error;
     }
-
-    this.audioContext = new AudioContext();
-    if (this.audioContext.state === 'suspended') {
-      await this.audioContext.resume();
-    }
-    this.destination = this.audioContext.createMediaStreamDestination();
-    this.analyser = this.audioContext.createAnalyser();
-    this.analyser.fftSize = 2048;
-
-    const micSource = this.audioContext.createMediaStreamSource(this.micStream);
-    micSource.connect(this.destination);
-    micSource.connect(this.analyser);
-
-    const systemAudioTracks = this.displayStream?.getAudioTracks() || [];
-    if (systemAudioTracks.length > 0) {
-      const systemStream = new MediaStream(systemAudioTracks);
-      const systemSource = this.audioContext.createMediaStreamSource(systemStream);
-      systemSource.connect(this.destination);
-      systemSource.connect(this.analyser);
-    }
-
-    this.startLevelMeter();
   }
 
   async startRealtimeTranscription(): Promise<void> {
