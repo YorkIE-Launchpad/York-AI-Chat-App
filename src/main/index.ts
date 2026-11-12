@@ -133,6 +133,11 @@ import { searchWeb } from './tools/web-search';
 import { WebSearchExtension } from './tools/web-search-extension';
 import { AskUserQuestionExtension } from './tools/ask-user-question-extension';
 import { SleepToolExtension } from './tools/sleep-tool-extension';
+import {
+  NotifyUserExtension,
+  isUserWatchingSession,
+  setForegroundSessionId,
+} from './tools/notify-user-extension';
 import { WikiService } from './wiki/wiki-service';
 import { WikiExtension } from './wiki/wiki-extension';
 import { KnowledgeBaseService } from './knowledge-base/knowledge-base-service';
@@ -650,9 +655,38 @@ function wireWikiAndOrchestration(db: ReturnType<typeof initDatabase>): void {
   });
 }
 
+function isChatWindowBeingWatched(): boolean {
+  const win =
+    mainWindow && !mainWindow.isDestroyed()
+      ? mainWindow
+      : (BrowserWindow.getAllWindows().find((window) => !window.isDestroyed()) ?? null);
+  if (!win) return false;
+  if (win.isMinimized() || !win.isVisible()) return false;
+  return win.isFocused();
+}
+
+function createNotifyUserExtension(): NotifyUserExtension {
+  return new NotifyUserExtension({
+    isEnabled: () => configStore.get('desktopNotificationsEnabled') !== false,
+    isUserWatching: (sessionId) => isUserWatchingSession(sessionId, isChatWindowBeingWatched()),
+    isLoopRunning: (sessionId) => Boolean(chatLoopManager?.status(sessionId)),
+    show: ({ sessionId, title, body }) => {
+      showOsNotification({
+        tag: 'Chat',
+        title,
+        body: truncateNotifyBody(body),
+        onClick: () => {
+          focusAndNavigate('session', { sessionId, win: mainWindow });
+        },
+      });
+    },
+  });
+}
+
 function buildExtensionList(
   askUserQuestionExtension: AskUserQuestionExtension,
-  sleepToolExtension: SleepToolExtension
+  sleepToolExtension: SleepToolExtension,
+  notifyUserExtension: NotifyUserExtension
 ): import('./extensions/agent-runtime-extension').AgentRuntimeExtension[] {
   if (
     !memoryService ||
@@ -685,6 +719,7 @@ function buildExtensionList(
     new WebSearchExtension(),
     askUserQuestionExtension,
     sleepToolExtension,
+    notifyUserExtension,
     new SubagentExtension(
       () => sessionManager?.getMCPManager() ?? null,
       sendToRenderer,
@@ -2261,8 +2296,13 @@ app
         headlessSendWithPermission
       );
       const headlessSleepToolExtension = new SleepToolExtension(headlessSendWithPermission);
+      const headlessNotifyUserExtension = createNotifyUserExtension();
       const headlessExtensionManager = new AgentRuntimeExtensionManager(
-        buildExtensionList(headlessAskUserQuestionExtension, headlessSleepToolExtension)
+        buildExtensionList(
+          headlessAskUserQuestionExtension,
+          headlessSleepToolExtension,
+          headlessNotifyUserExtension
+        )
       );
 
       // Set the global event sender so handleClientEvent's sendToRenderer calls
@@ -2769,6 +2809,9 @@ app
       target?.send('dictation:appleError', { message });
     });
     const askUserQuestionExtension = new AskUserQuestionExtension(sendToRenderer, (notice) => {
+      if (configStore.get('desktopNotificationsEnabled') === false) {
+        return;
+      }
       if (remoteManager.isRemoteSession(notice.sessionId)) {
         return;
       }
@@ -2784,8 +2827,9 @@ app
       });
     });
     const sleepToolExtension = new SleepToolExtension(sendToRenderer);
+    const notifyUserExtension = createNotifyUserExtension();
     const extensionManager = new AgentRuntimeExtensionManager(
-      buildExtensionList(askUserQuestionExtension, sleepToolExtension)
+      buildExtensionList(askUserQuestionExtension, sleepToolExtension, notifyUserExtension)
     );
 
     // Initialize session manager before creating an interactive window.
@@ -7950,6 +7994,12 @@ async function handleClientEvent(event: ClientEvent): Promise<unknown> {
 
     case 'sleep.skip':
       return sm.handleSleepSkip(event.payload.sleepId);
+
+    case 'app.foregroundSession':
+      setForegroundSessionId(
+        typeof event.payload.sessionId === 'string' ? event.payload.sessionId : null
+      );
+      return null;
 
     case 'sudo.password.response':
       return sm.handleSudoPasswordResponse(event.payload.toolUseId, event.payload.password);

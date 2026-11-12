@@ -1300,8 +1300,21 @@ export class SessionManager {
         payload: { message: errorText },
       });
     } finally {
+      const aborted = controller.signal.aborted;
       this.activeSessions.delete(sessionId);
       this.updateSessionStatus(sessionId, 'idle');
+      if (this.extensionManager && !aborted) {
+        this.extensionManager
+          .afterSessionRun({
+            session,
+            prompt: normalizedPrompt,
+            messages: this.getMessages(session.id),
+            suppressCompletionNotice: false,
+          })
+          .catch((error) =>
+            logCtxError('[SessionManager] Image-turn notification hook failed:', error)
+          );
+      }
     }
   }
 
@@ -1580,6 +1593,7 @@ export class SessionManager {
         // Ensure sandbox is initialized for this workspace
         await this.ensureSandboxInitialized(session);
 
+        let completionPrompt = prompt;
         try {
           // Use provided content blocks or fall back to simple text
           let messageContent: ContentBlock[] =
@@ -1830,18 +1844,7 @@ export class SessionManager {
             this.autoContinueAttempts.delete(session.id);
           }
 
-          if (this.extensionManager) {
-            const stableMessages = this.getMessages(session.id);
-            this.extensionManager
-              .afterSessionRun({
-                session,
-                prompt: enhancedPrompt,
-                messages: stableMessages,
-              })
-              .catch((error) =>
-                logCtxError('[SessionManager] Runtime extension post-run hook failed:', error)
-              );
-          }
+          completionPrompt = enhancedPrompt;
 
           // Title generation is no longer concurrent with the first turn, to avoid competing with the main request for the same upstream quota/channel and feeling slower.
           // Incognito: skip LLM title generation; keep the local succinct title only.
@@ -1882,6 +1885,21 @@ export class SessionManager {
             type: 'error',
             payload: { message: errorText },
           });
+        }
+
+        if (this.extensionManager) {
+          const aborted = this.activeSessions.get(session.id)?.signal.aborted === true;
+          const queued = (this.promptQueues.get(session.id)?.length ?? 0) > 0;
+          this.extensionManager
+            .afterSessionRun({
+              session,
+              prompt: completionPrompt,
+              messages: this.getMessages(session.id),
+              suppressCompletionNotice: aborted || queued,
+            })
+            .catch((error) =>
+              logCtxError('[SessionManager] Runtime extension post-run hook failed:', error)
+            );
         }
       }
     ); // end runWithLogContext

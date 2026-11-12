@@ -763,6 +763,11 @@ export type ClientEvent =
       };
     }
   | { type: 'session.stop'; payload: { sessionId: string } }
+  | {
+      /** Chat currently on screen, or null when a feature page covers the chat. */
+      type: 'app.foregroundSession';
+      payload: { sessionId: string | null };
+    }
   | { type: 'session.dequeue'; payload: { sessionId: string; queueIndex: number } }
   | { type: 'session.steer-queued'; payload: { sessionId: string; queueIndex: number } }
   | { type: 'session.delete'; payload: { sessionId: string } }
@@ -1267,6 +1272,8 @@ export interface AppConfig {
   voiceControl?: import('../../shared/voice-control').VoiceControlConfig;
   voiceButtons?: import('../../shared/voice-buttons').VoiceButtonsConfig;
   enableThinking?: boolean;
+  /** Desktop notifications when a chat finishes or needs attention. Default true. */
+  desktopNotificationsEnabled?: boolean;
   /** User profile MUST instructions for chat + subagents. */
   profileDosPrompt?: string;
   profileDontsPrompt?: string;

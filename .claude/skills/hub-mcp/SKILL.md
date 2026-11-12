@@ -249,3 +249,13 @@ never invent.
 4. Update `EXPECTED_TOOL_COUNT` in `hub-mcp/src/core/tool-catalog.test.ts`.
 5. Update [tools.md](tools.md), [platform.md](platform.md), this skill, and
    `hub-mcp/README.md`.
+
+## Notify the user
+
+When this skill's work is finished, or when something important needs the user and they may not be looking at the chat, call `NotifyUser` once before you stop:
+
+- `title`: short outcome (a few words)
+- `body`: one sentence on what happened or what they should do
+- `level`: `complete` when the work is done, `attention` when they need to act (decision, failure, blocker, question)
+
+Skip it for greetings, trivial chatter, and intermediate steps (including goal ticks that are still `in_progress` and status polls). If the tool says notifications are off or the user is already looking at the app, do not retry.

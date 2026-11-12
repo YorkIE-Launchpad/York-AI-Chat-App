@@ -44,6 +44,7 @@ const makeConfig = (overrides: Partial<AppConfig> = {}): AppConfig => ({
   memoryEnabled: true,
   memoryRuntime: emptyMemoryRuntime,
   enableThinking: false,
+  desktopNotificationsEnabled: true,
   isConfigured: true,
   ...overrides,
 });

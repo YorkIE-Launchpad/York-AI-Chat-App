@@ -122,6 +122,14 @@ function AuthenticatedApp() {
       prefetchChatPanels();
     }
   }, [activeSessionId, showFeaturePage]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.electronAPI) return;
+    window.electronAPI.send({
+      type: 'app.foregroundSession',
+      payload: { sessionId: showFeaturePage ? null : activeSessionId },
+    });
+  }, [activeSessionId, showFeaturePage]);
   const setShowMatter = useAppStore((s) => s.setShowMatter);
   const openMatterToMeeting = useAppStore((s) => s.openMatterToMeeting);
   const openMatterToItem = useAppStore((s) => s.openMatterToItem);

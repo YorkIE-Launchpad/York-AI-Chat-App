@@ -119,6 +119,7 @@ function createMockConfigStore(overrides: Partial<AppConfig> = {}) {
       opportunities: DEFAULT_MATTER_OPPORTUNITIES,
     },
     enableThinking: true,
+    desktopNotificationsEnabled: true,
     profileDosPrompt: '',
     profileDontsPrompt: '',
     profileCustomPrompt: '',

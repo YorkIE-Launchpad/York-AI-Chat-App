@@ -124,6 +124,7 @@ function makeConfig(): AppConfig {
       opportunities: DEFAULT_MATTER_OPPORTUNITIES,
     },
     enableThinking: false,
+    desktopNotificationsEnabled: true,
     profileDosPrompt: '',
     profileDontsPrompt: '',
     profileCustomPrompt: '',

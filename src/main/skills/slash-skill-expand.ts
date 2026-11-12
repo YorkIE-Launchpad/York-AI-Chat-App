@@ -6,6 +6,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { stripFrontmatter } from '@mariozechner/pi-coding-agent';
+import { withNotifyUserSkillNote } from './notify-user-skill-note';
 
 const SLASH_SKILL_RE = /^\/(?:skill:)?([a-z0-9][a-z0-9-]*)(?:\s+([\s\S]*))?$/i;
 /** `@skill-name` mentions (not email-like: requires a word boundary after). */
@@ -78,7 +79,7 @@ export function discoverSkillsFromPaths(skillPaths: string[]): ExpandableSkillRe
 function buildSkillBlock(skill: ExpandableSkillRef): string | null {
   try {
     const content = fs.readFileSync(skill.filePath, 'utf-8');
-    const body = stripFrontmatter(content).trim();
+    const body = withNotifyUserSkillNote(stripFrontmatter(content).trim());
     return `<skill name="${skill.name}" location="${skill.filePath}">\nReferences are relative to ${skill.baseDir}.\n\n${body}\n</skill>`;
   } catch {
     return null;

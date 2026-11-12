@@ -21,6 +21,11 @@ export interface AfterSessionRunContext {
   session: Session;
   prompt: string;
   messages: Message[];
+  /**
+   * Skip the automatic "chat finished" desktop notification.
+   * Set when the user stopped the turn or more prompts are still queued.
+   */
+  suppressCompletionNotice?: boolean;
 }
 
 export interface SessionDeletedContext {

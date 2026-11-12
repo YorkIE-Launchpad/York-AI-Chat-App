@@ -8,6 +8,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { stripFrontmatter } from '@mariozechner/pi-coding-agent';
+import { withNotifyUserSkillNote } from './notify-user-skill-note';
 import type { ExpandableSkillRef } from './slash-skill-expand';
 
 export const LAUNCHPAD_SKILL_NAME = 'rnd-launchpad-mcp-sdlc';
@@ -144,16 +145,16 @@ function buildSkillBlock(skill: ExpandableSkillRef, extraMarkdown?: string | nul
       const content = fs.readFileSync(skill.filePath, 'utf-8');
       const fallback = stripFrontmatter(content).trim();
       if (!fallback) return null;
-      const extra = extraMarkdown?.trim()
-        ? `\n\n${extraMarkdown.trim()}`
-        : '';
-      return `<skill name="${skill.name}" location="${skill.filePath}">\nReferences are relative to ${skill.baseDir}.\n\n${fallback}${extra}\n</skill>`;
+      const extra = extraMarkdown?.trim() ? `\n\n${extraMarkdown.trim()}` : '';
+      const body = withNotifyUserSkillNote(`${fallback}${extra}`);
+      return `<skill name="${skill.name}" location="${skill.filePath}">\nReferences are relative to ${skill.baseDir}.\n\n${body}\n</skill>`;
     } catch {
       return null;
     }
   }
   const extra = extraMarkdown?.trim() ? `\n\n${extraMarkdown.trim()}` : '';
-  return `<skill name="${skill.name}" location="${skill.filePath}">\nReferences are relative to ${skill.baseDir}. Read other files under that directory only if needed.\n\n${body}${extra}\n</skill>`;
+  const noted = withNotifyUserSkillNote(`${body}${extra}`);
+  return `<skill name="${skill.name}" location="${skill.filePath}">\nReferences are relative to ${skill.baseDir}. Read other files under that directory only if needed.\n\n${noted}\n</skill>`;
 }
 
 function wrapExpanded(
@@ -448,8 +449,10 @@ export function isGoalRunnerIntent(prompt: string): boolean {
   const persist =
     /\b(keep (going|working|at it|iterating|trying)|don'?t stop|do not stop|work (on (it|this|that) )?|continue( working)?|loop|iterate|run autonomously)\b[^.?!\n]{0,60}?\buntil\b[^.?!\n]{0,60}?\b(done|finished|complete[d]?|green|pass(es|ing)?|fixed|resolved|shipped|works?|working|succeeds?|live|deployed|met|achieved)\b/i;
   if (persist.test(text)) return true;
-  if (/\b(until|till) (it'?s |it is |everything is |all )?(done|finished|complete)\b/i.test(text) &&
-    /\b(keep|continue|don'?t stop|do not stop|autonomous(ly)?)\b/i.test(text)) {
+  if (
+    /\b(until|till) (it'?s |it is |everything is |all )?(done|finished|complete)\b/i.test(text) &&
+    /\b(keep|continue|don'?t stop|do not stop|autonomous(ly)?)\b/i.test(text)
+  ) {
     return true;
   }
   return false;

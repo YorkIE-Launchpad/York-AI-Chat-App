@@ -44,15 +44,15 @@ Stdio: `GTM_LAUNCHPAD_API_BASE` + `GTM_MCP_API_KEY`. Details: `mcp-server/README
 
 ## Protocol
 
-| Rule | Detail |
-|------|--------|
-| Session first | `list_accessible_clients` or `resolve_workspace` — keep `clientId` + `projectId` |
-| Workspace calls | Pass **`clientId`** (preferred) and/or **`projectId`** every time — agency MCP has no account swap |
-| Mutations | First call without `confirm` → preview. After the user approves, retry with `confirm: true` |
-| Enable | `set_workflow_status` with `ENABLED` + `confirm: true` is always gated |
-| Piece steps | `get_piece_schema` → `get_piece_property_options` → `list_connections` → `configure_*` / `create_step` |
-| After success | State what changed and include `flowId`. Never say enabled unless status is `ENABLED` |
-| Brand profile | Always consider **Product/Service Catalog**, **FAQ / Response Patterns**, and **Messaging Hierarchy**. `get_brand_profile` first; merge all three on write |
+| Rule            | Detail                                                                                                                                                     |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Session first   | `list_accessible_clients` or `resolve_workspace` — keep `clientId` + `projectId`                                                                           |
+| Workspace calls | Pass **`clientId`** (preferred) and/or **`projectId`** every time — agency MCP has no account swap                                                         |
+| Mutations       | First call without `confirm` → preview. After the user approves, retry with `confirm: true`                                                                |
+| Enable          | `set_workflow_status` with `ENABLED` + `confirm: true` is always gated                                                                                     |
+| Piece steps     | `get_piece_schema` → `get_piece_property_options` → `list_connections` → `configure_*` / `create_step`                                                     |
+| After success   | State what changed and include `flowId`. Never say enabled unless status is `ENABLED`                                                                      |
+| Brand profile   | Always consider **Product/Service Catalog**, **FAQ / Response Patterns**, and **Messaging Hierarchy**. `get_brand_profile` first; merge all three on write |
 
 ## Decision tree
 
@@ -82,11 +82,11 @@ User wants GTM Launchpad work
 
 Whenever brand is in play — read, update, summarize, or use as workflow / Run Agent / copy context — these three Brand Profile tabs are required:
 
-| UI tab | JSON fields | Shape |
-|--------|-------------|--------|
-| **Product/Service Catalog** | `productCatalog` | `{ name, description, imageUrl? }[]` |
-| **FAQ / Response Patterns** | `faqEntries` | `{ id?, question, answer }[]` |
-| **Messaging Hierarchy** | `messagingStructure`, `messagingOtherDetails`, `messagingMarkdown` | Vision/Foundational form + notes; `messagingMarkdown` is compiled injection text |
+| UI tab                      | JSON fields                                                        | Shape                                                                            |
+| --------------------------- | ------------------------------------------------------------------ | -------------------------------------------------------------------------------- |
+| **Product/Service Catalog** | `productCatalog`                                                   | `{ name, description, imageUrl? }[]`                                             |
+| **FAQ / Response Patterns** | `faqEntries`                                                       | `{ id?, question, answer }[]`                                                    |
+| **Messaging Hierarchy**     | `messagingStructure`, `messagingOtherDetails`, `messagingMarkdown` | Vision/Foundational form + notes; `messagingMarkdown` is compiled injection text |
 
 `get_brand_profile` / `update_brand_profile` read/write `brand_profiles` — the same row as `/projects/:projectId/brand-profile`.
 
@@ -131,3 +131,13 @@ Not in this JSON: Context Files (`brand_reference_images` / Run Agent `brandCont
 - Using the Launchpad **platform** MCP for client workflow CRUD
 - Treating brand profile as name/website only — skip Product/Service Catalog, FAQ / Response Patterns, or Messaging Hierarchy
 - Sending top-level `colors` or `brand` — colors live on `profile.visualStandards.colors` (hex string[])
+
+## Notify the user
+
+When this skill's work is finished, or when something important needs the user and they may not be looking at the chat, call `NotifyUser` once before you stop:
+
+- `title`: short outcome (a few words)
+- `body`: one sentence on what happened or what they should do
+- `level`: `complete` when the work is done, `attention` when they need to act (decision, failure, blocker, question)
+
+Skip it for greetings, trivial chatter, and intermediate steps (including goal ticks that are still `in_progress` and status polls). If the tool says notifications are off or the user is already looking at the app, do not retry.

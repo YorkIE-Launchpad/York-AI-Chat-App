@@ -151,6 +151,7 @@ const ALLOWED_CLIENT_EVENTS: ReadonlySet<string> = new Set<ClientEvent['type']>(
   'permission.hold',
   'question.response',
   'sleep.skip',
+  'app.foregroundSession',
   'sudo.password.response',
   'settings.update',
   'folder.select',

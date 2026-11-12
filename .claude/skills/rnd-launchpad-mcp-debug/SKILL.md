@@ -226,3 +226,13 @@ run_security_review({ repoFullName, prNumber })
 2. Re-Validate when UI/QA involved (`qa_chat_*`).
 3. Ship when the cycle is ready.
 4. Deploy **only if** `get_deploy_map` has environments — else `DEPLOY: n/a`.
+
+## Notify the user
+
+When this skill's work is finished, or when something important needs the user and they may not be looking at the chat, call `NotifyUser` once before you stop:
+
+- `title`: short outcome (a few words)
+- `body`: one sentence on what happened or what they should do
+- `level`: `complete` when the work is done, `attention` when they need to act (decision, failure, blocker, question)
+
+Skip it for greetings, trivial chatter, and intermediate steps (including goal ticks that are still `in_progress` and status polls). If the tool says notifications are off or the user is already looking at the app, do not retry.

@@ -20,6 +20,7 @@ export function SettingsGeneral() {
   const appConfig = useAppStore((s) => s.appConfig);
   const setAppConfig = useAppStore((s) => s.setAppConfig);
   const [savingThinking, setSavingThinking] = useState(false);
+  const [savingNotifications, setSavingNotifications] = useState(false);
   const [refreshingModels, setRefreshingModels] = useState(false);
   const [modelsRefreshMessage, setModelsRefreshMessage] = useState<string | null>(null);
 
@@ -30,6 +31,22 @@ export function SettingsGeneral() {
   ];
 
   const thinkingEnabled = Boolean(appConfig?.enableThinking);
+  const chatNotificationsEnabled = appConfig?.desktopNotificationsEnabled !== false;
+
+  const toggleChatNotifications = async () => {
+    if (!isElectron || savingNotifications || !appConfig) return;
+    setSavingNotifications(true);
+    try {
+      const result = await window.electronAPI.config.save({
+        desktopNotificationsEnabled: !chatNotificationsEnabled,
+      });
+      setAppConfig(result.config);
+    } catch {
+      /* ignore */
+    } finally {
+      setSavingNotifications(false);
+    }
+  };
 
   const toggleThinkingMode = async () => {
     if (!isElectron || savingThinking || !appConfig) return;
@@ -88,6 +105,24 @@ export function SettingsGeneral() {
       <ScreenSnapShortcutSetting />
 
       <VoiceControlSetting />
+
+      {/* Chat notifications */}
+      <div className="space-y-3 pt-2 border-t border-border">
+        <h4 className="text-sm font-medium text-text-primary">{t('general.chatNotifications')}</h4>
+        <p className="text-sm text-text-secondary">{t('general.chatNotificationsHelp')}</p>
+        <button
+          type="button"
+          disabled={savingNotifications || !appConfig}
+          onClick={() => void toggleChatNotifications()}
+          className={`px-4 py-2.5 rounded-lg border-2 text-sm font-medium transition-all disabled:opacity-50 ${
+            chatNotificationsEnabled
+              ? 'border-accent bg-accent/5 text-text-primary'
+              : 'border-border bg-surface hover:border-accent/50 text-text-secondary'
+          }`}
+        >
+          {chatNotificationsEnabled ? t('memory.enabled') : t('memory.disabled')}
+        </button>
+      </div>
 
       {/* Thinking mode */}
       <div className="space-y-3 pt-2 border-t border-border">

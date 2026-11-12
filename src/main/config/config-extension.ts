@@ -55,6 +55,7 @@ const SAFE_TOP_LEVEL_KEYS = new Set<keyof AppConfig>([
   'contextWindow',
   'maxTokens',
   'enableThinking',
+  'desktopNotificationsEnabled',
   'sandboxEnabled',
   'memoryEnabled',
   'mcpWriteAccessEnabled',

@@ -32,6 +32,10 @@ The context window is a public good. Skills share the context window with everyt
 
 Prefer concise examples over verbose explanations.
 
+### Desktop notification
+
+When you author or update a SKILL.md, keep a **Notify the user** section. It tells the agent to call `NotifyUser` once when that skill's work finishes (`level: complete`) or when something important needs the user (`level: attention`). Skip intermediate steps. The app also appends that section when a loaded skill body never mentions `NotifyUser`.
+
 ### Set Appropriate Degrees of Freedom
 
 Match the level of specificity to the task's fragility and variability:
@@ -335,7 +339,6 @@ scripts/package_skill.py <path/to/skill-folder> ./dist
 The packaging script will:
 
 1. **Validate** the skill automatically, checking:
-
    - YAML frontmatter format and required fields
    - Skill naming conventions and directory structure
    - Description completeness and quality
@@ -355,3 +358,13 @@ After testing the skill, users may request improvements. Often this happens righ
 2. Notice struggles or inefficiencies
 3. Identify how SKILL.md or bundled resources should be updated
 4. Implement changes and test again
+
+## Notify the user
+
+When this skill's work is finished, or when something important needs the user and they may not be looking at the chat, call `NotifyUser` once before you stop:
+
+- `title`: short outcome (a few words)
+- `body`: one sentence on what happened or what they should do
+- `level`: `complete` when the work is done, `attention` when they need to act (decision, failure, blocker, question)
+
+Skip it for greetings, trivial chatter, and intermediate steps (including goal ticks that are still `in_progress` and status polls). If the tool says notifications are off or the user is already looking at the app, do not retry.

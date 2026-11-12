@@ -101,6 +101,7 @@ function makeConfig(timeoutMs: number): AppConfig {
       opportunities: DEFAULT_MATTER_OPPORTUNITIES,
     },
     enableThinking: false,
+    desktopNotificationsEnabled: true,
     profileDosPrompt: '',
     profileDontsPrompt: '',
     profileCustomPrompt: '',

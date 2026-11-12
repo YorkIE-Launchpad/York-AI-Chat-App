@@ -8,6 +8,7 @@ import {
   Globe,
   FolderSearch,
   Clock,
+  Bell,
 } from 'lucide-react';
 
 /** Map a tool name to a small icon element */
@@ -22,6 +23,7 @@ export function getToolIcon(name: string) {
   if (n === 'websearch') return <Globe className="w-3.5 h-3.5" />;
   if (n === 'webfetch') return <Globe className="w-3.5 h-3.5" />;
   if (n === 'sleep') return <Clock className="w-3.5 h-3.5" />;
+  if (n === 'notifyuser') return <Bell className="w-3.5 h-3.5" />;
   return <Terminal className="w-3.5 h-3.5" />;
 }
 
@@ -92,6 +94,10 @@ export function getToolLabel(
     if (typeof sec === 'number' && Number.isFinite(sec)) return `Sleep ${sec}s`;
     if (typeof ms === 'number' && Number.isFinite(ms)) return `Sleep ${Math.round(ms / 1000)}s`;
     return 'Sleep';
+  }
+  if (nameLower === 'notifyuser') {
+    const title = typeof inp.title === 'string' ? inp.title.trim() : '';
+    return title ? `Notify ${title}` : 'Notify';
   }
   return name;
 }

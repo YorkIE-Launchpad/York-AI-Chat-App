@@ -226,6 +226,12 @@ export interface AppConfig {
   enableThinking: boolean;
 
   /**
+   * Desktop notifications when a chat finishes or needs attention.
+   * Default true. The user can turn this off in Settings.
+   */
+  desktopNotificationsEnabled: boolean;
+
+  /**
    * User profile instructions injected as MUST rules into main chat and
    * child/subagent system prompts. Empty string = unset.
    */
@@ -300,6 +306,7 @@ const DIRECT_READ_KEYS = new Set<keyof AppConfig>([
   'meetingsEnabled',
   'matterEnabled',
   'enableThinking',
+  'desktopNotificationsEnabled',
   'autoModelPreference',
   'profileDosPrompt',
   'profileDontsPrompt',
@@ -321,6 +328,7 @@ export const EXPORTABLE_FIELDS: (keyof AppConfig)[] = [
   'enableDevLogs',
   'sandboxEnabled',
   'enableThinking',
+  'desktopNotificationsEnabled',
   'memoryEnabled',
   'superContextMode',
   'mcpWriteAccessEnabled',
@@ -376,6 +384,7 @@ export const FIELD_VALIDATORS: Record<string, (v: unknown) => boolean> = {
   enableDevLogs: (v) => typeof v === 'boolean',
   sandboxEnabled: (v) => typeof v === 'boolean',
   enableThinking: (v) => typeof v === 'boolean',
+  desktopNotificationsEnabled: (v) => typeof v === 'boolean',
   memoryEnabled: (v) => typeof v === 'boolean',
   superContextMode: (v) => v === 'off' || v === 'cold_intent' || v === 'always',
   mcpWriteAccessEnabled: (v) => typeof v === 'boolean',
@@ -523,6 +532,7 @@ const defaultConfig: AppConfig = {
   voiceControl: { ...DEFAULT_VOICE_CONTROL },
   voiceButtons: { ...DEFAULT_VOICE_BUTTONS_CONFIG },
   enableThinking: false,
+  desktopNotificationsEnabled: true,
   profileDosPrompt: '',
   profileDontsPrompt: '',
   profileCustomPrompt: '',
@@ -1365,6 +1375,10 @@ export class ConfigStore {
       subagent,
       ...(subagentConfigError ? { subagentConfigError } : {}),
       enableThinking: projected.enableThinking,
+      desktopNotificationsEnabled: toBoolean(
+        raw.desktopNotificationsEnabled,
+        defaultConfig.desktopNotificationsEnabled
+      ),
       autoModelPreference: normalizeAutoModelPreference(raw.autoModelPreference),
       profileDosPrompt:
         typeof raw.profileDosPrompt === 'string'
@@ -1533,6 +1547,7 @@ export class ConfigStore {
             key === 'mcpWriteAccessEnabled' ||
             key === 'meetingsEnabled' ||
             key === 'enableThinking' ||
+            key === 'desktopNotificationsEnabled' ||
             key === 'isConfigured') &&
           typeof rawValue !== 'boolean'
         ) {
@@ -1807,6 +1822,10 @@ export class ConfigStore {
         updates.sandboxEnabled !== undefined ? updates.sandboxEnabled : current.sandboxEnabled,
       memoryEnabled:
         updates.memoryEnabled !== undefined ? updates.memoryEnabled : current.memoryEnabled,
+      desktopNotificationsEnabled:
+        updates.desktopNotificationsEnabled !== undefined
+          ? Boolean(updates.desktopNotificationsEnabled)
+          : current.desktopNotificationsEnabled,
       superContextMode:
         updates.superContextMode !== undefined
           ? updates.superContextMode
