@@ -1,4 +1,17 @@
+import * as os from 'os';
+import * as path from 'path';
 import { startConnectorMcpServer } from './connector-mcp-utils';
+import {
+  decodeBase64Url,
+  excerptAttachmentText,
+  extractReadableBody,
+  findInlineAttachmentData,
+  formatAttachmentListing,
+  listGmailAttachments,
+  saveAttachmentFile,
+  selectAttachments,
+  type GmailAttachmentRef,
+} from './gmail-attachments';
 
 const accessToken = process.env.GOOGLE_ACCESS_TOKEN?.trim();
 if (!accessToken) {
@@ -57,10 +70,6 @@ async function fetchJson(
   return payload;
 }
 
-function decodeBase64Url(value: string): string {
-  return Buffer.from(value.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');
-}
-
 function encodeBase64Url(value: string): string {
   return Buffer.from(value, 'utf8').toString('base64url');
 }
@@ -85,22 +94,33 @@ function extractHeaders(payload: unknown): { subject: string; from: string } {
   return { subject: headers.subject || '', from: headers.from || '' };
 }
 
-function extractBody(payload: unknown): string {
-  if (!payload || typeof payload !== 'object') {
-    return '';
+function attachmentDownloadDir(): string {
+  const override = process.env.YORK_GMAIL_DOWNLOAD_DIR?.trim();
+  if (override) return override;
+  return path.join(os.homedir(), 'Downloads');
+}
+
+async function loadAttachmentBytes(
+  messageId: string,
+  messagePayload: unknown,
+  item: GmailAttachmentRef
+): Promise<Buffer> {
+  if (item.attachmentId) {
+    const payload = await fetchJson(
+      `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(item.attachmentId)}`
+    );
+    const data = typeof payload.data === 'string' ? payload.data : '';
+    if (!data.trim()) {
+      throw new Error(`Gmail returned an empty attachment for ${item.filename}.`);
+    }
+    return decodeBase64Url(data);
   }
-  const bodyData = (payload as { body?: { data?: string } }).body?.data;
-  if (typeof bodyData === 'string' && bodyData.trim()) {
-    return decodeBase64Url(bodyData);
+
+  const inline = findInlineAttachmentData(messagePayload, item);
+  if (!inline.trim()) {
+    throw new Error(`Gmail attachment ${item.filename} has no downloadable data.`);
   }
-  const parts = Array.isArray((payload as { parts?: unknown }).parts)
-    ? ((payload as { parts: unknown[] }).parts ?? [])
-    : [];
-  return parts
-    .map((part) => extractBody(part))
-    .filter(Boolean)
-    .join('\n')
-    .trim();
+  return decodeBase64Url(inline);
 }
 
 function buildEnvelope(input: {
@@ -269,11 +289,36 @@ async function main() {
       },
       {
         name: 'get_email',
-        description: 'Read a Gmail message by message id.',
+        description:
+          'Read a Gmail message by message id, including file attachment metadata. Attachment bytes are not included; call download_attachment to save them to Downloads.',
         inputSchema: {
           type: 'object',
           properties: {
             message_id: { type: 'string' },
+          },
+          required: ['message_id'],
+        },
+      },
+      {
+        name: 'download_attachment',
+        description:
+          'Download file attachments from a Gmail message into the local Downloads folder. Pass message_id alone to save every attachment, or message_id plus attachment_id (from get_email) or filename to save one file. Returns the saved file path. Tell the user that path as a markdown link so they can open it.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            message_id: {
+              type: 'string',
+              description: 'Gmail message id that owns the attachment.',
+            },
+            attachment_id: {
+              type: 'string',
+              description: 'Attachment id from get_email. Omit to download every attachment.',
+            },
+            filename: {
+              type: 'string',
+              description:
+                'Optional filename to match when attachment_id is omitted, and the name to save as.',
+            },
           },
           required: ['message_id'],
         },
@@ -455,16 +500,85 @@ async function main() {
         );
         const { subject, from } = extractHeaders(payload.payload);
         const snippet = typeof payload.snippet === 'string' ? payload.snippet : '';
-        const body = extractBody(payload.payload) || snippet || subject;
+        const attachments = listGmailAttachments(payload.payload);
+        const attachmentNote = formatAttachmentListing(attachments);
+        const body = [attachmentNote, extractReadableBody(payload.payload) || snippet || subject]
+          .filter(Boolean)
+          .join('\n\n');
         const internalDate = Number(payload.internalDate || Date.now());
-        return buildEnvelope({
-          externalId: messageId,
-          title: subject || `Email ${messageId}`,
-          summary: [subject, from ? `From: ${from}` : '', snippet].filter(Boolean).join(' | '),
-          body,
-          occurredAt: Number.isFinite(internalDate) ? internalDate : Date.now(),
-          keywords: ['gmail', 'email', subject, from].filter(Boolean),
-        });
+        const attachmentNames = attachments.map((item) => item.filename).join(', ');
+        return {
+          attachments: attachments.map((item) => ({
+            filename: item.filename,
+            mime_type: item.mimeType,
+            size: item.size,
+            attachment_id: item.attachmentId,
+          })),
+          ...buildEnvelope({
+            externalId: messageId,
+            title: subject || `Email ${messageId}`,
+            summary: [
+              subject,
+              from ? `From: ${from}` : '',
+              attachmentNames ? `Attachments: ${attachmentNames}` : '',
+              snippet,
+            ]
+              .filter(Boolean)
+              .join(' | '),
+            body,
+            occurredAt: Number.isFinite(internalDate) ? internalDate : Date.now(),
+            keywords: [
+              'gmail',
+              'email',
+              subject,
+              from,
+              ...attachments.map((item) => item.filename),
+            ].filter(Boolean),
+          }),
+        };
+      },
+      download_attachment: async (args) => {
+        const messageId = optionalString(args.message_id);
+        if (!messageId) {
+          throw new Error('Gmail message_id is required.');
+        }
+        const attachmentId = optionalString(args.attachment_id);
+        const filename = optionalString(args.filename);
+        const payload = await fetchJson(
+          `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(messageId)}?format=full`
+        );
+        const available = listGmailAttachments(payload.payload);
+        const selected = selectAttachments(available, attachmentId, filename);
+        if (selected.length === 0) {
+          throw new Error(
+            available.length === 0
+              ? 'This Gmail message has no file attachments.'
+              : `No attachment matched ${filename ? `"${filename}"` : 'that request'}. Available: ${available
+                  .map((item) => item.filename)
+                  .join(', ')}`
+          );
+        }
+
+        const saved = [];
+        for (const item of selected) {
+          const bytes = await loadAttachmentBytes(messageId, payload.payload, item);
+          const saveName = filename && selected.length === 1 ? filename : item.filename;
+          const filePath = await saveAttachmentFile(attachmentDownloadDir(), saveName, bytes);
+          const textExcerpt = await excerptAttachmentText(filePath, item.mimeType);
+          saved.push({
+            filename: item.filename,
+            mime_type: item.mimeType,
+            size: bytes.length,
+            path: filePath,
+            ...(textExcerpt ? { text_excerpt: textExcerpt } : {}),
+          });
+        }
+
+        return {
+          ok: true,
+          message_id: messageId,
+          saved,
+        };
       },
       list_labels: async () => {
         const payload = await fetchJson('https://gmail.googleapis.com/gmail/v1/users/me/labels');

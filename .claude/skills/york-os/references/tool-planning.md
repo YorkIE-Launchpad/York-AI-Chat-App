@@ -43,7 +43,7 @@ OK parallel: Slack search + Gmail search + meeting_search + Drive search
 OK parallel: Hub leave calendar + Launchpad list_releases (after projectId known)
 Sequential: list_events → get_event → (emails) → Hub list_employees
 Sequential: meeting_search → meeting_read(id)
-Sequential: search_emails → get_email(id) → Drive get(file_id from body)
+Sequential: search_emails → get_email(id) → download_attachment (files) or Drive get(file_id from body)
 ```
 
 ## Caps & stop conditions

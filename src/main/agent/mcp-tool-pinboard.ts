@@ -50,6 +50,7 @@ export const MCP_PINBOARD_ORIGINAL_NAMES = new Set([
   // Gmail
   'search_emails',
   'get_email',
+  'download_attachment',
   'list_labels',
   'send_email',
   'create_draft',
@@ -111,7 +112,9 @@ export function mcpToolOriginalName(tool: Pick<MCPTool, 'name' | 'originalName'>
   return parts.length > 2 ? parts.slice(2).join('__') : tool.name;
 }
 
-export function isPinboardMcpTool(tool: Pick<MCPTool, 'name' | 'originalName' | 'serverName'>): boolean {
+export function isPinboardMcpTool(
+  tool: Pick<MCPTool, 'name' | 'originalName' | 'serverName'>
+): boolean {
   const serverKey = normalizeMcpServerKey(tool.serverName);
   if (!MCP_PINBOARD_SERVER_KEYS.has(serverKey)) return false;
   const original = mcpToolOriginalName(tool).toLowerCase();

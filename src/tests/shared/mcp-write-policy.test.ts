@@ -31,6 +31,7 @@ describe('mcp-write-policy', () => {
     it('classifies first-party reads as read', () => {
       expect(classifyMcpToolAccess('mcp__Slack__list_channels')).toBe('read');
       expect(classifyMcpToolAccess('mcp__Gmail__search_emails')).toBe('read');
+      expect(classifyMcpToolAccess('mcp__Gmail__download_attachment')).toBe('read');
       expect(classifyMcpToolAccess('mcp__Google_Calendar__list_events')).toBe('read');
       expect(classifyMcpToolAccess('mcp__Jira__getJiraIssue')).toBe('read');
     });

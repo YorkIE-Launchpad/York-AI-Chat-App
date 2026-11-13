@@ -30,6 +30,7 @@ export const MCP_FIRST_PARTY_READ_TOOLS: ReadonlySet<string> = new Set([
   // Gmail
   'mcp__gmail__search_emails',
   'mcp__gmail__get_email',
+  'mcp__gmail__download_attachment',
   'mcp__gmail__list_labels',
   // Google Drive
   'mcp__google_drive__search_files',

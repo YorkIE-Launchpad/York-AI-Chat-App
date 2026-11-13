@@ -72,12 +72,13 @@ tool names.
 
 ## Gmail
 
-| Tools                                                                 | Join keys out              | Typical next                    |
-| --------------------------------------------------------------------- | -------------------------- | ------------------------------- |
-| `search_emails`                                                       | message id, subject, links | `get_email`                     |
-| `get_email`                                                           | body, Drive/doc URLs       | Drive `get_document_content`    |
-| `list_labels`                                                         | label id + name            | `modify_email_labels`           |
-| `send_email` / drafts / `send_draft` / labels / trash (optional HTML) | (write — ask)              | only when user wants send/draft |
+| Tools                                                                 | Join keys out                        | Typical next                                        |
+| --------------------------------------------------------------------- | ------------------------------------ | --------------------------------------------------- |
+| `search_emails`                                                       | message id, subject, links           | `get_email`                                         |
+| `get_email`                                                           | body, attachment ids, Drive/doc URLs | `download_attachment`; Drive `get_document_content` |
+| `download_attachment`                                                 | saved file path in Downloads         | open the path; read `text_excerpt` when present     |
+| `list_labels`                                                         | label id + name                      | `modify_email_labels`                               |
+| `send_email` / drafts / `send_draft` / labels / trash (optional HTML) | (write — ask)                        | only when user wants send/draft                     |
 
 ## Google Drive
 

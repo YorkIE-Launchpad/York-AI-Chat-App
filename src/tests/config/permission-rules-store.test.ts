@@ -127,6 +127,7 @@ describe('permission-rules-store', () => {
       expect(decidePermission(SESSION_A, 'mcp__Slack__get_user', {})).toBe('allow');
       expect(decidePermission(SESSION_A, 'mcp__Gmail__search_emails', {})).toBe('allow');
       expect(decidePermission(SESSION_A, 'mcp__Gmail__get_email', {})).toBe('allow');
+      expect(decidePermission(SESSION_A, 'mcp__Gmail__download_attachment', {})).toBe('allow');
       expect(decidePermission(SESSION_A, 'mcp__Gmail__list_labels', {})).toBe('allow');
       expect(decidePermission(SESSION_A, 'mcp__Google_Drive__search_files', {})).toBe('allow');
       expect(decidePermission(SESSION_A, 'mcp__Google_Drive__list_files', {})).toBe('allow');
