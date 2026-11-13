@@ -1,6 +1,16 @@
 import { WebClient } from '@slack/web-api';
 import { buildSlackChannelPageUrl } from '../../shared/slack-urls';
 import { startConnectorMcpServer } from './connector-mcp-utils';
+import {
+  clampSlackPageLimit,
+  findSlackChannelByName,
+  formatSlackChannelLines,
+  rememberSlackChannels,
+  resolveSlackListType,
+  SLACK_HTTP_TIMEOUT_MS,
+  type SlackChannelSummary,
+  type SlackConversationPage,
+} from './slack-channel-directory';
 import { assertSlackWriteAllowed } from './slack-write-guard';
 
 const accessToken = process.env.SLACK_USER_TOKEN?.trim();
@@ -11,19 +21,24 @@ if (!accessToken.startsWith('xoxp-') && !accessToken.startsWith('xoxe.xoxp-')) {
   throw new Error('SLACK_USER_TOKEN must be a Slack user token');
 }
 
-const client = new WebClient(accessToken);
-const CHANNEL_TYPES = 'public_channel,private_channel,mpim,im';
+const client = new WebClient(accessToken, {
+  // Default Slack retries span ~30 minutes and leave the tool call hung until the
+  // agent aborts it. Fail the page instead, so a smaller limit is not the recovery.
+  timeout: SLACK_HTTP_TIMEOUT_MS,
+  retryConfig: {
+    retries: 1,
+    factor: 2,
+    minTimeout: 500,
+    maxTimeout: 2_000,
+  },
+});
 const SLACK_CHANNEL_ID_RE = /^[CGD][A-Z0-9]+$/;
 const SLACK_USER_ID_RE = /^[UW][A-Z0-9]{8,}$/i;
 const SLACK_OPAQUE_ID_RE = /^[UWCGD][A-Z0-9]{8,}$/i;
 
-type ChannelSummary = {
-  id: string;
-  name: string;
-  is_private: boolean;
-  is_im: boolean;
-  purpose?: string;
-};
+type ChannelSummary = SlackChannelSummary;
+
+const channelCache = new Map<string, ChannelSummary>();
 
 type SlimMessage = {
   ts?: string;
@@ -161,38 +176,65 @@ function formatSlackError(error: unknown, context: string): Error {
     case 'ratelimited':
       return new Error(`${context} was rate limited by Slack. Please retry in a moment.`);
     default:
+      if (/timeout|timed out|econnaborted|request_timeout|etimedout/i.test(slackError)) {
+        return new Error(
+          `${context} did not respond in time. Slack pages are already capped; pass a channel ID (C…) or the next_cursor from list_channels. A smaller limit does not make conversations.list faster.`
+        );
+      }
       return new Error(`${context} failed: ${slackError}`);
   }
 }
 
-async function listChannels(limit: number): Promise<ChannelSummary[]> {
+async function listConversationPage(input: {
+  types: string;
+  limit: number;
+  cursor?: string;
+}): Promise<SlackConversationPage> {
+  const response = await client.conversations.list({
+    cursor: input.cursor,
+    limit: input.limit,
+    exclude_archived: true,
+    types: input.types,
+  });
   const channels: ChannelSummary[] = [];
-  let cursor: string | undefined;
-
-  while (channels.length < limit) {
-    const remaining = Math.max(limit - channels.length, 1);
-    const response = await client.conversations.list({
-      cursor,
-      limit: Math.min(remaining, 200),
-      exclude_archived: true,
-      types: CHANNEL_TYPES,
+  for (const channel of response.channels ?? []) {
+    if (!channel?.id) continue;
+    channels.push({
+      id: channel.id,
+      name: channel.name || channel.user || channel.id,
+      is_private: Boolean(channel.is_private),
+      is_im: Boolean(channel.is_im),
+      purpose: channel.purpose?.value,
     });
-    for (const channel of response.channels ?? []) {
-      if (!channel?.id) continue;
-      channels.push({
-        id: channel.id,
-        name: channel.name || channel.user || channel.id,
-        is_private: Boolean(channel.is_private),
-        is_im: Boolean(channel.is_im),
-        purpose: channel.purpose?.value,
-      });
-      if (channels.length >= limit) break;
-    }
-    cursor = response.response_metadata?.next_cursor || undefined;
-    if (!cursor) break;
   }
+  rememberSlackChannels(channelCache, channels);
+  const nextCursor = response.response_metadata?.next_cursor?.trim() || null;
+  return { channels, nextCursor };
+}
 
-  return channels;
+/** One search call. Avoids walking conversations.list when the caller passed a name. */
+async function findChannelIdBySearch(name: string): Promise<ChannelSummary | null> {
+  const response = await client.search.messages({
+    query: `in:#${name}`,
+    count: 1,
+    sort: 'timestamp',
+    sort_dir: 'desc',
+  });
+  const match = response.messages?.matches?.[0];
+  const channel = match?.channel;
+  if (!channel || typeof channel !== 'object' || !('id' in channel) || !channel.id) return null;
+  const id = String(channel.id);
+  const summary: ChannelSummary = {
+    id,
+    name:
+      'name' in channel && typeof channel.name === 'string' && channel.name.trim()
+        ? channel.name.trim()
+        : name,
+    is_private: Boolean((channel as { is_private?: boolean }).is_private) || id.startsWith('G'),
+    is_im: id.startsWith('D'),
+  };
+  rememberSlackChannels(channelCache, [summary]);
+  return summary;
 }
 
 async function resolveChannel(channelRef: string): Promise<{
@@ -220,10 +262,23 @@ async function resolveChannel(channelRef: string): Promise<{
   }
 
   try {
-    const channels = await listChannels(500);
-    const match = channels.find((channel) => channel.name === normalized);
+    let match: ChannelSummary | null = null;
+    try {
+      match = await findChannelIdBySearch(normalized);
+    } catch (error) {
+      const slackError =
+        error && typeof error === 'object'
+          ? (error as { data?: { error?: unknown } }).data?.error
+          : null;
+      if (slackError !== 'missing_scope' && slackError !== 'not_allowed_token_type') {
+        throw error;
+      }
+    }
+    match ??= await findSlackChannelByName(normalized, listConversationPage, channelCache);
     if (!match) {
-      throw new Error(`Slack channel "${normalized}" was not found.`);
+      throw new Error(
+        `Slack channel "${normalized}" was not found in the scanned pages. Pass the channel ID (C…) from list_channels.`
+      );
     }
     return {
       id: match.id,
@@ -232,6 +287,9 @@ async function resolveChannel(channelRef: string): Promise<{
     };
   } catch (error) {
     if (error instanceof Error && error.message.includes('was not found')) {
+      throw error;
+    }
+    if (error instanceof Error && error.message.includes('did not respond in time')) {
       throw error;
     }
     throw formatSlackError(error, `Looking up Slack channel ${normalized}`);
@@ -311,22 +369,44 @@ async function main() {
     tools: [
       {
         name: 'list_channels',
-        description: 'List Slack channels the connected user can read.',
+        description:
+          'List one page of Slack channels the connected user can read. One conversation type per call (default public_channel). Pass next_cursor to continue. Use the returned channel ID (C…) with get_channel_history. Do not combine types; a smaller limit does not make Slack faster.',
         inputSchema: {
           type: 'object',
           properties: {
-            limit: { type: 'number' },
+            limit: {
+              type: 'number',
+              description: 'Page size, capped at 100. Defaults to 50.',
+            },
+            cursor: {
+              type: 'string',
+              description: 'next_cursor from the previous page. Use with the same types value.',
+            },
+            types: {
+              type: 'string',
+              description:
+                'Exactly one of public_channel, private_channel, mpim, im. Defaults to public_channel.',
+              enum: ['public_channel', 'private_channel', 'mpim', 'im'],
+            },
           },
         },
       },
       {
         name: 'get_channel_history',
-        description: 'Read recent messages from a Slack channel.',
+        description:
+          'Read one page of recent messages from a Slack channel. Prefer a channel ID (C…). A channel name is resolved one conversation type at a time. Pass cursor to fetch the next page. Limit is capped at 100.',
         inputSchema: {
           type: 'object',
           properties: {
-            channel_id: { type: 'string' },
-            limit: { type: 'number' },
+            channel_id: {
+              type: 'string',
+              description: 'Slack channel ID (C…) or channel name.',
+            },
+            limit: { type: 'number', description: 'Page size, capped at 100. Defaults to 50.' },
+            cursor: {
+              type: 'string',
+              description: 'next_cursor from the previous history page.',
+            },
           },
           required: ['channel_id'],
         },
@@ -395,32 +475,48 @@ async function main() {
     ],
     handlers: {
       list_channels: async (args) => {
-        const limit = typeof args.limit === 'number' ? args.limit : 50;
-        const channels = await listChannels(limit);
+        const limit = clampSlackPageLimit(args.limit);
+        const types = resolveSlackListType(args.types);
+        const cursor = typeof args.cursor === 'string' ? args.cursor.trim() : '';
+        let page: SlackConversationPage;
+        try {
+          page = await listConversationPage({
+            types,
+            limit,
+            ...(cursor ? { cursor } : {}),
+          });
+        } catch (error) {
+          throw formatSlackError(error, `Listing Slack ${types.replace('_', ' ')}s`);
+        }
+        const cursorLine = page.nextCursor
+          ? `\nnext_cursor: ${page.nextCursor}\ntypes: ${types}`
+          : `\ntypes: ${types}`;
         return makeMemoryEnvelope({
-          externalId: `slack:channels:${Date.now()}`,
+          externalId: `slack:channels:${types}:${cursor || 'start'}`,
           title: 'Slack channels',
-          summary: `Fetched ${channels.length} Slack channels`,
-          body: channels
-            .map((channel) => `${channel.name || channel.id}: ${channel.purpose || ''}`)
-            .join('\n'),
-          keywords: ['slack', 'channels'],
+          summary: `Fetched ${page.channels.length} Slack ${types.replace('_', ' ')}s`,
+          body: `${formatSlackChannelLines(page.channels)}${cursorLine}`,
+          keywords: ['slack', 'channels', types],
           coreKey: 'slack_latest_read',
-          coreValue: `Fetched ${channels.length} channels`,
+          coreValue: `Fetched ${page.channels.length} ${types} channels`,
         });
       },
       get_channel_history: async (args) => {
         const requestedChannel = String(args.channel_id || '');
-        const limit = typeof args.limit === 'number' ? args.limit : 50;
+        const limit = clampSlackPageLimit(args.limit);
+        const cursor = typeof args.cursor === 'string' ? args.cursor.trim() : '';
         const channel = await resolveChannel(requestedChannel);
         let messages: SlimMessage[];
+        let historyCursor: string | null = null;
         let usedFallbackSearch = false;
         try {
           const response = await client.conversations.history({
             channel: channel.id,
             limit,
+            ...(cursor ? { cursor } : {}),
           });
           messages = mapMessages(response.messages, channel.id);
+          historyCursor = response.response_metadata?.next_cursor?.trim() || null;
         } catch (error) {
           messages = await searchChannelMessages(channel, limit);
           usedFallbackSearch = true;
@@ -443,8 +539,14 @@ async function main() {
         return makeMemoryEnvelope({
           externalId: `slack:${channel.id}:${messages[0]?.ts || Date.now()}`,
           title: `Slack channel history ${channelLabel}`,
-          summary: `${usedFallbackSearch ? 'Searched' : 'Fetched'} ${messages.length} messages from ${channelLabel}`,
-          body: await formatMessages(messages),
+          summary: `${usedFallbackSearch ? 'Searched' : 'Fetched'} ${messages.length} messages from ${channelLabel} (${channel.id})`,
+          body: [
+            `channel_id: ${channel.id}`,
+            await formatMessages(messages),
+            historyCursor ? `next_cursor: ${historyCursor}` : '',
+          ]
+            .filter(Boolean)
+            .join('\n'),
           occurredAt: Date.now(),
           keywords: ['slack', 'messages', channel.id, channel.name || channel.id],
           coreKey: 'slack_latest_read',
@@ -458,7 +560,7 @@ async function main() {
         try {
           response = await client.search.messages({
             query,
-            count: typeof args.limit === 'number' ? args.limit : 20,
+            count: clampSlackPageLimit(args.limit, 20),
             sort,
             sort_dir: 'desc',
           });

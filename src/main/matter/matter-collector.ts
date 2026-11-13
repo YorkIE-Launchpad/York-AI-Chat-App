@@ -1393,6 +1393,66 @@ const HUB_TIMESTAMP_KEYS = [
   'date',
 ];
 
+const HUB_KUDOS_RECIPIENT_KEYS = [
+  'recipient_email',
+  'recipientEmail',
+  'RECIPIENT_EMAIL',
+  'to_email',
+  'toEmail',
+  'receiver_email',
+  'receiverEmail',
+];
+
+function emailFromUnknown(value: unknown): string {
+  if (typeof value === 'string') return value.trim().toLowerCase();
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return '';
+  return pickString(value as Record<string, unknown>, [
+    'email',
+    'user_email',
+    'userEmail',
+    ...HUB_KUDOS_RECIPIENT_KEYS,
+  ])
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * Recipient email on a kudos payload, or null when the row does not name one.
+ * Accepts the Hub object or the JSON text Matter stores on the signal.
+ */
+export function hubKudosRecipientEmail(raw: unknown): string | null {
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    if (!trimmed) return null;
+    const parsed = parseJsonLoose(trimmed);
+    if (parsed != null && parsed !== trimmed) return hubKudosRecipientEmail(parsed);
+    const match = trimmed.match(/recipient[_ ]?email["']?\s*[:=]\s*["']([^"'<\s,]+@[^"'<\s,]+)/i);
+    return match?.[1]?.trim().toLowerCase() ?? null;
+  }
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const obj = raw as Record<string, unknown>;
+  const direct = emailFromUnknown(pickString(obj, HUB_KUDOS_RECIPIENT_KEYS) || null);
+  if (direct.includes('@')) return direct;
+  for (const key of ['recipient', 'receiver', 'to', 'user']) {
+    const nested = emailFromUnknown(obj[key]);
+    if (nested.includes('@')) return nested;
+  }
+  return null;
+}
+
+/**
+ * Kudos belong on this person's radar only when they received them.
+ * Rows that do not name a recipient stay (the query was already scoped).
+ * Rows addressed to someone else are dropped.
+ */
+export function hubKudosIsForUser(raw: unknown, email: string): boolean {
+  const me = email.trim().toLowerCase();
+  if (!me) return false;
+  const recipient = hubKudosRecipientEmail(raw);
+  if (!recipient) return true;
+  return recipient === me;
+}
+
 /** Newest parseable Hub timestamp from a payload, or null if none. */
 export function hubRecordNewestTimestampMs(raw: unknown): number | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
@@ -1482,40 +1542,44 @@ async function collectHubInbox(
   );
 }
 
+function kudosAddressedToUser(signals: RawMatterSignal[], email: string): RawMatterSignal[] {
+  return signals.filter((signal) =>
+    hubKudosIsForUser(signal.rawDetails || signal.rawExcerpt || '', email)
+  );
+}
+
 async function collectHubKudos(
   mcpManager: MCPManager,
   serverId: string,
   email: string
 ): Promise<RawMatterSignal[]> {
+  const me = email.trim();
+  if (!me) return [];
   const shared = {
     serverId,
     kind: 'kudos' as const,
     category: 'people' as const,
     severity: 'signal' as const,
     orbitHint: 'week' as const,
-    whyHint: 'Kudos received in Hub — open or acknowledge.',
+    whyHint: 'Kudos you received in Hub — open or acknowledge.',
     suggestedAction: 'Open Hub and view the kudos.',
     limit: 6,
   };
-  if (email) {
-    const received = await collectHubInbox(mcpManager, {
-      ...shared,
-      tools: ['list_employee_kudos'],
-      args: { type: 'received', user_email: email },
-    });
-    if (received.length) return received;
-  }
-  const filtered = await collectHubInbox(mcpManager, {
+  const received = await collectHubInbox(mcpManager, {
+    ...shared,
+    tools: ['list_employee_kudos'],
+    args: { type: 'received', user_email: me },
+  });
+  const mine = kudosAddressedToUser(received, me);
+  // A non-empty received inbox already answered. Do not fall through to the
+  // org-wide feed when none of those rows are addressed to this person.
+  if (mine.length || received.length) return mine;
+  const listed = await collectHubInbox(mcpManager, {
     ...shared,
     tools: ['list_kudos'],
-    args: email ? { recipient: email, limit: 8 } : { limit: 8 },
+    args: { recipient: me, recipient_email: me, limit: 8 },
   });
-  if (filtered.length || !email) return filtered;
-  return collectHubInbox(mcpManager, {
-    ...shared,
-    tools: ['list_kudos'],
-    args: { limit: 8 },
-  });
+  return kudosAddressedToUser(listed, me);
 }
 
 async function collectHub(

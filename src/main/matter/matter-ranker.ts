@@ -25,6 +25,7 @@ import {
   isDailySeriesMeeting,
   isPersonalCalendarHold,
   looksLikeJunkTitle,
+  hubKudosIsForUser,
 } from './matter-collector';
 import { isJevEnabled } from '../jev/jev-client';
 import { runMatterJevDecisions, type MatterJevSignalDecision } from '../jev/matter-jev';
@@ -90,7 +91,7 @@ const SYSTEM_PROMPT = `You are Matter Ranker for York IE VECOS — personal ACTI
 Given the employee's Hub profile and raw signals, keep ONLY items that need THIS person's action now.
 People triage their own unreads / feeds in Gmail and Calendar — Matter is not those inboxes.
 Exception — Slack: KEEP each individual unread DM or channel message as a comms item. Do not drop Slack unreads because they are also visible in Slack.
-Exception — Hub: KEEP Hub kudos and announcements as individual items. Do not drop them as native-app triage. Drop leave, WFH, timesheet drafts, and timesheet reviews — those are not Matter signals.
+Exception — Hub: KEEP Hub kudos addressed to THIS person, and announcements, as individual items. Do not drop those as native-app triage. DROP kudos whose recipient is someone else — they are not this person's action. Drop leave, WFH, timesheet drafts, and timesheet reviews — those are not Matter signals.
 
 Return ONLY valid JSON (no markdown):
 {
@@ -124,7 +125,7 @@ Return ONLY valid JSON (no markdown):
 Rules:
 - KEEP only action-needed items: reply/approve/unblock/prep-for-imminent-meeting/complete assigned work.
 - KEEP distinct Slack unread DMs and channel messages as individual comms items (open or mark handled).
-- KEEP Hub kudos and announcements as individual items.
+- KEEP Hub kudos addressed to this person, and announcements, as individual items. DROP kudos sent to someone else.
 - DROP leave, WFH, timesheet drafts, and timesheet reviews. Matter does not surface those Hub inboxes.
 - DROP awareness-only for other sources: unread counts, FYI, OOO lists, "on your calendar this week", generic triage.
 - DROP personal calendar holds: Break, block, focus/OOO/lunch/PTO and similar solo holds — Matter is not a calendar reminder for free time.
@@ -385,6 +386,13 @@ export function heuristicRank(
   // Collectors already bias to action; still drop pure awareness leftovers.
   const actionable = signals.filter((s) => {
     if (looksLikeJunkTitle(s.title)) return false;
+    if (
+      s.fingerprint.startsWith('hub:kudos:') &&
+      profile?.email &&
+      !hubKudosIsForUser(s.rawDetails || s.rawExcerpt || '', profile.email)
+    ) {
+      return false;
+    }
     if (s.source === 'calendar' && isPersonalCalendarHold(s.title)) return false;
     if (s.source === 'calendar') {
       const calText = s.rawDetails || s.rawExcerpt || '';

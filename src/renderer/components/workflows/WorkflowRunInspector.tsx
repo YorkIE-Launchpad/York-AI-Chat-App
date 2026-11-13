@@ -2,7 +2,7 @@
  * Single workflow-run inspector drawer (OpenHuman FlowRunInspectorDrawer).
  * Polls getRun every 2s while non-terminal; shows step timeline + resume/cancel.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { HelpCircle, Loader2, MessageSquare, X } from 'lucide-react';
 import type { CheckpointRun } from '../../../shared/orchestration';
@@ -59,8 +59,7 @@ function readInputFields(payload: CheckpointRun['payload']): WorkflowInputField[
       f !== null &&
       typeof (f as WorkflowInputField).key === 'string' &&
       typeof (f as WorkflowInputField).label === 'string' &&
-      ((f as WorkflowInputField).kind === 'text' ||
-        (f as WorkflowInputField).kind === 'choice')
+      ((f as WorkflowInputField).kind === 'text' || (f as WorkflowInputField).kind === 'choice')
   );
 }
 
@@ -128,10 +127,7 @@ export function WorkflowRunInspector({ runId, onClose, onMutated }: WorkflowRunI
     return () => window.removeEventListener('keydown', onKey);
   }, [runId, onClose]);
 
-  const sessionIds = useMemo(
-    () => (run ? sessionIdsFromWorkflowRun(run.payload) : []),
-    [run]
-  );
+  const sessionIds = useMemo(() => (run ? sessionIdsFromWorkflowRun(run.payload) : []), [run]);
   const primarySessionId = sessionIds[sessionIds.length - 1] || null;
 
   const sessionAwaitingQuestion = useMemo(() => {
@@ -141,10 +137,21 @@ export function WorkflowRunInspector({ runId, onClose, onMutated }: WorkflowRunI
     return null;
   }, [sessionIds, pendingQuestionsBySessionId]);
 
-  const inputFields = useMemo(
-    () => (run ? readInputFields(run.payload) : []),
-    [run]
-  );
+  const inputFields = useMemo(() => (run ? readInputFields(run.payload) : []), [run]);
+  const inputFieldsRef = useRef(inputFields);
+  inputFieldsRef.current = inputFields;
+  // Polling replaces `run` every few seconds. Key the draft reset on the field
+  // schema, not the array identity, so typed answers survive those refreshes.
+  const inputFieldsSignature = inputFields
+    .map((field) =>
+      [
+        field.kind,
+        field.key,
+        field.multiSelect ? '1' : '0',
+        (field.options || []).join('\u001f'),
+      ].join(':')
+    )
+    .join('\n');
   const inputNodeId =
     run && typeof run.payload.inputNodeId === 'string' ? run.payload.inputNodeId : null;
   const inputPrompt =
@@ -157,19 +164,25 @@ export function WorkflowRunInspector({ runId, onClose, onMutated }: WorkflowRunI
       setInputError(null);
       return;
     }
-    const nextAnswers: Record<string, string> = {};
-    const nextChoices: Record<string, string[]> = {};
-    for (const field of inputFields) {
-      if (field.kind === 'choice') {
-        nextChoices[field.key] = [];
-      } else {
-        nextAnswers[field.key] = '';
+    const fields = inputFieldsRef.current;
+    setAnswers((prev) => {
+      const next: Record<string, string> = {};
+      for (const field of fields) {
+        if (field.kind === 'choice') continue;
+        next[field.key] = prev[field.key] ?? '';
       }
-    }
-    setAnswers(nextAnswers);
-    setChoiceSelections(nextChoices);
+      return next;
+    });
+    setChoiceSelections((prev) => {
+      const next: Record<string, string[]> = {};
+      for (const field of fields) {
+        if (field.kind !== 'choice') continue;
+        next[field.key] = prev[field.key] ?? [];
+      }
+      return next;
+    });
     setInputError(null);
-  }, [run?.status, run?.id, inputFields]);
+  }, [run?.status, run?.id, inputFieldsSignature]);
 
   const openChat = useCallback(
     (sessionId: string) => {
@@ -191,9 +204,7 @@ export function WorkflowRunInspector({ runId, onClose, onMutated }: WorkflowRunI
   const display = run ? runDisplayStatus(run.status) : 'running';
   const steps: WorkflowRunStep[] = run ? getWorkflowRunSteps(run.payload) : [];
   const approvalMessage =
-    run && typeof run.payload.approvalMessage === 'string'
-      ? run.payload.approvalMessage
-      : null;
+    run && typeof run.payload.approvalMessage === 'string' ? run.payload.approvalMessage : null;
   const startedAt = formatTs(run?.createdAt);
   const finishedAt = formatTs(run?.completedAt ?? undefined);
   const nonTerminal = run && !isWorkflowRunTerminal(run.status);
@@ -392,8 +403,8 @@ export function WorkflowRunInspector({ runId, onClose, onMutated }: WorkflowRunI
                     Agent needs your answer
                   </p>
                   <p className="mt-1 leading-5 text-text-secondary">
-                    An agent step asked a clarifying question in chat. Answer there to continue
-                    this step.
+                    An agent step asked a clarifying question in chat. Answer there to continue this
+                    step.
                   </p>
                   <button
                     type="button"
@@ -436,9 +447,7 @@ export function WorkflowRunInspector({ runId, onClose, onMutated }: WorkflowRunI
                         {field.kind === 'choice' ? (
                           <div className="flex flex-wrap gap-1.5">
                             {(field.options || []).map((option) => {
-                              const selected = (choiceSelections[field.key] || []).includes(
-                                option
-                              );
+                              const selected = (choiceSelections[field.key] || []).includes(option);
                               return (
                                 <button
                                   key={option}
@@ -487,9 +496,7 @@ export function WorkflowRunInspector({ runId, onClose, onMutated }: WorkflowRunI
                       </div>
                     ))}
                   </div>
-                  {inputError ? (
-                    <p className="mt-2 text-[11px] text-error">{inputError}</p>
-                  ) : null}
+                  {inputError ? <p className="mt-2 text-[11px] text-error">{inputError}</p> : null}
                   <div className="mt-3 flex flex-wrap gap-2">
                     <button
                       type="button"
@@ -577,9 +584,7 @@ export function WorkflowRunInspector({ runId, onClose, onMutated }: WorkflowRunI
                                 <button
                                   type="button"
                                   className="mt-1 text-[11px] text-accent hover:underline"
-                                  onClick={() =>
-                                    setExpandedStepId(expanded ? null : step.nodeId)
-                                  }
+                                  onClick={() => setExpandedStepId(expanded ? null : step.nodeId)}
                                 >
                                   {expanded ? 'Hide raw output' : 'Show raw output'}
                                 </button>

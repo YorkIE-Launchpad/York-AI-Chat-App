@@ -33,7 +33,7 @@ import {
   detectOpportunities,
 } from './matter-opportunities';
 import type { RawMatterSignal } from './matter-collector';
-import { findToolName } from './matter-collector';
+import { findToolName, hubKudosIsForUser } from './matter-collector';
 import { normalizeMatterRuntimeConfig } from './matter-config';
 import { log, logError, logWarn } from '../utils/logger';
 import { createMatterStore, type MatterStore } from './matter-store';
@@ -480,6 +480,22 @@ export class MatterService {
     return this.getSnapshot();
   }
 
+  /** Drop kudos already on the radar that Hub addressed to someone else. */
+  private expireKudosForOtherPeople(email: string): void {
+    const now = Date.now();
+    for (const item of this.store.listActiveItems()) {
+      if (item.pinned || item.source !== 'hub') continue;
+      if (!item.fingerprint.startsWith('hub:kudos:')) continue;
+      if (hubKudosIsForUser(item.rawDetails || '', email)) continue;
+      this.store.updateItem(item.id, {
+        status: 'expired',
+        resolvedAt: now,
+        expiresAt: now,
+      });
+      log(`[Matter] Expired kudos addressed to someone else: ${item.fingerprint}`);
+    }
+  }
+
   async runScan(options?: {
     reason?: string;
     notify?: boolean;
@@ -526,6 +542,9 @@ export class MatterService {
         profile,
         sources: runtime.sources,
       });
+      if (profile?.email && collected.sourcesChecked.includes('hub')) {
+        this.expireKudosForOtherPeople(profile.email);
+      }
 
       const muteRules = this.store.listMuteRules();
       const mutedKeys = new Set(muteRules.map((r) => r.key));

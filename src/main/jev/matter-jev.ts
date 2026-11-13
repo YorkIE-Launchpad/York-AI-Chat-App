@@ -163,7 +163,7 @@ async function decideSignalBatch(
   for (let i = 0; i < batch.length; i += 1) {
     const prefix = `s${i}`;
     questions[`${prefix}_keep`] = noul(
-      `Signal ${i}: Does THIS person need to act on this now (reply/approve/unblock/prep/complete)? Keep Slack unreads and Hub kudos/timesheet/approvals.${ruleClause}`
+      `Signal ${i}: Does THIS person need to act on this now (reply/approve/unblock/prep/complete)? Keep Slack unreads and Hub kudos addressed to this person. Drop kudos sent to someone else.${ruleClause}`
     );
     questions[`${prefix}_severity`] = choice(`Signal ${i}: severity`, SEVERITY_CRITERIA);
     questions[`${prefix}_orbit`] = choice(`Signal ${i}: radar orbit`, ORBIT_CRITERIA);

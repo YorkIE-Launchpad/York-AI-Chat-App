@@ -3,6 +3,8 @@ import {
   collectMatterSignals,
   extractHubInboxRecords,
   hubAwarenessRecordIsFresh,
+  hubKudosIsForUser,
+  hubKudosRecipientEmail,
   hubRecordNewestTimestampMs,
   resolveHubServerId,
   type HubInboxRecord,
@@ -190,6 +192,71 @@ describe('collectMatterSignals Hub inbox', () => {
     expect(result.sourcesChecked).toContain('hub');
   });
 
+  it('keeps kudos the user received and drops kudos sent to someone else', async () => {
+    const { mcp, calls } = mockHubMcp({
+      list_kudos: () =>
+        hubEnvelope([
+          {
+            id: 'k-other',
+            message: 'Abhijit has been doing outstanding work',
+            sender_email: 'lay.s@york.ie',
+            recipient_email: 'abhijit.p@york.ie',
+          },
+          {
+            id: 'k-mine',
+            message: 'Nice work',
+            sender_email: 'ada@york.ie',
+            recipient_email: 'kalrav@york.ie',
+          },
+        ]),
+      list_announcements: () => hubEnvelope([]),
+    });
+
+    const result = await collectMatterSignals({
+      mcpManager: mcp,
+      meetingService: null,
+      profile: { name: 'Kalrav', email: 'kalrav@york.ie' },
+      sources: HUB_ONLY,
+    });
+
+    const kudosCalls = calls.filter((c) => c.name.includes('list_kudos'));
+    expect(kudosCalls).toHaveLength(1);
+    expect(kudosCalls[0]?.args.recipient).toBe('kalrav@york.ie');
+    expect(kudosCalls[0]?.args.recipient_email).toBe('kalrav@york.ie');
+    expect(kudosCalls.some((c) => c.args.recipient == null && c.args.limit != null)).toBe(false);
+
+    const fingerprints = result.signals.map((s) => s.fingerprint);
+    expect(fingerprints).toContain('hub:kudos:k-mine');
+    expect(fingerprints).not.toContain('hub:kudos:k-other');
+  });
+
+  it('does not pull the company kudos feed when the scoped query is empty', async () => {
+    const { mcp, calls } = mockHubMcp({
+      list_kudos: (args) => {
+        if (args.recipient || args.recipient_email) return hubEnvelope([]);
+        return hubEnvelope([
+          {
+            id: 'k-org',
+            message: 'Outstanding work',
+            sender_email: 'lay.s@york.ie',
+            recipient_email: 'abhijit.p@york.ie',
+          },
+        ]);
+      },
+      list_announcements: () => hubEnvelope([]),
+    });
+
+    const result = await collectMatterSignals({
+      mcpManager: mcp,
+      meetingService: null,
+      profile: { name: 'Kalrav', email: 'kalrav@york.ie' },
+      sources: HUB_ONLY,
+    });
+
+    expect(calls.filter((c) => c.name.includes('list_kudos'))).toHaveLength(1);
+    expect(result.signals.some((s) => s.fingerprint.startsWith('hub:kudos:'))).toBe(false);
+  });
+
   it('collects Hub when the connector is connected under a non-default id', async () => {
     const { mcp, calls } = mockHubMcp(
       {
@@ -239,6 +306,30 @@ describe('collectMatterSignals Hub inbox', () => {
     });
     expect(calls).toHaveLength(0);
     expect(result.sourcesSkipped).toContain('hub');
+  });
+});
+
+describe('hub kudos recipient', () => {
+  it('reads recipient_email from a Hub kudos row', () => {
+    expect(
+      hubKudosRecipientEmail({
+        id: 'f43f5103-c8f3-48ab-b69e-1726394415ca',
+        sender_email: 'lay.s@york.ie',
+        recipient_email: 'abhijit.p@york.ie',
+        message: 'Outstanding work',
+      })
+    ).toBe('abhijit.p@york.ie');
+  });
+
+  it('treats a kudo for someone else as not for the signed-in user', () => {
+    const raw = JSON.stringify({
+      RECIPIENT_EMAIL: 'abhijit.p@york.ie',
+      SENDER_EMAIL: 'lay.s@york.ie',
+      MESSAGE: 'Outstanding work',
+    });
+    expect(hubKudosIsForUser(raw, 'kalrav@york.ie')).toBe(false);
+    expect(hubKudosIsForUser(raw, 'abhijit.p@york.ie')).toBe(true);
+    expect(hubKudosIsForUser({ message: 'Nice work' }, 'kalrav@york.ie')).toBe(true);
   });
 });
 
