@@ -3238,7 +3238,7 @@ NotifyUser:
 - Call NotifyUser once when the chat's work is finished (level "complete") or when something important needs the user and they may not be looking (level "attention"): a decision, a failure, a blocker, or a question.
 - title is a short outcome. body is one sentence.
 - Do not call it for greetings, chit-chat, or intermediate steps (GOAL_STATUS: in_progress, status polls, "still working").
-- If the tool says notifications are off or the user is already looking at the app, do not retry.
+- If the tool says notifications are off, do not retry.
 - One call is enough. The app also notifies when a finished turn ends in the background if you did not.
 
 ${

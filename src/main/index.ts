@@ -670,14 +670,20 @@ function createNotifyUserExtension(): NotifyUserExtension {
     isEnabled: () => configStore.get('desktopNotificationsEnabled') !== false,
     isUserWatching: (sessionId) => isUserWatchingSession(sessionId, isChatWindowBeingWatched()),
     isLoopRunning: (sessionId) => Boolean(chatLoopManager?.status(sessionId)),
-    show: ({ sessionId, title, body }) => {
+    show: ({ sessionId, title, body, level }) => {
+      const noticeBody = truncateNotifyBody(body);
       showOsNotification({
         tag: 'Chat',
         title,
-        body: truncateNotifyBody(body),
+        body: noticeBody,
         onClick: () => {
           focusAndNavigate('session', { sessionId, win: mainWindow });
         },
+      });
+      // macOS hides banners for the frontmost app, so also surface the notice in the window.
+      sendToRenderer({
+        type: 'chat.notification',
+        payload: { sessionId, title, body: noticeBody, level },
       });
     },
   });

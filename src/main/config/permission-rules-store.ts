@@ -179,7 +179,8 @@ export function getPermissionRules(): PermissionRule[] {
  *      first-party wiki tools (`wiki_*` except mutations like `wiki_write`),
  *      first-party Matter reads (`matter_list`, `matter_read`, `matter_meetings`, `matter_meeting`),
  *      first-party Loop reads (`loop_list`, `loop_read`, `loop_research`),
- *      and the first-party `webfetch` / `websearch` tools
+ *      the first-party `webfetch` / `websearch` tools,
+ *      and conversation-only tools (`askuserquestion`, `notifyuser`)
  *   5. Default: 'ask' for unknown tools (conservative)
  *
  * For workflow agent steps, callers should use `resolveSessionToolPermission`,
@@ -242,8 +243,9 @@ export function decidePermission(
   if (isAutoAllowedWikiTool(toolName)) return 'allow';
   if (isAutoAllowedMatterTool(toolName)) return 'allow';
   if (isAutoAllowedLoopTool(toolName)) return 'allow';
-  // Asking the user a question needs no approval of its own.
+  // Asking the user, or posting a desktop notification, needs no approval of its own.
   if (lowered === 'askuserquestion') return 'allow';
+  if (lowered === 'notifyuser') return 'allow';
   if (lowered === 'webfetch') return 'allow';
   if (lowered === 'websearch') return 'allow';
   if (lowered === 'mcp_run') return 'allow';

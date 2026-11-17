@@ -180,7 +180,7 @@ function createNotifyUserTool(
       'Call once when the work is finished (level "complete") or when something important needs them ' +
       '(level "attention": a decision, failure, blocker, or question). ' +
       'Skip greetings, chatter, and intermediate steps such as goal ticks still in_progress or status polls. ' +
-      'If the result says notifications are off or the user is already looking, do not retry.',
+      'If the result says notifications are off, do not retry.',
     parameters: Type.Object({
       title: Type.String({ description: 'Short notification title.' }),
       body: Type.String({ description: 'One sentence: what happened or what the user should do.' }),
@@ -238,11 +238,6 @@ export class NotifyUserExtension implements AgentRuntimeExtension {
     if (!this.host.isEnabled()) {
       return toolResult(
         'Desktop notifications are turned off in Settings. Continue without notifying. Do not retry.'
-      );
-    }
-    if (this.host.isUserWatching(sessionId)) {
-      return toolResult(
-        'The user is looking at the app, so no desktop notification was sent. Do not retry.'
       );
     }
     this.host.show({ sessionId, ...parsed });

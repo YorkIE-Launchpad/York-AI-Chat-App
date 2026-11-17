@@ -375,6 +375,15 @@ export function useIPC() {
             store.clearPendingSleep(event.payload.sessionId, event.payload.sleepId);
             break;
 
+          case 'chat.notification':
+            store.setGlobalNotice({
+              id: `chat-notify-${event.payload.sessionId}-${Date.now()}`,
+              type: event.payload.level === 'attention' ? 'warning' : 'success',
+              message: `${event.payload.title}: ${event.payload.body}`,
+              durationMs: 8000,
+            });
+            break;
+
           case 'stream.executionTime':
             store.updateMessage(event.payload.sessionId, event.payload.messageId, {
               executionTimeMs: event.payload.executionTimeMs,

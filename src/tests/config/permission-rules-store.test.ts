@@ -752,6 +752,32 @@ describe('permission-rules-store', () => {
     });
   });
 
+  describe('NotifyUser', () => {
+    it('is allowed by default, whatever the case of the name', () => {
+      expect(decidePermission(SESSION_A, 'NotifyUser', { title: 'Done', body: 'Ready.' })).toBe(
+        'allow'
+      );
+      expect(decidePermission(SESSION_A, 'notifyuser', { title: 'Done', body: 'Ready.' })).toBe(
+        'allow'
+      );
+    });
+
+    it('is allowed under saved settings that predate it', () => {
+      setPermissionRules([
+        { tool: 'read', action: 'allow' },
+        { tool: 'bash', action: 'ask' },
+      ]);
+      expect(decidePermission(SESSION_A, 'NotifyUser', { title: 'Done', body: 'Ready.' })).toBe(
+        'allow'
+      );
+    });
+
+    it.each(['ask', 'deny'] as const)('follows a rule that says %s', (action) => {
+      setPermissionRules([{ tool: 'NotifyUser', action }]);
+      expect(decidePermission(SESSION_A, 'NotifyUser', {})).toBe(action);
+    });
+  });
+
   describe('TodoWrite', () => {
     it('is allowed by default, whatever the case of the name', () => {
       expect(decidePermission(SESSION_A, 'TodoWrite', { todos: [] })).toBe('allow');

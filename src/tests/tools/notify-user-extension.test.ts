@@ -106,18 +106,22 @@ describe('NotifyUserExtension', () => {
     expect(result.customTools?.[0]?.name).toBe('NotifyUser');
   });
 
-  it('does not show a banner when notifications are off or the user is watching', () => {
+  it('does not show a banner when notifications are off', () => {
     const disabled = host({ isEnabled: () => false });
     const off = new NotifyUserExtension(disabled.host);
     const offResult = off.executeNotify('s1', { title: 'Done', body: 'Ready', level: 'complete' });
     expect(offResult.content[0]?.text).toMatch(/turned off/);
     expect(disabled.shown).toHaveLength(0);
+  });
 
+  it('still notifies when the user is looking at the app', () => {
     const watching = host({ isUserWatching: () => true });
     const look = new NotifyUserExtension(watching.host);
     const lookResult = look.executeNotify('s1', { title: 'Done', body: 'Ready' });
-    expect(lookResult.content[0]?.text).toMatch(/looking at the app/);
-    expect(watching.shown).toHaveLength(0);
+    expect(lookResult.content[0]?.text).toMatch(/Notification sent/);
+    expect(watching.shown).toEqual([
+      { sessionId: 's1', title: 'Done', body: 'Ready', level: 'attention' },
+    ]);
   });
 
   it('sends one notification and does not send another when the turn ends', async () => {
