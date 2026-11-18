@@ -28,7 +28,7 @@ import {
   useYorkLlmModels,
   yorkLlmDisplayName,
 } from '../hooks/useYorkLlmModels';
-import { YORK_LLM_PROVIDER, yorkLlmSelectionPayload } from '../../shared/york-llm-config';
+import { needsConcreteYorkLlmModel, yorkLlmSelectionPayload } from '../../shared/york-llm-config';
 import {
   appleLlmDisplayName,
   appleLlmSelectionPayload,
@@ -281,10 +281,22 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
     setIsOpen(false);
   }, [saveConfig]);
 
+  const unresolvedYorkModel = useMemo(() => {
+    if (!needsConcreteYorkLlmModel(appConfig ?? {})) return null;
+    return yorkLlmModels[0] ?? null;
+  }, [appConfig, yorkLlmModels]);
+
   useEffect(() => {
     if (!selectedAuto || !isYorkLlmOnly || isSaving) return;
     void saveConfig(yorkLlmSelectionPayload(yorkLlmModels[0].id));
   }, [isSaving, isYorkLlmOnly, saveConfig, selectedAuto, yorkLlmModels]);
+
+  // The closed picker was showing the "York LLM" section title when the
+  // stored model id was empty. Persist the first listed model instead.
+  useEffect(() => {
+    if (!unresolvedYorkModel || isSaving || isOpen) return;
+    void saveConfig(yorkLlmSelectionPayload(unresolvedYorkModel.id));
+  }, [isOpen, isSaving, saveConfig, unresolvedYorkModel]);
 
   const handleAutoPreference = useCallback(
     async (preference: AutoModelPreference) => {
@@ -323,14 +335,14 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
         ? appleLlmDisplayName(selectedAppleLlmModel.id, selectedAppleLlmModel.name)
         : selectedYorkLlmModel
           ? yorkLlmDisplayName(selectedYorkLlmModel.id, selectedYorkLlmModel.name)
-          : isLoading
-            ? 'Loading…'
-            : appConfig?.model &&
-                !isBackendManagedProvider(appConfig.provider) &&
-                !isAutoModelId(appConfig.model)
-              ? shortModelName(appConfig.model, appConfig.model)
-              : appConfig?.provider === YORK_LLM_PROVIDER
-                ? 'York LLM'
+          : unresolvedYorkModel
+            ? yorkLlmDisplayName(unresolvedYorkModel.id, unresolvedYorkModel.name)
+            : isLoading || (needsConcreteYorkLlmModel(appConfig ?? {}) && isYorkLlmLoading)
+              ? 'Loading…'
+              : appConfig?.model &&
+                  !isBackendManagedProvider(appConfig.provider) &&
+                  !isAutoModelId(appConfig.model)
+                ? shortModelName(appConfig.model, appConfig.model)
                 : 'Select model';
 
   const triggerTitle = selectedAuto
@@ -454,12 +466,13 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
                   <div className="space-y-0.5">
                     {yorkLlmModels.map((model) => {
                       const isSelected =
-                        selectedYorkLlmModel?.id === model.id &&
-                        isYorkLlmSelection(
-                          appConfig?.provider,
-                          appConfig?.baseUrl,
-                          appConfig?.model
-                        );
+                        (selectedYorkLlmModel?.id === model.id &&
+                          isYorkLlmSelection(
+                            appConfig?.provider,
+                            appConfig?.baseUrl,
+                            appConfig?.model
+                          )) ||
+                        unresolvedYorkModel?.id === model.id;
                       return (
                         <button
                           key={model.id}

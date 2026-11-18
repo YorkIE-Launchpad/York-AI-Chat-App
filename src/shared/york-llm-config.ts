@@ -64,6 +64,24 @@ export function shouldMigrateToYorkLlmDefault(
   return false;
 }
 
+/**
+ * York provider is selected, but the stored model is empty.
+ * The picker then shows the "York LLM" category title, and session start
+ * rejects the turn until a concrete model id is chosen.
+ * A local Ollama base URL is left alone.
+ */
+export function needsConcreteYorkLlmModel(config: {
+  provider?: string | null;
+  baseUrl?: string | null;
+  model?: string | null;
+}): boolean {
+  if (config.provider !== YORK_LLM_PROVIDER) return false;
+  if (config.model?.trim()) return false;
+  const baseUrl = config.baseUrl?.trim() ?? '';
+  if (baseUrl && !isYorkLlmBaseUrl(baseUrl)) return false;
+  return true;
+}
+
 /** Config fields applied when selecting York LLM (model id filled by listing/bootstrap). */
 export function yorkLlmSelectionPayload(modelId: string): {
   provider: typeof YORK_LLM_PROVIDER;

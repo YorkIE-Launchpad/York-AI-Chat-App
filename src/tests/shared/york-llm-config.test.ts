@@ -11,6 +11,7 @@ import {
   resolveYorkLlmApiKey,
   resolveYorkLlmBaseUrl,
   resolveYorkLlmMaxConcurrent,
+  needsConcreteYorkLlmModel,
   shouldMigrateToYorkLlmDefault,
   shouldSkipHubUsageForYorkLlm,
   yorkLlmSelectionPayload,
@@ -95,6 +96,37 @@ describe('york-llm-config', () => {
     expect(shouldMigrateToYorkLlmDefault('openrouter/free')).toBe(true);
     expect(shouldMigrateToYorkLlmDefault('claude-sonnet-5', 'anthropic')).toBe(false);
     expect(shouldMigrateToYorkLlmDefault('gpt-5.4', 'openai')).toBe(false);
+  });
+
+  it('treats an empty York selection as a category, not a model', () => {
+    expect(
+      needsConcreteYorkLlmModel({
+        provider: YORK_LLM_PROVIDER,
+        baseUrl: DEFAULT_YORK_LLM_BASE_URL,
+        model: '',
+      })
+    ).toBe(true);
+    expect(
+      needsConcreteYorkLlmModel({
+        provider: YORK_LLM_PROVIDER,
+        baseUrl: DEFAULT_YORK_LLM_BASE_URL,
+        model: '/models/a.gguf',
+      })
+    ).toBe(false);
+    expect(
+      needsConcreteYorkLlmModel({
+        provider: 'anthropic',
+        baseUrl: '',
+        model: '',
+      })
+    ).toBe(false);
+    expect(
+      needsConcreteYorkLlmModel({
+        provider: YORK_LLM_PROVIDER,
+        baseUrl: 'http://localhost:11434/v1',
+        model: '',
+      })
+    ).toBe(false);
   });
 
   it('builds York LLM selection payload', () => {

@@ -37,9 +37,8 @@ describe('bootstrapYorkLlmDefault', () => {
     });
     listYorkLlmModels.mockResolvedValue([{ id: '/models/a.gguf', name: 'York LLM V1' }]);
 
-    const { bootstrapYorkLlmDefault } = await import(
-      '../../main/config/york-llm-default-bootstrap'
-    );
+    const { bootstrapYorkLlmDefault } =
+      await import('../../main/config/york-llm-default-bootstrap');
     await bootstrapYorkLlmDefault();
 
     expect(listYorkLlmModels).toHaveBeenCalledWith({ forceRefresh: true });
@@ -58,11 +57,50 @@ describe('bootstrapYorkLlmDefault', () => {
       provider: 'anthropic',
       model: 'auto',
     });
-    const { bootstrapYorkLlmDefault } = await import(
-      '../../main/config/york-llm-default-bootstrap'
-    );
+    const { bootstrapYorkLlmDefault } =
+      await import('../../main/config/york-llm-default-bootstrap');
     await bootstrapYorkLlmDefault();
     expect(listYorkLlmModels).not.toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('fills an empty York selection with the first listed model', async () => {
+    getAll.mockReturnValue({
+      provider: YORK_LLM_PROVIDER,
+      baseUrl: DEFAULT_YORK_LLM_BASE_URL,
+      model: '',
+    });
+    listYorkLlmModels.mockResolvedValue([{ id: '/models/a.gguf', name: 'York LLM V1' }]);
+
+    const { ensureConcreteYorkLlmModel } =
+      await import('../../main/config/york-llm-default-bootstrap');
+    await expect(ensureConcreteYorkLlmModel()).resolves.toBe(true);
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: YORK_LLM_PROVIDER,
+        model: '/models/a.gguf',
+        isConfigured: true,
+      })
+    );
+  });
+
+  it('leaves a concrete York model and local Ollama alone', async () => {
+    getAll.mockReturnValue({
+      provider: YORK_LLM_PROVIDER,
+      baseUrl: DEFAULT_YORK_LLM_BASE_URL,
+      model: '/models/kept.gguf',
+    });
+    const { ensureConcreteYorkLlmModel } =
+      await import('../../main/config/york-llm-default-bootstrap');
+    await expect(ensureConcreteYorkLlmModel()).resolves.toBe(false);
+    expect(listYorkLlmModels).not.toHaveBeenCalled();
+
+    getAll.mockReturnValue({
+      provider: YORK_LLM_PROVIDER,
+      baseUrl: 'http://localhost:11434/v1',
+      model: '',
+    });
+    await expect(ensureConcreteYorkLlmModel()).resolves.toBe(false);
     expect(update).not.toHaveBeenCalled();
   });
 
@@ -71,9 +109,8 @@ describe('bootstrapYorkLlmDefault', () => {
       provider: 'anthropic',
       model: 'claude-sonnet-5',
     });
-    const { bootstrapYorkLlmDefault } = await import(
-      '../../main/config/york-llm-default-bootstrap'
-    );
+    const { bootstrapYorkLlmDefault } =
+      await import('../../main/config/york-llm-default-bootstrap');
     await bootstrapYorkLlmDefault();
     expect(listYorkLlmModels).not.toHaveBeenCalled();
     expect(update).not.toHaveBeenCalled();

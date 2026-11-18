@@ -3,6 +3,7 @@
  * → York LLM. Does not force-migrate intentional Auto / Claude / GPT / Gemini picks.
  */
 import {
+  needsConcreteYorkLlmModel,
   shouldMigrateToYorkLlmDefault,
   yorkLlmSelectionPayload,
 } from '../../shared/york-llm-config';
@@ -50,5 +51,30 @@ export async function bootstrapYorkLlmDefault(): Promise<void> {
       isConfigured: false,
     });
     logWarn('[Config] York LLM default migration listing failed; kept York shape:', error);
+  }
+}
+
+/**
+ * Fill an empty York LLM selection with the first listed model.
+ * Returns true when config was updated.
+ */
+export async function ensureConcreteYorkLlmModel(): Promise<boolean> {
+  const current = configStore.getAll();
+  if (!needsConcreteYorkLlmModel(current)) return false;
+
+  try {
+    const models = await listYorkLlmModels();
+    const first = models[0];
+    if (!first?.id) return false;
+
+    configStore.update({
+      ...yorkLlmSelectionPayload(first.id),
+      isConfigured: true,
+    });
+    log(`[Config] Selected York LLM model ${first.id} (stored selection had no model id)`);
+    return true;
+  } catch (error) {
+    logWarn('[Config] Could not resolve a York LLM model id:', error);
+    return false;
   }
 }

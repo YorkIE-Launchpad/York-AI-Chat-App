@@ -193,7 +193,10 @@ import {
   stopAppleLlmServer,
 } from './apple-llm/apple-fm-service';
 import type { AppleLlmStatus } from '../shared/apple-llm-config';
-import { bootstrapYorkLlmDefault } from './config/york-llm-default-bootstrap';
+import {
+  bootstrapYorkLlmDefault,
+  ensureConcreteYorkLlmModel,
+} from './config/york-llm-default-bootstrap';
 import { fetchBackendModels } from './config/backend-client';
 import { installYorkLlmFetchGate } from './york-llm/york-llm-fetch-gate';
 import { installYorkLlmBackendRoute } from './york-llm/york-llm-backend-route';
@@ -7766,6 +7769,15 @@ ipcMain.handle('sandbox.retrySetup', async () => {
 
 async function handleClientEvent(event: ClientEvent): Promise<unknown> {
   await ensureAuthenticatedSession();
+
+  // "York LLM" in the picker is a category. Persist the first real model
+  // before the credentials check, which rejects an empty model id.
+  if (event.type === 'session.start') {
+    const previousConfig = configStore.getAll();
+    if (await ensureConcreteYorkLlmModel()) {
+      await syncConfigAfterMutation(previousConfig);
+    }
+  }
 
   // Check if configured before starting sessions
   if (event.type === 'session.start' && !configStore.hasUsableCredentialsForActiveSet()) {
