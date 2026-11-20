@@ -76,6 +76,7 @@ describe('MCPConfigStore default seeding', () => {
       mcpConfigStore.ensureDefaultGoogleDriveServer(),
       mcpConfigStore.ensureDefaultJiraServer(),
       mcpConfigStore.ensureDefaultConfluenceServer(),
+      mcpConfigStore.ensureDefaultGithubServer(),
       mcpConfigStore.ensureDefaultGoogleCalendarServer(),
     ];
 
@@ -83,5 +84,13 @@ describe('MCPConfigStore default seeding', () => {
     expect(seeded.every((server) => server.enabled === false)).toBe(true);
     expect(mcpConfigStore.getEnabledServers()).toEqual([]);
     expect(mcpConfigStore.getServers()).toHaveLength(seeded.length);
+
+    const github = seeded.find((server) => server.name === 'GitHub');
+    expect(github).toMatchObject({
+      id: 'mcp-github-default',
+      enabled: false,
+      type: 'streamable-http',
+      url: 'https://api.githubcopilot.com/mcp/',
+    });
   });
 });

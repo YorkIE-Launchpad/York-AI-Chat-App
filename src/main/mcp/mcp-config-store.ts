@@ -16,6 +16,8 @@ import {
   DEFAULT_GOOGLE_CALENDAR_MCP_SERVER_ID,
   DEFAULT_GOOGLE_DRIVE_MCP_NAME,
   DEFAULT_GOOGLE_DRIVE_MCP_SERVER_ID,
+  DEFAULT_GITHUB_MCP_NAME,
+  DEFAULT_GITHUB_MCP_SERVER_ID,
   DEFAULT_GTM_LAUNCHPAD_MCP_NAME,
   DEFAULT_GTM_LAUNCHPAD_MCP_SERVER_ID,
   DEFAULT_GTM_PULSE_MCP_NAME,
@@ -48,6 +50,7 @@ export {
   DEFAULT_GMAIL_MCP_NAME,
   DEFAULT_GOOGLE_CALENDAR_MCP_NAME,
   DEFAULT_GOOGLE_DRIVE_MCP_NAME,
+  DEFAULT_GITHUB_MCP_NAME,
   DEFAULT_GTM_LAUNCHPAD_MCP_NAME,
   DEFAULT_HUB_MCP_NAME,
   DEFAULT_JIRA_MCP_NAME,
@@ -369,6 +372,21 @@ export function buildDefaultConfluenceMcpServer(): Omit<MCPServerConfig, 'id' | 
   };
 }
 
+/**
+ * Built-in GitHub MCP — official remote MCP (streamable HTTP + browser OAuth).
+ */
+export function getDefaultGithubMcpUrl(): string {
+  return authConfig.githubMcpUrl;
+}
+
+export function buildDefaultGithubMcpServer(): Omit<MCPServerConfig, 'id' | 'enabled'> {
+  return {
+    name: DEFAULT_GITHUB_MCP_NAME,
+    type: 'streamable-http',
+    url: getDefaultGithubMcpUrl(),
+  };
+}
+
 export function buildDefaultGoogleCalendarMcpServer(): Omit<MCPServerConfig, 'id' | 'enabled'> {
   return {
     name: DEFAULT_GOOGLE_CALENDAR_MCP_NAME,
@@ -381,6 +399,7 @@ export function buildDefaultGoogleCalendarMcpServer(): Omit<MCPServerConfig, 'id
 
 const DEFAULT_JIRA_SERVER_ID = DEFAULT_JIRA_MCP_SERVER_ID;
 const DEFAULT_CONFLUENCE_SERVER_ID = DEFAULT_CONFLUENCE_MCP_SERVER_ID;
+const DEFAULT_GITHUB_SERVER_ID = DEFAULT_GITHUB_MCP_SERVER_ID;
 const DEFAULT_GOOGLE_CALENDAR_SERVER_ID = DEFAULT_GOOGLE_CALENDAR_MCP_SERVER_ID;
 
 export function isJiraMcpServer(server: Pick<MCPServerConfig, 'name' | 'url' | 'type'>): boolean {
@@ -391,6 +410,10 @@ export function isConfluenceMcpServer(
   server: Pick<MCPServerConfig, 'name' | 'url' | 'type'>
 ): boolean {
   return server.name.toLowerCase() === DEFAULT_CONFLUENCE_MCP_NAME.toLowerCase();
+}
+
+export function isGithubMcpServer(server: Pick<MCPServerConfig, 'name' | 'url' | 'type'>): boolean {
+  return server.name.toLowerCase() === DEFAULT_GITHUB_MCP_NAME.toLowerCase();
 }
 
 export function isGoogleCalendarMcpServer(server: Pick<MCPServerConfig, 'name' | 'args'>): boolean {
@@ -1005,6 +1028,39 @@ class MCPConfigStore {
     };
     this.saveServer(server);
     log(`[MCPConfigStore] Seeded default Confluence MCP connector at ${desiredUrl}`);
+    return server;
+  }
+
+  /**
+   * Ensure the built-in GitHub MCP connector exists (official remote MCP).
+   */
+  ensureDefaultGithubServer(): MCPServerConfig {
+    const desiredUrl = getDefaultGithubMcpUrl();
+    const desired = buildDefaultGithubMcpServer();
+    const existing = this.getServers().find(isGithubMcpServer);
+    if (existing) {
+      const needsMigration =
+        existing.id === DEFAULT_GITHUB_SERVER_ID &&
+        (existing.type !== 'streamable-http' || existing.url !== desiredUrl);
+      if (needsMigration) {
+        const migrated: MCPServerConfig = {
+          id: existing.id,
+          enabled: existing.enabled,
+          ...desired,
+        };
+        this.saveServer(migrated);
+        log(`[MCPConfigStore] Migrated built-in GitHub MCP to streamable-http ${desiredUrl}`);
+        return migrated;
+      }
+      return existing;
+    }
+    const server: MCPServerConfig = {
+      ...desired,
+      id: DEFAULT_GITHUB_SERVER_ID,
+      enabled: false,
+    };
+    this.saveServer(server);
+    log(`[MCPConfigStore] Seeded default GitHub MCP connector at ${desiredUrl}`);
     return server;
   }
 

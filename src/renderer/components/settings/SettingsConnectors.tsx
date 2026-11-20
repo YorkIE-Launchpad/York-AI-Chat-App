@@ -136,6 +136,7 @@ function isBuiltinProtectedMcpServer(server: MCPServerConfig): boolean {
     server.name === 'Google Drive' ||
     server.name === 'Jira' ||
     server.name === 'Confluence' ||
+    server.name === 'GitHub' ||
     server.name === 'Google Calendar'
   );
 }
@@ -153,6 +154,7 @@ function isNonEditableBuiltinMcpServer(server: MCPServerConfig): boolean {
     server.name === 'Google Drive' ||
     server.name === 'Jira' ||
     server.name === 'Confluence' ||
+    server.name === 'GitHub' ||
     server.name === 'Google Calendar'
   );
 }
@@ -464,6 +466,7 @@ export function SettingsConnectors({ isActive }: { isActive: boolean }) {
         server.name === 'Google Drive' ||
         server.name === 'Jira' ||
         server.name === 'Confluence' ||
+        server.name === 'GitHub' ||
         server.name === 'Google Calendar')
     ) {
       setError('This built-in connector cannot be deleted');

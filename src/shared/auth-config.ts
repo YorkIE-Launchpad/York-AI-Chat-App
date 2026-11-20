@@ -1,4 +1,4 @@
-import { DEFAULT_ATLASSIAN_MCP_URL } from './mcp-defaults';
+import { DEFAULT_ATLASSIAN_MCP_URL, DEFAULT_GITHUB_MCP_URL } from './mcp-defaults';
 import { APP_DATA_ENV_VAR } from './app-data-env';
 
 function trimTrailingSlash(url: string): string {
@@ -281,6 +281,17 @@ export const authConfig = {
       return trimTrailingSlash(explicit);
     }
     return DEFAULT_ATLASSIAN_MCP_URL;
+  },
+  /**
+   * Official GitHub remote MCP endpoint (default toolset).
+   * Prefer GITHUB_MCP_URL; otherwise https://api.githubcopilot.com/mcp/.
+   */
+  get githubMcpUrl(): string {
+    const explicit = readEnv('GITHUB_MCP_URL') ?? readEnv('VITE_GITHUB_MCP_URL');
+    if (explicit) {
+      return trimTrailingSlash(explicit);
+    }
+    return DEFAULT_GITHUB_MCP_URL;
   },
   /**
    * Hub OAuth return URL — same as Launchpad:

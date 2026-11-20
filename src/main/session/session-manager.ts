@@ -457,6 +457,7 @@ export class SessionManager {
       mcpConfigStore.ensureDefaultGoogleDriveServer();
       mcpConfigStore.ensureDefaultJiraServer();
       mcpConfigStore.ensureDefaultConfluenceServer();
+      mcpConfigStore.ensureDefaultGithubServer();
       mcpConfigStore.ensureDefaultGoogleCalendarServer();
       const servers = mcpConfigStore.getEnabledServers();
       await this.mcpManager.initializeServers(servers);

@@ -13,6 +13,7 @@ export const DEFAULT_GMAIL_MCP_SERVER_ID = 'mcp-gmail-default';
 export const DEFAULT_GOOGLE_DRIVE_MCP_SERVER_ID = 'mcp-google-drive-default';
 export const DEFAULT_JIRA_MCP_SERVER_ID = 'mcp-jira-default';
 export const DEFAULT_CONFLUENCE_MCP_SERVER_ID = 'mcp-confluence-default';
+export const DEFAULT_GITHUB_MCP_SERVER_ID = 'mcp-github-default';
 export const DEFAULT_GOOGLE_CALENDAR_MCP_SERVER_ID = 'mcp-google-calendar-default';
 
 export const DEFAULT_CHROME_MCP_NAME = 'Chrome';
@@ -26,6 +27,7 @@ export const DEFAULT_GMAIL_MCP_NAME = 'Gmail';
 export const DEFAULT_GOOGLE_DRIVE_MCP_NAME = 'Google Drive';
 export const DEFAULT_JIRA_MCP_NAME = 'Jira';
 export const DEFAULT_CONFLUENCE_MCP_NAME = 'Confluence';
+export const DEFAULT_GITHUB_MCP_NAME = 'GitHub';
 export const DEFAULT_GOOGLE_CALENDAR_MCP_NAME = 'Google Calendar';
 
 /** Combined UI label for the shared Atlassian Rovo MCP (Jira + Confluence). */
@@ -33,6 +35,9 @@ export const DEFAULT_ATLASSIAN_MCP_DISPLAY_NAME = 'Jira & Confluence';
 
 /** Official Atlassian Rovo MCP endpoint (Jira + Confluence tools). */
 export const DEFAULT_ATLASSIAN_MCP_URL = 'https://mcp.atlassian.com/v1/mcp/authv2';
+
+/** Official GitHub remote MCP endpoint (default toolset, browser OAuth). */
+export const DEFAULT_GITHUB_MCP_URL = 'https://api.githubcopilot.com/mcp/';
 
 export function isAtlassianCatalogServerId(id: string): boolean {
   return id === DEFAULT_JIRA_MCP_SERVER_ID || id === DEFAULT_CONFLUENCE_MCP_SERVER_ID;
@@ -116,6 +121,7 @@ export const DEFAULT_MCP_CONNECTORS: readonly DefaultMcpConnectorDef[] = [
   { id: DEFAULT_GOOGLE_DRIVE_MCP_SERVER_ID, name: DEFAULT_GOOGLE_DRIVE_MCP_NAME },
   { id: DEFAULT_JIRA_MCP_SERVER_ID, name: DEFAULT_JIRA_MCP_NAME },
   { id: DEFAULT_CONFLUENCE_MCP_SERVER_ID, name: DEFAULT_CONFLUENCE_MCP_NAME },
+  { id: DEFAULT_GITHUB_MCP_SERVER_ID, name: DEFAULT_GITHUB_MCP_NAME },
   { id: DEFAULT_GOOGLE_CALENDAR_MCP_SERVER_ID, name: DEFAULT_GOOGLE_CALENDAR_MCP_NAME },
   { id: DEFAULT_CHROME_MCP_SERVER_ID, name: DEFAULT_CHROME_MCP_NAME },
 ] as const;

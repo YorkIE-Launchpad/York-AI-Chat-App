@@ -145,7 +145,7 @@ export const VOICE_SYSTEM_PROMPT = [
   'prices, weather, docs; read_webpage to read a specific URL from the results. open_url opens a',
   'website in the browser ("open github.com", "pull up that link").',
   'ask_growthos runs a full GrowthOS agent with all company tools: York Hub (people, leave,',
-  'projects, timesheets), Slack, Gmail, Google Calendar and Drive, Jira, Confluence, Launchpad,',
+  'projects, timesheets), Slack, Gmail, Google Calendar and Drive, Jira, Confluence, GitHub, Launchpad,',
   'meetings, files, and skills. Use it for work data and multi-step tasks ("who is on leave',
   'today", "what is on my calendar", "summarize unread Slack", "create a Jira ticket for this").',
   'Give it a complete task with references resolved. It can take a while: before calling it say',
@@ -246,7 +246,7 @@ export const VOICE_TOOLS = [
     name: 'ask_growthos',
     description:
       'Hand a task to the full GrowthOS agent, which has every company tool: York Hub, Slack, Gmail, ' +
-      'Google Calendar and Drive, Jira, Confluence, Launchpad, meetings, files, skills, and web research. ' +
+      'Google Calendar and Drive, Jira, Confluence, GitHub, Launchpad, meetings, files, skills, and web research. ' +
       'Use for work questions and multi-step tasks. Returns its answer; may take up to a couple of minutes. ' +
       'The conversation is saved as a GrowthOS chat.',
     parameters: {
