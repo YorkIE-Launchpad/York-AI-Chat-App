@@ -100,8 +100,6 @@ interface AllowedCacheEntry {
 
 const modelsCache = new Map<string, ModelsCacheEntry>();
 const allowedCacheMap = new Map<string, AllowedCacheEntry>();
-/** Last non-empty full Hub catalog (pre-allowlist), for pricing soft-fail. */
-let lastGoodCatalog: BackendModelInfo[] = [];
 let userBudgetCache: {
   email: string;
   data: HubUserAiBudgetSnapshot;
@@ -124,14 +122,8 @@ function allowedCacheKey(email: string, usable: boolean): string {
 export function clearHubGovernanceModelsCache(): void {
   modelsCache.clear();
   allowedCacheMap.clear();
-  lastGoodCatalog = [];
   userBudgetCache = null;
   projectBudgetCache = null;
-}
-
-/** Remember a non-empty picker list for soft-fail. Does not touch the usage catalog index. */
-function rememberPickerCatalog(catalog: BackendModelInfo[]): void {
-  if (catalog.length > 0) lastGoodCatalog = catalog;
 }
 
 /** Last non-empty cached picker list (any usable key), for soft-fail on Hub errors. */
@@ -465,9 +457,7 @@ export async function fetchHubGovernanceModelsForToken(input: {
   if (result.ok && isSuccessEnvelope(result.json)) {
     // Usage index is the raw catalog (every provider). The picker list below is narrower.
     replaceHubModelPricingFromPayload(result.json);
-    const models = parseHubGovernanceModels(result.json);
-    rememberPickerCatalog(models);
-    return models;
+    return parseHubGovernanceModels(result.json);
   }
 
   throw new HubAiGovernanceError(
