@@ -8082,6 +8082,9 @@ async function handleClientEvent(event: ClientEvent): Promise<unknown> {
       ) {
         const nextTheme = event.payload.theme as AppTheme;
         configStore.update({ theme: nextTheme });
+        // Startup imports config.public.json over the encrypted store. Without
+        // this export, the next launch restores the previous (usually default) theme.
+        exportOnConfigChange();
         applyNativeThemePreference(nextTheme);
         if (mainWindow && !mainWindow.isDestroyed()) {
           const effectiveTheme = resolveEffectiveTheme(nextTheme);

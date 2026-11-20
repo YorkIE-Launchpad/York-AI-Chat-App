@@ -217,6 +217,7 @@ function buildFlatMcpTools(
         const result = await mcpManager.callTool(mcpTool.name, prepared.args);
         const normalizedResult = normalizeMcpToolResultForModel(result, {
           compress: !prepared.filterResult,
+          toolName: mcpTool.name,
         });
         const text = prepared.filterResult
           ? compressToolResultTextForModel(
@@ -224,7 +225,8 @@ function buildFlatMcpTools(
                 mcpTool.name,
                 normalizedResult.text,
                 division
-              )
+              ),
+              { toolName: mcpTool.name }
             )
           : normalizedResult.text;
         return {

@@ -226,7 +226,10 @@ async function callToolWithTimeout(
         setTimeout(() => reject(new Error(`MCP call timed out after ${timeoutMs}ms`)), timeoutMs);
       }),
     ]);
-    const normalized = normalizeMcpToolResultForModel(result, { compress: false });
+    const normalized = normalizeMcpToolResultForModel(result, {
+      compress: false,
+      toolName,
+    });
     return normalized.text.trim() || null;
   } catch (error) {
     logWarn(`[LiveAssist] MCP call ${toolName} failed:`, error);

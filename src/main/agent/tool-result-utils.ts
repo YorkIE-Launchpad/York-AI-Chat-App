@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { compressToolResultTextForModel } from './mcp-tool-payload';
+import { compressToolResultTextForModel, labelHubAllocationHoursText } from './mcp-tool-payload';
 
 type ToolResultImage = {
   data: string;
@@ -159,13 +159,16 @@ export function normalizeMcpToolResultForModel(
     compress?: boolean;
     maxChars?: number;
     pageTargetChars?: number;
+    toolName?: string;
   }
 ): NormalizedToolTextResult {
   const compress = options?.compress !== false;
-  const compressOpts =
-    options?.maxChars != null || options?.pageTargetChars != null
+  const compressOpts = {
+    ...(options?.maxChars != null || options?.pageTargetChars != null
       ? { maxChars: options.maxChars, pageTargetChars: options.pageTargetChars }
-      : undefined;
+      : {}),
+    ...(options?.toolName ? { toolName: options.toolName } : {}),
+  };
   const resultObj = isRecord(result) ? result : null;
   if (resultObj?.content) {
     const { textParts, images } = extractTextAndImagesFromContent(resultObj.content);
@@ -174,7 +177,9 @@ export function normalizeMcpToolResultForModel(
     }
     const text = finalizeText(textParts, images.length);
     return {
-      text: compress ? compressToolResultTextForModel(text, compressOpts) : text,
+      text: compress
+        ? compressToolResultTextForModel(text, compressOpts)
+        : labelHubAllocationHoursText(options?.toolName, text),
       images,
     };
   }
@@ -184,14 +189,16 @@ export function normalizeMcpToolResultForModel(
     return {
       text: compress
         ? compressToolResultTextForModel(structuredText, compressOpts)
-        : structuredText,
+        : labelHubAllocationHoursText(options?.toolName, structuredText),
       images: [],
     };
   }
 
   const rawText = typeof result === 'string' ? result : safeStringifyToolResult(result);
   return {
-    text: compress ? compressToolResultTextForModel(rawText, compressOpts) : rawText,
+    text: compress
+      ? compressToolResultTextForModel(rawText, compressOpts)
+      : labelHubAllocationHoursText(options?.toolName, rawText),
     images: [],
   };
 }

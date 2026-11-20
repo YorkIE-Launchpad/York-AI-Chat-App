@@ -6,6 +6,7 @@ import {
   augmentMcpToolDescription,
   clearMcpToolResultSpilloverCache,
   compressToolResultTextForModel,
+  labelHubAllocationHoursText,
   getMcpToolResultSpillover,
   leanMcpToolArgs,
   pruneEmptyValues,
@@ -86,6 +87,53 @@ describe('augmentMcpToolDescription', () => {
     const once = augmentMcpToolDescription('list_projects', 'List projects.');
     const twice = augmentMcpToolDescription('list_projects', once);
     expect(twice).toBe(once);
+  });
+
+  it('tells roster tools that allocation numbers are weekly hours', () => {
+    const desc = augmentMcpToolDescription(
+      'mcp__York_IE_HUB__list_project_allocations',
+      'Staffing on a project.'
+    );
+    expect(desc).toContain('weekly hours');
+    expect(desc).toContain('never as 40%');
+    expect(augmentMcpToolDescription('mcp__York_IE_HUB__list_project_allocations', desc)).toBe(
+      desc
+    );
+  });
+});
+
+describe('labelHubAllocationHoursText', () => {
+  it('labels Hub roster allocation numbers as weekly hours', () => {
+    const raw = JSON.stringify({
+      users: [
+        { name: 'Nishant Soni', role: 'Sr. Backend Developer', allocation: 20 },
+        { name: 'Prithvirajsinh Jadav', role: 'Sr. Front End Developer', hours: 40 },
+      ],
+    });
+    const labeled = JSON.parse(
+      labelHubAllocationHoursText('mcp__York_IE_HUB__list_project_allocations', raw)
+    ) as {
+      users: Array<{ allocation?: string; hours?: string; name: string }>;
+    };
+    expect(labeled.users[0].allocation).toBe('20 hours/week');
+    expect(labeled.users[0].name).toBe('Nishant Soni');
+    expect(labeled.users[1].hours).toBe('40 hours/week');
+  });
+
+  it('leaves non-roster tools unchanged', () => {
+    const raw = JSON.stringify({ allocation: 40 });
+    expect(
+      labelHubAllocationHoursText('mcp__York_IE_HUB__get_employee_overview_analytics', raw)
+    ).toBe(raw);
+  });
+
+  it('keeps the hours label after model-facing compression', () => {
+    const text = compressToolResultTextForModel(
+      JSON.stringify({ people: [{ name: 'Mayank Garasiya', allocation: 40 }] }),
+      { toolName: 'list_project_allocations' }
+    );
+    expect(text).toContain('40 hours/week');
+    expect(text).not.toContain('40%');
   });
 });
 

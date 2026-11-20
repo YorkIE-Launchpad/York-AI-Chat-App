@@ -233,6 +233,10 @@ never invent.
 
 ## Response style
 
+- Hub project allocation quantities (`allocation`, `hours`, and the same fields on
+  `list_project_allocations`, `get_project_allocation_timeline`, and
+  `get_employee_project_timeline`) are **weekly hours**. Show `40` as `40h` /
+  `40 hours/week` and `20` as `20h`. Never render those numbers as `40%` or `20%`.
 - Cite tool results; say when RBAC hid fields.
 - Prefer short tables for lists.
 - Name analytics tool + year/range used.

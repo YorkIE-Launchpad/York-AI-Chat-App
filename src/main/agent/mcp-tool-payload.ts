@@ -21,6 +21,26 @@ const LIMIT_PROPERTY_NAMES = new Set(['limit', 'pageSize', 'page_size', 'maxResu
 const ANALYTICS_DESCRIPTION_NUDGE =
   ' Prefer filters and field projection. Pass only required params plus the filters you need. Avoid unbounded org-wide dumps.';
 
+const ALLOCATION_HOURS_NUDGE =
+  ' Hub staffing allocation numbers are weekly hours (40 = 40 hours/week, 20 = 20 hours/week), not percentages. Present them as hours (40h), never as 40%.';
+
+/** Roster tools whose quantity fields are weekly hours in Hub. */
+const HUB_ALLOCATION_ROSTER_TOOL =
+  /(?:^|__)(list_project_allocations|get_project_allocation_timeline|get_employee_project_timeline)$/i;
+
+const HUB_ALLOCATION_HOUR_KEYS = new Set([
+  'hours',
+  'allocatedhours',
+  'allocated_hours',
+  'hours_per_week',
+  'hoursperweek',
+  'weeklyhours',
+  'weekly_hours',
+  'allocation',
+  'allocationhours',
+  'allocation_hours',
+]);
+
 const spilloverCache = new Map<string, unknown>();
 
 export type McpInputSchema = {
@@ -83,13 +103,56 @@ export function augmentMcpToolDescription(name: string, description: string): st
     /\banalytics\b/.test(haystack) ||
     /\bsummaries\b/.test(haystack);
 
-  if (!looksListHeavy) {
-    return base || description;
+  let next = base || description;
+  if (looksListHeavy && !next.includes('Avoid unbounded org-wide dumps')) {
+    next = `${next}${ANALYTICS_DESCRIPTION_NUDGE}`;
   }
-  if (base.includes('Avoid unbounded org-wide dumps')) {
-    return base;
+  if (
+    HUB_ALLOCATION_ROSTER_TOOL.test(name) &&
+    !next.includes('Hub staffing allocation numbers are weekly hours')
+  ) {
+    next = `${next}${ALLOCATION_HOURS_NUDGE}`;
   }
-  return `${base || description}${ANALYTICS_DESCRIPTION_NUDGE}`;
+  return next || description;
+}
+
+function formatWeeklyHours(value: unknown): string | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return `${value} hours/week`;
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (/^-?\d+(\.\d+)?$/.test(trimmed)) {
+      return `${trimmed} hours/week`;
+    }
+  }
+  return undefined;
+}
+
+function labelAllocationHourFields(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => labelAllocationHourFields(item));
+  }
+  if (!isRecord(value)) return value;
+  const out: Record<string, unknown> = {};
+  for (const [key, nested] of Object.entries(value)) {
+    const labeled = HUB_ALLOCATION_HOUR_KEYS.has(key.toLowerCase())
+      ? formatWeeklyHours(nested)
+      : undefined;
+    out[key] = labeled ?? labelAllocationHourFields(nested);
+  }
+  return out;
+}
+
+/**
+ * Hub roster tools return allocation quantities as weekly hours. Label them
+ * before the model sees the payload so 40 is not rendered as 40%.
+ */
+export function labelHubAllocationHoursText(toolName: string | undefined, text: string): string {
+  if (!toolName || !HUB_ALLOCATION_ROSTER_TOOL.test(toolName)) return text;
+  const parsed = tryParseJson(text);
+  if (parsed === undefined) return text;
+  return JSON.stringify(labelAllocationHourFields(parsed));
 }
 
 /**
@@ -293,12 +356,13 @@ function formatStructuredDocument(
  */
 export function compressToolResultTextForModel(
   text: string,
-  options?: { maxChars?: number; pageTargetChars?: number }
+  options?: { maxChars?: number; pageTargetChars?: number; toolName?: string }
 ): string {
   const maxChars = options?.maxChars ?? MCP_TOOL_RESULT_MAX_CHARS;
   const pageTarget = options?.pageTargetChars ?? MCP_TOOL_RESULT_PAGE_TARGET_CHARS;
+  const labeled = labelHubAllocationHoursText(options?.toolName, text);
 
-  const parsed = tryParseJson(text);
+  const parsed = tryParseJson(labeled);
   if (parsed === undefined) {
     return text;
   }

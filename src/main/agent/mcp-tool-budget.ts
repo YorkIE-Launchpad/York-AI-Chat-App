@@ -436,10 +436,12 @@ export function buildMcpMetaTools(
         const result = await mcpManager.callTool(toolName, prepared.args);
         const normalizedResult = normalizeMcpToolResultForModel(result, {
           compress: !prepared.filterResult,
+          toolName,
         });
         const text = prepared.filterResult
           ? compressToolResultTextForModel(
-              applyCompanyProjectScopedMcpResultFilter(toolName, normalizedResult.text, division)
+              applyCompanyProjectScopedMcpResultFilter(toolName, normalizedResult.text, division),
+              { toolName }
             )
           : normalizedResult.text;
         onLaunchPadProgress?.({

@@ -129,16 +129,16 @@ both and present separate sections.
 **Domain:** Project Management — delivery core (allocations, release notes,
 Jira quality, AI bench). MCP does not create/edit projects or passwords.
 
-| Tool                              | R/W | Description                                                            | Prefer when                                                      |
-| --------------------------------- | --- | ---------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| `list_projects`                   | R   | Accessible projects as **id + title** pairs                            | Pickers, meeting notes, name→id                                  |
-| `list_project_summaries`          | R   | Active/inactive summaries: status, client, squad, allocation oversight | Delivery overview; optional `active`                             |
-| `get_project`                     | R   | One project + accessible delivery metadata                             | After you have UUID                                              |
-| `list_project_allocations`        | R   | Full/partial/burst staffing on a project                               | “Who is on project X?”                                           |
-| `get_project_allocation_timeline` | R   | Employee’s active/upcoming allocations                                 | Project `id` + employee `email`; employee-scoped                 |
-| `send_bench_suggestions`          | W   | Org-wide AI bench search (NL `message`; optional `conversation_id`)    | Natural-language staffing; ranked availability + match reasoning |
-| `list_project_release_notes`      | R   | Release notes (Jira import / published changes)                        | Filter `status` `DRAFT`\|`PUBLISHED`                             |
-| `get_project_jira_quality`        | R   | Jira description-quality metrics for a project                         | Delivery health                                                  |
+| Tool                              | R/W | Description                                                                                                   | Prefer when                                                      |
+| --------------------------------- | --- | ------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| `list_projects`                   | R   | Accessible projects as **id + title** pairs                                                                   | Pickers, meeting notes, name→id                                  |
+| `list_project_summaries`          | R   | Active/inactive summaries: status, client, squad, allocation oversight                                        | Delivery overview; optional `active`                             |
+| `get_project`                     | R   | One project + accessible delivery metadata                                                                    | After you have UUID                                              |
+| `list_project_allocations`        | R   | Full/partial/burst staffing on a project. Amounts are **weekly hours**, not percents (`40` = 40h, `20` = 20h) | “Who is on project X?”                                           |
+| `get_project_allocation_timeline` | R   | Employee’s active/upcoming allocations                                                                        | Project `id` + employee `email`; employee-scoped                 |
+| `send_bench_suggestions`          | W   | Org-wide AI bench search (NL `message`; optional `conversation_id`)                                           | Natural-language staffing; ranked availability + match reasoning |
+| `list_project_release_notes`      | R   | Release notes (Jira import / published changes)                                                               | Filter `status` `DRAFT`\|`PUBLISHED`                             |
+| `get_project_jira_quality`        | R   | Jira description-quality metrics for a project                                                                | Delivery health                                                  |
 
 **Related (not under Projects module):** `get_employee_project_allocation_analytics`
 (bench KPIs), `get_hiring_position_bench_suggestions` (role fit), meeting note
