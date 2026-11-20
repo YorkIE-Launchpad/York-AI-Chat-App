@@ -27,7 +27,7 @@ import {
   type HubGovernanceUsageIngestResult,
   type HubGovernanceUsagePayload,
 } from '../../shared/hub-governance-usage';
-import { replaceHubModelPricing } from '../../shared/model-pricing';
+import { replaceHubModelPricingFromPayload } from '../../shared/model-pricing';
 import { ensureAuthenticatedSession } from '../auth/session';
 import { log, logWarn } from '../utils/logger';
 
@@ -129,23 +129,9 @@ export function clearHubGovernanceModelsCache(): void {
   projectBudgetCache = null;
 }
 
-/** Index Hub catalog rates for usage cost (full catalog, before allowlist join). */
-function indexHubCatalogPricing(catalog: BackendModelInfo[]): void {
-  if (catalog.length > 0) {
-    lastGoodCatalog = catalog;
-  }
-  const source = catalog.length > 0 ? catalog : lastGoodCatalog;
-  if (source.length === 0) return;
-  replaceHubModelPricing(
-    source.map((m) => ({
-      id: m.id,
-      provider: m.provider,
-      inputPrice: m.inputPrice,
-      outputPrice: m.outputPrice,
-      cacheReadPrice: m.cacheReadPrice,
-      cacheWritePrice: m.cacheWritePrice,
-    }))
-  );
+/** Remember a non-empty picker list for soft-fail. Does not touch the usage catalog index. */
+function rememberPickerCatalog(catalog: BackendModelInfo[]): void {
+  if (catalog.length > 0) lastGoodCatalog = catalog;
 }
 
 /** Last non-empty cached picker list (any usable key), for soft-fail on Hub errors. */
@@ -477,14 +463,11 @@ export async function fetchHubGovernanceModelsForToken(input: {
   }
 
   if (result.ok && isSuccessEnvelope(result.json)) {
+    // Usage index is the raw catalog (every provider). The picker list below is narrower.
+    replaceHubModelPricingFromPayload(result.json);
     const models = parseHubGovernanceModels(result.json);
-    indexHubCatalogPricing(models);
+    rememberPickerCatalog(models);
     return models;
-  }
-
-  // Soft-fail pricing: keep last-good catalog rates indexed when Hub is unreachable.
-  if (lastGoodCatalog.length > 0) {
-    indexHubCatalogPricing(lastGoodCatalog);
   }
 
   throw new HubAiGovernanceError(
@@ -721,8 +704,6 @@ export async function fetchHubGovernanceModels(options?: {
   const key = modelsCacheKey(usable);
   const cached = modelsCache.get(key);
   if (!options?.forceRefresh && cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
-    // Keep pricing map warm even when the picker list is served from cache.
-    if (lastGoodCatalog.length > 0) indexHubCatalogPricing(lastGoodCatalog);
     return cached.models;
   }
 
@@ -825,6 +806,7 @@ export async function postHubGovernanceUsageForToken(input: {
     const root = asRecord(result.json) || {};
     const data = asRecord(root.data) || asRecord(result.json) || {};
     const parsed = parseHubGovernanceUsageResponse(result.json);
+    logUsagePostResult(result.status, input.payload, parsed);
     userBudgetCache = null;
     projectBudgetCache = null;
     if (parsed.userBudgetPercent != null && parsed.userBudgetPercent >= 100) {
@@ -843,12 +825,42 @@ export async function postHubGovernanceUsageForToken(input: {
     };
   }
 
+  logUsagePostResult(result.status || 502, input.payload, undefined, result.json);
   throw new HubAiGovernanceError(
     result.status || 502,
     result.status === 401
       ? `Hub rejected Cognito token for ${USAGE_PATH} (401). Try signing out and back in.`
       : `Failed to post Hub AI governance usage (${result.status || 'network'})`
   );
+}
+
+function logUsagePostResult(
+  status: number,
+  payload: HubGovernanceUsagePayload,
+  parsed?: HubGovernanceUsageIngestResult,
+  body?: unknown
+): void {
+  const cost = payload.cost === undefined || payload.cost === null ? 'none' : String(payload.cost);
+  const percent = parsed ? String(parsed.userBudgetPercent) : 'n/a';
+  const detail = body === undefined ? '' : ` body=${usageResponseSnippet(body)}`;
+  logWarn(
+    '[HubAiGovernance] usage POST',
+    status,
+    `model_id=${payload.model_id}`,
+    `cost=${cost}`,
+    `user_budget_percent=${percent}${detail}`
+  );
+}
+
+function usageResponseSnippet(body: unknown): string {
+  let text = '';
+  try {
+    text = typeof body === 'string' ? body : JSON.stringify(body);
+  } catch {
+    text = '';
+  }
+  if (!text) return '';
+  return text.length > 180 ? `${text.slice(0, 180)}…` : text;
 }
 
 function broadcastHubUsage(snapshot: HubUsageMeterSnapshot): void {
@@ -890,11 +902,8 @@ async function postUsageWithAuth(
 }
 
 function logUsagePostFailure(error: unknown): void {
-  if (error instanceof HubAiGovernanceError) {
-    logWarn('[HubAiGovernance] usage POST failed:', error.status, error.message);
-  } else {
-    logWarn('[HubAiGovernance] usage POST failed:', error);
-  }
+  if (error instanceof HubAiGovernanceError) return;
+  logWarn('[HubAiGovernance] usage POST failed:', error);
 }
 
 const unpricedModelsWarned = new Set<string>();
@@ -932,16 +941,10 @@ export async function postHubGovernanceUsage(
 }
 
 /**
- * Ensure Hub catalog rates are in memory before pricing a usage event.
- * Prefer the last full picker catalog (already normalized); otherwise GET /models
- * like the MCP bearer path — chat turns must not post tokens without cost just
- * because the model picker never ran this session.
+ * Load the raw GET /models catalog before pricing a usage event.
+ * The picker list is a subset and must not replace this index.
  */
 async function ensureUsagePricingReady(accessToken: string, fetchFn?: FetchFn): Promise<void> {
-  if (lastGoodCatalog.length > 0) {
-    indexHubCatalogPricing(lastGoodCatalog);
-    return;
-  }
   await ensureHubModelPricingLoaded({
     hubApiUrl: authConfig.hubApiUrl,
     accessToken,

@@ -4,6 +4,7 @@ import {
   computeModelUsageCost,
   pricingKeysForModel,
   replaceHubModelPricing,
+  resolveHubCatalogUsage,
   resolveModelPricing,
 } from '../../shared/model-pricing';
 
@@ -145,6 +146,99 @@ describe('resolveModelPricing', () => {
       },
     ]);
     expect(resolveModelPricing('openai', 'free-model')).toBeNull();
+    expect(resolveHubCatalogUsage('openai', 'free-model')).toMatchObject({
+      modelId: 'free-model',
+      provider: 'openai',
+      pricing: null,
+    });
+  });
+});
+
+describe('resolveHubCatalogUsage', () => {
+  it('prices a future catalog id from that row only', () => {
+    replaceHubModelPricing([
+      { id: 'gpt-9-nova', provider: 'openai', inputPrice: 3, outputPrice: 9 },
+    ]);
+    expect(resolveHubCatalogUsage('openai', 'gpt-9-nova')).toEqual({
+      modelId: 'gpt-9-nova',
+      provider: 'openai',
+      pricing: { input: 3, output: 9 },
+    });
+    expect(resolveHubCatalogUsage('openai', 'openai/gpt-9-nova')?.modelId).toBe('gpt-9-nova');
+  });
+
+  it('keeps claude-opus-5-5 even when claude-opus-5 has rates', () => {
+    replaceHubModelPricing([
+      {
+        id: 'claude-opus-5',
+        provider: 'anthropic',
+        inputPrice: 5,
+        outputPrice: 25,
+        cacheReadPrice: 0.5,
+        cacheWritePrice: 6.25,
+      },
+      { id: 'claude-opus-5-5', provider: 'Anthropic', inputPrice: null, outputPrice: null },
+    ]);
+    expect(resolveHubCatalogUsage('anthropic', 'claude-opus-5-5')).toEqual({
+      modelId: 'claude-opus-5-5',
+      provider: 'anthropic',
+      pricing: null,
+    });
+    expect(resolveHubCatalogUsage('anthropic', 'claude-opus-5')?.pricing).toMatchObject({
+      input: 5,
+      output: 25,
+    });
+  });
+
+  it('does not price when two rows alias to the same bare id', () => {
+    replaceHubModelPricing([
+      { id: 'openai/gpt-9-nova', provider: 'openai', inputPrice: 3, outputPrice: 9 },
+      { id: 'acme/gpt-9-nova', provider: 'acme', inputPrice: 1, outputPrice: 2 },
+    ]);
+    expect(resolveHubCatalogUsage('openai', 'gpt-9-nova')).toBeNull();
+    expect(resolveModelPricing('openai', 'gpt-9-nova')).toBeNull();
+  });
+
+  it('matches Claude dash and dot spellings only for the same id', () => {
+    replaceHubModelPricing([
+      { id: 'claude-opus-4.8', provider: 'anthropic', inputPrice: 5, outputPrice: 25 },
+    ]);
+    expect(resolveHubCatalogUsage('anthropic', 'claude-opus-4-8')?.modelId).toBe('claude-opus-4.8');
+
+    replaceHubModelPricing([
+      { id: 'claude-opus-4-8', provider: 'anthropic', inputPrice: 4, outputPrice: 20 },
+      { id: 'claude-opus-4.8', provider: 'anthropic', inputPrice: 5, outputPrice: 25 },
+    ]);
+    expect(resolveHubCatalogUsage('anthropic', 'claude-opus-4-8')?.modelId).toBe('claude-opus-4-8');
+    expect(resolveHubCatalogUsage('anthropic', 'claude-opus-4.8')?.modelId).toBe('claude-opus-4.8');
+  });
+
+  it('does not let an openrouter prefixed id claim the bare catalog id', () => {
+    replaceHubModelPricing([
+      { id: 'gpt-5.6-luna', provider: 'openai', inputPrice: 0.2, outputPrice: 1.2 },
+      {
+        id: 'openai/gpt-5.6-luna',
+        provider: 'openrouter',
+        inputPrice: null,
+        outputPrice: null,
+      },
+    ]);
+    expect(resolveHubCatalogUsage('openai', 'gpt-5.6-luna')).toMatchObject({
+      modelId: 'gpt-5.6-luna',
+      provider: 'openai',
+      pricing: { input: 0.2, output: 1.2 },
+    });
+  });
+
+  it('accepts capitalized providers and numeric price strings', () => {
+    replaceHubModelPricing([
+      { id: 'gpt-image-2.5-flare', provider: 'Openai', inputPrice: 5, outputPrice: 30 },
+    ]);
+    expect(resolveHubCatalogUsage('openai', 'gpt-image-2.5-flare')).toMatchObject({
+      modelId: 'gpt-image-2.5-flare',
+      provider: 'openai',
+      pricing: { input: 5, output: 30 },
+    });
   });
 });
 

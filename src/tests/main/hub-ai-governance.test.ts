@@ -19,7 +19,11 @@ import {
   reportHubGovernanceUsageFromCompletion,
   reportMcpVisionUsageViaEnv,
 } from '../../main/hub/hub-ai-governance';
-import { clearHubModelPricing, replaceHubModelPricing } from '../../shared/model-pricing';
+import {
+  clearHubModelPricing,
+  replaceHubModelPricing,
+  resolveHubCatalogUsage,
+} from '../../shared/model-pricing';
 import { clearHubModelPricingFetchCache } from '../../shared/hub-governance-usage';
 
 vi.mock('../../shared/auth-config', () => ({
@@ -438,6 +442,58 @@ describe('fetchHubGovernanceModelsForToken', () => {
     );
   });
 
+  it('indexes every fetched row for usage while the picker skips unknown providers', async () => {
+    const fetchFn = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        success: true,
+        data: {
+          models: [
+            {
+              id: 'claude-fable-5',
+              name: 'Claude Fable 5',
+              provider: 'anthropic',
+              input_price: 10,
+              output_price: 50,
+            },
+            {
+              id: 'anthropic/claude-fable-5',
+              name: 'Claude Fable 5',
+              provider: 'openrouter',
+              input_price: null,
+              output_price: null,
+            },
+            {
+              id: 'gpt-9-nova',
+              name: 'GPT-9 Nova',
+              provider: 'Openai',
+              input_price: '3.000000',
+              output_price: '9.000000',
+            },
+          ],
+        },
+      }),
+    })) as unknown as typeof fetch;
+
+    const models = await fetchHubGovernanceModelsForToken({
+      token: 'access-token',
+      fetchFn,
+    });
+
+    expect(models.map((model) => model.id)).toEqual(['claude-fable-5', 'gpt-9-nova']);
+    expect(resolveHubCatalogUsage('anthropic', 'claude-fable-5')).toMatchObject({
+      modelId: 'claude-fable-5',
+      provider: 'anthropic',
+      pricing: { input: 10, output: 50 },
+    });
+    expect(resolveHubCatalogUsage('openai', 'gpt-9-nova')).toMatchObject({
+      modelId: 'gpt-9-nova',
+      provider: 'openai',
+      pricing: { input: 3, output: 9 },
+    });
+  });
+
   it('retries with alternate token on 403', async () => {
     const fetchFn = vi
       .fn()
@@ -818,6 +874,8 @@ describe('buildHubUsagePayloadFromPiUsage', () => {
     expect(payload?.output_cost).toBeCloseTo(2.5);
     expect(payload?.cached_cost).toBeCloseTo(0.5);
     expect(payload?.cost).toBeCloseTo(8);
+    expect(payload?.model_id).toBe('claude-opus-4.8');
+    expect(payload?.provider).toBe('anthropic');
     expect(payload?.metadata).toMatchObject({ cost_source: 'hub_price' });
   });
 
@@ -844,7 +902,49 @@ describe('buildHubUsagePayloadFromPiUsage', () => {
     expect(payload?.input_cost).toBeCloseTo(7.5);
     expect(payload?.output_cost).toBeCloseTo(3);
     expect(payload?.cost).toBeCloseTo(10.5);
+    expect(payload?.model_id).toBe('gpt-image-2.5-sunburst');
     expect(payload?.metadata).toMatchObject({ cost_source: 'hub_price' });
+  });
+
+  it('posts the exact catalog id and omits cost when that row has no rates', () => {
+    replaceHubModelPricing([
+      {
+        id: 'claude-opus-5',
+        provider: 'anthropic',
+        inputPrice: 5,
+        outputPrice: 25,
+      },
+      { id: 'claude-opus-5-5', provider: 'Anthropic', inputPrice: null, outputPrice: null },
+      { id: 'claude-fable-5', provider: 'anthropic', inputPrice: 10, outputPrice: 50 },
+      { id: 'gpt-9-nova', provider: 'openai', inputPrice: 3, outputPrice: 9 },
+    ]);
+
+    const unpriced = buildHubUsagePayloadFromPiUsage({
+      modelId: 'claude-opus-5-5',
+      provider: 'anthropic',
+      sessionId: 's1',
+      usage: { input: 1_000_000, output: 100_000, cost: { total: 0 } },
+    });
+    expect(unpriced?.model_id).toBe('claude-opus-5-5');
+    expect(unpriced?.provider).toBe('anthropic');
+    expect(unpriced?.cost).toBeUndefined();
+
+    const future = buildHubUsagePayloadFromPiUsage({
+      modelId: 'gpt-9-nova',
+      provider: 'openai',
+      sessionId: 's1',
+      usage: { input: 1_000_000, output: 100_000, cost: { total: 0 } },
+    });
+    expect(future?.model_id).toBe('gpt-9-nova');
+    expect(future?.cost).toBeCloseTo(3.9);
+
+    const fable = buildHubUsagePayloadFromPiUsage({
+      modelId: 'claude-fable-5',
+      provider: 'anthropic',
+      sessionId: 's1',
+      usage: { input: 1_000_000, output: 100_000, cost: { total: 0 } },
+    });
+    expect(fable?.cost).toBeCloseTo(15);
   });
 
   it('omits cost for unknown models with no Hub catalog price', () => {
@@ -1244,7 +1344,8 @@ describe('reportHubGovernanceUsageFromCompletion', () => {
     });
 
     expect(posts[0]).toMatchObject({
-      model_id: 'claude-opus-4-8',
+      model_id: 'claude-opus-4.8',
+      provider: 'anthropic',
       cost: 7.5,
       metadata: { cost_source: 'hub_price' },
     });

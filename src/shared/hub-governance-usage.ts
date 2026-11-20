@@ -6,7 +6,7 @@
 import {
   computeModelUsageCost,
   replaceHubModelPricingFromPayload,
-  resolveModelPricing,
+  resolveHubCatalogUsage,
 } from './model-pricing';
 
 export const HUB_USAGE_SOURCE = 'vecos';
@@ -232,8 +232,9 @@ export function buildHubUsagePayloadFromPiUsage(
       ? (promptTokens ?? 0) + (completionTokens ?? 0) + (imageInputTokens ?? 0)
       : undefined);
 
-  // Hub budgets sum `cost` only; synthetic pi models (not in the registry) report 0.
-  // Prefer Hub catalog rates; omit cost when the model has no catalog price.
+  // Hub budgets sum `cost` only. Use the matched catalog row's rates when pi cost is 0.
+  // A different catalog id never lends its price. Omit cost when the row has no rates.
+  const catalog = resolveHubCatalogUsage(provider, modelId);
   let costSource: 'hub_price' | undefined;
   const billableTokens =
     (promptTokens ?? 0) +
@@ -241,22 +242,24 @@ export function buildHubUsagePayloadFromPiUsage(
     (cacheRead ?? 0) +
     (cacheWrite ?? 0) +
     (imageInputTokens ?? 0);
-  if (!(totalCost !== undefined && totalCost > 0) && billableTokens > 0) {
-    const hubPricing = resolveModelPricing(provider, modelId);
-    if (hubPricing) {
-      const computed = computeModelUsageCost(hubPricing, {
-        input: promptTokens,
-        output: completionTokens,
-        cacheRead,
-        cacheWrite,
-        imageInput: imageInputTokens,
-      });
-      totalCost = computed.total;
-      inputCost = computed.input;
-      outputCost = computed.output;
-      cachedCost = computed.cached > 0 ? computed.cached : undefined;
-      costSource = 'hub_price';
-    }
+  if (!(totalCost !== undefined && totalCost > 0) && billableTokens > 0 && catalog?.pricing) {
+    const computed = computeModelUsageCost(catalog.pricing, {
+      input: promptTokens,
+      output: completionTokens,
+      cacheRead,
+      cacheWrite,
+      imageInput: imageInputTokens,
+    });
+    totalCost = computed.total;
+    inputCost = computed.input;
+    outputCost = computed.output;
+    cachedCost = computed.cached > 0 ? computed.cached : undefined;
+    costSource = 'hub_price';
+  } else if (!(totalCost !== undefined && totalCost > 0)) {
+    totalCost = undefined;
+    inputCost = undefined;
+    outputCost = undefined;
+    cachedCost = undefined;
   }
 
   const hasTokens =
@@ -286,8 +289,8 @@ export function buildHubUsagePayloadFromPiUsage(
   const feature = (input.feature || '').trim() || HUB_USAGE_FEATURE_DEFAULT;
 
   const payload: HubGovernanceUsagePayload = {
-    model_id: modelId,
-    provider,
+    model_id: catalog?.modelId ?? modelId,
+    provider: catalog?.provider ?? provider,
     source: HUB_USAGE_SOURCE,
     feature,
     session_id: input.sessionId,

@@ -34,8 +34,24 @@ export interface HubCatalogPriceRow {
   cacheWritePrice?: number | null;
 }
 
-/** In-memory Hub catalog rates, keyed by `vendor/model` (and aliases). */
-let hubPricingByKey: Record<string, ModelPricing> = {};
+/** Catalog row chosen for a usage POST. `modelId` is the exact Hub `id`. */
+export interface HubCatalogUsageMatch {
+  modelId: string;
+  provider: string;
+  /** Null when the matched row has no input/output rate. */
+  pricing: ModelPricing | null;
+}
+
+interface IndexedCatalogRow {
+  id: string;
+  provider: string;
+  pricing: ModelPricing | null;
+  /** Other spellings of this same id. Does not include the exact id. */
+  aliases: Set<string>;
+}
+
+/** Every row from the latest GET /api/ai-governance/models, including unpriced ones. */
+let catalogRows: IndexedCatalogRow[] = [];
 
 function finitePrice(value: number | null | undefined): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
@@ -55,28 +71,145 @@ function pricingFromRow(row: HubCatalogPriceRow): ModelPricing | null {
   };
 }
 
-/**
- * Replace the in-memory Hub price map from catalog rows.
- * Rows without input/output rates are skipped.
- */
-export function replaceHubModelPricing(models: HubCatalogPriceRow[]): void {
-  const next: Record<string, ModelPricing> = {};
-  for (const row of models) {
-    const id = (row.id || '').trim();
-    const provider = (row.provider || '').trim();
-    if (!id || !provider) continue;
-    const pricing = pricingFromRow(row);
-    if (!pricing) continue;
-    for (const key of pricingKeysForModel(provider, id)) {
-      next[key] = pricing;
+/** `Google` / `gemini` are one provider. Other values are lowercased as Hub sent them. */
+function normalizeCatalogProvider(provider: string): string {
+  const lower = provider.trim().toLowerCase();
+  return lower === 'google' ? 'gemini' : lower;
+}
+
+/** Same-id spellings: own-vendor prefix, Claude dash/dot, and a trailing snapshot date. */
+function aliasesForCatalogId(id: string, provider: string): Set<string> {
+  const exact = id.trim().toLowerCase();
+  const aliases = new Set<string>();
+  const add = (value: string) => {
+    const next = value.trim().toLowerCase();
+    if (next && next !== exact) aliases.add(next);
+  };
+
+  let bare = exact;
+  const slash = exact.indexOf('/');
+  if (slash >= 0) {
+    const prefix = exact.slice(0, slash);
+    const rest = exact.slice(slash + 1);
+    if (rest && normalizeCatalogProvider(prefix) === provider) {
+      bare = rest;
+      add(rest);
     }
   }
-  hubPricingByKey = next;
+
+  const bareForms = new Set<string>([bare]);
+  const undated = bare.replace(/-\d{4}-\d{2}-\d{2}$/, '').replace(/-\d{8}$/, '');
+  if (undated !== bare) bareForms.add(undated);
+  for (const form of [...bareForms]) {
+    if (!form.startsWith('claude-')) continue;
+    const dotted = form.replace(/-(\d+)-(\d+)$/, '-$1.$2');
+    const dashed = form.replace(/-(\d+)\.(\d+)$/, '-$1-$2');
+    if (dotted !== form) bareForms.add(dotted);
+    if (dashed !== form) bareForms.add(dashed);
+  }
+
+  const prefixes = new Set<string>([provider]);
+  if (provider === 'gemini') prefixes.add('google');
+  for (const form of bareForms) {
+    add(form);
+    for (const prefix of prefixes) add(`${prefix}/${form}`);
+  }
+  return aliases;
+}
+
+function indexCatalogRow(row: HubCatalogPriceRow): IndexedCatalogRow | null {
+  const id = (row.id || '').trim();
+  const provider = normalizeCatalogProvider(row.provider || '');
+  if (!id || !provider) return null;
+  return {
+    id,
+    provider,
+    pricing: pricingFromRow(row),
+    aliases: aliasesForCatalogId(id, provider),
+  };
+}
+
+/**
+ * Replace the in-memory Hub catalog from fetched rows.
+ * Unpriced rows stay so an exact id still wins over a different model's rates.
+ */
+export function replaceHubModelPricing(models: HubCatalogPriceRow[]): void {
+  const next: IndexedCatalogRow[] = [];
+  for (const row of models) {
+    const indexed = indexCatalogRow(row);
+    if (indexed) next.push(indexed);
+  }
+  catalogRows = next;
 }
 
 /** Clear the Hub price map (tests). */
 export function clearHubModelPricing(): void {
-  hubPricingByKey = {};
+  catalogRows = [];
+}
+
+function snapshotStripped(id: string): string {
+  return id.replace(/-\d{4}-\d{2}-\d{2}$/, '').replace(/-\d{8}$/, '');
+}
+
+function narrowByProvider(rows: IndexedCatalogRow[], provider: string): IndexedCatalogRow[] {
+  if (rows.length <= 1) return rows;
+  const want = normalizeCatalogProvider(provider);
+  if (!want) return rows;
+  const matched = rows.filter((row) => row.provider === want);
+  return matched.length === 1 ? matched : rows;
+}
+
+function uniqueRows(rows: IndexedCatalogRow[]): IndexedCatalogRow[] {
+  const seen = new Set<string>();
+  const out: IndexedCatalogRow[] = [];
+  for (const row of rows) {
+    const key = `${row.provider}\0${row.id.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(row);
+  }
+  return out;
+}
+
+/**
+ * Pick the catalog row for a runtime model.
+ * Exact id wins. Otherwise one same-id alias. Zero or several aliases → null.
+ */
+export function resolveHubCatalogUsage(
+  provider: string,
+  modelId: string
+): HubCatalogUsageMatch | null {
+  const raw = modelId.trim().toLowerCase();
+  if (!raw || catalogRows.length === 0) return null;
+
+  const exact = narrowByProvider(
+    uniqueRows(catalogRows.filter((row) => row.id.toLowerCase() === raw)),
+    provider
+  );
+  if (exact.length === 1) return toUsageMatch(exact[0]);
+  if (exact.length > 1) return null;
+
+  const stripped = snapshotStripped(raw);
+  if (stripped !== raw) {
+    const dated = narrowByProvider(
+      uniqueRows(catalogRows.filter((row) => row.id.toLowerCase() === stripped)),
+      provider
+    );
+    if (dated.length === 1) return toUsageMatch(dated[0]);
+    if (dated.length > 1) return null;
+  }
+
+  const aliasHits = uniqueRows(
+    catalogRows.filter(
+      (row) => row.aliases.has(raw) || (stripped !== raw && row.aliases.has(stripped))
+    )
+  );
+  if (aliasHits.length === 1) return toUsageMatch(aliasHits[0]);
+  return null;
+}
+
+function toUsageMatch(row: IndexedCatalogRow): HubCatalogUsageMatch {
+  return { modelId: row.id, provider: row.provider, pricing: row.pricing };
 }
 
 /** `gpt-image-2.5-flare-2026-09-08` → `gpt-image-2.5-flare`. */
@@ -139,13 +272,9 @@ export function pricingKeysForModel(provider: string, modelId: string): string[]
   return keys;
 }
 
-/** Resolve Hub catalog pricing; null when the model has no indexed rates. */
+/** Resolve Hub catalog pricing; null when the model has no indexed rates or the match is ambiguous. */
 export function resolveModelPricing(provider: string, modelId: string): ModelPricing | null {
-  for (const key of pricingKeysForModel(provider, modelId)) {
-    const hit = hubPricingByKey[key];
-    if (hit) return hit;
-  }
-  return null;
+  return resolveHubCatalogUsage(provider, modelId)?.pricing ?? null;
 }
 
 /**
@@ -198,9 +327,14 @@ function stringField(row: Record<string, unknown>, ...keys: string[]): string | 
 
 function nullableNumberField(row: Record<string, unknown>, ...keys: string[]): number | null {
   for (const key of keys) {
+    if (!(key in row)) continue;
     const value = row[key];
     if (value === null) return null;
     if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string' && value.trim()) {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) return parsed;
+    }
   }
   return null;
 }
