@@ -20,6 +20,7 @@ import {
   mergeAtlassianMcpServerStatuses,
   mergeDefaultMcpServerStatuses,
   sortMcpServersByDefaultOrder,
+  isGithubRemoteMcpUrl,
 } from '../../shared/mcp-defaults';
 
 describe('mergeDefaultMcpServerStatuses', () => {
@@ -157,5 +158,14 @@ describe('mergeAtlassianMcpServerStatuses', () => {
       status: 'connected',
       toolCount: 8,
     });
+  });
+});
+
+describe('isGithubRemoteMcpUrl', () => {
+  it('matches the hosted GitHub MCP host and path', () => {
+    expect(isGithubRemoteMcpUrl('https://api.githubcopilot.com/mcp/')).toBe(true);
+    expect(isGithubRemoteMcpUrl('https://api.githubcopilot.com/mcp/x/repos')).toBe(true);
+    expect(isGithubRemoteMcpUrl('https://mcp.atlassian.com/v1/mcp/authv2')).toBe(false);
+    expect(isGithubRemoteMcpUrl('not a url')).toBe(false);
   });
 });

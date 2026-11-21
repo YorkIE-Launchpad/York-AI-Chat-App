@@ -28,8 +28,15 @@ import {
   connectWithOAuthRetry,
   isMcpOAuthNonRetryableError,
   McpOAuthInteractionRequiredError,
+  McpOAuthSetupError,
   OpenCoworkMcpOAuthProvider,
 } from './mcp-oauth';
+import {
+  createGithubBackendTokenFetch,
+  githubMcpSignInHelp,
+  githubOAuthStaticClient,
+  resolveGithubMcpAccessToken,
+} from './github-mcp-auth';
 import { mcpOAuthStore } from './mcp-oauth-store';
 import { mcpServerCatalogFingerprint, mcpToolCatalogCache } from './mcp-tool-cache';
 import {
@@ -52,6 +59,7 @@ import {
   DEFAULT_CONFLUENCE_MCP_NAME,
   DEFAULT_GOOGLE_CALENDAR_MCP_NAME,
   DEFAULT_JIRA_MCP_NAME,
+  isGithubRemoteMcpUrl,
 } from '../../shared/mcp-defaults';
 
 const MCP_LIST_TOOLS_TIMEOUT_MS = 5 * 60 * 1000;
@@ -1648,6 +1656,16 @@ export class MCPManager {
         requestInit.headers = headers;
       }
 
+      const githubRemote = isGithubRemoteMcpUrl(config.url);
+      if (githubRemote && !headers.Authorization) {
+        const githubToken = await resolveGithubMcpAccessToken();
+        if (githubToken) {
+          headers.Authorization = `Bearer ${githubToken}`;
+          requestInit.headers = headers;
+          log('[MCPManager] Using a GitHub access token for the GitHub MCP connector');
+        }
+      }
+
       if (isHubMcpServerConfig(config)) {
         const connectHub = async (authHeaders: Record<string, string>) => {
           const hubRequestInit: RequestInit = {
@@ -1677,6 +1695,12 @@ export class MCPManager {
             throw error;
           }
         }
+      } else if (githubRemote && headers.Authorization) {
+        const githubTransport = new StreamableHTTPClientTransport(httpUrl, { requestInit });
+        await this.connectClientWithTimeout(client, githubTransport, connectTimeoutMs);
+        transport = githubTransport;
+      } else if (githubRemote && !githubOAuthStaticClient()) {
+        throw new McpOAuthSetupError(githubMcpSignInHelp());
       } else {
         const authProvider = this.getOrCreateStreamableHttpOAuthProvider(config);
         const skipIssuerMetadataValidation = shouldSkipAtlassianOAuthIssuerValidation(config.url);
@@ -1694,6 +1718,7 @@ export class MCPManager {
             new StreamableHTTPClientTransport(httpUrl, {
               authProvider: provider,
               requestInit,
+              ...(githubRemote ? { fetch: createGithubBackendTokenFetch() } : {}),
               ...(skipIssuerMetadataValidation ? { skipIssuerMetadataValidation: true } : {}),
             }),
           interactiveOAuth: this.pendingInteractiveOAuth.has(config.id),
@@ -1888,6 +1913,7 @@ export class MCPManager {
       },
       persisted: persisted ?? undefined,
       serverUrl: config.url,
+      staticClient: isGithubRemoteMcpUrl(config.url) ? githubOAuthStaticClient() : undefined,
     });
 
     this.oauthProviders.set(config.id, {

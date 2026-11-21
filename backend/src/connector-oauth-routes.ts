@@ -1,7 +1,7 @@
 import express, { type Request, type Response } from 'express';
 import { logError } from './safe-log.js';
 
-export type ConnectorOauthProvider = 'slack' | 'google' | 'zoom';
+export type ConnectorOauthProvider = 'slack' | 'google' | 'zoom' | 'github';
 
 interface ConnectorOauthClient {
   tokenUrl: string;
@@ -15,6 +15,7 @@ const TOKEN_URLS: Record<ConnectorOauthProvider, string> = {
   slack: 'https://slack.com/api/oauth.v2.access',
   google: 'https://oauth2.googleapis.com/token',
   zoom: 'https://zoom.us/oauth/token',
+  github: 'https://github.com/login/oauth/access_token',
 };
 
 /** Only these fields are forwarded; client_id / client_secret always come from server env. */
@@ -31,24 +32,32 @@ function readEnv(...names: string[]): string {
   return '';
 }
 
+function providerCredentials(provider: ConnectorOauthProvider): [string, string] {
+  switch (provider) {
+    case 'slack':
+      return [readEnv('SLACK_CLIENT_ID'), readEnv('SLACK_CLIENT_SECRET')];
+    case 'google':
+      return [
+        readEnv('GOOGLE_CONNECTOR_CLIENT_ID', 'GOOGLE_CLIENT_ID'),
+        readEnv('GOOGLE_CONNECTOR_CLIENT_SECRET', 'GOOGLE_CLIENT_SECRET'),
+      ];
+    case 'zoom':
+      return [readEnv('ZOOM_CONNECTOR_CLIENT_ID'), readEnv('ZOOM_CONNECTOR_CLIENT_SECRET')];
+    case 'github':
+      return [readEnv('GITHUB_OAUTH_CLIENT_ID'), readEnv('GITHUB_OAUTH_CLIENT_SECRET')];
+  }
+}
+
 export function resolveConnectorOauthClient(
   provider: ConnectorOauthProvider
 ): ConnectorOauthClient | null {
-  const [clientId, clientSecret] =
-    provider === 'slack'
-      ? [readEnv('SLACK_CLIENT_ID'), readEnv('SLACK_CLIENT_SECRET')]
-      : provider === 'google'
-        ? [
-            readEnv('GOOGLE_CONNECTOR_CLIENT_ID', 'GOOGLE_CLIENT_ID'),
-            readEnv('GOOGLE_CONNECTOR_CLIENT_SECRET', 'GOOGLE_CLIENT_SECRET'),
-          ]
-        : [readEnv('ZOOM_CONNECTOR_CLIENT_ID'), readEnv('ZOOM_CONNECTOR_CLIENT_SECRET')];
+  const [clientId, clientSecret] = providerCredentials(provider);
   if (!clientId || !clientSecret) return null;
   return { tokenUrl: TOKEN_URLS[provider], clientId, clientSecret };
 }
 
 function isProvider(value: string): value is ConnectorOauthProvider {
-  return value === 'slack' || value === 'google' || value === 'zoom';
+  return Object.prototype.hasOwnProperty.call(TOKEN_URLS, value);
 }
 
 export function buildConnectorTokenParams(
@@ -106,7 +115,10 @@ export function createConnectorOauthRouter(fetchFn: FetchFn = fetch): express.Ro
     try {
       const upstream = await fetchFn(client.tokenUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          Accept: 'application/json',
+        },
         body: params,
         signal: AbortSignal.timeout(30_000),
       });

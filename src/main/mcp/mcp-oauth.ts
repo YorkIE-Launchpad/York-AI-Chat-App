@@ -60,6 +60,8 @@ interface OAuthProviderOptions {
   persisted?: PersistedMcpOAuthState;
   redirectUrl?: string | URL;
   serverUrl?: string;
+  /** Pre-registered OAuth client. Skips dynamic client registration. */
+  staticClient?: StoredOAuthClientInformation;
 }
 
 interface ConnectWithOAuthOptions<TTransport extends OAuthTransport> {
@@ -147,7 +149,9 @@ export function isMcpOAuthSetupError(error: unknown): boolean {
   return (
     message.includes('did not advertise') ||
     message.includes('MCP OAuth could not start') ||
-    message.includes('missing WWW-Authenticate')
+    message.includes('missing WWW-Authenticate') ||
+    message.includes('does not support dynamic client registration') ||
+    message.includes('GITHUB_OAUTH_CLIENT_ID')
   );
 }
 
@@ -206,6 +210,7 @@ export class OpenCoworkMcpOAuthProvider implements OAuthClientProvider {
   private readonly _openExternal: OpenExternal;
   private readonly _onPersist?: (record: PersistedMcpOAuthState) => void;
   private readonly _serverUrl?: string;
+  private readonly _staticClient?: StoredOAuthClientInformation;
   private _tokens?: StoredOAuthTokens;
 
   constructor({
@@ -215,10 +220,12 @@ export class OpenCoworkMcpOAuthProvider implements OAuthClientProvider {
     persisted,
     redirectUrl,
     serverUrl,
+    staticClient,
   }: OAuthProviderOptions) {
     this.clientMetadataUrl = clientMetadataUrl;
     this._openExternal = openExternal;
     this._onPersist = onPersist;
+    this._staticClient = staticClient;
     this._serverUrl = serverUrl ?? persisted?.serverUrl;
     this._redirectUrl = redirectUrl ?? persisted?.redirectUrl ?? 'http://127.0.0.1/callback';
     this._metadata = buildClientMetadata(String(this._redirectUrl));
@@ -260,6 +267,12 @@ export class OpenCoworkMcpOAuthProvider implements OAuthClientProvider {
   }
 
   clientInformation(): StoredOAuthClientInformation | undefined {
+    if (this._staticClient?.client_id) {
+      return {
+        ...this._clientInformation,
+        ...this._staticClient,
+      };
+    }
     return this._clientInformation;
   }
 
@@ -384,7 +397,10 @@ export async function createOAuthCallbackListener(
       settled = true;
       response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       response.end(
-        buildOAuthSuccessHtml('Authorization complete', 'You can return to York GrowthOS now and close this window')
+        buildOAuthSuccessHtml(
+          'Authorization complete',
+          'You can return to York GrowthOS now and close this window'
+        )
       );
       resolveCallback(new URLSearchParams(parsedUrl.searchParams));
       void closeServer(server);
@@ -475,6 +491,7 @@ function isOAuthDiscoveryFailure(error: unknown): boolean {
     lowered.includes('does not implement oauth') ||
     lowered.includes('authorization server metadata') ||
     lowered.includes('could not discover') ||
+    lowered.includes('does not support dynamic client registration') ||
     // SPA HTML / non-JSON body returned from a .well-known URL
     (lowered.includes('unexpected token') && lowered.includes('<'))
   );

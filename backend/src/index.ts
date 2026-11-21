@@ -103,7 +103,7 @@ app.get('/models', (_req, res) => {
   res.json({ models: listEnabledModels() });
 });
 
-// Slack / Google / Zoom connector token exchange + refresh (client secrets stay server-side).
+// Slack / Google / Zoom / GitHub connector token exchange + refresh (client secrets stay server-side).
 app.use('/connectors/oauth', express.json(), createConnectorOauthRouter());
 
 // Long-poll Yjs relay for proxies that drop WebSocket upgrades (memory only, like /collab/ws).

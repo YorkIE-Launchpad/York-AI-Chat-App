@@ -1,14 +1,90 @@
 import { UnauthorizedError } from '@modelcontextprotocol/client';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import {
+  githubMcpSignInHelp,
+  githubOAuthStaticClient,
+  createGithubBackendTokenFetch,
+} from '../src/main/mcp/github-mcp-auth';
+import { resolveBackendUrl } from '../src/shared/backend-config';
+
+vi.mock('../src/main/config/backend-auth', () => ({
+  getBackendAuthHeaders: vi.fn(async () => ({ Authorization: 'Bearer test-token' })),
+}));
 
 import {
   connectWithOAuthRetry,
   createOAuthCallbackListener,
   isMcpOAuthInteractionRequiredError,
+  isMcpOAuthNonRetryableError,
+  isMcpOAuthSetupError,
   McpOAuthInteractionRequiredError,
   McpOAuthSetupError,
   OpenCoworkMcpOAuthProvider,
 } from '../src/main/mcp/mcp-oauth';
+
+describe('githubOAuthStaticClient', () => {
+  const previousId = process.env.GITHUB_OAUTH_CLIENT_ID;
+  const previousSecret = process.env.GITHUB_OAUTH_CLIENT_SECRET;
+
+  afterEach(() => {
+    if (previousId === undefined) delete process.env.GITHUB_OAUTH_CLIENT_ID;
+    else process.env.GITHUB_OAUTH_CLIENT_ID = previousId;
+    if (previousSecret === undefined) delete process.env.GITHUB_OAUTH_CLIENT_SECRET;
+    else process.env.GITHUB_OAUTH_CLIENT_SECRET = previousSecret;
+  });
+
+  it('uses the public client id and leaves the secret on the backend', () => {
+    process.env.GITHUB_OAUTH_CLIENT_ID = 'Ov23li-test-client';
+    process.env.GITHUB_OAUTH_CLIENT_SECRET = 'must-not-be-used';
+    expect(githubOAuthStaticClient()).toEqual({
+      client_id: 'Ov23li-test-client',
+      token_endpoint_auth_method: 'none',
+    });
+    expect(githubMcpSignInHelp()).toContain('backend');
+  });
+
+  it('forwards GitHub token requests to the backend without a client secret', async () => {
+    const calls: Array<{ url: string; body?: string }> = [];
+    const fallback = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({
+        url: String(input),
+        body: typeof init?.body === 'string' ? init.body : undefined,
+      });
+      return new Response(JSON.stringify({ access_token: 'gho_test', token_type: 'bearer' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }) as typeof fetch;
+
+    const proxied = createGithubBackendTokenFetch(fallback);
+    const response = await proxied('https://github.com/login/oauth/access_token', {
+      method: 'POST',
+      body: new URLSearchParams({
+        grant_type: 'authorization_code',
+        code: 'abc',
+        redirect_uri: 'http://127.0.0.1:9/callback',
+        code_verifier: 'ver',
+        client_id: 'public',
+        client_secret: 'should-not-forward',
+      }),
+    });
+
+    expect(response.ok).toBe(true);
+    expect(calls[0]?.url).toBe(
+      `${resolveBackendUrl().replace(/\/+$/, '')}/connectors/oauth/github/token`
+    );
+    expect(JSON.parse(calls[0]?.body || '{}')).toEqual({
+      grant_type: 'authorization_code',
+      code: 'abc',
+      redirect_uri: 'http://127.0.0.1:9/callback',
+      code_verifier: 'ver',
+    });
+
+    await proxied('https://api.githubcopilot.com/mcp/', { method: 'POST', body: '{}' });
+    expect(calls[1]?.url).toBe('https://api.githubcopilot.com/mcp/');
+  });
+});
 
 describe('isMcpOAuthInteractionRequiredError', () => {
   it('recognizes typed and message-shaped OAuth interaction errors', () => {
@@ -21,6 +97,19 @@ describe('isMcpOAuthInteractionRequiredError', () => {
       )
     ).toBe(true);
     expect(isMcpOAuthInteractionRequiredError(new Error('connection closed'))).toBe(false);
+  });
+});
+
+describe('isMcpOAuthSetupError', () => {
+  it('treats GitHub dynamic-registration failure as a non-retryable setup error', () => {
+    const error = new Error(
+      'Incompatible auth server: does not support dynamic client registration'
+    );
+    expect(isMcpOAuthSetupError(error)).toBe(true);
+    expect(isMcpOAuthNonRetryableError(error)).toBe(true);
+    expect(isMcpOAuthNonRetryableError(new McpOAuthSetupError('Set GITHUB_OAUTH_CLIENT_ID'))).toBe(
+      true
+    );
   });
 });
 

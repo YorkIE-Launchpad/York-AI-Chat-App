@@ -104,9 +104,29 @@ describe('connector OAuth router', () => {
   });
 
   it('returns 404 for unknown connectors', async () => {
-    const res = await post('/github/token', { grant_type: 'authorization_code', code: 'abc' });
+    const res = await post('/dropbox/token', { grant_type: 'authorization_code', code: 'abc' });
     assert.equal(res.status, 404);
     assert.equal(lastCall, null);
+  });
+
+  it('exchanges GitHub codes with the server-held client secret', async () => {
+    process.env.GITHUB_OAUTH_CLIENT_ID = 'gh-id';
+    process.env.GITHUB_OAUTH_CLIENT_SECRET = 'gh-secret';
+    const res = await post('/github/token', {
+      grant_type: 'authorization_code',
+      code: 'abc',
+      redirect_uri: 'http://127.0.0.1:9/callback',
+      code_verifier: 'verifier',
+      client_secret: 'from-desktop',
+    });
+    assert.equal(res.status, 200);
+    assert.equal(lastCall?.url, 'https://github.com/login/oauth/access_token');
+    const sent = new URLSearchParams(lastCall?.body);
+    assert.equal(sent.get('client_id'), 'gh-id');
+    assert.equal(sent.get('client_secret'), 'gh-secret');
+    assert.equal(sent.get('code'), 'abc');
+    assert.equal(sent.get('code_verifier'), 'verifier');
+    assert.equal(sent.get('client_secret') === 'from-desktop', false);
   });
 
   it('returns 503 when the server has no credentials for the connector', async () => {

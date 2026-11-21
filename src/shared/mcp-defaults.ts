@@ -36,8 +36,19 @@ export const DEFAULT_ATLASSIAN_MCP_DISPLAY_NAME = 'Jira & Confluence';
 /** Official Atlassian Rovo MCP endpoint (Jira + Confluence tools). */
 export const DEFAULT_ATLASSIAN_MCP_URL = 'https://mcp.atlassian.com/v1/mcp/authv2';
 
-/** Official GitHub remote MCP endpoint (default toolset, browser OAuth). */
+/** Official GitHub remote MCP endpoint (default toolset). */
 export const DEFAULT_GITHUB_MCP_URL = 'https://api.githubcopilot.com/mcp/';
+
+/** True for GitHub's hosted MCP (`api.githubcopilot.com/mcp...`). */
+export function isGithubRemoteMcpUrl(url: string | undefined): boolean {
+  if (!url) return false;
+  try {
+    const parsed = new URL(url);
+    return parsed.hostname === 'api.githubcopilot.com' && parsed.pathname.startsWith('/mcp');
+  } catch {
+    return false;
+  }
+}
 
 export function isAtlassianCatalogServerId(id: string): boolean {
   return id === DEFAULT_JIRA_MCP_SERVER_ID || id === DEFAULT_CONFLUENCE_MCP_SERVER_ID;

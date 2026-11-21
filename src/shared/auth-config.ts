@@ -294,6 +294,14 @@ export const authConfig = {
     return DEFAULT_GITHUB_MCP_URL;
   },
   /**
+   * GitHub OAuth App client id for the remote MCP connector.
+   * GitHub does not support dynamic client registration, so browser sign-in
+   * needs this id. Register the callback URL as http://127.0.0.1/callback.
+   */
+  get githubOAuthClientId(): string | undefined {
+    return readEnv('GITHUB_OAUTH_CLIENT_ID') ?? readEnv('VITE_GITHUB_OAUTH_CLIENT_ID');
+  },
+  /**
    * Hub OAuth return URL — same as Launchpad:
    * HUB_OAUTH_REDIRECT_URL / VITE_HUB_OAUTH_REDIRECT_URL, else {FRONTEND_URL}/auth/callback
    */
