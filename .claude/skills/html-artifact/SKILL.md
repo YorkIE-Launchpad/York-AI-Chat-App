@@ -46,30 +46,24 @@ Still obey CHAT FIRST: only write files when the user asked to create/save somet
 
 Use a workspace-relative `path` (prefer `outputs/...`).
 
-## Reports (required shell)
+## Reports (style guide)
 
-Any GrowthOS report uses `york-report-template.html` in this skill folder. That file is the style guide. The sample inside it (Brightline Health onboarding) is fiction. Replace the sample. Keep the shell.
+Any GrowthOS report takes its look from `york-report-template.html` in this skill folder. Read that file before writing. Copy its CSS, classification strip, cover, AI disclosure, and footer into `outputs/<name>.html`. Do not invent another palette, type stack, or chrome.
 
-Before writing, Read `york-report-template.html` (same directory as this skill). Copy that file to `outputs/<name>.html`. Then edit the copy.
+The body of the template is a fictional onboarding review. It shows the components in use. It is not an outline. Do not generate every section.
 
-**Fixed. Do not restyle or remove:**
+**Include a section only when this report has something to say there.** Drop document control, contents, summary, background, method, findings, options, recommendations, risks, next steps, and appendix when they are not needed. Do not leave an empty section, a placeholder row, or a heading with no content. A short report can be a cover plus one section.
+
+**Keep. Do not restyle:**
 
 - Classification strip
 - Cover layout, York IE logo, and the cover mark
-- Document control, including the revision table
 - AI disclosure
 - Footer and legal line
 - Brand tokens in `:root` (colour, type, spacing)
 - Print rules (`@page` A4, page footer)
 
-**Fill per report:**
-
-- `data-field="..."` — one value each (title, client, date, report ID, bottom line, and the rest)
-- `data-repeat="..."` — zero or more rows (findings, sources, recommendations, risks, steps, revisions)
-- `data-optional` sections — delete a section when it does not apply
-- Contents — rebuild the list from the sections you kept
-
-**Component kit. Use these inside sections. Do not invent new chrome:**
+**Component kit. Use these inside the sections you keep. Do not invent new chrome:**
 
 - `.kpis` / `.kpi` — up to four headline numbers, with `.delta.up` or `.delta.down`
 - `figure.chart` — inline SVG, caption, and source
@@ -87,7 +81,7 @@ Before writing, Read `york-report-template.html` (same directory as this skill).
 - Report ID shape is `YIE-GOS-YYYY-NNNN` when none was given.
 - Classification is Confidential.
 - Update both `@page` footer strings with the real client name and report ID.
-- Say what is unknown. Do not copy Brightline figures, names, or quotes into a real report.
+- Say what is unknown. Do not copy Brightline figures, names, quotes, or the sample section list into a real report.
 
 If the user asked for PDF, print this same HTML (the template is already A4). Do not draw a second layout.
 

@@ -312,7 +312,8 @@ describe('html-artifact intent', () => {
       const skills = discoverSkillsFromPaths([root]);
       const result = expandHtmlArtifactSkillIntent('Write a customer onboarding report', skills);
       expect(result.expanded).toBe(true);
-      expect(result.text).toContain('York IE report shell');
+      expect(result.text).toContain('York IE report style');
+      expect(result.text).toContain('Every section is guidance');
       expect(result.text).toContain('york-report-template.html');
     } finally {
       fs.rmSync(root, { recursive: true, force: true });

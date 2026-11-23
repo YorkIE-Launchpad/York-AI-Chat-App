@@ -5,18 +5,23 @@
   Shipped copy the agent reads: .claude/skills/html-artifact/york-report-template.html
   Keep that file identical to this one.
   ================================================================
-  One shell for every report GrowthOS generates (research, review,
-  strategy, assessment, status, analysis). The sample content is a
-  fictional customer onboarding review. Replace it; keep the shell.
+  Style guide for every report GrowthOS generates (research, review,
+  strategy, assessment, status, analysis). Take the visual system.
+  The body below is one fictional customer onboarding review, shown
+  so the model can see the components in use. It is not an outline.
 
-  FIXED on every report (do not let the model change these):
-    classification strip, cover layout, document control,
-    AI disclosure, footer, brand tokens in :root
+  KEEP on every report (do not restyle):
+    classification strip, cover layout, AI disclosure, footer,
+    brand tokens in :root, component classes
 
-  FILLED per report:
-    elements with data-field="..."      single values
-    elements with data-repeat="..."     repeat 0..n times
-    sections with data-optional         drop if not needed
+  SECTIONS ARE GUIDANCE ONLY:
+    Include a section only when this report has something to say
+    there. Do not emit empty sections, and do not keep a section
+    just because the sample has it. Document control, contents,
+    summary, background, method, findings, options, recommendations,
+    risks, next steps, and appendix are all optional.
+    data-field / data-repeat show how to fill a component, not a
+    required field list.
 
   COMPONENT KIT available to the model inside any section:
     .kpis / .kpi            up to 4 headline numbers
@@ -261,8 +266,8 @@
 
   <div class="pad">
 
-    <!-- ===== FIXED: document control ===== -->
-    <section id="control">
+    <!-- ===== EXAMPLE section: document control. Include only if this report needs it. ===== -->
+    <section id="control" data-optional>
       <h2>Document control</h2>
       <dl class="control">
         <div><dt>Version</dt><dd data-field="version">1.0</dd></div>
@@ -285,8 +290,8 @@
       </div>
     </section>
 
-    <!-- ===== Contents: generated from section ids ===== -->
-    <section id="contents">
+    <!-- ===== EXAMPLE section: contents. Include only when the report has several sections. ===== -->
+    <section id="contents" data-optional>
       <h2>Contents</h2>
       <ol class="toc">
         <li><a href="#summary"><span>Executive summary</span><span>3</span></a></li>
@@ -301,8 +306,8 @@
       </ol>
     </section>
 
-    <!-- ===== Executive summary (always) ===== -->
-    <section id="summary">
+    <!-- ===== EXAMPLE section: executive summary. Include only if a summary earns its place. ===== -->
+    <section id="summary" data-optional>
       <h2>Executive summary</h2>
       <div class="bottom-line">
         <h3>Bottom line</h3>
@@ -319,8 +324,8 @@
       <p data-field="summary_recommendation">Ship self-serve data import, introduce a structured handoff document, and assign a pooled onboarding manager to mid-market accounts. Together these address roughly 80% of the delay at a one-time cost of about six engineering weeks.</p>
     </section>
 
-    <!-- ===== Background and scope ===== -->
-    <section id="background">
+    <!-- ===== EXAMPLE section: background and scope. Omit if the cover already says this. ===== -->
+    <section id="background" data-optional>
       <h2>Background and scope</h2>
       <p data-field="background">Brightline sells scheduling software to outpatient clinics. Onboarding was redesigned in early 2025, but time to first value has crept up for three consecutive quarters while new account volume grew 40%.</p>
       <h3>Objective</h3>
@@ -337,8 +342,8 @@
       </div>
     </section>
 
-    <!-- ===== Approach and sources ===== -->
-    <section id="method">
+    <!-- ===== EXAMPLE section: approach and sources. Include only when method or sources matter. ===== -->
+    <section id="method" data-optional>
       <h2>Approach and sources</h2>
       <p data-field="method">GrowthOS combined CRM and product usage data with customer interview transcripts. A York IE analyst checked every figure against the source systems before release.</p>
       <div class="table-wrap">
@@ -358,8 +363,8 @@
       </div>
     </section>
 
-    <!-- ===== Findings (main body; model adds subsections) ===== -->
-    <section id="findings" class="new-page">
+    <!-- ===== EXAMPLE section: findings. Use for the actual analysis. Shape subsections to the evidence. ===== -->
+    <section id="findings" class="new-page" data-optional>
       <h2>Findings</h2>
       <div class="kpis">
         <div class="kpi" data-repeat="kpi"><div class="label">Time to first value</div><div class="value">23 days</div><div class="delta down">+5 days <small>vs Q2</small></div></div>
@@ -412,7 +417,7 @@
       </div>
     </section>
 
-    <!-- ===== Options considered (optional) ===== -->
+    <!-- ===== EXAMPLE section: options. Include only when real alternatives were weighed. ===== -->
     <section id="options" data-optional>
       <h2>Options considered</h2>
       <div class="table-wrap">
@@ -428,8 +433,8 @@
       <p class="small">Highlighted row is the recommended option.</p>
     </section>
 
-    <!-- ===== Recommendations (always) ===== -->
-    <section id="recommendations">
+    <!-- ===== EXAMPLE section: recommendations. Include only when the report recommends something. ===== -->
+    <section id="recommendations" data-optional>
       <h2>Recommendations</h2>
       <div class="table-wrap">
         <table>
@@ -444,7 +449,7 @@
       </div>
     </section>
 
-    <!-- ===== Risks (optional) ===== -->
+    <!-- ===== EXAMPLE section: risks. Include only when there is a real risk or dependency. ===== -->
     <section id="risks" data-optional>
       <h2>Risks and dependencies</h2>
       <div class="table-wrap">
@@ -459,8 +464,8 @@
       </div>
     </section>
 
-    <!-- ===== Next steps (sequence) ===== -->
-    <section id="next">
+    <!-- ===== EXAMPLE section: next steps. Include only when there is a real sequence of actions. ===== -->
+    <section id="next" data-optional>
       <h2>Next steps</h2>
       <ol class="steps">
         <li data-repeat="step"><b>Agree the recommended option with leadership</b><br><span class="when">Week of 30 Nov</span></li>
@@ -471,8 +476,8 @@
       <p data-field="conclusion" style="margin-top:8px">The delay is mostly within Brightline's control. With the three changes above, the 14-day target is realistic by the end of Q1 2027.</p>
     </section>
 
-    <!-- ===== Appendix ===== -->
-    <section id="appendix" class="small new-page">
+    <!-- ===== EXAMPLE section: appendix. Include only for glossary, assumptions, or references you actually have. ===== -->
+    <section id="appendix" class="small new-page" data-optional>
       <h2>Appendix</h2>
       <h3>A. Glossary</h3>
       <dl class="glossary">

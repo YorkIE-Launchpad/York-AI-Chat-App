@@ -453,10 +453,10 @@ export function expandHtmlArtifactSkillIntent(
   }
   const reportNote = isYorkReportIntent(prompt)
     ? [
-        '## York IE report shell (required this turn)',
-        `This is a report. Before writing, Read \`${path.join(skill.baseDir, 'york-report-template.html')}\` and copy that file under outputs/.`,
-        'That file is the only allowed report shell. Keep the classification strip, cover, document control, AI disclosure, footer, logos, and :root brand tokens.',
-        'Replace the Brightline sample. Fill data-field and data-repeat values. Drop data-optional sections that do not apply. Rebuild the contents list.',
+        '## York IE report style (required this turn)',
+        `This is a report. Before writing, Read \`${path.join(skill.baseDir, 'york-report-template.html')}\`. Take its CSS, classification strip, cover, AI disclosure, and footer. Write a new file under outputs/.`,
+        'The template body is a sample, not an outline. Every section is guidance. Include a section only when this report has something to say there.',
+        'Do not generate document control, contents, summary, background, method, findings, options, recommendations, risks, next steps, or appendix unless they are needed. Do not leave empty sections or placeholder rows.',
         'Use only the component kit named in the template header. Update both @page footer strings with the client name and report ID.',
         'Status stays Draft and human review stays Pending unless the user said someone already reviewed it. Do not invent people, figures, or a different layout.',
       ].join('\n')

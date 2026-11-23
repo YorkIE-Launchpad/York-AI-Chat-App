@@ -8,7 +8,7 @@ license: Proprietary. LICENSE.txt has complete terms
 
 ## Overview
 
-York IE / GrowthOS **reports** use `.claude/skills/html-artifact/york-report-template.html` as the shell. Use this docx skill when the user explicitly asked for Word. If they did, keep that template's section order and brand (green `#00B48A`, ink `#15241F`, Outfit headings, Source Sans 3 body) and the fixed blocks: classification, cover, document control, AI disclosure, footer.
+York IE / GrowthOS **reports** take their look from `.claude/skills/html-artifact/york-report-template.html`. Use this docx skill when the user explicitly asked for Word. Keep the brand (green `#00B48A`, ink `#15241F`, Outfit headings, Source Sans 3 body) and the frame: classification, cover, AI disclosure, footer. Include a body section only when the report needs it. Do not copy the sample outline.
 
 A .docx file is a ZIP archive containing XML files.
 
