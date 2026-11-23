@@ -220,12 +220,12 @@ When the multi goal is **visual fidelity / migrate + compare** (or similar):
 
 ## Cross-skill routing
 
-| Goal domain                                   | Also load / follow                                           |
-| --------------------------------------------- | ------------------------------------------------------------ |
-| Company data, people, calendar, slack         | `york-os` (+ hub/launchpad skills as routed)                 |
-| LaunchPad release / ship / migrate / fidelity | **`rnd-launchpad-mcp-sdlc`** (required every launchpad tick) |
-| HTML deck / one-pager                         | `html-artifact`                                              |
-| Office docs                                   | `docx` / `pptx` / `xlsx` / `pdf` as named                    |
+| Goal domain                                   | Also load / follow                                              |
+| --------------------------------------------- | --------------------------------------------------------------- |
+| Company data, people, calendar, slack         | `york-os` (+ hub/launchpad skills as routed)                    |
+| LaunchPad release / ship / migrate / fidelity | **`rnd-launchpad-mcp-sdlc`** (required every launchpad tick)    |
+| HTML deck / one-pager / report                | `html-artifact` (reports must copy `york-report-template.html`) |
+| Office docs                                   | `docx` / `pptx` / `xlsx` / `pdf` as named                       |
 
 Detect type **first**, then lean on the domain skill for tools — do not skip
 the status contract. LaunchPad domain work must keep the SDLC skill in play

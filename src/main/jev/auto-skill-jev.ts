@@ -37,7 +37,8 @@ const SKILL_CRITERIA: Record<JevSkillIntent, string> = {
   project_status: 'Project status or how is project X',
   confluence: 'Confluence / wiki document work',
   launchpad: 'R&D LaunchPad delivery / release / preview',
-  html_artifact: 'Create HTML presentation / one-pager / deck artifact',
+  html_artifact:
+    'Create an HTML presentation, one-pager, deck, or York IE report (report, review, assessment, analysis). Reports must use the York report template.',
   goal_runner:
     'User explicitly asks for autonomous work until an outcome is reached (e.g. "keep going until tests pass", "don\'t stop until it ships"). NOT ordinary one-off fix / implement / question requests',
   york_os_core: 'General York OS / Hub / multi-connector company question',
@@ -70,8 +71,7 @@ export async function jevScoreAutoTier(options: {
 
   const complexity = result.answers.complexity;
   const tierAns = result.answers.tier;
-  const rawScore =
-    complexity?.type === 'score' ? Math.round((complexity.score / 4) * 100) : 50;
+  const rawScore = complexity?.type === 'score' ? Math.round((complexity.score / 4) * 100) : 50;
   const tier =
     tierAns?.type === 'choice' &&
     (tierAns.choice === 'fast' || tierAns.choice === 'balanced' || tierAns.choice === 'frontier')

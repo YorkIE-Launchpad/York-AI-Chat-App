@@ -229,13 +229,40 @@ export function isConfluenceDocumentIntent(prompt: string): boolean {
   return false;
 }
 
-function isVisualCreateAsk(text: string): boolean {
-  return (
-    /\b(create|make|build|write|draft|design)\b/i.test(text) &&
-    /\b(presentation|deck|slides?|one[-\s]?pager|landing\s+page|dashboard\s+mock|handout|report\s+page|microsite|interactive\s+(handout|explainer))\b/i.test(
+const CREATE_VERB_RE = /\b(create|make|build|write|draft|design|generate|produce|prepare)\b/i;
+
+/**
+ * A written York IE report (research, review, strategy, assessment, status, analysis).
+ * Code reviews and Office/Confluence asks are not this.
+ */
+export function isYorkReportIntent(prompt: string): boolean {
+  const text = stripSkillBlocks(prompt);
+  if (!text) return false;
+  if (/\b(pptx|docx|xlsx|pdf|powerpoint|ms\s*word|excel)\b/i.test(text)) return false;
+  if (isConfluenceDocumentIntent(text)) return false;
+  if (/\b(code|pr|pull request|security)\s+review\b/i.test(text)) return false;
+  if (!CREATE_VERB_RE.test(text)) return false;
+  if (/\b(report|assessment|briefing)\b/i.test(text)) return true;
+  if (
+    /\b(strategy|operational|research|quarterly|monthly|customer|client|onboarding)\s+review\b/i.test(
       text
     )
-  );
+  ) {
+    return true;
+  }
+  return /\b(write|draft|generate|produce|prepare)\s+(an?\s+)?review\b/i.test(text);
+}
+
+function isVisualCreateAsk(text: string): boolean {
+  if (!CREATE_VERB_RE.test(text)) return false;
+  if (
+    /\b(presentation|deck|slides?|one[-\s]?pager|landing\s+page|dashboard\s+mock|handout|report(?:\s+page)?|assessment|briefing|microsite|interactive\s+(handout|explainer))\b/i.test(
+      text
+    )
+  ) {
+    return true;
+  }
+  return isYorkReportIntent(text);
 }
 
 /**
@@ -424,7 +451,17 @@ export function expandHtmlArtifactSkillIntent(
   if (!skill) {
     return { expanded: false, text: prompt };
   }
-  return wrapExpanded(prompt, skill);
+  const reportNote = isYorkReportIntent(prompt)
+    ? [
+        '## York IE report shell (required this turn)',
+        `This is a report. Before writing, Read \`${path.join(skill.baseDir, 'york-report-template.html')}\` and copy that file under outputs/.`,
+        'That file is the only allowed report shell. Keep the classification strip, cover, document control, AI disclosure, footer, logos, and :root brand tokens.',
+        'Replace the Brightline sample. Fill data-field and data-repeat values. Drop data-optional sections that do not apply. Rebuild the contents list.',
+        'Use only the component kit named in the template header. Update both @page footer strings with the client name and report ID.',
+        'Status stays Draft and human review stays Pending unless the user said someone already reviewed it. Do not invent people, figures, or a different layout.',
+      ].join('\n')
+    : null;
+  return wrapExpanded(prompt, skill, reportNote);
 }
 
 /** `/goal` start or an automated goal-loop tick (already carries GOAL_STATUS instructions). */

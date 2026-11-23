@@ -8,6 +8,8 @@ license: Proprietary. LICENSE.txt has complete terms
 
 ## Overview
 
+York IE / GrowthOS **reports** are not a new PDF layout. Copy `.claude/skills/html-artifact/york-report-template.html`, fill it, and print that HTML (it is already A4). Use this PDF skill for extracting, merging, splitting, and forms.
+
 This guide covers essential PDF processing operations using Python libraries and command-line tools. For advanced features, JavaScript libraries, and detailed examples, see REFERENCE.md. If you need to fill out a PDF form, read FORMS.md and follow its instructions.
 
 ## Quick Start

@@ -3198,7 +3198,8 @@ This folder is for local files only (exports, drafts, notes). Never edit applica
             ? `
 12. macOS privacy: Never scan the entire home directory, and do not read ~/Music, ~/Pictures, or ~/Movies — that triggers system permission prompts (including a spurious Apple Music / media-library dialog). Prefer the workspace, MCP/Drive, or a user-specified folder; only touch Desktop/Downloads/Documents when the request clearly needs those folders.`
             : ''
-        }`,
+        }
+14. REPORT STYLE: Every GrowthOS report (research, review, strategy, assessment, status, analysis) is the York IE HTML shell, york-report-template.html, in the html-artifact skill. Copy that file into outputs/. Keep the classification strip, cover, document control, AI disclosure, footer, and :root brand tokens. Replace the sample content. Do not invent another report layout, palette, or type stack. If the user asked for PDF, print that same HTML. Decks and one-pagers are not this shell.`,
         `<draft_format>
 When you write a message for the user to review or send (email, Slack message, reply, Jira comment, post) and you are not sending it with a tool in this turn, put the draft in a fenced code block tagged \`draft\` so the app shows it as an editable draft. Optional header lines first — "To: …" or "Channel: …", "Subject: …", "Via: Gmail|Slack|Jira" — then a blank line, then the message body as plain text. One block per draft; keep commentary outside the block.
 </draft_format>`,

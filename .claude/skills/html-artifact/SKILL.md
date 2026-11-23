@@ -2,9 +2,11 @@
 name: html-artifact
 description: >-
   Create polished, self-contained HTML deliverables for in-app preview.
-  Use when the user asks to create a presentation, deck, one-pager, report page,
-  dashboard mock, landing page, interactive handout, or similar visual artifact —
-  unless they explicitly request pptx, docx, xlsx, or pdf.
+  Use when the user asks to create a presentation, deck, one-pager, report,
+  assessment, review, dashboard mock, landing page, interactive handout, or
+  similar visual artifact — unless they explicitly request pptx, docx, xlsx, or pdf.
+  Every GrowthOS report must copy york-report-template.html in this folder and
+  keep its shell. Do not invent a different report layout.
 ---
 
 # HTML artifacts (default for creations)
@@ -16,7 +18,8 @@ description: >-
 - Presentations / decks / slide updates
 - One-pagers, briefs, handouts
 - Landing pages, microsites, interactive explainers
-- Dashboard or report page mocks
+- Dashboard mocks
+- Reports: research, review, strategy, assessment, status, analysis
 
 **Do not use** when the user explicitly asks for Office/PDF formats
 (`pptx`, `docx`, `xlsx`, `pdf`, PowerPoint, Word, Excel). Then use those skills.
@@ -42,6 +45,53 @@ Still obey CHAT FIRST: only write files when the user asked to create/save somet
 ````
 
 Use a workspace-relative `path` (prefer `outputs/...`).
+
+## Reports (required shell)
+
+Any GrowthOS report uses `york-report-template.html` in this skill folder. That file is the style guide. The sample inside it (Brightline Health onboarding) is fiction. Replace the sample. Keep the shell.
+
+Before writing, Read `york-report-template.html` (same directory as this skill). Copy that file to `outputs/<name>.html`. Then edit the copy.
+
+**Fixed. Do not restyle or remove:**
+
+- Classification strip
+- Cover layout, York IE logo, and the cover mark
+- Document control, including the revision table
+- AI disclosure
+- Footer and legal line
+- Brand tokens in `:root` (colour, type, spacing)
+- Print rules (`@page` A4, page footer)
+
+**Fill per report:**
+
+- `data-field="..."` — one value each (title, client, date, report ID, bottom line, and the rest)
+- `data-repeat="..."` — zero or more rows (findings, sources, recommendations, risks, steps, revisions)
+- `data-optional` sections — delete a section when it does not apply
+- Contents — rebuild the list from the sections you kept
+
+**Component kit. Use these inside sections. Do not invent new chrome:**
+
+- `.kpis` / `.kpi` — up to four headline numbers, with `.delta.up` or `.delta.down`
+- `figure.chart` — inline SVG, caption, and source
+- `table` inside `.table-wrap` — `td.num` for numbers; `tr.chosen` for the recommended row
+- `.callout.insight` — takeaway; `.callout.caution` — gap, caveat, or risk
+- `blockquote.evidence` — a real quote or source, with `cite`
+- `.pill.high` / `.med` / `.low` — priority, impact, likelihood
+- `.status.draft` / `.in-review` / `.final`
+- `ol.steps` — real sequences only (a plan or timeline)
+
+**Defaults when the user did not say otherwise:**
+
+- Status is Draft. Human review is Pending. Do not mark Final, and do not invent a reviewer.
+- Prepared by is "York IE, via GrowthOS".
+- Report ID shape is `YIE-GOS-YYYY-NNNN` when none was given.
+- Classification is Confidential.
+- Update both `@page` footer strings with the real client name and report ID.
+- Say what is unknown. Do not copy Brightline figures, names, or quotes into a real report.
+
+If the user asked for PDF, print this same HTML (the template is already A4). Do not draw a second layout.
+
+Decks, one-pagers, and landing pages are not this shell. Use the presentation pattern below for those.
 
 ## Presentation pattern
 

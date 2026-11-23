@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<!--
+  ================================================================
+  York IE report template for GrowthOS
+  Shipped copy the agent reads: .claude/skills/html-artifact/york-report-template.html
+  Keep that file identical to this one.
+  ================================================================
+  One shell for every report GrowthOS generates (research, review,
+  strategy, assessment, status, analysis). The sample content is a
+  fictional customer onboarding review. Replace it; keep the shell.
+
+  FIXED on every report (do not let the model change these):
+    classification strip, cover layout, document control,
+    AI disclosure, footer, brand tokens in :root
+
+  FILLED per report:
+    elements with data-field="..."      single values
+    elements with data-repeat="..."     repeat 0..n times
+    sections with data-optional         drop if not needed
+
+  COMPONENT KIT available to the model inside any section:
+    .kpis / .kpi            up to 4 headline numbers
+    figure.chart            inline SVG chart + caption + source
+    table (in .table-wrap)  any tabular data; td.num for numbers
+    .callout.insight        key takeaway
+    .callout.caution        caveat, data gap, or risk to flag
+    blockquote.evidence     direct evidence (customer quote, source)
+    .pill.high/.med/.low    priority, impact, likelihood
+    .status.*               draft / in-review / final
+    ol.steps                genuine sequences only (timelines, plans)
+
+  PRINT: A4. Page footer + "Page X of Y" come from @page rules
+  (Chrome/Puppeteer 131+). Update the two @page content strings
+  with the client name and report ID, or use Puppeteer footerTemplate.
+  ================================================================
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title data-field="title">Customer onboarding review, Q3 2026</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Source+Sans+3:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
+<style>
+  /* ============ Brand tokens (fixed) ============ */
+  :root {
+    --brand: #00B48A;
+    --brand-text: #00785C;
+    --brand-tint: #E6F7F2;
+    --brand-wash: #F2FAF7;
+    --ink: #15241F;
+    --body: #2E3C38;
+    --muted: #5E6E69;
+    --line: #DCE5E2;
+    --surface: #FFFFFF;
+    --canvas: #EEF2F1;
+    --row: #F6F9F8;
+    --up: #00785C;
+    --down: #B4412C;  --down-tint: #FBEBE7;
+    --watch: #9A6A12; --watch-tint: #FBF3E2;
+    --font-head: "Outfit", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    --font-body: "Source Sans 3", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    --sheet: 210mm;
+    color-scheme: light;
+  }
+
+  /* ============ Base ============ */
+  *, *::before, *::after { box-sizing: border-box; }
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; scroll-behavior: smooth; }
+  body { margin: 0; background: var(--canvas); color: var(--body); font: 400 15px/1.6 var(--font-body); font-variant-numeric: tabular-nums; }
+  h1, h2, h3 { font-family: var(--font-head); color: var(--ink); margin: 0; line-height: 1.2; }
+  h2 { font-size: 22px; font-weight: 600; letter-spacing: -0.01em; }
+  h3 { font-size: 16px; font-weight: 600; margin: 22px 0 8px; }
+  p { margin: 0 0 12px; max-width: 72ch; }
+  ul.plain { margin: 0 0 12px; padding-left: 20px; max-width: 72ch; }
+  ul.plain li { margin-bottom: 6px; }
+  a { color: var(--brand-text); }
+  a:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+
+  .sheet { width: 100%; max-width: var(--sheet); margin: 32px auto; background: var(--surface); }
+  .pad { padding: 0 18mm; }
+
+  /* ============ Classification strip ============ */
+  .classification { background: var(--brand); color: #04241C; font: 600 12px/1 var(--font-head); letter-spacing: 0.04em; padding: 8px 18mm; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+
+  /* ============ Cover ============ */
+  .cover { background: var(--brand-wash); border-bottom: 1px solid var(--line); padding: 34px 18mm 38px; position: relative; overflow: hidden; }
+  .cover::after { content: ""; position: absolute; right: -40px; bottom: -60px; width: 260px; height: 260px; background: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACkAAAAqCAYAAAAu9HJYAAAFaklEQVR4nL2YQXLaSBSGvydg1txg4AQhJxi8dIGn7BMETmCzMJRXwCoVcJXwCSAnwIlNeWnPCeycwJobsHFmKkh6s2hJSEYI8Nj+V6hp9ftb/b/3d7ewK66GVUTHiEz4lb/gqDXfeYwdIVv3vBpWEbqg1Virg9Cn1p68NrE4NpOc2kUKbhf05Nmrc9Bi8OCQK+yx33Jel56BlfnvbNil4D4agjIHbSE0DUe9DH47QAlv8cjsfMyNXdo6+tQubtM/neTVsMr14BHVHmgR5YLFU5l6Z5ToV2tPqLfLEVn1G4bssLuR4PcvhxQW99tMLrncN3YJzx0ndOfrEX92LqPn2aCBMkaYUGs3l+9+LuFZPZBPQUu6XtO1DTBHZETttJ9OclV3DogDWkVlj4PTu40k42T9nI1yGIR4IJc/4l/mqzEAKIHcxUivTM5idn6c0J1qn8XPj+D/vUJgG+yfOdTaR0u9agVv8bgSo94umw8BKH1yXhnhEiihjLke3oYSsFB/BFpEmLB4KnPQ6XHUm68En9pFZsMuKnYwcCNTS6FeVftRJQi1fdDpbTG5Kv6ia0gaONTazVRyYHRUWNxHiWRmHCbKbWaiHHR6oGbcvDdaGyM+OSGhy+wSBBh30VtC7ajsUWsfkfP2QL8CJVR7XA8emQ0aG8d7AdJJTu0iWL8HTyXAQWWP+ukyifbPHOqdxoqWZoPpVrVyaheBonnwq7uRXCZS7EWZk887qSM815JyuLH2LU2iYoaXbtbkhOuBmsGliegY8+VAmAB/oXSXbdYEK9fPtL+rLz1EPhGugNCPxshZDTy/F40X/wihxYo1AXFQrxeWuZBk/IU7lH6iNl5/OQE5jgKjFyvuE8dqYX+GIEZY1FX2wK8i1nFsP0BIMr7cc4RmQnch6p2RSZTApxE7M1FCvQofn/2zqu0QB50eOfdjkIwJWLHGIko3NfDVsIqXCzI8QnaimJp6ax5iJvGcXPrkEk6Wp95pcPO5Fy2PqfafyOVNx4SXyx2ic5RDhEuUSpAoh8zOjV5dt4ToGFVDXJjw66m1sT5mwEqZgQNaxVs84i2CLJelFHz9Ebz7LeEo6jfw3PuUmrreJEKoFDeTDBFaGdoyGQdmmZ7Ka3ffoZaEy0D0zlpth7ixS1wPb6MVsnw7ywjSi3m9M4qsbJ2Xx7F/5uDLhXkQZ+2EpnaR66G9XCGcpWsx5nrwyPfzw+1IvgXW7baWVcABSlj+FOU4/mr+zcmZ06WN+hXAJJLl9tk/c6I+tfYDUA72ql2g8j4kV3b5QQGvZ5QgXxwk5i1qkvQtSJp9p+eemESSOaItaqeTtW+sm9BB++6NSGoFpRLpzv25fg85tYv85h7jLXpBS3B0SE7orZbbQWly0Llb22N2foy6PTT42upf4P6TOqG3ImlcZzZYc1pMJNIllttKJNI7kHwA/bG02EEX4QirMN85kQLsVidv7BJi/QGAyof0TarMV2qfco/n3kcWi7YyHelFJMOTYhQIQE/MIWyNndXaD8vbjWenxay96ItIhtch0ZWL9s1XemZnkizAMbKTnU6LKdisSUum5ofckXObMYE3mA1GKFOgBGrvGnxbbJc4QjO1GEd2dj5G/YZp1CqzYRcr//W1rgLXL7c5oJsgZiNsryTKjV1KEgz7ay9Trzti8yWqOf2FNxTGEX4VLvnNPUY5iawPv0+9M0q9XUOKoEVyXjmrHr6cJGSf/lT7qU6x3NGUorY3JbkMXFkmCoFbFFprtRdeE74ryWTw2KWB9BKXnysXpSuV4R1IgpGAazUSekUuEPmQSCSV5rbO8vokQ6TqNZZIr4D/TzLE9/NDLN9G+Yb7c/PhbQf8B8Y6Sl4noLVgAAAAAElFTkSuQmCC") no-repeat center / contain; opacity: 0.10; }
+  .cover .logo { height: 30px; display: block; margin-bottom: 52px; }
+  .cover .kind { font: 500 14px/1 var(--font-head); color: var(--brand-text); margin-bottom: 12px; }
+  .cover h1 { font-size: 38px; font-weight: 600; letter-spacing: -0.02em; max-width: 18ch; }
+  .cover .sub { margin-top: 12px; font-size: 17px; color: var(--muted); max-width: 54ch; }
+  .meta { display: grid; grid-template-columns: repeat(4, auto); gap: 8px 32px; margin: 36px 0 0; justify-content: start; position: relative; z-index: 1; }
+  .meta dt { font-size: 12px; color: var(--muted); }
+  .meta dd { margin: 2px 0 0; color: var(--ink); font-weight: 600; font-size: 14px; }
+
+  /* ============ Sections ============ */
+  section { padding-top: 34px; scroll-margin-top: 12px; }
+  section > h2 { padding-bottom: 10px; border-bottom: 2px solid var(--brand); margin-bottom: 18px; display: block; width: fit-content; }
+  .lede { font-size: 17px; color: var(--ink); line-height: 1.55; }
+
+  /* Document control */
+  .control { display: grid; grid-template-columns: 1fr 1fr; gap: 0 32px; border-top: 1px solid var(--line); }
+  .control div { display: flex; justify-content: space-between; gap: 16px; padding: 9px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+  .control dt { color: var(--muted); }
+  .control dd { margin: 0; color: var(--ink); font-weight: 600; text-align: right; }
+
+  .status { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 3px; }
+  .status.draft { background: var(--watch-tint); color: var(--watch); }
+  .status.in-review { background: #E8EEF7; color: #2F5486; }
+  .status.final { background: var(--brand-tint); color: var(--brand-text); }
+
+  /* Contents */
+  .toc { list-style: none; margin: 0; padding: 0; columns: 2; column-gap: 32px; }
+  .toc li { break-inside: avoid; border-bottom: 1px dotted var(--line); }
+  .toc a { display: flex; justify-content: space-between; padding: 7px 0; color: var(--ink); text-decoration: none; font-size: 14px; }
+  .toc a:hover { color: var(--brand-text); }
+  .toc a span:last-child { color: var(--muted); }
+
+  /* Bottom line */
+  .bottom-line { border-left: 4px solid var(--brand); background: var(--brand-wash); padding: 16px 20px; margin: 4px 0 20px; }
+  .bottom-line h3 { margin: 0 0 6px; font-size: 14px; color: var(--brand-text); }
+  .bottom-line p { margin: 0; color: var(--ink); font-size: 16px; }
+
+  /* KPI row */
+  .kpis { display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid var(--line); margin-bottom: 20px; }
+  .kpi { padding: 16px 18px; border-right: 1px solid var(--line); }
+  .kpi:last-child { border-right: 0; }
+  .kpi .label { font-size: 13px; color: var(--muted); }
+  .kpi .value { font: 600 28px/1.15 var(--font-head); color: var(--ink); margin: 6px 0 4px; }
+  .delta { font-size: 13px; font-weight: 600; }
+  .delta.up { color: var(--up); } .delta.down { color: var(--down); }
+  .delta small { color: var(--muted); font-weight: 400; }
+
+  /* Chart */
+  figure { margin: 0 0 20px; }
+  .chart { border: 1px solid var(--line); padding: 16px 16px 10px; }
+  .chart svg { width: 100%; height: auto; display: block; }
+  .chart .grid { stroke: var(--line); }
+  .chart .axis { fill: var(--muted); font: 12px var(--font-body); }
+  .chart .bar { fill: var(--brand); }
+  .chart .bar.off { fill: #A9C9BF; }
+  .chart .target { stroke: var(--down); stroke-width: 1.5; stroke-dasharray: 5 4; }
+  .chart .val { fill: var(--ink); font: 600 12px var(--font-body); }
+  figcaption { font-size: 13px; color: var(--muted); margin-top: 8px; }
+  figcaption b { color: var(--ink); font-weight: 600; }
+
+  /* Tables */
+  .table-wrap { overflow-x: auto; margin-bottom: 20px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  caption { text-align: left; font-size: 13px; color: var(--muted); padding-bottom: 8px; }
+  th { text-align: left; font: 600 13px var(--font-head); color: var(--muted); padding: 8px 10px; border-bottom: 1.5px solid var(--ink); white-space: nowrap; }
+  td { padding: 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tbody tr:nth-child(even) td { background: var(--row); }
+  td.num, th.num { text-align: right; }
+  td.nowrap { white-space: nowrap; }
+  td strong { color: var(--ink); }
+  tr.chosen td { background: var(--brand-tint) !important; }
+
+  /* Callouts and evidence */
+  .callout { padding: 14px 18px; margin: 0 0 20px; font-size: 14px; border-left: 4px solid; }
+  .callout b { display: block; color: var(--ink); margin-bottom: 2px; }
+  .callout.insight { background: var(--brand-wash); border-color: var(--brand); }
+  .callout.caution { background: var(--watch-tint); border-color: var(--watch); }
+  blockquote.evidence { margin: 0 0 20px; padding: 4px 0 4px 18px; border-left: 2px solid var(--line); color: var(--ink); font-style: italic; max-width: 64ch; }
+  blockquote.evidence cite { display: block; font-style: normal; font-size: 13px; color: var(--muted); margin-top: 6px; }
+
+  .pill { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 3px; white-space: nowrap; }
+  .pill.high { background: var(--down-tint); color: var(--down); }
+  .pill.med { background: var(--watch-tint); color: var(--watch); }
+  .pill.low { background: var(--brand-tint); color: var(--brand-text); }
+
+  /* Steps (real sequences only) */
+  ol.steps { list-style: none; counter-reset: step; margin: 0; padding: 0; }
+  ol.steps li { counter-increment: step; position: relative; padding: 0 0 18px 44px; }
+  ol.steps li::before { content: counter(step); position: absolute; left: 0; top: 0; width: 28px; height: 28px; border-radius: 50%; background: var(--brand-tint); color: var(--brand-text); font: 600 13px/28px var(--font-head); text-align: center; }
+  ol.steps li::after { content: ""; position: absolute; left: 13.5px; top: 30px; bottom: 2px; border-left: 1px solid var(--line); }
+  ol.steps li:last-child::after { display: none; }
+  ol.steps b { color: var(--ink); }
+  ol.steps .when { color: var(--muted); font-size: 13px; }
+
+  /* Small print */
+  .small { font-size: 13px; color: var(--muted); }
+  .small p, .small li { max-width: none; }
+  ol.refs { padding-left: 20px; margin: 0; font-size: 13px; }
+  ol.refs li { margin-bottom: 6px; }
+  dl.glossary { display: grid; grid-template-columns: max-content 1fr; gap: 6px 20px; font-size: 13px; margin: 0; }
+  dl.glossary dt { font-weight: 600; color: var(--ink); }
+  dl.glossary dd { margin: 0; }
+
+  /* AI disclosure */
+  .ai-disclosure { margin-top: 34px; border: 1px solid var(--line); padding: 16px 20px; display: grid; grid-template-columns: 36px 1fr; gap: 14px; font-size: 13px; }
+  .ai-disclosure img { width: 32px; height: auto; }
+  .ai-disclosure h3 { margin: 0 0 4px; font-size: 14px; }
+  .ai-disclosure p { margin: 0 0 6px; max-width: none; color: var(--body); }
+  .ai-disclosure dl { display: flex; flex-wrap: wrap; gap: 4px 24px; margin: 8px 0 0; }
+  .ai-disclosure dt { color: var(--muted); display: inline; }
+  .ai-disclosure dd { display: inline; margin: 0 0 0 4px; color: var(--ink); font-weight: 600; }
+
+  /* Footer */
+  .doc-footer { margin-top: 40px; border-top: 1px solid var(--line); padding: 20px 18mm 28px; display: grid; grid-template-columns: auto 1fr; gap: 6px 24px; align-items: start; }
+  .doc-footer img { height: 22px; }
+  .doc-footer .legal { font-size: 12px; color: var(--muted); line-height: 1.5; }
+  .doc-footer .legal strong { color: var(--ink); }
+  .doc-footer .refs-line { grid-column: 2; font-size: 12px; color: var(--muted); display: flex; gap: 20px; flex-wrap: wrap; }
+
+  /* Responsive */
+  @media (max-width: 700px) {
+    .sheet { margin: 0; } .pad { padding: 0 20px; }
+    .classification { padding: 8px 20px; } .cover { padding: 28px 20px; }
+    .meta { grid-template-columns: repeat(2, auto); }
+    .control { grid-template-columns: 1fr; } .toc { columns: 1; }
+    .kpis { grid-template-columns: 1fr 1fr; }
+    .kpi:nth-child(2) { border-right: 0; }
+    .kpi:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
+    .doc-footer { padding: 20px; grid-template-columns: 1fr; } .doc-footer .refs-line { grid-column: 1; }
+  }
+
+  /* Print */
+  @page {
+    size: A4; margin: 14mm 0 18mm 0;
+    @bottom-left { content: "Confidential. Prepared by York IE for Brightline Health. Not for distribution."; font: 8pt "Source Sans 3", Arial, sans-serif; color: #5E6E69; padding-left: 18mm; }
+    @bottom-right { content: "YIE-GOS-2026-0187   Page " counter(page) " of " counter(pages); font: 8pt "Source Sans 3", Arial, sans-serif; color: #5E6E69; padding-right: 18mm; }
+  }
+  @page :first { margin-top: 0; }
+  @media print {
+    body { background: #fff; font-size: 10.5pt; }
+    .sheet { margin: 0; max-width: none; }
+    section { padding-top: 22px; }
+    .kpis, figure, tr, .callout, blockquote, .bottom-line, ol.steps li, .ai-disclosure, .doc-footer { break-inside: avoid; }
+    h2, h3 { break-after: avoid; }
+    .new-page { break-before: page; }
+    #contents { break-inside: avoid; }
+    .toc a span:last-child { display: none; }
+  }
+</style>
+</head>
+<body>
+<main class="sheet">
+
+  <!-- ===== FIXED: classification strip ===== -->
+  <div class="classification">
+    <span data-field="classification">Confidential</span>
+    <span>Prepared by York IE for <span data-field="client">Brightline Health</span></span>
+  </div>
+
+  <!-- ===== FIXED: cover ===== -->
+  <header class="cover">
+    <img class="logo" src="data:image/png;base64,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" alt="York IE">
+    <div class="kind" data-field="report_type">Operational review</div>
+    <h1 data-field="title">Customer onboarding review, Q3 2026</h1>
+    <p class="sub" data-field="subtitle">Why new customers take 23 days to reach first value, and what it would take to bring that under two weeks.</p>
+    <dl class="meta">
+      <div><dt>Prepared for</dt><dd data-field="client">Brightline Health</dd></div>
+      <div><dt>Prepared by</dt><dd data-field="author">York IE, via GrowthOS</dd></div>
+      <div><dt>Date</dt><dd data-field="date">23 Nov 2026</dd></div>
+      <div><dt>Report ID</dt><dd data-field="report_id">YIE-GOS-2026-0187</dd></div>
+    </dl>
+  </header>
+
+  <div class="pad">
+
+    <!-- ===== FIXED: document control ===== -->
+    <section id="control">
+      <h2>Document control</h2>
+      <dl class="control">
+        <div><dt>Version</dt><dd data-field="version">1.0</dd></div>
+        <div><dt>Status</dt><dd><span class="status final" data-field="status">Final</span></dd></div>
+        <div><dt>Owner</dt><dd data-field="owner">Shreya Gokani</dd></div>
+        <div><dt>Reviewed by</dt><dd data-field="reviewer">Customer Success Lead</dd></div>
+        <div><dt>Distribution</dt><dd data-field="distribution">Brightline leadership team</dd></div>
+        <div><dt>Data as of</dt><dd data-field="data_as_of">30 Sep 2026</dd></div>
+      </dl>
+      <div class="table-wrap" style="margin-top:18px">
+        <table>
+          <caption>Revision history</caption>
+          <thead><tr><th>Version</th><th>Date</th><th>Change</th><th>By</th></tr></thead>
+          <tbody>
+            <tr data-repeat="revision"><td>0.1</td><td class="nowrap">14 Nov 2026</td><td>First draft generated by GrowthOS</td><td>GrowthOS</td></tr>
+            <tr data-repeat="revision"><td>0.2</td><td class="nowrap">19 Nov 2026</td><td>Corrected segment data, added customer interviews</td><td>S. Gokani</td></tr>
+            <tr data-repeat="revision"><td>1.0</td><td class="nowrap">23 Nov 2026</td><td>Reviewed and approved for client</td><td>CS Lead</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ===== Contents: generated from section ids ===== -->
+    <section id="contents">
+      <h2>Contents</h2>
+      <ol class="toc">
+        <li><a href="#summary"><span>Executive summary</span><span>3</span></a></li>
+        <li><a href="#background"><span>Background and scope</span><span>3</span></a></li>
+        <li><a href="#method"><span>Approach and sources</span><span>4</span></a></li>
+        <li><a href="#findings"><span>Findings</span><span>4</span></a></li>
+        <li><a href="#options"><span>Options considered</span><span>6</span></a></li>
+        <li><a href="#recommendations"><span>Recommendations</span><span>6</span></a></li>
+        <li><a href="#risks"><span>Risks and dependencies</span><span>7</span></a></li>
+        <li><a href="#next"><span>Next steps</span><span>7</span></a></li>
+        <li><a href="#appendix"><span>Appendix</span><span>8</span></a></li>
+      </ol>
+    </section>
+
+    <!-- ===== Executive summary (always) ===== -->
+    <section id="summary">
+      <h2>Executive summary</h2>
+      <div class="bottom-line">
+        <h3>Bottom line</h3>
+        <p data-field="bottom_line">Onboarding is slow because customers wait on us, not because the product is hard to set up. Fixing data migration and the kickoff handoff would cut time to first value from 23 to about 12 days.</p>
+      </div>
+      <p class="lede" data-field="summary_lede">Brightline asked York IE to explain why new customers take more than three weeks to reach first value and why one in three never finish onboarding. We analysed 142 accounts onboarded between April and September 2026 and interviewed 11 customers.</p>
+      <h3>Key findings</h3>
+      <ul class="plain">
+        <li data-repeat="key_finding"><strong>Data migration accounts for 9 of the 23 days.</strong> Customers wait on average nine days for a CSV import that the team processes by hand.</li>
+        <li data-repeat="key_finding"><strong>The sales-to-CS handoff loses context.</strong> 64% of kickoff calls repeat discovery questions the customer already answered during sales.</li>
+        <li data-repeat="key_finding"><strong>Mid-market accounts are hit hardest.</strong> They take 31 days on average, double the enterprise figure, because they get no named onboarding manager.</li>
+      </ul>
+      <h3>Recommendation</h3>
+      <p data-field="summary_recommendation">Ship self-serve data import, introduce a structured handoff document, and assign a pooled onboarding manager to mid-market accounts. Together these address roughly 80% of the delay at a one-time cost of about six engineering weeks.</p>
+    </section>
+
+    <!-- ===== Background and scope ===== -->
+    <section id="background">
+      <h2>Background and scope</h2>
+      <p data-field="background">Brightline sells scheduling software to outpatient clinics. Onboarding was redesigned in early 2025, but time to first value has crept up for three consecutive quarters while new account volume grew 40%.</p>
+      <h3>Objective</h3>
+      <p data-field="objective">Identify the main causes of onboarding delay and recommend changes that bring time to first value under 14 days by the end of Q1 2027.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th style="width:50%">In scope</th><th>Out of scope</th></tr></thead>
+          <tbody>
+            <tr><td>Accounts onboarded Apr–Sep 2026</td><td>Accounts on legacy contracts</td></tr>
+            <tr><td>Process from signed contract to first live booking</td><td>Product pricing and packaging</td></tr>
+            <tr><td>CS, sales and implementation teams</td><td>Partner-led implementations</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ===== Approach and sources ===== -->
+    <section id="method">
+      <h2>Approach and sources</h2>
+      <p data-field="method">GrowthOS combined CRM and product usage data with customer interview transcripts. A York IE analyst checked every figure against the source systems before release.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Source</th><th>What it covers</th><th class="num">Records</th><th>Period</th></tr></thead>
+          <tbody>
+            <tr data-repeat="source"><td><strong>HubSpot</strong></td><td>Deal close dates, handoff notes</td><td class="num">142</td><td class="nowrap">Apr–Sep 2026</td></tr>
+            <tr data-repeat="source"><td><strong>Product analytics</strong></td><td>Setup steps, first live booking</td><td class="num">142</td><td class="nowrap">Apr–Sep 2026</td></tr>
+            <tr data-repeat="source"><td><strong>Zendesk</strong></td><td>Tickets raised during onboarding</td><td class="num">583</td><td class="nowrap">Apr–Sep 2026</td></tr>
+            <tr data-repeat="source"><td><strong>Customer interviews</strong></td><td>30-minute calls with admins</td><td class="num">11</td><td class="nowrap">Oct 2026</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout caution">
+        <b>Data limitation</b>
+        Nine accounts had no recorded first booking date and were excluded from time-to-value figures.
+      </div>
+    </section>
+
+    <!-- ===== Findings (main body; model adds subsections) ===== -->
+    <section id="findings" class="new-page">
+      <h2>Findings</h2>
+      <div class="kpis">
+        <div class="kpi" data-repeat="kpi"><div class="label">Time to first value</div><div class="value">23 days</div><div class="delta down">+5 days <small>vs Q2</small></div></div>
+        <div class="kpi" data-repeat="kpi"><div class="label">Onboarding completion</div><div class="value">68%</div><div class="delta down">−7 pts <small>vs Q2</small></div></div>
+        <div class="kpi" data-repeat="kpi"><div class="label">Tickets per new account</div><div class="value">4.1</div><div class="delta down">+0.9 <small>vs Q2</small></div></div>
+        <div class="kpi" data-repeat="kpi"><div class="label">90-day retention</div><div class="value">86%</div><div class="delta up">+1 pt <small>vs Q2</small></div></div>
+      </div>
+
+      <h3>1. Customers spend most of onboarding waiting on data migration</h3>
+      <p>Of the 23 days, only six involve work by the customer. The largest single block is waiting for the implementation team to clean and import patient and staff lists.</p>
+      <figure class="chart">
+        <svg viewBox="0 0 640 230" role="img" aria-label="Average days spent in each onboarding stage">
+          <g class="grid"><line x1="150" y1="20" x2="150" y2="190"/><line x1="290" y1="20" x2="290" y2="190"/><line x1="430" y1="20" x2="430" y2="190"/><line x1="570" y1="20" x2="570" y2="190"/></g>
+          <g class="axis" text-anchor="middle"><text x="150" y="210">0</text><text x="290" y="210">3 days</text><text x="430" y="210">6 days</text><text x="570" y="210">9 days</text></g>
+          <g class="axis" text-anchor="end">
+            <text x="140" y="40">Data migration</text><text x="140" y="74">Kickoff scheduling</text>
+            <text x="140" y="108">Configuration</text><text x="140" y="142">Staff training</text><text x="140" y="176">First booking</text>
+          </g>
+          <!-- 46.7px per day -->
+          <rect class="bar" x="150" y="26" width="420" height="20"/><text class="val" x="578" y="41">9.0</text>
+          <rect class="bar" x="150" y="60" width="233" height="20"/><text class="val" x="391" y="75">5.0</text>
+          <rect class="bar off" x="150" y="94" width="187" height="20"/><text class="val" x="345" y="109">4.0</text>
+          <rect class="bar off" x="150" y="128" width="140" height="20"/><text class="val" x="298" y="143">3.0</text>
+          <rect class="bar off" x="150" y="162" width="93" height="20"/><text class="val" x="251" y="177">2.0</text>
+        </svg>
+        <figcaption><b>Figure 1.</b> Average days per onboarding stage, n = 133. Dark bars are stages where the customer is waiting on Brightline. Source: HubSpot, product analytics.</figcaption>
+      </figure>
+      <blockquote class="evidence">
+        We had everything ready on day two. Then we sent the spreadsheet and heard nothing for over a week.
+        <cite>Practice manager, 6-location clinic group (interview, Oct 2026)</cite>
+      </blockquote>
+
+      <h3>2. The handoff from sales repeats work the customer has already done</h3>
+      <p>Kickoff calls average 75 minutes. In 64% of recorded calls, the CS manager asked for clinic count, staff roles or integration needs that were already in the deal notes.</p>
+      <div class="callout insight">
+        <b>Why this matters</b>
+        Each repeated discovery call pushes configuration back by roughly two days, because CS waits for answers before starting setup.
+      </div>
+
+      <h3>3. Mid-market accounts take twice as long as enterprise</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Segment</th><th class="num">Accounts</th><th class="num">Days to first value</th><th class="num">Completion</th><th>Onboarding owner</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Enterprise</strong></td><td class="num">18</td><td class="num">15</td><td class="num">89%</td><td>Named manager</td></tr>
+            <tr><td><strong>Mid-market</strong></td><td class="num">61</td><td class="num">31</td><td class="num">57%</td><td>Shared queue</td></tr>
+            <tr><td><strong>Small practice</strong></td><td class="num">54</td><td class="num">17</td><td class="num">72%</td><td>Self-serve</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ===== Options considered (optional) ===== -->
+    <section id="options" data-optional>
+      <h2>Options considered</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Option</th><th>Benefit</th><th>Drawback</th><th class="num">Est. effect</th><th class="num">Cost</th></tr></thead>
+          <tbody>
+            <tr data-repeat="option"><td><strong>A. Hire two implementation specialists</strong></td><td>Fast to start, no product change</td><td>Recurring cost; scales with volume</td><td class="num nowrap">−5 days</td><td class="num">High</td></tr>
+            <tr data-repeat="option" class="chosen"><td><strong>B. Self-serve import + structured handoff</strong></td><td>Removes the main wait; scales</td><td>Six engineering weeks</td><td class="num nowrap">−11 days</td><td class="num">Medium</td></tr>
+            <tr data-repeat="option"><td><strong>C. Outsource migration to a partner</strong></td><td>No internal effort</td><td>Data handling risk; less control</td><td class="num nowrap">−6 days</td><td class="num">Medium</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="small">Highlighted row is the recommended option.</p>
+    </section>
+
+    <!-- ===== Recommendations (always) ===== -->
+    <section id="recommendations">
+      <h2>Recommendations</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Recommendation</th><th>Priority</th><th>Owner</th><th>By</th><th>Expected impact</th></tr></thead>
+          <tbody>
+            <tr data-repeat="recommendation"><td><strong>Build self-serve CSV import with validation</strong></td><td><span class="pill high">High</span></td><td>Product</td><td class="nowrap">31 Jan</td><td>−7 days to first value</td></tr>
+            <tr data-repeat="recommendation"><td><strong>Introduce a one-page sales handoff template</strong></td><td><span class="pill high">High</span></td><td>Sales ops</td><td class="nowrap">15 Dec</td><td>Kickoff calls under 45 min</td></tr>
+            <tr data-repeat="recommendation"><td><strong>Assign a pooled onboarding manager to mid-market</strong></td><td><span class="pill med">Medium</span></td><td>CS lead</td><td class="nowrap">5 Jan</td><td>Completion to 75%+</td></tr>
+            <tr data-repeat="recommendation"><td><strong>Report time to first value weekly</strong></td><td><span class="pill low">Low</span></td><td>RevOps</td><td class="nowrap">15 Dec</td><td>Earlier warning on slips</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ===== Risks (optional) ===== -->
+    <section id="risks" data-optional>
+      <h2>Risks and dependencies</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Risk</th><th>Likelihood</th><th>Impact</th><th>Mitigation</th></tr></thead>
+          <tbody>
+            <tr data-repeat="risk"><td><strong>Import tool slips past Q1 roadmap</strong></td><td><span class="pill med">Medium</span></td><td><span class="pill high">High</span></td><td>Ship a validated template first; full tool second</td></tr>
+            <tr data-repeat="risk"><td><strong>Sales sees the handoff form as admin overhead</strong></td><td><span class="pill high">High</span></td><td><span class="pill med">Medium</span></td><td>Prefill from HubSpot; make it a close requirement</td></tr>
+            <tr data-repeat="risk"><td><strong>Patient data quality varies by clinic</strong></td><td><span class="pill med">Medium</span></td><td><span class="pill med">Medium</span></td><td>Validation rules with clear error messages</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ===== Next steps (sequence) ===== -->
+    <section id="next">
+      <h2>Next steps</h2>
+      <ol class="steps">
+        <li data-repeat="step"><b>Agree the recommended option with leadership</b><br><span class="when">Week of 30 Nov</span></li>
+        <li data-repeat="step"><b>Roll out the handoff template to the sales team</b><br><span class="when">By 15 Dec</span></li>
+        <li data-repeat="step"><b>Scope and start the self-serve import build</b><br><span class="when">From 5 Jan</span></li>
+        <li data-repeat="step"><b>Review time to first value against the 14-day target</b><br><span class="when">End of Q1 2027</span></li>
+      </ol>
+      <p data-field="conclusion" style="margin-top:8px">The delay is mostly within Brightline's control. With the three changes above, the 14-day target is realistic by the end of Q1 2027.</p>
+    </section>
+
+    <!-- ===== Appendix ===== -->
+    <section id="appendix" class="small new-page">
+      <h2>Appendix</h2>
+      <h3>A. Glossary</h3>
+      <dl class="glossary">
+        <dt>Time to first value</dt><dd>Days from contract signature to the first live patient booking.</dd>
+        <dt>Onboarding completion</dt><dd>Share of accounts finishing all setup steps within 60 days.</dd>
+        <dt>Mid-market</dt><dd>Clinic groups with 3 to 20 locations.</dd>
+      </dl>
+      <h3>B. Assumptions</h3>
+      <ul class="plain">
+        <li>Engineering estimate of six weeks is based on a comparable import feature shipped in 2025.</li>
+        <li>Effect estimates assume new account volume stays within 10% of Q3 levels.</li>
+      </ul>
+      <h3>C. References</h3>
+      <ol class="refs">
+        <li data-repeat="reference">Brightline HubSpot export, deals closed Apr–Sep 2026, pulled 2 Oct 2026.</li>
+        <li data-repeat="reference">Brightline product analytics, onboarding funnel dashboard, pulled 2 Oct 2026.</li>
+        <li data-repeat="reference">York IE customer interview notes, 11 sessions, 6–17 Oct 2026.</li>
+      </ol>
+    </section>
+
+    <!-- ===== FIXED: AI disclosure ===== -->
+    <aside class="ai-disclosure" aria-label="How this report was produced">
+      <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACkAAAAqCAYAAAAu9HJYAAAFaklEQVR4nL2YQXLaSBSGvydg1txg4AQhJxi8dIGn7BMETmCzMJRXwCoVcJXwCSAnwIlNeWnPCeycwJobsHFmKkh6s2hJSEYI8Nj+V6hp9ftb/b/3d7ewK66GVUTHiEz4lb/gqDXfeYwdIVv3vBpWEbqg1Virg9Cn1p68NrE4NpOc2kUKbhf05Nmrc9Bi8OCQK+yx33Jel56BlfnvbNil4D4agjIHbSE0DUe9DH47QAlv8cjsfMyNXdo6+tQubtM/neTVsMr14BHVHmgR5YLFU5l6Z5ToV2tPqLfLEVn1G4bssLuR4PcvhxQW99tMLrncN3YJzx0ndOfrEX92LqPn2aCBMkaYUGs3l+9+LuFZPZBPQUu6XtO1DTBHZETttJ9OclV3DogDWkVlj4PTu40k42T9nI1yGIR4IJc/4l/mqzEAKIHcxUivTM5idn6c0J1qn8XPj+D/vUJgG+yfOdTaR0u9agVv8bgSo94umw8BKH1yXhnhEiihjLke3oYSsFB/BFpEmLB4KnPQ6XHUm68En9pFZsMuKnYwcCNTS6FeVftRJQi1fdDpbTG5Kv6ia0gaONTazVRyYHRUWNxHiWRmHCbKbWaiHHR6oGbcvDdaGyM+OSGhy+wSBBh30VtC7ajsUWsfkfP2QL8CJVR7XA8emQ0aG8d7AdJJTu0iWL8HTyXAQWWP+ukyifbPHOqdxoqWZoPpVrVyaheBonnwq7uRXCZS7EWZk887qSM815JyuLH2LU2iYoaXbtbkhOuBmsGliegY8+VAmAB/oXSXbdYEK9fPtL+rLz1EPhGugNCPxshZDTy/F40X/wihxYo1AXFQrxeWuZBk/IU7lH6iNl5/OQE5jgKjFyvuE8dqYX+GIEZY1FX2wK8i1nFsP0BIMr7cc4RmQnch6p2RSZTApxE7M1FCvQofn/2zqu0QB50eOfdjkIwJWLHGIko3NfDVsIqXCzI8QnaimJp6ax5iJvGcXPrkEk6Wp95pcPO5Fy2PqfafyOVNx4SXyx2ic5RDhEuUSpAoh8zOjV5dt4ToGFVDXJjw66m1sT5mwEqZgQNaxVs84i2CLJelFHz9Ebz7LeEo6jfw3PuUmrreJEKoFDeTDBFaGdoyGQdmmZ7Ka3ffoZaEy0D0zlpth7ixS1wPb6MVsnw7ywjSi3m9M4qsbJ2Xx7F/5uDLhXkQZ+2EpnaR66G9XCGcpWsx5nrwyPfzw+1IvgXW7baWVcABSlj+FOU4/mr+zcmZ06WN+hXAJJLl9tk/c6I+tfYDUA72ql2g8j4kV3b5QQGvZ5QgXxwk5i1qkvQtSJp9p+eemESSOaItaqeTtW+sm9BB++6NSGoFpRLpzv25fg85tYv85h7jLXpBS3B0SE7orZbbQWly0Llb22N2foy6PTT42upf4P6TOqG3ImlcZzZYc1pMJNIllttKJNI7kHwA/bG02EEX4QirMN85kQLsVidv7BJi/QGAyof0TarMV2qfco/n3kcWi7YyHelFJMOTYhQIQE/MIWyNndXaD8vbjWenxay96ItIhtch0ZWL9s1XemZnkizAMbKTnU6LKdisSUum5ofckXObMYE3mA1GKFOgBGrvGnxbbJc4QjO1GEd2dj5G/YZp1CqzYRcr//W1rgLXL7c5oJsgZiNsryTKjV1KEgz7ay9Trzti8yWqOf2FNxTGEX4VLvnNPUY5iawPv0+9M0q9XUOKoEVyXjmrHr6cJGSf/lT7qU6x3NGUorY3JbkMXFkmCoFbFFprtRdeE74ryWTw2KWB9BKXnysXpSuV4R1IgpGAazUSekUuEPmQSCSV5rbO8vokQ6TqNZZIr4D/TzLE9/NDLN9G+Yb7c/PhbQf8B8Y6Sl4noLVgAAAAAElFTkSuQmCC" alt="">
+      <div>
+        <h3>How this report was produced</h3>
+        <p data-field="ai_statement">This report was drafted by GrowthOS, York IE's internal AI platform, from the sources listed above. A York IE team member reviewed the analysis, checked figures against source data and approved the final version. AI-generated content can contain errors; please raise any concerns with the report owner.</p>
+        <dl>
+          <div><dt>Generated</dt><dd data-field="generated_on">14 Nov 2026</dd></div>
+          <div><dt>Human review</dt><dd data-field="review_state">Completed, 23 Nov 2026</dd></div>
+          <div><dt>Reviewer</dt><dd data-field="reviewer">Customer Success Lead</dd></div>
+        </dl>
+      </div>
+    </aside>
+
+  </div>
+
+  <!-- ===== FIXED: footer ===== -->
+  <footer class="doc-footer">
+    <div><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAL4AAAAqCAYAAAANg+HIAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAOdEVYdFNvZnR3YXJlAEZpZ21hnrGWYwAACVBJREFUeAHtnU9y2zYUxh8puWvfoPQJ6tyAXnbitPEJIp8g1iLJdGV61YmTGdsniHICO609XVo9gdMTBLmBukjaiWWh+ABCBMH/lOhIDX4zmJgURFLSw8P3Hh4Zj5ry+6uQPP6GPG9EX/pntDeckMOxZni1e0qDp0MiHhp7mdh3RA+fj8jhWCOqDf/8ZJM2pjD4A+utwtPzzXiDUW9jh34cMnI41gC/9NWrV4fC6D8oo5eGPhRDZV++5vGL+G8mWkB3tx/o6vUb+uMkoLpgUDXp73AsiXzDh6y5PP5AnEfSq3M6o9tPW7T74jTVDxJn9/nWfADw2UANADFgqvjt5WPauL1pNWAcjgVJSx0Y3930TUrHz/ge/fTiYr59dTwQA0EEtzQShr+fvPdX8V4/Eod8Eu/J1//5sQKYiID5lB4+OyKHo2OU4Wd1PBMvMWmc3NuhR8/G83cUGb4GA2DWOxF9HseneE+9/h79Kww7cw5JIPqMjYHgAmZH5/hCZjxN6XjOj+j28wPh6j9SG378hQmj3Uv0P9+WcsY+BySSHFwCLgy9dwfJhJklkAPr8tW1kz+OrvCFLj+VOh4eHDr+0YuI9qJsbh6zArQ7907kNqdBqTbX+h9GrjNAOlbAOWyyAyak2W11rOBwtEAHt0zKljyDB9DlCER1sKs8sw5mr0uDWWnkXB23f3daeA4NBgykjsPRIX5lD7lKy69Ja3Fofnjm3t2OMOi3cj8GBLJA0P8OxxqQb/iQNeR/H28FJL27MPjdZ0mgC2my+2KQ0eZXx+e1tLk8B8ULYLOQHI57JGv4SbAbJjuFRu/3We4RbG2ObE5Vbj5ZGNtWh/cOaw+Y9SAw2iY5Vg5PSBROyqPvS1mjfiySwS7Rn8KQD5N9/oj83lFpacLvLyNhyE9IzxTQ6/oYPV/EBLNofrzkMpLyB5wD2R5+FxWmTMvBZwiNbcQUO/G/NriugbXvQUHfKkLR8LmRxrWN/X3cELswas65aNsFr03ihuO/E21MzQlJfW8aRuo7s7mh9Gcr6rcM8D0ikXIm2mmN/kiTP6V67GjDN4COFz+Qmbu/fIk0JA4akMq4nGVWcU2yi1mUew69kAUZBbnj+U+N+h9qafihaNfWPhhcZO0L4n6BsW8kWtPzAfxABzX6TeJrqfNDmuA6w5p9cewhNSOk9HfGRNuy+gwoPTgo7sOoGwbx+fJ+uzzQp24WcMuUOhMpV0wdr4GRy2A2rsshkdIsC2a1/vek9zTJxgoaZH960wdxwLwIY1JewgSD1vbCyUymr41aZZPqGj3F19CkfxsO4nMsk4CyRtV29uoaOC6vojHfMLRNKUnyjBnpzLue7R3Lg1mV84+9iLEwZhu8STJg2nhdk4jScgUGd5C69qzEwWBh1IwB5RsxZMdINJX2zWIPuqYwUgNcNxtc0zJjizwnEdEa05eG9sev0VyaqFXTJ9TrK+NL1e4IieKJnDwCWGRyuNCdKph9LIJZpf+n00DGCpwH6i3CAL58Glbm75eLlhSm54PXP41fs70Xo+byg3KOg2PvUdYYI6uvHohtPf9bShse9P+N1QcaeUSLE1DWSXSl6+8NJXXSnpZJQ0dmBk0avZfIoBn/K37vu9TKrFzMmt7k5Pz3K42ee11kPmDIY2Mb59Cea2D13aPmhJT12kPK98ARZeVXQfzTCswwjLrBjpfazIwrRzqdqcsMUHcvMy0CKVE+bRUWjWltLnP5MjBlhbGCBtIItTh6JvFnJx0tftmaPU//jkgZTlPsLAujcg97YW1vUnGmpikBZQfhIjNsINqHuAXGfkaLSZyAVoT8BSyZsYnLDIpqd0wwY8y82KN5rHCQYNHq8tVJMpPI2SVe/YXEEgHzb68f0/IYk5IFJubxtSRqQ2BtM6q+Fpu2M93PpDIeut3UPF8TAsp+RnxXbQcUHA4GUpeBPcD3wUtahE59ui+wMMankZoVpDQ6o+k/qnbn6vhUXBJy1YHw/ufi7zYeuAh80TCUPCNb12l7m8pni0UMtIwfqD1/0/2g1zXKXr8Hw1dPZTgRhh6v0go54E+P5Cyhefgchr4V1/pDhy9LAoC8QBcwWmzaZtZ21TXnvd6FcdbNe1cxjv8NjX1wIm0XySJSUpBRtwypRlDfneFn7uaKF612S9KZMyGTPGM9jc8D6UVBoIsBZXr9pos8NvashGOHVGwU9qrihKj1zMZovqaSkiP4nBEtDqMkc2MvnsGBPKB2MFoRqqszm6Pq9pHhsTNCVcGunREqWx1uzqRiuynjnGNAruXFKHmlERfUHsQtMEw7G7VIirQIZPrMz4mZK6I1pwOPz7dlfl8vWk0/F9fgI9j9bvpUBLtRvCe+7fDZiNYDW0LB68P431PizfNqd/R7FwXnGFrXgEE2JlpanMQof01kRGuc1uxK6qBKc19khMaFPXSwy3OC3fUBMxI8oJ2Trwo+YayMlncNCN7DeFsPvrbFdkXnwGfcNs6B7MnaLmR1IXWAWr0tKn+4PL4xbnm8kOsAddKmq8mAsotTReDzweiXKeEAJA8ztgPKFpQtih0ThdR9arINVelMtLALjy+mWASluvzh+FAY9x75G5PGwe5yYdQdMAAdWOalThkpXa5LJprykdLXnxevQIubxq5nojpFfxPr+Cynz5iU5DFnN/w9om6yU/qa6h7b/gyleIWvYDEJnmP3edInlanxTqnXP5vX5qu05bU0aASyV8fb89y8OtVknsOn2dGSA9dVY5MS46/KKzu+AvWkjn7CwjxTA/iButG8oNQAufn5U9aspyz8v40eaO/DyBn9SlJt+PpRf/PHCfIjVWdvlRp4BcGcLF9o8JQFh+MeqNb4vneu/hASpjfdN1ZcB6lSA+LLvvnB4eiMesEt5Epebn1eavD6jSxLlggpBFnk99+6x4Y7VpViqeMZt5apm1NOMndaYTtl9Lq/kEVl+t/h+Mp4lT3UUxP03UNqZfXLxoVcceVI41mZmrynJhNuNBH98AweszjN4fhKVBs+KHtqgixLyFlxTSotg/k+Z/iOFaGe4Wvs3DxWXf2NYaGW148U1zjDd6wIzQxfY3tzz4tS/6FD5j9/yGSEHI6vSjvDB5A/U3+Q0v/knYntH1LBLp7Q9ujeyhIcjlq0N3xNrv7/JsoSHGvM4oavwU3ieFoCp3c0/byulZaOb4T/AB4qNO0SOzCrAAAAAElFTkSuQmCC" alt="York IE"></div>
+    <div class="legal">
+      <strong>Confidential.</strong> This report was prepared by York IE exclusively for <span data-field="client">Brightline Health</span> and contains proprietary information. It may not be copied, shared or distributed, in whole or in part, without written permission from York IE. Findings reflect data available at the time of preparation and are provided for decision support only.
+    </div>
+    <div class="refs-line">
+      <span>Report ID <span data-field="report_id">YIE-GOS-2026-0187</span></span>
+      <span>Version <span data-field="version">1.0</span></span>
+      <span>© 2026 York IE. All rights reserved.</span>
+      <span>york.ie</span>
+    </div>
+  </footer>
+
+</main>
+</body>
+</html>

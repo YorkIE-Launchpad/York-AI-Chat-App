@@ -18,6 +18,7 @@ import {
   isHtmlArtifactIntent,
   isLaunchPadDeliveryIntent,
   isYorkOsCompanyIntent,
+  isYorkReportIntent,
 } from '../src/main/skills/skill-intent-expand';
 
 function writeSkill(root: string, name: string, body: string) {
@@ -137,9 +138,7 @@ describe('expandLaunchPadSkillIntent', () => {
 describe('isConfluenceDocumentIntent', () => {
   it('matches explicit Confluence page creation asks', () => {
     expect(
-      isConfluenceDocumentIntent(
-        'Create a Confluence page about resource performance issues'
-      )
+      isConfluenceDocumentIntent('Create a Confluence page about resource performance issues')
     ).toBe(true);
     expect(isConfluenceDocumentIntent('Publish this as a wiki page in Confluence')).toBe(true);
     expect(isConfluenceDocumentIntent('Write an Atlassian page for the onboarding process')).toBe(
@@ -152,7 +151,7 @@ describe('isConfluenceDocumentIntent', () => {
     expect(isConfluenceDocumentIntent('Document this process in Confluence')).toBe(true);
   });
 
-    it('does not match unrelated asks', () => {
+  it('does not match unrelated asks', () => {
     expect(isConfluenceDocumentIntent('Create a one-pager for the client update')).toBe(false);
     expect(isConfluenceDocumentIntent('what is the weather today?')).toBe(false);
     expect(isConfluenceDocumentIntent('Document this process')).toBe(false);
@@ -267,6 +266,7 @@ describe('classifyYorkOsIntent', () => {
   it('does not steal visual HTML artifact asks', () => {
     expect(classifyYorkOsIntent('Create a one-pager for the client update')).toBeNull();
     expect(isYorkOsCompanyIntent('Create a presentation about Q3')).toBe(false);
+    expect(classifyYorkOsIntent('Write a status report for Acme')).toBeNull();
   });
 });
 
@@ -289,6 +289,31 @@ describe('html-artifact intent', () => {
       expect(result.skillName).toBe(HTML_ARTIFACT_SKILL_NAME);
       expect(result.text).toContain('# HTML artifacts');
       expect(result.text).toContain(user);
+      expect(result.text).not.toContain('York IE report shell');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('treats written reports as the York report shell', () => {
+    expect(isYorkReportIntent('Write a customer onboarding report')).toBe(true);
+    expect(isYorkReportIntent('Generate a Q3 strategy assessment')).toBe(true);
+    expect(isYorkReportIntent('Prepare an operational review for Acme')).toBe(true);
+    expect(isHtmlArtifactIntent('Draft the quarterly research report')).toBe(true);
+    expect(isYorkReportIntent('Write a code review')).toBe(false);
+    expect(isHtmlArtifactIntent('Write a code review')).toBe(false);
+    expect(isYorkReportIntent('Create a pdf report')).toBe(false);
+    expect(isHtmlArtifactIntent('Create a one-pager for the client update')).toBe(true);
+    expect(classifyYorkOsIntent('Client status for Acme')).toBe('client-status');
+
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'york-report-skill-'));
+    try {
+      writeSkill(root, HTML_ARTIFACT_SKILL_NAME, '# HTML artifacts');
+      const skills = discoverSkillsFromPaths([root]);
+      const result = expandHtmlArtifactSkillIntent('Write a customer onboarding report', skills);
+      expect(result.expanded).toBe(true);
+      expect(result.text).toContain('York IE report shell');
+      expect(result.text).toContain('york-report-template.html');
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
