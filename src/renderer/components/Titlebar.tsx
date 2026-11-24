@@ -183,6 +183,10 @@ export function Titlebar() {
         isMac ? 'pl-20 pr-3' : 'pl-3'
       }`}
     >
+      {isMac ? (
+        // Drag regions that overlap the traffic lights hide them after zoom.
+        <div aria-hidden className="titlebar-no-drag absolute inset-y-0 left-0 z-10 w-20" />
+      ) : null}
       <div className="flex min-w-0 items-center gap-2">
         {historyControls}
         {recordingControls}

@@ -1584,6 +1584,72 @@ function showMeetingOsNotification(options: { title: string; body: string }): vo
   });
 }
 
+/** Matches the left inset reserved by the renderer title bar (`pl-20`). */
+const MAC_TRAFFIC_LIGHT_POSITION = { x: 16, y: 12 };
+
+/**
+ * `hiddenInset` leaves an invisible titlebar toolbar. After several zoom,
+ * fullscreen, or minimize cycles AppKit drops the traffic lights and that
+ * toolbar stops receiving clicks, so the window looks frozen.
+ * Re-apply visibility once the transition has finished.
+ */
+function restoreMacTrafficLights(win: BrowserWindow): void {
+  if (process.platform !== 'darwin' || win.isDestroyed() || win.isMinimized()) return;
+  try {
+    win.setWindowButtonVisibility(true);
+    if (!win.isFullScreen()) {
+      win.setTrafficLightPosition(MAC_TRAFFIC_LIGHT_POSITION);
+    }
+  } catch (error) {
+    logError('[Window] Failed to restore traffic lights:', error);
+  }
+}
+
+function scheduleMacTrafficLightRestore(win: BrowserWindow): void {
+  if (process.platform !== 'darwin') return;
+  const run = () => restoreMacTrafficLights(win);
+  setTimeout(run, 50);
+  setTimeout(run, 250);
+}
+
+/**
+ * Dirties the frame so AppKit rebuilds the titlebar after fullscreen.
+ * A 1px bump during the animation itself can wedge the window, so callers
+ * must wait until `leave-full-screen` has fired.
+ */
+function bumpMacWindowFrame(win: BrowserWindow): void {
+  if (
+    process.platform !== 'darwin' ||
+    win.isDestroyed() ||
+    win.isFullScreen() ||
+    win.isMinimized()
+  ) {
+    return;
+  }
+  const bounds = win.getBounds();
+  win.setBounds({ ...bounds, height: bounds.height + 1 });
+  // Apply on the next turn so AppKit actually commits the dirty frame.
+  setTimeout(() => {
+    if (win.isDestroyed() || win.isFullScreen() || win.isMinimized()) return;
+    win.setBounds(bounds);
+    restoreMacTrafficLights(win);
+  }, 32);
+}
+
+function attachMacWindowChromeRecovery(win: BrowserWindow): void {
+  if (process.platform !== 'darwin') return;
+  const restore = () => scheduleMacTrafficLightRestore(win);
+  win.on('show', restore);
+  win.on('restore', restore);
+  win.on('maximize', restore);
+  win.on('unmaximize', restore);
+  win.on('enter-full-screen', restore);
+  win.on('leave-full-screen', () => {
+    restore();
+    setTimeout(() => bumpMacWindowFrame(win), 200);
+  });
+}
+
 function focusMainWindow(): void {
   const existingWindow =
     mainWindow && !mainWindow.isDestroyed()
@@ -1652,9 +1718,10 @@ function createWindow() {
   };
 
   if (isMac) {
-    // macOS: Use hiddenInset for native traffic light buttons
-    windowOptions.titleBarStyle = 'hiddenInset';
-    windowOptions.trafficLightPosition = { x: 16, y: 12 };
+    // `hidden` plus an explicit position. `hiddenInset` adds a transparent
+    // toolbar that swallows the traffic lights after repeated zoom/minimize.
+    windowOptions.titleBarStyle = 'hidden';
+    windowOptions.trafficLightPosition = MAC_TRAFFIC_LIGHT_POSITION;
   } else if (isWindows) {
     // Windows: Use frameless window with custom titlebar
     // Note: frame: false removes native frame, allowing custom titlebar
@@ -1666,6 +1733,7 @@ function createWindow() {
 
   mainWindow = new BrowserWindow(windowOptions);
   mainWindow.setTitle(PRODUCT_NAME);
+  attachMacWindowChromeRecovery(mainWindow);
 
   mainWindow.webContents.on('context-menu', (_event, params) => {
     const template: Electron.MenuItemConstructorOptions[] = [
