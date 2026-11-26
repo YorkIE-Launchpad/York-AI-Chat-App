@@ -1158,6 +1158,52 @@ export class SessionManager {
     this.enqueuePrompt(session, prompt, content, options);
   }
 
+  /**
+   * Replace the latest user prompt. Drops that message and everything after it,
+   * clears the cached agent session so the next turn rebuilds history from what
+   * remains, then queues the edited prompt.
+   */
+  async editLastPrompt(sessionId: string, prompt: string, content?: ContentBlock[]): Promise<void> {
+    log('[SessionManager] Editing last prompt:', sessionId);
+
+    const session = this.loadSession(sessionId);
+    if (!session) {
+      throw new SessionNotFoundError(sessionId);
+    }
+
+    const queued = this.promptQueues.get(sessionId);
+    if (this.activeSessions.has(sessionId) || (queued && queued.length > 0)) {
+      throw new Error('Session is busy');
+    }
+
+    this.collabHooks?.assertCanPrompt?.(sessionId);
+    this.truncateFromLastUserMessage(sessionId);
+    this.agentRunner?.clearSdkSession?.(sessionId);
+    this.enqueuePrompt(session, prompt, content);
+  }
+
+  /** Delete the last user message and every message after it. */
+  private truncateFromLastUserMessage(sessionId: string): void {
+    const messages = this.getMessages(sessionId);
+    let lastUserIndex = -1;
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      if (messages[i]?.role === 'user') {
+        lastUserIndex = i;
+        break;
+      }
+    }
+    if (lastUserIndex < 0) return;
+
+    const removed = messages.slice(lastUserIndex);
+    const isIncognito = this.ephemeralSessions.has(sessionId);
+    if (!isIncognito) {
+      for (const message of removed) {
+        this.db.messages.delete(message.id);
+      }
+    }
+    this.messageCache.set(sessionId, messages.slice(0, lastUserIndex));
+  }
+
   async startImageSession(
     title: string,
     prompt: string,

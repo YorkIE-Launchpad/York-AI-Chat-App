@@ -1062,23 +1062,24 @@ export function useIPC() {
     [invoke, addSession]
   );
 
-  // Continue an existing session
-  const continueSession = useCallback(
-    async (sessionId: string, promptOrContent: string | ContentBlock[]) => {
+  // Optimistic user bubble + turn clock, then send continue or edit-last.
+  const submitSessionPrompt = useCallback(
+    async (
+      sessionId: string,
+      promptOrContent: string | ContentBlock[],
+      eventType: 'session.continue' | 'session.editLast'
+    ) => {
       setLoading(true);
-      console.log('[useIPC] Continuing session:', sessionId);
+      console.log('[useIPC] Submitting session prompt:', eventType, sessionId);
 
-      // Normalize input to ContentBlock array
       const content: ContentBlock[] =
         typeof promptOrContent === 'string'
           ? [{ type: 'text', text: promptOrContent }]
           : promptOrContent;
 
-      // Extract text for legacy backend (if needed)
       const textContent = content.find((block) => block.type === 'text');
       const prompt = textContent && 'text' in textContent ? textContent.text : '';
 
-      // Immediately add user message to UI (for both modes)
       const store = useAppStore.getState();
       const isSessionRunning =
         store.sessions.find((session) => session.id === sessionId)?.status === 'running';
@@ -1100,7 +1101,6 @@ export function useIPC() {
         startExecutionClock(sessionId, userMessage.timestamp);
       }
 
-      // Browser mode mock
       if (!isElectron) {
         updateSession(sessionId, { status: 'running' });
         const mockStepId = `mock-step-${Date.now()}`;
@@ -1124,8 +1124,6 @@ export function useIPC() {
         return;
       }
 
-      // Electron mode - send to backend (user message already added above)
-      // Immediately activate turn to show processing indicator while waiting for API
       if (!shouldQueue) {
         const mockStepId = `pending-step-${Date.now()}`;
         activateNextTurn(sessionId, mockStepId);
@@ -1134,14 +1132,13 @@ export function useIPC() {
 
       try {
         send({
-          type: 'session.continue',
+          type: eventType,
           payload: {
             sessionId,
             prompt,
-            content, // Send full content blocks including images
+            content,
           },
         });
-        // Loading will be reset when we receive session.status event
       } catch (e) {
         clearTurnStateOnServerError(useAppStore.getState());
         useAppStore.getState().setGlobalNotice({
@@ -1162,6 +1159,31 @@ export function useIPC() {
       clearPendingTurns,
       startExecutionClock,
     ]
+  );
+
+  const continueSession = useCallback(
+    (sessionId: string, promptOrContent: string | ContentBlock[]) =>
+      submitSessionPrompt(sessionId, promptOrContent, 'session.continue'),
+    [submitSessionPrompt]
+  );
+
+  const editLastPrompt = useCallback(
+    async (sessionId: string, promptOrContent: string | ContentBlock[]) => {
+      const store = useAppStore.getState();
+      const messages = store.sessionStates[sessionId]?.messages ?? [];
+      let lastUserIndex = -1;
+      for (let i = messages.length - 1; i >= 0; i -= 1) {
+        if (messages[i]?.role === 'user') {
+          lastUserIndex = i;
+          break;
+        }
+      }
+      if (lastUserIndex >= 0) {
+        store.setMessages(sessionId, messages.slice(0, lastUserIndex));
+      }
+      await submitSessionPrompt(sessionId, promptOrContent, 'session.editLast');
+    },
+    [submitSessionPrompt]
   );
 
   const sendImageTurn = useCallback(
@@ -1831,6 +1853,7 @@ export function useIPC() {
     startSession,
     createSession,
     continueSession,
+    editLastPrompt,
     sendImageTurn,
     stopSession,
     removeQueuedMessage,

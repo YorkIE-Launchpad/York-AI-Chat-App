@@ -773,3 +773,156 @@ describe('SessionManager.renameSession', () => {
     );
   });
 });
+
+describe('SessionManager.editLastPrompt', () => {
+  function messageRow(id: string, role: 'user' | 'assistant', text: string, timestamp: number) {
+    return {
+      id,
+      session_id: 's1',
+      role,
+      content: JSON.stringify([{ type: 'text', text }]),
+      timestamp,
+      token_usage: null,
+      execution_time_ms: null,
+      author_name: null,
+      author_sub: null,
+    };
+  }
+
+  function persistedDb(rows: ReturnType<typeof messageRow>[]) {
+    return makeDb({
+      sessions: {
+        create: vi.fn(),
+        get: vi.fn(() => ({
+          id: 's1',
+          title: 'Chat',
+          status: 'idle',
+          cwd: '/tmp',
+          mounted_paths: '[]',
+          allowed_tools: '[]',
+          memory_enabled: 1,
+          created_at: 1,
+          updated_at: 1,
+        })),
+        getAll: vi.fn(() => []),
+        update: vi.fn(),
+        delete: vi.fn(),
+      },
+      messages: {
+        create: vi.fn(),
+        getBySessionId: vi.fn(() => rows),
+        delete: vi.fn(),
+        deleteBySessionId: vi.fn(),
+      },
+    } as unknown as Partial<DatabaseInstance>);
+  }
+
+  function stubEnqueue(manager: SessionManager) {
+    const order: string[] = [];
+    const clearSdkSession = vi.fn(() => {
+      order.push('clear');
+    });
+    (
+      manager as unknown as { agentRunner: { clearSdkSession: () => void } }
+    ).agentRunner.clearSdkSession = clearSdkSession;
+    const enqueued: Array<{ prompt: string; content: unknown }> = [];
+    vi.spyOn(
+      manager as unknown as {
+        enqueuePrompt: (session: unknown, prompt: string, content?: unknown) => void;
+      },
+      'enqueuePrompt'
+    ).mockImplementation((_session, prompt, content) => {
+      order.push('enqueue');
+      enqueued.push({ prompt, content });
+    });
+    return { order, clearSdkSession, enqueued };
+  }
+
+  it('drops the last user turn, clears the agent session, and enqueues the edit', async () => {
+    const rows = [
+      messageRow('u1', 'user', 'first', 1),
+      messageRow('a1', 'assistant', 'reply one', 2),
+      messageRow('u2', 'user', 'second', 3),
+      messageRow('a2', 'assistant', 'reply two', 4),
+    ];
+    const db = persistedDb(rows);
+    const manager = new SessionManager(db, vi.fn());
+    const { order, clearSdkSession, enqueued } = stubEnqueue(manager);
+    const content = [
+      { type: 'text' as const, text: 'second, revised' },
+      {
+        type: 'image' as const,
+        source: { type: 'base64' as const, media_type: 'image/png', data: 'abc' },
+      },
+    ];
+
+    await manager.editLastPrompt('s1', 'second, revised', content);
+
+    expect(db.messages.delete).toHaveBeenCalledTimes(2);
+    expect(db.messages.delete).toHaveBeenCalledWith('u2');
+    expect(db.messages.delete).toHaveBeenCalledWith('a2');
+    expect(manager.getMessages('s1').map((message) => message.id)).toEqual(['u1', 'a1']);
+    expect(clearSdkSession).toHaveBeenCalledWith('s1');
+    expect(order).toEqual(['clear', 'enqueue']);
+    expect(enqueued).toEqual([{ prompt: 'second, revised', content }]);
+  });
+
+  it('skips database deletes for an incognito session', async () => {
+    const db = makeDb();
+    const manager = new SessionManager(db, vi.fn());
+    (
+      manager as unknown as { ephemeralSessions: Map<string, Record<string, unknown>> }
+    ).ephemeralSessions.set('inc', {
+      id: 'inc',
+      title: 'Incognito',
+      status: 'idle',
+      incognito: true,
+      mountedPaths: [],
+      allowedTools: [],
+      memoryEnabled: false,
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    manager.saveMessage({
+      id: 'u1',
+      sessionId: 'inc',
+      role: 'user',
+      content: [{ type: 'text', text: 'secret' }],
+      timestamp: 1,
+    });
+    manager.saveMessage({
+      id: 'a1',
+      sessionId: 'inc',
+      role: 'assistant',
+      content: [{ type: 'text', text: 'reply' }],
+      timestamp: 2,
+    });
+    const { enqueued } = stubEnqueue(manager);
+
+    await manager.editLastPrompt('inc', 'revised secret');
+
+    expect(db.messages.delete).not.toHaveBeenCalled();
+    expect(db.messages.create).not.toHaveBeenCalled();
+    expect(manager.getMessages('inc')).toEqual([]);
+    expect(enqueued[0]?.prompt).toBe('revised secret');
+  });
+
+  it('refuses to rewind a busy session', async () => {
+    const db = persistedDb([messageRow('u1', 'user', 'hello', 1)]);
+    const manager = new SessionManager(db, vi.fn());
+    (manager as unknown as { activeSessions: Map<string, AbortController> }).activeSessions.set(
+      's1',
+      new AbortController()
+    );
+
+    await expect(manager.editLastPrompt('s1', 'changed')).rejects.toThrow('Session is busy');
+    expect(db.messages.delete).not.toHaveBeenCalled();
+  });
+
+  it('throws when the session does not exist', async () => {
+    const manager = new SessionManager(makeDb(), vi.fn());
+    await expect(manager.editLastPrompt('missing', 'changed')).rejects.toThrow(
+      'Session not found: missing'
+    );
+  });
+});

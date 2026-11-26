@@ -101,6 +101,7 @@ export function ChatView() {
   const backendModelsCatalog = useAppStore((s) => s.backendModelsCatalog);
   const {
     continueSession,
+    editLastPrompt,
     sendImageTurn,
     stopSession,
     removeQueuedMessage,
@@ -992,6 +993,14 @@ export function ChatView() {
                   message.role === 'assistant' &&
                   !isStreaming &&
                   !displayedMessages.slice(index + 1).some((item) => item.role === 'assistant');
+                const isLastUser =
+                  message.role === 'user' &&
+                  !displayedMessages.slice(index + 1).some((item) => item.role === 'user');
+                const messageBlocks = Array.isArray(message.content) ? message.content : [];
+                const isMeetingTranscriptMessage =
+                  message.role === 'user' &&
+                  messageBlocks.length > 0 &&
+                  messageBlocks.every((block) => block.type === 'meeting_transcript');
                 return (
                   <div
                     key={message.id}
@@ -1007,6 +1016,17 @@ export function ChatView() {
                         isLastAssistant && !canStop
                           ? () => {
                               void continueSession(message.sessionId, '');
+                            }
+                          : undefined
+                      }
+                      onEditResend={
+                        isLastUser &&
+                        !canStop &&
+                        message.localStatus !== 'cancelled' &&
+                        message.localStatus !== 'queued' &&
+                        !isMeetingTranscriptMessage
+                          ? (content) => {
+                              void editLastPrompt(message.sessionId, content);
                             }
                           : undefined
                       }

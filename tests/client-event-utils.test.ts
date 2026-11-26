@@ -9,6 +9,7 @@ function makeEvent(type: ClientEvent['type']): ClientEvent {
     case 'session.create':
       return { type, payload: { title: 'Matter · Item' } };
     case 'session.continue':
+    case 'session.editLast':
       return { type, payload: { sessionId: 'session-1', prompt: 'Next' } };
     case 'session.stop':
     case 'session.delete':
@@ -58,6 +59,7 @@ describe('eventRequiresSessionManager', () => {
       'session.start',
       'session.create',
       'session.continue',
+      'session.editLast',
       'session.stop',
       'session.dequeue',
       'session.steer-queued',

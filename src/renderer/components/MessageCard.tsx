@@ -1,8 +1,8 @@
 // MessageCard — top-level chat message renderer.
 // Delegates block rendering to ContentBlockView and its sub-components.
-import { useState, memo, useMemo } from 'react';
+import { useState, memo, useMemo, useRef, useLayoutEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Copy, Check, Ban, RefreshCw } from 'lucide-react';
+import { Copy, Check, Ban, RefreshCw, Pencil } from 'lucide-react';
 import type { Message, ContentBlock, ToolUseContent, ToolResultContent } from '../types';
 import { isClientOutdatedError } from '../../shared/client-version';
 import { ContentBlockView } from './message/ContentBlockView';
@@ -11,6 +11,27 @@ import { ToolStepsGroup } from './message/ToolStepsGroup';
 import { ClientOutdatedUpdateActions } from './ClientOutdatedUpdateActions';
 import { shouldShowMcpSourcesFooter } from '../utils/mcp-sources';
 import { formatAppDateTime } from '../utils/i18n-format';
+
+/** Keep images and files; replace every text block with one edited prompt. */
+function contentWithEditedText(blocks: ContentBlock[], text: string): ContentBlock[] {
+  let inserted = false;
+  const next: ContentBlock[] = [];
+  for (const block of blocks) {
+    if (block.type === 'text') {
+      if (!inserted) {
+        next.push({ type: 'text', text });
+        inserted = true;
+      }
+      continue;
+    }
+    next.push(block);
+  }
+  if (!inserted) {
+    next.unshift({ type: 'text', text });
+  }
+  return next;
+}
+
 interface MessageCardProps {
   message: Message;
   isStreaming?: boolean;
@@ -18,6 +39,8 @@ interface MessageCardProps {
   allMessages?: Message[];
   /** Shown on the last completed assistant message (Claude-style regenerate). */
   onRegenerate?: () => void;
+  /** Shown on the last user prompt when the chat is idle. */
+  onEditResend?: (content: ContentBlock[]) => void;
 }
 
 export const MessageCard = memo(function MessageCard({
@@ -25,6 +48,7 @@ export const MessageCard = memo(function MessageCard({
   isStreaming,
   allMessages,
   onRegenerate,
+  onEditResend,
 }: MessageCardProps) {
   const { t } = useTranslation();
   const isUser = message.role === 'user';
@@ -49,6 +73,9 @@ export const MessageCard = memo(function MessageCard({
     [contentBlocks, isUser]
   );
   const [copied, setCopied] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const editRef = useRef<HTMLTextAreaElement>(null);
   const messageTimeLabel = useMemo(
     () => (message.timestamp ? formatAppDateTime(message.timestamp) : ''),
     [message.timestamp]
@@ -124,6 +151,47 @@ export const MessageCard = memo(function MessageCard({
         .join('\n\n'),
     [contentBlocks]
   );
+  const editableText = useMemo(
+    () =>
+      contentBlocks
+        .filter((block) => block.type === 'text')
+        .map((block) => (block as { type: 'text'; text: string }).text)
+        .join('\n\n'),
+    [contentBlocks]
+  );
+  const canSaveEdit = draft.trim().length > 0 && draft.trim() !== editableText.trim();
+
+  useLayoutEffect(() => {
+    const el = editRef.current;
+    if (!editing || !el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }, [editing, draft]);
+
+  useLayoutEffect(() => {
+    if (!editing) return;
+    const el = editRef.current;
+    if (!el) return;
+    el.focus();
+    const end = el.value.length;
+    el.setSelectionRange(end, end);
+  }, [editing]);
+
+  const startEditing = () => {
+    setDraft(editableText);
+    setEditing(true);
+  };
+
+  const cancelEditing = () => {
+    setEditing(false);
+    setDraft('');
+  };
+
+  const saveAndResend = () => {
+    if (!onEditResend || !canSaveEdit) return;
+    onEditResend(contentWithEditedText(contentBlocks, draft.trim()));
+    setEditing(false);
+  };
 
   const showClientOutdatedUpdate = useMemo(
     () => !isUser && !isStreaming && isClientOutdatedError(textToCopy),
@@ -192,12 +260,51 @@ export const MessageCard = memo(function MessageCard({
           <div className="flex min-w-0 max-w-full flex-col items-end gap-1 group/message">
             <div className="flex min-w-0 max-w-full items-start justify-end gap-2">
               <div
-                className={`message-user min-w-0 w-fit max-w-[90%] break-words px-3.5 py-2.5 ${
-                  isCancelled ? 'opacity-55' : ''
-                }`}
+                className={`message-user min-w-0 break-words px-3.5 py-2.5 ${
+                  editing ? '!w-[min(28rem,70vw)] !max-w-full' : 'w-fit max-w-[90%]'
+                } ${isCancelled ? 'opacity-55' : ''}`}
                 aria-label={isCancelled ? t('messageCard.cancelledAria') : undefined}
               >
-                {contentBlocks.length === 0 ? (
+                {editing ? (
+                  <div>
+                    <textarea
+                      ref={editRef}
+                      value={draft}
+                      rows={1}
+                      onChange={(event) => setDraft(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Escape') {
+                          event.preventDefault();
+                          cancelEditing();
+                          return;
+                        }
+                        if (event.key === 'Enter' && !event.shiftKey) {
+                          event.preventDefault();
+                          saveAndResend();
+                        }
+                      }}
+                      aria-label={t('messageCard.editPrompt')}
+                      className="max-h-64 w-full resize-none overflow-y-auto bg-transparent text-[14px] leading-[1.55] text-inherit outline-none"
+                    />
+                    <div className="mt-2 flex items-center justify-end gap-1.5">
+                      <button
+                        type="button"
+                        onClick={cancelEditing}
+                        className="inline-flex h-7 items-center rounded-full px-2.5 text-[12px] text-text-muted hover:bg-surface-muted hover:text-text-secondary"
+                      >
+                        {t('messageCard.cancelEdit')}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={saveAndResend}
+                        disabled={!canSaveEdit}
+                        className="inline-flex h-7 items-center rounded-full bg-accent px-2.5 text-[12px] text-white hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        {t('messageCard.saveAndSend')}
+                      </button>
+                    </div>
+                  </div>
+                ) : contentBlocks.length === 0 ? (
                   <span className="text-text-muted italic">{t('messageCard.emptyMessage')}</span>
                 ) : (
                   <div
@@ -218,11 +325,26 @@ export const MessageCard = memo(function MessageCard({
                   </div>
                 )}
               </div>
-              {textToCopy
-                ? copyButton(
-                    'mt-1 w-7 h-7 flex items-center justify-center rounded-md bg-surface-muted hover:bg-surface-active transition-all opacity-0 group-hover/message:opacity-100 focus-visible:opacity-100 flex-shrink-0'
-                  )
-                : null}
+              {!editing && (onEditResend || textToCopy) ? (
+                <div className="mt-1 flex flex-col gap-1 opacity-0 transition-all group-hover/message:opacity-100 focus-within:opacity-100">
+                  {onEditResend ? (
+                    <button
+                      type="button"
+                      onClick={startEditing}
+                      className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-surface-muted hover:bg-surface-active"
+                      title={t('messageCard.editPrompt')}
+                      aria-label={t('messageCard.editPrompt')}
+                    >
+                      <Pencil className="h-3.5 w-3.5 text-text-muted" aria-hidden />
+                    </button>
+                  ) : null}
+                  {textToCopy
+                    ? copyButton(
+                        'w-7 h-7 flex items-center justify-center rounded-md bg-surface-muted hover:bg-surface-active flex-shrink-0'
+                      )
+                    : null}
+                </div>
+              ) : null}
             </div>
             <div className="flex items-center gap-1">
               {messageTimeLabel ? (

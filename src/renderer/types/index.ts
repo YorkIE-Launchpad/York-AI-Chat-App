@@ -746,6 +746,10 @@ export type ClientEvent =
       payload: { sessionId: string; prompt: string; content?: ContentBlock[] };
     }
   | {
+      type: 'session.editLast';
+      payload: { sessionId: string; prompt: string; content?: ContentBlock[] };
+    }
+  | {
       type: 'session.imageTurn';
       payload: {
         modelId: string;

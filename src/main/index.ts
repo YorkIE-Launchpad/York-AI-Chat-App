@@ -8070,6 +8070,13 @@ async function handleClientEvent(event: ClientEvent): Promise<unknown> {
         event.payload.content
       );
 
+    case 'session.editLast':
+      return sm.editLastPrompt(
+        event.payload.sessionId,
+        event.payload.prompt,
+        event.payload.content
+      );
+
     case 'session.imageTurn':
       if (event.payload.sessionId) {
         return sm.runImageTurn(

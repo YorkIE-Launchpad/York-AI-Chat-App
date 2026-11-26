@@ -386,7 +386,10 @@ export function ModelSelector({
   const isDisabled = isLoading || isSaving;
 
   return (
-    <div ref={rootRef} className={`composer-model-selector relative ${className}`}>
+    <div
+      ref={rootRef}
+      className={`composer-model-selector ${fitContent ? '' : 'relative'} ${className}`}
+    >
       <button
         type="button"
         onClick={() => {
@@ -417,9 +420,11 @@ export function ModelSelector({
       {isOpen && (
         <div
           role="listbox"
-          className={`absolute right-0 z-30 w-max min-w-[min(14rem,100cqw)] max-w-[min(24rem,calc(100cqw-0.5rem))] overflow-hidden rounded-[1.25rem] border border-border-subtle bg-background shadow-elevated ${
-            placement.direction === 'up' ? 'bottom-[calc(100%+8px)]' : 'top-[calc(100%+8px)]'
-          }`}
+          className={`absolute z-30 overflow-hidden rounded-[1.25rem] border border-border-subtle bg-background shadow-elevated ${
+            fitContent
+              ? 'left-0 w-[min(18rem,100%)]'
+              : 'right-0 w-max min-w-[min(14rem,100cqw)] max-w-[min(24rem,calc(100cqw-0.5rem))]'
+          } ${placement.direction === 'up' ? 'bottom-[calc(100%+8px)]' : 'top-[calc(100%+8px)]'}`}
         >
           <div style={{ maxHeight: placement.maxHeight }} className="overflow-y-auto py-1.5">
             {!isYorkLlmOnly && (

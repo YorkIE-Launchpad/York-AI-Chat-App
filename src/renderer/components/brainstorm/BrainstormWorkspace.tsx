@@ -18,6 +18,18 @@ const SPLIT_KEY = 'brainstorm-chat-ratio';
 const SPLIT_MIN = 0.24;
 const SPLIT_MAX = 0.7;
 
+function isFacilitatorKickoff(message: { role: string; content: unknown }): boolean {
+  if (message.role !== 'user' || !Array.isArray(message.content)) return false;
+  const text = message.content
+    .map((block) => {
+      if (!block || typeof block !== 'object') return '';
+      const rec = block as { type?: string; text?: string };
+      return rec.type === 'text' && typeof rec.text === 'string' ? rec.text : '';
+    })
+    .join('\n');
+  return text.includes('lens privately') && text.includes('brainstorm_set_phase');
+}
+
 function readChatRatio(): number {
   try {
     const value = Number(window.localStorage.getItem(SPLIT_KEY));
@@ -56,6 +68,7 @@ export function BrainstormWorkspace({
   const dragRef = useRef<{ startX: number; startRatio: number } | null>(null);
   const [chatRatio, setChatRatio] = useState(readChatRatio);
   const running = session?.status === 'running';
+  const visibleMessages = messages.filter((message) => !isFacilitatorKickoff(message));
   const ideas = detail.ideas || [];
   const signals = detail.signals || [];
   const activity = detail.activity || [];
@@ -268,11 +281,11 @@ export function BrainstormWorkspace({
       </header>
       <div ref={splitRef} className="flex min-h-0 flex-1 flex-col lg:flex-row">
         <section
-          className="flex min-h-0 w-full min-w-0 flex-col border-b border-border-subtle max-lg:!w-full lg:shrink-0 lg:border-b-0 lg:border-r"
+          className="flex min-h-0 w-full min-w-0 flex-col overflow-hidden border-b border-border-subtle max-lg:!w-full lg:shrink-0 lg:border-b-0 lg:border-r"
           style={{ width: `${chatRatio * 100}%` }}
         >
           <div ref={scroller} className="min-h-0 flex-1 space-y-2 overflow-y-auto px-3 py-3">
-            {messages.map((message, index) => (
+            {visibleMessages.map((message, index) => (
               <PanelErrorBoundary
                 key={message.id}
                 name="BrainstormMessage"
@@ -285,9 +298,9 @@ export function BrainstormWorkspace({
               >
                 <MessageCard
                   message={message}
-                  allMessages={messages}
+                  allMessages={visibleMessages}
                   isStreaming={
-                    running && index === messages.length - 1 && message.role === 'assistant'
+                    running && index === visibleMessages.length - 1 && message.role === 'assistant'
                   }
                 />
               </PanelErrorBoundary>
@@ -311,7 +324,7 @@ export function BrainstormWorkspace({
               send();
             }}
           >
-            <div className="flex items-end gap-2">
+            <div className="relative flex items-end gap-2">
               <ModelSelector
                 fitContent
                 sessionId={detail.sessionId}
