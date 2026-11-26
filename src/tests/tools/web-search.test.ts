@@ -62,6 +62,54 @@ describe('searchWeb', () => {
     expect(result).toContain('https://example.com/page');
     expect(globalThis.fetch).toHaveBeenCalledTimes(2);
   });
+
+  it('reads result links when the class comes after the href', async () => {
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ RelatedTopics: [] }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () =>
+          '<a href="https://lite.example/story" class="result-link">Industry story</a>',
+      }) as unknown as typeof fetch;
+
+    const result = await searchWeb('industry news');
+    expect(result).toContain('Industry story');
+    expect(result).toContain('https://lite.example/story');
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('uses news RSS when DuckDuckGo returns no links', async () => {
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ RelatedTopics: [] }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () => '<html>no results</html>',
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () =>
+          '<rss><item><title><![CDATA[Fresh headline]]></title><link>https://news.example/fresh</link></item></rss>',
+      }) as unknown as typeof fetch;
+
+    const result = await searchWeb('latest practice');
+    expect(result).toContain('Fresh headline');
+    expect(result).toContain('https://news.example/fresh');
+    expect(result).not.toContain('No related topics found');
+    expect(globalThis.fetch).toHaveBeenCalledTimes(3);
+  });
 });
 
 describe('WebSearchExtension', () => {

@@ -14,6 +14,7 @@ import {
   toFtsMatchQuery,
   type ChatSearchHit,
 } from '../../shared/chat-search';
+import { ensureBrainstormSchema } from '../brainstorm/brainstorm-schema';
 
 export interface DatabaseInstance {
   // Raw database access (for advanced queries)
@@ -136,6 +137,8 @@ export interface SessionRow {
   allowed_tools: string; // JSON string
   memory_enabled: number;
   model: string | null;
+  provider?: string | null;
+  model_locked?: number | null;
   division: string;
   hub_project_id: string | null;
   hub_project_name: string | null;
@@ -150,6 +153,8 @@ export interface SessionRow {
   collab_room_id: string | null;
   collab_role: string | null;
   skills_disabled?: number;
+  /** chat (default) or brainstorm. Brainstorm sessions stay out of the chat list. */
+  kind?: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -447,6 +452,8 @@ function initializeSchema(database: Database.Database): void {
 
     ensureColumn(database, 'sessions', 'openai_thread_id', 'openai_thread_id TEXT');
     ensureColumn(database, 'sessions', 'model', 'model TEXT');
+    ensureColumn(database, 'sessions', 'provider', 'provider TEXT');
+    ensureColumn(database, 'sessions', 'model_locked', 'model_locked INTEGER NOT NULL DEFAULT 0');
     ensureColumn(database, 'sessions', 'division', "division TEXT NOT NULL DEFAULT 'general'");
     ensureColumn(database, 'sessions', 'hub_project_id', 'hub_project_id TEXT');
     ensureColumn(database, 'sessions', 'hub_project_name', 'hub_project_name TEXT');
@@ -466,6 +473,7 @@ function initializeSchema(database: Database.Database): void {
       'skills_disabled',
       'skills_disabled INTEGER NOT NULL DEFAULT 0'
     );
+    ensureColumn(database, 'sessions', 'kind', "kind TEXT NOT NULL DEFAULT 'chat'");
 
     database.exec(`
     CREATE TABLE IF NOT EXISTS folders (
@@ -947,6 +955,8 @@ function initializeSchema(database: Database.Database): void {
     ON loops(status, due_at)
   `);
 
+    ensureBrainstormSchema(database);
+
     log('[Database] Schema initialized');
   } catch (error) {
     logError('[Database] Schema initialization failed:', error);
@@ -1247,8 +1257,8 @@ export function initDatabase(): DatabaseInstance {
   // Prepare statements for better performance
   const insertSession = rawDb.prepare(`
     INSERT OR REPLACE INTO sessions
-    (id, title, claude_session_id, openai_thread_id, status, cwd, mounted_paths, allowed_tools, memory_enabled, model, division, hub_project_id, hub_project_name, launchpad_project_id, launchpad_project_name, folder_id, folder_name, project_canonical_key, client_name, client_project_ids, pinned, collab_room_id, collab_role, skills_disabled, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    (id, title, claude_session_id, openai_thread_id, status, cwd, mounted_paths, allowed_tools, memory_enabled, model, provider, model_locked, division, hub_project_id, hub_project_name, launchpad_project_id, launchpad_project_name, folder_id, folder_name, project_canonical_key, client_name, client_project_ids, pinned, collab_room_id, collab_role, skills_disabled, kind, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   // Note: Dynamic update queries are built in sessions.update() for flexibility
@@ -1441,6 +1451,8 @@ export function initDatabase(): DatabaseInstance {
           session.allowed_tools,
           session.memory_enabled,
           session.model,
+          session.provider ?? null,
+          session.model_locked ?? 0,
           session.division || 'general',
           session.hub_project_id ?? null,
           session.hub_project_name ?? null,
@@ -1455,6 +1467,7 @@ export function initDatabase(): DatabaseInstance {
           session.collab_room_id ?? null,
           session.collab_role ?? null,
           session.skills_disabled ?? 0,
+          session.kind === 'brainstorm' ? 'brainstorm' : 'chat',
           session.created_at,
           session.updated_at
         );

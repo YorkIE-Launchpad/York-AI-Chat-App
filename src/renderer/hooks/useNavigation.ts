@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from 'react';
 import { useAppStore } from '../store';
 import { useIPC } from './useIPC';
+import type { BrainstormDetail } from '../../shared/brainstorm-types';
 
 export const FOCUS_COMPOSER_EVENT = 'growthos:focus-composer';
 
@@ -9,11 +10,12 @@ function closeFeaturePages() {
   s.setShowSettings(false);
   s.setShowWorkflows(false);
   s.setShowLoops(false);
+  s.setShowBrainstorm(false);
 }
 
 /** One place for page-to-page moves (sidebar, ⌘K, shortcuts, links). */
 export function useNavigation() {
-  const { deleteSession, getSessionMessages, getSessionTraceSteps, isElectron } = useIPC();
+  const { deleteSession, getSessionMessages, getSessionTraceSteps, isElectron, invoke } = useIPC();
 
   /** Private chats are discarded when you leave them. */
   const discardIncognitoIfLeaving = useCallback(
@@ -74,14 +76,52 @@ export function useNavigation() {
     s.setShowSettings(true);
   }, []);
 
+  const openBrainstorm = useCallback(
+    (id?: string | null) => {
+      discardIncognitoIfLeaving(null);
+      const s = useAppStore.getState();
+      s.setIncognitoDraft(false);
+      s.setActiveBrainstormId(id ?? null);
+      s.setShowBrainstorm(true);
+    },
+    [discardIncognitoIfLeaving]
+  );
+
   const openChat = useCallback(
     async (sessionId: string) => {
-      closeFeaturePages();
       const state = useAppStore.getState();
-      if (state.activeSessionId !== sessionId) {
+      const session = state.sessions.find((item) => item.id === sessionId);
+      if (session?.kind === 'brainstorm') {
         discardIncognitoIfLeaving(sessionId);
         state.setIncognitoDraft(false);
-        if (!state.openSessionWithDivision(sessionId)) return;
+        if (isElectron) {
+          try {
+            const detail = await invoke<BrainstormDetail | null>({
+              type: 'brainstorm.getBySession',
+              payload: { sessionId },
+            });
+            if (detail) {
+              useAppStore.getState().upsertBrainstorm(detail);
+              useAppStore.getState().setActiveBrainstormId(detail.id);
+            }
+            const existing = useAppStore.getState().sessionStates[sessionId];
+            if (!existing?.messages?.length) {
+              const messages = await getSessionMessages(sessionId);
+              if (messages?.length) useAppStore.getState().setMessages(sessionId, messages);
+            }
+          } catch {
+            /* still open the page */
+          }
+        }
+        useAppStore.getState().setShowBrainstorm(true);
+        return;
+      }
+      closeFeaturePages();
+      const next = useAppStore.getState();
+      if (next.activeSessionId !== sessionId) {
+        discardIncognitoIfLeaving(sessionId);
+        next.setIncognitoDraft(false);
+        if (!next.openSessionWithDivision(sessionId)) return;
       }
       if (!isElectron) return;
       const existing = useAppStore.getState().sessionStates[sessionId];
@@ -94,7 +134,7 @@ export function useNavigation() {
         useAppStore.getState().setTraceSteps(sessionId, steps || []);
       }
     },
-    [discardIncognitoIfLeaving, getSessionMessages, getSessionTraceSteps, isElectron]
+    [discardIncognitoIfLeaving, getSessionMessages, getSessionTraceSteps, invoke, isElectron]
   );
 
   return useMemo(
@@ -103,6 +143,7 @@ export function useNavigation() {
       newChat,
       openFollowUps,
       openAutomations,
+      openBrainstorm,
       openSettings,
       openChat,
       discardIncognitoIfLeaving,
@@ -112,6 +153,7 @@ export function useNavigation() {
       newChat,
       openFollowUps,
       openAutomations,
+      openBrainstorm,
       openSettings,
       openChat,
       discardIncognitoIfLeaving,

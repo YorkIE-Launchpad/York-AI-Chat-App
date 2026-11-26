@@ -12,6 +12,7 @@ import {
 } from '../store/selectors';
 import { useAppStore } from '../store';
 import { useIPC } from '../hooks/useIPC';
+import { consumeBrainstormComposerPrompt } from '../brainstorm/launch-brainstorm';
 import { useSessionInputDraft } from '../hooks/useSessionInputDraft';
 import { MessageCard } from './MessageCard';
 import { MESSAGE_POINTERS_GUTTER_CLASS, MessagePointers } from './MessagePointers';
@@ -107,6 +108,7 @@ export function ChatView() {
     setSessionSkillsDisabled,
     changeWorkingDir,
     isElectron,
+    invoke,
   } = useIPC();
   const skillsDisabled = activeSession?.skillsDisabled === true;
   const [prompt, setPrompt] = useSessionInputDraft(activeSessionId);
@@ -526,6 +528,24 @@ export function ChatView() {
       isSubmitting
     )
       return;
+
+    if (!imageComposer) {
+      try {
+        const consumed = await consumeBrainstormComposerPrompt(currentPrompt, invoke);
+        if (consumed) {
+          setPrompt('');
+          setCursorIndex(0);
+          return;
+        }
+      } catch (error) {
+        setGlobalNotice({
+          id: `brainstorm-start-${Date.now()}`,
+          type: 'error',
+          message: error instanceof Error ? error.message : 'Could not start the brainstorm',
+        });
+        return;
+      }
+    }
 
     if (imageComposer && isElectron) {
       const modelId = resolveGptImage25ModelId(backendModelsCatalog);

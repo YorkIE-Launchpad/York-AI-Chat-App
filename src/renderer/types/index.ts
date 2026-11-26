@@ -1,3 +1,8 @@
+import type {
+  BrainstormCreateInput,
+  BrainstormDetail,
+  BrainstormIdeaPatch,
+} from '../../shared/brainstorm-types';
 import type { ActiveDivision, WorkspaceDivisionKind } from '../../shared/workspace-division';
 import type { ChatSearchScope } from '../../shared/chat-search';
 import type { ExternalReferenceContent } from '../../shared/external-reference';
@@ -63,6 +68,8 @@ export interface Session {
    * from /skill or @skill mentions for this chat.
    */
   skillsDisabled?: boolean;
+  /** chat sessions appear in the sidebar. brainstorm sessions open from the Brainstorm page. */
+  kind?: 'chat' | 'brainstorm';
   createdAt: number;
   updatedAt: number;
 }
@@ -814,7 +821,21 @@ export type ClientEvent =
   | { type: 'skill.selectFile'; payload: Record<string, never> }
   | { type: 'workdir.get'; payload: Record<string, never> }
   | { type: 'workdir.set'; payload: { path: string; sessionId?: string } }
-  | { type: 'workdir.select'; payload: { sessionId?: string; currentPath?: string } };
+  | { type: 'workdir.select'; payload: { sessionId?: string; currentPath?: string } }
+  | { type: 'brainstorm.list'; payload: Record<string, never> }
+  | { type: 'brainstorm.profile'; payload: Record<string, never> }
+  | { type: 'brainstorm.get'; payload: { id: string } }
+  | { type: 'brainstorm.getBySession'; payload: { sessionId: string } }
+  | { type: 'brainstorm.create'; payload: BrainstormCreateInput }
+  | { type: 'brainstorm.updateIdea'; payload: { id: string; patch: BrainstormIdeaPatch } }
+  | { type: 'brainstorm.addIdea'; payload: { brainstormId: string; title: string; body?: string } }
+  | { type: 'brainstorm.delete'; payload: { id: string } }
+  | { type: 'brainstorm.exportBrief'; payload: { id: string } }
+  | { type: 'brainstorm.setModel'; payload: { id: string; model: string; provider: string } }
+  | { type: 'brainstorm.addThought'; payload: { id: string; ideaId?: string | null; text: string } }
+  | { type: 'brainstorm.addFiles'; payload: { id: string; paths: string[] } }
+  | { type: 'brainstorm.share'; payload: { id: string } }
+  | { type: 'brainstorm.join'; payload: { roomId: string } };
 
 // Sandbox setup types (app startup)
 export type SandboxSetupPhase =
@@ -998,7 +1019,9 @@ export type ServerEvent =
         message: string;
         code?: 'CONFIG_REQUIRED_ACTIVE_SET' | 'AUTH_REQUIRED';
       };
-    };
+    }
+  | { type: 'brainstorm.updated'; payload: { brainstorm: BrainstormDetail } }
+  | { type: 'brainstorm.deleted'; payload: { id: string } };
 
 // Settings types
 export interface Settings {
@@ -1112,6 +1135,18 @@ export interface MeetingsRuntimeConfig {
   liveAssistInstructions?: string;
   liveAssistIntervalMs?: number;
 }
+
+export type {
+  BrainstormCreateInput,
+  BrainstormDetail,
+  BrainstormIdeaPatch,
+  BrainstormProfileSnapshot,
+  BrainstormSummary,
+  BrainstormPhase,
+  BrainstormTechnique,
+  BrainstormIdea,
+  BrainstormBrief,
+} from '../../shared/brainstorm-types';
 
 export type {
   MatterRuntimeConfig,

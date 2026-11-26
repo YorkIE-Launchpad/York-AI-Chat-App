@@ -2305,6 +2305,8 @@
     "todayHint": "What needs you, your schedule and the radar",
     "followUps": "Follow-ups",
     "followUpsHint": "Things you owe and things you're waiting on",
+    "brainstorm": "Brainstorm",
+    "brainstormHint": "Facilitated idea boards for any topic",
     "automations": "Automations",
     "automationsHint": "Workflows and scheduled tasks",
     "chats": "Chats",

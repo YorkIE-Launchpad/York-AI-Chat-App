@@ -281,7 +281,7 @@ describe('auth-utils', () => {
   });
 
   it('injects the York LLM api key from env when base url is the shared York server', () => {
-    vi.stubEnv('YORK_LLM_API_KEY', '53d93195-80b7-42fe-b1b7-4af0cd932efc');
+    vi.stubEnv('YORK_LLM_API_KEY', '53d93195-80b7-42fe-b1b7-4af0cd93');
     const resolved = resolveOllamaCredentials({
       provider: 'ollama',
       customProtocol: 'openai',
@@ -290,7 +290,7 @@ describe('auth-utils', () => {
     });
 
     expect(resolved).toEqual({
-      apiKey: '53d93195-80b7-42fe-b1b7-4af0cd932efc',
+      apiKey: '53d93195-80b7-42fe-b1b7-4af0cd93',
       baseUrl: 'http://llm.yorkdevs.link:2222/v1',
     });
   });

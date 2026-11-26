@@ -18,6 +18,8 @@ import { applySessionUpdate } from '../utils/session-update';
 import { previewKindFromPath } from '../utils/html-preview';
 import type { ActiveDivision } from '../../shared/workspace-division';
 import type { MatterChatDraft } from '../../shared/matter-chat';
+import type { BrainstormDetail, BrainstormSummary } from '../../shared/brainstorm-types';
+import { summaryFromDetail } from '../../shared/brainstorm-types';
 import type { HubUsageMeterSnapshot } from '../../shared/fe-budget-gate';
 import type { BackendModelInfo } from '../../shared/backend-config';
 import type { ComposerMode } from '../../shared/image-generation';
@@ -174,6 +176,11 @@ export interface AppState {
   showMatter: boolean;
   showWorkflows: boolean;
   showLoops: boolean;
+  showBrainstorm: boolean;
+  /** Open brainstorm when the Brainstorm page is showing a board. */
+  activeBrainstormId: string | null;
+  brainstormList: BrainstormSummary[];
+  brainstormsById: Record<string, BrainstormDetail>;
   /** Which Follow-ups tab to show when the page next opens. */
   followUpsTab: 'mine' | 'waiting' | 'closed';
   /** Which Automations tab to show when the page next opens. */
@@ -347,6 +354,12 @@ export interface AppState {
   setShowMatter: (show: boolean) => void;
   setShowWorkflows: (show: boolean) => void;
   setShowLoops: (show: boolean) => void;
+  setShowBrainstorm: (show: boolean) => void;
+  setActiveBrainstormId: (id: string | null) => void;
+  setBrainstormList: (list: BrainstormSummary[]) => void;
+  upsertBrainstorm: (detail: BrainstormDetail) => void;
+  removeBrainstorm: (id: string) => void;
+  ensureSession: (session: Session) => void;
   setFollowUpsTab: (tab: 'mine' | 'waiting' | 'closed') => void;
   setAutomationsTab: (tab: 'workflows' | 'schedules') => void;
   setInspectorTab: (tab: InspectorTab) => void;
@@ -481,6 +494,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   showMatter: false,
   showWorkflows: false,
   showLoops: false,
+  showBrainstorm: false,
+  activeBrainstormId: null,
+  brainstormList: [],
+  brainstormsById: {},
   followUpsTab: 'mine',
   automationsTab: 'workflows',
   inspectorTab: 'context',
@@ -549,6 +566,25 @@ export const useAppStore = create<AppState>((set, get) => ({
       incognitoDraft: false,
       skillsOffDraft: false,
     })),
+
+  ensureSession: (session) =>
+    set((state) => {
+      const exists = state.sessions.some((existing) => existing.id === session.id);
+      if (exists) {
+        return {
+          sessions: state.sessions.map((existing) =>
+            existing.id === session.id ? { ...existing, ...session } : existing
+          ),
+        };
+      }
+      return {
+        sessions: [session, ...state.sessions],
+        sessionStates: {
+          ...state.sessionStates,
+          [session.id]: state.sessionStates[session.id] ?? { ...DEFAULT_SESSION_STATE },
+        },
+      };
+    }),
 
   replacePendingSession: (pendingId, session) =>
     set((state) => {
@@ -666,10 +702,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => {
       const switching = sessionId !== state.activeSessionId;
       // Opening a chat mirrors its folder; leaving to a new chat resets to the app default.
-      const sessionCwd = sessionId
-        ? state.sessions.find((s) => s.id === sessionId)?.cwd
-        : undefined;
+      const opening = sessionId ? state.sessions.find((s) => s.id === sessionId) : undefined;
+      const sessionCwd = opening?.cwd;
       const nextWorkingDir = sessionId ? sessionCwd : state.defaultWorkingDir;
+      const openingBrainstorm = opening?.kind === 'brainstorm';
       const base = sessionId
         ? {
             activeSessionId: sessionId,
@@ -677,6 +713,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             showSettings: false,
             showWorkflows: false,
             showLoops: false,
+            showBrainstorm: openingBrainstorm,
             ...(switching ? { activeHtmlPreview: null } : {}),
             ...(nextWorkingDir ? { workingDir: nextWorkingDir } : {}),
           }
@@ -1130,7 +1167,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   setShowSettings: (show) =>
     set(
       show
-        ? { showSettings: true, showMatter: false, showWorkflows: false, showLoops: false }
+        ? {
+            showSettings: true,
+            showMatter: false,
+            showWorkflows: false,
+            showLoops: false,
+            showBrainstorm: false,
+          }
         : { showSettings: false }
     ),
   // Matter lives on Today (home): "show Matter" means go to Today.
@@ -1142,6 +1185,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             showSettings: false,
             showWorkflows: false,
             showLoops: false,
+            showBrainstorm: false,
             activeSessionId: null,
           }
         : { showMatter: false }
@@ -1154,6 +1198,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             showSettings: false,
             showMatter: false,
             showLoops: false,
+            showBrainstorm: false,
             activeSessionId: null,
           }
         : { showWorkflows: false }
@@ -1166,10 +1211,45 @@ export const useAppStore = create<AppState>((set, get) => ({
             showSettings: false,
             showMatter: false,
             showWorkflows: false,
+            showBrainstorm: false,
             activeSessionId: null,
           }
         : { showLoops: false }
     ),
+  setShowBrainstorm: (show) =>
+    set(
+      show
+        ? {
+            showBrainstorm: true,
+            showSettings: false,
+            showMatter: false,
+            showWorkflows: false,
+            showLoops: false,
+            activeSessionId: null,
+          }
+        : { showBrainstorm: false }
+    ),
+  setActiveBrainstormId: (id) => set({ activeBrainstormId: id }),
+  setBrainstormList: (list) => set({ brainstormList: list }),
+  upsertBrainstorm: (detail) =>
+    set((state) => {
+      const summary = summaryFromDetail(detail);
+      const rest = state.brainstormList.filter((item) => item.id !== detail.id);
+      return {
+        brainstormsById: { ...state.brainstormsById, [detail.id]: detail },
+        brainstormList: [summary, ...rest].sort((a, b) => b.updatedAt - a.updatedAt),
+      };
+    }),
+  removeBrainstorm: (id) =>
+    set((state) => {
+      const next = { ...state.brainstormsById };
+      delete next[id];
+      return {
+        brainstormsById: next,
+        brainstormList: state.brainstormList.filter((item) => item.id !== id),
+        activeBrainstormId: state.activeBrainstormId === id ? null : state.activeBrainstormId,
+      };
+    }),
   setFollowUpsTab: (tab) => set({ followUpsTab: tab }),
   setAutomationsTab: (tab) => set({ automationsTab: tab }),
   setInspectorTab: (tab) => set({ inspectorTab: tab }),
@@ -1193,6 +1273,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       showSettings: false,
       showWorkflows: false,
       showLoops: false,
+      showBrainstorm: false,
       activeSessionId: null,
     }),
   openMatterToMeeting: (meetingId, options) =>
@@ -1204,6 +1285,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       showSettings: false,
       showWorkflows: false,
       showLoops: false,
+      showBrainstorm: false,
       activeSessionId: null,
     }),
   setMatterPrepLoadingId: (meetingId) => set({ matterPrepLoadingId: meetingId }),
@@ -1486,6 +1568,8 @@ if (typeof window !== 'undefined') {
       showMatter: !!s.showMatter,
       showWorkflows: !!s.showWorkflows,
       showLoops: !!s.showLoops,
+      showBrainstorm: !!s.showBrainstorm,
+      activeBrainstormId: s.activeBrainstormId,
       askGrowthOSOpen: !!s.askGrowthOSOpen,
       activeSessionId: s.activeSessionId || null,
       sessionCount: (s.sessions || []).length,
@@ -1499,6 +1583,7 @@ if (typeof window !== 'undefined') {
       store.setShowMatter(false);
       store.setShowWorkflows(false);
       store.setShowLoops(false);
+      store.setShowBrainstorm(false);
       store.setAskGrowthOSOpen(false);
       store.setActiveSession(null);
     } else if (page === 'matter') {
@@ -1510,6 +1595,9 @@ if (typeof window !== 'undefined') {
       store.setShowWorkflows(true);
     } else if (page === 'loops') {
       store.setShowLoops(true);
+    } else if (page === 'brainstorm') {
+      store.setShowBrainstorm(true);
+      if (sessionId) store.setActiveBrainstormId(sessionId);
     } else if (page === 'settings') {
       if (tab === 'workflows') {
         store.setShowWorkflows(true);
@@ -1527,6 +1615,7 @@ if (typeof window !== 'undefined') {
       store.setShowMatter(false);
       store.setShowWorkflows(false);
       store.setShowLoops(false);
+      store.setShowBrainstorm(false);
       store.setAskGrowthOSOpen(false);
       store.openSessionWithDivision(sessionId);
     }

@@ -214,6 +214,7 @@ export function useSettingsState(): {
   showMatter: boolean;
   showWorkflows: boolean;
   showLoops: boolean;
+  showBrainstorm: boolean;
   settingsTab: string | null;
 } {
   return useAppStore(
@@ -222,6 +223,7 @@ export function useSettingsState(): {
       showMatter: s.showMatter,
       showWorkflows: s.showWorkflows,
       showLoops: s.showLoops,
+      showBrainstorm: s.showBrainstorm,
       settingsTab: s.settingsTab,
     }))
   );

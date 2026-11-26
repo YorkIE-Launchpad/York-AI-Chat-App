@@ -26,8 +26,35 @@ describe('extractHubProfileFields', () => {
       functionName: 'Engineering',
       squad: 'Platform',
       department: 'Product',
+      introduction: null,
       name: 'Ada Lovelace',
       email: 'ada@york.ie',
+    });
+  });
+
+  it('reads GET /api/auth/me designation, squad.function, and introduction', () => {
+    const fields = extractHubProfileFields({
+      first_name: 'Kalrav',
+      last_name: 'Parsana',
+      email: 'kalrav@york.ie',
+      designation: { id: 'd1', name: 'Product Manager', level: 'L4' },
+      squad: {
+        id: 's1',
+        name: 'Growth',
+        function: { id: 'f1', name: 'GTM' },
+      },
+      guild: { id: 'g1', name: 'Builders' },
+      introduction: 'Shipped pricing and onboarding.',
+    });
+
+    expect(fields).toEqual({
+      title: 'Product Manager',
+      functionName: 'GTM',
+      squad: 'Growth',
+      department: null,
+      introduction: 'Shipped pricing and onboarding.',
+      name: 'Kalrav Parsana',
+      email: 'kalrav@york.ie',
     });
   });
 

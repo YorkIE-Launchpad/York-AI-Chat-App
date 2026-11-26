@@ -3,7 +3,7 @@ import { create } from 'zustand';
 import { useAppStore, type AppState } from '../store';
 import { useNavigation } from './useNavigation';
 
-export type NavPage = 'today' | 'chat' | 'followUps' | 'automations' | 'settings';
+export type NavPage = 'today' | 'chat' | 'followUps' | 'automations' | 'brainstorm' | 'settings';
 
 export interface NavLocation {
   page: NavPage;
@@ -24,6 +24,9 @@ export function locationFromState(state: AppState): NavLocation {
   if (state.showSettings) return { page: 'settings' };
   if (state.showWorkflows) return { page: 'automations' };
   if (state.showLoops) return { page: 'followUps' };
+  if (state.showBrainstorm) {
+    return { page: 'brainstorm', sessionId: state.activeBrainstormId || undefined };
+  }
   if (state.activeSessionId) return { page: 'chat', sessionId: state.activeSessionId };
   return { page: 'today' };
 }
@@ -105,11 +108,19 @@ export function useNavigationHistoryTracker() {
         case 'followUps':
           s.setShowSettings(false);
           s.setShowWorkflows(false);
+          s.setShowBrainstorm(false);
           nav.openFollowUps();
+          return true;
+        case 'brainstorm':
+          s.setShowSettings(false);
+          s.setShowWorkflows(false);
+          s.setShowLoops(false);
+          nav.openBrainstorm(location.sessionId);
           return true;
         case 'automations':
           s.setShowSettings(false);
           s.setShowLoops(false);
+          s.setShowBrainstorm(false);
           nav.openAutomations();
           return true;
         case 'settings':
@@ -129,6 +140,8 @@ export function useNavigationHistoryTracker() {
         state.showSettings !== prev.showSettings ||
         state.showWorkflows !== prev.showWorkflows ||
         state.showLoops !== prev.showLoops ||
+        state.showBrainstorm !== prev.showBrainstorm ||
+        state.activeBrainstormId !== prev.activeBrainstormId ||
         state.activeSessionId !== prev.activeSessionId
       ) {
         scheduleRecord();

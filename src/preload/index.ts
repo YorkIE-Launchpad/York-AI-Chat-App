@@ -159,6 +159,20 @@ const ALLOWED_CLIENT_EVENTS: ReadonlySet<string> = new Set<ClientEvent['type']>(
   'workdir.get',
   'workdir.set',
   'workdir.select',
+  'brainstorm.list',
+  'brainstorm.profile',
+  'brainstorm.get',
+  'brainstorm.getBySession',
+  'brainstorm.create',
+  'brainstorm.updateIdea',
+  'brainstorm.addIdea',
+  'brainstorm.delete',
+  'brainstorm.exportBrief',
+  'brainstorm.setModel',
+  'brainstorm.addThought',
+  'brainstorm.addFiles',
+  'brainstorm.share',
+  'brainstorm.join',
 ]);
 
 // Invoke a whitelisted ClientEvent and wait for the response. Defined once at

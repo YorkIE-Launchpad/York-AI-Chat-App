@@ -37,6 +37,8 @@ import {
 } from '../hooks/useAppleLlmModels';
 import { isGptImage25ModelId } from '../../shared/image-generation';
 import { useMenuPlacement } from '../hooks/useMenuPlacement';
+import { useIPC } from '../hooks/useIPC';
+import { persistModelPick } from './model-selection-target';
 
 const isElectron = typeof window !== 'undefined' && window.electronAPI !== undefined;
 
@@ -63,11 +65,33 @@ function shortModelName(name: string, id: string): string {
 
 interface ModelSelectorProps {
   className?: string;
+  /** Hug the model name instead of stretching across the row. */
+  fitContent?: boolean;
+  /** When set with brainstormId, a pick locks that brainstorm instead of the global config. */
+  sessionId?: string;
+  brainstormId?: string;
 }
 
-export function ModelSelector({ className = '' }: ModelSelectorProps) {
+export function ModelSelector({
+  className = '',
+  fitContent = false,
+  sessionId,
+  brainstormId,
+}: ModelSelectorProps) {
   const { t } = useTranslation();
-  const appConfig = useAppStore((state) => state.appConfig);
+  const { invoke } = useIPC();
+  const storedConfig = useAppStore((state) => state.appConfig);
+  const pinnedSession = useAppStore((state) =>
+    sessionId ? state.sessions.find((item) => item.id === sessionId) : undefined
+  );
+  const appConfig =
+    sessionId && pinnedSession?.model
+      ? {
+          ...storedConfig,
+          model: pinnedSession.model,
+          provider: (pinnedSession.provider as AppConfig['provider']) || storedConfig?.provider,
+        }
+      : storedConfig;
   const activeDivision = useAppStore((state) => state.activeDivision);
   const setAppConfig = useAppStore((state) => state.setAppConfig);
   const setIsConfigured = useAppStore((state) => state.setIsConfigured);
@@ -244,8 +268,18 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
   const saveConfig = useCallback(
     async (payload: Partial<AppConfig>) => {
       if (!isElectron || isSaving) return;
+      const destination = persistModelPick({
+        sessionId,
+        brainstormId,
+        model: payload.model,
+        provider: payload.provider,
+      });
       setIsSaving(true);
       try {
+        if (destination.type === 'brainstorm.setModel') {
+          await invoke({ type: 'brainstorm.setModel', payload: destination.payload });
+          return;
+        }
         const result = await window.electronAPI.config.save(payload);
         setAppConfig(result.config);
         setIsConfigured(true);
@@ -253,7 +287,7 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
         setIsSaving(false);
       }
     },
-    [isSaving, setAppConfig, setIsConfigured]
+    [brainstormId, invoke, isSaving, sessionId, setAppConfig, setIsConfigured]
   );
 
   const handleSelectYorkLlm = useCallback(
@@ -361,7 +395,9 @@ export function ModelSelector({ className = '' }: ModelSelectorProps) {
         disabled={isDisabled}
         aria-haspopup="listbox"
         aria-expanded={isOpen}
-        className={`inline-flex h-8 w-full min-w-0 max-w-[11rem] items-center gap-1 rounded-xl px-2 py-0 text-left transition-colors ${
+        className={`inline-flex h-7 min-w-0 items-center gap-1 rounded-lg py-0 text-left text-[12px] transition-colors ${
+          fitContent ? 'w-auto max-w-[8.5rem] px-1.5' : 'h-8 w-full max-w-[11rem] rounded-xl px-2'
+        } ${
           isOpen
             ? 'bg-surface-hover text-text-primary'
             : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'

@@ -58,6 +58,7 @@ export const LOOP_STOP_SLASH_SKILL: Skill = {
 };
 
 export const GOAL_STOP_SLASH_SKILL_ID = '__builtin_goal_stop';
+export const BRAINSTORM_SLASH_SKILL_ID = '__builtin_brainstorm';
 
 export const GOAL_STOP_SLASH_SKILL: Skill = {
   id: GOAL_STOP_SLASH_SKILL_ID,
@@ -66,6 +67,17 @@ export const GOAL_STOP_SLASH_SKILL: Skill = {
   type: 'builtin',
   enabled: true,
   userInvocable: true,
+  createdAt: 0,
+};
+
+export const BRAINSTORM_SLASH_SKILL: Skill = {
+  id: BRAINSTORM_SLASH_SKILL_ID,
+  name: 'brainstorm',
+  description: 'Open a facilitated brainstorm on a topic (/brainstorm …)',
+  type: 'builtin',
+  enabled: true,
+  userInvocable: true,
+  argumentHint: '<topic>',
   createdAt: 0,
 };
 
@@ -198,6 +210,7 @@ export function useSlashCommands(
             : []),
           LOOP_SLASH_SKILL,
           GOAL_SLASH_SKILL,
+          BRAINSTORM_SLASH_SKILL,
           LOOP_STOP_SLASH_SKILL,
           GOAL_STOP_SLASH_SKILL,
         ]

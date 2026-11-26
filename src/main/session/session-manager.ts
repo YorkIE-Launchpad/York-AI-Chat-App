@@ -512,6 +512,7 @@ export class SessionManager {
       incognito?: boolean;
       autoApproveToolPermissions?: boolean;
       skillsDisabled?: boolean;
+      kind?: 'chat' | 'brainstorm';
       /** Remote-chat session: must be marked before the first prompt is queued. */
       strictRemote?: boolean;
     }
@@ -572,6 +573,7 @@ export class SessionManager {
       incognito?: boolean;
       autoApproveToolPermissions?: boolean;
       skillsDisabled?: boolean;
+      kind?: 'chat' | 'brainstorm';
     }
   ): Promise<Session> {
     const isIncognito = options?.incognito === true;
@@ -634,6 +636,7 @@ export class SessionManager {
       incognito?: boolean;
       autoApproveToolPermissions?: boolean;
       skillsDisabled?: boolean;
+      kind?: 'chat' | 'brainstorm';
     }
   ): Session {
     const now = Date.now();
@@ -701,6 +704,7 @@ export class SessionManager {
       incognito: isIncognito || undefined,
       autoApproveToolPermissions: autoApproveToolPermissions || undefined,
       skillsDisabled: options?.skillsDisabled === true || undefined,
+      kind: options?.kind === 'brainstorm' ? 'brainstorm' : 'chat',
       createdAt: now,
       updatedAt: now,
     };
@@ -735,6 +739,8 @@ export class SessionManager {
       allowed_tools: JSON.stringify(session.allowedTools),
       memory_enabled: session.memoryEnabled ? 1 : 0,
       model: session.model || null,
+      provider: session.provider || null,
+      model_locked: session.modelLocked ? 1 : 0,
       division: divisionFields.division,
       hub_project_id: divisionFields.hubProjectId ?? null,
       hub_project_name: divisionFields.hubProjectName ?? null,
@@ -749,6 +755,7 @@ export class SessionManager {
       collab_room_id: session.collabRoomId ?? null,
       collab_role: session.collabRole ?? null,
       skills_disabled: session.skillsDisabled ? 1 : 0,
+      kind: session.kind === 'brainstorm' ? 'brainstorm' : 'chat',
       created_at: session.createdAt,
       updated_at: session.updatedAt,
     });
@@ -765,6 +772,8 @@ export class SessionManager {
     allowed_tools: string;
     memory_enabled: number;
     model: string | null;
+    provider?: string | null;
+    model_locked?: number | null;
     division?: string | null;
     hub_project_id?: string | null;
     hub_project_name?: string | null;
@@ -779,6 +788,7 @@ export class SessionManager {
     collab_room_id?: string | null;
     collab_role?: string | null;
     skills_disabled?: number | null;
+    kind?: string | null;
     created_at: number;
     updated_at: number;
   }): Session {
@@ -811,6 +821,10 @@ export class SessionManager {
       clientProjectIds: row.client_project_ids,
     });
 
+    if (row.kind === 'brainstorm') {
+      rememberAutoApproveToolPermissions(row.id);
+    }
+
     return {
       id: row.id,
       title: row.title,
@@ -822,6 +836,8 @@ export class SessionManager {
       allowedTools,
       memoryEnabled: row.memory_enabled === 1,
       model: row.model || undefined,
+      provider: row.provider || undefined,
+      modelLocked: row.model_locked === 1 || undefined,
       division: divisionFields.division,
       hubProjectId: divisionFields.hubProjectId,
       hubProjectName: divisionFields.hubProjectName,
@@ -836,8 +852,10 @@ export class SessionManager {
       collabRoomId: row.collab_room_id || null,
       collabRole:
         row.collab_role === 'owner' || row.collab_role === 'member' ? row.collab_role : null,
-      autoApproveToolPermissions: sessionAutoApprovesToolPermissions(row.id) || undefined,
+      autoApproveToolPermissions:
+        row.kind === 'brainstorm' || sessionAutoApprovesToolPermissions(row.id) || undefined,
       skillsDisabled: row.skills_disabled === 1 || undefined,
+      kind: row.kind === 'brainstorm' ? 'brainstorm' : 'chat',
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -2424,6 +2442,35 @@ export class SessionManager {
       payload: { sessionId, updates: { title } },
     });
     this.collabHooks?.onLocalTitleChanged?.(sessionId, title);
+    return true;
+  }
+
+  /** Pin the model used for later turns. Brainstorms use this so the global picker cannot move them. */
+  lockSessionModel(sessionId: string, model: string, provider: string): boolean {
+    const trimmed = model.trim();
+    const providerName = provider.trim();
+    if (!trimmed || !providerName) return false;
+    const ephemeral = this.ephemeralSessions.get(sessionId);
+    if (ephemeral) {
+      ephemeral.model = trimmed;
+      ephemeral.provider = providerName;
+      ephemeral.modelLocked = true;
+      ephemeral.updatedAt = Date.now();
+    } else {
+      if (!this.db.sessions.get(sessionId)) return false;
+      this.db.sessions.update(sessionId, {
+        model: trimmed,
+        provider: providerName,
+        model_locked: 1,
+      });
+    }
+    this.sendToRenderer({
+      type: 'session.update',
+      payload: {
+        sessionId,
+        updates: { model: trimmed, provider: providerName, modelLocked: true },
+      },
+    });
     return true;
   }
 

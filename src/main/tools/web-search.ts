@@ -51,14 +51,42 @@ function collectTopics(topic: unknown, results: TopicItem[]): void {
 function parseDuckDuckGoHtml(html: string): TopicItem[] {
   const results: TopicItem[] = [];
   const seen = new Set<string>();
-  const linkRe = /<a[^>]*class="[^"]*result__a[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
+  const linkRe = /<a\b([^>]*)>([\s\S]*?)<\/a>/gi;
   let match: RegExpExecArray | null;
   while ((match = linkRe.exec(html)) !== null && results.length < HTML_RESULT_LIMIT) {
-    const href = decodeDuckDuckGoRedirect(match[1] || '');
+    const attrs = match[1] || '';
+    const className = /class="([^"]*)"/i.exec(attrs)?.[1] || '';
+    const isResult =
+      className.includes('result__a') ||
+      className.includes('result-link') ||
+      /[?&]uddg=/.test(attrs);
+    if (!isResult) continue;
+    const href = decodeDuckDuckGoRedirect(/href="([^"]+)"/i.exec(attrs)?.[1] || '');
     const text = stripTags(match[2] || '').trim();
     if (!href || !text || seen.has(href)) continue;
     seen.add(href);
     results.push({ text, url: href });
+  }
+  return results;
+}
+
+function parseRssItems(xml: string): TopicItem[] {
+  const results: TopicItem[] = [];
+  const seen = new Set<string>();
+  const itemRe = /<item\b[^>]*>([\s\S]*?)<\/item>/gi;
+  let match: RegExpExecArray | null;
+  while ((match = itemRe.exec(xml)) !== null && results.length < HTML_RESULT_LIMIT) {
+    const item = match[1] || '';
+    const title = decodeXmlText(/<title[^>]*>([\s\S]*?)<\/title>/i.exec(item)?.[1] || '');
+    const rawLink =
+      /<link[^>]*>([\s\S]*?)<\/link>/i.exec(item)?.[1] ||
+      /<guid[^>]*>([\s\S]*?)<\/guid>/i.exec(item)?.[1] ||
+      '';
+    const url = decodeXmlText(rawLink);
+    if (!title || !url || seen.has(url)) continue;
+    if (!/^https?:\/\//i.test(url)) continue;
+    seen.add(url);
+    results.push({ text: title, url });
   }
   return results;
 }
@@ -77,6 +105,16 @@ function decodeDuckDuckGoRedirect(href: string): string {
 
 function stripTags(value: string): string {
   return value.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+}
+
+function decodeXmlText(value: string): string {
+  const unwrapped = value.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1');
+  return stripTags(unwrapped)
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .trim();
 }
 
 function trimOutput(text: string): string {
@@ -100,12 +138,15 @@ export async function searchWeb(query: string): Promise<string> {
   instantUrl.searchParams.set('no_html', '1');
   instantUrl.searchParams.set('skip_disambig', '1');
 
-  const instantResponse = await fetchWithTimeout(instantUrl.toString());
-  if (!instantResponse.ok) {
-    throw new Error(`Search request failed with status ${instantResponse.status}`);
+  let data: Record<string, unknown> = {};
+  try {
+    const instantResponse = await fetchWithTimeout(instantUrl.toString());
+    if (instantResponse.ok) {
+      data = (await instantResponse.json()) as Record<string, unknown>;
+    }
+  } catch {
+    // Instant Answer is optional. HTML and news RSS still run.
   }
-
-  const data = (await instantResponse.json()) as Record<string, unknown>;
   const heading = typeof data.Heading === 'string' ? data.Heading : '';
   const abstractText = typeof data.AbstractText === 'string' ? data.AbstractText : '';
   const abstractUrl = typeof data.AbstractURL === 'string' ? data.AbstractURL : '';
@@ -133,6 +174,20 @@ export async function searchWeb(query: string): Promise<string> {
       }
     } catch {
       // HTML fallback is best-effort; Instant Answer output still ships.
+    }
+  }
+
+  if (results.length === 0) {
+    try {
+      const rssUrl = new URL('https://www.bing.com/search');
+      rssUrl.searchParams.set('q', trimmed);
+      rssUrl.searchParams.set('format', 'rss');
+      const rssResponse = await fetchWithTimeout(rssUrl.toString());
+      if (rssResponse.ok) {
+        results.push(...parseRssItems(await rssResponse.text()));
+      }
+    } catch {
+      // News RSS is a second source when DuckDuckGo returns no links.
     }
   }
 

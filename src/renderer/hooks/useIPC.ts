@@ -197,6 +197,14 @@ export function useIPC() {
             store.setSessions(event.payload.sessions);
             break;
 
+          case 'brainstorm.updated':
+            store.upsertBrainstorm(event.payload.brainstorm);
+            break;
+
+          case 'brainstorm.deleted':
+            store.removeBrainstorm(event.payload.id);
+            break;
+
           case 'session.status':
             store.updateSession(event.payload.sessionId, {
               status: event.payload.status,

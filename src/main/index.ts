@@ -155,6 +155,11 @@ import { WorkflowService } from './workflows/workflow-service';
 import { WorkflowExtension } from './workflows/workflow-extension';
 import { LoopService } from './loops/loop-service';
 import { LoopExtension } from './loops/loop-extension';
+import { BrainstormService } from './brainstorm/brainstorm-service';
+import { BrainstormStore } from './brainstorm/brainstorm-store';
+import { BrainstormExtension } from './brainstorm/brainstorm-extension';
+import { writeBrainstormBriefFile } from './brainstorm/brainstorm-export';
+import type { BrainstormCreateInput, BrainstormIdeaPatch } from '../shared/brainstorm-types';
 import { MatterExtension } from './matter/matter-extension';
 import { resolveWelcomeProfile } from './welcome/resolve-welcome-profile';
 import {
@@ -487,6 +492,7 @@ let scheduledTaskManager: ScheduledTaskManager | null = null;
 let chatLoopManager: ChatLoopManager | null = null;
 let matterService: MatterService | null = null;
 let loopService: LoopService | null = null;
+let brainstormService: BrainstormService | null = null;
 let folderManager: FolderManager | null = null;
 
 function wireCollabSyncService(): void {
@@ -616,6 +622,102 @@ function wireWikiAndOrchestration(db: ReturnType<typeof initDatabase>): void {
   workflowService = new WorkflowService(db, checkpointService);
   bindSubagentCheckpointService(checkpointService);
   loopService = new LoopService(db);
+  brainstormService = new BrainstormService(
+    new BrainstormStore(db),
+    {
+      resolveProfile: () =>
+        resolveWelcomeProfile({ mcpManager: sessionManager?.getMCPManager() ?? null }),
+      createIdleSession: (title) => {
+        if (!sessionManager) throw new Error('Session manager not initialized');
+        return sessionManager.createIdleSession(title, undefined, undefined, true, {
+          kind: 'brainstorm',
+          lockModel: true,
+          autoApproveToolPermissions: true,
+          model: configStore.get('model') || undefined,
+          provider: configStore.get('provider') || undefined,
+        });
+      },
+      lockSessionModel: (sessionId, model, provider) => {
+        if (!sessionManager) return false;
+        return sessionManager.lockSessionModel(sessionId, model, provider);
+      },
+      currentActor: () => {
+        const user = getCurrentSession()?.user;
+        return {
+          email: user?.email || '',
+          name: user?.name || user?.email || 'You',
+        };
+      },
+      shareSession: async (sessionId) => {
+        if (!collabSyncService) throw new Error('Sharing is not ready');
+        const shared = await collabSyncService.shareSession(sessionId);
+        return { roomId: shared.roomId };
+      },
+      joinSession: async (roomId) => {
+        if (!collabSyncService || !sessionManager) throw new Error('Sharing is not ready');
+        const joined = await collabSyncService.joinSession(roomId);
+        db.sessions.update(joined.sessionId, { kind: 'brainstorm' });
+        return joined;
+      },
+      getCollabDoc: (sessionId) => collabSyncService?.getDoc(sessionId) ?? null,
+      addKnowledgeFiles: async (sessionId, paths) => {
+        if (!knowledgeBaseService) return [];
+        const sources = await knowledgeBaseService.addFiles(
+          { scope: 'chat', scopeId: sessionId },
+          paths
+        );
+        return sources.map((source) => ({
+          id: source.id,
+          title: source.title,
+          status: source.status,
+        }));
+      },
+      readKnowledge: (sessionId, sourceId) => {
+        if (!knowledgeBaseService) return null;
+        return knowledgeBaseService.read({ id: sessionId }, sourceId, 0, 60_000)?.text ?? null;
+      },
+      ingestExcerpt: async (sessionId, source) => {
+        if (!knowledgeBaseService) return;
+        await knowledgeBaseService.addReference(
+          {
+            scope: 'chat',
+            scopeId: sessionId,
+            source: 'confluence',
+            externalId: `brainstorm:${source.sourceId}`,
+            title: source.title,
+          },
+          source.excerpt
+        );
+      },
+      continueSession: (sessionId, prompt) => {
+        if (!sessionManager) throw new Error('Session manager not initialized');
+        return sessionManager.continueSession(sessionId, prompt);
+      },
+      deleteSession: async (sessionId) => {
+        if (!sessionManager) return;
+        await sessionManager.deleteSession(sessionId);
+      },
+      broadcastSessions: () => {
+        if (!sessionManager) return;
+        sendToRenderer({
+          type: 'session.list',
+          payload: { sessions: sessionManager.listSessions() },
+        });
+      },
+      writeBriefFile: (detail) => {
+        const row = db.sessions.get(detail.sessionId);
+        const directory =
+          row?.cwd && row.cwd.trim() ? row.cwd : join(app.getPath('userData'), 'brainstorm-briefs');
+        return writeBrainstormBriefFile(directory, detail);
+      },
+    },
+    (detail) => {
+      sendToRenderer({ type: 'brainstorm.updated', payload: { brainstorm: detail } });
+    },
+    (id) => {
+      sendToRenderer({ type: 'brainstorm.deleted', payload: { id } });
+    }
+  );
   loopService.setMainWindowGetter(() => mainWindow);
   loopService.setProfileResolver(() =>
     resolveWelcomeProfile({ mcpManager: sessionManager?.getMCPManager() ?? null })
@@ -721,6 +823,14 @@ function buildExtensionList(
     new MeetingExtension(meetingService),
     new MatterExtension(() => matterService),
     new LoopExtension(() => loopService),
+    new BrainstormExtension(
+      () => brainstormService,
+      () =>
+        sessionManager
+          ?.getMCPManager()
+          ?.getTools()
+          .map((tool) => ({ serverName: tool.serverName, name: tool.name })) ?? []
+    ),
     new WorkflowExtension(workflowService),
     new ConfigExtension(configStore),
     new TodoExtension(),
@@ -6879,6 +6989,13 @@ function requireLoopService(): LoopService {
   return loopService;
 }
 
+function requireBrainstormService(): BrainstormService {
+  if (!brainstormService) {
+    throw new Error('Brainstorm service not initialized');
+  }
+  return brainstormService;
+}
+
 ipcMain.handle('loops.list', (): LoopsSnapshot => requireLoopService().getSnapshot());
 
 ipcMain.handle(
@@ -8173,6 +8290,70 @@ async function handleClientEvent(event: ClientEvent): Promise<unknown> {
         );
       }
       return null;
+
+    case 'brainstorm.list':
+      return requireBrainstormService().list();
+
+    case 'brainstorm.profile':
+      return requireBrainstormService().previewProfile();
+
+    case 'brainstorm.get':
+      return requireBrainstormService().get(event.payload.id);
+
+    case 'brainstorm.getBySession':
+      return requireBrainstormService().getBySessionId(event.payload.sessionId);
+
+    case 'brainstorm.create': {
+      const payload = event.payload as BrainstormCreateInput;
+      if (!sessionManager) throw new Error('Session manager not initialized');
+      if (!configStore.hasUsableCredentialsForActiveSet()) {
+        throw new Error('No model is configured. Pick a model before starting a brainstorm.');
+      }
+      return requireBrainstormService().create(payload);
+    }
+
+    case 'brainstorm.updateIdea': {
+      const payload = event.payload as { id: string; patch: BrainstormIdeaPatch };
+      return requireBrainstormService().updateIdea(payload.id, payload.patch);
+    }
+
+    case 'brainstorm.addIdea': {
+      const payload = event.payload as { brainstormId: string; title: string; body?: string };
+      return requireBrainstormService().addIdeas(
+        payload.brainstormId,
+        [{ title: payload.title, body: payload.body || '' }],
+        'user'
+      );
+    }
+
+    case 'brainstorm.delete':
+      return requireBrainstormService().delete(event.payload.id);
+
+    case 'brainstorm.exportBrief':
+      return requireBrainstormService().exportBrief(event.payload.id);
+
+    case 'brainstorm.setModel':
+      return requireBrainstormService().setModel(
+        event.payload.id,
+        event.payload.model,
+        event.payload.provider
+      );
+
+    case 'brainstorm.addThought':
+      return requireBrainstormService().addThought(
+        event.payload.id,
+        event.payload.ideaId ?? null,
+        event.payload.text
+      );
+
+    case 'brainstorm.addFiles':
+      return requireBrainstormService().addFiles(event.payload.id, event.payload.paths);
+
+    case 'brainstorm.share':
+      return requireBrainstormService().share(event.payload.id);
+
+    case 'brainstorm.join':
+      return requireBrainstormService().join(event.payload.roomId);
 
     default:
       logWarn('Unknown event type:', event);

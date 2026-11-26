@@ -4,6 +4,7 @@
 
 import { authConfig } from '../../shared/auth-config';
 import type { WelcomeProfile } from '../../shared/welcome-actions';
+import { hubHttpRequest } from '../auth/hub-http';
 import { getCurrentSession } from '../auth/session';
 import { isHubMcpServer } from '../mcp/mcp-config-store';
 import type { MCPManager } from '../mcp/mcp-manager';
@@ -16,6 +17,10 @@ import {
 
 const HUB_PROFILE_PATHS = ['/api/auth/me', '/api/users/me', '/api/employees/me'] as const;
 
+function hasOrgFields(fields: ExtractedHubProfileFields): boolean {
+  return Boolean(fields.title && (fields.functionName || fields.department || fields.squad));
+}
+
 async function fetchHubMeFields(accessToken: string): Promise<ExtractedHubProfileFields> {
   const token = accessToken.trim();
   if (!token) return {};
@@ -23,19 +28,19 @@ async function fetchHubMeFields(accessToken: string): Promise<ExtractedHubProfil
   let merged: ExtractedHubProfileFields = {};
   for (const path of HUB_PROFILE_PATHS) {
     try {
-      const res = await fetch(`${authConfig.hubApiUrl}${path}`, {
+      const res = await hubHttpRequest(`${authConfig.hubApiUrl}${path}`, {
         headers: {
           Authorization: `Bearer ${token}`,
           Accept: 'application/json',
         },
+        timeoutMs: 12_000,
       });
       if (!res.ok) continue;
-      const body = (await res.json()) as unknown;
+      const body = await res.json<unknown>();
       merged = mergeHubProfileFields(merged, extractHubProfileFields(body));
-      if (merged.title || merged.functionName || merged.squad) {
-        // Enough signal — stop early
-        break;
-      }
+      // Keep reading until designation and org placement are both present.
+      // A partial body used to stop the loop before squad.function was seen.
+      if (hasOrgFields(merged)) break;
     } catch {
       // try next endpoint
     }
@@ -138,9 +143,13 @@ export async function resolveWelcomeProfile(options?: {
   const user = session.user;
   let fields: ExtractedHubProfileFields = {};
 
-  const token = (session.accessToken || session.idToken || '').trim();
-  if (token) {
-    fields = mergeHubProfileFields(fields, await fetchHubMeFields(token));
+  const accessToken = session.accessToken?.trim() || '';
+  const idToken = session.idToken?.trim() || '';
+  if (accessToken) {
+    fields = mergeHubProfileFields(fields, await fetchHubMeFields(accessToken));
+  }
+  if (!hasOrgFields(fields) && idToken && idToken !== accessToken) {
+    fields = mergeHubProfileFields(fields, await fetchHubMeFields(idToken));
   }
 
   fields = mergeHubProfileFields(
@@ -155,5 +164,6 @@ export async function resolveWelcomeProfile(options?: {
     functionName: fields.functionName ?? null,
     squad: fields.squad ?? null,
     department: fields.department ?? null,
+    introduction: fields.introduction ?? null,
   };
 }

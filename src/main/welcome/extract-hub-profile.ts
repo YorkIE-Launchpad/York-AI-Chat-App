@@ -8,6 +8,8 @@ export interface ExtractedHubProfileFields {
   functionName?: string | null;
   squad?: string | null;
   department?: string | null;
+  /** Hub `introduction` on GET /api/auth/me. */
+  introduction?: string | null;
   name?: string | null;
   email?: string | null;
 }
@@ -26,11 +28,7 @@ function pickString(record: Record<string, unknown> | null, keys: string[]): str
     if (typeof value === 'string' && value.trim()) return value.trim();
     if (value != null && typeof value === 'object') {
       const nested = value as Record<string, unknown>;
-      const nestedName =
-        (typeof nested.name === 'string' && nested.name.trim()) ||
-        (typeof nested.title === 'string' && nested.title.trim()) ||
-        (typeof nested.label === 'string' && nested.label.trim()) ||
-        null;
+      const nestedName = pickString(nested, NESTED_NAME_KEYS);
       if (nestedName) return nestedName;
     }
   }
@@ -42,7 +40,7 @@ function collectRecords(body: unknown): Record<string, unknown>[] {
   if (!root) return [];
   const data = asRecord(root.data) ?? root;
   const records: Record<string, unknown>[] = [data];
-  for (const key of ['employeeData', 'employee', 'user', 'profile', 'me']) {
+  for (const key of ['employeeData', 'employee_data', 'employee', 'user', 'profile', 'me']) {
     const nested = asRecord(data[key]);
     if (nested) records.push(nested);
   }
@@ -79,6 +77,16 @@ const SQUAD_KEYS = ['squad', 'squad_name', 'squadName', 'team', 'team_name', 'te
 
 const DEPARTMENT_KEYS = ['department', 'department_name', 'departmentName', 'dept'];
 
+const NESTED_NAME_KEYS = [
+  'name',
+  'title',
+  'label',
+  'function_name',
+  'functionName',
+  'department_name',
+  'departmentName',
+];
+
 const NAME_KEYS = ['name', 'full_name', 'fullName', 'display_name', 'displayName'];
 
 const EMAIL_KEYS = ['email', 'work_email', 'workEmail'];
@@ -94,12 +102,20 @@ export function extractHubProfileFields(body: unknown): ExtractedHubProfileField
   let department: string | null = null;
   let name: string | null = null;
   let email: string | null = null;
+  let introduction: string | null = null;
 
   for (const record of records) {
     title = title ?? pickString(record, TITLE_KEYS);
     functionName = functionName ?? pickString(record, FUNCTION_KEYS);
     squad = squad ?? pickString(record, SQUAD_KEYS);
     department = department ?? pickString(record, DEPARTMENT_KEYS);
+    introduction =
+      introduction ?? pickString(record, ['introduction', 'bio', 'about', 'background']);
+    // GET /api/auth/me: function hangs off squad, not the user root.
+    const squadRecord = asRecord(record.squad);
+    const squadFunction = asRecord(squadRecord?.function);
+    functionName =
+      functionName ?? pickString(squadFunction, ['name', 'function_name', 'functionName']);
     name = name ?? pickString(record, NAME_KEYS);
     if (!name) {
       const first = pickString(record, ['first_name', 'firstName']);
@@ -112,7 +128,7 @@ export function extractHubProfileFields(body: unknown): ExtractedHubProfileField
   }
 
   // Prefer first_name + last_name composition over a bare "name" that is only email-ish
-  return { title, functionName, squad, department, name, email };
+  return { title, functionName, squad, department, introduction, name, email };
 }
 
 export function mergeHubProfileFields(
@@ -126,5 +142,6 @@ export function mergeHubProfileFields(
     department: next.department ?? base.department ?? null,
     name: next.name ?? base.name ?? null,
     email: next.email ?? base.email ?? null,
+    introduction: next.introduction ?? base.introduction ?? null,
   };
 }

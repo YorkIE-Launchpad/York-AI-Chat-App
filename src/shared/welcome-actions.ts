@@ -9,6 +9,8 @@ export interface WelcomeProfile {
   functionName?: string | null;
   squad?: string | null;
   department?: string | null;
+  /** Hub user introduction / bio from GET /api/auth/me. */
+  introduction?: string | null;
 }
 
 export function formatWelcomeProfileSummary(profile: WelcomeProfile): string {

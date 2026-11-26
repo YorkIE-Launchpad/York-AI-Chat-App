@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../store';
+import { consumeBrainstormComposerPrompt } from '../brainstorm/launch-brainstorm';
 import { useIPC } from '../hooks/useIPC';
 import type { ContentBlock, Skill } from '../types';
 import { getInitialSessionTitle } from '../../shared/session-title';
@@ -107,7 +108,7 @@ export function WelcomeView() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const actionsMenuRef = useRef<HTMLDivElement>(null);
   const actionsMenuPlacement = useMenuPlacement(actionsMenuRef, actionsMenuOpen, 480);
-  const { startSession, sendImageTurn, changeWorkingDir, isElectron } = useIPC();
+  const { startSession, sendImageTurn, changeWorkingDir, isElectron, invoke } = useIPC();
   const composerMode = useAppStore((state) => state.composerMode);
   const backendModelsCatalog = useAppStore((state) => state.backendModelsCatalog);
 
@@ -628,6 +629,24 @@ export function WelcomeView() {
         message: 'Create a folder in the sidebar before starting a chat.',
       });
       return;
+    }
+
+    if (composerMode !== 'image') {
+      try {
+        const consumed = await consumeBrainstormComposerPrompt(currentPrompt, invoke);
+        if (consumed) {
+          setPrompt('');
+          setCursorIndex(0);
+          return;
+        }
+      } catch (error) {
+        setGlobalNotice({
+          id: `brainstorm-start-${Date.now()}`,
+          type: 'error',
+          message: error instanceof Error ? error.message : 'Could not start the brainstorm',
+        });
+        return;
+      }
     }
 
     prefetchChatPanels();
@@ -1511,6 +1530,16 @@ export function WelcomeView() {
             {s}
           </button>
         ))}
+        <button
+          type="button"
+          onClick={() => {
+            useAppStore.getState().setActiveBrainstormId(null);
+            useAppStore.getState().setShowBrainstorm(true);
+          }}
+          className="h-[30px] max-w-full truncate rounded-full border border-border-subtle bg-transparent px-3 text-[12.5px] text-text-secondary transition-colors hover:border-border hover:bg-surface hover:text-text-primary"
+        >
+          {t('nav.brainstorm', 'Brainstorm')}
+        </button>
       </div>
     </div>
   );

@@ -10,6 +10,7 @@ import {
 } from '../../utils/tool-result-summary';
 import type { ToolUseContent, ToolResultContent, ContentBlock, Message } from '../../types';
 import { AskUserQuestionBlock } from './AskUserQuestionBlock';
+import { BrainstormToolChip } from '../brainstorm/BrainstormToolChip';
 import { SleepBlock } from './SleepBlock';
 import { TodoWriteBlock } from './TodoWriteBlock';
 import { getToolIcon, getToolLabel } from './toolHelpers';
@@ -41,17 +42,20 @@ export const ToolUseBlock = memo(function ToolUseBlock({
     message?.sessionId ? (s.sessionStates[message.sessionId]?.activeTurn ?? null) : null
   );
   const [expanded, setExpanded] = useState(false);
+  const toolName = typeof block?.name === 'string' ? block.name : '';
+
+  if (!toolName) return null;
 
   // Special-case tool UIs
-  if (block.name === 'AskUserQuestion') {
+  if (toolName === 'AskUserQuestion') {
     return <AskUserQuestionBlock block={block} message={message} />;
   }
-  if (block.name === 'Sleep' || block.name === 'sleep') {
+  if (toolName === 'Sleep' || toolName === 'sleep') {
     return <SleepBlock block={block} message={message} />;
   }
   // Pure `bash sleep N` is routed to the skippable Sleep engine — same Skip UI.
   if (
-    block.name.toLowerCase() === 'bash' &&
+    toolName.toLowerCase() === 'bash' &&
     typeof (block.input as Record<string, unknown>)?.command === 'string' &&
     /^(?:\/usr\/bin\/)?sleep\s+\d+(?:\.\d+)?\s*$/i.test(
       String((block.input as Record<string, unknown>).command).trim()
@@ -59,8 +63,11 @@ export const ToolUseBlock = memo(function ToolUseBlock({
   ) {
     return <SleepBlock block={block} message={message} />;
   }
-  if (block.name === 'TodoWrite') {
+  if (toolName === 'TodoWrite') {
     return <TodoWriteBlock block={block} />;
+  }
+  if (toolName.startsWith('brainstorm_')) {
+    return <BrainstormToolChip block={block} />;
   }
 
   // Find matching tool_result: first in same message, then across all session messages
@@ -88,8 +95,8 @@ export const ToolUseBlock = memo(function ToolUseBlock({
   const isError = toolResult?.isError === true;
   const isSuccess = toolResult && !isError;
 
-  const label = getToolLabel(block.name, block.input, block.displayName);
-  const isMCPTool = block.name.startsWith('mcp__');
+  const label = getToolLabel(toolName, block.input, block.displayName);
+  const isMCPTool = toolName.startsWith('mcp__');
   const mcpServerName = isMCPTool ? block.name.match(/^mcp__(.+?)__/)?.[1] : null;
 
   const getSummary = (): string => {

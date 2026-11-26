@@ -158,6 +158,11 @@ export class CollabSyncService {
 
   constructor(private deps: CollabSyncDeps) {}
 
+  /** Shared Y.Doc for a connected room. Brainstorm maps live beside the chat maps. */
+  getDoc(sessionId: string): Y.Doc | null {
+    return this.roomsBySession.get(sessionId)?.doc ?? null;
+  }
+
   getState(sessionId: string): CollabRoomState | null {
     const rt = this.roomsBySession.get(sessionId);
     if (!rt) {

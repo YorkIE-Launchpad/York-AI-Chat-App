@@ -43,6 +43,7 @@ import { LoginPage } from './components/LoginPage';
 import { findLatestHtmlPreviewCandidate, htmlPreviewSignature } from './utils/html-preview';
 import { useWorkspaceBudgetCheck } from './hooks/useWorkspaceBudgetCheck';
 import { prefetchChatPanels } from './utils/prefetch-chat-panels';
+import { BrainstormPage } from './components/brainstorm/BrainstormPage';
 
 const ChatView = lazy(() =>
   import('./components/ChatView').then((module) => ({ default: module.ChatView }))
@@ -114,8 +115,9 @@ function AuthenticatedApp() {
   const activeSessionId = useActiveSessionId();
   const settings = useSettings();
   const systemDarkMode = useSystemDarkMode();
-  const { showSettings, showMatter, showWorkflows, showLoops } = useSettingsState();
-  const showFeaturePage = showSettings || showMatter || showWorkflows || showLoops;
+  const { showSettings, showMatter, showWorkflows, showLoops, showBrainstorm } = useSettingsState();
+  const showFeaturePage =
+    showSettings || showMatter || showWorkflows || showLoops || showBrainstorm;
 
   useEffect(() => {
     if (!activeSessionId && !showFeaturePage) {
@@ -136,6 +138,8 @@ function AuthenticatedApp() {
   const setShowWorkflows = useAppStore((s) => s.setShowWorkflows);
   const setMatterBadgeCount = useAppStore((s) => s.setMatterBadgeCount);
   const setShowLoops = useAppStore((s) => s.setShowLoops);
+  const setShowBrainstorm = useAppStore((s) => s.setShowBrainstorm);
+  const activeBrainstormId = useAppStore((s) => s.activeBrainstormId);
   const setLoopsBadgeCount = useAppStore((s) => s.setLoopsBadgeCount);
   const { sidebarCollapsed } = useLayoutState();
   const globalNotice = useGlobalNotice();
@@ -470,6 +474,14 @@ function AuthenticatedApp() {
               <Suspense fallback={<MainPanelFallback />}>
                 <LoopsPage onClose={() => setShowLoops(false)} />
               </Suspense>
+            </PanelErrorBoundary>
+          ) : showBrainstorm ? (
+            <PanelErrorBoundary
+              name="BrainstormPage"
+              resetKey={activeBrainstormId || 'brainstorm-library'}
+              fallback={<MainPanelFallback />}
+            >
+              <BrainstormPage onClose={() => setShowBrainstorm(false)} />
             </PanelErrorBoundary>
           ) : activeSessionId ? (
             <PanelErrorBoundary

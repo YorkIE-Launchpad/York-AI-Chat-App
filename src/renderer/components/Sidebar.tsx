@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '../store';
 import { useIPC } from '../hooks/useIPC';
+import { useNavigation } from '../hooks/useNavigation';
 import { useAuth } from '../auth/AuthContext';
 import {
   ChevronLeft,
@@ -32,6 +33,7 @@ import {
   FolderPlus,
   Layers,
   Users,
+  Lightbulb,
   Link2,
   CircleDashed,
   MoreHorizontal,
@@ -73,6 +75,7 @@ function SidebarNavItem({
   active,
   badge = 0,
   badgeTone = 'urgent',
+  tag,
   onClick,
 }: {
   icon: typeof Radar;
@@ -82,6 +85,7 @@ function SidebarNavItem({
   active: boolean;
   badge?: number;
   badgeTone?: 'urgent' | 'neutral';
+  tag?: string;
   onClick: () => void;
 }) {
   return (
@@ -98,6 +102,11 @@ function SidebarNavItem({
     >
       <Icon className={`h-4 w-4 shrink-0 ${active ? 'text-accent-text' : 'text-text-muted'}`} />
       <span className="min-w-0 flex-1 truncate">{label}</span>
+      {tag ? (
+        <span className="shrink-0 rounded px-1 py-px text-[9px] font-semibold uppercase tracking-wide text-accent-text ring-1 ring-accent-text/40">
+          {tag}
+        </span>
+      ) : null}
       {badge > 0 ? (
         <span
           className={`min-w-[18px] rounded-full px-1.5 text-center text-[10.5px] font-bold leading-[18px] ${
@@ -118,6 +127,7 @@ function SidebarRailButton({
   label,
   active = false,
   badge = 0,
+  tag,
   onClick,
   disabled,
   dashed,
@@ -126,6 +136,7 @@ function SidebarRailButton({
   label: string;
   active?: boolean;
   badge?: number;
+  tag?: string;
   onClick: () => void;
   disabled?: boolean;
   dashed?: boolean;
@@ -135,16 +146,21 @@ function SidebarRailButton({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      title={label}
-      aria-label={label}
+      title={tag ? `${label} (${tag})` : label}
+      aria-label={tag ? `${label}, ${tag}` : label}
       aria-current={active ? 'page' : undefined}
-      className={`relative flex h-9 w-9 items-center justify-center rounded-lg transition-colors disabled:opacity-50 ${
+      className={`relative flex h-9 w-9 flex-col items-center justify-center rounded-lg transition-colors disabled:opacity-50 ${
         active
           ? 'bg-accent-muted text-accent-text'
           : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
       } ${dashed ? 'border border-dashed border-border' : ''}`}
     >
-      <Icon className="h-4 w-4" />
+      <Icon className={tag ? 'h-3.5 w-3.5' : 'h-4 w-4'} />
+      {tag ? (
+        <span className="text-[8px] font-bold uppercase leading-none tracking-wide text-accent-text">
+          {tag}
+        </span>
+      ) : null}
       {badge > 0 ? (
         <span className="absolute -right-0.5 -top-0.5 flex h-[14px] min-w-[14px] items-center justify-center rounded-full bg-error px-0.5 text-[9px] font-bold text-white">
           {badge > 9 ? '9+' : badge}
@@ -361,6 +377,9 @@ export function Sidebar() {
   const showWorkflows = useAppStore((s) => s.showWorkflows);
   const setShowLoops = useAppStore((s) => s.setShowLoops);
   const showLoops = useAppStore((s) => s.showLoops);
+  const showBrainstorm = useAppStore((s) => s.showBrainstorm);
+  const setShowBrainstorm = useAppStore((s) => s.setShowBrainstorm);
+  const setActiveBrainstormId = useAppStore((s) => s.setActiveBrainstormId);
   const loopsBadgeCount = useAppStore((s) => s.loopsBadgeCount);
   const matterBadgeCount = useAppStore((s) => s.matterBadgeCount);
   const matterEnabled =
@@ -377,6 +396,7 @@ export function Sidebar() {
     joinCollabSession,
     isElectron,
   } = useIPC();
+  const nav = useNavigation();
   const setGlobalNotice = useAppStore((s) => s.setGlobalNotice);
   const [hoveredSession, setHoveredSession] = useState<string | null>(null);
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
@@ -412,7 +432,11 @@ export function Sidebar() {
   const normalizedQuery = useMemo(() => searchQuery.trim().toLowerCase(), [searchQuery]);
   const isSearching = normalizedQuery.length > 0;
   const divisionSessions = useMemo(
-    () => sessions.filter((session) => sessionMatchesActiveDivision(session, activeDivision)),
+    () =>
+      sessions.filter(
+        (session) =>
+          session.kind !== 'brainstorm' && sessionMatchesActiveDivision(session, activeDivision)
+      ),
     [sessions, activeDivision]
   );
 
@@ -758,6 +782,11 @@ export function Sidebar() {
 
   const handleSessionClick = useCallback(
     async (sessionId: string) => {
+      const clicked = useAppStore.getState().sessions.find((item) => item.id === sessionId);
+      if (clicked?.kind === 'brainstorm') {
+        await nav.openChat(sessionId);
+        return;
+      }
       setShowSettings(false);
       setShowMatter(false);
       setShowWorkflows(false);
@@ -820,6 +849,7 @@ export function Sidebar() {
       getSessionMessages,
       getSessionTraceSteps,
       isElectron,
+      nav,
       openSessionWithDivision,
       setIncognitoDraft,
       setMessages,
@@ -870,6 +900,13 @@ export function Sidebar() {
     discardActiveIncognitoIfLeaving(null);
     setIncognitoDraft(false);
     setShowLoops(true);
+  };
+
+  const handleOpenBrainstorm = () => {
+    discardActiveIncognitoIfLeaving(null);
+    setIncognitoDraft(false);
+    setActiveBrainstormId(null);
+    setShowBrainstorm(true);
   };
 
   const handleOpenSettings = () => {
@@ -1091,7 +1128,8 @@ export function Sidebar() {
     };
   }, []);
 
-  const showToday = !activeSessionId && !showSettings && !showWorkflows && !showLoops;
+  const showToday =
+    !activeSessionId && !showSettings && !showWorkflows && !showLoops && !showBrainstorm;
 
   const newChatMenu = [
     {
@@ -1261,6 +1299,13 @@ export function Sidebar() {
               onClick={handleOpenLoops}
             />
             <SidebarRailButton
+              icon={Lightbulb}
+              label={t('nav.brainstorm', 'Brainstorm')}
+              active={showBrainstorm}
+              tag="Beta"
+              onClick={handleOpenBrainstorm}
+            />
+            <SidebarRailButton
               icon={Workflow}
               label={t('nav.automations')}
               active={showWorkflows}
@@ -1379,6 +1424,14 @@ export function Sidebar() {
               active={showLoops}
               badge={loopsBadgeCount}
               onClick={handleOpenLoops}
+            />
+            <SidebarNavItem
+              icon={Lightbulb}
+              label={t('nav.brainstorm', 'Brainstorm')}
+              hint={t('nav.brainstormHint', 'Facilitated idea boards')}
+              active={showBrainstorm}
+              tag="Beta"
+              onClick={handleOpenBrainstorm}
             />
             <SidebarNavItem
               icon={Workflow}

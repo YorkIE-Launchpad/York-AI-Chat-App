@@ -16,6 +16,7 @@ import {
   Settings,
   Sparkles,
   Workflow,
+  Lightbulb,
 } from 'lucide-react';
 import { useAppStore } from '../store';
 import { useIPC } from '../hooks/useIPC';
@@ -164,6 +165,15 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
           run: () => nav.openFollowUps(),
         },
         {
+          id: 'brainstorm',
+          section: 'jump' as const,
+          label: t('nav.brainstorm', 'Brainstorm'),
+          icon: <Lightbulb className="h-4 w-4" />,
+          badge: 'Beta',
+          keywords: 'ideas board facilitate workshop diverge',
+          run: () => nav.openBrainstorm(),
+        },
+        {
           id: 'automations',
           section: 'jump' as const,
           label: t('nav.automations'),
@@ -203,7 +213,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
           run: () => nav.openChat(hit.sessionId),
         }))
       : [...sessions]
-          .filter((s) => !s.incognito)
+          .filter((s) => !s.incognito && s.kind !== 'brainstorm')
           .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
           .slice(0, 5)
           .map((s) => ({

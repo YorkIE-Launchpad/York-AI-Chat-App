@@ -31,9 +31,15 @@ export const MessageCard = memo(function MessageCard({
   const isCancelled = message.localStatus === 'cancelled';
   const contentBlocks = useMemo((): ContentBlock[] => {
     const rawContent = message.content as unknown;
-    return Array.isArray(rawContent)
+    const blocks = Array.isArray(rawContent)
       ? (rawContent as ContentBlock[])
       : [{ type: 'text', text: String(rawContent ?? '') } as ContentBlock];
+    return blocks.filter(
+      (block): block is ContentBlock =>
+        Boolean(block) &&
+        typeof block === 'object' &&
+        typeof (block as ContentBlock).type === 'string'
+    );
   }, [message.content]);
   const isMeetingTranscriptMessage = useMemo(
     () =>
