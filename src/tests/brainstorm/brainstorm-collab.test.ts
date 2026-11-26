@@ -163,8 +163,9 @@ describe('model pick destination', () => {
     expect(persistModelPick({ model: 'claude', provider: 'anthropic' })).toEqual({
       type: 'config',
     });
-    expect(
-      persistModelPick({ sessionId: 's1', brainstormId: 'b1', model: 'auto' }).payload
-    ).toMatchObject({ model: 'auto', provider: 'anthropic' });
+    expect(persistModelPick({ sessionId: 's1', brainstormId: 'b1', model: 'auto' })).toEqual({
+      type: 'brainstorm.setModel',
+      payload: { id: 'b1', model: 'auto', provider: 'anthropic' },
+    });
   });
 });

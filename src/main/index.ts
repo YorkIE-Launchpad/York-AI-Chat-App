@@ -1708,7 +1708,7 @@ function restoreMacTrafficLights(win: BrowserWindow): void {
   try {
     win.setWindowButtonVisibility(true);
     if (!win.isFullScreen()) {
-      win.setTrafficLightPosition(MAC_TRAFFIC_LIGHT_POSITION);
+      win.setWindowButtonPosition(MAC_TRAFFIC_LIGHT_POSITION);
     }
   } catch (error) {
     logError('[Window] Failed to restore traffic lights:', error);
